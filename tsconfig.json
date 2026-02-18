@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@zazigv2/shared": ["./packages/shared/src/index.ts"],
+      "@zazigv2/orchestrator": ["./packages/orchestrator/src/index.ts"],
+      "@zazigv2/local-agent": ["./packages/local-agent/src/index.ts"]
+    }
+  },
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/orchestrator" },
+    { "path": "./packages/local-agent" }
+  ],
+  "exclude": ["node_modules"]
+}

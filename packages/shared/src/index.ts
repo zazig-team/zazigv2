@@ -27,10 +27,8 @@ export type {
 
 // ---- Card annotation (parsed from Trello card description) ----
 
-export interface CardAnnotation {
-  complexity: import("./messages.js").Complexity;
-  cardType: import("./messages.js").CardType;
-}
+export type { CardAnnotation } from "./annotations.js";
+export { parseAnnotation } from "./annotations.js";
 
 // ---- Machine / slot tracking ----
 

@@ -21,7 +21,7 @@ import type {
   StopJob,
   HealthCheck,
   Heartbeat,
-  JobStatus,
+  JobStatusMessage,
   JobComplete,
   JobFailed,
   JobAck,
@@ -79,11 +79,14 @@ export function isStartJob(v: unknown): v is StartJob {
   if (!["simple", "medium", "complex"].includes(v.complexity as string)) return false;
   if (!["claude_code", "codex"].includes(v.slotType as string)) return false;
   if (!isString(v.model) || !ALLOWED_MODELS.has(v.model)) return false;
-  if (!isString(v.context)) return false;
-  // Guard against oversized context payloads (Supabase Realtime limit).
+  // Either context (inline) or contextRef (URL) must be present — not both undefined.
+  const hasContext = isString(v.context);
+  const hasContextRef = isString(v.contextRef) && v.contextRef.length > 0;
+  if (!hasContext && !hasContextRef) return false;
+  // Guard against oversized inline context payloads (Supabase Realtime limit).
   // Using character count as a conservative proxy: worst-case UTF-16 encoding
   // means 1 char ≤ 4 bytes, so length > MAX_CONTEXT_BYTES already exceeds the limit.
-  if (v.context.length > MAX_CONTEXT_BYTES) return false;
+  if (hasContext && (v.context as string).length > MAX_CONTEXT_BYTES) return false;
   return true;
 }
 
@@ -130,12 +133,18 @@ export function isHeartbeat(v: unknown): v is Heartbeat {
   return true;
 }
 
-export function isJobStatus(v: unknown): v is JobStatus {
+/**
+ * Validates a JobStatusMessage from the local agent.
+ * Only agent-reportable statuses are accepted (AgentJobStatus).
+ * The DB-only states `queued` and `dispatched` are intentionally excluded.
+ */
+export function isJobStatusMessage(v: unknown): v is JobStatusMessage {
   if (!isObject(v) || v.type !== "job_status") return false;
   if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || v.jobId.length === 0) return false;
-  const validStatuses = ["queued", "dispatched", "executing", "reviewing", "complete", "failed"];
-  if (!isString(v.status) || !validStatuses.includes(v.status)) return false;
+  // Only AgentJobStatus values — agents must never send `queued` or `dispatched`.
+  const agentStatuses = ["executing", "reviewing", "complete", "failed"];
+  if (!isString(v.status) || !agentStatuses.includes(v.status)) return false;
   if (v.output !== undefined && !isString(v.output)) return false;
   return true;
 }
@@ -144,6 +153,7 @@ export function isJobComplete(v: unknown): v is JobComplete {
   if (!isObject(v) || v.type !== "job_complete") return false;
   if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
   if (!isString(v.result)) return false;
   if (v.pr !== undefined && !isString(v.pr)) return false;
   if (v.report !== undefined && !isString(v.report)) return false;
@@ -156,6 +166,7 @@ export function isJobFailed(v: unknown): v is JobFailed {
   if (!isObject(v) || v.type !== "job_failed") return false;
   if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
   if (!isString(v.error)) return false;
   if (!isString(v.failureReason) || !VALID_FAILURE_REASONS.has(v.failureReason)) return false;
   return true;
@@ -181,7 +192,7 @@ export function isAgentMessage(v: unknown): v is AgentMessage {
   if (!isObject(v) || !isString(v.type)) return false;
   switch (v.type) {
     case "heartbeat":    return isHeartbeat(v);
-    case "job_status":   return isJobStatus(v);
+    case "job_status":   return isJobStatusMessage(v);
     case "job_complete": return isJobComplete(v);
     case "job_failed":   return isJobFailed(v);
     case "job_ack":      return isJobAck(v);

@@ -30,14 +30,15 @@ export type Complexity = "simple" | "medium" | "complex";
 export type CardType = "code" | "infra" | "design" | "research" | "docs";
 
 /**
- * Lifecycle status values for a job in the orchestrator's job queue (DB model).
+ * Lifecycle status values for a job in the orchestrator's job queue.
  *
  *   queued → dispatched → executing → reviewing → complete
  *                                              ↘ failed
  *
- * NOTE: `queued` and `dispatched` are DB-only states that the local agent never
- * sends over the wire. Use `AgentJobStatus` for the set of statuses an agent
- * may report in a JobStatusMessage.
+ * NOTE: TypeScript does not allow a type alias and an interface to share the
+ * same name in the same scope. The `JobStatus` message interface (below) uses
+ * `JobStatusValue` for the status field type to avoid that collision while
+ * keeping the message interface named exactly `JobStatus` per the protocol spec.
  */
 export type JobStatusValue =
   | "queued"
@@ -46,14 +47,6 @@ export type JobStatusValue =
   | "reviewing"
   | "complete"
   | "failed";
-
-/**
- * Subset of JobStatusValue that the local agent is allowed to send in a
- * JobStatusMessage. The orchestrator-only states `queued` and `dispatched`
- * are intentionally excluded — agents must never emit those values over the
- * wire.
- */
-export type AgentJobStatus = "executing" | "reviewing" | "complete" | "failed";
 
 /**
  * Structured failure reason for JobFailed messages.
@@ -72,12 +65,7 @@ export type FailureReason = "agent_crash" | "ci_failure" | "timeout" | "unknown"
 /**
  * Tells the local agent to start executing a card.
  * The agent should spin up the appropriate tmux/CLI process using the
- * provided model and context, and report progress via JobStatusMessage / JobComplete / JobFailed.
- *
- * Context delivery: either `context` (inline) or `contextRef` (URL to fetch) must be provided.
- * When `contextRef` is present the agent should fetch the full context payload from that URL
- * (e.g. Supabase Storage presigned URL) rather than using the inline `context` field.
- * This handles large card payloads that would exceed Supabase Realtime per-message limits.
+ * provided model and context, and report progress via JobStatus / JobComplete / JobFailed.
  */
 export interface StartJob {
   type: "start_job";
@@ -95,19 +83,8 @@ export interface StartJob {
   slotType: SlotType;
   /** Model identifier to pass to the execution agent (e.g. "claude-opus-4-6", "codex"). */
   model: string;
-  /**
-   * Inline card context (description, repo info, instructions) for the agent prompt.
-   * Optional when `contextRef` is provided; required otherwise.
-   * Must not exceed MAX_CONTEXT_BYTES when present.
-   */
-  context?: string;
-  /**
-   * URL reference to the full context payload (e.g. Supabase Storage presigned URL).
-   * Used for large context payloads that would exceed Supabase Realtime per-message limits.
-   * When present, the agent MUST fetch context from this URL and ignore the inline `context`.
-   * Optional when `context` is provided; required otherwise.
-   */
-  contextRef?: string;
+  /** Full card context (description, repo info, instructions) for the agent prompt. */
+  context: string;
 }
 
 /**
@@ -174,17 +151,14 @@ export interface Heartbeat {
  * Progress update for an in-flight job.
  * Sent whenever the job transitions to a new status phase.
  * May include an optional partial output or status detail.
- *
- * NOTE: Only AgentJobStatus values may be sent here. The DB-only states
- * `queued` and `dispatched` must never appear in this message.
  */
-export interface JobStatusMessage {
+export interface JobStatus {
   type: "job_status";
   /** Protocol version — must equal PROTOCOL_VERSION. */
   protocolVersion: number;
   jobId: string;
-  /** New status value for this job (agent-reportable states only). */
-  status: AgentJobStatus;
+  /** New status value for this job (see JobStatusValue). */
+  status: JobStatusValue;
   /** Optional partial output or status message for observability. */
   output?: string;
 }
@@ -198,11 +172,6 @@ export interface JobComplete {
   /** Protocol version — must equal PROTOCOL_VERSION. */
   protocolVersion: number;
   jobId: string;
-  /**
-   * The machine that completed this job.
-   * Allows the orchestrator to release the slot without a DB lookup.
-   */
-  machineId: string;
   /** Summary of what was produced (e.g. commit message, diff stats). */
   result: string;
   /** Pull request URL if the job opened a PR. */
@@ -220,11 +189,6 @@ export interface JobFailed {
   /** Protocol version — must equal PROTOCOL_VERSION. */
   protocolVersion: number;
   jobId: string;
-  /**
-   * The machine that was running this job.
-   * Allows the orchestrator to release the slot without a DB lookup.
-   */
-  machineId: string;
   /** Error description for logging and card annotation. */
   error: string;
   /** Structured failure category for orchestrator recovery strategy selection. */
@@ -234,7 +198,7 @@ export interface JobFailed {
 /**
  * Delivery confirmation sent by the agent when a StartJob message is received.
  * The orchestrator uses this to confirm the job was received before expecting
- * further JobStatusMessage / JobComplete / JobFailed updates.
+ * further JobStatus / JobComplete / JobFailed updates.
  */
 export interface JobAck {
   type: "job_ack";
@@ -262,4 +226,4 @@ export interface StopAck {
 }
 
 /** Union of all messages a local agent sends to the orchestrator. */
-export type AgentMessage = Heartbeat | JobStatusMessage | JobComplete | JobFailed | JobAck | StopAck;
+export type AgentMessage = Heartbeat | JobStatus | JobComplete | JobFailed | JobAck | StopAck;

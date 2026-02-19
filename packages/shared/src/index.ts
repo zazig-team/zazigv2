@@ -9,6 +9,7 @@ export type {
   Complexity,
   CardType,
   JobStatusValue,
+  AgentJobStatus,
   FailureReason,
   // Orchestrator → Local Agent messages
   StartJob,
@@ -17,7 +18,7 @@ export type {
   OrchestratorMessage,
   // Local Agent → Orchestrator messages
   Heartbeat,
-  JobStatus,
+  JobStatusMessage,
   JobComplete,
   JobFailed,
   JobAck,
@@ -31,6 +32,8 @@ export type { CardAnnotation } from "./annotations.js";
 export { parseAnnotation } from "./annotations.js";
 
 // ---- Machine / slot tracking ----
+
+import type { CardType, Complexity, SlotType, JobStatusValue } from "./messages.js";
 
 export interface SlotPool {
   total: number;
@@ -59,11 +62,11 @@ export interface Machine {
 export interface Job {
   id: string;
   cardId: string;
-  cardType: import("./messages.js").CardType;
-  complexity: import("./messages.js").Complexity;
-  slotType: import("./messages.js").SlotType;
+  cardType: CardType;
+  complexity: Complexity;
+  slotType: SlotType;
   machineId: string | null;
-  status: import("./messages.js").JobStatusValue;
+  status: JobStatusValue;
   startedAt: string | null;
   completedAt: string | null;
   result: string | null;
@@ -104,7 +107,7 @@ export {
   isStopJob,
   isHealthCheck,
   isHeartbeat,
-  isJobStatus,
+  isJobStatusMessage,
   isJobComplete,
   isJobFailed,
   isJobAck,

@@ -9,7 +9,7 @@ export type {
   Complexity,
   CardType,
   Job,
-  JobStatus,
+  JobStatusMessage,
   Machine,
   OrchestratorMessage,
 } from "@zazigv2/shared";

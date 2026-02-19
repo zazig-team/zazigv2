@@ -253,6 +253,27 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       continue;
     }
 
+    // Atomically decrement the slot BEFORE marking the job dispatched.
+    // Using .gt(slotColumn, 0) as a CAS guard: if two concurrent invocations both
+    // see slots=2, only one will win the conditional UPDATE and get a rowCount > 0.
+    // The loser gets an empty result set and skips dispatch, preventing double-booking.
+    const slotColumn = slotType === "claude_code" ? "slots_claude_code" : "slots_codex";
+    const currentSlots = slotType === "claude_code" ? candidate.slots_claude_code : candidate.slots_codex;
+    const { data: decrementResult, error: decrementErr } = await supabase
+      .from("machines")
+      .update({ [slotColumn]: currentSlots - 1 })
+      .eq("id", candidate.id)
+      .gt(slotColumn, 0) // CAS guard — only update if slot is still > 0
+      .select("id");
+
+    if (decrementErr || !decrementResult?.length) {
+      // Another concurrent invocation already claimed this slot — skip.
+      console.warn(
+        `[orchestrator] Slot contention on machine ${candidate.id} for job ${job.id} — skipping (no rows updated).`,
+      );
+      continue;
+    }
+
     // Dispatch: update job status → dispatched, assign machine_id.
     const { error: updateJobErr } = await supabase
       .from("jobs")
@@ -266,25 +287,12 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
 
     if (updateJobErr) {
       console.error(`[orchestrator] Failed to dispatch job ${job.id}:`, updateJobErr.message);
+      // The slot was already decremented above; it will self-correct on next heartbeat.
       continue;
     }
 
-    // Decrement available slot count on the machine (in-memory + DB).
-    const slotUpdate = decrementSlotPayload(candidate, slotType);
-    const { error: slotErr } = await supabase
-      .from("machines")
-      .update(slotUpdate)
-      .eq("id", candidate.id);
-
-    if (slotErr) {
-      console.error(
-        `[orchestrator] Failed to decrement slot for machine ${candidate.id}:`,
-        slotErr.message,
-      );
-      // Continue — the job is dispatched, slot count will self-correct on next heartbeat.
-    }
-
     // Update in-memory cache so subsequent jobs in this pass see the reduced capacity.
+    const slotUpdate = { [slotColumn]: currentSlots - 1 };
     Object.assign(candidate, slotUpdate);
 
     // Build the StartJob message.
@@ -459,11 +467,20 @@ async function releaseSlot(supabase: SupabaseClient, jobId: string, machineId: s
   }
 
   const slotType: SlotType = (jobRow.slot_type as SlotType) ?? "claude_code";
+  const slotColumn = slotType === "claude_code" ? "slots_claude_code" : "slots_codex";
 
-  // Fetch the current machine slot counts.
+  // TODO P0: This increment is a non-atomic read-modify-write. Under concurrent
+  // releases for the same machine (e.g. two jobs finishing simultaneously), both
+  // invocations read the same current value and each write N+1 instead of N+2.
+  // Fix with a stored procedure:
+  //   UPDATE machines SET slots_X = slots_X + 1 WHERE id = $1
+  // The correction path until then: the machine's next heartbeat overwrites the
+  // slot counts with ground-truth values (every ~30 s), bounding the error window.
+  //
+  // Fetch current counts so we can compute the absolute new value.
   const { data: machine, error: machineErr } = await supabase
     .from("machines")
-    .select("id, company_id, name, slots_claude_code, slots_codex, last_heartbeat, status")
+    .select("id, slots_claude_code, slots_codex")
     .eq("id", machineId)
     .single();
 
@@ -472,10 +489,13 @@ async function releaseSlot(supabase: SupabaseClient, jobId: string, machineId: s
     return;
   }
 
-  const slotUpdate = incrementSlotPayload(machine as MachineRow, slotType);
+  const currentSlots = slotType === "claude_code"
+    ? (machine as MachineRow).slots_claude_code
+    : (machine as MachineRow).slots_codex;
+
   const { error: updateErr } = await supabase
     .from("machines")
-    .update(slotUpdate)
+    .update({ [slotColumn]: currentSlots + 1 })
     .eq("id", machineId);
 
   if (updateErr) {

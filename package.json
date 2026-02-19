@@ -1,0 +1,23 @@
+{
+  "name": "zazigv2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/orchestrator",
+    "packages/local-agent",
+    "packages/shared"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "lint": "eslint 'packages/*/src/**/*.ts'",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.4.0"
+  }
+}

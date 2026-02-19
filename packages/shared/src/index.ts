@@ -73,3 +73,25 @@ export interface Job {
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 export const MACHINE_DEAD_THRESHOLD_MS = 120_000;
 export const CPO_FAILOVER_THRESHOLD_MS = 15 * 60_000;
+
+/**
+ * Maximum size (in bytes) for the `context` field in StartJob messages.
+ * Supabase Realtime has a per-message payload limit (~1 MB). This constant
+ * guards against cards with oversized descriptions (embedded images, long
+ * threads) causing broadcast failures or prompt injection via size abuse.
+ */
+export const MAX_CONTEXT_BYTES = 64_000;
+
+// ---- Runtime validators ----
+// Validate untrusted JSON from Supabase Realtime before acting on it.
+export {
+  isOrchestratorMessage,
+  isAgentMessage,
+  isStartJob,
+  isStopJob,
+  isHealthCheck,
+  isHeartbeat,
+  isJobStatus,
+  isJobComplete,
+  isJobFailed,
+} from "./validators.js";

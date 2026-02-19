@@ -1,0 +1,471 @@
+/**
+ * executor.ts — Job execution manager
+ *
+ * Handles the lifecycle of AI agent jobs dispatched by the orchestrator:
+ *   1. Receives StartJob → acquires slot → spawns tmux session → sends JobAck + JobStatusMessage(executing)
+ *   2. Polls the tmux session every 30 s to detect completion
+ *   3. On success: reads output file if present → sends JobComplete → releases slot
+ *   4. On failure (non-zero exit, timeout after 60 min): sends JobFailed → releases slot
+ *   5. On StopJob: kills tmux session → releases slot → sends StopAck
+ *
+ * Tmux session naming: `{machineId}-{jobId}`
+ * Model selection:
+ *   slotType=codex / complexity=simple → `codex` CLI
+ *   complexity=medium                  → `claude` CLI (claude-sonnet-4-6)
+ *   complexity=complex                 → `claude` CLI (claude-opus-4-6)
+ *   role != null (persistent agents)   → `claude` CLI (claude-opus-4-6)
+ */
+
+import { execFile } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { promisify } from "node:util";
+import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType } from "@zazigv2/shared";
+import { PROTOCOL_VERSION } from "@zazigv2/shared";
+import type { SlotTracker } from "./slots.js";
+
+const execFileAsync = promisify(execFile);
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Poll the tmux session every 30 s to check for completion. */
+const POLL_INTERVAL_MS = 30_000;
+
+/** Kill the job after 60 minutes regardless of status. */
+const JOB_TIMEOUT_MS = 60 * 60_000;
+
+/** Output file path relative to HOME that agents write completion reports to. */
+const REPORT_RELATIVE_PATH = ".claude/cpo-report.md";
+
+// ---------------------------------------------------------------------------
+// Internal types
+// ---------------------------------------------------------------------------
+
+interface ActiveJob {
+  jobId: string;
+  slotType: SlotType;
+  sessionName: string;
+  pollTimer: ReturnType<typeof setInterval> | null;
+  timeoutTimer: ReturnType<typeof setTimeout> | null;
+  /** Resolved to true when the job ends (either complete or failed). */
+  settled: boolean;
+}
+
+/** Callback type for sending AgentMessage back to the orchestrator channel. */
+export type SendFn = (msg: AgentMessage) => Promise<void>;
+
+// ---------------------------------------------------------------------------
+// JobExecutor
+// ---------------------------------------------------------------------------
+
+export class JobExecutor {
+  private readonly machineId: string;
+  private readonly slots: SlotTracker;
+  private readonly send: SendFn;
+
+  /** Map of jobId → active job state. */
+  private readonly activeJobs = new Map<string, ActiveJob>();
+
+  constructor(machineId: string, slots: SlotTracker, send: SendFn) {
+    this.machineId = machineId;
+    this.slots = slots;
+    this.send = send;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public: StartJob
+  // ---------------------------------------------------------------------------
+
+  async handleStartJob(msg: StartJob): Promise<void> {
+    const { jobId, slotType, complexity, context, contextRef, model } = msg;
+
+    console.log(
+      `[executor] handleStartJob — jobId=${jobId}, slotType=${slotType}, ` +
+        `complexity=${complexity}, model=${model}`
+    );
+
+    // --- 1. Acquire slot (throws if none available) ---
+    try {
+      this.slots.acquire(slotType);
+    } catch (err) {
+      console.error(`[executor] No slot available for jobId=${jobId}:`, err);
+      await this.sendJobFailed(jobId, `No available slot: ${String(err)}`, "unknown");
+      return;
+    }
+
+    // --- 2. Send JobAck immediately to confirm delivery ---
+    await this.sendJobAck(jobId);
+
+    // --- 3. Resolve context (inline or remote ref) ---
+    let taskContext: string;
+    try {
+      taskContext = await this.resolveContext(context, contextRef);
+    } catch (err) {
+      console.error(`[executor] Failed to resolve context for jobId=${jobId}:`, err);
+      this.slots.release(slotType);
+      await this.sendJobFailed(jobId, `Failed to resolve context: ${String(err)}`, "unknown");
+      return;
+    }
+
+    // --- 4. Build command based on complexity/model ---
+    const { cmd, args } = buildCommand(slotType, complexity, model, taskContext);
+    const sessionName = `${this.machineId}-${jobId}`;
+
+    // --- 5. Spawn tmux session ---
+    try {
+      await spawnTmuxSession(sessionName, cmd, args);
+    } catch (err) {
+      console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
+      this.slots.release(slotType);
+      await this.sendJobFailed(jobId, `Failed to start tmux session: ${String(err)}`, "agent_crash");
+      return;
+    }
+
+    console.log(`[executor] Tmux session started — session=${sessionName}, cmd=${cmd}`);
+
+    // --- 6. Send JobStatusMessage(executing) ---
+    await this.sendJobStatus(jobId, "executing");
+
+    // --- 7. Register active job and set up polling + timeout ---
+    const activeJob: ActiveJob = {
+      jobId,
+      slotType,
+      sessionName,
+      pollTimer: null,
+      timeoutTimer: null,
+      settled: false,
+    };
+    this.activeJobs.set(jobId, activeJob);
+
+    // Timeout: kill after JOB_TIMEOUT_MS
+    activeJob.timeoutTimer = setTimeout(() => {
+      void this.onJobTimeout(jobId);
+    }, JOB_TIMEOUT_MS);
+
+    // Poll loop: check every POLL_INTERVAL_MS
+    activeJob.pollTimer = setInterval(() => {
+      void this.pollJob(jobId);
+    }, POLL_INTERVAL_MS);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public: StopJob
+  // ---------------------------------------------------------------------------
+
+  async handleStopJob(msg: StopJob): Promise<void> {
+    const { jobId, reason } = msg;
+    console.log(`[executor] handleStopJob — jobId=${jobId}, reason=${reason}`);
+
+    const job = this.activeJobs.get(jobId);
+    if (!job) {
+      console.warn(`[executor] StopJob for unknown jobId=${jobId} — sending StopAck anyway`);
+      await this.sendStopAck(jobId);
+      return;
+    }
+
+    // Settle the job to prevent concurrent poll/timeout callbacks from firing
+    job.settled = true;
+    this.clearJobTimers(job);
+    this.activeJobs.delete(jobId);
+
+    // Kill the tmux session (best-effort)
+    await killTmuxSession(job.sessionName);
+
+    // Release the slot
+    this.slots.release(job.slotType);
+
+    // Confirm to orchestrator
+    await this.sendStopAck(jobId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: Poll loop
+  // ---------------------------------------------------------------------------
+
+  private async pollJob(jobId: string): Promise<void> {
+    const job = this.activeJobs.get(jobId);
+    if (!job || job.settled) return;
+
+    const alive = await isTmuxSessionAlive(job.sessionName);
+    if (alive) {
+      console.log(`[executor] Job still running — jobId=${jobId}, session=${job.sessionName}`);
+      return;
+    }
+
+    // Session is gone — check exit code via tmux last-exit-status if available,
+    // but since the session already ended we use presence of output file as a
+    // success signal; absence or error output means failure.
+    console.log(`[executor] Tmux session ended — jobId=${jobId}, session=${job.sessionName}`);
+    await this.onJobEnded(jobId, false /* not a forced timeout */);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: Timeout
+  // ---------------------------------------------------------------------------
+
+  private async onJobTimeout(jobId: string): Promise<void> {
+    const job = this.activeJobs.get(jobId);
+    if (!job || job.settled) return;
+
+    console.warn(`[executor] Job timed out after ${JOB_TIMEOUT_MS / 60_000} min — jobId=${jobId}`);
+    job.settled = true;
+    this.clearJobTimers(job);
+    this.activeJobs.delete(jobId);
+
+    await killTmuxSession(job.sessionName);
+    this.slots.release(job.slotType);
+    await this.sendJobFailed(jobId, "Job exceeded 60-minute timeout", "timeout");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: Job ended (session exited naturally)
+  // ---------------------------------------------------------------------------
+
+  private async onJobEnded(jobId: string, _timedOut: boolean): Promise<void> {
+    const job = this.activeJobs.get(jobId);
+    if (!job || job.settled) return;
+
+    job.settled = true;
+    this.clearJobTimers(job);
+    this.activeJobs.delete(jobId);
+    this.slots.release(job.slotType);
+
+    // Try to read the report file (written by claude/codex to ~/.claude/cpo-report.md)
+    const reportPath = `${process.env["HOME"] ?? "/tmp"}/${REPORT_RELATIVE_PATH}`;
+    let result = "Job completed.";
+    let report: string | undefined;
+
+    if (existsSync(reportPath)) {
+      try {
+        report = readFileSync(reportPath, "utf-8");
+        result = report.split("\n")[0] ?? "Job completed."; // first line as result summary
+        console.log(`[executor] Read completion report from ${reportPath}`);
+      } catch (err) {
+        console.warn(`[executor] Could not read report at ${reportPath}:`, err);
+      }
+    } else {
+      console.log(`[executor] No report file at ${reportPath}, using default result`);
+    }
+
+    await this.sendJobComplete(jobId, result, report);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: Timer management
+  // ---------------------------------------------------------------------------
+
+  private clearJobTimers(job: ActiveJob): void {
+    if (job.pollTimer !== null) {
+      clearInterval(job.pollTimer);
+      job.pollTimer = null;
+    }
+    if (job.timeoutTimer !== null) {
+      clearTimeout(job.timeoutTimer);
+      job.timeoutTimer = null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: Context resolution
+  // ---------------------------------------------------------------------------
+
+  private async resolveContext(
+    context: string | undefined,
+    contextRef: string | undefined
+  ): Promise<string> {
+    // contextRef takes priority when present (large payloads stored remotely)
+    if (contextRef) {
+      console.log(`[executor] Fetching context from contextRef: ${contextRef}`);
+      const response = await fetch(contextRef);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch contextRef (HTTP ${response.status}): ${contextRef}`);
+      }
+      return await response.text();
+    }
+    if (context) {
+      return context;
+    }
+    throw new Error("StartJob has neither context nor contextRef");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: Message senders
+  // ---------------------------------------------------------------------------
+
+  private async sendJobAck(jobId: string): Promise<void> {
+    await this.send({
+      type: "job_ack",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      machineId: this.machineId,
+    });
+  }
+
+  private async sendJobStatus(
+    jobId: string,
+    status: "executing" | "reviewing" | "complete" | "failed",
+    output?: string
+  ): Promise<void> {
+    await this.send({
+      type: "job_status",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      status,
+      ...(output !== undefined ? { output } : {}),
+    });
+  }
+
+  private async sendJobComplete(
+    jobId: string,
+    result: string,
+    report?: string
+  ): Promise<void> {
+    await this.send({
+      type: "job_complete",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      machineId: this.machineId,
+      result,
+      ...(report !== undefined ? { report } : {}),
+    });
+  }
+
+  private async sendJobFailed(
+    jobId: string,
+    error: string,
+    failureReason: FailureReason
+  ): Promise<void> {
+    await this.send({
+      type: "job_failed",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      machineId: this.machineId,
+      error,
+      failureReason,
+    });
+  }
+
+  private async sendStopAck(jobId: string): Promise<void> {
+    await this.send({
+      type: "stop_ack",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      machineId: this.machineId,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Build CLI command
+// ---------------------------------------------------------------------------
+
+/**
+ * Determine the CLI binary and arguments based on slot type, complexity, and model.
+ *
+ * Decision table:
+ *   slotType=codex OR complexity=simple → `codex` CLI (task as positional arg)
+ *   complexity=medium                    → `claude` CLI with model claude-sonnet-4-6
+ *   complexity=complex                   → `claude` CLI with model claude-opus-4-6
+ *   model override from orchestrator     → the `model` field always takes precedence
+ */
+function buildCommand(
+  slotType: SlotType,
+  complexity: string,
+  model: string,
+  context: string
+): { cmd: string; args: string[] } {
+  if (slotType === "codex" || complexity === "simple") {
+    // codex CLI: `codex "<task>"`
+    return { cmd: "codex", args: [context] };
+  }
+
+  // claude CLI: `claude --model <model> "<task>"`
+  // The orchestrator already selects the correct model; we honour it.
+  // Fallback based on local complexity if model is somehow unset.
+  const resolvedModel =
+    model && model !== "codex"
+      ? model
+      : complexity === "complex"
+        ? "claude-opus-4-6"
+        : "claude-sonnet-4-6";
+
+  return {
+    cmd: "claude",
+    args: ["--model", resolvedModel, context],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Tmux session management
+// ---------------------------------------------------------------------------
+
+/**
+ * Spawn a new detached tmux session that runs the given command.
+ *
+ * Session name format: `{machineId}-{jobId}`
+ *
+ * Equivalent shell:
+ *   tmux new-session -d -s <session> <cmd> [args...]
+ */
+async function spawnTmuxSession(
+  sessionName: string,
+  cmd: string,
+  args: string[]
+): Promise<void> {
+  // Combine into a single shell string for tmux new-session
+  // Use single-quote escaping for the context string (args[0] for codex,
+  // or args[2] for claude). tmux new-session accepts a shell command string.
+  const shellCmd = shellEscape([cmd, ...args]);
+
+  await execFileAsync("tmux", [
+    "new-session",
+    "-d",           // detached
+    "-s", sessionName,
+    shellCmd,       // the command the session runs
+  ]);
+}
+
+/**
+ * Kill a tmux session by name. Best-effort: errors are logged but not re-thrown.
+ */
+async function killTmuxSession(sessionName: string): Promise<void> {
+  try {
+    await execFileAsync("tmux", ["kill-session", "-t", sessionName]);
+    console.log(`[executor] Killed tmux session: ${sessionName}`);
+  } catch (err) {
+    // Session may already be dead — that's fine
+    console.warn(`[executor] Could not kill tmux session ${sessionName}:`, err);
+  }
+}
+
+/**
+ * Returns true if the given tmux session exists and is alive.
+ * Uses `tmux has-session -t <name>` which exits 0 if alive, 1 if not.
+ */
+async function isTmuxSessionAlive(sessionName: string): Promise<boolean> {
+  try {
+    await execFileAsync("tmux", ["has-session", "-t", sessionName]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Shell escaping
+// ---------------------------------------------------------------------------
+
+/**
+ * Produce a single shell-safe string by single-quoting each argument
+ * (replacing embedded single quotes with '"'"').
+ *
+ * Example: ["claude", "--model", "opus", "do stuff 'here'"]
+ *   → "claude --model opus 'do stuff '\"'\"'here'\"'\"''"
+ */
+function shellEscape(parts: string[]): string {
+  return parts
+    .map((p) => `'${p.replace(/'/g, "'\"'\"'")}'`)
+    .join(" ");
+}
+

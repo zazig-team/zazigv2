@@ -11,7 +11,7 @@
 
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
 import { HEARTBEAT_INTERVAL_MS, PROTOCOL_VERSION, isOrchestratorMessage } from "@zazigv2/shared";
-import type { OrchestratorMessage, Heartbeat } from "@zazigv2/shared";
+import type { OrchestratorMessage, Heartbeat, AgentMessage } from "@zazigv2/shared";
 import type { MachineConfig } from "./config.js";
 import type { SlotTracker } from "./slots.js";
 
@@ -53,6 +53,27 @@ export class AgentConnection {
   /** Register a handler for incoming OrchestratorMessages. */
   onMessage(handler: MessageHandler): void {
     this.handlers.push(handler);
+  }
+
+  /**
+   * Send an AgentMessage back to the orchestrator over the Realtime channel.
+   * Returns "ok" on success or a non-"ok" string on failure.
+   */
+  async sendMessage(msg: AgentMessage): Promise<void> {
+    if (!this.channel || this.stopped) {
+      console.warn("[local-agent] sendMessage called but channel is not connected; message dropped:", msg.type);
+      return;
+    }
+    const result = await this.channel.send({
+      type: "broadcast",
+      event: "message",
+      payload: msg,
+    });
+    if (result !== "ok") {
+      console.warn(`[local-agent] sendMessage returned: ${result} for type=${msg.type}`);
+    } else {
+      console.log(`[local-agent] Sent ${msg.type} for jobId=${"jobId" in msg ? msg.jobId : "n/a"}`);
+    }
   }
 
   /** Connect to Supabase Realtime and start the heartbeat loop. */

@@ -30,6 +30,19 @@ DROP TABLE IF EXISTS public.machines CASCADE;
 DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE;
 
 -- ============================================================
+-- Shared trigger function
+-- Reusable across all tables with updated_at columns.
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================
 -- Extensions
 -- ============================================================
 
@@ -64,6 +77,11 @@ CREATE POLICY "service_role_full_access" ON public.roles
     USING (true)
     WITH CHECK (true);
 
+CREATE POLICY "authenticated_read" ON public.roles
+    FOR SELECT
+    TO authenticated
+    USING (true);
+
 -- Seed the platform roles
 INSERT INTO public.roles (name, description, is_persistent, default_model) VALUES
     ('cpo',      'Chief Product Officer — discusses features with humans, designs them, breaks them into jobs', true,  'opus'),
@@ -96,6 +114,11 @@ CREATE POLICY "service_role_full_access" ON public.companies
     USING (true)
     WITH CHECK (true);
 
+CREATE POLICY "authenticated_read_own" ON public.companies
+    FOR SELECT
+    TO authenticated
+    USING (id = (auth.jwt() ->> 'company_id')::uuid);
+
 -- ============================================================
 -- company_roles
 -- Which roles a company has enabled.
@@ -107,6 +130,7 @@ CREATE TABLE public.company_roles (
     role_id    uuid        NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
     enabled    boolean     NOT NULL DEFAULT true,
     created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (company_id, role_id)
 );
 
@@ -115,6 +139,11 @@ COMMENT ON TABLE public.company_roles IS
     'the system auto-creates a standing job for it. '
     'UNIQUE (company_id, role_id) prevents duplicate role assignments per company.';
 
+CREATE TRIGGER company_roles_updated_at
+    BEFORE UPDATE ON public.company_roles
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 ALTER TABLE public.company_roles ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "service_role_full_access" ON public.company_roles
@@ -122,6 +151,11 @@ CREATE POLICY "service_role_full_access" ON public.company_roles
     TO service_role
     USING (true)
     WITH CHECK (true);
+
+CREATE POLICY "authenticated_read_own" ON public.company_roles
+    FOR SELECT
+    TO authenticated
+    USING (company_id = (auth.jwt() ->> 'company_id')::uuid);
 
 -- ============================================================
 -- machines
@@ -132,12 +166,15 @@ CREATE TABLE public.machines (
     id                uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id        uuid        NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
     name              text        NOT NULL,
-    slots_claude_code int         NOT NULL DEFAULT 0,
-    slots_codex       int         NOT NULL DEFAULT 0,
+    slots_claude_code int         NOT NULL DEFAULT 0
+                                  CHECK (slots_claude_code >= 0),
+    slots_codex       int         NOT NULL DEFAULT 0
+                                  CHECK (slots_codex >= 0),
     last_heartbeat    timestamptz,
     status            text        NOT NULL DEFAULT 'offline'
                                   CHECK (status IN ('online', 'offline')),
     created_at        timestamptz NOT NULL DEFAULT now(),
+    updated_at        timestamptz NOT NULL DEFAULT now(),
     UNIQUE (company_id, name)
 );
 
@@ -147,7 +184,15 @@ COMMENT ON TABLE public.machines IS
     'No role-specific columns (e.g. no hosts_cpo) — persistent agents are jobs, dispatched dynamically. '
     'UNIQUE (company_id, name) scopes machine names within a tenant.';
 
+CREATE TRIGGER machines_updated_at
+    BEFORE UPDATE ON public.machines
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 CREATE INDEX idx_machines_company_id ON public.machines(company_id);
+
+-- Composite unique for cross-tenant FK references from child tables
+ALTER TABLE public.machines ADD CONSTRAINT uq_machines_company_id UNIQUE (id, company_id);
 
 ALTER TABLE public.machines ENABLE ROW LEVEL SECURITY;
 
@@ -156,6 +201,11 @@ CREATE POLICY "service_role_full_access" ON public.machines
     TO service_role
     USING (true)
     WITH CHECK (true);
+
+CREATE POLICY "authenticated_read_own" ON public.machines
+    FOR SELECT
+    TO authenticated
+    USING (company_id = (auth.jwt() ->> 'company_id')::uuid);
 
 -- ============================================================
 -- projects
@@ -180,6 +230,9 @@ COMMENT ON TABLE public.projects IS
 
 CREATE INDEX idx_projects_company_id ON public.projects(company_id);
 
+-- Composite unique for cross-tenant FK references from child tables
+ALTER TABLE public.projects ADD CONSTRAINT uq_projects_company_id UNIQUE (id, company_id);
+
 ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "service_role_full_access" ON public.projects
@@ -187,6 +240,11 @@ CREATE POLICY "service_role_full_access" ON public.projects
     TO service_role
     USING (true)
     WITH CHECK (true);
+
+CREATE POLICY "authenticated_read_own" ON public.projects
+    FOR SELECT
+    TO authenticated
+    USING (company_id = (auth.jwt() ->> 'company_id')::uuid);
 
 -- ============================================================
 -- features
@@ -196,23 +254,35 @@ CREATE POLICY "service_role_full_access" ON public.projects
 CREATE TABLE public.features (
     id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id  uuid        NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
-    project_id  uuid        NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+    project_id  uuid        NOT NULL,
     title       text        NOT NULL,
     description text,
     status      text        NOT NULL DEFAULT 'proposed'
                             CHECK (status IN ('proposed', 'designing', 'in_progress', 'complete')),
     created_by  text,
-    created_at  timestamptz NOT NULL DEFAULT now()
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now(),
+    -- Cross-tenant protection: project must belong to the same company
+    FOREIGN KEY (project_id, company_id) REFERENCES public.projects(id, company_id) ON DELETE CASCADE
 );
 
 COMMENT ON TABLE public.features IS
     'The unit of product work. Created by humans or CPO. '
     'CPO discusses features with the human, designs them, then breaks them into jobs. '
     'The orchestrator does not see features — it only sees jobs. '
-    'created_by: "human" or a role name (e.g. "cpo").';
+    'created_by: "human" or a role name (e.g. "cpo"). '
+    'Cross-tenant FK (project_id, company_id) ensures features cannot reference projects from another company.';
+
+CREATE TRIGGER features_updated_at
+    BEFORE UPDATE ON public.features
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
 
 CREATE INDEX idx_features_company_id  ON public.features(company_id);
 CREATE INDEX idx_features_project_id  ON public.features(project_id);
+
+-- Composite unique for cross-tenant FK references from jobs
+ALTER TABLE public.features ADD CONSTRAINT uq_features_company_id UNIQUE (id, company_id);
 
 ALTER TABLE public.features ENABLE ROW LEVEL SECURITY;
 
@@ -222,6 +292,11 @@ CREATE POLICY "service_role_full_access" ON public.features
     USING (true)
     WITH CHECK (true);
 
+CREATE POLICY "authenticated_read_own" ON public.features
+    FOR SELECT
+    TO authenticated
+    USING (company_id = (auth.jwt() ->> 'company_id')::uuid);
+
 -- ============================================================
 -- jobs
 -- Unit of execution. What the orchestrator dispatches to machines.
@@ -230,14 +305,14 @@ CREATE POLICY "service_role_full_access" ON public.features
 CREATE TABLE public.jobs (
     id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id   uuid        NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
-    project_id   uuid        REFERENCES public.projects(id)  ON DELETE SET NULL,
-    feature_id   uuid        REFERENCES public.features(id)  ON DELETE SET NULL,
+    project_id   uuid,
+    feature_id   uuid,
     role         text        NOT NULL,
     job_type     text        NOT NULL
-                             CHECK (job_type IN ('code', 'infra', 'design', 'research', 'docs', 'bug', 'persistent_cpo')),
+                             CHECK (job_type IN ('code', 'infra', 'design', 'research', 'docs', 'bug', 'persistent_agent')),
     complexity   text        CHECK (complexity IN ('simple', 'medium', 'complex')),
     slot_type    text        CHECK (slot_type IN ('claude_code', 'codex')),
-    machine_id   uuid        REFERENCES public.machines(id)  ON DELETE SET NULL,
+    machine_id   uuid,
     status       text        NOT NULL DEFAULT 'queued'
                              CHECK (status IN ('queued', 'dispatched', 'executing', 'waiting_on_human', 'reviewing', 'complete', 'failed')),
     branch       text,
@@ -248,7 +323,11 @@ CREATE TABLE public.jobs (
     started_at   timestamptz,
     completed_at timestamptz,
     created_at   timestamptz NOT NULL DEFAULT now(),
-    updated_at   timestamptz NOT NULL DEFAULT now()
+    updated_at   timestamptz NOT NULL DEFAULT now(),
+    -- Cross-tenant protection: project, feature, and machine must belong to the same company
+    FOREIGN KEY (project_id, company_id) REFERENCES public.projects(id, company_id) ON DELETE SET NULL,
+    FOREIGN KEY (feature_id, company_id) REFERENCES public.features(id, company_id) ON DELETE SET NULL,
+    FOREIGN KEY (machine_id, company_id) REFERENCES public.machines(id, company_id) ON DELETE SET NULL
 );
 
 COMMENT ON TABLE public.jobs IS
@@ -260,16 +339,8 @@ COMMENT ON TABLE public.jobs IS
     'waiting_on_human: agent posted a question to human, awaiting reply. Agent exits, frees slot. '
     'context: starts as original brief, evolves throughout lifecycle with decisions and summaries. '
     'raw_log: full unedited agent output appended on every flush. Debug trail only. '
-    'Persistent agents are jobs (job_type = persistent_cpo). Orchestrator redispatches if machine goes offline.';
-
--- Trigger: auto-update updated_at on every row update
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = now();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+    'Persistent agents use job_type = persistent_agent. Orchestrator redispatches if machine goes offline. '
+    'Cross-tenant FKs (project_id, feature_id, machine_id all paired with company_id) prevent cross-tenant references.';
 
 CREATE TRIGGER jobs_updated_at
     BEFORE UPDATE ON public.jobs
@@ -289,6 +360,11 @@ CREATE POLICY "service_role_full_access" ON public.jobs
     TO service_role
     USING (true)
     WITH CHECK (true);
+
+CREATE POLICY "authenticated_read_own" ON public.jobs
+    FOR SELECT
+    TO authenticated
+    USING (company_id = (auth.jwt() ->> 'company_id')::uuid);
 
 -- ============================================================
 -- messages
@@ -327,6 +403,20 @@ CREATE POLICY "service_role_full_access" ON public.messages
     USING (true)
     WITH CHECK (true);
 
+CREATE POLICY "authenticated_read_own" ON public.messages
+    FOR SELECT
+    TO authenticated
+    USING (company_id = (auth.jwt() ->> 'company_id')::uuid);
+
+-- Authenticated users can post answers (human replies to agent questions)
+CREATE POLICY "authenticated_insert_own" ON public.messages
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (
+        company_id = (auth.jwt() ->> 'company_id')::uuid
+        AND from_role = 'human'
+    );
+
 -- ============================================================
 -- events
 -- Append-only lifecycle log. Scoped to company, tagged with context.
@@ -338,16 +428,25 @@ CREATE TABLE public.events (
     job_id      uuid        REFERENCES public.jobs(id)     ON DELETE SET NULL,
     machine_id  uuid        REFERENCES public.machines(id) ON DELETE SET NULL,
     role        text,
-    event_type  text        NOT NULL,
+    event_type  text        NOT NULL
+                            CHECK (event_type IN (
+                                'job_created', 'job_dispatched', 'job_executing', 'job_complete',
+                                'job_failed', 'job_waiting_on_human', 'job_reviewing',
+                                'machine_online', 'machine_offline', 'machine_heartbeat',
+                                'agent_started', 'agent_stopped', 'agent_memory_flush',
+                                'feature_created', 'feature_status_changed',
+                                'company_created', 'company_suspended', 'company_archived',
+                                'human_reply', 'escalation'
+                            )),
     detail      jsonb,
     created_at  timestamptz NOT NULL DEFAULT now()
 );
 
 COMMENT ON TABLE public.events IS
     'Append-only lifecycle log for all orchestrator and agent events. '
-    'Examples: job_dispatched, machine_offline, cpo_standup, bug_detected, company_created. '
     'job_id, machine_id, and role are nullable depending on event context. '
     'detail is a free-form JSONB payload — structure varies by event_type. '
+    'event_type is constrained to known types — add new types via migration. '
     'Not added to Realtime publication (write-heavy, read-rarely).';
 
 CREATE INDEX idx_events_company_id ON public.events(company_id);
@@ -362,6 +461,11 @@ CREATE POLICY "service_role_full_access" ON public.events
     USING (true)
     WITH CHECK (true);
 
+CREATE POLICY "authenticated_read_own" ON public.events
+    FOR SELECT
+    TO authenticated
+    USING (company_id = (auth.jwt() ->> 'company_id')::uuid);
+
 -- ============================================================
 -- memory_chunks
 -- Agent memory. Replaces QMD + filesystem markdown files from v1.
@@ -373,20 +477,24 @@ CREATE TABLE public.memory_chunks (
     role        text,
     source_path text,
     text        text        NOT NULL,
-    embedding   vector,
+    embedding   vector(1536),
     created_at  timestamptz NOT NULL DEFAULT now()
 );
 
 COMMENT ON TABLE public.memory_chunks IS
     'Agent memory stored in Supabase. Replaces QMD + local filesystem markdown from v1. '
     'role nullable: NULL = shared memory across all roles for this company. '
-    'embedding: pgvector column for semantic similarity search. '
+    'embedding: pgvector 1536-dimension column for semantic similarity search (OpenAI text-embedding-3-small). '
     'source_path: original file path for dedup and updates. '
     'Written on pre-compaction flush when agent conversation nears context limits. '
     'Agents query via memory_search() tool call. '
     'Not added to Realtime publication (write-heavy, read-rarely).';
 
 CREATE INDEX idx_memory_chunks_company_role ON public.memory_chunks(company_id, role);
+
+-- HNSW index for fast approximate nearest neighbor semantic search
+CREATE INDEX idx_memory_chunks_embedding ON public.memory_chunks
+    USING hnsw (embedding vector_cosine_ops);
 
 ALTER TABLE public.memory_chunks ENABLE ROW LEVEL SECURITY;
 
@@ -395,6 +503,11 @@ CREATE POLICY "service_role_full_access" ON public.memory_chunks
     TO service_role
     USING (true)
     WITH CHECK (true);
+
+CREATE POLICY "authenticated_read_own" ON public.memory_chunks
+    FOR SELECT
+    TO authenticated
+    USING (company_id = (auth.jwt() ->> 'company_id')::uuid);
 
 -- ============================================================
 -- Realtime

@@ -17,7 +17,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync } from "node:fs";
 import { promisify } from "node:util";
 import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType } from "@zazigv2/shared";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
@@ -35,8 +35,11 @@ const POLL_INTERVAL_MS = 30_000;
 /** Kill the job after 60 minutes regardless of status. */
 const JOB_TIMEOUT_MS = 60 * 60_000;
 
-/** Output file path relative to HOME that agents write completion reports to. */
+/** Shared report file written by claude/codex agents. */
 const REPORT_RELATIVE_PATH = ".claude/cpo-report.md";
+
+/** Per-job report directory to prevent concurrent-completion races. */
+const REPORT_ARCHIVE_DIR = ".claude/job-reports";
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -112,7 +115,11 @@ export class JobExecutor {
     const { cmd, args } = buildCommand(slotType, complexity, model, taskContext);
     const sessionName = `${this.machineId}-${jobId}`;
 
-    // --- 5. Spawn tmux session ---
+    // --- 5. Clear stale report before spawning (prevents reading a previous job's report) ---
+    const reportPath = `${process.env["HOME"] ?? "/tmp"}/${REPORT_RELATIVE_PATH}`;
+    try { unlinkSync(reportPath); } catch { /* no stale report — fine */ }
+
+    // --- 6. Spawn tmux session ---
     try {
       await spawnTmuxSession(sessionName, cmd, args);
     } catch (err) {
@@ -124,10 +131,10 @@ export class JobExecutor {
 
     console.log(`[executor] Tmux session started — session=${sessionName}, cmd=${cmd}`);
 
-    // --- 6. Send JobStatusMessage(executing) ---
+    // --- 7. Send JobStatusMessage(executing) ---
     await this.sendJobStatus(jobId, "executing");
 
-    // --- 7. Register active job and set up polling + timeout ---
+    // --- 8. Register active job and set up polling + timeout ---
     const activeJob: ActiveJob = {
       jobId,
       slotType,
@@ -231,21 +238,26 @@ export class JobExecutor {
     this.activeJobs.delete(jobId);
     this.slots.release(job.slotType);
 
-    // Try to read the report file (written by claude/codex to ~/.claude/cpo-report.md)
-    const reportPath = `${process.env["HOME"] ?? "/tmp"}/${REPORT_RELATIVE_PATH}`;
+    // Atomically claim the shared report file by renaming it to a per-job path.
+    // If two jobs finish simultaneously, only one rename succeeds — the other
+    // gets "no report" which is safe (the orchestrator still gets JobComplete).
+    const homeDir = process.env["HOME"] ?? "/tmp";
+    const reportPath = `${homeDir}/${REPORT_RELATIVE_PATH}`;
+    const archiveDir = `${homeDir}/${REPORT_ARCHIVE_DIR}`;
+    const jobReportPath = `${archiveDir}/${jobId}.md`;
+
     let result = "Job completed.";
     let report: string | undefined;
 
-    if (existsSync(reportPath)) {
-      try {
-        report = readFileSync(reportPath, "utf-8");
-        result = report.split("\n")[0] ?? "Job completed."; // first line as result summary
-        console.log(`[executor] Read completion report from ${reportPath}`);
-      } catch (err) {
-        console.warn(`[executor] Could not read report at ${reportPath}:`, err);
-      }
-    } else {
-      console.log(`[executor] No report file at ${reportPath}, using default result`);
+    try {
+      mkdirSync(archiveDir, { recursive: true });
+      renameSync(reportPath, jobReportPath);
+      report = readFileSync(jobReportPath, "utf-8");
+      result = report.split("\n")[0] ?? "Job completed.";
+      console.log(`[executor] Claimed report for jobId=${jobId} → ${jobReportPath}`);
+    } catch {
+      // rename failed → no report file, or another job already claimed it
+      console.log(`[executor] No report file for jobId=${jobId}, using default result`);
     }
 
     await this.sendJobComplete(jobId, result, report);

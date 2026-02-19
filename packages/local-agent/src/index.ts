@@ -17,6 +17,7 @@
 import { loadConfig } from "./config.js";
 import { SlotTracker } from "./slots.js";
 import { AgentConnection } from "./connection.js";
+import { JobExecutor } from "./executor.js";
 import type { OrchestratorMessage } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
@@ -39,8 +40,14 @@ async function main(): Promise<void> {
   // Create and configure Realtime connection
   const conn = new AgentConnection(config, slots);
 
-  // Register message handler — log all received messages
-  // Job dispatch will be wired here in the next card (job execution)
+  // Initialize job executor — passes messages back to orchestrator via conn.sendMessage
+  const executor = new JobExecutor(
+    config.name,
+    slots,
+    (msg) => conn.sendMessage(msg)
+  );
+
+  // Register message handler — dispatch StartJob/StopJob to executor
   conn.onMessage((msg: OrchestratorMessage) => {
     switch (msg.type) {
       case "start_job":
@@ -48,14 +55,14 @@ async function main(): Promise<void> {
           `[local-agent] Received start_job — jobId=${msg.jobId}, cardId=${msg.cardId}, ` +
             `slotType=${msg.slotType}, complexity=${msg.complexity}, model=${msg.model}`
         );
-        // TODO: dispatch to job executor (separate card)
+        void executor.handleStartJob(msg);
         break;
 
       case "stop_job":
         console.log(
           `[local-agent] Received stop_job — jobId=${msg.jobId}, reason=${msg.reason}`
         );
-        // TODO: terminate running job (separate card)
+        void executor.handleStopJob(msg);
         break;
 
       case "health_check":

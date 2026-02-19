@@ -1,9 +1,12 @@
 /**
  * connection.ts — Supabase Realtime connection manager
  *
- * Manages the WebSocket connection to Supabase Realtime for a single machine channel.
+ * Manages two Realtime channels for bidirectional orchestrator communication:
+ *   - Inbound:  `agent:${machineId}`     — receives StartJob/StopJob/HealthCheck from orchestrator
+ *   - Outbound: `orchestrator:commands`   — sends Heartbeat/JobAck/JobComplete/JobFailed to orchestrator
+ *
  * Handles:
- *   - Initial connection to channel `agent:${machineId}`
+ *   - Dual-channel subscription with coordinated readiness
  *   - Exponential backoff on disconnect (capped at 30 s)
  *   - Heartbeat every HEARTBEAT_INTERVAL_MS (30 s)
  *   - Incoming OrchestratorMessage validation + dispatch to handlers
@@ -11,7 +14,7 @@
 
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
 import { HEARTBEAT_INTERVAL_MS, PROTOCOL_VERSION, isOrchestratorMessage } from "@zazigv2/shared";
-import type { OrchestratorMessage, Heartbeat } from "@zazigv2/shared";
+import type { OrchestratorMessage, Heartbeat, AgentMessage } from "@zazigv2/shared";
 import type { MachineConfig } from "./config.js";
 import type { SlotTracker } from "./slots.js";
 
@@ -29,7 +32,10 @@ export class AgentConnection {
   private readonly slots: SlotTracker;
   private readonly handlers: MessageHandler[] = [];
 
+  /** Inbound channel: `agent:{machineId}` — receives commands from orchestrator. */
   private channel: RealtimeChannel | null = null;
+  /** Outbound channel: `orchestrator:commands` — sends messages to orchestrator. */
+  private outChannel: RealtimeChannel | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
@@ -55,6 +61,27 @@ export class AgentConnection {
     this.handlers.push(handler);
   }
 
+  /**
+   * Send an AgentMessage to the orchestrator via the `orchestrator:commands` channel.
+   * The orchestrator subscribes to this channel and dispatches by message type.
+   */
+  async sendMessage(msg: AgentMessage): Promise<void> {
+    if (!this.outChannel || this.stopped) {
+      console.warn("[local-agent] sendMessage called but outbound channel is not connected; message dropped:", msg.type);
+      return;
+    }
+    const result = await this.outChannel.send({
+      type: "broadcast",
+      event: "message",
+      payload: msg,
+    });
+    if (result !== "ok") {
+      console.warn(`[local-agent] sendMessage returned: ${result} for type=${msg.type}`);
+    } else {
+      console.log(`[local-agent] Sent ${msg.type} for jobId=${"jobId" in msg ? msg.jobId : "n/a"}`);
+    }
+  }
+
   /** Connect to Supabase Realtime and start the heartbeat loop. */
   async start(): Promise<void> {
     console.log(`[local-agent] Starting daemon for machine: ${this.machineId}`);
@@ -67,6 +94,10 @@ export class AgentConnection {
     this.stopped = true;
     this.clearReconnectTimer();
     this.clearHeartbeatTimer();
+    if (this.outChannel) {
+      await this.supabase.removeChannel(this.outChannel);
+      this.outChannel = null;
+    }
     if (this.channel) {
       await this.supabase.removeChannel(this.channel);
       this.channel = null;
@@ -82,8 +113,10 @@ export class AgentConnection {
     if (this.stopped) return;
 
     const channelName = `agent:${this.machineId}`;
-    console.log(`[local-agent] Connecting to Realtime channel: ${channelName}`);
+    const outChannelName = "orchestrator:commands";
+    console.log(`[local-agent] Connecting to channels: ${channelName} (in), ${outChannelName} (out)`);
 
+    // Inbound channel: receives commands from orchestrator
     this.channel = this.supabase.channel(channelName, {
       config: {
         broadcast: { ack: false },
@@ -95,18 +128,53 @@ export class AgentConnection {
       this.handleIncomingPayload(payload.payload);
     });
 
-    this.channel.subscribe((status, err) => {
-      if (status === "SUBSCRIBED") {
-        console.log(`[local-agent] Connected to channel: ${channelName}`);
+    // Also listen for start_job events (orchestrator sends with event: "start_job")
+    this.channel.on("broadcast", { event: "start_job" }, (payload) => {
+      this.handleIncomingPayload(payload.payload);
+    });
+
+    // Outbound channel: sends heartbeats/job updates to orchestrator
+    this.outChannel = this.supabase.channel(outChannelName, {
+      config: {
+        broadcast: { ack: false },
+      },
+    });
+
+    // Subscribe to both channels; start heartbeat once both are ready
+    let inReady = false;
+    let outReady = false;
+
+    const onBothReady = (): void => {
+      if (inReady && outReady) {
         this.reconnectAttempts = 0;
         this.startHeartbeat();
+      }
+    };
+
+    this.outChannel.subscribe((status, err) => {
+      if (status === "SUBSCRIBED") {
+        console.log(`[local-agent] Connected to outbound channel: ${outChannelName}`);
+        outReady = true;
+        onBothReady();
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        console.error(`[local-agent] Channel error (status=${status}):`, err ?? "unknown error");
+        console.error(`[local-agent] Outbound channel error (status=${status}):`, err ?? "unknown error");
+        this.clearHeartbeatTimer();
+        this.scheduleReconnect();
+      }
+    });
+
+    this.channel.subscribe((status, err) => {
+      if (status === "SUBSCRIBED") {
+        console.log(`[local-agent] Connected to inbound channel: ${channelName}`);
+        inReady = true;
+        onBothReady();
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.error(`[local-agent] Inbound channel error (status=${status}):`, err ?? "unknown error");
         this.clearHeartbeatTimer();
         this.scheduleReconnect();
       } else if (status === "CLOSED") {
         if (!this.stopped) {
-          console.warn(`[local-agent] Channel closed unexpectedly. Scheduling reconnect.`);
+          console.warn(`[local-agent] Inbound channel closed unexpectedly. Scheduling reconnect.`);
           this.clearHeartbeatTimer();
           this.scheduleReconnect();
         }
@@ -152,7 +220,7 @@ export class AgentConnection {
   }
 
   private async sendHeartbeat(): Promise<void> {
-    if (!this.channel || this.stopped) return;
+    if (!this.outChannel || this.stopped) return;
 
     const slotsAvailable = this.slots.getAvailable();
     const heartbeat: Heartbeat = {
@@ -163,7 +231,7 @@ export class AgentConnection {
       cpoAlive: false, // placeholder — CPO hosting is future work
     };
 
-    const result = await this.channel.send({
+    const result = await this.outChannel.send({
       type: "broadcast",
       event: "message",
       payload: heartbeat,
@@ -199,12 +267,12 @@ export class AgentConnection {
 
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
+      if (this.outChannel) {
+        try { await this.supabase.removeChannel(this.outChannel); } catch { /* best-effort */ }
+        this.outChannel = null;
+      }
       if (this.channel) {
-        try {
-          await this.supabase.removeChannel(this.channel);
-        } catch {
-          // best-effort cleanup
-        }
+        try { await this.supabase.removeChannel(this.channel); } catch { /* best-effort */ }
         this.channel = null;
       }
       await this.connect();

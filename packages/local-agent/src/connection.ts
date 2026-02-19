@@ -26,7 +26,8 @@ const BACKOFF_MULTIPLIER = 2;
 export type MessageHandler = (msg: OrchestratorMessage) => void;
 
 export class AgentConnection {
-  private readonly supabase: SupabaseClient;
+  /** Exposed so the executor can write job status directly to the DB. */
+  readonly supabase: SupabaseClient;
   private readonly machineId: string;
   private readonly config: MachineConfig;
   private readonly slots: SlotTracker;
@@ -47,8 +48,6 @@ export class AgentConnection {
     this.slots = slots;
     this.supabase = createClient(config.supabase.url, config.supabase.anon_key, {
       realtime: {
-        // Supabase Realtime default params — heartbeat and timeout are managed
-        // by the library internally; we add our own application-level heartbeat.
         params: {
           eventsPerSecond: 10,
         },
@@ -220,31 +219,46 @@ export class AgentConnection {
   }
 
   private async sendHeartbeat(): Promise<void> {
-    if (!this.outChannel || this.stopped) return;
+    if (this.stopped) return;
 
     const slotsAvailable = this.slots.getAvailable();
-    const heartbeat: Heartbeat = {
-      type: "heartbeat",
-      protocolVersion: PROTOCOL_VERSION,
-      machineId: this.machineId,
-      slotsAvailable,
-      cpoAlive: false, // placeholder — CPO hosting is future work
-    };
 
-    const result = await this.outChannel.send({
-      type: "broadcast",
-      event: "message",
-      payload: heartbeat,
-    });
+    // Primary: write heartbeat directly to the DB — reliable, no timing dependency
+    const { error: dbErr } = await this.supabase
+      .from("machines")
+      .update({
+        last_heartbeat: new Date().toISOString(),
+        status: "online",
+        slots_claude_code: slotsAvailable.claude_code,
+        slots_codex: slotsAvailable.codex,
+      })
+      .eq("name", this.machineId);
 
-    if (result === "ok") {
-      console.log(
-        `[local-agent] Heartbeat sent — machineId=${this.machineId}, ` +
-          `slots=${JSON.stringify(slotsAvailable)}, cpoAlive=false`
-      );
-    } else {
-      console.warn(`[local-agent] Heartbeat send returned: ${result}`);
+    if (dbErr) {
+      console.warn(`[local-agent] Heartbeat DB write failed: ${dbErr.message}`);
     }
+
+    // Secondary: also broadcast via Realtime (for orchestrator live monitoring)
+    if (this.outChannel) {
+      const heartbeat: Heartbeat = {
+        type: "heartbeat",
+        protocolVersion: PROTOCOL_VERSION,
+        machineId: this.machineId,
+        slotsAvailable,
+        cpoAlive: false,
+      };
+
+      await this.outChannel.send({
+        type: "broadcast",
+        event: "message",
+        payload: heartbeat,
+      });
+    }
+
+    console.log(
+      `[local-agent] Heartbeat — machineId=${this.machineId}, ` +
+        `slots=${JSON.stringify(slotsAvailable)}, db=${dbErr ? "FAIL" : "ok"}`
+    );
   }
 
   // ---------------------------------------------------------------------------

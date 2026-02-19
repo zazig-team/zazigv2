@@ -26,9 +26,14 @@ export type {
   AgentMessage,
 } from "./messages.js";
 
-import type { CardType, Complexity, SlotType, JobStatusValue } from "./messages.js";
+// ---- Card annotation (parsed from Trello card description) ----
+
+export type { CardAnnotation } from "./annotations.js";
+export { parseAnnotation } from "./annotations.js";
 
 // ---- Machine / slot tracking ----
+
+import type { CardType, Complexity, SlotType, JobStatusValue } from "./messages.js";
 
 export interface SlotPool {
   total: number;

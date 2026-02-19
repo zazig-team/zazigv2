@@ -1,5 +1,7 @@
 node_modules/
 dist/
+packages/*/node_modules/
+packages/*/dist/
 .env
 .env.*
 !.env.example
@@ -7,3 +9,4 @@ dist/
 .DS_Store
 coverage/
 .turbo/
+*.tsbuildinfo

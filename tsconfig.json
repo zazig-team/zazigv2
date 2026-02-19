@@ -1,9 +1,5 @@
 {
   "compilerOptions": {
-    "composite": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -13,10 +9,5 @@
       "@zazigv2/local-agent": ["./packages/local-agent/src/index.ts"]
     }
   },
-  "references": [
-    { "path": "./packages/shared" },
-    { "path": "./packages/orchestrator" },
-    { "path": "./packages/local-agent" }
-  ],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "packages/*/dist"]
 }

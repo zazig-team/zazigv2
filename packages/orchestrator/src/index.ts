@@ -5,7 +5,6 @@
 // Deploy via: supabase functions deploy orchestrator
 
 export type {
-  CardAnnotation,
   Complexity,
   CardType,
   Job,

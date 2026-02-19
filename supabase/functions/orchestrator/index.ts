@@ -374,13 +374,17 @@ function handleJobAck(_supabase: SupabaseClient, msg: { jobId: string; machineId
 }
 
 async function handleJobStatus(supabase: SupabaseClient, msg: JobStatusMessage): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("jobs")
     .update({ status: msg.status })
-    .eq("id", msg.jobId);
+    .eq("id", msg.jobId)
+    .in("status", ["dispatched", "executing", "reviewing"]) // only update non-terminal jobs
+    .select("id");
 
   if (error) {
     console.error(`[orchestrator] Failed to update job ${msg.jobId} status to ${msg.status}:`, error.message);
+  } else if (!data?.length) {
+    console.warn(`[orchestrator] Job ${msg.jobId} status update to ${msg.status} matched 0 rows (already terminal or missing)`);
   } else {
     console.log(`[orchestrator] Job ${msg.jobId} status → ${msg.status}`);
   }

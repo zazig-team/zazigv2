@@ -9,6 +9,7 @@ export type {
   Complexity,
   CardType,
   JobStatusValue,
+  FailureReason,
   // Orchestrator → Local Agent messages
   StartJob,
   StopJob,
@@ -19,6 +20,8 @@ export type {
   JobStatus,
   JobComplete,
   JobFailed,
+  JobAck,
+  StopAck,
   AgentMessage,
 } from "./messages.js";
 
@@ -70,6 +73,18 @@ export interface Job {
 
 // ---- Constants ----
 
+/**
+ * Current protocol version.
+ * Both OrchestratorMessage and AgentMessage carry this value in their
+ * `protocolVersion` field. Receivers should reject messages with a
+ * different version to surface schema mismatch early.
+ *
+ * Increment this when making a breaking change to the message schema
+ * (e.g. renaming a required field, removing a message type).
+ * Adding optional fields or new message types is non-breaking.
+ */
+export const PROTOCOL_VERSION = 1;
+
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 export const MACHINE_DEAD_THRESHOLD_MS = 120_000;
 export const CPO_FAILOVER_THRESHOLD_MS = 15 * 60_000;
@@ -94,4 +109,6 @@ export {
   isJobStatus,
   isJobComplete,
   isJobFailed,
+  isJobAck,
+  isStopAck,
 } from "./validators.js";

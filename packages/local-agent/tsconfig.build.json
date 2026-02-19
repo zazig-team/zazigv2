@@ -9,7 +9,7 @@
     "declarationMap": true,
     "sourceMap": true,
     "paths": {
-      "@zazigv2/shared": ["../shared/dist/index.js"]
+      "@zazigv2/shared": ["../shared/dist/index.d.ts"]
     }
   },
   "include": ["src/**/*.ts"],

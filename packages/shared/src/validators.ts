@@ -24,9 +24,11 @@ import type {
   JobStatus,
   JobComplete,
   JobFailed,
+  JobAck,
+  StopAck,
 } from "./messages.js";
 
-import { MAX_CONTEXT_BYTES } from "./index.js";
+import { MAX_CONTEXT_BYTES, PROTOCOL_VERSION } from "./index.js";
 
 // ---------------------------------------------------------------------------
 // Allowed model identifiers
@@ -55,12 +57,22 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/**
+ * Returns true if the object's protocolVersion field matches the current
+ * PROTOCOL_VERSION constant. Callers pass a pre-validated Record so we
+ * can safely index into it.
+ */
+function hasValidProtocolVersion(v: Record<string, unknown>): boolean {
+  return v.protocolVersion === PROTOCOL_VERSION;
+}
+
 // ---------------------------------------------------------------------------
 // Orchestrator → Agent validators
 // ---------------------------------------------------------------------------
 
 export function isStartJob(v: unknown): v is StartJob {
   if (!isObject(v) || v.type !== "start_job") return false;
+  if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || v.jobId.length === 0) return false;
   if (!isString(v.cardId) || v.cardId.length === 0) return false;
   if (!["code", "infra", "design", "research", "docs"].includes(v.cardType as string)) return false;
@@ -77,13 +89,18 @@ export function isStartJob(v: unknown): v is StartJob {
 
 export function isStopJob(v: unknown): v is StopJob {
   if (!isObject(v) || v.type !== "stop_job") return false;
+  if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || v.jobId.length === 0) return false;
   if (!isString(v.reason)) return false;
   return true;
 }
 
 export function isHealthCheck(v: unknown): v is HealthCheck {
-  return isObject(v) && v.type === "health_check";
+  if (!isObject(v) || v.type !== "health_check") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  // correlationId is optional; if present it must be a string
+  if (v.correlationId !== undefined && !isString(v.correlationId)) return false;
+  return true;
 }
 
 export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
@@ -102,16 +119,20 @@ export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
 
 export function isHeartbeat(v: unknown): v is Heartbeat {
   if (!isObject(v) || v.type !== "heartbeat") return false;
+  if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.machineId) || v.machineId.length === 0) return false;
   if (!isObject(v.slotsAvailable)) return false;
   if (!isNumber(v.slotsAvailable.claude_code) || v.slotsAvailable.claude_code < 0) return false;
   if (!isNumber(v.slotsAvailable.codex) || v.slotsAvailable.codex < 0) return false;
   if (typeof v.cpoAlive !== "boolean") return false;
+  // correlationId is optional; if present it must be a string
+  if (v.correlationId !== undefined && !isString(v.correlationId)) return false;
   return true;
 }
 
 export function isJobStatus(v: unknown): v is JobStatus {
   if (!isObject(v) || v.type !== "job_status") return false;
+  if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || v.jobId.length === 0) return false;
   const validStatuses = ["queued", "dispatched", "executing", "reviewing", "complete", "failed"];
   if (!isString(v.status) || !validStatuses.includes(v.status)) return false;
@@ -121,6 +142,7 @@ export function isJobStatus(v: unknown): v is JobStatus {
 
 export function isJobComplete(v: unknown): v is JobComplete {
   if (!isObject(v) || v.type !== "job_complete") return false;
+  if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || v.jobId.length === 0) return false;
   if (!isString(v.result)) return false;
   if (v.pr !== undefined && !isString(v.pr)) return false;
@@ -128,20 +150,42 @@ export function isJobComplete(v: unknown): v is JobComplete {
   return true;
 }
 
+const VALID_FAILURE_REASONS = new Set(["agent_crash", "ci_failure", "timeout", "unknown"]);
+
 export function isJobFailed(v: unknown): v is JobFailed {
   if (!isObject(v) || v.type !== "job_failed") return false;
+  if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || v.jobId.length === 0) return false;
   if (!isString(v.error)) return false;
+  if (!isString(v.failureReason) || !VALID_FAILURE_REASONS.has(v.failureReason)) return false;
+  return true;
+}
+
+export function isJobAck(v: unknown): v is JobAck {
+  if (!isObject(v) || v.type !== "job_ack") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
+  return true;
+}
+
+export function isStopAck(v: unknown): v is StopAck {
+  if (!isObject(v) || v.type !== "stop_ack") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
   return true;
 }
 
 export function isAgentMessage(v: unknown): v is AgentMessage {
   if (!isObject(v) || !isString(v.type)) return false;
   switch (v.type) {
-    case "heartbeat":   return isHeartbeat(v);
-    case "job_status":  return isJobStatus(v);
+    case "heartbeat":    return isHeartbeat(v);
+    case "job_status":   return isJobStatus(v);
     case "job_complete": return isJobComplete(v);
-    case "job_failed":  return isJobFailed(v);
-    default:            return false;
+    case "job_failed":   return isJobFailed(v);
+    case "job_ack":      return isJobAck(v);
+    case "stop_ack":     return isStopAck(v);
+    default:             return false;
   }
 }

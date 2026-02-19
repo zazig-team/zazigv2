@@ -9,6 +9,8 @@
  *   Local Agent  → Orchestrator (reports: heartbeats, job progress, job results)
  *
  * Each message family is a discriminated union on the `type` field.
+ * Every message carries a `protocolVersion` field for schema version negotiation.
+ * Receivers should reject messages whose protocolVersion does not match PROTOCOL_VERSION.
  */
 
 // ---------------------------------------------------------------------------
@@ -46,6 +48,16 @@ export type JobStatusValue =
   | "complete"
   | "failed";
 
+/**
+ * Structured failure reason for JobFailed messages.
+ * Enables the orchestrator to apply different recovery strategies per failure category:
+ *   agent_crash  → re-queue immediately on a healthy machine
+ *   ci_failure   → move to Needs Human for triage
+ *   timeout      → re-queue with extended timeout or move to Needs Human
+ *   unknown      → log and move to Needs Human
+ */
+export type FailureReason = "agent_crash" | "ci_failure" | "timeout" | "unknown";
+
 // ---------------------------------------------------------------------------
 // Orchestrator → Local Agent messages
 // ---------------------------------------------------------------------------
@@ -57,6 +69,8 @@ export type JobStatusValue =
  */
 export interface StartJob {
   type: "start_job";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
   /** Unique job identifier (assigned by the orchestrator). */
   jobId: string;
   /** Trello card ID being worked. */
@@ -79,6 +93,8 @@ export interface StartJob {
  */
 export interface StopJob {
   type: "stop_job";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
   /** Job to terminate. */
   jobId: string;
   /** Human-readable reason for the stop (logged for observability). */
@@ -88,9 +104,15 @@ export interface StopJob {
 /**
  * Liveness probe sent by the orchestrator.
  * The local agent should respond with a Heartbeat message.
+ * An optional correlationId may be included so the Heartbeat response can
+ * echo it back for round-trip latency correlation.
  */
 export interface HealthCheck {
   type: "health_check";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** Optional round-trip correlation token. Echoed back in the Heartbeat response. */
+  correlationId?: string;
 }
 
 /** Union of all messages the orchestrator sends to a local agent. */
@@ -107,6 +129,8 @@ export type OrchestratorMessage = StartJob | StopJob | HealthCheck;
  */
 export interface Heartbeat {
   type: "heartbeat";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
   /** Stable machine identifier (matches the `machines` table in Supabase). */
   machineId: string;
   /**
@@ -116,6 +140,11 @@ export interface Heartbeat {
   slotsAvailable: Record<SlotType, number>;
   /** Whether the persistent CPO session is running on this machine. */
   cpoAlive: boolean;
+  /**
+   * Echo of the HealthCheck.correlationId that triggered this heartbeat, if any.
+   * Allows the orchestrator to measure round-trip latency.
+   */
+  correlationId?: string;
 }
 
 /**
@@ -125,6 +154,8 @@ export interface Heartbeat {
  */
 export interface JobStatus {
   type: "job_status";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
   jobId: string;
   /** New status value for this job (see JobStatusValue). */
   status: JobStatusValue;
@@ -138,6 +169,8 @@ export interface JobStatus {
  */
 export interface JobComplete {
   type: "job_complete";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
   jobId: string;
   /** Summary of what was produced (e.g. commit message, diff stats). */
   result: string;
@@ -153,10 +186,44 @@ export interface JobComplete {
  */
 export interface JobFailed {
   type: "job_failed";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
   jobId: string;
   /** Error description for logging and card annotation. */
   error: string;
+  /** Structured failure category for orchestrator recovery strategy selection. */
+  failureReason: FailureReason;
+}
+
+/**
+ * Delivery confirmation sent by the agent when a StartJob message is received.
+ * The orchestrator uses this to confirm the job was received before expecting
+ * further JobStatus / JobComplete / JobFailed updates.
+ */
+export interface JobAck {
+  type: "job_ack";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** The job being acknowledged. */
+  jobId: string;
+  /** The machine that received the job. */
+  machineId: string;
+}
+
+/**
+ * Delivery confirmation sent by the agent when a StopJob message is received.
+ * The orchestrator uses this to confirm the stop was received before expecting
+ * slot release.
+ */
+export interface StopAck {
+  type: "stop_ack";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** The job whose stop was acknowledged. */
+  jobId: string;
+  /** The machine that received the stop. */
+  machineId: string;
 }
 
 /** Union of all messages a local agent sends to the orchestrator. */
-export type AgentMessage = Heartbeat | JobStatus | JobComplete | JobFailed;
+export type AgentMessage = Heartbeat | JobStatus | JobComplete | JobFailed | JobAck | StopAck;

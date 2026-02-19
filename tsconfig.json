@@ -13,5 +13,5 @@
       "@zazigv2/local-agent": ["./packages/local-agent/src/index.ts"]
     }
   },
-  "exclude": ["node_modules", "packages/*/dist"]
+  "exclude": ["node_modules", "packages/*/dist", "supabase/functions"]
 }

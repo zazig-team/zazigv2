@@ -19,6 +19,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync } from "node:fs";
 import { promisify } from "node:util";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType } from "@zazigv2/shared";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
@@ -66,14 +67,16 @@ export class JobExecutor {
   private readonly machineId: string;
   private readonly slots: SlotTracker;
   private readonly send: SendFn;
+  private readonly supabase: SupabaseClient;
 
   /** Map of jobId → active job state. */
   private readonly activeJobs = new Map<string, ActiveJob>();
 
-  constructor(machineId: string, slots: SlotTracker, send: SendFn) {
+  constructor(machineId: string, slots: SlotTracker, send: SendFn, supabase: SupabaseClient) {
     this.machineId = machineId;
     this.slots = slots;
     this.send = send;
+    this.supabase = supabase;
   }
 
   // ---------------------------------------------------------------------------
@@ -319,6 +322,17 @@ export class JobExecutor {
     status: "executing" | "reviewing" | "complete" | "failed",
     output?: string
   ): Promise<void> {
+    // Primary: write directly to DB
+    const { error: dbErr } = await this.supabase
+      .from("jobs")
+      .update({ status })
+      .eq("id", jobId);
+
+    if (dbErr) {
+      console.warn(`[executor] sendJobStatus DB write failed for jobId=${jobId}: ${dbErr.message}`);
+    }
+
+    // Secondary: broadcast via Realtime
     await this.send({
       type: "job_status",
       protocolVersion: PROTOCOL_VERSION,
@@ -333,6 +347,21 @@ export class JobExecutor {
     result: string,
     report?: string
   ): Promise<void> {
+    // Primary: write directly to DB
+    const { error: dbErr } = await this.supabase
+      .from("jobs")
+      .update({
+        status: "complete",
+        result,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", jobId);
+
+    if (dbErr) {
+      console.warn(`[executor] sendJobComplete DB write failed for jobId=${jobId}: ${dbErr.message}`);
+    }
+
+    // Secondary: broadcast via Realtime
     await this.send({
       type: "job_complete",
       protocolVersion: PROTOCOL_VERSION,
@@ -348,6 +377,17 @@ export class JobExecutor {
     error: string,
     failureReason: FailureReason
   ): Promise<void> {
+    // Primary: write directly to DB
+    const { error: dbErr } = await this.supabase
+      .from("jobs")
+      .update({ status: "failed" })
+      .eq("id", jobId);
+
+    if (dbErr) {
+      console.warn(`[executor] sendJobFailed DB write failed for jobId=${jobId}: ${dbErr.message}`);
+    }
+
+    // Secondary: broadcast via Realtime
     await this.send({
       type: "job_failed",
       protocolVersion: PROTOCOL_VERSION,

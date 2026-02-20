@@ -357,7 +357,7 @@ async function handleHeartbeat(supabase: SupabaseClient, msg: Heartbeat): Promis
       slots_claude_code: slotsAvailable.claude_code,
       slots_codex: slotsAvailable.codex,
     })
-    .eq("id", machineId);
+    .eq("name", machineId);
 
   if (error) {
     console.error(`[orchestrator] Failed to record heartbeat for machine ${machineId}:`, error.message);
@@ -572,16 +572,17 @@ Deno.serve(async (_req: Request): Promise<Response> => {
   const supabase = makeAdminClient();
 
   try {
-    // 1. Reap dead machines and re-queue their jobs.
+    // 1. Drain any pending agent messages from the Realtime channel.
+    //    Listen for 4 s to collect messages (heartbeats, job updates).
+    //    Must run BEFORE reap so freshly-received heartbeats prevent
+    //    machines from being incorrectly marked dead.
+    await listenForAgentMessages(supabase, 4_000);
+
+    // 2. Reap dead machines and re-queue their jobs.
     await reapDeadMachines(supabase);
 
-    // 2. Dispatch queued jobs to available machines.
+    // 3. Dispatch queued jobs to available machines.
     await dispatchQueuedJobs(supabase);
-
-    // 3. Drain any pending agent messages from the Realtime channel.
-    //    Listen for 4 s to collect messages; the function should complete
-    //    before the next 10 s trigger fires.
-    await listenForAgentMessages(supabase, 4_000);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[orchestrator] Unhandled error:", message);

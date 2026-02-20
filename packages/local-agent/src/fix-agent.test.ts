@@ -106,6 +106,46 @@ describe("FixAgentManager", () => {
       expect(execFileMock).not.toHaveBeenCalled();
     });
 
+    it("sanitizes featureId in the tmux session name", async () => {
+      const manager = new FixAgentManager("/repo");
+
+      await manager.spawn({
+        featureId: "feat.1234:bad chars!@#",
+        featureBranch: "feature/auth",
+        slackChannel: "#testing",
+        slackThreadTs: "1234567890.123456",
+      });
+
+      const tmuxCall = execFileMock.mock.calls[0];
+      const tmuxArgs = tmuxCall[1] as string[];
+      const sessionNameIdx = tmuxArgs.indexOf("-s") + 1;
+      const sessionName = tmuxArgs[sessionNameIdx];
+      // Only [a-zA-Z0-9-] should remain — dots, colons, special chars stripped
+      expect(sessionName).toBe("fix-feat1234");
+    });
+
+    it("aborts spawn when featureId is empty after sanitization", async () => {
+      const manager = new FixAgentManager("/repo");
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await manager.spawn({
+        featureId: "...:::!!!",
+        featureBranch: "feature/auth",
+        slackChannel: "#testing",
+        slackThreadTs: "1234567890.123456",
+      });
+
+      // Should NOT create worktree or spawn tmux
+      expect(createWorktreeMock).not.toHaveBeenCalled();
+      expect(execFileMock).not.toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("empty after sanitization")
+      );
+      expect(manager.isActive("...:::!!!")).toBe(false);
+
+      consoleSpy.mockRestore();
+    });
+
     it("includes the fix agent prompt in the tmux command", async () => {
       const manager = new FixAgentManager("/repo");
 

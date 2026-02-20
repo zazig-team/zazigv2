@@ -55,20 +55,30 @@ export class FixAgentManager {
   async spawn(params: SpawnParams): Promise<void> {
     if (this.activeAgents.has(params.featureId)) return;
 
-    const sessionName = `fix-${params.featureId.slice(0, 8)}`;
+    // Sanitize featureId for tmux session name — only allow [a-zA-Z0-9-]
+    const sanitizedId = params.featureId.replace(/[^a-z0-9-]/gi, '').slice(0, 8);
+    if (!sanitizedId) {
+      console.error(`[fix-agent] featureId "${params.featureId}" is empty after sanitization — aborting spawn`);
+      return;
+    }
+
+    const sessionName = `fix-${sanitizedId}`;
 
     // 1. Create worktree on the feature branch
     const worktreePath = await createWorktree(this.repoDir, params.featureBranch);
 
     // 2. Build the prompt for the fix agent
+    const safeChannel = sanitizeSlackField(params.slackChannel);
+    const safeThread = sanitizeSlackField(params.slackThreadTs);
+
     const prompt = [
       "You are a fix agent for a feature currently in human testing.",
       "A human is testing this feature and will describe issues in Slack.",
       "Your job: fix issues on the current branch with minimal changes.",
       "After each fix, commit and push so the test server auto-redeploys.",
       "Only fix what the human reports. Do not refactor or add features.",
-      `Slack channel: ${params.slackChannel}`,
-      `Thread: ${params.slackThreadTs}`,
+      `Slack channel: ${safeChannel}`,
+      `Thread: ${safeThread}`,
     ].join(" ");
 
     // 3. Spawn tmux session with claude -p
@@ -122,6 +132,16 @@ export class FixAgentManager {
   isActive(featureId: string): boolean {
     return this.activeAgents.has(featureId);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Sanitize Slack fields before embedding in prompt
+// ---------------------------------------------------------------------------
+
+/** Strip characters that could enable prompt injection or shell metachar abuse. */
+function sanitizeSlackField(s: string): string {
+  // Allow printable ASCII except backticks, $, \, and quotes
+  return s.replace(/[`$\\"'\n\r]/g, '').slice(0, 200);
 }
 
 // ---------------------------------------------------------------------------

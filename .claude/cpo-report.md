@@ -1,33 +1,40 @@
-# CPO Report — Pipeline Task 9: Fix Agent Spawning for Testing Phase
+# CPO Report — Pipeline Task 9 (P0 Security Fixes): fix-agent.ts
 
 ## Summary
 
-Implemented the `FixAgentManager` class that manages ephemeral Claude Code sessions during the testing phase. When a feature enters testing, the orchestrator sends a `DeployToTest` message, which triggers spawning a fix agent on the feature branch in a tmux session. The fix agent receives issues from Slack and makes minimal fixes, committing and pushing after each.
+Applied 3 P0 security fixes identified in code review of `fix-agent.ts` and `index.ts`. All issues resolved, tests pass, TypeScript compiles clean.
+
+## P0 Fixes Applied
+
+### P0-1: `featureId` unsanitized in tmux session name
+- **File:** `packages/local-agent/src/fix-agent.ts`
+- **Fix:** Strip non-`[a-zA-Z0-9-]` characters from `featureId` before constructing `sessionName`. Abort spawn with error log if sanitized ID is empty.
+
+### P0-2: Prompt injection via network-supplied Slack values
+- **File:** `packages/local-agent/src/fix-agent.ts`
+- **Fix:** Added `sanitizeSlackField()` function that strips backticks, `$`, `\`, quotes, and newlines. Applied to `slackChannel` and `slackThreadTs` before embedding in prompt string. Capped at 200 chars.
+
+### P0-3: Fix agent spawned with empty Slack fields
+- **File:** `packages/local-agent/src/index.ts`
+- **Fix:** Removed `fixAgentManager.spawn()` call from `deploy_to_test` handler. Replaced with explicit warning log and TODO comment. Fix agent spawning gated until `DeployToTest` protocol includes Slack fields (Task 10).
 
 ## Files Changed
 
-- `packages/local-agent/src/fix-agent.ts` — FixAgentManager class with `spawn()`, `cleanup()`, `isActive()` methods
-- `packages/local-agent/src/fix-agent.test.ts` — 8 vitest tests covering spawn, idempotency, cleanup, and isActive
-- `packages/local-agent/src/index.ts` — Import FixAgentManager, instantiate it, wire `deploy_to_test` message to `fixAgentManager.spawn()`
+- `packages/local-agent/src/fix-agent.ts` — featureId sanitization, slackField sanitization
+- `packages/local-agent/src/fix-agent.test.ts` — 2 new tests (sanitization, empty-after-sanitize abort)
+- `packages/local-agent/src/index.ts` — gated spawn, added TODO
 - `.claude/cpo-report.md` — this report
 
 ## Tests
 
-- 8 new tests in `fix-agent.test.ts` (spawn, idempotency, cleanup, isActive)
-- 18/18 tests passing across local-agent package
-- TypeScript compiles cleanly (`tsc --noEmit`)
+- 20/20 tests passing (10 fix-agent + 10 branches)
+- 2 new tests added: sanitized session name, abort on empty featureId
+- TypeScript compiles cleanly across all workspaces (`tsc --noEmit`)
 
 ## Token Usage
 
 - Routing: claude-ok (direct implementation)
 - No codex delegation used
-
-## Notes
-
-- The `DeployToTest` message type does not currently carry Slack channel/thread fields. A TODO was left in `index.ts` for when the protocol is extended.
-- `FixAgentManager.cleanup()` is implemented and tested but not yet wired to an orchestrator message. Cleanup will be triggered when `FeatureApproved`/`FeatureRejected` handling is added (Task 10).
-- Shell escaping follows the same pattern as `executor.ts` for consistency.
-- `CLAUDECODE` env var is unset in the tmux session to prevent nested session detection.
 
 ## Issues Encountered
 

@@ -163,7 +163,7 @@ function createSmartMockSupabase() {
     // deno-lint-ignore no-explicit-any
     const chain: any = {};
 
-    for (const method of ["select", "update", "insert", "eq", "in", "single", "order", "gt"]) {
+    for (const method of ["select", "update", "insert", "eq", "in", "single", "order", "gt", "not"]) {
       // deno-lint-ignore no-explicit-any
       chain[method] = (...args: any[]) => {
         ops.push({ method, args });
@@ -302,8 +302,8 @@ Deno.test("handleVerifyResult — passed, all jobs done, triggers feature verifi
   // RPC all_feature_jobs_complete → true (all done!)
   setResponse("rpc:all_feature_jobs_complete", { data: true, error: null });
 
-  // triggerFeatureVerification: update feature status
-  setResponse("features:update.eq", { error: null });
+  // triggerFeatureVerification: CAS update feature status (returns updated row)
+  setResponse("features:update.eq.not.select", { data: [{ id: "feature-99" }], error: null });
 
   // triggerFeatureVerification: select feature details
   setResponse("features:select.eq.single", {
@@ -335,10 +335,13 @@ Deno.test("handleVerifyResult — passed, all jobs done, triggers feature verifi
   const featureChains = chainedCalls.filter((c) => c.table === "features");
   assertEquals(featureChains.length >= 2, true, "Should have feature update + select chains");
 
-  // First feature chain: update status to verifying
+  // First feature chain: CAS update status to verifying with .not() guard
   assertEquals(featureChains[0].operations[0].method, "update");
   // deno-lint-ignore no-explicit-any
   assertEquals((featureChains[0].operations[0].args[0] as any).status, "verifying");
+  // Verify CAS guard: .not() should be in the chain
+  const notOp = featureChains[0].operations.find((o) => o.method === "not");
+  assertEquals(notOp !== undefined, true, "Should have .not() CAS guard");
 
   // Jobs should have 3 chains: update done, select feature_id, insert verification job
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
@@ -351,6 +354,7 @@ Deno.test("handleVerifyResult — passed, all jobs done, triggers feature verifi
   const insertPayload = insertChain!.operations[0].args[0] as any;
   assertEquals(insertPayload.status, "queued");
   assertEquals(insertPayload.role, "reviewer");
+  assertEquals(insertPayload.job_type, "verify");
   assertEquals(insertPayload.feature_id, "feature-99");
   assertEquals(insertPayload.branch, "feature/auth-system");
   const context = JSON.parse(insertPayload.context);
@@ -362,8 +366,8 @@ Deno.test("handleVerifyResult — passed, all jobs done, triggers feature verifi
 Deno.test("triggerFeatureVerification — sets feature to verifying and inserts queued job", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
-  // update feature status to verifying
-  setResponse("features:update.eq", { error: null });
+  // CAS update feature status to verifying (returns updated row)
+  setResponse("features:update.eq.not.select", { data: [{ id: "feature-42" }], error: null });
 
   // select feature details
   setResponse("features:select.eq.single", {
@@ -386,12 +390,17 @@ Deno.test("triggerFeatureVerification — sets feature to verifying and inserts 
   const featureChains = chainedCalls.filter((c) => c.table === "features");
   assertEquals(featureChains.length, 2, "Should update and select from features");
 
-  // First: update status to verifying
+  // First: CAS update status to verifying with .not() guard and .select()
   assertEquals(featureChains[0].operations[0].method, "update");
   // deno-lint-ignore no-explicit-any
   assertEquals((featureChains[0].operations[0].args[0] as any).status, "verifying");
   assertEquals(featureChains[0].operations[1].method, "eq");
   assertEquals(featureChains[0].operations[1].args[1], "feature-42");
+  // Verify CAS guard present
+  const notOp = featureChains[0].operations.find((o) => o.method === "not");
+  assertEquals(notOp !== undefined, true, "Should have .not() CAS guard");
+  const selectOp = featureChains[0].operations.find((o) => o.method === "select");
+  assertEquals(selectOp !== undefined, true, "Should have .select() for row count check");
 
   // Second: select feature details
   assertEquals(featureChains[1].operations[0].method, "select");
@@ -407,7 +416,7 @@ Deno.test("triggerFeatureVerification — sets feature to verifying and inserts 
   assertEquals(payload.project_id, "proj-2");
   assertEquals(payload.feature_id, "feature-42");
   assertEquals(payload.role, "reviewer");
-  assertEquals(payload.job_type, "code");
+  assertEquals(payload.job_type, "verify");
   assertEquals(payload.complexity, "simple");
   assertEquals(payload.slot_type, "claude_code");
   assertEquals(payload.status, "queued");

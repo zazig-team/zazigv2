@@ -150,15 +150,4 @@ export type {
   CompiledPersonality,
   PersonalityMode,
 } from "./personality/index.js";
-export {
-  compileVerbosity,
-  compileTechnicality,
-  compileFormality,
-  compileProactivity,
-  compileDirectness,
-  compileCommunicationDirectives,
-  compileDecisionDirectives,
-  resolveContextualOverlay,
-  applyOverlay,
-  compilePersonalityPrompt,
-} from "./personality/index.js";
+export { compilePersonalityPrompt } from "./personality/index.js";

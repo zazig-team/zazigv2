@@ -18,5 +18,4 @@ export type {
 export {
   HEARTBEAT_INTERVAL_MS,
   MACHINE_DEAD_THRESHOLD_MS,
-  CPO_FAILOVER_THRESHOLD_MS,
 } from "@zazigv2/shared";

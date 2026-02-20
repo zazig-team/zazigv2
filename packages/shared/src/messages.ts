@@ -108,6 +108,12 @@ export interface StartJob {
    * Optional when `context` is provided; required otherwise.
    */
   contextRef?: string;
+  /**
+   * Agent role for this job (e.g. "cpo", "engineer", "reviewer").
+   * Used by the executor to load role-specific operating manual + memory into agent context.
+   * Only present for role-based jobs (persistent agents, specialized reviewers).
+   */
+  role?: string;
 }
 
 /**
@@ -161,8 +167,6 @@ export interface Heartbeat {
    * Example: { claude_code: 1, codex: 0 }
    */
   slotsAvailable: Record<SlotType, number>;
-  /** Whether the persistent CPO session is running on this machine. */
-  cpoAlive: boolean;
   /**
    * Echo of the HealthCheck.correlationId that triggered this heartbeat, if any.
    * Allows the orchestrator to measure round-trip latency.

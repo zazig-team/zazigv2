@@ -1,70 +1,21 @@
-# P0 RLS Security Fix
+# CPO Report — PR #16 P1 Fixes
 
-## Summary
+## P1 Fix
 
-Fixed 2 P0 and 2 P1 security issues identified in code review of PR #12.
+### P1-1: Slot leak in handleJobComplete
+**Problem:** When the pre-completion SELECT failed in `handleJobComplete()`, the function returned early without calling `releaseSlot()`, permanently leaking the slot.
+**Fix:** Added `await releaseSlot(supabase, jobId, machineId)` before the early return (line 407).
 
-## P0-1: Cross-tenant data exposure (CRITICAL) — FIXED
+### P1-2: Persistent job stuck in failed on fetch error
+**Problem:** In `handleJobFailed()`, if the job_type SELECT errored, `isPersistent` defaulted to `false`, leaving persistent jobs permanently stuck in `failed` status.
+**Fix:** Added error logging and defaulted `isPersistent = true` when `fetchErr` is truthy (line 468-471). This ensures persistent jobs always re-queue even when the DB fetch fails.
 
-**Problem:** `004_rls_direct_writes.sql` used `USING (true)` on anon-role policies for
-both `machines` and `jobs` tables. Any holder of the public anon key could read/write
-ALL companies' data with no tenant scoping.
+### P1-3: Migration numbering
+**Result:** No conflict. Only `003_multi_tenant_schema.sql` and `005_persistent_jobs_seed.sql` exist in `supabase/migrations/`. Kept `005_` as-is.
 
-**Fix:** Removed all anon-role RLS policies. DB writes now use the `service_role` key
-(which bypasses RLS entirely — security is via key secrecy). The anon key is used only
-for Realtime channel subscriptions (read-only).
-
-Changes:
-- `004_rls_direct_writes.sql`: Replaced 4 broad anon policies with a no-op + documentation
-- `config.ts`: Added `service_role_key?: string` to `SupabaseConfig`, loaded from `SUPABASE_SERVICE_ROLE_KEY` env var
-- `connection.ts`: Created separate `dbClient` using service_role key for all DB writes; anon client (`supabase`) used only for Realtime
-
-## P0-2: Unrestricted column UPDATE — FIXED
-
-**Problem:** Anon UPDATE policy had no column restriction.
-
-**Fix:** Moot — anon policies removed entirely. service_role bypasses RLS.
-
-## P1: Heartbeat write unscoped — FIXED
-
-**Problem:** `connection.ts` heartbeat used `.eq('name', machineId)` with no company_id
-scope. With service_role (which bypasses RLS), this could update machines across tenants
-if names collide.
-
-**Fix:** Added `company_id` to `MachineConfig` (loaded from `machine.yaml`). Heartbeat
-write now scopes: `.eq('company_id', companyId).eq('name', machineId)`.
-
-## P1: sendJobFailed missing error detail — FIXED
-
-**Problem:** `executor.ts` `sendJobFailed` DB write only set `status: "failed"` without
-persisting the error message.
-
-**Fix:** Added `result: \`FAILED: ${error}\`` to the update payload.
-
-## Files Changed
-
-| File | Change |
-|------|--------|
-| `supabase/migrations/004_rls_direct_writes.sql` | Removed 4 anon policies, replaced with documentation |
-| `packages/local-agent/src/config.ts` | Added `service_role_key`, `company_id` to types + loader |
-| `packages/local-agent/src/connection.ts` | Added `dbClient` (service_role), scoped heartbeat by company_id |
-| `packages/local-agent/src/executor.ts` | Added `result` field to sendJobFailed DB write |
-| `packages/local-agent/src/index.ts` | Pass `conn.dbClient` to JobExecutor instead of `conn.supabase` |
-
-## machine.yaml Changes Required
-
-After this fix, `~/.zazigv2/machine.yaml` must include a `company_id` field:
-
-```yaml
-name: my-machine
-company_id: "<uuid-of-your-company>"
-slots:
-  claude_code: 2
-  codex: 1
-```
-
-And the `SUPABASE_SERVICE_ROLE_KEY` environment variable must be set.
+## Pre-merge Check
+All checks passed (lint, tsc --noEmit).
 
 ## Token Usage
-
-Direct implementation by Claude — no codex delegation needed. Straightforward security fix.
+- Token budget: claude-ok
+- Approach: Direct code edits (2 targeted fixes, ~5 lines changed)

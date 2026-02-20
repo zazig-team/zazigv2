@@ -87,6 +87,8 @@ export function isStartJob(v: unknown): v is StartJob {
   // Using character count as a conservative proxy: worst-case UTF-16 encoding
   // means 1 char ≤ 4 bytes, so length > MAX_CONTEXT_BYTES already exceeds the limit.
   if (hasContext && (v.context as string).length > MAX_CONTEXT_BYTES) return false;
+  // role is optional; if present it must be a non-empty string
+  if (v.role !== undefined && (!isString(v.role) || v.role.length === 0)) return false;
   return true;
 }
 
@@ -127,7 +129,6 @@ export function isHeartbeat(v: unknown): v is Heartbeat {
   if (!isObject(v.slotsAvailable)) return false;
   if (!isNumber(v.slotsAvailable.claude_code) || v.slotsAvailable.claude_code < 0) return false;
   if (!isNumber(v.slotsAvailable.codex) || v.slotsAvailable.codex < 0) return false;
-  if (typeof v.cpoAlive !== "boolean") return false;
   // correlationId is optional; if present it must be a string
   if (v.correlationId !== undefined && !isString(v.correlationId)) return false;
   return true;

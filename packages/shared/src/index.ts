@@ -52,12 +52,14 @@ export interface Machine {
   id: string;
   name: string;
   slots: MachineSlots;
-  hostsCpo: boolean;
   lastHeartbeat: string | null;
   status: MachineStatus;
 }
 
 // ---- Job record (orchestrator DB row) ----
+
+/** Type of job — matches the `job_type` column in the jobs table. */
+export type JobType = "code" | "infra" | "design" | "research" | "docs" | "bug" | "persistent_agent";
 
 export interface Job {
   id: string;
@@ -65,6 +67,8 @@ export interface Job {
   cardType: CardType;
   complexity: Complexity;
   slotType: SlotType;
+  jobType: JobType;
+  role: string;
   machineId: string | null;
   status: JobStatusValue;
   startedAt: string | null;
@@ -88,8 +92,6 @@ export const PROTOCOL_VERSION = 1;
 
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 export const MACHINE_DEAD_THRESHOLD_MS = 120_000;
-export const CPO_FAILOVER_THRESHOLD_MS = 15 * 60_000;
-
 /**
  * Maximum size (in bytes) for the `context` field in StartJob messages.
  * Supabase Realtime has a per-message payload limit (~1 MB). This constant

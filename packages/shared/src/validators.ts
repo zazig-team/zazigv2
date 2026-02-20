@@ -20,12 +20,17 @@ import type {
   StartJob,
   StopJob,
   HealthCheck,
+  VerifyJob,
+  DeployToTest,
   Heartbeat,
   JobStatusMessage,
   JobComplete,
   JobFailed,
   JobAck,
   StopAck,
+  FeatureApproved,
+  FeatureRejected,
+  VerifyResult,
 } from "./messages.js";
 
 import { MAX_CONTEXT_BYTES, PROTOCOL_VERSION } from "./index.js";
@@ -108,13 +113,35 @@ export function isHealthCheck(v: unknown): v is HealthCheck {
   return true;
 }
 
+export function isVerifyJob(v: unknown): v is VerifyJob {
+  if (!isObject(v) || v.type !== "verify_job") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.featureBranch) || v.featureBranch.length === 0) return false;
+  if (!isString(v.jobBranch) || v.jobBranch.length === 0) return false;
+  if (!isString(v.acceptanceTests)) return false;
+  if (v.repoPath !== undefined && (!isString(v.repoPath) || v.repoPath.length === 0)) return false;
+  return true;
+}
+
+export function isDeployToTest(v: unknown): v is DeployToTest {
+  if (!isObject(v) || v.type !== "deploy_to_test") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!isString(v.featureBranch) || v.featureBranch.length === 0) return false;
+  if (!isString(v.projectId) || v.projectId.length === 0) return false;
+  return true;
+}
+
 export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
   if (!isObject(v) || !isString(v.type)) return false;
   switch (v.type) {
-    case "start_job":    return isStartJob(v);
-    case "stop_job":     return isStopJob(v);
-    case "health_check": return isHealthCheck(v);
-    default:             return false;
+    case "start_job":       return isStartJob(v);
+    case "stop_job":        return isStopJob(v);
+    case "health_check":    return isHealthCheck(v);
+    case "verify_job":      return isVerifyJob(v);
+    case "deploy_to_test":  return isDeployToTest(v);
+    default:                return false;
   }
 }
 
@@ -189,15 +216,47 @@ export function isStopAck(v: unknown): v is StopAck {
   return true;
 }
 
+export function isFeatureApproved(v: unknown): v is FeatureApproved {
+  if (!isObject(v) || v.type !== "feature_approved") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
+  return true;
+}
+
+export function isFeatureRejected(v: unknown): v is FeatureRejected {
+  if (!isObject(v) || v.type !== "feature_rejected") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!isString(v.feedback)) return false;
+  if (!isString(v.severity) || !["small", "big"].includes(v.severity)) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
+  return true;
+}
+
+export function isVerifyResult(v: unknown): v is VerifyResult {
+  if (!isObject(v) || v.type !== "verify_result") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
+  if (typeof v.passed !== "boolean") return false;
+  if (!isString(v.testOutput)) return false;
+  if (v.reviewSummary !== undefined && !isString(v.reviewSummary)) return false;
+  return true;
+}
+
 export function isAgentMessage(v: unknown): v is AgentMessage {
   if (!isObject(v) || !isString(v.type)) return false;
   switch (v.type) {
-    case "heartbeat":    return isHeartbeat(v);
-    case "job_status":   return isJobStatusMessage(v);
-    case "job_complete": return isJobComplete(v);
-    case "job_failed":   return isJobFailed(v);
-    case "job_ack":      return isJobAck(v);
-    case "stop_ack":     return isStopAck(v);
-    default:             return false;
+    case "heartbeat":         return isHeartbeat(v);
+    case "job_status":        return isJobStatusMessage(v);
+    case "job_complete":      return isJobComplete(v);
+    case "job_failed":        return isJobFailed(v);
+    case "job_ack":           return isJobAck(v);
+    case "stop_ack":          return isStopAck(v);
+    case "feature_approved":  return isFeatureApproved(v);
+    case "feature_rejected":  return isFeatureRejected(v);
+    case "verify_result":     return isVerifyResult(v);
+    default:                  return false;
   }
 }

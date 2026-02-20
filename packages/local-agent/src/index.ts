@@ -71,6 +71,14 @@ async function main(): Promise<void> {
         console.log("[local-agent] Received health_check — heartbeat will be sent on next interval");
         break;
 
+      case "verify_job":
+        console.log(`[local-agent] Received verify_job — jobId=${msg.jobId} (handler not yet implemented)`);
+        break;
+
+      case "deploy_to_test":
+        console.log(`[local-agent] Received deploy_to_test — featureId=${msg.featureId} (handler not yet implemented)`);
+        break;
+
       default: {
         // Exhaustiveness guard — TypeScript ensures this branch is unreachable
         // if all OrchestratorMessage variants are handled above.

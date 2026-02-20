@@ -1,40 +1,29 @@
-# Pipeline Task 2 — P0/P1 Security & Correctness Fixes
+# CPO Report — Pipeline Task 3: Shared Protocol Types and Messages
 
-**Task:** Fix SECURITY DEFINER vulnerabilities and correctness bugs in migration 004
-**Branch:** zazig/pipeline-task2-schema
-**Migration:** `supabase/migrations/004_pipeline_schema_v2.sql`
-**Date:** 2026-02-20
+## Summary
 
-## Fixes Applied
-
-### P0-1 + P0-2: Restrict EXECUTE on SECURITY DEFINER functions
-Added REVOKE/GRANT statements to restrict `release_slot` and `all_feature_jobs_complete`
-to `service_role` only, preventing unauthenticated callers from invoking them.
-
-### P0-3: Pin search_path on SECURITY DEFINER functions
-Added `SET search_path = public, pg_catalog` to both functions to prevent malicious
-schema shadowing attacks.
-
-### P1-1: Fix release_slot to branch on slot_type
-Rewrote `release_slot` to look up `slot_type` from the job row (with `FOR UPDATE`
-locking) and increment the correct counter (`slots_codex` or `slots_claude_code`).
-
-### P1-2: Fix all_feature_jobs_complete for legacy 'complete' status
-Added `'complete'` to the `NOT IN` clause so jobs with the legacy terminal status
-are not treated as incomplete indefinitely.
-
-### P1-3: Document status enum overlap
-Added a comment block at the top of the migration explaining legacy/new status
-equivalences and the backward-compatibility strategy.
+Added new pipeline types, message interfaces, and validators to the shared protocol package (`@zazigv2/shared`). These support the full pipeline state machine: feature lifecycle statuses, job pipeline statuses, and five new message types for verification, deployment, approval, rejection, and verification results.
 
 ## Files Changed
-- `supabase/migrations/004_pipeline_schema_v2.sql`
 
-## Pre-merge Check
-All checks passed (lint, tsc).
+- `packages/shared/src/messages.ts` — Added `FEATURE_STATUSES`, `FeatureStatus`, `JOB_STATUSES`, `PipelineJobStatus`, and 5 new message interfaces (`VerifyJob`, `DeployToTest`, `FeatureApproved`, `FeatureRejected`, `VerifyResult`). Updated `OrchestratorMessage` and `AgentMessage` unions.
+- `packages/shared/src/validators.ts` — Added 5 new validators (`isVerifyJob`, `isDeployToTest`, `isFeatureApproved`, `isFeatureRejected`, `isVerifyResult`). Updated `isOrchestratorMessage` and `isAgentMessage` switches.
+- `packages/shared/src/index.ts` — Exported all new types, consts, and validators.
+- `packages/shared/src/messages.test.ts` — **Created.** 19 tests covering all new types and validators.
+- `packages/local-agent/src/index.ts` — Added stub cases for `verify_job` and `deploy_to_test` in the exhaustive switch to fix TypeScript compilation.
 
-## Issues Encountered
-None.
+## Tests
+
+- 19 new tests added in `packages/shared/src/messages.test.ts`
+- 35 total tests passing (19 new + 16 existing annotation tests)
+- TypeScript compiles clean (`npx tsc --noEmit` — 0 errors)
 
 ## Token Usage
-- **Claude (claude-ok)**: Direct code edits, no codex-delegate needed for this task
+
+- Routing: `codex-first`
+- Implementation delegated to `codex-delegate implement` (gpt-5.3-codex, reasoning: xhigh)
+- Manual fix: added stub cases in local-agent/src/index.ts for exhaustive switch (not covered by codex scope)
+
+## Issues Encountered
+
+- Adding new types to `OrchestratorMessage` union broke the exhaustive switch in `packages/local-agent/src/index.ts`. Fixed by adding stub handler cases for `verify_job` and `deploy_to_test`.

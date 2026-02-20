@@ -53,6 +53,8 @@ interface ActiveJob {
   timeoutTimer: ReturnType<typeof setTimeout> | null;
   /** Resolved to true when the job ends (either complete or failed). */
   settled: boolean;
+  /** Timestamp (ms) when the job started executing — used for progress estimation. */
+  startedAt: number;
 }
 
 /** Callback type for sending AgentMessage back to the orchestrator channel. */
@@ -162,6 +164,7 @@ export class JobExecutor {
       pollTimer: null,
       timeoutTimer: null,
       settled: false,
+      startedAt: Date.now(),
     };
     this.activeJobs.set(jobId, activeJob);
 
@@ -216,7 +219,17 @@ export class JobExecutor {
 
     const alive = await isTmuxSessionAlive(job.sessionName);
     if (alive) {
-      console.log(`[executor] Job still running — jobId=${jobId}, session=${job.sessionName}`);
+      // Write time-based progress estimate (linear over JOB_TIMEOUT_MS, capped at 95)
+      const elapsedMs = Date.now() - job.startedAt;
+      const progress = Math.min(95, Math.floor((elapsedMs / JOB_TIMEOUT_MS) * 100));
+      const { error: progressErr } = await this.supabase
+        .from("jobs")
+        .update({ progress })
+        .eq("id", jobId);
+      if (progressErr) {
+        console.warn(`[executor] Progress write failed for jobId=${jobId}: ${progressErr.message}`);
+      }
+      console.log(`[executor] Job still running — jobId=${jobId}, session=${job.sessionName}, progress=${progress}`);
       return;
     }
 
@@ -382,6 +395,7 @@ export class JobExecutor {
         status: "complete",
         result,
         completed_at: new Date().toISOString(),
+        progress: 100,
       })
       .eq("id", jobId);
 

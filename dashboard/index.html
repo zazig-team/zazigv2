@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pipeline Dashboard</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0f14;
+      --panel: #111922;
+      --panel-soft: #0f161f;
+      --border: #243241;
+      --text: #d7e3f0;
+      --muted: #91a2b4;
+      --accent: #7cc7ff;
+      --error: #fca5a5;
+      --error-bg: rgba(239, 68, 68, 0.12);
+      --progress-track: #1b2633;
+      --progress-fill: #5ba9e6;
+      --testing: rgba(59, 130, 246, 0.14);
+      --verifying: rgba(14, 165, 233, 0.14);
+      --building: rgba(245, 158, 11, 0.13);
+      --design: rgba(236, 72, 153, 0.13);
+      --done: rgba(34, 197, 94, 0.14);
+      --testing-border: #3b82f6;
+      --verifying-border: #0ea5e9;
+      --building-border: #f59e0b;
+      --design-border: #ec4899;
+      --done-border: #22c55e;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top right, #122030 0%, #0a0f14 48%), var(--bg);
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      line-height: 1.45;
+      min-height: 100vh;
+    }
+
+    .app {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px 16px 40px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      letter-spacing: 0.03em;
+      color: #e5effa;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    button {
+      border: 1px solid var(--accent);
+      background: rgba(124, 199, 255, 0.1);
+      color: var(--text);
+      border-radius: 6px;
+      font: inherit;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: rgba(124, 199, 255, 0.2);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+
+    #message {
+      min-height: 24px;
+      font-size: 0.88rem;
+      color: var(--muted);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+    }
+
+    #message.error {
+      color: var(--error);
+      background: var(--error-bg);
+      border: 1px solid rgba(248, 113, 113, 0.4);
+      border-radius: 6px;
+      padding: 6px 10px;
+    }
+
+    .dashboard {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .status-group {
+      border: 1px solid var(--border);
+      border-left-width: 4px;
+      border-radius: 8px;
+      background: var(--panel-soft);
+      overflow: hidden;
+    }
+
+    .status-testing {
+      border-left-color: var(--testing-border);
+      background: linear-gradient(180deg, var(--testing), transparent 35%), var(--panel-soft);
+    }
+
+    .status-verifying {
+      border-left-color: var(--verifying-border);
+      background: linear-gradient(180deg, var(--verifying), transparent 35%), var(--panel-soft);
+    }
+
+    .status-building {
+      border-left-color: var(--building-border);
+      background: linear-gradient(180deg, var(--building), transparent 35%), var(--panel-soft);
+    }
+
+    .status-design {
+      border-left-color: var(--design-border);
+      background: linear-gradient(180deg, var(--design), transparent 35%), var(--panel-soft);
+    }
+
+    .status-done {
+      border-left-color: var(--done-border);
+      background: linear-gradient(180deg, var(--done), transparent 35%), var(--panel-soft);
+    }
+
+    .group-title {
+      margin: 0;
+      font-size: 0.98rem;
+      color: #f0f6fd;
+      letter-spacing: 0.08em;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(145, 162, 180, 0.2);
+      background: rgba(5, 10, 15, 0.35);
+    }
+
+    .group-body {
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .feature {
+      border: 1px solid rgba(145, 162, 180, 0.2);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 10px;
+    }
+
+    .feature-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 0.95rem;
+    }
+
+    .feature-title {
+      font-weight: 600;
+      color: #eff6ff;
+      word-break: break-word;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid rgba(145, 162, 180, 0.35);
+      padding: 1px 8px;
+      font-size: 0.75rem;
+      line-height: 1.4;
+      white-space: nowrap;
+      color: #d6e4f2;
+      background: rgba(148, 163, 184, 0.14);
+      text-transform: lowercase;
+    }
+
+    .jobs {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .jobs-empty {
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    .job {
+      border: 1px solid rgba(145, 162, 180, 0.2);
+      border-radius: 6px;
+      padding: 8px;
+      background: rgba(9, 14, 20, 0.65);
+    }
+
+    .job-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .job-main {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .job-id {
+      color: #9cc3e7;
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+
+    .job-desc {
+      color: #d6e4f2;
+      font-size: 0.86rem;
+      word-break: break-word;
+    }
+
+    .job-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .job-model {
+      color: var(--muted);
+      font-size: 0.78rem;
+      border: 1px solid rgba(145, 162, 180, 0.25);
+      border-radius: 6px;
+      padding: 1px 6px;
+      background: rgba(148, 163, 184, 0.08);
+      white-space: nowrap;
+    }
+
+    .progress-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .progress-track {
+      flex: 1;
+      height: 8px;
+      background: var(--progress-track);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid rgba(124, 199, 255, 0.2);
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0;
+      background: linear-gradient(90deg, #3b82f6, var(--progress-fill));
+      transition: width 0.3s ease;
+    }
+
+    .progress-pct {
+      width: 44px;
+      text-align: right;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .empty-state {
+      border: 1px dashed rgba(145, 162, 180, 0.35);
+      border-radius: 8px;
+      color: var(--muted);
+      padding: 16px;
+      text-align: center;
+      background: rgba(17, 25, 34, 0.5);
+    }
+
+    @media (max-width: 740px) {
+      .job-top {
+        flex-direction: column;
+      }
+
+      .job-meta {
+        justify-content: flex-start;
+      }
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <h1>Pipeline Dashboard</h1>
+      <div class="controls">
+        <button id="refreshButton" type="button">Refresh</button>
+        <span id="lastUpdated">Last updated: never</span>
+      </div>
+    </header>
+
+    <div id="message" aria-live="polite" role="status"></div>
+    <main id="dashboard" class="dashboard" aria-live="polite"></main>
+  </div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const SUPABASE_URL = 'https://jmussmwglgbwncgygzbz.supabase.co';
+      const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0';
+      const FEATURES_ENDPOINT = `${SUPABASE_URL}/rest/v1/features?select=*,jobs(*)&status=not.eq.cancelled&order=created_at.desc`;
+
+      const STATUS_ORDER = ['testing', 'verifying', 'building', 'design', 'done'];
+
+      const dashboardEl = document.getElementById('dashboard');
+      const messageEl = document.getElementById('message');
+      const lastUpdatedEl = document.getElementById('lastUpdated');
+      const refreshButton = document.getElementById('refreshButton');
+
+      let isFetching = false;
+
+      function formatTimestamp(date) {
+        const pad = (value) => String(value).padStart(2, '0');
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+      }
+
+      function setMessage(text, isError = false) {
+        messageEl.textContent = text;
+        messageEl.className = isError ? 'error' : '';
+      }
+
+      function normalizeStatus(status) {
+        return String(status || '').trim().toLowerCase();
+      }
+
+      function getFeatureName(feature) {
+        if (typeof feature?.name === 'string' && feature.name.trim()) {
+          return feature.name.trim();
+        }
+
+        if (feature?.spec !== null && feature?.spec !== undefined) {
+          let specText = '';
+          if (typeof feature.spec === 'string') {
+            specText = feature.spec;
+          } else {
+            try {
+              specText = JSON.stringify(feature.spec);
+            } catch (error) {
+              specText = String(feature.spec);
+            }
+          }
+
+          const firstLine = specText.split(/\r?\n/, 1)[0].trim();
+          if (firstLine) {
+            return firstLine;
+          }
+        }
+
+        return String(feature?.id ?? 'unknown-feature');
+      }
+
+      function clampProgress(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+          return 0;
+        }
+        return Math.max(0, Math.min(100, Math.round(numeric)));
+      }
+
+      function getJobSummary(job) {
+        const fallbackId = String(job?.id ?? 'job');
+
+        if (job?.context === null || job?.context === undefined) {
+          return fallbackId;
+        }
+
+        let text = '';
+        if (typeof job.context === 'string') {
+          text = job.context;
+        } else {
+          try {
+            text = JSON.stringify(job.context);
+          } catch (error) {
+            text = String(job.context);
+          }
+        }
+
+        text = text.replace(/\s+/g, ' ').trim();
+        if (!text) {
+          return fallbackId;
+        }
+
+        if (text.length > 60) {
+          return `${text.slice(0, 57)}...`;
+        }
+
+        return text;
+      }
+
+      function sortJobs(jobs) {
+        return [...jobs].sort((left, right) => {
+          const leftSeq = Number.isFinite(Number(left?.sequence)) ? Number(left.sequence) : Number.MAX_SAFE_INTEGER;
+          const rightSeq = Number.isFinite(Number(right?.sequence)) ? Number(right.sequence) : Number.MAX_SAFE_INTEGER;
+
+          if (leftSeq !== rightSeq) {
+            return leftSeq - rightSeq;
+          }
+
+          const leftCreated = String(left?.created_at || '');
+          const rightCreated = String(right?.created_at || '');
+          return leftCreated.localeCompare(rightCreated);
+        });
+      }
+
+      function createBadge(label) {
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = label;
+        return badge;
+      }
+
+      function renderJob(job) {
+        const jobEl = document.createElement('div');
+        jobEl.className = 'job';
+
+        const top = document.createElement('div');
+        top.className = 'job-top';
+
+        const main = document.createElement('div');
+        main.className = 'job-main';
+
+        const hasJobId = job?.id !== null && job?.id !== undefined;
+        const jobId = hasJobId ? String(job.id) : '';
+        const summary = getJobSummary(job);
+
+        if (jobId) {
+          const idEl = document.createElement('span');
+          idEl.className = 'job-id';
+          idEl.textContent = jobId;
+          main.appendChild(idEl);
+        }
+
+        if (!jobId || summary !== jobId) {
+          const descEl = document.createElement('span');
+          descEl.className = 'job-desc';
+          descEl.textContent = summary;
+          main.appendChild(descEl);
+        }
+
+        top.appendChild(main);
+
+        const meta = document.createElement('div');
+        meta.className = 'job-meta';
+
+        meta.appendChild(createBadge(normalizeStatus(job?.status) || 'unknown'));
+
+        if (job?.model) {
+          const modelEl = document.createElement('span');
+          modelEl.className = 'job-model';
+          modelEl.textContent = String(job.model);
+          meta.appendChild(modelEl);
+        }
+
+        top.appendChild(meta);
+        jobEl.appendChild(top);
+
+        const progress = clampProgress(job?.progress);
+
+        const progressRow = document.createElement('div');
+        progressRow.className = 'progress-row';
+
+        const track = document.createElement('div');
+        track.className = 'progress-track';
+
+        const fill = document.createElement('div');
+        fill.className = 'progress-fill';
+        fill.style.width = `${progress}%`;
+        track.appendChild(fill);
+
+        const percent = document.createElement('span');
+        percent.className = 'progress-pct';
+        percent.textContent = `${progress}%`;
+
+        progressRow.appendChild(track);
+        progressRow.appendChild(percent);
+        jobEl.appendChild(progressRow);
+
+        return jobEl;
+      }
+
+      function renderFeature(feature) {
+        const featureEl = document.createElement('article');
+        featureEl.className = 'feature';
+
+        const featureHead = document.createElement('div');
+        featureHead.className = 'feature-head';
+
+        const featureTitle = document.createElement('div');
+        featureTitle.className = 'feature-title';
+        featureTitle.textContent = `▸ ${getFeatureName(feature)}`;
+
+        featureHead.appendChild(featureTitle);
+        featureHead.appendChild(createBadge(normalizeStatus(feature?.status) || 'unknown'));
+
+        featureEl.appendChild(featureHead);
+
+        const jobs = Array.isArray(feature?.jobs) ? sortJobs(feature.jobs) : [];
+
+        if (!jobs.length) {
+          const emptyJobs = document.createElement('div');
+          emptyJobs.className = 'jobs-empty';
+          emptyJobs.textContent = 'No jobs';
+          featureEl.appendChild(emptyJobs);
+          return featureEl;
+        }
+
+        const jobsContainer = document.createElement('div');
+        jobsContainer.className = 'jobs';
+
+        for (const job of jobs) {
+          jobsContainer.appendChild(renderJob(job));
+        }
+
+        featureEl.appendChild(jobsContainer);
+        return featureEl;
+      }
+
+      function renderDashboard(features) {
+        const grouped = new Map();
+        for (const status of STATUS_ORDER) {
+          grouped.set(status, []);
+        }
+
+        for (const feature of features) {
+          const status = normalizeStatus(feature?.status);
+          if (status === 'cancelled') {
+            continue;
+          }
+
+          if (grouped.has(status)) {
+            grouped.get(status).push(feature);
+          }
+        }
+
+        let renderedCount = 0;
+        const fragment = document.createDocumentFragment();
+
+        for (const status of STATUS_ORDER) {
+          const items = grouped.get(status) || [];
+          if (items.length === 0) {
+            continue;
+          }
+
+          renderedCount += items.length;
+
+          const section = document.createElement('section');
+          section.className = `status-group status-${status}`;
+
+          const title = document.createElement('h2');
+          title.className = 'group-title';
+          title.textContent = `${status.toUpperCase()} (${items.length})`;
+
+          const body = document.createElement('div');
+          body.className = 'group-body';
+
+          for (const feature of items) {
+            body.appendChild(renderFeature(feature));
+          }
+
+          section.appendChild(title);
+          section.appendChild(body);
+          fragment.appendChild(section);
+        }
+
+        if (renderedCount === 0) {
+          dashboardEl.innerHTML = '<div class="empty-state">No active features</div>';
+          return;
+        }
+
+        dashboardEl.replaceChildren(fragment);
+      }
+
+      async function fetchFeatures() {
+        const response = await fetch(FEATURES_ENDPOINT, {
+          method: 'GET',
+          headers: {
+            apikey: ANON_KEY,
+            Authorization: `Bearer ${ANON_KEY}`
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed with ${response.status}`);
+        }
+
+        const payload = await response.json();
+        return Array.isArray(payload) ? payload : [];
+      }
+
+      async function refreshDashboard() {
+        if (isFetching) {
+          return;
+        }
+
+        isFetching = true;
+        refreshButton.disabled = true;
+
+        try {
+          const features = await fetchFeatures();
+          renderDashboard(features);
+          setMessage('');
+          lastUpdatedEl.textContent = `Last updated: ${formatTimestamp(new Date())}`;
+        } catch (error) {
+          setMessage('Failed to load — retrying in 30s', true);
+        } finally {
+          isFetching = false;
+          refreshButton.disabled = false;
+        }
+      }
+
+      refreshButton.addEventListener('click', () => {
+        void refreshDashboard();
+      });
+
+      void refreshDashboard();
+      setInterval(() => {
+        void refreshDashboard();
+      }, 30000);
+    })();
+  </script>
+</body>
+</html>

@@ -1,24 +1,50 @@
-# CPO Report: Pipeline Task 1 — Set up vitest test framework
+# CPO Report: Local Agent Direct DB Writes + Orchestrator Bugfixes
 
-## Summary
-Added vitest as the standard test runner across the zazigv2 monorepo. Installed vitest and @vitest/coverage-v8 in `packages/shared` and `packages/local-agent`, created vitest configs, added test scripts, and migrated the existing hand-rolled test file to vitest syntax.
+## What Was Done
+
+Local agent executor now writes job status directly to the `jobs` table via Supabase REST (primary path), with Realtime broadcast retained as a secondary signal. This eliminates the dependency on the orchestrator's 4-second Realtime listen window for job status propagation — matching the heartbeat pattern already implemented in `connection.ts`.
+
+Two orchestrator bugs were fixed:
+1. `handleHeartbeat` was using `.eq('id', machineId)` but `machineId` is the machine name string, not UUID. Fixed to `.eq('name', machineId)`.
+2. Execution order changed from reap-dispatch-listen to listen-reap-dispatch, ensuring freshly-received heartbeats are processed before the reaper evaluates machine liveness.
+
+New RLS migration grants `anon` role SELECT+UPDATE on `machines` and `jobs` tables for direct-write access.
 
 ## Files Changed
-- `package.json` — added root `test` script (`npm run test --workspaces --if-present`)
-- `package-lock.json` — updated with vitest dependencies
-- `packages/shared/package.json` — added vitest devDeps, `test` and `test:coverage` scripts
-- `packages/local-agent/package.json` — added vitest devDeps, `test` and `test:coverage` scripts
-- `packages/shared/vitest.config.ts` — new vitest config (globals enabled)
-- `packages/local-agent/vitest.config.ts` — new vitest config (globals enabled, passWithNoTests)
-- `packages/shared/src/annotations.test.ts` — migrated from custom assert helper to vitest describe/it/expect
 
-## Test Count
-- 16 tests passing in `packages/shared` (annotations.test.ts)
-- `packages/local-agent` has no tests yet (exits cleanly with passWithNoTests)
+- `packages/local-agent/src/executor.ts` — added `SupabaseClient` param; `sendJobStatus`, `sendJobComplete`, `sendJobFailed` now write to DB first, then broadcast
+- `packages/local-agent/src/index.ts` — passes `conn.supabase` to `JobExecutor` constructor
+- `supabase/functions/orchestrator/index.ts` — fixed heartbeat handler column match; fixed execution order
+- `supabase/migrations/004_rls_direct_writes.sql` — anon role RLS policies for machines and jobs
 
-## Pre-Merge Check
-All 3 checks passed: lint, typecheck (tsc --noEmit), npm test.
+## Tests Added/Passing
+
+- No automated tests in this repo yet (pre-merge-check confirmed "no test script")
+- TypeScript typecheck passes across all workspaces (shared, local-agent, orchestrator)
+- Lint passes
+
+## Owner Action Required
+
+1. **Apply migration**: `supabase db push` (adds RLS policies for anon direct writes)
+2. **Deploy orchestrator**: `supabase functions deploy orchestrator` (picks up bugfixes)
+3. **Manual e2e test**: start local agent, dispatch a job, verify DB writes land without depending on Realtime
+
+## Manual Test Steps
+
+1. Apply migration to Supabase: `supabase db push`
+2. Deploy orchestrator: `supabase functions deploy orchestrator`
+3. Start local agent: `cd packages/local-agent && npm start`
+4. Check `machines` table — `last_heartbeat` should update every 30s via direct DB write
+5. Insert a test job (status=queued) into `jobs` table for the connected machine's company
+6. Orchestrator should dispatch it; verify `jobs.status` transitions: queued → dispatched → executing → complete
+7. Kill local agent, wait 2+ min, verify reaper marks machine offline and re-queues any active jobs
+8. Confirm orchestrator logs show listen → reap → dispatch order
 
 ## Token Usage
-- codex-delegate implement: 1 invocation (166s, gpt-5.3-codex, reasoning xhigh)
-- Manual edits: 1 (added passWithNoTests to local-agent vitest config)
+
+- Model: Claude Opus 4.6
+- Budget routing: claude-ok (direct code writing)
+
+## PR
+
+https://github.com/zazig-team/zazigv2/pull/12

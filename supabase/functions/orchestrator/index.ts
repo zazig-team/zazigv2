@@ -404,6 +404,7 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
 
   if (fetchErr || !jobRow) {
     console.error(`[orchestrator] Could not fetch job ${jobId} for completion:`, fetchErr?.message);
+    await releaseSlot(supabase, jobId, machineId);
     return;
   }
 
@@ -464,7 +465,10 @@ async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promis
     .eq("id", jobId)
     .single();
 
-  const isPersistent = failedJobRow?.job_type === "persistent_agent";
+  if (fetchErr) {
+    console.error(`[orchestrator] Could not fetch job ${jobId} type:`, fetchErr.message);
+  }
+  const isPersistent = fetchErr ? true : failedJobRow?.job_type === "persistent_agent";
 
   // Decide recovery strategy based on failure reason.
   //   persistent_agent → always re-queue (must stay alive)

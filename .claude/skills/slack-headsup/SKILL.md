@@ -8,13 +8,13 @@ description: |
 
 # Slack Headsup
 
-Post a 1-paragraph summary of a newly created artifact to `#exec-team`, @mentioning the other co-founder.
+Post a short summary (intro line + 3 bullets) of a newly created artifact to `#exec-team`, @mentioning the other co-founder.
 
 ## Flow
 
 1. **Identify the artifact** — what was just created? (doc path, title, purpose)
 2. **Identify the recipient** — who to @mention (the other person, not the sender)
-3. **Write the summary** — 1 paragraph, covers: what it is, why it was written, what it covers, where to find it
+3. **Write the summary** — one intro line + up to 3 bullets (see Summary Format below)
 4. **Post to Slack** — via Doppler-injected CPO bot token
 
 ## Recipient Resolution

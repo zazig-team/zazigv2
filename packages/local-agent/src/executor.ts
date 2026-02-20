@@ -133,6 +133,13 @@ export class JobExecutor {
 
     console.log(`[executor] Tmux session started — session=${sessionName}, cmd=${cmd}`);
 
+    // --- 6b. Open terminal window for the session (dev/testing) ---
+    if (process.env["ZAZIG_OPEN_SESSIONS"]) {
+      execFile("bash", ["-c", `ghostty -e bash -c 'tmux attach -t ${sessionName}'`], (err) => {
+        if (err) console.warn(`[executor] Could not open Ghostty window: ${err.message}`);
+      });
+    }
+
     // --- 7. Send JobStatusMessage(executing) ---
     await this.sendJobStatus(jobId, "executing");
 

@@ -76,8 +76,13 @@ export function loadConfig(): MachineConfig {
     );
   }
 
-  // Anon key: always from env var — never hardcoded
-  const anonKey = requireEnv("SUPABASE_ANON_KEY");
+  // Anon key: prefer env var, fall back to config file (anon key is public, safe to store in yaml)
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? parsed.supabase?.anon_key;
+  if (!anonKey) {
+    throw new Error(
+      "Supabase anon key not configured. Set SUPABASE_ANON_KEY env var or provide supabase.anon_key in machine.yaml"
+    );
+  }
 
   // Service-role key: optional, from env var. Used for direct DB writes (bypasses RLS).
   const serviceRoleKey = process.env["SUPABASE_SERVICE_ROLE_KEY"];

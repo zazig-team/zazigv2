@@ -13,6 +13,7 @@
  */
 
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
+import WebSocket from "ws";
 import { HEARTBEAT_INTERVAL_MS, PROTOCOL_VERSION, isOrchestratorMessage } from "@zazigv2/shared";
 import type { OrchestratorMessage, Heartbeat, AgentMessage } from "@zazigv2/shared";
 import type { MachineConfig } from "./config.js";
@@ -52,6 +53,10 @@ export class AgentConnection {
     this.slots = slots;
     this.supabase = createClient(config.supabase.url, config.supabase.anon_key, {
       realtime: {
+        // Node.js requires an explicit WebSocket implementation; the ws package
+        // types don't perfectly align with supabase-js's WebSocketLikeConstructor.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        transport: WebSocket as any,
         params: {
           eventsPerSecond: 10,
         },

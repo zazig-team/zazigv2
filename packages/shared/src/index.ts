@@ -39,6 +39,11 @@ export { FEATURE_STATUSES, JOB_STATUSES } from "./messages.js";
 export type { CardAnnotation } from "./annotations.js";
 export { parseAnnotation } from "./annotations.js";
 
+// ---- Slack helpers ----
+
+export type { SlackConfig } from "./slack.js";
+export { formatTestingMessage, SlackNotifier } from "./slack.js";
+
 // ---- Machine / slot tracking ----
 
 import type { CardType, Complexity, SlotType, JobStatusValue } from "./messages.js";

@@ -1,37 +1,60 @@
-# CPO Report — Personality System Schema Migration
+# CPO Report: Personality Prompt Compilation Module
 
-## Summary
-Created Supabase migration `010_personality_system.sql` containing the foundational schema for the exec personality system. SQL copied verbatim from `docs/plans/2026-02-20-exec-personality-system-design.md` (section "What Needs Adding (Migration 009)"), with filename prefix changed from 009 to 010 since migration 009 already exists.
+**Status:** COMPLETE
+**Branch:** cpo/personality-compile
+**Trello Card:** 69985e59cb2715b48beb1024
+**Date:** 2026-02-20
 
-## Files Changed
-- `supabase/migrations/010_personality_system.sql` — new migration file (personality system schema)
-- `.claude/cpo-report.md` — this report
+## What Was Done
 
-## What the Migration Does
-1. **ALTER TABLE `public.roles`** — adds `root_constraints JSONB DEFAULT '[]'` and `root_constraints_version INTEGER DEFAULT 1`
-2. **UPDATE `public.roles`** — seeds CPO and CTO root constraints (6 immutable safety constraints)
-3. **CREATE TABLE `public.exec_archetypes`** — personality bundles per role (dimensions, correlations, philosophy, voice_notes, contextual_overlays, anti_patterns, productive_flaw, domain_boundaries, prompt_template)
-4. **CREATE TABLE `public.exec_personalities`** — active personality state per company per role (with `company_id`, not `org_id`)
-5. **CREATE TABLE `public.personality_watchdog`** — behavioral anomaly detector state
-6. **CREATE TABLE `public.personality_evolution_log`** — immutable append-only audit trail (with REVOKE enforcement)
-7. **RLS enabled** on all 4 new/modified tables
-8. **Realtime** — `exec_personalities` published to `supabase_realtime`
+Implemented the personality prompt compilation module — a deterministic TypeScript function that transforms numeric personality dimensions, voice notes, philosophy, constraints, overlays, anti-patterns, productive flaws, and domain boundaries into compiled system prompt fragments.
+
+Two modes:
+- **full** — primary exec agents: full identity, voice, style, domain beliefs, anti-patterns, blind spot, domain boundaries, constraints
+- **sub_agent** — value inheritance only: Standards (core_beliefs) + Patterns to Reject (anti_patterns) + Constraints. No persona framing.
+
+## Files Created
+
+- `packages/shared/src/personality/types.ts` — TypeScript interfaces (BeliefStatement, AntiPattern, ContextualOverlay, ArchetypeDefinition, CompiledPersonality, PersonalityMode)
+- `packages/shared/src/personality/dimensions.ts` — 5 style-plane compile functions (verbosity, technicality, formality, proactivity, directness) + compileCommunicationDirectives + compileDecisionDirectives
+- `packages/shared/src/personality/overlays.ts` — resolveContextualOverlay + applyOverlay with policy-plane dimension rejection
+- `packages/shared/src/personality/compile.ts` — compilePersonalityPrompt(personality, mode) with full + sub_agent modes
+- `packages/shared/src/personality/index.ts` — barrel exports
+- `packages/shared/src/personality/compile.test.ts` — 36 unit tests
+
+## Files Modified
+
+- `packages/shared/src/index.ts` — added re-exports from personality barrel
+
+## Test Results
+
+- **36 personality tests: ALL PASS**
+- **75 total tests: ALL PASS** (36 new + 39 existing)
+- `tsc --noEmit`: PASS
+
+Test coverage:
+1. Determinism (same input → same output)
+2. Full mode section presence
+3. Sub-agent mode section filtering (no identity/voice)
+4. Empty field handling (no empty sections rendered)
+5. Overlay application with bounds clamping
+6. Policy-plane overlay rejection (risk_tolerance, autonomy, analysis_depth, speed_bias silently ignored)
+7. Constraints always present in both modes
+8. Dimension bucket thresholds (0, 20, 21, 40, 41, 60, 61, 80, 81, 100 for all 5 dimensions)
+
+## Deviations from Spec
+
+None.
 
 ## Acceptance Criteria
-- [x] File `supabase/migrations/010_personality_system.sql` created
-- [x] ALTER TABLE `public.roles` adds `root_constraints JSONB DEFAULT '[]'` and `root_constraints_version INTEGER DEFAULT 1`
-- [x] UPDATE `public.roles` seeds CPO and CTO root constraints
-- [x] CREATE TABLE `public.exec_archetypes` with all columns (including `voice_notes TEXT DEFAULT ''` and `contextual_overlays JSONB DEFAULT '[]'`)
-- [x] CREATE TABLE `public.exec_personalities` with `company_id` (not `org_id`)
-- [x] CREATE TABLE `public.personality_watchdog`
-- [x] CREATE TABLE `public.personality_evolution_log` (append-only enforcement via REVOKE)
-- [x] All tables have RLS enabled
-- [x] `exec_personalities` published to Realtime
 
-## Issues Encountered
-None. Migration SQL was fully specified in the design doc.
-
-## Token Usage
-- Routing: codex-first
-- Fell back to direct write — task was verbatim copy from design doc, not code generation
-- No codex-delegate invocation needed
+- [x] `packages/shared/src/personality/types.ts` — all required interfaces exported
+- [x] `packages/shared/src/personality/dimensions.ts` — 5 style-plane compile functions + compileCommunicationDirectives + compileDecisionDirectives
+- [x] `packages/shared/src/personality/overlays.ts` — resolveContextualOverlay + applyOverlay with policy-plane rejection
+- [x] `packages/shared/src/personality/compile.ts` — compilePersonalityPrompt with full + sub_agent modes
+- [x] `packages/shared/src/personality/index.ts` — barrel exports
+- [x] `packages/shared/src/index.ts` — re-exports from personality
+- [x] `packages/shared/src/personality/compile.test.ts` — all 8 test categories pass
+- [x] `tsc --noEmit` passes
+- [x] `vitest run` passes for packages/shared
+- [x] All values clamped. Policy overlays rejected. Sub-agent mode outputs only Standards + Patterns to Reject + Constraints. Empty fields handled gracefully. Pure functions.

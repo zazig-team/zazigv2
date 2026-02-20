@@ -557,6 +557,8 @@ function watchdog(
 | **Cool-down** | 3+ resets in 24 hours | Reset + freeze auto-evolution for this exec. Alert founders via Slack/dashboard. | 24 hours |
 | **Hard freeze** | 5+ resets in 48 hours | Full freeze + revert to archetype defaults. Alert founders with full audit log. Requires manual unfreeze. | Until manual unfreeze |
 
+**Window rotation:** The watchdog uses a **rolling 24-hour window**. On each evolution cycle, if `window_start` is more than 24 hours ago, the counter resets to 0 and `window_start` is updated to `now()`. This prevents stale counters from accumulating across quiet periods.
+
 ### Audit Log
 
 Every evolution event is logged immutably:
@@ -970,7 +972,7 @@ Evolution runs after card completion, but multiple cards can complete simultaneo
 
 **Fix: Event-sourced evolution with optimistic locking.**
 
-Add a `version` column to `exec_personalities`. Evolution updates use `WHERE version = expected_version`. If the version has changed (another evolution landed first), re-read, re-compute, and retry. This is a standard optimistic concurrency pattern.
+Add a `version` column to `exec_personalities`. Evolution updates use `WHERE version = expected_version`. If the version has changed (another evolution landed first), re-read the latest state, reapply the same signals, and retry. **Cap at one retry** to avoid infinite loops — if the second attempt also conflicts, log the failure and move on. The signals are not lost; they'll be reflected in the next natural evolution cycle. This is a standard optimistic concurrency pattern.
 
 ```sql
 ALTER TABLE exec_personalities ADD COLUMN version INTEGER DEFAULT 0;
@@ -1043,6 +1045,8 @@ const pragmatistCorrelations: DimensionCorrelation[] = [
 
 This prevents incoherent personality states and creates more organic-feeling evolution.
 
+> **Phase 3 only.** Inter-dimensional correlations are deferred to Phase 3. The `correlations` JSONB column ships with the schema in Phase 1 (defaulting to `'[]'`), but correlation-driven co-evolution is not active until Phase 3. Coefficients should be tuned from real usage data, not guesses.
+
 ### Enhancement 3: Confidence Scoring (Gemini)
 
 Each evolved dimension value carries a confidence score based on signal consistency and recency.
@@ -1112,6 +1116,8 @@ interface CompiledPromptManifest {
 }
 ```
 
+**HMAC key:** Use a dedicated `PERSONALITY_HMAC_KEY` secret in Doppler (`zazig` project, `prd` config). Do not derive from or reuse the Supabase service role key — a compromised personality signing key should not grant database access, and vice versa.
+
 ---
 
 ## Revised Open Questions
@@ -1143,6 +1149,7 @@ interface CompiledPromptManifest {
 - CLI: `zazig personality <role> --show / --archetype`
 - Team Dynamic Analysis on archetype selection
 - **Depends on:** Pipeline Tasks 1–3 complete (test framework, schema, protocol types)
+- **Cardify note:** All Personality Phase 1 cards should be marked `blocked` and linked to Pipeline Tasks 1–3. Unblock when Pipeline Tasks 1–3 are merged to master.
 
 ### Phase 2: User Overrides + Contextual Adaptation
 - Add user_overrides support to `exec_personalities`
@@ -1210,12 +1217,17 @@ The original design proposed a separate `exec_roles` table. This is unnecessary 
 -- ============================================================
 
 ALTER TABLE public.roles
-    ADD COLUMN root_constraints JSONB DEFAULT '[]';
+    ADD COLUMN root_constraints JSONB DEFAULT '[]',
+    ADD COLUMN root_constraints_version INTEGER DEFAULT 1;
 
 COMMENT ON COLUMN public.roles.root_constraints IS
     'Immutable safety/behavioral constraints for this role. '
     'Injected into every personality compilation. Cannot be overridden by archetypes, '
     'user overrides, or evolution. Only modifiable via code deploy.';
+
+COMMENT ON COLUMN public.roles.root_constraints_version IS
+    'Version counter for root constraints. Incremented on each code-deployed update. '
+    'Allows local agents to detect stale cached constraints.';
 
 -- Seed root constraints for exec roles
 UPDATE public.roles SET root_constraints = '[
@@ -1356,7 +1368,15 @@ CREATE POLICY "authenticated_read_own" ON public.personality_evolution_log
 
 -- Enforce append-only: no updates or deletes
 REVOKE UPDATE, DELETE ON public.personality_evolution_log FROM authenticated, anon;
+
+-- ============================================================
+-- Realtime: publish exec_personalities for local agent cache invalidation
+-- ============================================================
+
+ALTER PUBLICATION supabase_realtime ADD TABLE public.exec_personalities;
 ```
+
+> **Note:** Archetype seed data (6 archetypes: 3 CPO + 3 CTO) ships in a separate migration `010_personality_archetypes_seed.sql`, matching the established pattern of `005_persistent_jobs_seed.sql`. Migration 009 creates the schema; migration 010 populates it.
 
 ### Live Supabase State (Verified 2026-02-20)
 
@@ -1412,7 +1432,7 @@ Fix agents are ephemeral sessions on the feature branch. They don't have persona
 
 **5. Shared Protocol Types (Pipeline Task 3):**
 
-Pipeline adds `VerifyJob`, `DeployToTest`, `FeatureApproved`, `FeatureRejected`, `VerifyResult` to messages.ts. Personality adds `personalityPrompt` to `StartJob`. These are independent additions to the same file — no type conflicts.
+Pipeline adds `VerifyJob`, `DeployToTest`, `FeatureApproved`, `FeatureRejected`, `VerifyResult` to messages.ts. Personality adds `personalityPrompt?: string` to the `StartJob` type. These are independent additions to the same file — no type conflicts. This field should be added as part of Pipeline Task 3 scope (protocol types) or as an immediate follow-up task.
 
 ### Implementation Sequencing
 
@@ -1463,7 +1483,7 @@ ALTER TABLE public.exec_personalities
 ```
 
 At dispatch time, the orchestrator checks:
-1. Is this a 1-on-1 interaction (single human participant)?
+1. Is this a 1-on-1 interaction? **Detection heuristic (v1):** DM = 1-on-1, channel = group. Thread-level detection deferred to a future version.
 2. Does the personality have a context modifier for this user?
 3. If yes, apply the offset (still bounded by archetype limits)
 

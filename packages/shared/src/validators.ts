@@ -94,6 +94,7 @@ export function isStartJob(v: unknown): v is StartJob {
   if (hasContext && (v.context as string).length > MAX_CONTEXT_BYTES) return false;
   // role is optional; if present it must be a non-empty string
   if (v.role !== undefined && (!isString(v.role) || v.role.length === 0)) return false;
+  if (v.personalityPrompt !== undefined && (!isString(v.personalityPrompt) || v.personalityPrompt.length === 0)) return false;
   return true;
 }
 

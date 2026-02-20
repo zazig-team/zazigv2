@@ -170,6 +170,7 @@ export function isStartJob(v: unknown): v is _StartJob {
   if (!hasContext && !hasContextRef) return false;
   if (hasContext && (v.context as string).length > MAX_CONTEXT_BYTES) return false;
   if (v.role !== undefined && (!_isString(v.role) || (v.role as string).length === 0)) return false;
+  if (v.personalityPrompt !== undefined && (!_isString(v.personalityPrompt) || (v.personalityPrompt as string).length === 0)) return false;
   return true;
 }
 

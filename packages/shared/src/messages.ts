@@ -114,6 +114,8 @@ export interface StartJob {
    * Only present for role-based jobs (persistent agents, specialized reviewers).
    */
   role?: string;
+  /** Compiled personality prompt string injected into the agent's system context. */
+  personalityPrompt?: string;
 }
 
 /**

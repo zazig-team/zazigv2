@@ -1,40 +1,24 @@
-# CPO Report — Pipeline Dashboard
+# CPO Report: Add personalityPrompt to StartJob interface
 
 ## Summary
-Created `dashboard/index.html` — a single self-contained HTML file (no build step) that queries Supabase and displays the pipeline status at a glance. Dark theme, monospace font, auto-refreshes every 30 seconds.
-
-## What Was Done
-- Created `dashboard/index.html` (659 lines, inline CSS + JS)
-- Queries `features?select=*,jobs(*)&status=not.eq.cancelled` via Supabase REST API with anon key
-- Features grouped by status in order: testing, verifying, building, design, done (cancelled hidden)
-- Each feature shows name (from `name` → `spec` first line → `id` fallback), status badge, and job list
-- Jobs sorted by `sequence`, showing: ID, context summary (60 char max), progress bar (0-100%), status badge, model
-- Auto-refresh every 30s via `setInterval`
-- Manual Refresh button + "Last updated" timestamp
-- Error handling: "Failed to load — retrying in 30s"
-- Empty state: "No active features"
-- Status color coding: blue (testing), sky (verifying), amber (building), pink (design), green (done)
-
-## How to Open
-```bash
-open dashboard/index.html
-# or just open the file in any browser
-```
+Added optional `personalityPrompt?: string` field to the `StartJob` interface in the shared message protocol. This is an additive, non-breaking change that carries the compiled personality prompt string for agent system context injection.
 
 ## Files Changed
-- `dashboard/index.html` — new file, the complete dashboard
-- `.claude/cpo-report.md` — this report
+1. `packages/shared/src/messages.ts` — Added `personalityPrompt?: string` field with JSDoc to StartJob interface (after `role?: string`)
+2. `packages/shared/src/validators.ts` — Updated `isStartJob` validator: if `personalityPrompt` is present, validates it's a non-empty string; passes without the field
+3. `supabase/functions/_shared/messages.ts` — Mirrored validator change in the Deno-compatible inline `isStartJob` (type already mirrors via re-export)
 
-## Acceptance Criteria
-- [x] `dashboard/index.html` exists and is self-contained
-- [x] Queries Supabase features + jobs using the anon key
-- [x] Features grouped by status in correct order
-- [x] Each feature shows its jobs with progress bar and status
-- [x] Auto-refresh every 30s
-- [x] Loads and renders correctly in a browser (open the file)
-- [x] No build step required — just open index.html
+## Tests
+- `packages/shared/src/messages.test.ts`: 22 tests passed
+- `packages/shared/src/annotations.test.ts`: 16 tests passed
+- `packages/shared/src/slack.test.ts`: 1 test passed
+- 3 suites in other packages failed with pre-existing environment issues (Deno URL scheme, unlinked `@zazigv2/shared` workspace dep) — unrelated to this change
+
+## Branch Verification
+`git merge-base --is-ancestor origin/master HEAD` exited 1 because origin/master advanced by 1 commit (`d8b9741`) after this branch was cut from `54b6efa`. Merge-base confirms shared ancestry — branch is properly rooted. Proceeded with work.
 
 ## Token Usage
-- Routing: codex-first
-- Codex delegated: `codex-delegate implement` for all code generation (gpt-5.3-codex, xhigh reasoning, 209s, ~44k tokens)
-- Claude used for: task orchestration, verification, commit, and report
+Direct edits (3 one-line additions). Codex-delegate skipped — changes too trivial to benefit from delegation overhead.
+
+## Issues
+None. Change is backward-compatible; existing callers omitting `personalityPrompt` continue to work.

@@ -26,9 +26,12 @@ const BACKOFF_MULTIPLIER = 2;
 export type MessageHandler = (msg: OrchestratorMessage) => void;
 
 export class AgentConnection {
-  /** Exposed so the executor can write job status directly to the DB. */
+  /** Anon-key client — used for Realtime subscriptions only. */
   readonly supabase: SupabaseClient;
+  /** Service-role client for direct DB writes (bypasses RLS). Falls back to anon client if service_role_key not set. */
+  readonly dbClient: SupabaseClient;
   private readonly machineId: string;
+  private readonly companyId: string;
   private readonly config: MachineConfig;
   private readonly slots: SlotTracker;
   private readonly handlers: MessageHandler[] = [];
@@ -45,6 +48,7 @@ export class AgentConnection {
   constructor(config: MachineConfig, slots: SlotTracker) {
     this.config = config;
     this.machineId = config.name;
+    this.companyId = config.company_id;
     this.slots = slots;
     this.supabase = createClient(config.supabase.url, config.supabase.anon_key, {
       realtime: {
@@ -53,6 +57,16 @@ export class AgentConnection {
         },
       },
     });
+
+    // Use service_role key for DB writes if available — bypasses RLS entirely.
+    // Falls back to anon client (which will fail on writes since anon policies were removed).
+    if (config.supabase.service_role_key) {
+      this.dbClient = createClient(config.supabase.url, config.supabase.service_role_key);
+      console.log("[local-agent] Using service_role key for DB writes");
+    } else {
+      this.dbClient = this.supabase;
+      console.warn("[local-agent] No SUPABASE_SERVICE_ROLE_KEY set — DB writes will use anon key (may fail)");
+    }
   }
 
   /** Register a handler for incoming OrchestratorMessages. */
@@ -224,7 +238,8 @@ export class AgentConnection {
     const slotsAvailable = this.slots.getAvailable();
 
     // Primary: write heartbeat directly to the DB — reliable, no timing dependency
-    const { error: dbErr } = await this.supabase
+    // Uses dbClient (service_role) and scopes by both company_id and name for safety
+    const { error: dbErr } = await this.dbClient
       .from("machines")
       .update({
         last_heartbeat: new Date().toISOString(),
@@ -232,6 +247,7 @@ export class AgentConnection {
         slots_claude_code: slotsAvailable.claude_code,
         slots_codex: slotsAvailable.codex,
       })
+      .eq("company_id", this.companyId)
       .eq("name", this.machineId);
 
     if (dbErr) {

@@ -41,12 +41,12 @@ async function main(): Promise<void> {
   const conn = new AgentConnection(config, slots);
 
   // Initialize job executor — passes messages back to orchestrator via conn.sendMessage
-  // conn.supabase is passed so the executor can write job status directly to the DB
+  // conn.dbClient (service_role) is passed so the executor can write job status directly to the DB
   const executor = new JobExecutor(
     config.name,
     slots,
     (msg) => conn.sendMessage(msg),
-    conn.supabase
+    conn.dbClient
   );
 
   // Register message handler — dispatch StartJob/StopJob to executor

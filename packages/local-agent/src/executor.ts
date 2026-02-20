@@ -377,10 +377,10 @@ export class JobExecutor {
     error: string,
     failureReason: FailureReason
   ): Promise<void> {
-    // Primary: write directly to DB
+    // Primary: write directly to DB — persist error detail in result column
     const { error: dbErr } = await this.supabase
       .from("jobs")
-      .update({ status: "failed" })
+      .update({ status: "failed", result: `FAILED: ${error}` })
       .eq("id", jobId);
 
     if (dbErr) {

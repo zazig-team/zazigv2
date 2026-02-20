@@ -1,40 +1,28 @@
 -- RLS policies for local-agent direct DB writes
 -- Date: 2026-02-20
--- Purpose: Allow local agents (authenticating with the anon key) to write
---   heartbeats directly to `machines` and job status updates to `jobs`.
---   This eliminates the dependency on the orchestrator's 4-second Realtime
---   listen window for state propagation.
+-- Purpose: Document that local agents use the service_role key for direct DB
+--   writes (heartbeats to `machines`, job status updates to `jobs`).
+--   service_role bypasses RLS entirely, so no anon-role policies are needed.
 --
--- The anon role gets SELECT + UPDATE only — no INSERT or DELETE.
--- Agents identify machines by name and jobs by id; both columns are
--- constrained (UNIQUE or PK) so these policies are safe.
+-- Security model:
+--   - anon key: used ONLY for Realtime channel subscriptions (read-only)
+--   - service_role key: used for all DB writes (heartbeats, job status)
+--   - The service_role key is secret, stored in SUPABASE_SERVICE_ROLE_KEY env var
+--   - No RLS policies are granted to the anon role for machines or jobs
+--   - The existing service_role_full_access policies from 003_multi_tenant_schema.sql
+--     already grant full access to the service_role
+--
+-- This migration intentionally contains no CREATE POLICY statements.
+-- The prior migration (003) already has:
+--   - service_role_full_access on machines (FOR ALL)
+--   - service_role_full_access on jobs (FOR ALL)
+--   - authenticated_read_own on both tables (scoped by company_id via JWT)
+--
+-- If anon-role direct writes are ever needed in the future, policies MUST:
+--   1. Scope reads/writes by company_id (no USING (true))
+--   2. Restrict UPDATE to specific columns (e.g. last_heartbeat, status)
+--   3. Use a request header or RPC parameter for tenant identification
 
--- ============================================================
--- machines: anon SELECT + UPDATE (heartbeats)
--- ============================================================
-
-CREATE POLICY "anon_select_machines" ON public.machines
-    FOR SELECT
-    TO anon
-    USING (true);
-
-CREATE POLICY "anon_update_machines" ON public.machines
-    FOR UPDATE
-    TO anon
-    USING (true)
-    WITH CHECK (true);
-
--- ============================================================
--- jobs: anon SELECT + UPDATE (job status, completion, failure)
--- ============================================================
-
-CREATE POLICY "anon_select_jobs" ON public.jobs
-    FOR SELECT
-    TO anon
-    USING (true);
-
-CREATE POLICY "anon_update_jobs" ON public.jobs
-    FOR UPDATE
-    TO anon
-    USING (true)
-    WITH CHECK (true);
+-- No-op: this file exists to document the security decision and prevent
+-- accidental re-introduction of broad anon policies.
+SELECT 1;

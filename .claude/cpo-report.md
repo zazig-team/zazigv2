@@ -1,50 +1,70 @@
-# CPO Report: Local Agent Direct DB Writes + Orchestrator Bugfixes
+# P0 RLS Security Fix
 
-## What Was Done
+## Summary
 
-Local agent executor now writes job status directly to the `jobs` table via Supabase REST (primary path), with Realtime broadcast retained as a secondary signal. This eliminates the dependency on the orchestrator's 4-second Realtime listen window for job status propagation — matching the heartbeat pattern already implemented in `connection.ts`.
+Fixed 2 P0 and 2 P1 security issues identified in code review of PR #12.
 
-Two orchestrator bugs were fixed:
-1. `handleHeartbeat` was using `.eq('id', machineId)` but `machineId` is the machine name string, not UUID. Fixed to `.eq('name', machineId)`.
-2. Execution order changed from reap-dispatch-listen to listen-reap-dispatch, ensuring freshly-received heartbeats are processed before the reaper evaluates machine liveness.
+## P0-1: Cross-tenant data exposure (CRITICAL) — FIXED
 
-New RLS migration grants `anon` role SELECT+UPDATE on `machines` and `jobs` tables for direct-write access.
+**Problem:** `004_rls_direct_writes.sql` used `USING (true)` on anon-role policies for
+both `machines` and `jobs` tables. Any holder of the public anon key could read/write
+ALL companies' data with no tenant scoping.
+
+**Fix:** Removed all anon-role RLS policies. DB writes now use the `service_role` key
+(which bypasses RLS entirely — security is via key secrecy). The anon key is used only
+for Realtime channel subscriptions (read-only).
+
+Changes:
+- `004_rls_direct_writes.sql`: Replaced 4 broad anon policies with a no-op + documentation
+- `config.ts`: Added `service_role_key?: string` to `SupabaseConfig`, loaded from `SUPABASE_SERVICE_ROLE_KEY` env var
+- `connection.ts`: Created separate `dbClient` using service_role key for all DB writes; anon client (`supabase`) used only for Realtime
+
+## P0-2: Unrestricted column UPDATE — FIXED
+
+**Problem:** Anon UPDATE policy had no column restriction.
+
+**Fix:** Moot — anon policies removed entirely. service_role bypasses RLS.
+
+## P1: Heartbeat write unscoped — FIXED
+
+**Problem:** `connection.ts` heartbeat used `.eq('name', machineId)` with no company_id
+scope. With service_role (which bypasses RLS), this could update machines across tenants
+if names collide.
+
+**Fix:** Added `company_id` to `MachineConfig` (loaded from `machine.yaml`). Heartbeat
+write now scopes: `.eq('company_id', companyId).eq('name', machineId)`.
+
+## P1: sendJobFailed missing error detail — FIXED
+
+**Problem:** `executor.ts` `sendJobFailed` DB write only set `status: "failed"` without
+persisting the error message.
+
+**Fix:** Added `result: \`FAILED: ${error}\`` to the update payload.
 
 ## Files Changed
 
-- `packages/local-agent/src/executor.ts` — added `SupabaseClient` param; `sendJobStatus`, `sendJobComplete`, `sendJobFailed` now write to DB first, then broadcast
-- `packages/local-agent/src/index.ts` — passes `conn.supabase` to `JobExecutor` constructor
-- `supabase/functions/orchestrator/index.ts` — fixed heartbeat handler column match; fixed execution order
-- `supabase/migrations/004_rls_direct_writes.sql` — anon role RLS policies for machines and jobs
+| File | Change |
+|------|--------|
+| `supabase/migrations/004_rls_direct_writes.sql` | Removed 4 anon policies, replaced with documentation |
+| `packages/local-agent/src/config.ts` | Added `service_role_key`, `company_id` to types + loader |
+| `packages/local-agent/src/connection.ts` | Added `dbClient` (service_role), scoped heartbeat by company_id |
+| `packages/local-agent/src/executor.ts` | Added `result` field to sendJobFailed DB write |
+| `packages/local-agent/src/index.ts` | Pass `conn.dbClient` to JobExecutor instead of `conn.supabase` |
 
-## Tests Added/Passing
+## machine.yaml Changes Required
 
-- No automated tests in this repo yet (pre-merge-check confirmed "no test script")
-- TypeScript typecheck passes across all workspaces (shared, local-agent, orchestrator)
-- Lint passes
+After this fix, `~/.zazigv2/machine.yaml` must include a `company_id` field:
 
-## Owner Action Required
+```yaml
+name: my-machine
+company_id: "<uuid-of-your-company>"
+slots:
+  claude_code: 2
+  codex: 1
+```
 
-1. **Apply migration**: `supabase db push` (adds RLS policies for anon direct writes)
-2. **Deploy orchestrator**: `supabase functions deploy orchestrator` (picks up bugfixes)
-3. **Manual e2e test**: start local agent, dispatch a job, verify DB writes land without depending on Realtime
-
-## Manual Test Steps
-
-1. Apply migration to Supabase: `supabase db push`
-2. Deploy orchestrator: `supabase functions deploy orchestrator`
-3. Start local agent: `cd packages/local-agent && npm start`
-4. Check `machines` table — `last_heartbeat` should update every 30s via direct DB write
-5. Insert a test job (status=queued) into `jobs` table for the connected machine's company
-6. Orchestrator should dispatch it; verify `jobs.status` transitions: queued → dispatched → executing → complete
-7. Kill local agent, wait 2+ min, verify reaper marks machine offline and re-queues any active jobs
-8. Confirm orchestrator logs show listen → reap → dispatch order
+And the `SUPABASE_SERVICE_ROLE_KEY` environment variable must be set.
 
 ## Token Usage
 
-- Model: Claude Opus 4.6
-- Budget routing: claude-ok (direct code writing)
-
-## PR
-
-https://github.com/zazig-team/zazigv2/pull/12
+Direct implementation by Claude — no codex delegation needed. Straightforward security fix.

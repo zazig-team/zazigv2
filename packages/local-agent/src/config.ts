@@ -18,11 +18,15 @@ export interface SlotConfig {
 export interface SupabaseConfig {
   url: string;
   anon_key: string;
+  /** Service-role key for direct DB writes. Bypasses RLS. Loaded from SUPABASE_SERVICE_ROLE_KEY env var. */
+  service_role_key?: string;
 }
 
 export interface MachineConfig {
   /** Stable machine identifier — used as the machineId in heartbeats and the Realtime channel name. */
   name: string;
+  /** Company UUID — tenant boundary. Used to scope DB writes to the correct company. */
+  company_id: string;
   slots: SlotConfig;
   hosts_cpo: boolean;
   supabase: SupabaseConfig;
@@ -55,6 +59,10 @@ export function loadConfig(): MachineConfig {
     throw new Error("machine.yaml: missing or invalid 'name' field");
   }
 
+  if (!parsed.company_id || typeof parsed.company_id !== "string") {
+    throw new Error("machine.yaml: missing or invalid 'company_id' field");
+  }
+
   const slots: SlotConfig = {
     claude_code: parsed.slots?.claude_code ?? 1,
     codex: parsed.slots?.codex ?? 0,
@@ -72,13 +80,18 @@ export function loadConfig(): MachineConfig {
   // Anon key: always from env var — never hardcoded
   const anonKey = requireEnv("SUPABASE_ANON_KEY");
 
+  // Service-role key: optional, from env var. Used for direct DB writes (bypasses RLS).
+  const serviceRoleKey = process.env["SUPABASE_SERVICE_ROLE_KEY"];
+
   return {
     name: parsed.name,
+    company_id: parsed.company_id,
     slots,
     hosts_cpo: parsed.hosts_cpo ?? false,
     supabase: {
       url: supabaseUrl,
       anon_key: anonKey,
+      ...(serviceRoleKey ? { service_role_key: serviceRoleKey } : {}),
     },
   };
 }

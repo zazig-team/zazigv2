@@ -1,194 +1,133 @@
-/**
- * Unit tests for parseAnnotation.
- *
- * These are plain TypeScript assertions — no test runner required.
- * Run via: npx tsx packages/shared/src/annotations.test.ts
- *
- * Exit code 0 = all passed, non-zero = at least one failure.
- */
-
+import { describe, it, expect } from 'vitest';
 import { parseAnnotation } from "./annotations.js";
 import type { CardAnnotation } from "./annotations.js";
 
-// ---------------------------------------------------------------------------
-// Minimal assertion helper
-// ---------------------------------------------------------------------------
+describe("Happy path", () => {
+  it("parses simple + code", () => {
+    expect(
+      parseAnnotation(
+        "Some description\n<!-- orchestrator -->\ncomplexity: simple\ncard-type: code\n<!-- /orchestrator -->",
+      ),
+    ).toEqual({ complexity: "simple", cardType: "code" } satisfies CardAnnotation);
+  });
 
-let failures = 0;
+  it("parses complex + research", () => {
+    expect(
+      parseAnnotation(
+        "<!-- orchestrator -->\ncomplexity: complex\ncard-type: research\n<!-- /orchestrator -->",
+      ),
+    ).toEqual({ complexity: "complex", cardType: "research" } satisfies CardAnnotation);
+  });
 
-function assert(condition: boolean, message: string): void {
-  if (!condition) {
-    console.error(`  FAIL: ${message}`);
-    failures++;
-  } else {
-    console.log(`  pass: ${message}`);
-  }
-}
+  it("parses medium + infra", () => {
+    expect(
+      parseAnnotation(
+        "<!-- orchestrator -->\ncomplexity: medium\ncard-type: infra\n<!-- /orchestrator -->",
+      ),
+    ).toEqual({ complexity: "medium", cardType: "infra" } satisfies CardAnnotation);
+  });
 
-function deepEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
+  it("parses simple + design", () => {
+    expect(
+      parseAnnotation(
+        "<!-- orchestrator -->\ncomplexity: simple\ncard-type: design\n<!-- /orchestrator -->",
+      ),
+    ).toEqual({ complexity: "simple", cardType: "design" } satisfies CardAnnotation);
+  });
 
-// ---------------------------------------------------------------------------
-// Test cases
-// ---------------------------------------------------------------------------
+  it("parses complex + docs", () => {
+    expect(
+      parseAnnotation(
+        "<!-- orchestrator -->\ncomplexity: complex\ncard-type: docs\n<!-- /orchestrator -->",
+      ),
+    ).toEqual({ complexity: "complex", cardType: "docs" } satisfies CardAnnotation);
+  });
+});
 
-console.log("\nparseAnnotation — unit tests\n");
+describe("Whitespace tolerance", () => {
+  it("trims and lowercases keys/values", () => {
+    expect(
+      parseAnnotation(
+        "<!--orchestrator-->\n  complexity :   SIMPLE  \n  card-type :   CODE  \n<!--/orchestrator-->",
+      ),
+    ).toEqual({ complexity: "simple", cardType: "code" } satisfies CardAnnotation);
+  });
 
-// --- Happy path ---
+  it("delimiter tags are case-insensitive", () => {
+    expect(
+      parseAnnotation(
+        "<!-- ORCHESTRATOR -->\ncomplexity: medium\ncard-type: infra\n<!-- /ORCHESTRATOR -->",
+      ),
+    ).toEqual({ complexity: "medium", cardType: "infra" } satisfies CardAnnotation);
+  });
+});
 
-console.log("Happy path:");
+describe("Extra keys", () => {
+  it("ignores extra keys", () => {
+    expect(
+      parseAnnotation(
+        "<!-- orchestrator -->\ncomplexity: simple\ncard-type: code\nunknown-key: whatever\n<!-- /orchestrator -->",
+      ),
+    ).toEqual({ complexity: "simple", cardType: "code" } satisfies CardAnnotation);
+  });
+});
 
-assert(
-  deepEqual(
-    parseAnnotation(
-      "Some description\n<!-- orchestrator -->\ncomplexity: simple\ncard-type: code\n<!-- /orchestrator -->",
-    ),
-    { complexity: "simple", cardType: "code" } satisfies CardAnnotation,
-  ),
-  "parses simple + code",
-);
+describe("Block placement", () => {
+  it("parses block in middle of description", () => {
+    expect(
+      parseAnnotation(
+        "Implement the feature as described.\n\n<!-- orchestrator -->\ncomplexity: medium\ncard-type: code\n<!-- /orchestrator -->\n\nAdditional notes here.",
+      ),
+    ).toEqual({ complexity: "medium", cardType: "code" } satisfies CardAnnotation);
+  });
+});
 
-assert(
-  deepEqual(
-    parseAnnotation(
-      "<!-- orchestrator -->\ncomplexity: complex\ncard-type: research\n<!-- /orchestrator -->",
-    ),
-    { complexity: "complex", cardType: "research" } satisfies CardAnnotation,
-  ),
-  "parses complex + research",
-);
+describe("Null cases", () => {
+  it("empty string → null", () => {
+    expect(parseAnnotation("")).toBeNull();
+  });
 
-assert(
-  deepEqual(
-    parseAnnotation(
-      "<!-- orchestrator -->\ncomplexity: medium\ncard-type: infra\n<!-- /orchestrator -->",
-    ),
-    { complexity: "medium", cardType: "infra" } satisfies CardAnnotation,
-  ),
-  "parses medium + infra",
-);
+  it("no block → null", () => {
+    expect(parseAnnotation("No annotation block here")).toBeNull();
+  });
 
-assert(
-  deepEqual(
-    parseAnnotation(
-      "<!-- orchestrator -->\ncomplexity: simple\ncard-type: design\n<!-- /orchestrator -->",
-    ),
-    { complexity: "simple", cardType: "design" } satisfies CardAnnotation,
-  ),
-  "parses simple + design",
-);
+  it("invalid complexity → null", () => {
+    expect(
+      parseAnnotation(
+        "<!-- orchestrator -->\ncomplexity: extreme\ncard-type: code\n<!-- /orchestrator -->",
+      ),
+    ).toBeNull();
+  });
 
-assert(
-  deepEqual(
-    parseAnnotation(
-      "<!-- orchestrator -->\ncomplexity: complex\ncard-type: docs\n<!-- /orchestrator -->",
-    ),
-    { complexity: "complex", cardType: "docs" } satisfies CardAnnotation,
-  ),
-  "parses complex + docs",
-);
+  it("invalid card-type → null", () => {
+    expect(
+      parseAnnotation(
+        "<!-- orchestrator -->\ncomplexity: simple\ncard-type: video\n<!-- /orchestrator -->",
+      ),
+    ).toBeNull();
+  });
 
-// --- Whitespace tolerance ---
+  it("missing card-type → null", () => {
+    expect(
+      parseAnnotation(
+        "<!-- orchestrator -->\ncomplexity: simple\n<!-- /orchestrator -->",
+      ),
+    ).toBeNull();
+  });
 
-console.log("\nWhitespace tolerance:");
+  it("missing complexity → null", () => {
+    expect(
+      parseAnnotation(
+        "<!-- orchestrator -->\ncard-type: code\n<!-- /orchestrator -->",
+      ),
+    ).toBeNull();
+  });
 
-assert(
-  deepEqual(
-    parseAnnotation(
-      "<!--orchestrator-->\n  complexity :   SIMPLE  \n  card-type :   CODE  \n<!--/orchestrator-->",
-    ),
-    { complexity: "simple", cardType: "code" } satisfies CardAnnotation,
-  ),
-  "trims and lowercases keys/values",
-);
-
-assert(
-  deepEqual(
-    parseAnnotation(
-      "<!-- ORCHESTRATOR -->\ncomplexity: medium\ncard-type: infra\n<!-- /ORCHESTRATOR -->",
-    ),
-    { complexity: "medium", cardType: "infra" } satisfies CardAnnotation,
-  ),
-  "delimiter tags are case-insensitive",
-);
-
-// --- Extra keys are ignored ---
-
-console.log("\nExtra keys:");
-
-assert(
-  deepEqual(
-    parseAnnotation(
-      "<!-- orchestrator -->\ncomplexity: simple\ncard-type: code\nunknown-key: whatever\n<!-- /orchestrator -->",
-    ),
-    { complexity: "simple", cardType: "code" } satisfies CardAnnotation,
-  ),
-  "ignores extra keys",
-);
-
-// --- Block appears mid-description ---
-
-console.log("\nBlock placement:");
-
-assert(
-  deepEqual(
-    parseAnnotation(
-      "Implement the feature as described.\n\n<!-- orchestrator -->\ncomplexity: medium\ncard-type: code\n<!-- /orchestrator -->\n\nAdditional notes here.",
-    ),
-    { complexity: "medium", cardType: "code" } satisfies CardAnnotation,
-  ),
-  "parses block in middle of description",
-);
-
-// --- Null cases ---
-
-console.log("\nNull cases (missing / invalid):");
-
-assert(parseAnnotation("") === null, "empty string → null");
-assert(parseAnnotation("No annotation block here") === null, "no block → null");
-
-assert(
-  parseAnnotation(
-    "<!-- orchestrator -->\ncomplexity: extreme\ncard-type: code\n<!-- /orchestrator -->",
-  ) === null,
-  "invalid complexity → null",
-);
-
-assert(
-  parseAnnotation(
-    "<!-- orchestrator -->\ncomplexity: simple\ncard-type: video\n<!-- /orchestrator -->",
-  ) === null,
-  "invalid card-type → null",
-);
-
-assert(
-  parseAnnotation(
-    "<!-- orchestrator -->\ncomplexity: simple\n<!-- /orchestrator -->",
-  ) === null,
-  "missing card-type → null",
-);
-
-assert(
-  parseAnnotation(
-    "<!-- orchestrator -->\ncard-type: code\n<!-- /orchestrator -->",
-  ) === null,
-  "missing complexity → null",
-);
-
-assert(
-  parseAnnotation(
-    "<!-- orchestrator -->\n<!-- /orchestrator -->",
-  ) === null,
-  "empty block → null",
-);
-
-// ---------------------------------------------------------------------------
-// Summary
-// ---------------------------------------------------------------------------
-
-console.log(`\n${failures === 0 ? "All tests passed." : `${failures} test(s) failed.`}\n`);
-
-if (failures > 0) {
-  throw new Error(`${failures} test(s) failed.`);
-}
+  it("empty block → null", () => {
+    expect(
+      parseAnnotation(
+        "<!-- orchestrator -->\n<!-- /orchestrator -->",
+      ),
+    ).toBeNull();
+  });
+});

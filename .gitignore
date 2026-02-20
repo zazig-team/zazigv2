@@ -11,3 +11,4 @@ coverage/
 .turbo/
 *.tsbuildinfo
 .obsidian/
+projects/personality/.claude/napkin.md

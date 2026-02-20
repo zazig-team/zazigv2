@@ -1,47 +1,40 @@
-# Pipeline Task 2 — Schema Migration Report
+# Pipeline Task 2 — P0/P1 Security & Correctness Fixes
 
-**Task:** Add pipeline columns and status values to features and jobs tables
+**Task:** Fix SECURITY DEFINER vulnerabilities and correctness bugs in migration 004
 **Branch:** zazig/pipeline-task2-schema
 **Migration:** `supabase/migrations/004_pipeline_schema_v2.sql`
 **Date:** 2026-02-20
 
-## Migration Number
+## Fixes Applied
 
-Used **004** (next available after 003_multi_tenant_schema.sql). Task suggested 007 but instructed to check — 004 was the first available.
+### P0-1 + P0-2: Restrict EXECUTE on SECURITY DEFINER functions
+Added REVOKE/GRANT statements to restrict `release_slot` and `all_feature_jobs_complete`
+to `service_role` only, preventing unauthenticated callers from invoking them.
 
-## Changes
+### P0-3: Pin search_path on SECURITY DEFINER functions
+Added `SET search_path = public, pg_catalog` to both functions to prevent malicious
+schema shadowing attacks.
 
-### Features table — new columns
-- `spec text` — feature specification text
-- `acceptance_tests text` — acceptance test descriptions
-- `human_checklist text` — manual testing checklist
-- `feature_branch text` — git branch for feature
+### P1-1: Fix release_slot to branch on slot_type
+Rewrote `release_slot` to look up `slot_type` from the job row (with `FOR UPDATE`
+locking) and increment the correct counter (`slots_codex` or `slots_claude_code`).
 
-### Features table — expanded status
-Added: `design`, `building`, `verifying`, `testing`, `done`, `cancelled`
-(Preserved existing: `proposed`, `designing`, `in_progress`, `complete`)
+### P1-2: Fix all_feature_jobs_complete for legacy 'complete' status
+Added `'complete'` to the `NOT IN` clause so jobs with the legacy terminal status
+are not treated as incomplete indefinitely.
 
-### Jobs table — new columns
-- `acceptance_tests text` — acceptance tests for this job
-- `sequence integer` — ordering of jobs within a feature
-- `job_branch text` — git branch for this specific job
-- `verify_context text` — context provided to verification agent
-- `rejection_feedback text` — feedback when job is rejected
+### P1-3: Document status enum overlap
+Added a comment block at the top of the migration explaining legacy/new status
+equivalences and the backward-compatibility strategy.
 
-### Jobs table — expanded status
-Added: `verifying`, `verify_failed`, `testing`, `approved`, `rejected`, `done`, `cancelled`
-(Preserved existing: `queued`, `dispatched`, `executing`, `waiting_on_human`, `reviewing`, `complete`, `failed`)
+## Files Changed
+- `supabase/migrations/004_pipeline_schema_v2.sql`
 
-### Events table — expanded event types
-Added: `job_verifying`, `job_verify_failed`, `job_testing`, `job_approved`, `job_rejected`, `job_done`, `job_cancelled`, `feature_building`, `feature_verifying`, `feature_testing`, `feature_done`, `feature_cancelled`
-
-### Stored procedures
-- `release_slot(p_job_id uuid)` — atomic slot release (updates machine slots + marks job done)
-- `all_feature_jobs_complete(p_feature_id uuid)` — returns true if all non-cancelled jobs are done/approved
-
-## Pre-merge check
+## Pre-merge Check
 All checks passed (lint, tsc).
 
+## Issues Encountered
+None.
+
 ## Token Usage
-- **codex-delegate implement**: 1 invocation (gpt-5.3-codex, xhigh reasoning)
-- **Claude**: Discovery reads, verification, report writing
+- **Claude (claude-ok)**: Direct code edits, no codex-delegate needed for this task

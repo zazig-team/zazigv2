@@ -139,3 +139,26 @@ export {
   isFeatureRejected,
   isVerifyResult,
 } from "./validators.js";
+
+// ---- Personality prompt compilation ----
+
+export type {
+  BeliefStatement,
+  AntiPattern,
+  ContextualOverlay,
+  ArchetypeDefinition,
+  CompiledPersonality,
+  PersonalityMode,
+} from "./personality/index.js";
+export {
+  compileVerbosity,
+  compileTechnicality,
+  compileFormality,
+  compileProactivity,
+  compileDirectness,
+  compileCommunicationDirectives,
+  compileDecisionDirectives,
+  resolveContextualOverlay,
+  applyOverlay,
+  compilePersonalityPrompt,
+} from "./personality/index.js";

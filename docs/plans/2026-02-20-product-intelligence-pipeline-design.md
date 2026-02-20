@@ -424,23 +424,70 @@ Build as Claude Code skills first, migrate to orchestrator-dispatched jobs later
 
 | Tool | Location | Status | Notes |
 |------|----------|--------|-------|
-| `deep-research` | `~/.local/bin/deep-research` | Done | Multi-provider: `--provider gemini` or `--provider openai`. Gemini Deep Research + OpenAI o4-mini deep research. Polls until complete, returns cited report. |
+| `deep-research` | `~/.local/bin/deep-research` | Done | Multi-provider: `--provider gemini` or `--provider openai`. OpenAI deep research built but **awaiting identity verification** to use. Gemini Deep Research works now. |
+| `x-scan` | Claude Code skill | Done | Basic X/Twitter API access. Last 30 days search with full X and YouTube search. |
 | `reddit-scan` | `zazig/tools/reddit-scan` → `~/.local/bin/` | Done | Reddit JSON API. Search by keyword, browse subreddits, filter by time period. `--comments` for sentiment, `--compact` for agent consumption. No auth needed. |
 | `gemini-delegate` | `~/.local/bin/gemini-delegate` | Done | Gemini analysis/Q&A with optional file context. |
 | `codex-delegate` | `zazig/tools/codex-delegate` → `~/.local/bin/` | Done | OpenAI Codex delegation (implement or investigate mode). |
 | `second-opinion` | Claude Code skill | Done | Sends recommendation to Codex or Gemini for independent review. |
 | `repo-recon` | Claude Code skill | Done | GitHub repo architecture analysis. |
+| `/brainstorming` | Claude Code skill | Done | Interactive design brainstorming (PM uses with CPO at stage 3). |
+| `/review-plan` | Claude Code skill | Done | Interactive plan review with one-way door analysis (PM uses with CPO at stage 9). |
 | `/cardify` | Claude Code skill | Done | Design doc → features/jobs (currently targets Trello, needs v2 adapter). |
 | `/ship` | Claude Code skill | Done | Commit, push, PR, merge. |
-| `/review-plan` | Claude Code skill | Done | Interactive plan review with one-way door analysis. |
+
+### Skill → Role Mapping
+
+Each pipeline role uses a specific set of skills. The pipeline is not one monolithic skill — it's a choreography of existing skills, each invoked by the role that owns that stage.
+
+**Market Researcher** (daily scan agent):
+
+| Stage | Skill / Tool | What it does |
+|-------|-------------|--------------|
+| Scan X/Twitter | `x-scan` | Last 30 days of activity in target domains |
+| Scan Reddit | `reddit-scan` | Subreddit keyword search + top posts |
+| Scan GitHub | GitHub API (direct) | Repo search by topic, stars, recent activity |
+| Scan web | `deep-research --provider gemini` | Broad web search for competitor launches, blog posts |
+| Output | Write to `signals` table | Structured signals with scores, grouped by project |
+
+Needs building: **`/market-research` skill** — orchestrates the above into a single scan run. Reads active features for keywords, runs all source scans, deduplicates, writes signals, generates daily digest.
+
+**Product Manager** (deep pipeline, commissioned by CPO):
+
+| Stage | Skill / Tool | What it does |
+|-------|-------------|--------------|
+| 1. Deep Research | `deep-research` (parallel, multiple `--provider`) | 2-4 independent research reports |
+| 2. Synthesis | Claude (native) | Reconcile reports into single synthesis |
+| 3. Brainstorm | `/brainstorming` (with CPO via Agent Teams) | Stress-test synthesis, build feature concepts |
+| 4. Compile | Claude (native) | Structure brainstorm into deep-dive doc |
+| 5. First Second-Opinion | `/second-opinion` | Challenge assumptions via Codex or Gemini |
+| 6. Repo-Recon | `/repo-recon` | Analyze relevant GitHub repos |
+| 7. Second Second-Opinion | `/second-opinion` | Validate against repo-recon findings |
+| 8. Consolidated | Claude (native) | Compile everything into final report |
+| 9. Review-Plan | `/review-plan` (with CPO via Agent Teams) | CPO bar-raiser review |
+| 10. Ship | `/ship` | Commit report to `docs/plans/` |
+| 11. Cardify | `/cardify` | Generate features + jobs from report |
+
+Needs building: **`/product-investigation` skill** — orchestrates the 11 stages above. Accepts a brief (from signal or manual), runs the full pipeline with CPO collaboration at stages 3 and 9, checkpoints to `research_details` at stages 2, 4, 6, 8.
+
+**CPO** (persistent, coordinates both):
+
+| Action | Skill / Tool | When |
+|--------|-------------|------|
+| Generate researcher prompt | Claude (native) | Before each `/market-research` run |
+| Review daily digest | Read `signals` table | At standup |
+| Commission PM | Create `research` job with brief | When a signal warrants investigation |
+| Collaborate with PM | Agent Teams (stages 3, 9) | During `/product-investigation` |
+| Groom output | `/cardify` output review | After PM pipeline completes |
 
 ### Tooling — Not Yet Built
 
-| Tool | Purpose | Blocker |
-|------|---------|---------|
-| Perplexity integration | Add as `--provider perplexity` to `deep-research` or via OpenRouter | Need OpenRouter API key or direct Perplexity API |
-| `/investigate` skill | Full PM pipeline (11 stages) as a Claude Code skill | Next to build — wires together all existing tools |
-| Market Researcher (launchd) | Daily scan agent triggered by launchd | After `/investigate` — simpler, uses `reddit-scan` + GitHub API + web search |
+| Skill | Role | Purpose | Blocker |
+|-------|------|---------|---------|
+| `/market-research` | Market Researcher | Full daily scan: X + Reddit + GitHub + web → signals table → daily digest | Next to build |
+| `/product-investigation` | Product Manager | Full 11-stage deep pipeline with CPO collaboration | After `/market-research` |
+| Perplexity integration | PM (stage 1) | Add as `--provider perplexity` to `deep-research` | Need OpenRouter API key or direct Perplexity API |
+| OpenAI deep research | PM (stage 1) | `deep-research --provider openai` | Awaiting identity verification |
 
 ### Review History
 
@@ -452,11 +499,14 @@ Build as Claude Code skills first, migrate to orchestrator-dispatched jobs later
 
 ## Next Steps
 
-1. ~~Build `deep-research` multi-provider support~~ — Done
+1. ~~Build `deep-research` multi-provider support~~ — Done (Gemini works; OpenAI awaiting identity verification)
 2. ~~Build `reddit-scan` tool~~ — Done
-3. Build `/investigate` skill — the full PM pipeline as a Claude Code skill, using existing tools
-4. Build Market Researcher as launchd job — daily scan using `reddit-scan` + GitHub API + `deep-research`
-5. ~~Resolve CPO runtime question with Chris~~ — Resolved 2026-02-20: CPO is Claude Code with Slack MCP (not Agent SDK). Runs locally, accessible via Slack. Full skills toolchain preserved.
-6. Spec cron scheduler in orchestrator design (shared capability, open question #11)
-7. Migrate skills to orchestrator-dispatched jobs when zazigv2 infra is ready
-8. Build Settings UI for source and model management
+3. ~~Build `x-scan` skill~~ — Done (basic API access, last 30 days)
+4. ~~Resolve CPO runtime question with Chris~~ — Resolved 2026-02-20: CPO is Claude Code with Slack MCP (not Agent SDK). Runs locally, accessible via Slack. Full skills toolchain preserved.
+5. **Build `/market-research` skill** — Market Researcher role. Orchestrates: x-scan + reddit-scan + GitHub API + deep-research → signals → daily digest
+6. **Build `/product-investigation` skill** — Product Manager role. Orchestrates the 11-stage deep pipeline with CPO collaboration via Agent Teams
+7. Complete OpenAI identity verification — unblocks `deep-research --provider openai`
+8. Add Perplexity as research provider — OpenRouter API key or direct API
+9. Spec cron scheduler in orchestrator design (shared capability, open question #11)
+10. Migrate skills to orchestrator-dispatched jobs when zazigv2 infra is ready
+11. Build Settings UI for source and model management

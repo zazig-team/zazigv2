@@ -41,7 +41,7 @@ T1.3 PersonaPlex baseline ── (quality bar only)                             
 | Labels | research, needs-human |
 | Depends on | -- |
 | Assigned | _unassigned_ |
-| Trello | _not pushed_ |
+| Trello | https://trello.com/c/6998e47baafd3d9aa472cf29 |
 
 **What:** Wire up one exec agent (CPO or CTO) to ElevenLabs ElevenAgents using their existing Claude system prompt and a selected canonical voice. Run a live voice conversation. Uses ElevenLabs free tier (15 minutes).
 
@@ -82,7 +82,7 @@ T1.3 PersonaPlex baseline ── (quality bar only)                             
 | Labels | research, claude-ok |
 | Depends on | -- |
 | Assigned | _unassigned_ |
-| Trello | _not pushed_ |
+| Trello | https://trello.com/c/6998e4860a884f6b1dce3c85 |
 
 **What:** Spin up the Qwen3-TTS 1.7B VoiceDesign model locally or via Replicate API. For each exec role (CPO, CTO, Senior Engineer), derive a voice description string from their personality coordinates and generate sample speech. Evaluate whether distinct personalities produce meaningfully distinct voices.
 
@@ -124,7 +124,7 @@ T1.3 PersonaPlex baseline ── (quality bar only)                             
 | Labels | research, needs-human |
 | Depends on | T1.1 |
 | Assigned | _unassigned_ |
-| Trello | _not pushed_ |
+| Trello | https://trello.com/c/6998e498565f4bf97c2cb832 |
 
 **What:** Rent an RTX 4090 on RunPod (~$0.59/hr), spin up the PersonaPlex Docker container, run a 30-minute test conversation with an exec persona prompt. Purpose is purely to feel whether full-duplex naturalness is worth the GPU ops overhead — not to build anything.
 
@@ -170,7 +170,7 @@ T1.3 PersonaPlex baseline ── (quality bar only)                             
 | Labels | claude-ok, blocked |
 | Depends on | T1.1 |
 | Assigned | _unassigned_ |
-| Trello | _not pushed_ |
+| Trello | https://trello.com/c/6998e4a67206a3821faee0df |
 
 **What:** TypeScript service that translates a zazig exec `roles` row into an ElevenAgents session. Given an exec role ID, it formats the personality prompt + selects the canonical voice ID + opens an ElevenAgents WebSocket session. Proxies audio between the browser client and ElevenAgents. Stores voice ID per exec in the `roles` table.
 
@@ -223,7 +223,7 @@ T1.3 PersonaPlex baseline ── (quality bar only)                             
 | Labels | claude-ok, blocked |
 | Depends on | T1.2 |
 | Assigned | _unassigned_ |
-| Trello | _not pushed_ |
+| Trello | https://trello.com/c/6998e4b7b8893cf0039cc2b1 |
 
 **What:** Algorithm that converts exec personality coordinates (numeric, from the `roles` table) into a natural language VoiceDesign description string for Qwen3-TTS. The mapping should be deterministic — same coordinates always produce the same voice description. Includes a lookup/cache layer so we don't re-describe the same exec repeatedly.
 
@@ -268,7 +268,7 @@ T1.3 PersonaPlex baseline ── (quality bar only)                             
 | Labels | claude-ok, blocked, tech-review |
 | Depends on | T2.2 |
 | Assigned | _unassigned_ |
-| Trello | _not pushed_ |
+| Trello | https://trello.com/c/6998e4c69e2e41b86ced773c |
 
 **What:** Full open-source voice pipeline using Pipecat as the orchestration framework: Silero VAD → faster-whisper ASR → Pipecat Smart Turn → Claude API (exec LLM) → Qwen3-TTS VoiceDesign. Containerised. Exposes a WebSocket API that matches the T2.1 interface so T3.1 (voice UI) works with either backend.
 
@@ -325,7 +325,7 @@ T1.3 PersonaPlex baseline ── (quality bar only)                             
 | Labels | claude-ok, blocked |
 | Depends on | T2.1 or T2.3 |
 | Assigned | _unassigned_ |
-| Trello | _not pushed_ |
+| Trello | https://trello.com/c/6998e4e06a1c469b9ad283aa |
 
 **What:** Browser voice interface for the exec onboarding flow. Mic capture → audio stream to voice gateway → response audio + streaming text transcript displayed in the UI. Matches the onboarding/dashboard mockup aesthetic. Works with either T2.1 (ElevenAgents) or T2.3 (Pipecat) via the shared WebSocket protocol.
 

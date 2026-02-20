@@ -10,7 +10,8 @@
 - Personality system design: `docs/plans/2026-02-20-exec-personality-system-design.md`
 - Agent souls research: `docs/research/2026-02-20-tolibear-agent-souls-research.md`
 - v1 CPO manual: `zazig/manuals/CPO-CLAUDE.md`
-- v1 CTO manual: `zazig/manuals/CTO-CLAUDE.md`
+- v1 CTO manual: `zazig/manuals/CTO-CLAUDE.md
+- Cards: `docs/plans/2026-02-20-role-prompts-and-skills-design.cards`
 
 ---
 

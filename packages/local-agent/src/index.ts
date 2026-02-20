@@ -19,6 +19,7 @@ import { SlotTracker } from "./slots.js";
 import { AgentConnection } from "./connection.js";
 import { JobExecutor } from "./executor.js";
 import { JobVerifier } from "./verifier.js";
+import { FixAgentManager } from "./fix-agent.js";
 import type { OrchestratorMessage } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
@@ -56,6 +57,10 @@ async function main(): Promise<void> {
     conn.dbClient,
   );
 
+  // Initialize fix agent manager — spawns ephemeral Claude sessions during testing phase
+  // Temporarily unused: spawn gated until DeployToTest includes slackChannel/slackThreadTs (Task 10)
+  const _fixAgentManager = new FixAgentManager(process.cwd());
+
   // Register message handler — dispatch StartJob/StopJob to executor
   conn.onMessage((msg: OrchestratorMessage) => {
     switch (msg.type) {
@@ -84,7 +89,14 @@ async function main(): Promise<void> {
         break;
 
       case "deploy_to_test":
-        console.log(`[local-agent] Received deploy_to_test — featureId=${msg.featureId} (handler not yet implemented)`);
+        console.log(
+          `[local-agent] Received deploy_to_test — featureId=${msg.featureId}, ` +
+            `branch=${msg.featureBranch}`
+        );
+        // TODO: DeployToTest message does not yet include slackChannel/slackThreadTs.
+        // Fix agent spawning is gated until protocol is extended (Task 10).
+        // Tracked: https://github.com/zazig-team/zazigv2 (add slackChannel, slackThreadTs to DeployToTest)
+        console.warn('[local-agent] deploy_to_test: slackChannel/slackThreadTs not in protocol yet — fix agent NOT spawned');
         break;
 
       default: {

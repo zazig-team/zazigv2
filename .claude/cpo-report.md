@@ -1,32 +1,41 @@
-# CPO Report — Pipeline Task 5: Job Verification Pipeline
+# CPO Report — Pipeline Task 9 (P0 Security Fixes): fix-agent.ts
 
 ## Summary
-Implemented the job verification pipeline for the local agent. After an agent completes a job, the orchestrator sends a `VerifyJob` message which triggers the `JobVerifier` to: rebase the job branch on the feature branch, run acceptance tests (`npm test`), run lint and typecheck, and if all pass, merge the job branch into the feature branch. Results are sent back as `VerifyResult` messages.
+
+Applied 3 P0 security fixes identified in code review of `fix-agent.ts` and `index.ts`. All issues resolved, tests pass, TypeScript compiles clean.
+
+## P0 Fixes Applied
+
+### P0-1: `featureId` unsanitized in tmux session name
+- **File:** `packages/local-agent/src/fix-agent.ts`
+- **Fix:** Strip non-`[a-zA-Z0-9-]` characters from `featureId` before constructing `sessionName`. Abort spawn with error log if sanitized ID is empty.
+
+### P0-2: Prompt injection via network-supplied Slack values
+- **File:** `packages/local-agent/src/fix-agent.ts`
+- **Fix:** Added `sanitizeSlackField()` function that strips backticks, `$`, `\`, quotes, and newlines. Applied to `slackChannel` and `slackThreadTs` before embedding in prompt string. Capped at 200 chars.
+
+### P0-3: Fix agent spawned with empty Slack fields
+- **File:** `packages/local-agent/src/index.ts`
+- **Fix:** Removed `fixAgentManager.spawn()` call from `deploy_to_test` handler. Replaced with explicit warning log and TODO comment. Fix agent spawning gated until `DeployToTest` protocol includes Slack fields (Task 10).
 
 ## Files Changed
-- `packages/local-agent/src/verifier.ts` — new `JobVerifier` class implementing the full verification pipeline (rebase → test → lint → typecheck → merge)
-- `packages/local-agent/src/verifier.test.ts` — 9 vitest tests covering all success/failure paths (TDD: tests written first, confirmed failing, then implementation)
-- `packages/local-agent/src/executor.ts` — added `AfterJobCompleteFn` callback type and optional `afterJobComplete` parameter to `JobExecutor` constructor; called after `sendJobComplete` in `onJobEnded`
-- `packages/local-agent/src/index.ts` — wired `JobVerifier` instance to handle incoming `verify_job` messages from orchestrator
+
+- `packages/local-agent/src/fix-agent.ts` — featureId sanitization, slackField sanitization
+- `packages/local-agent/src/fix-agent.test.ts` — 2 new tests (sanitization, empty-after-sanitize abort)
+- `packages/local-agent/src/index.ts` — gated spawn, added TODO
 - `.claude/cpo-report.md` — this report
 
 ## Tests
-- 9 new tests added in `verifier.test.ts`:
-  - Sends passing VerifyResult when all steps succeed
-  - Sends failing VerifyResult when rebase fails
-  - Sends failing VerifyResult when tests fail
-  - Sends failing VerifyResult when lint fails
-  - Sends failing VerifyResult when typecheck fails
-  - Sends failing VerifyResult when merge fails after checks pass
-  - Uses repoPath from VerifyJob when provided
-  - Runs npm test, lint, and typecheck with correct arguments and timeouts
-  - Defaults repoDir to process.cwd() when repoPath is not provided
-- 19/19 tests passing across local-agent package (9 verifier + 10 branches)
-- TypeScript compiles cleanly (`tsc --noEmit` exit 0)
+
+- 20/20 tests passing (10 fix-agent + 10 branches)
+- 2 new tests added: sanitized session name, abort on empty featureId
+- TypeScript compiles cleanly across all workspaces (`tsc --noEmit`)
 
 ## Token Usage
-- Routing: claude-ok
-- Claude used directly for all implementation, testing, and verification
+
+- Routing: claude-ok (direct implementation)
+- No codex delegation used
 
 ## Issues Encountered
-- Minor vitest v4 type compatibility issue with `vi.fn()` mock types vs `SendFn`/`ExecFn` — resolved with `as unknown as` casts in test file
+
+- None

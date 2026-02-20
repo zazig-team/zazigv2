@@ -25,6 +25,7 @@ import {
   isJobComplete,
   isJobFailed,
   isStopAck,
+  isVerifyResult,
 } from "@zazigv2/shared";
 import type {
   StartJob,
@@ -34,6 +35,7 @@ import type {
   JobStatusMessage,
   JobComplete,
   JobFailed,
+  VerifyResult,
 } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
@@ -56,6 +58,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 interface JobRow {
   id: string;
   company_id: string;
+  feature_id: string | null;
   role: string;
   job_type: string;
   complexity: string | null;
@@ -333,7 +336,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     .select(
       "id, company_id, role, job_type, complexity, slot_type, model, machine_id, status, context, branch, created_at",
     )
-    .eq("status", "queued")
+    .in("status", ["queued", "verify_failed"])
     .order("created_at", { ascending: true });
 
   if (jobsErr) {
@@ -445,7 +448,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         started_at: new Date().toISOString(),
       })
       .eq("id", job.id)
-      .eq("status", "queued"); // optimistic lock — only update if still queued
+      .in("status", ["queued", "verify_failed"]); // optimistic lock
 
     if (updateJobErr) {
       console.error(`[orchestrator] Failed to dispatch job ${job.id}:`, updateJobErr.message);
@@ -701,6 +704,114 @@ async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promis
   await releaseSlot(supabase, jobId, machineId);
 }
 
+export async function handleVerifyResult(supabase: SupabaseClient, msg: VerifyResult): Promise<void> {
+  const { jobId, passed, testOutput } = msg;
+
+  if (!passed) {
+    // Job failed verification — mark as verify_failed for requeue
+    const { error } = await supabase
+      .from("jobs")
+      .update({
+        status: "verify_failed",
+        verify_context: testOutput,
+        machine_id: null,
+      })
+      .eq("id", jobId);
+    if (error) {
+      console.error(`[orchestrator] Failed to mark job ${jobId} verify_failed:`, error.message);
+    } else {
+      console.warn(`[orchestrator] Job ${jobId} failed verification — marked verify_failed`);
+    }
+    return;
+  }
+
+  // Job passed — mark as done
+  const { error: doneErr } = await supabase
+    .from("jobs")
+    .update({ status: "done" })
+    .eq("id", jobId);
+  if (doneErr) {
+    console.error(`[orchestrator] Failed to mark job ${jobId} done:`, doneErr.message);
+    return;
+  }
+  console.log(`[orchestrator] Job ${jobId} verified and done`);
+
+  // Look up the feature_id for this job
+  const { data: jobRow, error: jobErr } = await supabase
+    .from("jobs")
+    .select("feature_id")
+    .eq("id", jobId)
+    .single();
+  if (jobErr || !jobRow?.feature_id) {
+    console.log(`[orchestrator] Job ${jobId} has no feature_id — skipping feature check`);
+    return;
+  }
+
+  // Check if all jobs for this feature are now done
+  const { data: allDone, error: rpcErr } = await supabase
+    .rpc("all_feature_jobs_complete", { p_feature_id: jobRow.feature_id });
+  if (rpcErr) {
+    console.error(`[orchestrator] all_feature_jobs_complete RPC failed:`, rpcErr.message);
+    return;
+  }
+
+  if (allDone) {
+    console.log(`[orchestrator] All jobs done for feature ${jobRow.feature_id} — triggering feature verification`);
+    await triggerFeatureVerification(supabase, jobRow.feature_id);
+  }
+}
+
+export async function triggerFeatureVerification(supabase: SupabaseClient, featureId: string): Promise<void> {
+  // Mark feature as verifying
+  const { error: featureErr } = await supabase
+    .from("features")
+    .update({ status: "verifying" })
+    .eq("id", featureId);
+  if (featureErr) {
+    console.error(`[orchestrator] Failed to set feature ${featureId} to verifying:`, featureErr.message);
+    return;
+  }
+
+  // Fetch feature details for the verification job
+  const { data: feature, error: fetchErr } = await supabase
+    .from("features")
+    .select("feature_branch, project_id, company_id, acceptance_tests")
+    .eq("id", featureId)
+    .single();
+  if (fetchErr || !feature) {
+    console.error(`[orchestrator] Failed to fetch feature ${featureId}:`, fetchErr?.message);
+    return;
+  }
+
+  // Insert a feature-verification job. It uses the normal dispatch path
+  // (StartJob → executor → Claude session), with context that instructs
+  // the agent to run feature-level tests.
+  const { error: insertErr } = await supabase
+    .from("jobs")
+    .insert({
+      company_id: feature.company_id,
+      project_id: feature.project_id,
+      feature_id: featureId,
+      role: "reviewer",
+      job_type: "code",
+      complexity: "simple",
+      slot_type: "claude_code",
+      status: "queued",
+      context: JSON.stringify({
+        type: "feature_verification",
+        featureBranch: feature.feature_branch,
+        acceptanceTests: feature.acceptance_tests ?? "",
+      }),
+      branch: feature.feature_branch,
+    });
+
+  if (insertErr) {
+    console.error(`[orchestrator] Failed to insert feature verification job for ${featureId}:`, insertErr.message);
+  } else {
+    console.log(`[orchestrator] Queued feature verification job for feature ${featureId} branch ${feature.feature_branch}`);
+  }
+}
+
 /**
  * Releases one slot of the appropriate type on a machine.
  * Fetches the current job record to determine slot_type, then increments the machine counter.
@@ -794,6 +905,8 @@ async function listenForAgentMessages(
           await handleJobComplete(supabase, msg);
         } else if (isJobFailed(msg)) {
           await handleJobFailed(supabase, msg);
+        } else if (isVerifyResult(msg)) {
+          await handleVerifyResult(supabase, msg);
         } else if (isStopAck(msg)) {
           console.log(`[orchestrator] StopAck received — job ${(msg as { jobId: string }).jobId}`);
         } else {

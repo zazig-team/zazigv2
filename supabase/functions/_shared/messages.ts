@@ -92,6 +92,7 @@ export interface Job {
 export const PROTOCOL_VERSION = 1;
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 export const MACHINE_DEAD_THRESHOLD_MS = 120_000;
+export const RECOVERY_COOLDOWN_MS = 60_000;
 export const MAX_CONTEXT_BYTES = 64_000;
 
 // ---------------------------------------------------------------------------

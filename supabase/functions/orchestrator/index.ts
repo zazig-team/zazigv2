@@ -18,6 +18,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import {
   PROTOCOL_VERSION,
   MACHINE_DEAD_THRESHOLD_MS,
+  RECOVERY_COOLDOWN_MS,
   isHeartbeat,
   isJobAck,
   isJobStatusMessage,
@@ -163,6 +164,30 @@ function resolveModelAndSlot(
 }
 
 // ---------------------------------------------------------------------------
+// Machine recovery cooldown tracking (in-memory)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tracks when machines transitioned from offline → online (epoch ms).
+ * Used to enforce RECOVERY_COOLDOWN_MS before dispatching new jobs to a
+ * machine that just recovered, preventing flapping machines from grabbing
+ * work they'll immediately drop again.
+ *
+ * LIMITATION: This Map lives in process memory and is lost on Edge Function
+ * cold starts. A fresh instance will have an empty map and may dispatch jobs
+ * to machines still within their cooldown window. Worst case: a flapping
+ * machine receives one extra job before being reaped again on the next cycle.
+ *
+ * TODO: For durable anti-flap, persist recovery_started_at in the machines
+ * table and check it in dispatchQueuedJobs instead of this Map.
+ */
+const recoveryTimestamps = new Map<string, number>();
+
+console.log(
+  "[orchestrator] Cold start — in-memory recoveryTimestamps reset (anti-flap cooldown not durable across restarts)",
+);
+
+// ---------------------------------------------------------------------------
 // Core orchestrator operations
 // ---------------------------------------------------------------------------
 
@@ -213,18 +238,36 @@ async function reapDeadMachines(supabase: SupabaseClient): Promise<void> {
       continue;
     }
 
-    if (!stuckJobs || stuckJobs.length === 0) continue;
+    let requeuedCount = 0;
 
-    const stuckIds = stuckJobs.map((j: { id: string }) => j.id);
-    console.log(`[orchestrator] Re-queuing ${stuckIds.length} job(s) from dead machine ${machine.name}`);
+    if (stuckJobs && stuckJobs.length > 0) {
+      const stuckIds = stuckJobs.map((j: { id: string }) => j.id);
+      console.log(`[orchestrator] Re-queuing ${stuckIds.length} job(s) from dead machine ${machine.name}`);
 
-    const { error: requeueErr } = await supabase
-      .from("jobs")
-      .update({ status: "queued", machine_id: null })
-      .in("id", stuckIds);
+      const { error: requeueErr } = await supabase
+        .from("jobs")
+        .update({ status: "queued", machine_id: null })
+        .in("id", stuckIds);
 
-    if (requeueErr) {
-      console.error(`[orchestrator] Failed to re-queue jobs from dead machine ${machine.id}:`, requeueErr.message);
+      if (requeueErr) {
+        console.error(`[orchestrator] Failed to re-queue jobs from dead machine ${machine.id}:`, requeueErr.message);
+      } else {
+        requeuedCount = stuckIds.length;
+      }
+    }
+
+    // Log machine-offline event.
+    const { error: eventErr } = await supabase
+      .from("events")
+      .insert({
+        company_id: machine.company_id,
+        machine_id: machine.id,
+        event_type: "machine_offline",
+        detail: { jobs_requeued: requeuedCount },
+      });
+
+    if (eventErr) {
+      console.error(`[orchestrator] Failed to log machine_offline event for ${machine.id}:`, eventErr.message);
     }
   }
 }
@@ -274,7 +317,20 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         console.error("[orchestrator] Error fetching machines:", mErr.message);
         continue;
       }
-      machines = (m ?? []) as MachineRow[];
+      // Exclude machines still within recovery cooldown after coming back online.
+      const now = Date.now();
+      machines = ((m ?? []) as MachineRow[]).filter((machine) => {
+        const recoveredAt = recoveryTimestamps.get(machine.id);
+        if (recoveredAt && now - recoveredAt < RECOVERY_COOLDOWN_MS) {
+          console.log(
+            `[orchestrator] Machine ${machine.name} in recovery cooldown — skipping for dispatch`,
+          );
+          return false;
+        }
+        // Clear expired cooldown entries.
+        if (recoveredAt) recoveryTimestamps.delete(machine.id);
+        return true;
+      });
       machineCache.set(job.company_id, machines);
     }
 
@@ -396,6 +452,20 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
 async function handleHeartbeat(supabase: SupabaseClient, msg: Heartbeat): Promise<void> {
   const { machineId, slotsAvailable } = msg;
 
+  // Check if the machine was offline before this heartbeat.
+  const { data: machine, error: fetchErr } = await supabase
+    .from("machines")
+    .select("id, company_id, status")
+    .eq("id", machineId)
+    .single();
+
+  if (fetchErr || !machine) {
+    console.error(`[orchestrator] Failed to fetch machine ${machineId} for heartbeat:`, fetchErr?.message);
+    return;
+  }
+
+  const wasOffline = machine.status === "offline";
+
   const { error } = await supabase
     .from("machines")
     .update({
@@ -408,10 +478,30 @@ async function handleHeartbeat(supabase: SupabaseClient, msg: Heartbeat): Promis
 
   if (error) {
     console.error(`[orchestrator] Failed to record heartbeat for machine ${machineId}:`, error.message);
-  } else {
-    console.log(
-      `[orchestrator] Heartbeat from machine ${machineId} — claude_code:${slotsAvailable.claude_code} codex:${slotsAvailable.codex}`,
-    );
+    return;
+  }
+
+  console.log(
+    `[orchestrator] Heartbeat from machine ${machineId} — claude_code:${slotsAvailable.claude_code} codex:${slotsAvailable.codex}`,
+  );
+
+  // Machine came back online — record recovery timestamp and log event.
+  if (wasOffline) {
+    console.log(`[orchestrator] Machine ${machineId} recovered from offline — cooldown ${RECOVERY_COOLDOWN_MS}ms`);
+    recoveryTimestamps.set(machineId, Date.now());
+
+    const { error: eventErr } = await supabase
+      .from("events")
+      .insert({
+        company_id: machine.company_id,
+        machine_id: machineId,
+        event_type: "machine_online",
+        detail: { recovered: true },
+      });
+
+    if (eventErr) {
+      console.error(`[orchestrator] Failed to log machine_online event for ${machineId}:`, eventErr.message);
+    }
   }
 }
 

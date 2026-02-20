@@ -1,49 +1,32 @@
-# CPO Report: Complexity-to-Model Dispatch Mapping
+# CPO Report — PR #11 P0/P1 Fix
 
-## Summary
+## P0 Fix: Missing RECOVERY_COOLDOWN_MS export
 
-Replaced the static `modelForComplexity` helper with a full `resolveModelAndSlot` function that derives both model and slot type from job complexity. Added codex preference for simple jobs with fallback to claude_code when no codex slots are available. Added support for explicit model overrides on the job row.
+**Problem:** `orchestrator/index.ts` imports `RECOVERY_COOLDOWN_MS` from `@zazigv2/shared`,
+but the shared shim (`supabase/functions/_shared/messages.ts`) did not export it.
+This causes the Edge Function to fail to load at runtime.
 
-## Changes
+**Fix:** Added `export const RECOVERY_COOLDOWN_MS = 60_000;` to the Constants section
+of `_shared/messages.ts` (line 92), alongside `MACHINE_DEAD_THRESHOLD_MS`.
 
-### `supabase/functions/orchestrator/index.ts`
-- Added `model` field to `JobRow` interface
-- Replaced `modelForComplexity(complexity)` with `resolveModelAndSlot(complexity, existingModel)` returning `{model, slotType}`
-- Complexity mapping:
-  - `simple` → codex / codex slot (falls back to claude-sonnet-4-6 / claude_code if no codex slots)
-  - `medium` → claude-sonnet-4-6 / claude_code slot
-  - `complex` → claude-opus-4-6 / claude_code slot
-- If `job.model` is non-null, it overrides the complexity-derived model
-- Dispatch now writes resolved `model` and `slot_type` back to the job row for observability
-- Added `model` to the SELECT query for queued jobs
+## P1 Fix: Cold-start limitation documented
 
-### `supabase/migrations/004_add_model_to_jobs.sql`
-- Adds nullable `model text` column to jobs table
-- NULL = orchestrator derives from complexity; non-null = explicit override
+**Problem:** The `recoveryTimestamps` Map in `orchestrator/index.ts` is in-memory.
+Edge Function cold starts reset the Map, allowing dispatch to machines still in cooldown.
 
-## Card-type routing
-No card_type → reviewer routing existed in the dispatch path. The `cardType` field is still passed in StartJob for the local agent to determine execution agent type, but it plays no role in dispatch decisions.
+**Fix (Option 2 — document + warning):**
+- Enhanced the existing comment block to explicitly call out the cold-start limitation
+  and the worst-case behavior (one extra job dispatched before next reap cycle).
+- Added a `console.log` at module init to warn on cold start that cooldown state is reset.
+- Added a TODO referencing the durable DB-persisted approach for future implementation.
 
-## P1 Fix (PR #13 code review)
+## Verification
 
-Three P1 issues from multi-agent + codex code review, fixed 2026-02-20:
-
-### P1-1: Migration filename collision
-- Renamed `004_add_model_to_jobs.sql` → `006_add_model_to_jobs.sql` to avoid collision with `004_rls_direct_writes.sql` from PR #12.
-
-### P1-2: No allowlist validation on job.model override
-- Added `CHECK (model IS NULL OR model IN ('claude-sonnet-4-6', 'claude-opus-4-6', 'codex'))` constraint to migration.
-- Added `ALLOWED_MODELS` set + validation in `resolveModelAndSlot()` — rejects unknown model overrides with a warning and falls through to complexity-derived logic.
-
-### P1-3: Simple-fallback breaks local-agent executor
-- Fixed `buildCommand()` in `executor.ts` to use `slotType` as the primary routing signal instead of `complexity`.
-- Previously: `slotType === "codex" || complexity === "simple"` → codex CLI. This broke when orchestrator fell back a simple job from codex to claude_code slot.
-- Now: only `slotType === "codex"` triggers codex CLI. The orchestrator's `slotType` field is authoritative.
-
-## Tests
-- TypeScript compiles without errors across all packages (shared, orchestrator, local-agent)
-- Pre-merge-check passed (lint + tsc)
-- No test suite exists for the orchestrator yet (skipped)
+- `tsc --noEmit`: PASS (no type errors)
+- `npm run lint`: FAIL (pre-existing — `eslint-visitor-keys` module not found in worktree;
+  same failure on base commit `5cce565` before changes)
 
 ## Token Usage
-- Direct implementation (claude-ok budget, codex-delegate not used — changes were surgical and well-scoped)
+
+- Token budget routing: `claude-ok` (direct implementation)
+- Changes: 2 files, ~15 lines added

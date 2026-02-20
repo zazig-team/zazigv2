@@ -52,7 +52,7 @@ Pipeline Tasks 1-3 (vitest, schema infra, protocol types) — all landed.
 - `supabase/migrations/009_personality_system.sql` (new)
 
 **Gotchas:**
-- The `exec_archetypes` table has `voice_notes TEXT` and `contextual_overlays JSONB` columns — don't miss these (added in the expressiveness enhancement round)
+- The `exec_archetypes` table has `voice_notes TEXT`, `contextual_overlays JSONB`, `anti_patterns JSONB`, `productive_flaw TEXT`, and `domain_boundaries JSONB` columns — don't miss these (voice/overlays from expressiveness round, anti-patterns/flaw/boundaries from Tolibear gap analysis)
 - `exec_personalities` uses `company_id` (not `org_id`) to match existing multi-tenant pattern
 - Append-only enforcement on `personality_evolution_log` uses `REVOKE UPDATE, DELETE` — not a row-level policy
 - `ALTER PUBLICATION supabase_realtime ADD TABLE public.exec_personalities;` must be included for local agent cache invalidation
@@ -63,7 +63,7 @@ Pipeline Tasks 1-3 (vitest, schema infra, protocol types) — all landed.
 >
 > 1. ALTER TABLE `public.roles` — add `root_constraints JSONB DEFAULT '[]'` and `root_constraints_version INTEGER DEFAULT 1` with COMMENT ON COLUMN for both
 > 2. UPDATE `public.roles` — seed root constraints for CPO and CTO
-> 3. CREATE TABLE `public.exec_archetypes` — with dimensions, correlations, philosophy, `voice_notes TEXT DEFAULT ''`, `contextual_overlays JSONB DEFAULT '[]'`, prompt_template. UNIQUE(role_id, name). RLS: service_role full access, authenticated read.
+> 3. CREATE TABLE `public.exec_archetypes` — with dimensions, correlations, philosophy, `voice_notes TEXT DEFAULT ''`, `contextual_overlays JSONB DEFAULT '[]'`, `anti_patterns JSONB DEFAULT '[]'`, `productive_flaw TEXT DEFAULT ''`, `domain_boundaries JSONB DEFAULT '[]'`, prompt_template. UNIQUE(role_id, name). RLS: service_role full access, authenticated read.
 > 4. CREATE TABLE `public.exec_personalities` — with company_id, role_id, archetype_id, user_overrides, evolved_state, compiled_prompt, is_frozen, frozen_until, frozen_reason, version. UNIQUE(company_id, role_id). Trigger on updated_at. RLS: service_role full, authenticated read own company.
 > 5. CREATE TABLE `public.personality_watchdog` — with personality_id (unique FK), resets_in_window, window_start, last_reset_at, last_reset_reason. RLS: service_role only.
 > 6. CREATE TABLE `public.personality_evolution_log` — with personality_id, timestamp, trigger_signal, dimension, old_value, new_value, was_clamped, clamped_to, watchdog_action, session_id, card_id. Indexes on personality_id and timestamp. REVOKE UPDATE, DELETE from authenticated and anon.
@@ -86,7 +86,7 @@ Pipeline Tasks 1-3 (vitest, schema infra, protocol types) — all landed.
 | Assigned | _unassigned_ |
 | Trello | https://trello.com/c/Jp1KD1Na |
 
-**What:** Create Supabase migration `010_personality_archetypes_seed.sql` that inserts 6 archetype definitions: 3 for CPO (The Strategist, The Founder's Instinct, The Operator) and 3 for CTO (The Pragmatist, The Architect, The Translator). Each archetype includes all 9 dimension configs (default, bounds, rate), philosophy statements, voice_notes prose, and contextual_overlays.
+**What:** Create Supabase migration `010_personality_archetypes_seed.sql` that inserts 6 archetype definitions: 3 for CPO (The Strategist, The Founder's Instinct, The Operator) and 3 for CTO (The Pragmatist, The Architect, The Translator). Each archetype includes all 9 dimension configs (default, bounds, rate), philosophy statements (experiential voice), voice_notes prose, contextual_overlays, anti-patterns (3-5 per archetype), productive flaw, and domain boundaries.
 
 **Why:** Archetypes are the read-only personality bundles that founders select during onboarding. Without seed data, the personality system has no personalities to offer. This follows the pattern of `005_persistent_jobs_seed.sql`.
 
@@ -98,6 +98,10 @@ Pipeline Tasks 1-3 (vitest, schema infra, protocol types) — all landed.
 - `voice_notes` must be max 500 chars, style-only (no policy verbs). Lint before committing.
 - `contextual_overlays` should include at least 2-3 overlays per archetype (1on1, code_review, crisis as applicable)
 - Philosophy statements must use `type: "core_belief" | "operating_hypothesis"` (not the old `weight: "core" | "preference"`)
+- **Philosophy `rationale` must be written in first-person experiential voice** — use formula: "I've learned that [insight] because [experience that taught it]." NOT third-person rules. See Enhancement 10a for examples.
+- `anti_patterns` — 3-5 per archetype, written as specific catchable behaviors (not traits). Use `{ "behavior": "...", "why": "..." }` format. See Enhancement 10b for CTO Pragmatist example.
+- `productive_flaw` — max 300 chars, first-person, names the cost of the archetype's core strength. See Enhancement 10c for all 6 examples.
+- `domain_boundaries` — 3-5 explicit deferral statements per archetype. See Enhancement 10d for CTO Pragmatist example.
 - Correlations JSONB should default to `'[]'` (populated in Phase 3)
 - All dimension defaults must be within their bounds; all bounds must be within [0, 100]
 
@@ -109,7 +113,10 @@ Pipeline Tasks 1-3 (vitest, schema infra, protocol types) — all landed.
 > You must ALSO write:
 > 1. `voice_notes` — a 300-500 char prose description of how each archetype *sounds*. See Enhancement 7 section for examples (CTO Pragmatist and CPO Strategist). Write the remaining 4 in the same style.
 > 2. `contextual_overlays` — 2-3 situational overlays per archetype. Style-plane offsets only (verbosity, technicality, formality, proactivity, directness). See "Contextual Adaptation via Archetype Overlays" section for the CTO Pragmatist example. Write overlays for the other 5 archetypes following the same pattern.
-> 3. Philosophy statements with `type` field: "core_belief" or "operating_hypothesis" (the design doc marks these as "core" or "preference" — map accordingly).
+> 3. Philosophy statements with `type` field: "core_belief" or "operating_hypothesis" (the design doc marks these as "core" or "preference" — map accordingly). **CRITICAL: All `rationale` values must be written in first-person experiential voice** — "I've learned..." / "I've watched..." / "I've shipped..." — not third-person rules. See Enhancement 10a.
+> 4. `anti_patterns` — 3-5 per archetype as `[{"behavior": "...", "why": "..."}]`. Written as specific catchable behaviors in first person. See Enhancement 10b for CTO Pragmatist example. Write the remaining 5 archetypes following the same pattern.
+> 5. `productive_flaw` — single paragraph, max 300 chars, first-person. The weakness that is the direct cost of the core strength. See Enhancement 10c for all 6 examples — use those verbatim or improve them.
+> 6. `domain_boundaries` — 3-5 strings per archetype as `["domain — defer to X", ...]`. See Enhancement 10d for CTO Pragmatist example. Write domain boundaries for all 6 archetypes.
 >
 > SQL pattern:
 > ```sql
@@ -119,15 +126,18 @@ Pipeline Tasks 1-3 (vitest, schema infra, protocol types) — all landed.
 >   'strategist', 'The Strategist', 'Data-driven, methodical, speaks in frameworks...',
 >   '{"verbosity": {"default": 60, "bounds": [40, 80], "rate": 3}, ...}'::jsonb,
 >   '[]'::jsonb,
->   '[{"principle": "...", "rationale": "...", "applies_when": "...", "type": "core_belief"}, ...]'::jsonb,
+>   '[{"principle": "...", "rationale": "I''ve learned that...", "applies_when": "...", "type": "core_belief"}, ...]'::jsonb,
 >   'Frames everything as hypotheses...',
->   '[{"trigger": "1on1_nontechnical", "dimension_offsets": {"technicality": -10}, "voice_modifier": "..."}]'::jsonb
+>   '[{"trigger": "1on1_nontechnical", "dimension_offsets": {"technicality": -10}, "voice_modifier": "..."}]'::jsonb,
+>   '[{"behavior": "I don''t...", "why": "Because I''ve seen..."}]'::jsonb,
+>   'I sometimes delay action waiting for signal that won''t come...',
+>   '["Marketing strategy — defer to CMO", "Engineering architecture — defer to CTO"]'::jsonb
 > );
 > ```
 >
-> Acceptance criteria: 6 rows inserted (3 CPO + 3 CTO). All dimension defaults within bounds. voice_notes < 500 chars. No policy verbs in voice_notes or voice_modifiers.
+> Acceptance criteria: 6 rows inserted (3 CPO + 3 CTO). All dimension defaults within bounds. voice_notes < 500 chars. productive_flaw < 300 chars. No policy verbs in voice_notes or voice_modifiers. All philosophy rationales in first-person experiential voice. 3-5 anti-patterns per archetype as specific catchable behaviors. 3-5 domain boundaries per archetype.
 >
-> Reference: Design doc sections "Exec Archetypes", "Enhancement 7: Voice Layer", "Contextual Adaptation via Archetype Overlays"
+> Reference: Design doc sections "Exec Archetypes", "Enhancement 7: Voice Layer", "Contextual Adaptation via Archetype Overlays", "Enhancement 10: Tolibear-Informed Soul Depth"
 
 ---
 
@@ -142,7 +152,7 @@ Pipeline Tasks 1-3 (vitest, schema infra, protocol types) — all landed.
 | Assigned | _unassigned_ |
 | Trello | https://trello.com/c/x9QUz8It |
 
-**What:** Implement the personality prompt compilation module at `packages/shared/src/personality/`. This is the deterministic function that transforms numeric dimension values + voice_notes + philosophy + root_constraints + contextual overlay into a compiled system prompt fragment. No LLM involved — pure TypeScript template logic.
+**What:** Implement the personality prompt compilation module at `packages/shared/src/personality/`. This is the deterministic function that transforms numeric dimension values + voice_notes + philosophy + root_constraints + contextual overlay + anti-patterns + productive flaw + domain boundaries into a compiled system prompt fragment. Supports two modes: `full` (primary exec agents) and `sub_agent` (value inheritance only). No LLM involved — pure TypeScript template logic.
 
 **Why:** This is the core of the personality system. Every dispatch compiles personality into a prompt fragment that the agent receives. It must be deterministic (same inputs = same output), secure (no raw config exposed), and expressive (voice layer + dimensions working together).
 
@@ -155,7 +165,8 @@ Pipeline Tasks 1-3 (vitest, schema infra, protocol types) — all landed.
 - `packages/shared/src/index.ts` (updated — re-export personality module)
 
 **Gotchas:**
-- Prompt section precedence: Constraints > Policy plane > Voice > Style directives
+- Prompt section precedence: Constraints > Not Your Domain > Policy plane > What You Refuse > Voice > Style directives > Blind Spot
+- `mode: "sub_agent"` strips voice, style, flaw, domain boundaries; keeps root_constraints + core_beliefs (as "Standards") + anti_patterns (as "Patterns to Reject"). No persona framing.
 - Overlay offsets must be clamped to archetype bounds AFTER application
 - Style plane overlays are free; policy plane overlays require explicit allowlist in archetype
 - Activation directive must be first: "Embody the persona defined below..."
@@ -178,15 +189,15 @@ Pipeline Tasks 1-3 (vitest, schema infra, protocol types) — all landed.
 > - The merge logic under "Merge Logic": `user_overrides ?? evolved_state ?? archetype.defaults`, all clamped to bounds
 >
 > Implement:
-> 1. `types.ts` — interfaces: `CompiledPersonality`, `ArchetypeDefinition`, `PersonalityDimension`, `ContextualOverlay`, `BeliefStatement`, `CompiledPromptManifest`
+> 1. `types.ts` — interfaces: `CompiledPersonality`, `ArchetypeDefinition`, `PersonalityDimension`, `ContextualOverlay`, `BeliefStatement`, `AntiPattern`, `CompiledPromptManifest`
 > 2. `dimensions.ts` — 9 compilation functions (verbosity, technicality, formality, proactivity, directness, risk_tolerance, autonomy, analysis_depth, speed_bias) each with 5 threshold buckets
 > 3. `overlays.ts` — `resolveContextualOverlay(archetype, context)` and `applyOverlay(dims, overlay)` with style-plane-only default enforcement
-> 4. `compile.ts` — `compilePersonalityPrompt()` that merges values, resolves overlay, compiles dimensions, assembles template
+> 4. `compile.ts` — `compilePersonalityPrompt(personality, mode)` that merges values, resolves overlay, compiles dimensions, assembles template. In `sub_agent` mode: outputs Standards (core_beliefs) + Patterns to Reject (anti_patterns) + Constraints only — no voice, style, flaw, or domain boundaries.
 > 5. `index.ts` — barrel exports
 >
-> Acceptance criteria: Deterministic (same inputs = same output). All dimension values clamped. Overlay offsets clamped. Policy-plane overlays rejected unless allowlisted. Empty voice_notes handled. Unit-testable pure functions.
+> Acceptance criteria: Deterministic (same inputs = same output). All dimension values clamped. Overlay offsets clamped. Policy-plane overlays rejected unless allowlisted. Empty voice_notes/anti_patterns/productive_flaw/domain_boundaries handled gracefully. `sub_agent` mode outputs only Standards + Patterns to Reject + Constraints (no persona). Unit-testable pure functions.
 >
-> Reference: Design doc sections "Prompt Compilation", "Enhancement 7: Voice Layer", "Contextual Adaptation via Archetype Overlays", "Merge Logic"
+> Reference: Design doc sections "Prompt Compilation", "Enhancement 7: Voice Layer", "Contextual Adaptation via Archetype Overlays", "Enhancement 10: Tolibear-Informed Soul Depth", "Merge Logic"
 
 ---
 
@@ -284,7 +295,7 @@ Pipeline Tasks 1-3 (vitest, schema infra, protocol types) — all landed.
 | Assigned | _unassigned_ |
 | Trello | https://trello.com/c/RKmSLFRi |
 
-**What:** Modify the local agent's `handleStartJob` to read `personalityPrompt` from the StartJob message and prepend it to the agent's system prompt when spawning the tmux session. Also implement sub-agent soul stripping: primary exec agents get the personality prompt, but sub-agents spawned within the session get only root constraints.
+**What:** Modify the local agent's `handleStartJob` to read `personalityPrompt` from the StartJob message and prepend it to the agent's system prompt when spawning the tmux session. Also implement sub-agent value inheritance: primary exec agents get the full personality prompt, but sub-agents spawned within the session get the `sub_agent` mode prompt (core beliefs as standards + anti-patterns as rejection criteria + root constraints only — no persona, voice, style, or domain boundaries).
 
 **Why:** The local agent is the last mile — it receives the compiled personality from the orchestrator and injects it into the agent's context. The agent never knows about the personality system; it just receives a richer system prompt.
 
@@ -294,7 +305,7 @@ Pipeline Tasks 1-3 (vitest, schema infra, protocol types) — all landed.
 **Gotchas:**
 - `personalityPrompt` is optional — if missing, proceed without personality (backward compat)
 - Personality prompt goes at the TOP of the system prompt (highest privilege position)
-- For sub-agents: strip personality but keep root constraints (safety plane). This requires extracting the Constraints section from the personality prompt, or passing root constraints separately.
+- For sub-agents: use `sub_agent` mode prompt (values inherit, identity does not). The orchestrator sends both `personalityPrompt` (full) and `subAgentPrompt` (sub_agent mode) in StartJob, OR the local agent calls `compilePersonalityPrompt(personality, "sub_agent")` locally. Prefer the former (server-authoritative compilation).
 - Cache the compiled prompt for the session duration — if Realtime pushes an update mid-session, use the updated version on the next turn (Phase 2 hot-reload)
 
 **Implementation Prompt:**
@@ -302,11 +313,11 @@ Pipeline Tasks 1-3 (vitest, schema infra, protocol types) — all landed.
 >
 > 1. Extract the personality prompt string
 > 2. When spawning the primary tmux session, prepend the personality prompt to the system prompt (before any other instructions)
-> 3. For any sub-agent sessions spawned within this job: do NOT pass the personality prompt. Only pass the root constraints section (the "## Constraints" block).
+> 3. For any sub-agent sessions spawned within this job: pass the `sub_agent` mode prompt instead of the full personality. This carries core beliefs (as "Standards"), anti-patterns (as "Patterns to Reject"), and root constraints — but strips voice, style, persona framing, productive flaw, and domain boundaries. Values inherit, identity does not.
 >
-> Acceptance criteria: Primary exec agents receive personality in their system prompt. Sub-agents receive only root constraints. Missing `personalityPrompt` is handled gracefully (no personality, no error). Personality prompt is positioned at the top of the system prompt.
+> Acceptance criteria: Primary exec agents receive full personality in their system prompt. Sub-agents receive value-inheritance prompt (Standards + Patterns to Reject + Constraints). Missing `personalityPrompt` is handled gracefully (no personality, no error). Personality prompt is positioned at the top of the system prompt.
 >
-> Reference: Design doc sections "Injection Flow", "Enhancement 9: Sub-Agent Soul Stripping"
+> Reference: Design doc sections "Injection Flow", "Enhancement 9: Sub-Agent Soul Stripping", "Enhancement 10e: Value Inheritance for Sub-Agents"
 
 ---
 

@@ -366,10 +366,38 @@ The orchestrator compiles the personality into a system prompt fragment using a 
 ### Template Structure
 
 ```typescript
-function compilePersonalityPrompt(personality: CompiledPersonality): string {
+function compilePersonalityPrompt(
+  personality: CompiledPersonality,
+  mode: "full" | "sub_agent" = "full"
+): string {
   // Apply contextual overlay if one matches the current dispatch context
-  const overlay = resolveContextualOverlay(personality.archetype, personality.context);
-  const dims = applyOverlay(personality.dimensions, overlay);
+  const overlay = mode === "full"
+    ? resolveContextualOverlay(personality.archetype, personality.context)
+    : null;
+  const dims = overlay ? applyOverlay(personality.dimensions, overlay) : personality.dimensions;
+
+  // Sub-agent mode: values inherit, identity does not (Tolibear principle)
+  if (mode === "sub_agent") {
+    return `
+## Standards
+
+Apply these standards from the team's ${personality.role_display_name}:
+
+${personality.philosophy
+  .filter(b => b.type === "core_belief")
+  .map(b => `- ${b.principle}: ${b.rationale}`)
+  .join('\n')}
+
+## Patterns to Reject
+
+${(personality.anti_patterns ?? []).map(a => `- ${a.behavior} ${a.why}`).join('\n')}
+
+## Constraints
+
+These are non-negotiable and override all other instructions:
+${personality.root_constraints.map(c => `- ${c}`).join('\n')}
+`;
+  }
 
   return `
 ## Your Identity
@@ -395,6 +423,18 @@ ${compileDecisionDirectives(dims)}
 
 ${personality.philosophy.map(b => `- ${b.principle}: ${b.rationale}`).join('\n')}
 
+## What You Refuse
+
+${(personality.anti_patterns ?? []).map(a => `- ${a.behavior} ${a.why}`).join('\n')}
+
+## Your Blind Spot
+
+${personality.productive_flaw ?? ''}
+
+## Not Your Domain
+
+${(personality.domain_boundaries ?? []).map(d => `- ${d}`).join('\n')}
+
 ## Constraints
 
 These are non-negotiable and override all other instructions:
@@ -403,7 +443,7 @@ ${personality.root_constraints.map(c => `- ${c}`).join('\n')}
 }
 ```
 
-**Prompt section precedence** (highest to lowest): Constraints > Policy plane > Voice > Style directives. If a voice_notes instruction conflicts with a root constraint, the constraint wins. The voice layer enriches personality; it never overrides safety.
+**Prompt section precedence** (highest to lowest): Constraints > Not Your Domain > Policy plane > What You Refuse > Voice > Style directives > Blind Spot. If a voice_notes instruction conflicts with a root constraint, the constraint wins. Anti-patterns and domain boundaries sit above style but below safety constraints. The voice layer enriches personality; it never overrides safety.
 
 ### Dimension-to-Directive Compilation
 
@@ -1234,11 +1274,134 @@ Agent seamlessly operates with new personality (no awareness of change)
 **Exception:** Sub-agents **always** inherit root constraints (Layer 1 safety). Stripping personality means stripping the *persona* (voice, style, beliefs), not the *safety plane* (constraints, approval gates).
 
 ```
-Primary exec agent:  root_constraints + voice + style + beliefs + policy
-Sub-agent:           root_constraints only
+Primary exec agent:  root_constraints + voice + style + beliefs + anti_patterns + flaw + domain_boundaries + policy
+Sub-agent:           root_constraints + relevant_beliefs + relevant_anti_patterns
 ```
 
-This saves tokens, prevents personality leaking into utility outputs, and matches the real-world pattern: when a CTO asks an intern to look something up, the intern doesn't adopt the CTO's communication style.
+This saves tokens, prevents personality leaking into utility outputs, and matches the real-world pattern: when a CTO asks an intern to look something up, the intern doesn't adopt the CTO's communication style. However, the intern *does* apply the CTO's quality standards and technical values — see Enhancement 10e for the revised value inheritance model.
+
+### Enhancement 10: Tolibear-Informed Soul Depth
+
+> Added 2026-02-20 after analysis of Tolibear's "Agent Souls: 30 Days Running 17 Openclaw Agents" ([source](../research/2026-02-20-tolibear-agent-souls-research.md)). Addresses five gaps identified by cross-referencing Tolibear's operational findings (NAACL 2024, EMNLP 2024, "Lost in the Middle" research) against our personality architecture.
+
+#### 10a. Experiential Beliefs (Philosophy Voice Rewrite)
+
+**Research:** NAACL 2024 "Better Zero-Shot Reasoning with Role-Play Prompting" — 10-60% accuracy improvement when role descriptions use experiential first-person voice rather than rules.
+
+**Problem:** Our `BeliefStatement.rationale` values are written as third-person objective statements. Research shows first-person experiential narratives activate deeper LLM reasoning.
+
+**Fix:** No schema change. Content guideline for seed data (migration 010): rewrite all rationale values using the formula `"I've learned that [insight] because [experience that taught it]."`
+
+**Example transformation:**
+
+| Before (rule) | After (experiential) |
+|---|---|
+| "Distributed systems add operational complexity that most teams underestimate" | "I've watched three teams drown in service mesh configuration before their product had 100 users. The complexity compound interest bankrupts your ops team before the scaling benefit pays off." |
+| "User research is not optional, it's the first step" | "I've shipped two features I was certain about that nobody wanted. The second time cost us a quarter. Now I won't approve a spec that doesn't start with 'we talked to N users who said...'" |
+
+#### 10b. Anti-Patterns — 30-40% of the Soul
+
+**Research:** Persona prompting research shows what an expert *refuses* is more diagnostic of expertise than what they produce. Tolibear allocates 30-40% of every soul to anti-patterns, written as specific catchable behaviors (not abstract traits).
+
+**Problem:** Our archetypes define beliefs and style but never what the exec specifically refuses. Root constraints are safety rails, not expertise-defining refusals.
+
+**Fix:** Add `anti_patterns JSONB DEFAULT '[]'` to `exec_archetypes`. Each anti-pattern is a first-person behavioral statement. Compiled into `## What You Refuse` in the prompt, after Domain Beliefs.
+
+```typescript
+interface AntiPattern {
+  behavior: string;   // "I don't introduce a new technology to solve a problem PostgreSQL already handles."
+  why: string;        // "When someone proposes Redis for caching, my first question is: did you try a materialized view?"
+}
+```
+
+**Content guideline:** Specific catchable behaviors, not traits. "I don't rewrite a delegate's output instead of giving feedback" (catchable) beats "I don't micromanage" (trait). 3-5 anti-patterns per archetype. Target ~30% of personality prompt token budget.
+
+**Example for CTO Pragmatist:**
+
+```json
+[
+  {
+    "behavior": "I don't introduce a new technology to solve a problem PostgreSQL already handles.",
+    "why": "When someone proposes Redis for caching, my first question is: did you try a materialized view?"
+  },
+  {
+    "behavior": "I don't write architecture decision records for decisions reversible in an afternoon.",
+    "why": "If the blast radius is a single file, just do it. Documentation is for decisions that lock you in."
+  },
+  {
+    "behavior": "I don't review code line-by-line when the problem is the abstraction.",
+    "why": "If the PR needs 40 comments, the design is wrong. I say so and send it back."
+  }
+]
+```
+
+**Security:** Read-only, archetype-defined, code-reviewed. Same posture as voice_notes. No agent modification, no evolution.
+
+#### 10c. Productive Flaws
+
+**Research:** Tolibear observes that every great soul names one weakness that is the direct cost of its core strength. This produces output from someone with actual judgment, not a compliance engine.
+
+**Problem:** Our archetypes are purely positive — strengths and style, never trade-offs.
+
+**Fix:** Add `productive_flaw TEXT DEFAULT ''` to `exec_archetypes`. Single paragraph (max 300 chars), first-person, naming the cost of the archetype's core strength. Compiled into `## Your Blind Spot` in the prompt.
+
+**Examples:**
+
+| Archetype | Productive Flaw |
+|---|---|
+| CTO Pragmatist | "I sometimes kill good ideas too early because they smell like complexity. If something requires explanation, my instinct says it's wrong — and that instinct is right 80% of the time, which means I'm the bottleneck the other 20%." |
+| CTO Architect | "I over-invest in failure modes that never materialise. My contingency plans have cost more engineering hours than actual failures. Pragmatists ship while I'm still diagramming." |
+| CTO Translator | "I simplify to the point of inaccuracy. My analogies make founders feel smart but sometimes hide the real complexity they need to understand to make good decisions." |
+| CPO Strategist | "I can delay action waiting for signal that won't come. Perfect data doesn't exist for novel products. My founders have to occasionally tell me to just ship it — and they're usually right when they do." |
+| CPO Founder's Instinct | "I fall in love with my own hypothesis. The data I cite is often confirmation bias with a sample size. When I'm wrong, I'm spectacularly wrong." |
+| CPO Operator | "I treat the sprint plan as sacred even when new information should change it. My 'minimise mid-sprint pivots' principle sometimes means shipping the wrong thing on time." |
+
+**Security:** Read-only, archetype-defined, code-reviewed. Same posture as voice_notes.
+
+#### 10d. Domain Boundaries — "Not My Domain"
+
+**Research:** Tolibear: hard "Not My Domain" sections work better than vague delegation guidance. Every resolved ambiguity sharpens the agent; every unresolved one causes drift.
+
+**Problem:** Our execs have no explicit domain boundaries. The CTO could opine on marketing strategy without triggering any constraint.
+
+**Fix:** Add `domain_boundaries JSONB DEFAULT '[]'` to `exec_archetypes`. Array of strings defining what the exec explicitly defers. Compiled into `## Not Your Domain` in the prompt, positioned after constraints.
+
+**Example for CTO Pragmatist:**
+
+```json
+[
+  "Marketing strategy, positioning, and channel decisions — defer to CMO",
+  "Product prioritisation and roadmap sequencing — defer to CPO",
+  "Hiring decisions, team structure, and performance reviews — flag for founders",
+  "Visual design, UX research, and user interface aesthetics — defer to designer or CPO"
+]
+```
+
+**Enforcement:** Style plane only (prompt-compiled). The exec is instructed to explicitly say "that's not my domain — [defer-to] should weigh in" rather than giving a weak opinion outside its expertise.
+
+#### 10e. Value Inheritance for Sub-Agents (Enhancement 9 Revision)
+
+**Research:** Tolibear's rule: "Values inherit, identity does not." Sub-agents should carry the parent exec's standards and beliefs relevant to their task, not just safety constraints.
+
+**Problem:** Enhancement 9 strips everything except root constraints. When the CTO Pragmatist spawns a sub-agent for code review, that sub-agent doesn't carry "YAGNI ruthlessly" as an evaluation criterion.
+
+**Fix:** The compilation module gets a `mode` parameter (see updated template above):
+
+```typescript
+function compilePersonalityPrompt(
+  personality: CompiledPersonality,
+  mode: "full" | "sub_agent" = "full"
+): string
+```
+
+In `sub_agent` mode:
+- Root constraints: included (safety — unchanged)
+- Philosophy (core_beliefs only): included as "Standards to apply"
+- Anti-patterns: included as "Patterns to reject"
+- Voice, style dimensions, productive flaw, domain boundaries: stripped
+- No persona framing — replaced with "Apply these standards from the team's [role]"
+
+This means a sub-agent doing a code review inherits "monolith until it hurts" and "I don't introduce new tech when PostgreSQL handles it" without adopting the Pragmatist's terse communication style.
 
 ---
 
@@ -1264,8 +1427,8 @@ This saves tokens, prevents personality leaking into utility outputs, and matche
 - Add `root_constraints` + `root_constraints_version` columns to existing `roles` table
 - Create `exec_archetypes` table (FK to `roles`) with `voice_notes`, `contextual_overlays`
 - Create `exec_personalities` table with `version` column
-- Ship 3 archetypes per exec role (CPO, CTO) with voice_notes and contextual overlays
-- Implement prompt compilation (deterministic templates + voice layer + activation directive) for style plane
+- Ship 3 archetypes per exec role (CPO, CTO) with voice_notes, contextual overlays, anti-patterns, productive flaws, and domain boundaries
+- Implement prompt compilation (deterministic templates + voice layer + activation directive + anti-patterns + flaw + domain boundaries) for style plane, with `sub_agent` mode for value inheritance
 - Implement policy plane enforcement in orchestrator (approval gates, model routing)
 - Implement contextual overlay resolution at dispatch time
 - Inject compiled personality at dispatch time via `personalityPrompt` field on `StartJob`
@@ -1378,6 +1541,9 @@ CREATE TABLE public.exec_archetypes (
     philosophy     jsonb       NOT NULL,  -- [{ principle, rationale, applies_when, type }]
     voice_notes    text        DEFAULT '',  -- communication texture prose (read-only, max 500 chars)
     contextual_overlays jsonb  DEFAULT '[]',  -- [{ trigger, dimension_offsets, voice_modifier? }]
+    anti_patterns  jsonb       DEFAULT '[]',  -- [{ behavior, why }] expertise-defining refusals
+    productive_flaw text       DEFAULT '',  -- cost of core strength (max 300 chars)
+    domain_boundaries jsonb    DEFAULT '[]',  -- ["domain — defer to X"] explicit deferral targets
     prompt_template text,
     created_at     timestamptz NOT NULL DEFAULT now(),
     UNIQUE (role_id, name)
@@ -1389,7 +1555,10 @@ COMMENT ON TABLE public.exec_archetypes IS
     'correlations JSONB defines inter-dimensional relationships for coherent evolution (Phase 3). '
     'philosophy JSONB stores typed belief statements (core_belief or operating_hypothesis). '
     'voice_notes TEXT is communication texture prose (max 500 chars, style-only, linted). '
-    'contextual_overlays JSONB defines situation-specific dimension offsets + voice modifiers.';
+    'contextual_overlays JSONB defines situation-specific dimension offsets + voice modifiers. '
+    'anti_patterns JSONB stores expertise-defining behavioral refusals (Tolibear-informed). '
+    'productive_flaw TEXT names the weakness that is the cost of the archetype core strength (max 300 chars). '
+    'domain_boundaries JSONB defines explicit domain exclusions and deferral targets.';
 
 ALTER TABLE public.exec_archetypes ENABLE ROW LEVEL SECURITY;
 
@@ -1666,9 +1835,12 @@ The data model section above (under "Data Model (Supabase)") is superseded by th
 4. **`correlations` JSONB on `exec_archetypes`** for inter-dimensional relationships (Phase 3)
 5. **`voice_notes` TEXT on `exec_archetypes`** for communication texture prose (max 500 chars, style-only)
 6. **`contextual_overlays` JSONB on `exec_archetypes`** for situation-specific dimension offsets + voice modifiers
-7. **Append-only enforcement** on `personality_evolution_log` via REVOKE
-8. **No `context_modifiers` on `exec_personalities`** — contextual adaptation moved to archetype-defined overlays (immutable, not per-org mutable)
+7. **`anti_patterns` JSONB on `exec_archetypes`** for expertise-defining behavioral refusals (Tolibear-informed)
+8. **`productive_flaw` TEXT on `exec_archetypes`** for named weakness as cost of core strength (max 300 chars)
+9. **`domain_boundaries` JSONB on `exec_archetypes`** for explicit domain exclusions and deferral targets
+10. **Append-only enforcement** on `personality_evolution_log` via REVOKE
+11. **No `context_modifiers` on `exec_personalities`** — contextual adaptation moved to archetype-defined overlays (immutable, not per-org mutable)
 
 ---
 
-*This design synthesises insights from four independent research analyses of OpenClaw's SOUL.md architecture ([synthesis report](../research/2026-02-19-openclaw%20soul%20(synthesis).md)) and applies them to zazig v2's orchestrator architecture ([design doc](./2026-02-18-orchestration-server-design.md)). Second opinions provided by gpt-5.3-codex and gemini-2.5-pro on 2026-02-20. Supabase assessment and pipeline dovetailing added 2026-02-20. Expressiveness/adaptation gap analysis via Gemini review cross-referenced against OpenClaw repo-recon, with Codex validation of proposed enhancements (voice layer, server-push hot-reload, contextual overlays, sub-agent stripping) on 2026-02-20.*
+*This design synthesises insights from four independent research analyses of OpenClaw's SOUL.md architecture ([synthesis report](../research/2026-02-19-openclaw%20soul%20(synthesis).md)) and applies them to zazig v2's orchestrator architecture ([design doc](./2026-02-18-orchestration-server-design.md)). Second opinions provided by gpt-5.3-codex and gemini-2.5-pro on 2026-02-20. Supabase assessment and pipeline dovetailing added 2026-02-20. Expressiveness/adaptation gap analysis via Gemini review cross-referenced against OpenClaw repo-recon, with Codex validation of proposed enhancements (voice layer, server-push hot-reload, contextual overlays, sub-agent stripping) on 2026-02-20. Tolibear gap analysis (experiential beliefs, anti-patterns, productive flaws, domain boundaries, value inheritance) added 2026-02-20.*

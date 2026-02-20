@@ -22,7 +22,7 @@ Prompt compilation: `packages/shared/src/personality/` (TBD)
 Orchestrator integration: dispatch-time injection via `personalityPrompt` field on `StartJob`
 
 ## Supabase Tables (Migration 009)
-- `exec_archetypes` — pre-defined personality bundles per role
+- `exec_archetypes` — pre-defined personality bundles per role (includes anti_patterns, productive_flaw, domain_boundaries per Tolibear analysis)
 - `exec_personalities` — active personality state per company per role
 - `personality_watchdog` — behavioral anomaly detector state
 - `personality_evolution_log` — immutable append-only audit trail

@@ -99,6 +99,7 @@ export const HEARTBEAT_INTERVAL_MS = 30_000;
 export const MACHINE_DEAD_THRESHOLD_MS = 120_000;
 export const RECOVERY_COOLDOWN_MS = 60_000;
 export const MAX_CONTEXT_BYTES = 64_000;
+export const MAX_PERSONALITY_PROMPT_BYTES = 16_000;
 
 // ---------------------------------------------------------------------------
 // Re-export validators
@@ -170,6 +171,8 @@ export function isStartJob(v: unknown): v is _StartJob {
   if (!hasContext && !hasContextRef) return false;
   if (hasContext && (v.context as string).length > MAX_CONTEXT_BYTES) return false;
   if (v.role !== undefined && (!_isString(v.role) || (v.role as string).length === 0)) return false;
+  // personalityPrompt is optional; if present: non-empty, within size budget
+  if (v.personalityPrompt !== undefined && (!_isString(v.personalityPrompt) || (v.personalityPrompt as string).length === 0 || (v.personalityPrompt as string).length > MAX_PERSONALITY_PROMPT_BYTES)) return false;
   return true;
 }
 

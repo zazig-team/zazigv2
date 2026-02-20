@@ -18,6 +18,7 @@ import { loadConfig } from "./config.js";
 import { SlotTracker } from "./slots.js";
 import { AgentConnection } from "./connection.js";
 import { JobExecutor } from "./executor.js";
+import { JobVerifier } from "./verifier.js";
 import type { OrchestratorMessage } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
@@ -40,13 +41,19 @@ async function main(): Promise<void> {
   // Create and configure Realtime connection
   const conn = new AgentConnection(config, slots);
 
+  // Initialize job verifier — handles VerifyJob messages inline
+  const verifier = new JobVerifier(
+    config.name,
+    (msg) => conn.sendMessage(msg),
+  );
+
   // Initialize job executor — passes messages back to orchestrator via conn.sendMessage
   // conn.dbClient (service_role) is passed so the executor can write job status directly to the DB
   const executor = new JobExecutor(
     config.name,
     slots,
     (msg) => conn.sendMessage(msg),
-    conn.dbClient
+    conn.dbClient,
   );
 
   // Register message handler — dispatch StartJob/StopJob to executor
@@ -72,7 +79,8 @@ async function main(): Promise<void> {
         break;
 
       case "verify_job":
-        console.log(`[local-agent] Received verify_job — jobId=${msg.jobId} (handler not yet implemented)`);
+        console.log(`[local-agent] Received verify_job — jobId=${msg.jobId}`);
+        void verifier.verify(msg);
         break;
 
       case "deploy_to_test":

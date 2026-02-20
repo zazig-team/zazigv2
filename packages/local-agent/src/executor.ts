@@ -58,6 +58,9 @@ interface ActiveJob {
 /** Callback type for sending AgentMessage back to the orchestrator channel. */
 export type SendFn = (msg: AgentMessage) => Promise<void>;
 
+/** Callback invoked after a job completes, before slot release. Enables verification pipeline. */
+export type AfterJobCompleteFn = (jobId: string) => Promise<void>;
+
 // ---------------------------------------------------------------------------
 // JobExecutor
 // ---------------------------------------------------------------------------
@@ -67,15 +70,23 @@ export class JobExecutor {
   private readonly slots: SlotTracker;
   private readonly send: SendFn;
   private readonly supabase: SupabaseClient;
+  private readonly afterJobComplete?: AfterJobCompleteFn;
 
   /** Map of jobId → active job state. */
   private readonly activeJobs = new Map<string, ActiveJob>();
 
-  constructor(machineId: string, slots: SlotTracker, send: SendFn, supabase: SupabaseClient) {
+  constructor(
+    machineId: string,
+    slots: SlotTracker,
+    send: SendFn,
+    supabase: SupabaseClient,
+    afterJobComplete?: AfterJobCompleteFn,
+  ) {
     this.machineId = machineId;
     this.slots = slots;
     this.send = send;
     this.supabase = supabase;
+    this.afterJobComplete = afterJobComplete;
   }
 
   // ---------------------------------------------------------------------------
@@ -270,6 +281,17 @@ export class JobExecutor {
     }
 
     await this.sendJobComplete(jobId, result, report);
+
+    // Trigger verification pipeline if a callback is registered.
+    // The orchestrator may also send a VerifyJob in response to JobComplete,
+    // but this hook allows inline verification without a round-trip.
+    if (this.afterJobComplete) {
+      try {
+        await this.afterJobComplete(jobId);
+      } catch (err) {
+        console.error(`[executor] afterJobComplete failed for jobId=${jobId}:`, err);
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------

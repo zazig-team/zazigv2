@@ -17,6 +17,8 @@
     "clean": "rm -rf dist"
   },
   "devDependencies": {
-    "typescript": "*"
+    "@vitest/coverage-v8": "^4.0.18",
+    "typescript": "*",
+    "vitest": "^4.0.18"
   }
 }

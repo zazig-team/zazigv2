@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   const config = loadConfig();
   console.log(
     `[local-agent] Config loaded — machine=${config.name}, ` +
-      `slots=${JSON.stringify(config.slots)}, hostsCpo=${config.hosts_cpo}`
+      `slots=${JSON.stringify(config.slots)}`
   );
 
   // Initialize slot tracker from config

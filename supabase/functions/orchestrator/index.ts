@@ -309,6 +309,8 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       slotType,
       model,
       context: job.context ?? undefined,
+      // Include role for role-based jobs (persistent agents, specialized reviewers)
+      ...(job.role ? { role: job.role } : {}),
     };
 
     // Broadcast StartJob via Supabase Realtime on the machine's command channel.
@@ -393,39 +395,85 @@ async function handleJobStatus(supabase: SupabaseClient, msg: JobStatusMessage):
 async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Promise<void> {
   const { jobId, machineId, result, pr } = msg;
 
-  // Update job: complete, store result, set completedAt.
-  const { error: jobErr } = await supabase
+  // Fetch the job to check if it's a persistent agent (auto-requeue on completion).
+  const { data: jobRow, error: fetchErr } = await supabase
     .from("jobs")
-    .update({
-      status: "complete",
-      result,
-      pr_url: pr ?? null,
-      completed_at: new Date().toISOString(),
-      machine_id: null, // release machine assignment
-    })
-    .eq("id", jobId);
+    .select("job_type")
+    .eq("id", jobId)
+    .single();
 
-  if (jobErr) {
-    console.error(`[orchestrator] Failed to mark job ${jobId} complete:`, jobErr.message);
+  if (fetchErr || !jobRow) {
+    console.error(`[orchestrator] Could not fetch job ${jobId} for completion:`, fetchErr?.message);
     return;
   }
 
-  console.log(`[orchestrator] Job ${jobId} complete (machine ${machineId})`);
+  const isPersistent = jobRow.job_type === "persistent_agent";
 
-  // Release the slot on the machine.
+  if (isPersistent) {
+    // Persistent jobs auto-requeue: reset to queued, clear machine assignment,
+    // store last result for observability but don't set completed_at.
+    const { error: requeueErr } = await supabase
+      .from("jobs")
+      .update({
+        status: "queued",
+        result,
+        pr_url: pr ?? null,
+        machine_id: null,
+        started_at: null,
+      })
+      .eq("id", jobId);
+
+    if (requeueErr) {
+      console.error(`[orchestrator] Failed to re-queue persistent job ${jobId}:`, requeueErr.message);
+      return;
+    }
+
+    console.log(`[orchestrator] Persistent job ${jobId} re-queued (was on machine ${machineId})`);
+  } else {
+    // Normal jobs: mark complete.
+    const { error: jobErr } = await supabase
+      .from("jobs")
+      .update({
+        status: "complete",
+        result,
+        pr_url: pr ?? null,
+        completed_at: new Date().toISOString(),
+        machine_id: null,
+      })
+      .eq("id", jobId);
+
+    if (jobErr) {
+      console.error(`[orchestrator] Failed to mark job ${jobId} complete:`, jobErr.message);
+      return;
+    }
+
+    console.log(`[orchestrator] Job ${jobId} complete (machine ${machineId})`);
+  }
+
+  // Release the slot on the machine (both persistent and normal jobs).
   await releaseSlot(supabase, jobId, machineId);
 }
 
 async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promise<void> {
   const { jobId, machineId, error: errMsg, failureReason } = msg;
 
+  // Fetch job to check if persistent (persistent jobs always re-queue on failure).
+  const { data: failedJobRow, error: fetchErr } = await supabase
+    .from("jobs")
+    .select("job_type")
+    .eq("id", jobId)
+    .single();
+
+  const isPersistent = failedJobRow?.job_type === "persistent_agent";
+
   // Decide recovery strategy based on failure reason.
-  //   agent_crash → re-queue immediately on a healthy machine
-  //   ci_failure  → waiting_on_human (needs triage)
-  //   timeout     → waiting_on_human (needs triage or extended timeout)
-  //   unknown     → waiting_on_human (log and review)
+  //   persistent_agent → always re-queue (must stay alive)
+  //   agent_crash      → re-queue immediately on a healthy machine
+  //   ci_failure       → waiting_on_human (needs triage)
+  //   timeout          → waiting_on_human (needs triage or extended timeout)
+  //   unknown          → waiting_on_human (log and review)
   const newStatus =
-    failureReason === "agent_crash" ? "queued" : "failed";
+    isPersistent || failureReason === "agent_crash" ? "queued" : "failed";
 
   const updatePayload: Record<string, unknown> = {
     status: newStatus,
@@ -434,6 +482,8 @@ async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promis
 
   if (newStatus !== "queued") {
     updatePayload.completed_at = new Date().toISOString();
+  } else if (isPersistent) {
+    updatePayload.started_at = null;
   }
 
   const { error: jobErr } = await supabase
@@ -444,8 +494,9 @@ async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promis
   if (jobErr) {
     console.error(`[orchestrator] Failed to update failed job ${jobId}:`, jobErr.message);
   } else {
+    const suffix = isPersistent ? " (persistent — auto-requeued)" : "";
     console.warn(
-      `[orchestrator] Job ${jobId} failed (reason: ${failureReason}, error: ${errMsg}) → ${newStatus}`,
+      `[orchestrator] Job ${jobId} failed (reason: ${failureReason}, error: ${errMsg}) → ${newStatus}${suffix}`,
     );
   }
 

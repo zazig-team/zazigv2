@@ -28,7 +28,6 @@ export interface MachineConfig {
   /** Company UUID — tenant boundary. Used to scope DB writes to the correct company. */
   company_id: string;
   slots: SlotConfig;
-  hosts_cpo: boolean;
   supabase: SupabaseConfig;
 }
 
@@ -87,7 +86,6 @@ export function loadConfig(): MachineConfig {
     name: parsed.name,
     company_id: parsed.company_id,
     slots,
-    hosts_cpo: parsed.hosts_cpo ?? false,
     supabase: {
       url: supabaseUrl,
       anon_key: anonKey,

@@ -64,10 +64,11 @@ export interface Machine {
   id: string;
   name: string;
   slots: MachineSlots;
-  hostsCpo: boolean;
   lastHeartbeat: string | null;
   status: MachineStatus;
 }
+
+export type JobType = "code" | "infra" | "design" | "research" | "docs" | "bug" | "persistent_agent";
 
 export interface Job {
   id: string;
@@ -75,6 +76,8 @@ export interface Job {
   cardType: CardType;
   complexity: Complexity;
   slotType: SlotType;
+  jobType: JobType;
+  role: string;
   machineId: string | null;
   status: JobStatusValue;
   startedAt: string | null;
@@ -89,7 +92,6 @@ export interface Job {
 export const PROTOCOL_VERSION = 1;
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 export const MACHINE_DEAD_THRESHOLD_MS = 120_000;
-export const CPO_FAILOVER_THRESHOLD_MS = 15 * 60_000;
 export const MAX_CONTEXT_BYTES = 64_000;
 
 // ---------------------------------------------------------------------------
@@ -156,6 +158,7 @@ export function isStartJob(v: unknown): v is _StartJob {
   const hasContextRef = _isString(v.contextRef) && (v.contextRef as string).length > 0;
   if (!hasContext && !hasContextRef) return false;
   if (hasContext && (v.context as string).length > MAX_CONTEXT_BYTES) return false;
+  if (v.role !== undefined && (!_isString(v.role) || (v.role as string).length === 0)) return false;
   return true;
 }
 
@@ -195,7 +198,6 @@ export function isHeartbeat(v: unknown): v is _Heartbeat {
   if (!_isObject(v.slotsAvailable)) return false;
   if (!_isNumber(v.slotsAvailable.claude_code) || (v.slotsAvailable.claude_code as number) < 0) return false;
   if (!_isNumber(v.slotsAvailable.codex) || (v.slotsAvailable.codex as number) < 0) return false;
-  if (typeof v.cpoAlive !== "boolean") return false;
   if (v.correlationId !== undefined && !_isString(v.correlationId)) return false;
   return true;
 }

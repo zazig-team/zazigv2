@@ -236,7 +236,6 @@ export class AgentConnection {
     if (this.stopped) return;
 
     const slotsAvailable = this.slots.getAvailable();
-
     // Primary: write heartbeat directly to the DB — reliable, no timing dependency
     // Uses dbClient (service_role) and scopes by both company_id and name for safety
     const { error: dbErr } = await this.dbClient
@@ -261,7 +260,6 @@ export class AgentConnection {
         protocolVersion: PROTOCOL_VERSION,
         machineId: this.machineId,
         slotsAvailable,
-        cpoAlive: false,
       };
 
       await this.outChannel.send({

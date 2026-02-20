@@ -1,70 +1,58 @@
-# P0 RLS Security Fix
+# CPO as Persistent Job — Implementation Report
 
 ## Summary
 
-Fixed 2 P0 and 2 P1 security issues identified in code review of PR #12.
+Converted CPO from a special system (hardcoded `hosts_cpo` flag on machines) to a regular persistent job dispatched by the orchestrator. Persistent jobs auto-requeue on completion or failure, giving automatic failover if the host goes offline.
 
-## P0-1: Cross-tenant data exposure (CRITICAL) — FIXED
+## What Was Done
 
-**Problem:** `004_rls_direct_writes.sql` used `USING (true)` on anon-role policies for
-both `machines` and `jobs` tables. Any holder of the public anon key could read/write
-ALL companies' data with no tenant scoping.
+1. **Removed CPO-specific config fields**:
+   - Removed `cpoAlive: boolean` from `Heartbeat` message interface
+   - Removed `hostsCpo: boolean` from `Machine` interface
+   - Removed `hosts_cpo: boolean` from `MachineConfig` interface
+   - Removed `CPO_FAILOVER_THRESHOLD_MS` constant (no longer needed)
+   - Updated heartbeat construction and validators
 
-**Fix:** Removed all anon-role RLS policies. DB writes now use the `service_role` key
-(which bypasses RLS entirely — security is via key secrecy). The anon key is used only
-for Realtime channel subscriptions (read-only).
+2. **Added role to StartJob message**:
+   - Added optional `role?: string` field to `StartJob` interface
+   - Updated validators to accept optional role
+   - Orchestrator includes `role` when dispatching role-based jobs
 
-Changes:
-- `004_rls_direct_writes.sql`: Replaced 4 broad anon policies with a no-op + documentation
-- `config.ts`: Added `service_role_key?: string` to `SupabaseConfig`, loaded from `SUPABASE_SERVICE_ROLE_KEY` env var
-- `connection.ts`: Created separate `dbClient` using service_role key for all DB writes; anon client (`supabase`) used only for Realtime
+3. **Added JobType and updated Job interface**:
+   - Added `JobType` union type matching DB `job_type` column
+   - Added `jobType` and `role` fields to `Job` interface
 
-## P0-2: Unrestricted column UPDATE — FIXED
+4. **Orchestrator persistent job handling**:
+   - `handleJobComplete`: checks `job_type === 'persistent_agent'`, re-queues instead of completing
+   - `handleJobFailed`: persistent jobs always re-queue regardless of failure reason
 
-**Problem:** Anon UPDATE policy had no column restriction.
-
-**Fix:** Moot — anon policies removed entirely. service_role bypasses RLS.
-
-## P1: Heartbeat write unscoped — FIXED
-
-**Problem:** `connection.ts` heartbeat used `.eq('name', machineId)` with no company_id
-scope. With service_role (which bypasses RLS), this could update machines across tenants
-if names collide.
-
-**Fix:** Added `company_id` to `MachineConfig` (loaded from `machine.yaml`). Heartbeat
-write now scopes: `.eq('company_id', companyId).eq('name', machineId)`.
-
-## P1: sendJobFailed missing error detail — FIXED
-
-**Problem:** `executor.ts` `sendJobFailed` DB write only set `status: "failed"` without
-persisting the error message.
-
-**Fix:** Added `result: \`FAILED: ${error}\`` to the update payload.
+5. **Seed migration (005)**:
+   - Trigger function `create_persistent_job_on_role_enable()` auto-creates persistent jobs when a company enables a persistent role
+   - Seeds a dev company with CPO and CTO persistent roles enabled
 
 ## Files Changed
 
-| File | Change |
-|------|--------|
-| `supabase/migrations/004_rls_direct_writes.sql` | Removed 4 anon policies, replaced with documentation |
-| `packages/local-agent/src/config.ts` | Added `service_role_key`, `company_id` to types + loader |
-| `packages/local-agent/src/connection.ts` | Added `dbClient` (service_role), scoped heartbeat by company_id |
-| `packages/local-agent/src/executor.ts` | Added `result` field to sendJobFailed DB write |
-| `packages/local-agent/src/index.ts` | Pass `conn.dbClient` to JobExecutor instead of `conn.supabase` |
+- `packages/shared/src/messages.ts` — removed `cpoAlive`, added `role` to `StartJob`
+- `packages/shared/src/index.ts` — removed `hostsCpo`, `CPO_FAILOVER_THRESHOLD_MS`, added `JobType`, updated `Job`
+- `packages/shared/src/validators.ts` — removed `cpoAlive` check, added `role` validation
+- `packages/local-agent/src/config.ts` — removed `hosts_cpo` from `MachineConfig`
+- `packages/local-agent/src/connection.ts` — removed `cpoAlive` from heartbeat
+- `packages/local-agent/src/index.ts` — removed `hostsCpo` from log
+- `packages/orchestrator/src/index.ts` — removed `CPO_FAILOVER_THRESHOLD_MS` re-export
+- `supabase/functions/orchestrator/index.ts` — persistent job auto-requeue logic, role in StartJob
+- `supabase/functions/_shared/messages.ts` — mirror of shared changes for Deno
+- `supabase/migrations/005_persistent_jobs_seed.sql` — **new** seed migration
 
-## machine.yaml Changes Required
+## Migration Number
 
-After this fix, `~/.zazigv2/machine.yaml` must include a `company_id` field:
+**005** — `005_persistent_jobs_seed.sql`
 
-```yaml
-name: my-machine
-company_id: "<uuid-of-your-company>"
-slots:
-  claude_code: 2
-  codex: 1
-```
+Note: PR #12 has 004_rls_direct_writes.sql, PR #13 has 004_add_model_to_jobs.sql (collision between those two). This migration uses 005 to avoid conflicts.
 
-And the `SUPABASE_SERVICE_ROLE_KEY` environment variable must be set.
+## Pre-merge Check
+
+All checks passed (lint + tsc --noEmit).
 
 ## Token Usage
 
-Direct implementation by Claude — no codex delegation needed. Straightforward security fix.
+Token budget: claude-ok (direct implementation, no codex delegation needed).

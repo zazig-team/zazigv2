@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-20
 **Status:** Approved
-**Author:** CPO + Tom (brainstorming session)
+**Author:** CPO + Chris (brainstorming session)
 
 ---
 
@@ -50,7 +50,7 @@ A job is the unit of execution. Each job belongs to a feature and represents one
 
 ### Design Flow
 
-1. Human talks to CPO in Slack about a feature idea
+1. Human talks to CPO in Slack about a feature idea. Conversation is dialogue-friendly and bite-sized from the agent POV.
 2. CPO asks clarifying questions, drafts feature-level spec + acceptance tests + human checklist
 3. Human reviews and approves
 4. CPO breaks the feature into jobs, each with scoped spec and acceptance tests

@@ -14,9 +14,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
-    "typescript": "*"
+    "@vitest/coverage-v8": "^4.0.18",
+    "typescript": "*",
+    "vitest": "^4.0.18"
   }
 }

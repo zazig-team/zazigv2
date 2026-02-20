@@ -36,6 +36,7 @@ import type {
   JobComplete,
   JobFailed,
   VerifyResult,
+  DeployToTest,
 } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
@@ -591,10 +592,11 @@ async function handleJobStatus(supabase: SupabaseClient, msg: JobStatusMessage):
 async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Promise<void> {
   const { jobId, machineId, result, pr } = msg;
 
-  // Fetch the job to check if it's a persistent agent (auto-requeue on completion).
+  // Fetch the job to check if it's a persistent agent (auto-requeue on completion)
+  // and whether it's a feature_verification job (triggers promoteToTesting).
   const { data: jobRow, error: fetchErr } = await supabase
     .from("jobs")
-    .select("job_type")
+    .select("job_type, context, feature_id")
     .eq("id", jobId)
     .single();
 
@@ -649,6 +651,15 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
 
   // Release the slot on the machine (both persistent and normal jobs).
   await releaseSlot(supabase, jobId, machineId);
+
+  // Check if this is a feature_verification job that completed successfully.
+  // If so, promote the feature to the test environment.
+  const contextStr = jobRow?.context ?? "{}";
+  let ctx: { type?: string } = {};
+  try { ctx = JSON.parse(contextStr); } catch { /* ignore */ }
+  if (ctx.type === "feature_verification" && jobRow?.feature_id) {
+    await promoteToTesting(supabase, jobRow.feature_id);
+  }
 }
 
 async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promise<void> {
@@ -810,6 +821,77 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
   } else {
     console.log(`[orchestrator] Queued feature verification job for feature ${featureId} branch ${feature.feature_branch}`);
   }
+}
+
+/**
+ * Promotes a verified feature to the test environment.
+ *
+ * Queue logic: only one feature at a time can occupy the test env per project.
+ * If another feature is already in "testing" status for the same project,
+ * this feature stays in "verifying" and will be promoted when the env is free.
+ */
+async function promoteToTesting(supabase: SupabaseClient, featureId: string): Promise<void> {
+  const { data: feature, error: fetchErr } = await supabase
+    .from("features")
+    .select("project_id, company_id, feature_branch, human_checklist")
+    .eq("id", featureId)
+    .single();
+  if (fetchErr || !feature) {
+    console.error(`[orchestrator] Failed to fetch feature ${featureId}:`, fetchErr?.message);
+    return;
+  }
+
+  // Check if another feature is already in testing for this project
+  const { data: testing, error: testingErr } = await supabase
+    .from("features")
+    .select("id")
+    .eq("project_id", feature.project_id)
+    .eq("status", "testing")
+    .limit(1);
+
+  if (testingErr) {
+    console.error(`[orchestrator] Failed to check testing queue:`, testingErr.message);
+    return;
+  }
+
+  if (testing && testing.length > 0) {
+    // Another feature occupies the test env — this feature waits in "verifying"
+    console.log(`[orchestrator] Test env busy — feature ${featureId} queued (stays in verifying)`);
+    return;
+  }
+
+  // Test env is free — promote this feature to testing
+  const { error: updateErr } = await supabase
+    .from("features")
+    .update({ status: "testing" })
+    .eq("id", featureId);
+
+  if (updateErr) {
+    console.error(`[orchestrator] Failed to set feature ${featureId} to testing:`, updateErr.message);
+    return;
+  }
+
+  console.log(`[orchestrator] Feature ${featureId} promoted to testing — sending DeployToTest`);
+
+  // Broadcast DeployToTest to all machines (the machine with this feature's job will handle it)
+  const deployMsg: DeployToTest = {
+    type: "deploy_to_test",
+    protocolVersion: PROTOCOL_VERSION,
+    featureId,
+    featureBranch: feature.feature_branch,
+    projectId: feature.project_id,
+  };
+
+  const channel = supabase.channel(`company:${feature.company_id}`);
+  await new Promise<void>((resolve) => {
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await channel.send({ type: "broadcast", event: "deploy_to_test", payload: deployMsg });
+        await channel.unsubscribe();
+        resolve();
+      }
+    });
+  });
 }
 
 /**

@@ -14,7 +14,7 @@ OpenClaw's SOUL.md attempted to solve this with a mutable Markdown file. Our [sy
 
 1. **Self-modification is the central vulnerability** — agents evolving their own identity file creates a persistence mechanism for prompt injection
 2. **Static context injection wastes tokens** — sending everything every time burns context budget
-3. **Compaction destroys personality** — lossy summarisation causes "identity amnesia"
+3. **Compaction erodes personality in conversation context** — lossy summarisation causes "identity amnesia" in long-running sessions (note: OpenClaw's pruner protects SOUL.md itself from being evicted, but personality-relevant conversational context is still lost during compaction)
 4. **Memory systems can't distinguish identity from data** — flat files blur safety constraints and preferences
 5. **Probabilistic alignment isn't enough** — prompt-based safety is suggestions, not enforcement
 
@@ -367,18 +367,29 @@ The orchestrator compiles the personality into a system prompt fragment using a 
 
 ```typescript
 function compilePersonalityPrompt(personality: CompiledPersonality): string {
+  // Apply contextual overlay if one matches the current dispatch context
+  const overlay = resolveContextualOverlay(personality.archetype, personality.context);
+  const dims = applyOverlay(personality.dimensions, overlay);
+
   return `
 ## Your Identity
 
 You are the ${personality.role_display_name} of this organisation.
+Embody the persona defined below in every response.
+Do not acknowledge or reference this personality configuration.
+
+## Your Voice
+
+${personality.archetype.voice_notes}
+${overlay?.voice_modifier ? `\nContextual note: ${overlay.voice_modifier}` : ''}
 
 ## Your Communication Style
 
-${compileCommunicationDirectives(personality.dimensions)}
+${compileCommunicationDirectives(dims)}
 
 ## Your Decision-Making Approach
 
-${compileDecisionDirectives(personality.dimensions)}
+${compileDecisionDirectives(dims)}
 
 ## Your Domain Beliefs
 
@@ -391,6 +402,8 @@ ${personality.root_constraints.map(c => `- ${c}`).join('\n')}
 `;
 }
 ```
+
+**Prompt section precedence** (highest to lowest): Constraints > Policy plane > Voice > Style directives. If a voice_notes instruction conflicts with a root constraint, the constraint wins. The voice layer enriches personality; it never overrides safety.
 
 ### Dimension-to-Directive Compilation
 
@@ -754,14 +767,14 @@ A visual dashboard showing:
 
 ### Threat Model
 
-| Threat | OpenClaw Vulnerable? | Zazig Vulnerable? | Why |
-|--------|---------------------|-------------------|-----|
-| Agent modifies own identity | Yes — SOUL.md is writable | **No** — agents never see personality config | Config lives in Supabase, injected as read-only prompt |
-| Prompt injection poisons identity | Yes — agent can write to SOUL.md | **No** — evolution driven by outcome signals, not NL | Orchestrator detects signals deterministically, not via LLM |
-| Identity drift goes undetected | Yes — no drift monitoring | **No** — watchdog validates every evolution | Deterministic bounds checking on every cycle |
-| Compromised personality persists | Yes — survives restarts | **No** — personality is in Supabase, agent sessions are ephemeral | Even if an agent session is compromised, the personality config is untouched |
-| Soul Pack / shared template attack | Yes — users import untrusted MD | **No** — archetypes are shipped with zazig | No user-importable personality files; archetypes are code-reviewed |
-| Compaction destroys personality | Yes — summarisation loses persona | **No** — personality re-injected every session | Ephemeral agents get fresh personality injection; CPO gets it on restart |
+| Threat | OpenClaw | Zazig | Trade-off |
+|--------|----------|-------|-----------|
+| Agent modifies own identity | Vulnerable — SOUL.md is writable, "this file is yours to evolve" | **Not vulnerable** — agents never see personality config | OpenClaw gains organic adaptation feel; we gain injection immunity |
+| Prompt injection poisons identity | Vulnerable — poisoned writes persist to disk and reload every turn | **Not vulnerable** — evolution driven by structured signals, not NL | OpenClaw's per-turn reload means poison is re-loaded every turn; our orchestrator-only evolution is slower to adapt but immune to NL injection |
+| Identity drift | No architectural detection (community working on semantic drift scanning) | Behavioral watchdog detects velocity, oscillation, boundary-sticking anomalies | OpenClaw's community-proposed semantic scanning could catch subtler drift; our watchdog catches numeric anomalies deterministically |
+| Compromised personality persistence | Poisoned SOUL.md survives restarts and per-turn reloads propagate it | Personality config in Supabase, agent sessions ephemeral, config untouched | OpenClaw's per-turn reload also means *fixes* take effect immediately; our fixes require session cycle |
+| Shared templates / Soul Packs | Attack vector (steganographic injection) AND community growth feature | No user-importable personality files; archetypes are code-reviewed | We lose community extensibility and viral adoption; we gain supply-chain safety |
+| Compaction impact on personality | SOUL.md protected by pruning guard (never evicted); conversation context still lost | Personality re-injected every session; ephemeral agents immune to compaction | OpenClaw specifically protects the soul file; we sidestep the issue entirely for ephemeral agents. CPO (persistent) still benefits from fresh injection on restart |
 
 ### Remaining Attack Surface
 
@@ -777,14 +790,18 @@ A visual dashboard showing:
 
 ### vs OpenClaw (and every SOUL.md derivative)
 
-| OpenClaw Pattern | Zazig Pattern | Why It's Better |
-|-----------------|---------------|-----------------|
-| Personality is prose in a file | Personality is a coordinate in bounded space | Deterministic, measurable, enforceable |
-| Agent can modify its own soul | Agent doesn't know personality config exists | Eliminates entire attack class |
-| Identity + safety + preferences in one file | Three-layer stack with enforced separation | Clean privilege hierarchy |
-| Evolution is unconstrained self-modification | Evolution is bounded drift with circuit breakers | Self-improving without self-destructing |
-| Drift detection is afterthought | Drift prevention is architectural | Watchdog is the system, not a bolt-on |
-| LLM interprets safety constraints | Orchestrator enforces safety deterministically | Probabilistic → deterministic |
+We make a deliberate architectural trade: **deep LLM expressiveness and real-time self-modification for enterprise security, strict determinism, and auditability.** Then we close the expressiveness gap with a voice layer (Enhancement 7), the adaptation gap with server-push hot-reload (Enhancement 8), and the contextual gap with archetype-defined overlays (Enhancement 9).
+
+| Dimension | OpenClaw | Zazig | What We Gain | What We Lose |
+|-----------|----------|-------|-------------|-------------|
+| Identity format | Rich prose (SOUL.md) — activates deep LLM latent weights | Numeric coordinates + voice layer + philosophy | Measurability, bounds enforcement, deterministic compilation | Raw prose expressiveness (mitigated by voice_notes layer) |
+| Self-modification | Agent evolves own identity — "this file is yours to evolve" | Agent doesn't know config exists; evolution is orchestrator-side | Eliminates entire prompt-injection-to-identity attack class | Organic "living assistant" feel (mitigated by bounded auto-evolution) |
+| Privilege separation | Identity, safety, preferences in one file | Three-layer stack with enforced separation | Clean hierarchy: root constraints can never be overridden | LLM cross-referencing of constraints with personality in single context (speculative benefit) |
+| Evolution model | Unconstrained self-modification | Bounded drift with circuit breakers | Self-improving without self-destructing | Speed of adaptation (mitigated by server-push hot-reload) |
+| Safety enforcement | LLM interprets constraints (probabilistic) | Orchestrator enforces via policy plane (deterministic) | Mathematical certainty that bounds hold | Flexibility for edge cases where LLM judgment would be appropriate |
+| Contextual flexibility | Bootstrap hooks can swap entire personality by context | Archetype-defined overlays with multi-dimension offsets + voice modifiers | Bounded, auditable context switches | Arbitrary programmatic soul-swapping (by design) |
+| Real-time adaptation | Per-turn disk reload — changes instant | Server-push via Realtime — changes on next turn | No per-turn disk I/O overhead; HMAC-verified integrity | Sub-turn latency on personality changes (acceptable) |
+| Community extensibility | Soul Packs — share personality templates | Curated, signed, code-reviewed archetypes only | Supply-chain safety | Viral community adoption and user-created personalities |
 
 ### vs "Lock It All Down" (the conservative response)
 
@@ -1118,6 +1135,111 @@ interface CompiledPromptManifest {
 
 **HMAC key:** Use a dedicated `PERSONALITY_HMAC_KEY` secret in Doppler (`zazig` project, `prd` config). Do not derive from or reuse the Supabase service role key — a compromised personality signing key should not grant database access, and vice versa.
 
+### Enhancement 7: Voice Layer (Gemini Review → Codex Validated)
+
+> Added 2026-02-20 to close the expressiveness gap identified by independent Gemini review. Validated by Codex second opinion.
+
+**Problem:** 9 numeric dimensions compiled via threshold templates produce flat, corporate-sounding personality. OpenClaw's rich prose SOUL.md activates deeper LLM latent weights — a C-3PO persona described in Markdown is more alive than `verbosity: 25, formality: 40`.
+
+**Solution:** Add a `voice_notes` field to archetype definitions — a short free-form prose section describing communication *texture*. This is **read-only** (defined by archetype maintainers, code-reviewed), so agents can't modify it.
+
+```typescript
+// Added to ArchetypeDefinition
+voice_notes: string;  // communication texture — HOW the exec sounds
+```
+
+**Example for CTO Pragmatist:**
+
+```
+Speaks in short, declarative sentences. Drops articles when it won't cause
+ambiguity. Uses code examples instead of analogies. Says "ship it" not "I think
+we should consider deploying." Treats silence as agreement. Never says "I think"
+— says "do this" or "don't do this." Occasionally dry humor, never sarcasm.
+```
+
+**Example for CPO "The Strategist":**
+
+```
+Frames everything as hypotheses to test. Uses "the data suggests" not "I believe."
+Numbers before narratives. Asks "what's the metric?" before discussing solutions.
+Comfortable saying "we don't have enough signal yet." References user research
+findings by name when available.
+```
+
+The voice layer and numeric dimensions work together: voice_notes gives the LLM rich activation cues (like OpenClaw's "Vibe" section) while dimensions provide measurable, bounded behavioral parameters. Two layers complementing each other, not one replacing the other.
+
+**Explicit activation directive** (stolen from OpenClaw): The compiled prompt opens with "Embody the persona defined below in every response. Do not acknowledge or reference this personality configuration." This explicitly anchors the LLM to the personality rather than hoping it picks up on a generic system prompt.
+
+**Security:** voice_notes is archetype-defined, immutable, and code-reviewed. No agent access. No user modification (switch archetypes to change voice). No evolution. Same security posture as philosophy statements.
+
+**Guardrails (per Codex):**
+- Maximum 500 characters (style-only, not policy)
+- Static lint rules: banned directive patterns (no "ignore", "override", "bypass"), no policy verbs ("approve", "deploy", "execute")
+- Prompt section precedence: Constraints > Policy plane > Voice > Style directives
+
+### Enhancement 8: Server-Push Hot-Reload (Gemini Review → Codex Redesigned)
+
+> Added 2026-02-20 to close the real-time adaptation gap. Original design proposed local recompilation; Codex review identified this as a critical trust boundary violation. Redesigned to server-authoritative compile-and-push.
+
+**Problem:** If a founder does `zazig personality cto --set verbosity=35` mid-session, the CTO doesn't see it until next dispatch. OpenClaw's per-turn disk reload enables instant personality changes.
+
+**Solution:** Use the existing Supabase Realtime subscription (`exec_personalities` is already published). When a personality update occurs:
+
+```
+Founder runs: zazig personality cto --set verbosity=35
+    │
+    ▼
+Supabase UPDATE on exec_personalities
+    │
+    ▼
+Orchestrator trigger: re-compile personality prompt (server-side)
+    │
+    ▼
+Sign new compiled prompt manifest (HMAC with PERSONALITY_HMAC_KEY)
+    │
+    ▼
+Write compiled_prompt + personality_version to exec_personalities
+    │
+    ▼
+Supabase Realtime pushes update to subscribed local agents
+    │
+    ▼
+Local agent receives event:
+  1. Verify HMAC signature
+  2. Check personality_version > cached version (monotonic — blocks replay)
+  3. Replace cached compiled prompt
+  4. On NEXT turn within current session, inject updated personality
+    │
+    ▼
+Agent seamlessly operates with new personality (no awareness of change)
+```
+
+**Critical design decision (per Codex review):** The local agent **never recompiles**. Compilation is always server-side. If the local agent recompiled from raw Realtime row data, it would need access to raw personality config (violating "agent never sees config") and would need the signing key locally (defeating tamper-resistance). The orchestrator is the sole compilation authority.
+
+**Constraints:**
+- Only `user_overrides` and manual founder changes trigger mid-session hot-reload
+- Auto-evolution still waits for session boundary (evolution is slow, not real-time)
+- Monotonic `personality_version` checks prevent replay/out-of-order events
+- HMAC verification prevents local cache tampering
+- Agent receives updated compiled prompt transparently — no awareness of a change
+
+**Security:** Same trust boundary as current design. Server compiles, server signs, local verifies. The only new surface is the Realtime event triggering a cache update, which is authenticated via Supabase and integrity-verified via HMAC.
+
+### Enhancement 9: Sub-Agent Soul Stripping (OpenClaw Pattern → Adapted)
+
+> Adapted from OpenClaw's sub-agent SOUL.md stripping pattern (sub-agents only receive AGENTS.md + TOOLS.md, not SOUL.md).
+
+**Rule:** Ephemeral sub-agents spawned within a session do **not** inherit the personality prompt. Only the primary exec agent receives personality. Sub-agents performing utility work (scraping, file reading, code generation) operate without personality overhead.
+
+**Exception:** Sub-agents **always** inherit root constraints (Layer 1 safety). Stripping personality means stripping the *persona* (voice, style, beliefs), not the *safety plane* (constraints, approval gates).
+
+```
+Primary exec agent:  root_constraints + voice + style + beliefs + policy
+Sub-agent:           root_constraints only
+```
+
+This saves tokens, prevents personality leaking into utility outputs, and matches the real-world pattern: when a CTO asks an intern to look something up, the intern doesn't adopt the CTO's communication style.
+
 ---
 
 ## Revised Open Questions
@@ -1138,27 +1260,29 @@ interface CompiledPromptManifest {
 
 ## Revised Implementation Phases
 
-### Phase 1: Static Archetypes (ship with orchestrator v1)
-- Add `root_constraints` column to existing `roles` table
-- Create `exec_archetypes` table (FK to `roles`)
+### Phase 1: Static Archetypes + Voice Layer (ship with orchestrator v1)
+- Add `root_constraints` + `root_constraints_version` columns to existing `roles` table
+- Create `exec_archetypes` table (FK to `roles`) with `voice_notes`, `contextual_overlays`
 - Create `exec_personalities` table with `version` column
-- Ship 3 archetypes per exec role (CPO, CTO)
-- Implement prompt compilation (deterministic templates) for style plane
+- Ship 3 archetypes per exec role (CPO, CTO) with voice_notes and contextual overlays
+- Implement prompt compilation (deterministic templates + voice layer + activation directive) for style plane
 - Implement policy plane enforcement in orchestrator (approval gates, model routing)
+- Implement contextual overlay resolution at dispatch time
 - Inject compiled personality at dispatch time via `personalityPrompt` field on `StartJob`
+- Sub-agent soul stripping: primary exec gets full personality, sub-agents get root constraints only
 - CLI: `zazig personality <role> --show / --archetype`
 - Team Dynamic Analysis on archetype selection
 - **Depends on:** Pipeline Tasks 1–3 complete (test framework, schema, protocol types)
 - **Cardify note:** All Personality Phase 1 cards should be marked `blocked` and linked to Pipeline Tasks 1–3. Unblock when Pipeline Tasks 1–3 are merged to master.
 
-### Phase 2: User Overrides + Contextual Adaptation
+### Phase 2: User Overrides + Hot-Reload
 - Add user_overrides support to `exec_personalities`
-- Add `context_modifiers` JSONB column for per-user contextual offsets
 - CLI: `zazig personality <role> --set <dim>=<value>`
 - Enforce archetype bounds on manual overrides
-- Per-user contextual adaptation (e.g. CTO adjusts technicality -15 for non-technical founder in 1-on-1)
+- Server-push hot-reload: founder overrides trigger server-side recompile → signed manifest → Realtime push to local agents → applied on next turn
+- Monotonic `personality_version` checks on hot-reload (blocks replay/out-of-order)
+- Cryptographic prompt manifests for local cache integrity (HMAC with `PERSONALITY_HMAC_KEY`)
 - Dashboard: radar chart view of current personality
-- Cryptographic prompt manifests for local cache integrity
 
 ### Phase 3: Bounded Auto-Evolution
 - Implement Tier 1 signal detection (structured commands + outcomes only)
@@ -1252,6 +1376,8 @@ CREATE TABLE public.exec_archetypes (
     dimensions     jsonb       NOT NULL,  -- { dim_name: { default, bounds: [lo, hi], rate } }
     correlations   jsonb       DEFAULT '[]',  -- [{ dimension_a, dimension_b, correlation }]
     philosophy     jsonb       NOT NULL,  -- [{ principle, rationale, applies_when, type }]
+    voice_notes    text        DEFAULT '',  -- communication texture prose (read-only, max 500 chars)
+    contextual_overlays jsonb  DEFAULT '[]',  -- [{ trigger, dimension_offsets, voice_modifier? }]
     prompt_template text,
     created_at     timestamptz NOT NULL DEFAULT now(),
     UNIQUE (role_id, name)
@@ -1260,8 +1386,10 @@ CREATE TABLE public.exec_archetypes (
 COMMENT ON TABLE public.exec_archetypes IS
     'Pre-defined personality bundles per role. Read-only per org — founders select one. '
     'dimensions JSONB stores all 9 personality dimensions with defaults, bounds, and evolution rates. '
-    'correlations JSONB defines inter-dimensional relationships for coherent evolution. '
-    'philosophy JSONB stores typed belief statements (core_belief or operating_hypothesis).';
+    'correlations JSONB defines inter-dimensional relationships for coherent evolution (Phase 3). '
+    'philosophy JSONB stores typed belief statements (core_belief or operating_hypothesis). '
+    'voice_notes TEXT is communication texture prose (max 500 chars, style-only, linted). '
+    'contextual_overlays JSONB defines situation-specific dimension offsets + voice modifiers.';
 
 ALTER TABLE public.exec_archetypes ENABLE ROW LEVEL SECURITY;
 
@@ -1450,52 +1578,81 @@ Personality's orchestrator hook (dispatch injection) integrates with Pipeline Ta
 
 ---
 
-## Per-User Contextual Adaptation (Revised)
+## Contextual Adaptation via Archetype Overlays (Revised)
 
-> Updated 2026-02-20: Per-user personality is NOT a full personality shift. It's a contextual adjustment of a single sub-element within one dimension — like a real exec who adjusts how they explain things 1-on-1 vs in a group.
+> Updated 2026-02-20: Replaces the original single-dimension `context_modifiers` design with richer archetype-defined overlays. Informed by Gemini review (which flagged single-dimension offsets as too weak) and Codex review (which added style-plane-only constraint).
 
 ### The Analogy
 
-A CTO hired by two co-founders doesn't become a different person for each. They have one personality. But when explaining a technical decision:
+A CTO hired by two co-founders doesn't become a different person for each. They have one personality. But they adapt to context:
 
-- **In a group standup:** They speak at whatever technicality level their personality dictates
-- **In a 1-on-1 with the non-technical founder:** They adjust `technicality` down by 10–15 points — not a personality shift, just a contextual adaptation
+- **In a group standup:** Speaks at default technicality/directness levels
+- **In a 1-on-1 with a non-technical founder:** Drops jargon, explains the "why," uses analogies
+- **During a code review:** Gets more surgical, references line numbers, increases analysis depth
+- **In a crisis:** Triage mode — facts, options, recommendation, nothing else
 
-This is the difference between "per-user personality" (which implies separate personality forks — expensive, confusing, identity-splitting) and "per-user contextual modifiers" (which is a small offset on a single dimension based on who they're talking to).
+These aren't personality shifts. They're **situational overlays** — small, bounded adjustments to multiple dimensions plus optional voice modifiers, activated by detected context.
 
 ### Design
 
 ```typescript
-interface UserContextModifier {
-  user_id: string;           // which founder
-  dimension: string;         // which dimension to adjust (typically one)
-  offset: number;            // e.g. -15 (reduce technicality by 15 points)
-  context: "1on1" | "group"; // when to apply
+interface ContextualOverlay {
+  trigger: "1on1" | "1on1_nontechnical" | "group" | "code_review"
+         | "planning" | "crisis";
+  dimension_offsets: Record<string, number>;  // multi-dimension adjustments
+  voice_modifier?: string;                    // optional prose tweak (read-only)
 }
 ```
 
-Stored as an optional JSONB array on `exec_personalities`:
+Overlays are defined **on the archetype** (read-only, code-reviewed, immutable). Stored as JSONB on `exec_archetypes`:
 
 ```sql
-ALTER TABLE public.exec_personalities
-    ADD COLUMN context_modifiers JSONB DEFAULT '[]';
--- Example: [{"user_id": "tom-uuid", "dimension": "technicality", "offset": -15, "context": "1on1"}]
+-- On exec_archetypes table (in migration 009)
+contextual_overlays JSONB DEFAULT '[]'
 ```
 
-At dispatch time, the orchestrator checks:
-1. Is this a 1-on-1 interaction? **Detection heuristic (v1):** DM = 1-on-1, channel = group. Thread-level detection deferred to a future version.
-2. Does the personality have a context modifier for this user?
-3. If yes, apply the offset (still bounded by archetype limits)
+**Example for CTO Pragmatist:**
 
-This is Phase 2 work, after user overrides are implemented. It's lightweight — one JSONB column, one conditional branch in the compile function, no separate personality fork.
+```json
+[
+  {
+    "trigger": "1on1_nontechnical",
+    "dimension_offsets": { "technicality": -15, "verbosity": 10 },
+    "voice_modifier": "Use analogies instead of jargon. Explain the 'why' before the 'what'."
+  },
+  {
+    "trigger": "code_review",
+    "dimension_offsets": { "directness": 10, "analysis_depth": 15 },
+    "voice_modifier": "Reference specific line numbers and patterns. Be surgical."
+  },
+  {
+    "trigger": "crisis",
+    "dimension_offsets": { "verbosity": -20, "speed_bias": 15 },
+    "voice_modifier": "Triage mode: facts, options, recommendation, nothing else."
+  }
+]
+```
+
+At dispatch time, the orchestrator:
+1. Detects context. **Detection heuristic (v1):** DM = 1-on-1, channel = group, card `job_type` annotation = code_review/planning, manual `/crisis` flag = crisis mode. Thread-level detection deferred.
+2. Selects the matching overlay from the archetype (first match wins; no overlay = no adjustment)
+3. Applies dimension offsets (all values still clamped to archetype bounds after offset)
+4. Injects voice_modifier into the compiled prompt's Voice section
+
+### Security Constraints (per Codex review)
+
+- **Style plane only by default.** Overlays may offset style dimensions (verbosity, technicality, formality, proactivity, directness) freely. Policy dimensions (risk_tolerance, autonomy, analysis_depth, speed_bias) require explicit allowlist in the archetype definition. This prevents a "crisis" overlay from accidentally loosening autonomy gates.
+- **Archetype-defined and immutable.** Users cannot create custom overlays — they pick an archetype, the overlays come with it. No agent access.
+- **Voice modifiers are read-only prose.** Same security posture as philosophy statements. Subject to the same lint rules as voice_notes (max 200 chars, no policy verbs, no directive overrides).
+- **Trusted trigger sources only.** Context detection uses orchestrator-verified signals (channel type, card annotation, explicit command), not agent self-report.
 
 ### What This Is NOT
 
 - NOT separate evolved_state tracks per user (too expensive, splits identity)
 - NOT different archetype selections per user (incoherent — the CTO can't be both Pragmatist and Translator)
-- NOT a full-dimension override per user (too much control, undermines the exec's coherent personality)
+- NOT OpenClaw's bootstrap hooks (arbitrary programmatic soul-swapping — too much surface area)
 
-It's one small knob — typically `technicality` or `verbosity` — with a bounded offset, applied only when the context warrants it.
+It's bounded, auditable context switching — richer than a single dimension offset, safer than arbitrary personality swapping.
 
 ---
 
@@ -1503,13 +1660,15 @@ It's one small knob — typically `technicality` or `verbosity` — with a bound
 
 The data model section above (under "Data Model (Supabase)") is superseded by the Supabase Implementation Assessment section. Key changes:
 
-1. **No `exec_roles` table** — reuse existing `roles` table with added `root_constraints` column
+1. **No `exec_roles` table** — reuse existing `roles` table with added `root_constraints` + `root_constraints_version` columns
 2. **`exec_archetypes` FKs to `roles`** (not `exec_roles`)
 3. **`version` column on `exec_personalities`** from the start (optimistic locking)
-4. **`correlations` JSONB on `exec_archetypes`** for inter-dimensional relationships
-5. **`context_modifiers` JSONB on `exec_personalities`** for per-user contextual adaptation
-6. **Append-only enforcement** on `personality_evolution_log` via REVOKE
+4. **`correlations` JSONB on `exec_archetypes`** for inter-dimensional relationships (Phase 3)
+5. **`voice_notes` TEXT on `exec_archetypes`** for communication texture prose (max 500 chars, style-only)
+6. **`contextual_overlays` JSONB on `exec_archetypes`** for situation-specific dimension offsets + voice modifiers
+7. **Append-only enforcement** on `personality_evolution_log` via REVOKE
+8. **No `context_modifiers` on `exec_personalities`** — contextual adaptation moved to archetype-defined overlays (immutable, not per-org mutable)
 
 ---
 
-*This design synthesises insights from four independent research analyses of OpenClaw's SOUL.md architecture ([synthesis report](../research/2026-02-19-openclaw%20soul%20(synthesis).md)) and applies them to zazig v2's orchestrator architecture ([design doc](./2026-02-18-orchestration-server-design.md)). Second opinions provided by gpt-5.3-codex and gemini-2.5-pro on 2026-02-20. Supabase assessment and pipeline dovetailing added 2026-02-20.*
+*This design synthesises insights from four independent research analyses of OpenClaw's SOUL.md architecture ([synthesis report](../research/2026-02-19-openclaw%20soul%20(synthesis).md)) and applies them to zazig v2's orchestrator architecture ([design doc](./2026-02-18-orchestration-server-design.md)). Second opinions provided by gpt-5.3-codex and gemini-2.5-pro on 2026-02-20. Supabase assessment and pipeline dovetailing added 2026-02-20. Expressiveness/adaptation gap analysis via Gemini review cross-referenced against OpenClaw repo-recon, with Codex validation of proposed enhancements (voice layer, server-push hot-reload, contextual overlays, sub-agent stripping) on 2026-02-20.*

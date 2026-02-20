@@ -1448,14 +1448,90 @@ This means a sub-agent doing a code review inherits "monolith until it hurts" an
 - Dashboard: radar chart view of current personality
 
 ### Phase 3: Bounded Auto-Evolution
+
+#### Reflection Pipeline (informed by MLP Continuity Framework recon)
+
+The core mechanism for Phase 3 is a **post-session reflection worker** that processes
+completed exec sessions into structured evolution candidates. Inspired by the Memory
+Ledger Protocol's Continuity Framework (see `docs/research/2026-02-20-Riley-Coyote-memory-ledger-protocol-v0.2.md`),
+but adapted for zazig's bounded dimensional architecture.
+
+**Reflection cycle:**
+```
+Session completes (heartbeat detects idle > 30min)
+        │
+        ▼
+Single-pass structured-output call
+(transcript + current personality state → JSON)
+        │
+        ▼
+Output: classified memories + confidence scores
+      + proposed dimension deltas + follow-up questions
+        │
+        ├── Memories → structured memory store (new table)
+        ├── Deltas → evolution algorithm → watchdog → evolution log
+        └── Questions → surface in next exec greeting/standup
+```
+
+**Critical design decision: single-pass, not multi-agent.** MLP uses a 3-agent pipeline
+(Classifier → Scorer → Generator). With modern structured outputs, one call can do all
+three. Faster, cheaper, and easier to audit. Use JSON schema to enforce output structure.
+
+**The Vector Translation Step** (hardest unsolved problem): How does a semantic observation
+("founder prefers data over intuition") translate to numeric dimension deltas (+5
+analysis_depth, -3 speed_bias)? The reflection worker must propose specific deltas
+alongside classified memories, weighted by confidence score. The LLM sees the current
+dimension values, archetype bounds, and the observation — and proposes a delta vector.
+The watchdog then validates the delta before applying.
+
+**Memory type taxonomy for signal classification:**
+
+| Signal Type | Description | Decay Rate | Example |
+|-------------|-------------|------------|---------|
+| `fact` | Declarative knowledge about founder/company | 0.0 | "Company has 12 employees" |
+| `preference` | Founder communication/working style | 0.1 | "Prefers bullet points over prose" |
+| `relationship` | Trust/rapport dynamics | 0.05 | "Founder comfortable with direct pushback" |
+| `principle` | Stable founder values/guidelines | 0.0 | "Always check with legal before commitments" |
+| `commitment` | Promises, follow-ups, obligations | 0.2 | "Agreed to review roadmap by Friday" |
+| `moment` | Significant interactions/breakthroughs | 0.0 | "First successful autonomous decision" |
+| `skill` | Learned exec capabilities | 0.0 | "Effective at explaining pricing to founder" |
+| `outcome` | Card/task completion results | 0.1 | "Card shipped, founder approved" |
+| `command` | Explicit founder instruction | 0.0 | "zazig personality cpo --set verbosity=30" |
+
+**Confidence scoring tiers** (applied as multiplier on dimension deltas):
+
+| Level | Range | Source | Delta Multiplier |
+|-------|-------|--------|-----------------|
+| Explicit | 0.95-1.0 | Founder stated directly | 1.0x |
+| Implied | 0.70-0.94 | Strong inference from context | 0.7x |
+| Inferred | 0.40-0.69 | Pattern recognition | 0.4x |
+| Speculative | 0.00-0.39 | Hypothesis, needs confirmation | 0.0x (logged only) |
+
+Speculative signals are logged but never auto-applied. They appear in shadow mode reports
+for founder review.
+
+**Cross-agent memory sharing:** Because zazig has multiple execs per instance, structured
+memories unlock gossip. If the CPO learns a founder preference, the CTO should have access
+to it before their next session. Implemented via a shared `exec_memories` table scoped to
+`company_id`, readable by all execs in the same company.
+
+**Contradiction handling:** When new observations contradict existing memories (e.g., founder
+said X in Session 1, not-X in Session 10), the reflection worker must: (1) flag the
+contradiction, (2) create both entries with confidence scores, (3) surface the conflict to
+the founder in the next interaction. Don't silently overwrite.
+
+#### Phase 3 Build Sequence
+
 - Implement Tier 1 signal detection (structured commands + outcomes only)
 - Implement Tier 2 advisory signals (NL patterns → dashboard suggestions, never auto-applied)
-- Implement evolution algorithm with inter-dimensional correlations and confidence scoring
+- Implement reflection worker (single-pass structured output, post-session)
+- Implement evolution algorithm with inter-dimensional correlations and confidence-weighted deltas
 - **Shadow mode first** — 2 weeks of proposal-only evolution, no live changes
 - Implement behavioral watchdog (velocity, oscillation, boundary-sticking, source anomalies, reward degradation)
 - Event-sourced evolution with optimistic locking
-- Add `personality_evolution_log` with DB-level append-only enforcement
-- Add `personality_watchdog` table
+- Add `exec_memories` table (structured, typed, shared across execs per company)
+- Add `personality_evolution_log` with DB-level append-only enforcement (ships in Phase 1 schema)
+- Add `personality_watchdog` table (ships in Phase 1 schema)
 - CLI: `zazig personality <role> --history / --watchdog-log / --shadow-report`
 - Founder approval to activate live evolution after reviewing shadow data
 
@@ -1638,6 +1714,12 @@ CREATE TABLE public.personality_evolution_log (
                                 ON DELETE CASCADE,
     timestamp       timestamptz NOT NULL DEFAULT now(),
     trigger_signal  text        NOT NULL,
+    signal_type     text        DEFAULT 'unclassified',
+                                -- Memory taxonomy: fact, preference, relationship,
+                                -- principle, commitment, moment, skill, outcome, command
+    confidence_score numeric(3,2) DEFAULT 0.70,
+                                -- 0.00-0.39 speculative, 0.40-0.69 inferred,
+                                -- 0.70-0.94 implied, 0.95-1.00 explicit
     dimension       text        NOT NULL,
     old_value       numeric     NOT NULL,
     new_value       numeric     NOT NULL,

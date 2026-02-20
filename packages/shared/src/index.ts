@@ -92,6 +92,7 @@ export const PROTOCOL_VERSION = 1;
 
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 export const MACHINE_DEAD_THRESHOLD_MS = 120_000;
+export const RECOVERY_COOLDOWN_MS = 60_000;
 /**
  * Maximum size (in bytes) for the `context` field in StartJob messages.
  * Supabase Realtime has a per-message payload limit (~1 MB). This constant

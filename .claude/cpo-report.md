@@ -1,21 +1,33 @@
-# CPO Report — PR #16 P1 Fixes
+# CPO Report: Complexity-to-Model Dispatch Mapping
 
-## P1 Fix
+## Summary
 
-### P1-1: Slot leak in handleJobComplete
-**Problem:** When the pre-completion SELECT failed in `handleJobComplete()`, the function returned early without calling `releaseSlot()`, permanently leaking the slot.
-**Fix:** Added `await releaseSlot(supabase, jobId, machineId)` before the early return (line 407).
+Replaced the static `modelForComplexity` helper with a full `resolveModelAndSlot` function that derives both model and slot type from job complexity. Added codex preference for simple jobs with fallback to claude_code when no codex slots are available. Added support for explicit model overrides on the job row.
 
-### P1-2: Persistent job stuck in failed on fetch error
-**Problem:** In `handleJobFailed()`, if the job_type SELECT errored, `isPersistent` defaulted to `false`, leaving persistent jobs permanently stuck in `failed` status.
-**Fix:** Added error logging and defaulted `isPersistent = true` when `fetchErr` is truthy (line 468-471). This ensures persistent jobs always re-queue even when the DB fetch fails.
+## Changes
 
-### P1-3: Migration numbering
-**Result:** No conflict. Only `003_multi_tenant_schema.sql` and `005_persistent_jobs_seed.sql` exist in `supabase/migrations/`. Kept `005_` as-is.
+### `supabase/functions/orchestrator/index.ts`
+- Added `model` field to `JobRow` interface
+- Replaced `modelForComplexity(complexity)` with `resolveModelAndSlot(complexity, existingModel)` returning `{model, slotType}`
+- Complexity mapping:
+  - `simple` → codex / codex slot (falls back to claude-sonnet-4-6 / claude_code if no codex slots)
+  - `medium` → claude-sonnet-4-6 / claude_code slot
+  - `complex` → claude-opus-4-6 / claude_code slot
+- If `job.model` is non-null, it overrides the complexity-derived model
+- Dispatch now writes resolved `model` and `slot_type` back to the job row for observability
+- Added `model` to the SELECT query for queued jobs
 
-## Pre-merge Check
-All checks passed (lint, tsc --noEmit).
+### `supabase/migrations/004_add_model_to_jobs.sql`
+- Adds nullable `model text` column to jobs table
+- NULL = orchestrator derives from complexity; non-null = explicit override
+
+## Card-type routing
+No card_type → reviewer routing existed in the dispatch path. The `cardType` field is still passed in StartJob for the local agent to determine execution agent type, but it plays no role in dispatch decisions.
+
+## Tests
+- TypeScript compiles without errors across all packages (shared, orchestrator, local-agent)
+- Pre-merge-check passed (lint + tsc)
+- No test suite exists for the orchestrator yet (skipped)
 
 ## Token Usage
-- Token budget: claude-ok
-- Approach: Direct code edits (2 targeted fixes, ~5 lines changed)
+- Direct implementation (codex-delegate not used — changes were surgical and well-scoped)

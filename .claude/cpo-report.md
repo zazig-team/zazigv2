@@ -1,60 +1,51 @@
-# CPO Report: Personality Prompt Compilation Module
+# CPO Report — Pipeline Task 10: Feature Approval + Ship
 
-**Status:** COMPLETE
-**Branch:** cpo/personality-compile
-**Trello Card:** 69985e59cb2715b48beb1024
-**Date:** 2026-02-20
+## Summary
+Added `handleFeatureApproved` and `handleFeatureRejected` handlers to the orchestrator, enabling the final pipeline state transitions when a human tests a feature and approves or rejects it.
 
 ## What Was Done
 
-Implemented the personality prompt compilation module — a deterministic TypeScript function that transforms numeric personality dimensions, voice notes, philosophy, constraints, overlays, anti-patterns, productive flaws, and domain boundaries into compiled system prompt fragments.
+### Deliverable 1: handleFeatureApproved
+- Fetches feature for project/company context
+- CAS guard: only updates if feature is currently in `testing`
+- Marks feature as `done`, marks all non-cancelled jobs as `done`
+- Logs `feature_status_changed` event with `reason: "human_approved"`
+- Drains the queue: promotes next `verifying` feature to testing via existing `promoteToTesting()`
 
-Two modes:
-- **full** — primary exec agents: full identity, voice, style, domain beliefs, anti-patterns, blind spot, domain boundaries, constraints
-- **sub_agent** — value inheritance only: Standards (core_beliefs) + Patterns to Reject (anti_patterns) + Constraints. No persona framing.
+### Deliverable 2: handleFeatureRejected
+- **severity="small"**: Logs `human_reply` event only (fix agent handles in-thread)
+- **severity="big"**: CAS guard (only if `testing`), resets feature to `building`, logs `feature_status_changed` event, inserts a fix job with rejection feedback, drains the queue
 
-## Files Created
+### Deliverable 3: Wired into listenForAgentMessages
+- Added `isFeatureApproved` and `isFeatureRejected` checks after `isVerifyResult` in the message handler chain
 
-- `packages/shared/src/personality/types.ts` — TypeScript interfaces (BeliefStatement, AntiPattern, ContextualOverlay, ArchetypeDefinition, CompiledPersonality, PersonalityMode)
-- `packages/shared/src/personality/dimensions.ts` — 5 style-plane compile functions (verbosity, technicality, formality, proactivity, directness) + compileCommunicationDirectives + compileDecisionDirectives
-- `packages/shared/src/personality/overlays.ts` — resolveContextualOverlay + applyOverlay with policy-plane dimension rejection
-- `packages/shared/src/personality/compile.ts` — compilePersonalityPrompt(personality, mode) with full + sub_agent modes
-- `packages/shared/src/personality/index.ts` — barrel exports
-- `packages/shared/src/personality/compile.test.ts` — 36 unit tests
+### Deliverable 4: Imports
+- Value imports: `isFeatureApproved`, `isFeatureRejected`
+- Type imports: `FeatureApproved`, `FeatureRejected`
 
-## Files Modified
+### Deliverable 5: Deno Tests (8 tests)
+1. `handleFeatureApproved` — feature in testing → marks done, jobs done, logs event
+2. `handleFeatureApproved` — feature NOT in testing (CAS guard) → no-op
+3. `handleFeatureApproved` — queue exists → calls promoteToTesting
+4. `handleFeatureApproved` — no queue → does not call promoteToTesting
+5. `handleFeatureRejected` — severity=small → logs event, no feature update
+6. `handleFeatureRejected` — severity=big + in testing → resets to building, inserts fix job
+7. `handleFeatureRejected` — severity=big + NOT in testing (CAS guard) → no-op
+8. `handleFeatureRejected` — severity=big + queue exists → promotes next feature
 
-- `packages/shared/src/index.ts` — added re-exports from personality barrel
-
-## Test Results
-
-- **36 personality tests: ALL PASS**
-- **75 total tests: ALL PASS** (36 new + 39 existing)
-- `tsc --noEmit`: PASS
-
-Test coverage:
-1. Determinism (same input → same output)
-2. Full mode section presence
-3. Sub-agent mode section filtering (no identity/voice)
-4. Empty field handling (no empty sections rendered)
-5. Overlay application with bounds clamping
-6. Policy-plane overlay rejection (risk_tolerance, autonomy, analysis_depth, speed_bias silently ignored)
-7. Constraints always present in both modes
-8. Dimension bucket thresholds (0, 20, 21, 40, 41, 60, 61, 80, 81, 100 for all 5 dimensions)
-
-## Deviations from Spec
-
-None.
+## Files Changed
+- `supabase/functions/orchestrator/index.ts` — added imports, handlers, wiring
+- `supabase/functions/orchestrator/orchestrator.test.ts` — added 8 tests, extended mock with `not`/`limit` methods and channel support
 
 ## Acceptance Criteria
+- [x] `handleFeatureApproved` added to orchestrator/index.ts with CAS guard
+- [x] `handleFeatureRejected` added with severity branching and CAS guard
+- [x] Both wired into `listenForAgentMessages`
+- [x] `isFeatureApproved`, `isFeatureRejected` imported from `@zazigv2/shared`
+- [x] `FeatureApproved`, `FeatureRejected` type imports added
+- [x] 8 Deno tests covering both handlers (happy path + CAS guard + queue drain)
+- [x] TypeScript compiles: `npm run typecheck` passes clean
 
-- [x] `packages/shared/src/personality/types.ts` — all required interfaces exported
-- [x] `packages/shared/src/personality/dimensions.ts` — 5 style-plane compile functions + compileCommunicationDirectives + compileDecisionDirectives
-- [x] `packages/shared/src/personality/overlays.ts` — resolveContextualOverlay + applyOverlay with policy-plane rejection
-- [x] `packages/shared/src/personality/compile.ts` — compilePersonalityPrompt with full + sub_agent modes
-- [x] `packages/shared/src/personality/index.ts` — barrel exports
-- [x] `packages/shared/src/index.ts` — re-exports from personality
-- [x] `packages/shared/src/personality/compile.test.ts` — all 8 test categories pass
-- [x] `tsc --noEmit` passes
-- [x] `vitest run` passes for packages/shared
-- [x] All values clamped. Policy overlays rejected. Sub-agent mode outputs only Standards + Patterns to Reject + Constraints. Empty fields handled gracefully. Pure functions.
+## Token Usage
+- Routing: claude-ok
+- All code written directly by Claude (no codex delegation)

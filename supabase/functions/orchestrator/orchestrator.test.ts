@@ -24,7 +24,7 @@ const originalServe = (Deno as any).serve;
 };
 
 // Now import the functions under test.
-import { handleVerifyResult, triggerFeatureVerification } from "./index.ts";
+import { handleVerifyResult, triggerFeatureVerification, handleFeatureApproved, handleFeatureRejected } from "./index.ts";
 
 // Restore Deno.serve after import.
 // deno-lint-ignore no-explicit-any
@@ -163,7 +163,7 @@ function createSmartMockSupabase() {
     // deno-lint-ignore no-explicit-any
     const chain: any = {};
 
-    for (const method of ["select", "update", "insert", "eq", "in", "single", "order", "gt"]) {
+    for (const method of ["select", "update", "insert", "eq", "in", "single", "order", "gt", "not", "limit"]) {
       // deno-lint-ignore no-explicit-any
       chain[method] = (...args: any[]) => {
         ops.push({ method, args });
@@ -191,7 +191,19 @@ function createSmartMockSupabase() {
     },
     // deno-lint-ignore no-explicit-any
     channel(_name: string): any {
-      return { subscribe: () => {}, unsubscribe: () => {} };
+      // deno-lint-ignore no-explicit-any
+      const ch: any = {
+        // deno-lint-ignore no-explicit-any
+        subscribe(callback?: (status: string) => any) {
+          if (callback) callback("SUBSCRIBED");
+          return ch;
+        },
+        send() { return Promise.resolve("ok"); },
+        unsubscribe() { return Promise.resolve(); },
+        // deno-lint-ignore no-explicit-any
+        on() { return ch; },
+      };
+      return ch;
     },
   };
 
@@ -417,4 +429,389 @@ Deno.test("triggerFeatureVerification — sets feature to verifying and inserts 
   assertEquals(context.type, "feature_verification");
   assertEquals(context.featureBranch, "feature/payment-flow");
   assertEquals(context.acceptanceTests, "pytest tests/");
+});
+
+// ---------------------------------------------------------------------------
+// handleFeatureApproved tests
+// ---------------------------------------------------------------------------
+
+Deno.test("handleFeatureApproved — feature in testing → marks done, jobs done, logs event", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // 1. Fetch feature
+  setResponse("features:select.eq.single", {
+    data: { project_id: "proj-1", company_id: "co-1", feature_branch: "feat/auth" },
+    error: null,
+  });
+
+  // 2. CAS update → success (1 row updated)
+  setResponse("features:update.eq.eq.select", {
+    data: [{ id: "feat-1" }],
+    error: null,
+  });
+
+  // 3. Mark jobs done
+  setResponse("jobs:update.eq.not", { error: null });
+
+  // 4. Insert event
+  setResponse("events:insert", { error: null });
+
+  // 5. No queued features
+  setResponse("features:select.eq.eq.order.limit", { data: [], error: null });
+
+  const msg = {
+    type: "feature_approved" as const,
+    protocolVersion: 1,
+    featureId: "feat-1",
+    machineId: "machine-1",
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await handleFeatureApproved(client as any, msg);
+
+  // Verify feature was updated to done
+  const featureChains = chainedCalls.filter((c) => c.table === "features");
+  assertEquals(featureChains.length >= 3, true, "Should have select + update + queue check on features");
+
+  // First chain: select feature details
+  assertEquals(featureChains[0].operations[0].method, "select");
+
+  // Second chain: CAS update to done
+  assertEquals(featureChains[1].operations[0].method, "update");
+  // deno-lint-ignore no-explicit-any
+  assertEquals((featureChains[1].operations[0].args[0] as any).status, "done");
+
+  // Jobs table: mark jobs done
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 1, "Should update jobs");
+  // deno-lint-ignore no-explicit-any
+  assertEquals((jobsChains[0].operations[0].args[0] as any).status, "done");
+
+  // Events table: log approval
+  const eventsChains = chainedCalls.filter((c) => c.table === "events");
+  assertEquals(eventsChains.length, 1, "Should insert event");
+  assertEquals(eventsChains[0].operations[0].method, "insert");
+  // deno-lint-ignore no-explicit-any
+  const eventPayload = eventsChains[0].operations[0].args[0] as any;
+  assertEquals(eventPayload.event_type, "feature_status_changed");
+  assertEquals(eventPayload.detail.reason, "human_approved");
+});
+
+Deno.test("handleFeatureApproved — feature NOT in testing (CAS guard) → no-op", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // Fetch feature succeeds
+  setResponse("features:select.eq.single", {
+    data: { project_id: "proj-1", company_id: "co-1", feature_branch: "feat/x" },
+    error: null,
+  });
+
+  // CAS update → 0 rows (feature not in testing)
+  setResponse("features:update.eq.eq.select", {
+    data: [],
+    error: null,
+  });
+
+  const msg = {
+    type: "feature_approved" as const,
+    protocolVersion: 1,
+    featureId: "feat-2",
+    machineId: "machine-1",
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await handleFeatureApproved(client as any, msg);
+
+  // Should NOT touch jobs or events
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 0, "Should not update jobs when CAS fails");
+
+  const eventsChains = chainedCalls.filter((c) => c.table === "events");
+  assertEquals(eventsChains.length, 0, "Should not insert event when CAS fails");
+});
+
+Deno.test("handleFeatureApproved — queue exists → calls promoteToTesting", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // Fetch feature
+  setResponse("features:select.eq.single", {
+    data: { project_id: "proj-1", company_id: "co-1", feature_branch: "feat/auth", human_checklist: "check" },
+    error: null,
+  });
+
+  // CAS update → success
+  setResponse("features:update.eq.eq.select", {
+    data: [{ id: "feat-1" }],
+    error: null,
+  });
+
+  // Mark jobs done
+  setResponse("jobs:update.eq.not", { error: null });
+
+  // Insert event
+  setResponse("events:insert", { error: null });
+
+  // Queue check → next feature waiting
+  setResponse("features:select.eq.eq.order.limit", { data: [{ id: "next-feat" }], error: null });
+
+  // promoteToTesting internals:
+  // Check if another feature in testing (should be empty — we just moved ours to done)
+  setResponse("features:select.eq.eq.limit", { data: [], error: null });
+  // Update next feature to testing
+  setResponse("features:update.eq", { error: null });
+
+  const msg = {
+    type: "feature_approved" as const,
+    protocolVersion: 1,
+    featureId: "feat-1",
+    machineId: "machine-1",
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await handleFeatureApproved(client as any, msg);
+
+  // promoteToTesting should have been called — look for the testing update
+  const featureChains = chainedCalls.filter((c) => c.table === "features");
+  // Should have: select(fetch) + update(done CAS) + select(queue check) +
+  //              select(promoteToTesting fetch) + select(promoteToTesting check testing) + update(promote to testing)
+  assertEquals(featureChains.length >= 5, true, "Should have multiple feature chains including promoteToTesting");
+
+  // Find the update chain that sets status to "testing" (promoteToTesting)
+  const promoteUpdate = featureChains.find((c) => {
+    if (c.operations[0].method !== "update") return false;
+    // deno-lint-ignore no-explicit-any
+    const payload = c.operations[0].args[0] as any;
+    return payload.status === "testing";
+  });
+  assertEquals(promoteUpdate !== undefined, true, "Should promote next feature to testing");
+});
+
+Deno.test("handleFeatureApproved — no queue → does not call promoteToTesting", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  setResponse("features:select.eq.single", {
+    data: { project_id: "proj-1", company_id: "co-1", feature_branch: "feat/x" },
+    error: null,
+  });
+  setResponse("features:update.eq.eq.select", { data: [{ id: "feat-1" }], error: null });
+  setResponse("jobs:update.eq.not", { error: null });
+  setResponse("events:insert", { error: null });
+
+  // Queue check → empty
+  setResponse("features:select.eq.eq.order.limit", { data: [], error: null });
+
+  const msg = {
+    type: "feature_approved" as const,
+    protocolVersion: 1,
+    featureId: "feat-1",
+    machineId: "machine-1",
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await handleFeatureApproved(client as any, msg);
+
+  // No promoteToTesting — should NOT have an update that sets status to "testing"
+  const featureChains = chainedCalls.filter((c) => c.table === "features");
+  const promoteUpdate = featureChains.find((c) => {
+    if (c.operations[0].method !== "update") return false;
+    // deno-lint-ignore no-explicit-any
+    const payload = c.operations[0].args[0] as any;
+    return payload.status === "testing";
+  });
+  assertEquals(promoteUpdate, undefined, "Should NOT promote any feature when queue is empty");
+});
+
+// ---------------------------------------------------------------------------
+// handleFeatureRejected tests
+// ---------------------------------------------------------------------------
+
+Deno.test("handleFeatureRejected — severity=small → logs event, no feature update", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // Fetch company_id
+  setResponse("features:select.eq.single", {
+    data: { company_id: "co-1" },
+    error: null,
+  });
+
+  // Insert human_reply event
+  setResponse("events:insert", { error: null });
+
+  const msg = {
+    type: "feature_rejected" as const,
+    protocolVersion: 1,
+    featureId: "feat-1",
+    feedback: "Button color is off",
+    severity: "small" as const,
+    machineId: "machine-1",
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await handleFeatureRejected(client as any, msg);
+
+  // Should log event with human_reply type
+  const eventsChains = chainedCalls.filter((c) => c.table === "events");
+  assertEquals(eventsChains.length, 1, "Should insert human_reply event");
+  // deno-lint-ignore no-explicit-any
+  const eventPayload = eventsChains[0].operations[0].args[0] as any;
+  assertEquals(eventPayload.event_type, "human_reply");
+  assertEquals(eventPayload.detail.severity, "small");
+  assertEquals(eventPayload.detail.action, "fix_agent_in_thread");
+
+  // Should NOT update feature status or insert jobs
+  const featureUpdates = chainedCalls.filter((c) =>
+    c.table === "features" && c.operations.some((o) => o.method === "update")
+  );
+  assertEquals(featureUpdates.length, 0, "Should not update feature status for small rejection");
+
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 0, "Should not insert fix job for small rejection");
+});
+
+Deno.test("handleFeatureRejected — severity=big + in testing → resets to building, inserts fix job", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // Fetch feature details
+  setResponse("features:select.eq.single", {
+    data: { company_id: "co-1", project_id: "proj-1", feature_branch: "feat/auth", spec: "Build auth" },
+    error: null,
+  });
+
+  // CAS update → success
+  setResponse("features:update.eq.eq.select", {
+    data: [{ id: "feat-1" }],
+    error: null,
+  });
+
+  // Insert event
+  setResponse("events:insert", { error: null });
+
+  // Insert fix job
+  setResponse("jobs:insert", { error: null });
+
+  // Queue check → empty
+  setResponse("features:select.eq.eq.order.limit", { data: [], error: null });
+
+  const msg = {
+    type: "feature_rejected" as const,
+    protocolVersion: 1,
+    featureId: "feat-1",
+    feedback: "Auth flow is completely broken",
+    severity: "big" as const,
+    machineId: "machine-1",
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await handleFeatureRejected(client as any, msg);
+
+  // Feature should be reset to building
+  const featureChains = chainedCalls.filter((c) => c.table === "features");
+  const buildingUpdate = featureChains.find((c) => {
+    if (c.operations[0].method !== "update") return false;
+    // deno-lint-ignore no-explicit-any
+    return (c.operations[0].args[0] as any).status === "building";
+  });
+  assertEquals(buildingUpdate !== undefined, true, "Should reset feature to building");
+
+  // Event should be logged
+  const eventsChains = chainedCalls.filter((c) => c.table === "events");
+  assertEquals(eventsChains.length, 1, "Should insert feature_status_changed event");
+  // deno-lint-ignore no-explicit-any
+  const eventPayload = eventsChains[0].operations[0].args[0] as any;
+  assertEquals(eventPayload.event_type, "feature_status_changed");
+  assertEquals(eventPayload.detail.reason, "human_rejected");
+  assertEquals(eventPayload.detail.feedback, "Auth flow is completely broken");
+
+  // Fix job should be inserted
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 1, "Should insert fix job");
+  // deno-lint-ignore no-explicit-any
+  const jobPayload = jobsChains[0].operations[0].args[0] as any;
+  assertEquals(jobPayload.role, "engineer");
+  assertEquals(jobPayload.status, "queued");
+  assertEquals(jobPayload.rejection_feedback, "Auth flow is completely broken");
+  assertEquals(jobPayload.branch, "feat/auth");
+  const ctx = JSON.parse(jobPayload.context);
+  assertEquals(ctx.type, "rejection_fix");
+  assertEquals(ctx.originalSpec, "Build auth");
+});
+
+Deno.test("handleFeatureRejected — severity=big + NOT in testing (CAS guard) → no-op", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // Fetch feature
+  setResponse("features:select.eq.single", {
+    data: { company_id: "co-1", project_id: "proj-1", feature_branch: "feat/x", spec: "" },
+    error: null,
+  });
+
+  // CAS update → 0 rows (not in testing)
+  setResponse("features:update.eq.eq.select", { data: [], error: null });
+
+  const msg = {
+    type: "feature_rejected" as const,
+    protocolVersion: 1,
+    featureId: "feat-3",
+    feedback: "Everything is wrong",
+    severity: "big" as const,
+    machineId: "machine-1",
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await handleFeatureRejected(client as any, msg);
+
+  // Should NOT insert events or jobs
+  const eventsChains = chainedCalls.filter((c) => c.table === "events");
+  assertEquals(eventsChains.length, 0, "Should not insert event when CAS fails");
+
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 0, "Should not insert fix job when CAS fails");
+});
+
+Deno.test("handleFeatureRejected — severity=big + queue exists → promotes next feature", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // Fetch feature
+  setResponse("features:select.eq.single", {
+    data: { company_id: "co-1", project_id: "proj-1", feature_branch: "feat/y", spec: "spec", human_checklist: "" },
+    error: null,
+  });
+
+  // CAS update → success
+  setResponse("features:update.eq.eq.select", { data: [{ id: "feat-5" }], error: null });
+
+  // Insert event
+  setResponse("events:insert", { error: null });
+
+  // Insert fix job
+  setResponse("jobs:insert", { error: null });
+
+  // Queue check → next feature waiting
+  setResponse("features:select.eq.eq.order.limit", { data: [{ id: "next-feat" }], error: null });
+
+  // promoteToTesting internals:
+  setResponse("features:select.eq.eq.limit", { data: [], error: null });
+  setResponse("features:update.eq", { error: null });
+
+  const msg = {
+    type: "feature_rejected" as const,
+    protocolVersion: 1,
+    featureId: "feat-5",
+    feedback: "Major rework needed",
+    severity: "big" as const,
+    machineId: "machine-1",
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await handleFeatureRejected(client as any, msg);
+
+  // Should promote next feature — look for update to "testing"
+  const featureChains = chainedCalls.filter((c) => c.table === "features");
+  const promoteUpdate = featureChains.find((c) => {
+    if (c.operations[0].method !== "update") return false;
+    // deno-lint-ignore no-explicit-any
+    const payload = c.operations[0].args[0] as any;
+    return payload.status === "testing";
+  });
+  assertEquals(promoteUpdate !== undefined, true, "Should promote next feature to testing after big rejection");
 });

@@ -122,45 +122,96 @@ function incrementSlotPayload(machine: MachineRow, slotType: SlotType): Record<s
   return { slots_codex: machine.slots_codex + 1 };
 }
 
-/**
- * Resolves the model identifier and slot type from job complexity.
- *
- * Mapping:
- *   simple  → codex / codex slot  (caller falls back to sonnet / claude_code if no codex slots)
- *   medium  → claude-sonnet-4-6 / claude_code slot
- *   complex → claude-opus-4-6 / claude_code slot
- *
- * If `existingModel` is non-null the job already has an orchestrator-specified
- * model override — that value is used as-is while the slot type is still
- * derived from complexity.
- */
-const ALLOWED_MODELS = new Set(["claude-sonnet-4-6", "claude-opus-4-6", "codex"]);
+// ---------------------------------------------------------------------------
+// Model + slot routing — DB-backed via complexity_routing + roles tables
+// ---------------------------------------------------------------------------
 
+interface RoutingEntry {
+  complexity: string;
+  model: string;
+  slotType: SlotType;
+}
+
+/** Cached routing table, loaded once per orchestrator invocation. */
+let routingCache: Map<string, RoutingEntry> | null = null;
+
+/**
+ * Loads the complexity → (model, slot_type) routing from the DB.
+ * Uses complexity_routing joined to roles. Company-specific rows override globals.
+ * Cached for the lifetime of a single orchestrator invocation.
+ */
+async function loadRouting(
+  supabase: SupabaseClient,
+  companyId: string,
+): Promise<Map<string, RoutingEntry>> {
+  if (routingCache) return routingCache;
+
+  // Fetch global defaults (company_id IS NULL) and company-specific overrides.
+  const { data, error } = await supabase
+    .from("complexity_routing")
+    .select("complexity, company_id, roles:role_id(default_model, slot_type)")
+    .or(`company_id.is.null,company_id.eq.${companyId}`);
+
+  const map = new Map<string, RoutingEntry>();
+
+  if (error || !data) {
+    console.warn("[orchestrator] Failed to load complexity_routing, using hardcoded fallbacks:", error?.message);
+    // Hardcoded fallback if DB is empty or query fails
+    map.set("simple", { complexity: "simple", model: "codex", slotType: "codex" });
+    map.set("medium", { complexity: "medium", model: "claude-sonnet-4-6", slotType: "claude_code" });
+    map.set("complex", { complexity: "complex", model: "claude-opus-4-6", slotType: "claude_code" });
+    routingCache = map;
+    return map;
+  }
+
+  // Global defaults first, then company overrides (which replace globals)
+  const globals = data.filter((r: Record<string, unknown>) => r.company_id === null);
+  const overrides = data.filter((r: Record<string, unknown>) => r.company_id !== null);
+
+  for (const row of [...globals, ...overrides]) {
+    const role = row.roles as unknown as { default_model: string; slot_type: string } | null;
+    if (!role) continue;
+    map.set(row.complexity as string, {
+      complexity: row.complexity as string,
+      model: role.default_model,
+      slotType: role.slot_type as SlotType,
+    });
+  }
+
+  routingCache = map;
+  console.log(`[orchestrator] Loaded routing: ${[...map.entries()].map(([k, v]) => `${k}→${v.model}(${v.slotType})`).join(", ")}`);
+  return map;
+}
+
+/**
+ * Resolves the model and slot type for a job.
+ *
+ * Priority:
+ *   1. Explicit model override on the job row → use that model, derive slot from routing
+ *   2. complexity_routing table → company override > global default
+ *   3. Hardcoded fallback (medium/sonnet) if nothing else matches
+ */
 function resolveModelAndSlot(
+  routing: Map<string, RoutingEntry>,
   complexity: string | null,
   existingModel: string | null,
   jobId?: string,
 ): { model: string; slotType: SlotType } {
-  // Validate model override against allowlist.
-  if (existingModel && !ALLOWED_MODELS.has(existingModel)) {
-    console.warn(`[orchestrator] Rejected unknown model override on job ${jobId ?? "?"}: ${existingModel}`);
-    existingModel = null; // fall through to complexity-derived logic
-  }
-
-  // Orchestrator-specified model always takes precedence.
+  // Explicit model override on the job takes precedence.
   if (existingModel) {
-    const slotType: SlotType = complexity === "simple" ? "codex" : "claude_code";
+    const entry = routing.get(complexity ?? "medium");
+    const slotType = entry?.slotType ?? "claude_code";
     return { model: existingModel, slotType };
   }
 
-  switch (complexity) {
-    case "simple":
-      return { model: "codex", slotType: "codex" };
-    case "complex":
-      return { model: "claude-opus-4-6", slotType: "claude_code" };
-    default: // medium or null
-      return { model: "claude-sonnet-4-6", slotType: "claude_code" };
+  const entry = routing.get(complexity ?? "medium");
+  if (entry) {
+    return { model: entry.model, slotType: entry.slotType };
   }
+
+  // Fallback if complexity not in routing table
+  console.warn(`[orchestrator] No routing entry for complexity=${complexity} on job ${jobId ?? "?"}, defaulting to sonnet`);
+  return { model: "claude-sonnet-4-6", slotType: "claude_code" };
 }
 
 // ---------------------------------------------------------------------------
@@ -300,9 +351,15 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
   // Cache machines fetched in this pass (keyed by company_id) to avoid redundant queries.
   const machineCache = new Map<string, MachineRow[]>();
 
+  // Reset routing cache at the start of each dispatch pass.
+  routingCache = null;
+
   for (const job of queuedJobs as JobRow[]) {
+    // Load routing table (cached after first call within this invocation).
+    const routing = await loadRouting(supabase, job.company_id);
+
     // Derive model + slot type from complexity (with optional model override).
-    let { model, slotType } = resolveModelAndSlot(job.complexity, job.model, job.id);
+    let { model, slotType } = resolveModelAndSlot(routing, job.complexity, job.model, job.id);
 
     // Fetch available machines for this company (with capacity for the slot type).
     let machines = machineCache.get(job.company_id);
@@ -337,12 +394,13 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     // Find a machine with an available slot of the required type.
     let candidate = machines.find((m) => availableSlots(m, slotType) > 0);
 
-    // For simple jobs preferring codex, fall back to claude_code if no codex slots.
+    // For jobs preferring codex, fall back to claude_code if no codex slots available.
     if (!candidate && slotType === "codex") {
       slotType = "claude_code";
       // Only change model if it was complexity-derived (not an explicit override).
       if (!job.model) {
-        model = "claude-sonnet-4-6";
+        const mediumEntry = routing.get("medium");
+        model = mediumEntry?.model ?? "claude-sonnet-4-6";
       }
       candidate = machines.find((m) => availableSlots(m, slotType) > 0);
     }

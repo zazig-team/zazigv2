@@ -1,43 +1,40 @@
-# CPO Report: Hooks & Non-Interactive Execution
+# Pipeline Task 2 — P0/P1 Security & Correctness Fixes
 
-## Summary
+**Task:** Fix SECURITY DEFINER vulnerabilities and correctness bugs in migration 004
+**Branch:** zazig/pipeline-task2-schema
+**Migration:** `supabase/migrations/004_pipeline_schema_v2.sql`
+**Date:** 2026-02-20
 
-Implemented hooks and non-interactive execution for unattended local-agent jobs. Three problems solved:
+## Fixes Applied
 
-1. **Print mode for Claude CLI** — `buildCommand()` now uses `claude -p "<task>"` which processes the task and exits (no interactive REPL blocking tmux sessions)
-2. **Full-auto for Codex CLI** — `buildCommand()` now uses `codex --full-auto "<task>"` which completes and exits
-3. **Permission hooks** — Ported and enhanced bash-gate.sh and file-tool-gate.sh from zazig v1 to prevent permission prompts from blocking unattended agents
+### P0-1 + P0-2: Restrict EXECUTE on SECURITY DEFINER functions
+Added REVOKE/GRANT statements to restrict `release_slot` and `all_feature_jobs_complete`
+to `service_role` only, preventing unauthenticated callers from invoking them.
+
+### P0-3: Pin search_path on SECURITY DEFINER functions
+Added `SET search_path = public, pg_catalog` to both functions to prevent malicious
+schema shadowing attacks.
+
+### P1-1: Fix release_slot to branch on slot_type
+Rewrote `release_slot` to look up `slot_type` from the job row (with `FOR UPDATE`
+locking) and increment the correct counter (`slots_codex` or `slots_claude_code`).
+
+### P1-2: Fix all_feature_jobs_complete for legacy 'complete' status
+Added `'complete'` to the `NOT IN` clause so jobs with the legacy terminal status
+are not treated as incomplete indefinitely.
+
+### P1-3: Document status enum overlap
+Added a comment block at the top of the migration explaining legacy/new status
+equivalences and the backward-compatibility strategy.
 
 ## Files Changed
+- `supabase/migrations/004_pipeline_schema_v2.sql`
 
-- `packages/local-agent/src/executor.ts` — Updated `buildCommand()` to use `-p` (print mode) for claude and `--full-auto` for codex
-- `packages/local-agent/hooks/bash-gate.sh` — NEW: Auto-approves safe bash commands, blocks force push, git reset --hard, rm -rf outside safe targets, ~/.zazig/ access, production credentials
-- `packages/local-agent/hooks/file-tool-gate.sh` — NEW: Auto-approves Read/Write/Edit/Grep/Glob except .env files and ~/.zazig/ directory
-- `packages/local-agent/scripts/setup-hooks.sh` — NEW: Idempotent bootstrap script that installs hooks into ~/.claude/settings.json and sets up trust entries
-- `.claude/cpo-report.md` — This report
+## Pre-merge Check
+All checks passed (lint, tsc).
 
-## Setup Instructions
-
-Machine owners must run the setup script once before their machine can execute unattended agent jobs:
-
-```bash
-cd packages/local-agent
-./scripts/setup-hooks.sh
-```
-
-This will:
-1. Copy hook scripts to `~/.claude/hooks/zazigv2/`
-2. Merge PreToolUse hook entries into `~/.claude/settings.json` (existing settings preserved)
-3. Add deny rules for destructive commands
-4. Set up trust entries for `~/Documents/GitHub/` and `~/Documents/GitHub/.worktrees/`
-
-Requires `jq` (`brew install jq`). Restart Claude Code after running.
-
-## Pre-Merge Check
-
-All checks passed (lint, typecheck). No test script configured.
+## Issues Encountered
+None.
 
 ## Token Usage
-
-- Token budget: claude-ok (direct implementation)
-- No codex-delegate used — task was straightforward and well-scoped
+- **Claude (claude-ok)**: Direct code edits, no codex-delegate needed for this task

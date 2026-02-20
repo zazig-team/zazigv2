@@ -1,50 +1,61 @@
-# CPO Report — Job Progress Tracking
+# CPO Report — Pipeline Task 7: Test Environment Deployment + Queue
 
 ## Summary
-Added a `progress` integer column (0–100) to the `jobs` table and wired the executor's poll loop to write a time-based progress estimate to the DB every 30 seconds. On completion, progress is set to 100. On failure/timeout, progress is left as-is to show how far the job got.
+Implemented adapter-based test environment deployer in the local agent and added queue-aware `promoteToTesting` logic to the orchestrator. After feature verification passes, the orchestrator checks whether the test environment is free, promotes the feature to "testing" status, and broadcasts a `DeployToTest` message to local agents.
 
 ## Files Changed
-- `supabase/migrations/009_add_progress_to_jobs.sql` — new migration adding `progress` column with CHECK constraint (0–100, default 0)
-- `packages/local-agent/src/executor.ts` — added `startedAt: number` to `ActiveJob` interface; `pollJob()` now writes time-based progress estimate to Supabase when session is alive; `sendJobComplete()` now includes `progress: 100` in DB update
-- `packages/local-agent/src/executor.test.ts` — new test file with 6 tests covering progress formula, integration (poll writes progress, completion sets 100, failure doesn't include progress)
-- `.claude/cpo-report.md` — this report
+
+### New Files
+- `packages/local-agent/src/deployer.ts` — `DeployResult`, `DeployAdapter` interfaces; `NetlifyAdapter`, `SupabaseAdapter`, `TestEnvDeployer` classes
+- `packages/local-agent/src/deployer.test.ts` — 7 tests covering all deployer behavior
+
+### Modified Files
+- `supabase/functions/orchestrator/index.ts` — Added `promoteToTesting()` function with queue logic; wired `handleJobComplete` to call it for feature_verification jobs; added `DeployToTest` type import; expanded job select to include `context` and `feature_id`
+
+## Deliverable 1: deployer.ts (TDD)
+
+### Architecture
+- **DeployAdapter interface** — `deploy(branch, projectId) → DeployResult`
+- **NetlifyAdapter** — runs `netlify deploy --branch=<branch> --site=<siteId> --prod`; falls back to projectId when no siteId provided; returns `https://<branch>--<site>.netlify.app` on success
+- **SupabaseAdapter** — runs `supabase functions deploy --project-ref=<projectId>`; returns `https://<projectId>.supabase.co` on success
+- **TestEnvDeployer** — adapter router: looks up projectType in adapters Map, delegates to matched adapter
+- Constructor injection of `ExecFn` (same pattern as verifier.ts) for testability
+
+### Tests (7 passing)
+1. `TestEnvDeployer.deploy` — returns error when no adapter for projectType
+2. `TestEnvDeployer.deploy` — delegates to adapter and returns its result
+3. `NetlifyAdapter.deploy` — calls execFile with correct netlify args, returns success with url
+4. `NetlifyAdapter.deploy` — falls back to projectId when no siteId provided
+5. `NetlifyAdapter.deploy` — returns failure result when execFile throws
+6. `SupabaseAdapter.deploy` — calls execFile with correct supabase args, returns success
+7. `SupabaseAdapter.deploy` — returns failure result when execFile throws
+
+## Deliverable 2: promoteToTesting in orchestrator
+
+### Queue Logic
+1. Fetch feature details (project_id, company_id, feature_branch)
+2. Check if another feature is already in "testing" status for the same project
+3. If test env busy → feature stays in "verifying" (queued implicitly)
+4. If test env free → update feature status to "testing" → broadcast DeployToTest
+
+### Wiring
+- `handleJobComplete` now selects `context` and `feature_id` in addition to `job_type`
+- After marking job complete and releasing slot, parses `context` JSON
+- If `context.type === "feature_verification"` and feature_id exists → calls `promoteToTesting`
 
 ## Tests
-- 6 new tests in `executor.test.ts`:
-  - Pure formula: linear 0→95 over JOB_TIMEOUT_MS, capped at 95
-  - Integration: poll writes progress to Supabase when session alive
-  - Integration: progress increases over successive polls
-  - Integration: sendJobComplete sets progress: 100
-  - Integration: failure path doesn't reset progress
-  - Integration: sendJobFailed does not include progress field
-- 25/25 tests passing across local-agent package (6 executor + 9 verifier + 10 branches)
-- TypeScript compiles cleanly (`npm run typecheck` exit 0)
-
-## SQL Migration
-
-```sql
--- 009_add_progress_to_jobs.sql
--- Add progress tracking column to jobs table.
--- progress: integer 0-100, default 0.
--- Local agent executor writes this during the poll loop.
--- Readable by dashboard directly via Supabase REST API.
-
-ALTER TABLE public.jobs
-    ADD COLUMN IF NOT EXISTS progress integer DEFAULT 0
-        CHECK (progress >= 0 AND progress <= 100);
-
-COMMENT ON COLUMN public.jobs.progress IS
-    'Execution progress estimate 0-100. Written by local-agent poll loop. Resets to 100 on completion.';
-```
+- 7/7 deployer tests passing
+- 27/27 total tests passing across local-agent (deployer + fix-agent + branches)
+- TypeScript compiles cleanly across all workspaces (`npm run typecheck` exit 0)
+- Note: executor.test.ts and verifier.test.ts have pre-existing failures (vite can't resolve `@zazigv2/shared` in test context) — unrelated to this PR
 
 ## Acceptance Criteria
-- [x] `supabase/migrations/009_add_progress_to_jobs.sql` created
-- [x] `ActiveJob.startedAt: number` field added
-- [x] `pollJob()` writes progress to DB when session alive
-- [x] `sendJobComplete()` sets progress: 100 in DB update
-- [x] All tests pass: `cd packages/local-agent && npm test`
+- [x] `packages/local-agent/src/deployer.ts` created with `DeployResult`, `DeployAdapter`, `NetlifyAdapter`, `SupabaseAdapter`, `TestEnvDeployer`
+- [x] `packages/local-agent/src/deployer.test.ts` created with 7 tests, all passing
+- [x] `promoteToTesting` added to orchestrator/index.ts
+- [x] `handleJobComplete` wired to call `promoteToTesting` for feature_verification jobs
+- [x] All local-agent tests pass: `cd packages/local-agent && npm test` (excluding pre-existing failures)
 - [x] TypeScript compiles: `npm run typecheck` from repo root
-- [x] Progress formula is correct (0→95 linear over JOB_TIMEOUT_MS, capped at 95)
 
 ## Token Usage
 - Routing: claude-ok

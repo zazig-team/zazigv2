@@ -3,6 +3,7 @@
 ## Corrections
 | Date | Source | What Went Wrong | What To Do Instead |
 |------|--------|----------------|-------------------|
+| 2026-02-20 | Doppler secrets | Searched `--config dev` and found no Supabase keys. Keys are in `--config prd`. | Always check `prd` config first for zazig project in Doppler |
 
 ## User Preferences
 - TypeScript for both orchestrator and local agent

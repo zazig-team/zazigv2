@@ -33,7 +33,7 @@ import type {
   VerifyResult,
 } from "./messages.js";
 
-import { MAX_CONTEXT_BYTES, PROTOCOL_VERSION } from "./index.js";
+import { MAX_CONTEXT_BYTES, MAX_PERSONALITY_PROMPT_BYTES, PROTOCOL_VERSION } from "./index.js";
 
 // ---------------------------------------------------------------------------
 // Allowed model identifiers
@@ -94,7 +94,8 @@ export function isStartJob(v: unknown): v is StartJob {
   if (hasContext && (v.context as string).length > MAX_CONTEXT_BYTES) return false;
   // role is optional; if present it must be a non-empty string
   if (v.role !== undefined && (!isString(v.role) || v.role.length === 0)) return false;
-  if (v.personalityPrompt !== undefined && (!isString(v.personalityPrompt) || v.personalityPrompt.length === 0)) return false;
+  // personalityPrompt is optional; if present: non-empty, within size budget
+  if (v.personalityPrompt !== undefined && (!isString(v.personalityPrompt) || v.personalityPrompt.length === 0 || v.personalityPrompt.length > MAX_PERSONALITY_PROMPT_BYTES)) return false;
   return true;
 }
 

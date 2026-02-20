@@ -4,7 +4,8 @@
 -- When NULL, the orchestrator derives the model from job.complexity at dispatch time.
 
 ALTER TABLE public.jobs
-    ADD COLUMN model text;
+    ADD COLUMN model text
+    CHECK (model IS NULL OR model IN ('claude-sonnet-4-6', 'claude-opus-4-6', 'codex'));
 
 COMMENT ON COLUMN public.jobs.model IS
     'Model identifier for this job. NULL = orchestrator derives from complexity at dispatch. '

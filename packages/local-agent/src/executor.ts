@@ -9,10 +9,9 @@
  *   5. On StopJob: kills tmux session → releases slot → sends StopAck
  *
  * Tmux session naming: `{machineId}-{jobId}`
- * Model selection:
- *   slotType=codex / complexity=simple → `codex` CLI
- *   complexity=medium                  → `claude` CLI (claude-sonnet-4-6)
- *   complexity=complex                 → `claude` CLI (claude-opus-4-6)
+ * Model selection (slotType is the primary routing signal):
+ *   slotType=codex                     → `codex` CLI
+ *   slotType=claude_code               → `claude` CLI (model from orchestrator)
  *   role != null (persistent agents)   → `claude` CLI (claude-opus-4-6)
  */
 
@@ -415,11 +414,14 @@ export class JobExecutor {
 /**
  * Determine the CLI binary and arguments based on slot type, complexity, and model.
  *
- * Decision table:
- *   slotType=codex OR complexity=simple → `codex` CLI (task as positional arg)
- *   complexity=medium                    → `claude` CLI with model claude-sonnet-4-6
- *   complexity=complex                   → `claude` CLI with model claude-opus-4-6
- *   model override from orchestrator     → the `model` field always takes precedence
+ * Decision table (slotType is the primary routing signal):
+ *   slotType=codex   → `codex` CLI (task as positional arg)
+ *   slotType=claude_code → `claude` CLI with the resolved model
+ *
+ * Model resolution (for claude CLI):
+ *   model override from orchestrator → the `model` field takes precedence
+ *   complexity=complex               → claude-opus-4-6
+ *   otherwise                        → claude-sonnet-4-6
  */
 function buildCommand(
   slotType: SlotType,
@@ -427,14 +429,14 @@ function buildCommand(
   model: string,
   context: string
 ): { cmd: string; args: string[] } {
-  if (slotType === "codex" || complexity === "simple") {
-    // codex CLI: `codex "<task>"`
+  // slotType is the authoritative signal for which CLI to use.
+  // The orchestrator sets slotType to match the allocated slot, even when
+  // a simple job falls back from codex to claude_code.
+  if (slotType === "codex") {
     return { cmd: "codex", args: [context] };
   }
 
   // claude CLI: `claude --model <model> "<task>"`
-  // The orchestrator already selects the correct model; we honour it.
-  // Fallback based on local complexity if model is somehow unset.
   const resolvedModel =
     model && model !== "codex"
       ? model

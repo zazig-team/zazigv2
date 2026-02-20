@@ -133,10 +133,19 @@ function incrementSlotPayload(machine: MachineRow, slotType: SlotType): Record<s
  * model override — that value is used as-is while the slot type is still
  * derived from complexity.
  */
+const ALLOWED_MODELS = new Set(["claude-sonnet-4-6", "claude-opus-4-6", "codex"]);
+
 function resolveModelAndSlot(
   complexity: string | null,
   existingModel: string | null,
+  jobId?: string,
 ): { model: string; slotType: SlotType } {
+  // Validate model override against allowlist.
+  if (existingModel && !ALLOWED_MODELS.has(existingModel)) {
+    console.warn(`[orchestrator] Rejected unknown model override on job ${jobId ?? "?"}: ${existingModel}`);
+    existingModel = null; // fall through to complexity-derived logic
+  }
+
   // Orchestrator-specified model always takes precedence.
   if (existingModel) {
     const slotType: SlotType = complexity === "simple" ? "codex" : "claude_code";
@@ -250,7 +259,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
 
   for (const job of queuedJobs as JobRow[]) {
     // Derive model + slot type from complexity (with optional model override).
-    let { model, slotType } = resolveModelAndSlot(job.complexity, job.model);
+    let { model, slotType } = resolveModelAndSlot(job.complexity, job.model, job.id);
 
     // Fetch available machines for this company (with capacity for the slot type).
     let machines = machineCache.get(job.company_id);

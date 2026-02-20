@@ -6,6 +6,8 @@
 
 **Architecture:** Orchestrator-driven pipeline where the Supabase Edge Function manages all state transitions, verification, deployment, and agent lifecycle. Local agents execute jobs in isolated worktrees. Slack is the human interface (CPO for strategy, fix agents for testing, orchestrator for notifications).
 
+**Runtime Model:** All exec agents (CPO, CTO, CMO) are **Claude Code sessions**, not Agent SDK bots. They run locally on a host machine and are accessible to the team via Slack (using Slack MCP). This preserves the full Claude Code toolchain — skills (brainstorming, review-plan, cardify, repo-recon), hooks, MCP servers — which the exec design relies on heavily. The Zazig Python package provides the Slack bot / Socket Mode transport layer only; it is not the exec agent runtime. Ephemeral implementation agents (engineers, researchers) are also Claude Code sessions spawned in tmux by the local agent daemon.
+
 **Tech Stack:** TypeScript, Supabase (Postgres + Edge Functions + Realtime), Node.js (local agent), Deno (orchestrator), Slack API (notifications + fix agent)
 
 **Design doc:** `docs/plans/2026-02-20-software-development-pipeline-design.md`

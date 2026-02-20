@@ -1,8 +1,9 @@
 # Product Intelligence Pipeline — Design Document
 
 **Date:** 2026-02-20
-**Status:** proposed
+**Status:** revised (post-review, second opinions applied)
 **Authors:** Tom (owner), CPO (agent)
+**Review:** `docs/plans/2026-02-20-product-intelligence-pipeline-review.md`
 
 ---
 
@@ -16,10 +17,10 @@ The owner currently does this manually: commissioning deep-research, running sec
 
 Add a **product intelligence pipeline** to zazigv2 — two new ephemeral agent roles that automate market monitoring and research, feeding the CPO's planning work.
 
-1. **Market Researcher** — Scheduled ephemeral agent. Runs daily, scans external sources aligned to active roadmaps, surfaces notable signals.
-2. **Product Manager** — On-demand ephemeral agent. Commissioned by CPO when a signal warrants deep investigation. Runs a multi-stage research pipeline, collaborates with CPO, and produces actionable cards.
+1. **Market Researcher** — Scheduled ephemeral agent. Runs daily, scans external sources aligned to active features, surfaces notable signals.
+2. **Product Manager** — On-demand ephemeral agent. Commissioned by CPO when a signal warrants deep investigation, or directly by CPO with a manual brief. Runs a multi-stage research pipeline, collaborates with CPO, and produces actionable cards.
 
-Both roles are function-agnostic infrastructure — while the CPO uses them for product intelligence, the same pipeline could serve a CMO (marketing landscape) or CTO (technology radar) with different roadmap inputs and review criteria.
+Both roles are function-agnostic infrastructure — while the CPO uses them for product intelligence, the same pipeline could serve a CMO (marketing landscape) or CTO (technology radar) with different inputs and review criteria.
 
 ---
 
@@ -34,7 +35,7 @@ Both roles are function-agnostic infrastructure — while the CPO uses them for 
 │  Existing:                    New:                             │
 │  ┌──────────────────┐        ┌──────────────────┐             │
 │  │ Card-driven jobs │        │ Cron scheduler   │             │
-│  │ (poll task board) │        │ (daily researcher)│             │
+│  │ (poll jobs table) │        │ (daily researcher)│             │
 │  └──────────────────┘        └──────────────────┘             │
 │           │                           │                        │
 │           ▼                           ▼                        │
@@ -54,17 +55,27 @@ Both roles are function-agnostic infrastructure — while the CPO uses them for 
     └─────────────┘          └─────────────┘
 ```
 
-- **Market Researcher** is a new job type: `cron` (schedule-driven), not `card-driven`
-- **Product Manager** is a standard `card-driven` job — CPO creates a `research` card, orchestrator dispatches
-- CPO remains the sole persistent agent
-- PM ↔ CPO collaboration uses inter-agent messaging (claude-send initially, Realtime channels later)
+- **Market Researcher** is a standard `job` created by the orchestrator's cron scheduler (`job_type = 'scan'`). The cron scheduler is a shared orchestrator capability — see open question #11 in the orchestration server design.
+- **Product Manager** is a standard `job` created by CPO (`job_type = 'research'`). Dispatched like any other job.
+- CPO remains the sole persistent agent (Claude Code session with Slack access via MCP).
+- PM ↔ CPO collaboration uses Agent Teams (primary) or inbox protocol (fallback). See Inter-Agent Communication section.
 
 ### Agent Roles
 
 | Role | Type | Trigger | Lifecycle | Purpose |
 |------|------|---------|-----------|---------|
-| Market Researcher | Ephemeral | Cron (daily) | ~15-30 min per run | Scan external sources, surface signals |
-| Product Manager | Ephemeral | Card-driven (CPO creates card) | ~30-60 min per pipeline | Deep research pipeline, collaborate with CPO, produce cards |
+| Market Researcher | Ephemeral job (`scan`) | Cron (daily, configurable) | ~15-30 min per run | Scan external sources, surface signals |
+| Product Manager | Ephemeral job (`research`) | CPO creates job (from signal or manual brief) | ~30-60 min per pipeline | Deep research pipeline, collaborate with CPO, produce cards |
+
+### Integration with Existing Data Model
+
+Both roles use the existing `jobs` table from `2026-02-19-zazigv2-data-model.md` as their primary lifecycle tracker. The `signals` table and `research_details` table are domain-specific extensions — they store content and findings, not lifecycle state.
+
+- Researcher daily scan = a `job` with `job_type = 'scan'`, `role = 'researcher'`
+- PM investigation = a `job` with `job_type = 'research'`, `role = 'product_manager'`
+- Job status (`queued` → `dispatched` → `executing` → `complete`) tracks lifecycle
+- `research_details` stores the PM's content artifacts (synthesis, deep-dive, consolidated report)
+- `signals` stores the researcher's discovered signals
 
 ---
 
@@ -72,22 +83,26 @@ Both roles are function-agnostic infrastructure — while the CPO uses them for 
 
 ### Schedule
 
-Orchestrator fires the researcher once daily (configurable, default 06:00 UTC — before CPO's first standup). New orchestrator job type: `cron`. Uses one ephemeral slot.
+Orchestrator cron scheduler creates a `scan` job daily (configurable, default 06:00 UTC — before CPO's first standup). Uses one ephemeral slot. The cron scheduler is a shared orchestrator capability that also covers nightly done-archiver and bug-scan jobs.
 
 ### Input
 
 The researcher reads two things before scanning:
 
-1. **Active roadmaps** — Fetches each project's `docs/ROADMAP.md` (synced to Supabase from repos). Extracts keywords, domains, competitor names, technology choices. This scopes the scan to what the company actually cares about.
+1. **Active features** — Queries the `features` table in Supabase for features with status in (`proposed`, `designing`, `in_progress`). Extracts keywords, domains, competitor names, technology choices from feature specs and project descriptions. This scopes the scan to what the company is actively building and planning — no reliance on markdown roadmap files.
 2. **Previous signals** — Queries the `signals` table for prior output. Prevents re-surfacing the same discussion thread or repo.
+
+CPO generates the researcher's prompt each run, embedding current priorities and strategic context that a static config can't capture. The scoring criteria ("what counts as high relevance this week") is part of the prompt, not the schema.
 
 ### Scan Flow
 
-1. **Build search queries** from roadmap phases — e.g., if a project's roadmap mentions "version control for writers", search for writing tools, version control UX, competitor launches
+1. **Build search queries** from active features — e.g., if a feature spec mentions "version control for writers", search for writing tools, version control UX, competitor launches
 2. **GitHub** (API) — Search repos by topic/keywords, filter by recent activity (stars, commits, forks in last 7 days). Flag repos that are new, growing fast, or directly competing
 3. **Web sources** (web search + Firecrawl) — Reddit, X, YouTube, Hacker News, relevant blogs. Search for domain keywords, product names, competitor names
-4. **Score each signal** — Relevance to a specific roadmap phase (high/medium/low), novelty (new vs already known), urgency (competitor launch vs general discussion)
-5. **Deduplicate** against previous signals — Same URL, same repo, same thread = skip
+4. **Score each signal** — Relevance scoring is embedded in the CPO-generated prompt. Considers: relevance to active features, novelty, urgency (competitor launch vs general discussion)
+5. **Deduplicate** against previous signals:
+   - **Phase 1**: URL-based dedup (same URL = skip)
+   - **Phase 2 (future)**: Semantic dedup via embedding comparison — catches the same topic discussed across Reddit, Hacker News, and blog posts with different URLs
 6. **Write signals** to Supabase `signals` table
 7. **Generate daily digest** — Top signals grouped by project, stored for CPO standup prep
 
@@ -99,9 +114,11 @@ Each source is a module. The researcher iterates over enabled source modules fro
 - `github-api` — GitHub search API (authenticated via existing GitHub token)
 - `web-search` — General web search via deep-research / Firecrawl
 
+**Built (no API key needed):**
+- `reddit-scan` — Reddit JSON API scanner. Search by keyword across subreddits or browse top/new/hot posts. Supports time filtering (day/week/month), comment fetching, and compact output for agent consumption. No auth required. Tool: `zazig/tools/reddit-scan`.
+
 **Optional (user adds API key to unlock):**
-- `twitter` — Structured Twitter/X feed monitoring. Better signal-to-noise than web search.
-- `reddit` — Reddit API for subreddit monitoring. Free tier available.
+- `twitter` — Structured Twitter/X feed monitoring. Better signal-to-noise than web search. Perplexity (via OpenRouter) provides good interim Twitter coverage as a research model.
 - `youtube` — YouTube Data API for video/channel tracking. Free quota.
 
 **User onboarding:** Settings page with toggles per source. "Add API key" field. Cost/benefit note per source ("Enables real-time Twitter monitoring — recommended for competitive markets"). Adding a key creates/updates `source_configs`, stores the key in Supabase Vault, next researcher run picks it up automatically.
@@ -118,15 +135,22 @@ Each source is a module. The researcher iterates over enabled source modules fro
 
 ### Trigger
 
-CPO reviews the daily digest, picks a signal worth investigating, and creates a `research` card on the relevant project board. The card references the signal ID and includes CPO's brief.
+Two entry points:
+
+1. **Signal-driven**: CPO reviews the daily digest, picks a signal worth investigating, and creates a `research` job referencing the signal ID with a brief.
+2. **Manual**: CPO commissions the PM directly with a brief — no signal required. "Go investigate the competitive landscape for real-time collaboration tools." The `signal_id` on the research details is nullable.
+
+Both create a standard `job` with `job_type = 'research'`, `role = 'product_manager'`. The orchestrator dispatches it like any other job.
 
 ### Pipeline Stages
 
-The PM runs these stages sequentially within one ephemeral session:
+The PM runs these stages sequentially within one ephemeral session (one slot, parallel tool calls within the session — not separate agent dispatches).
+
+**Checkpointing:** The PM writes intermediate artifacts to `research_details` after stages 2, 4, 6, and 8. If the session crashes or the machine goes offline, a restarted PM reads its `research_details` row and resumes from the last completed field. This prevents losing 30-60 minutes of work and duplicating expensive API calls.
 
 #### 1. Deep Research (parallel, 2-4 reports)
 
-PM dispatches parallel research across available models. Each produces an independent report on the same brief.
+PM dispatches parallel research across available models via tool calls. Each produces an independent report on the same brief.
 
 | Model | Availability | Notes |
 |-------|-------------|-------|
@@ -135,7 +159,7 @@ PM dispatches parallel research across available models. Each produces an indepe
 | Opus | Available if user has Opus access | Deepest reasoning |
 | Perplexity | Optional (via OpenRouter, requires API key) | Best for current web data |
 
-More subscriptions = more perspectives = better outcomes. System works with one model, improves with more. Same pluggable pattern as source integrations.
+Available models are read from the `research_model_configs` table. More subscriptions = more perspectives = better outcomes. System works with one model, improves with more. Same pluggable pattern as source integrations.
 
 #### 2. Synthesis
 
@@ -143,11 +167,7 @@ Claude (always the primary synthesiser) reconciles all reports into a single syn
 
 #### 3. Brainstorm with CPO
 
-PM invokes the brainstorming skill *with CPO as the collaborator*. Two agents in conversation:
-- PM presents the synthesis report
-- CPO stress-tests it against the roadmap, goals, and priorities
-- Together they build out concrete feature ideas grounded in the research
-- CPO knows what matters strategically — PM brings the external intelligence
+PM collaborates with CPO via Agent Teams. PM posts the synthesis report, CPO stress-tests it against active features, goals, and priorities. Together they build out concrete feature ideas grounded in the research. CPO knows what matters strategically — PM brings the external intelligence.
 
 Output: a product deep-dive document with feature concepts.
 
@@ -157,7 +177,7 @@ PM structures the brainstorm output into a cohesive document.
 
 #### 5. First Second-Opinion
 
-One pass via Codex or Gemini (whichever is available, preference configurable). Challenges the deep-dive assumptions, flags gaps.
+One pass via Codex or Gemini (whichever is available, preference configurable via `research_model_configs`). Challenges the deep-dive assumptions, flags gaps.
 
 #### 6. Repo-Recon
 
@@ -180,18 +200,16 @@ PM compiles everything into a single report:
 - Competitive comparison (our approach vs what's out there)
 - Repo-recon insights (if applicable)
 - Feature concepts from the deep dive
-- **Recommendation**: existing feature enhancement (which project, which roadmap phase) OR new project needed
+- **Recommendation**: existing feature enhancement (which project, which feature) OR new project needed
 - Suggested card descriptions
 
 #### 9. Review-Plan with CPO
 
-PM presents the consolidated report to CPO using the `review-plan` skill. Two sessions collaborating (tmux with claude-send initially, Agent Teams / Realtime messaging when available).
-
-CPO acts as **bar raiser**:
+PM presents the consolidated report to CPO via Agent Teams. CPO acts as **bar raiser**:
 - Double-checks assumptions
 - Challenges weak spots
 - Pushes: "How can we do this better?"
-- Validates alignment with roadmap and priorities
+- Validates alignment with active features and priorities
 
 PM amends the report based on CPO's feedback.
 
@@ -201,21 +219,27 @@ PM amends the report based on CPO's feedback.
 
 #### 11. Cardify
 
-`/cardify` — Generate backlog cards from the report. Cards land in Backlog with `cpo-generated` label. Orchestrator picks them up once they reach Up Next via the normal grooming/sprint planning flow.
+`/cardify` — Generate features and jobs from the report. In v2, this creates rows in the `features` table (status `proposed`) and optionally pre-creates `jobs` with initial briefs. CPO grooms and promotes features through the normal planning flow. Orchestrator picks up jobs once they reach `queued`.
 
-If the recommendation is `new_project`, CPO triggers `/init` first to bootstrap the project, then `/cardify` for the initial backlog.
+If the recommendation is `new_project`, CPO triggers `/init` first to bootstrap the project, then `/cardify` for the initial feature set.
 
 ### Inter-Agent Communication
 
 Steps 3 and 9 require PM ↔ CPO real-time collaboration.
 
-**Phase 1 (tmux):** Both agents in tmux sessions. PM sends context via `claude-send`. CPO responds. Back-and-forth conversation.
+**Primary: Agent Teams.** Both PM and CPO are Claude Code sessions. They join a team, exchange messages via `SendMessage`, and use the Discussion Pattern (multi-round deliberation) from the Agent Teams learnings doc. PM posts research context, CPO responds with product judgment, back and forth until aligned. Agent Teams is experimental (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) — see `docs/research/2026-02-20-claude-agent-teams-learnings.md`.
 
-**Phase 2 (Agent Teams / Realtime):** Orchestrator provides a Realtime channel between agents. Structured message passing — PM sends research context, CPO responds with product judgment. Richer than tmux text piping.
+**Fallback: Inbox protocol.** If Agent Teams isn't stable enough, use the flat JSON inbox pattern at `~/.local/share/zazig-{instance_id}/inboxes/`. Same schema as the learnings doc. Any agent can write to any other agent's inbox. Agents poll on each cycle.
+
+**Persistent record:** After collaboration completes, PM writes a summary to the `messages` table in Supabase (from the existing data model). This gives the orchestrator, dashboard, and future agents visibility into what was discussed.
 
 ---
 
 ## Data Model (Supabase)
+
+### Integration with existing schema
+
+The `jobs` table (from `2026-02-19-zazigv2-data-model.md`) is the lifecycle tracker for both researcher and PM work. The tables below are domain-specific extensions that store content, not lifecycle state.
 
 ### `signals`
 
@@ -224,131 +248,108 @@ Market Researcher output. One row per signal discovered.
 ```sql
 create table signals (
   id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id),
   created_at timestamptz default now(),
   source_type text not null,        -- github, reddit, twitter, youtube, hackernews, blog
-  source_url text,
+  source_url text,                   -- normalized: strip query params, anchors, trailing slashes
   title text not null,
   summary text not null,
   relevance_score text not null,    -- high, medium, low
-  roadmap_project text,             -- nullable: which project this relates to
-  roadmap_phase text,               -- nullable: which phase
+  project_id uuid references projects(id),  -- nullable: which project this relates to
+  feature_id uuid references features(id),  -- nullable: which feature this relates to
   signal_date timestamptz,          -- when the source was published/updated
   status text default 'new',        -- new, reviewed, investigating, actioned, dismissed
   metadata jsonb default '{}'       -- source-specific data (stars, upvotes, etc.)
 );
+
+-- Prevent duplicate signals from the same URL within a company
+-- Researcher normalizes URLs before writing (strip utm params, anchors, trailing slashes)
+create unique index signals_company_url on signals (company_id, source_url) where source_url is not null;
 ```
 
-### `research_reports`
+### `research_details`
 
-Product Manager output. One per commissioned investigation.
+PM pipeline content artifacts. Extension table linked to a `job` via `job_id`. Does NOT track lifecycle — the parent `job` handles status transitions.
 
 ```sql
-create table research_reports (
+create table research_details (
   id uuid primary key default gen_random_uuid(),
-  created_at timestamptz default now(),
-  signal_id uuid references signals(id),
-  brief text not null,                    -- CPO's research brief
-  status text default 'in_progress',      -- in_progress, review, shipped, cardified, rejected
+  company_id uuid not null references companies(id),
+  job_id uuid not null references jobs(id),      -- the PM's research job
+  signal_id uuid references signals(id),          -- NULLABLE: null for manual CPO-commissioned research
+  brief text not null,                             -- CPO's research brief
   synthesis_report text,
   deep_dive_doc text,
   consolidated_report text,
-  recommendation_type text,               -- existing_feature, new_project, no_action
-  recommendation_detail jsonb,            -- {project, phase} or {proposed_name, rationale}
-  report_path text,                       -- repo path after /ship
-  cards_created jsonb default '[]',       -- array of card IDs after /cardify
-  cpo_feedback text                       -- bar-raiser feedback from step 9
+  recommendation_type text,                        -- existing_feature, new_project, no_action
+  recommendation_detail jsonb,                     -- {project, feature} or {proposed_name, rationale}
+  report_path text,                                -- repo path after /ship
+  cards_created jsonb default '[]',                -- array of card/feature IDs after /cardify
+  cpo_feedback text                                -- bar-raiser feedback from step 9
 );
 ```
 
 ### `source_configs`
 
-Pluggable source integrations per team.
+Pluggable source integrations, company-scoped.
 
 ```sql
 create table source_configs (
   id uuid primary key default gen_random_uuid(),
-  source_type text unique not null,   -- github-api, web-search, twitter, reddit, youtube
+  company_id uuid not null references companies(id),
+  source_type text not null,        -- github-api, web-search, twitter, reddit, youtube
   enabled boolean default false,
-  api_key_ref text,                   -- Supabase Vault reference (never the key itself)
-  config jsonb default '{}',          -- source-specific: subreddits, accounts, etc.
-  created_at timestamptz default now()
+  api_key_ref text,                 -- Supabase Vault reference (never the key itself)
+  config jsonb default '{}',        -- source-specific: subreddits, accounts, etc.
+  created_at timestamptz default now(),
+  unique (company_id, source_type)
 );
 
--- Default sources (always available)
-insert into source_configs (source_type, enabled) values
-  ('github-api', true),
-  ('web-search', true);
+-- Default sources (created per company on onboarding)
+-- github-api: enabled by default
+-- web-search: enabled by default
 ```
 
-### `model_configs`
+### `research_model_configs`
 
-Available models for deep research, configurable per team.
+Available models for deep research (PM pipeline stage 1), company-scoped. Distinct from the orchestrator's execution model routing (complexity → model tier for code/infra jobs).
 
 ```sql
-create table model_configs (
+create table research_model_configs (
   id uuid primary key default gen_random_uuid(),
-  model_name text unique not null,    -- claude, gemini, opus, perplexity
+  company_id uuid not null references companies(id),
+  model_name text not null,         -- claude, gemini, opus, perplexity
   enabled boolean default true,
-  api_key_ref text,                   -- Supabase Vault (for models needing separate keys)
-  provider text not null,             -- anthropic, google, openrouter
-  config jsonb default '{}'
+  api_key_ref text,                 -- Supabase Vault (for models needing separate keys)
+  provider text not null,           -- anthropic, google, openrouter
+  config jsonb default '{}',
+  unique (company_id, model_name)
 );
 
--- Defaults
-insert into model_configs (model_name, enabled, provider) values
-  ('claude', true, 'anthropic'),
-  ('gemini', true, 'google');
+-- Defaults (created per company on onboarding)
+-- claude: enabled, provider anthropic
+-- gemini: enabled, provider google
 ```
 
 ---
 
-## Orchestrator Extensions Required
+## Orchestrator Dependencies
 
-### Gap 1: Cron Job Scheduler (Medium)
+This pipeline depends on orchestrator capabilities that are either planned or need speccing. Rather than redefining them here, we reference the orchestrator design.
 
-**Current:** Orchestrator only knows card-driven jobs (poll task board → dispatch).
+### Cron Scheduler (open question #11 in orchestration server design)
 
-**Needed:** A `cron_jobs` table and scheduler loop alongside the existing polling loop.
+The market researcher needs a cron trigger. This is a shared orchestrator capability — the same scheduler covers nightly done-archiver, bug-scan, and any future scheduled jobs. The orchestrator creates a standard `job` on schedule; the local agent executes it like any other job.
 
-```sql
-create table cron_jobs (
-  id uuid primary key default gen_random_uuid(),
-  job_type text not null,           -- market_researcher (extensible)
-  schedule text not null,           -- cron expression: "0 6 * * *"
-  enabled boolean default true,
-  last_run timestamptz,
-  next_run timestamptz,
-  config jsonb default '{}'         -- job-specific config
-);
-```
+**Key behaviour for this pipeline:** If no machine is online at trigger time, the scan job sits in `queued` until one connects. No scan is lost, just delayed.
 
-Orchestrator runs a second loop: check `cron_jobs` where `next_run <= now()` and `enabled = true`, dispatch the job, update `last_run` and `next_run`.
+### Heartbeat Depth (open question #12 in orchestration server design)
 
-### Gap 2: Inter-Agent Messaging (High — Phase 2)
+The PM pipeline runs for 30-60 minutes across multiple stages. If the PM's session gets stuck mid-pipeline, the orchestrator needs to detect it and restart. This requires per-job health metrics in local agent heartbeats (last activity timestamp, stuck detection), not just machine-level "alive." Leaning toward split model: cloud schedules and monitors, local agent reports rich health data.
 
-**Current:** Agents report results to orchestrator. No agent-to-agent communication.
+### Inter-Agent Messaging
 
-**Needed:** PM ↔ CPO real-time collaboration during pipeline steps 3 and 9.
-
-**Phase 1 stub:** PM and CPO use tmux `claude-send` for back-and-forth. Orchestrator doesn't need to know — the PM agent handles this internally as part of its execution.
-
-**Phase 2:** Orchestrator provides a Supabase Realtime channel per collaboration session. Agents subscribe and exchange structured messages. This generalizes to any agent-to-agent collaboration pattern.
-
-### Gap 3: Source Config Management (Medium)
-
-**Current:** Not in orchestrator design.
-
-**Needed:** `source_configs` table + Supabase Vault for API keys + settings UI (or CLI).
-
-Straightforward CRUD. The researcher reads `source_configs` at the start of each run to determine which source modules to activate.
-
-### Gap 4: Digest Delivery to CPO (Low)
-
-**Current:** CPO reads state files on startup. No push notifications from completed jobs.
-
-**Needed:** CPO includes the daily digest in its standup prep.
-
-**Implementation:** CPO queries `signals` table for signals with `status = 'new'` and `created_at` within the last 24 hours. Same pull pattern as reading state files today — no new infrastructure needed.
+The `messages` table in the existing data model handles persistent records. Real-time PM ↔ CPO collaboration uses Agent Teams (or inbox protocol fallback). No new orchestrator infrastructure needed — Agent Teams is a Claude Code feature, and the inbox protocol is flat JSON files.
 
 ---
 
@@ -372,6 +373,8 @@ Market Researcher ──▶ [new] ──▶ CPO reviews ──▶ [reviewed] ─
                                      (cards created)   (signal noted,
                                                         no cards)
 ```
+
+CPO can also create a `research` job directly (manual trigger) — this bypasses the signal lifecycle entirely.
 
 ---
 
@@ -403,18 +406,57 @@ This creates a natural upgrade path: "Your researcher found 3 signals this week.
 
 ## Open Questions
 
-1. **Researcher frequency** — Daily is the default. Some teams may want more frequent scans for fast-moving markets. Configurable via `cron_jobs.schedule`, but is there a minimum interval to avoid burning tokens?
-2. **Signal retention** — How long do signals stay in the table? Archive after 30 days? Keep forever for trend analysis?
+1. **Researcher frequency** — Daily is the default. Some teams may want more frequent scans for fast-moving markets. Configurable via cron schedule, but is there a minimum interval to avoid burning tokens?
+2. **Signal retention** — How long do signals stay in the table? Archive dismissed signals after 30 days? Keep actioned signals forever for trend analysis?
 3. **PM concurrency** — Can CPO commission multiple PM investigations in parallel, or one at a time? Parallel is more powerful but uses more slots.
-4. **Digest format** — Plain text summary in CPO standup, or a richer format (e.g., a rendered dashboard view)?
+4. **PM cost controls** — The deep pipeline is expensive (2-4 deep-research calls, multiple second opinions, repo-recon). Should there be a per-company budget cap on PM investigations per month? Or trust CPO's judgment?
+5. **Researcher prompt evolution** — CPO generates the prompt each run. How does it improve over time? Feedback loop from dismissed signals? Manual tuning?
+
+---
+
+## Implementation Status
+
+### Build Strategy
+
+Build as Claude Code skills first, migrate to orchestrator-dispatched jobs later. The pipeline logic is the same — only the trigger and state storage change.
+
+### Tooling — Built
+
+| Tool | Location | Status | Notes |
+|------|----------|--------|-------|
+| `deep-research` | `~/.local/bin/deep-research` | Done | Multi-provider: `--provider gemini` or `--provider openai`. Gemini Deep Research + OpenAI o4-mini deep research. Polls until complete, returns cited report. |
+| `reddit-scan` | `zazig/tools/reddit-scan` → `~/.local/bin/` | Done | Reddit JSON API. Search by keyword, browse subreddits, filter by time period. `--comments` for sentiment, `--compact` for agent consumption. No auth needed. |
+| `gemini-delegate` | `~/.local/bin/gemini-delegate` | Done | Gemini analysis/Q&A with optional file context. |
+| `codex-delegate` | `zazig/tools/codex-delegate` → `~/.local/bin/` | Done | OpenAI Codex delegation (implement or investigate mode). |
+| `second-opinion` | Claude Code skill | Done | Sends recommendation to Codex or Gemini for independent review. |
+| `repo-recon` | Claude Code skill | Done | GitHub repo architecture analysis. |
+| `/cardify` | Claude Code skill | Done | Design doc → features/jobs (currently targets Trello, needs v2 adapter). |
+| `/ship` | Claude Code skill | Done | Commit, push, PR, merge. |
+| `/review-plan` | Claude Code skill | Done | Interactive plan review with one-way door analysis. |
+
+### Tooling — Not Yet Built
+
+| Tool | Purpose | Blocker |
+|------|---------|---------|
+| Perplexity integration | Add as `--provider perplexity` to `deep-research` or via OpenRouter | Need OpenRouter API key or direct Perplexity API |
+| `/investigate` skill | Full PM pipeline (11 stages) as a Claude Code skill | Next to build — wires together all existing tools |
+| Market Researcher (launchd) | Daily scan agent triggered by launchd | After `/investigate` — simpler, uses `reddit-scan` + GitHub API + web search |
+
+### Review History
+
+- **Review**: `docs/plans/2026-02-20-product-intelligence-pipeline-review.md` (CPO agent)
+- **Second opinions**: Codex (gpt-5.3-codex) + Gemini (gemini-3.1-pro-preview) — both run 2026-02-20
+- **Fixes applied from second opinions**: feature status enum alignment, PM checkpointing, `/cardify` v2 language, URL dedup constraint, `scan` job type added to data model CHECK, `researcher` + `product_manager` roles bootstrapped
 
 ---
 
 ## Next Steps
 
-1. Owner reviews and approves this design
-2. Update the orchestration server design doc to include cron job support and source/model config tables
-3. Build Phase 1: Market Researcher agent (daily scan, signals table, digest)
-4. Build Phase 2: Product Manager agent (deep pipeline, PM ↔ CPO collaboration via claude-send)
-5. Build Phase 3: Inter-agent Realtime messaging (replace claude-send)
-6. Build Phase 4: Settings UI for source and model management
+1. ~~Build `deep-research` multi-provider support~~ — Done
+2. ~~Build `reddit-scan` tool~~ — Done
+3. Build `/investigate` skill — the full PM pipeline as a Claude Code skill, using existing tools
+4. Build Market Researcher as launchd job — daily scan using `reddit-scan` + GitHub API + `deep-research`
+5. ~~Resolve CPO runtime question with Chris~~ — Resolved 2026-02-20: CPO is Claude Code with Slack MCP (not Agent SDK). Runs locally, accessible via Slack. Full skills toolchain preserved.
+6. Spec cron scheduler in orchestrator design (shared capability, open question #11)
+7. Migrate skills to orchestrator-dispatched jobs when zazigv2 infra is ready
+8. Build Settings UI for source and model management

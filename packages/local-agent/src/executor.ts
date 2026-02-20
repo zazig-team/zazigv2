@@ -10,9 +10,9 @@
  *
  * Tmux session naming: `{machineId}-{jobId}`
  * Model selection (slotType is the primary routing signal):
- *   slotType=codex                     → `codex` CLI
- *   slotType=claude_code               → `claude` CLI (model from orchestrator)
- *   role != null (persistent agents)   → `claude` CLI (claude-opus-4-6)
+ *   slotType=codex                     → `codex --full-auto` (exits after completion)
+ *   slotType=claude_code               → `claude -p` (print mode, model from orchestrator)
+ *   role != null (persistent agents)   → `claude -p` (claude-opus-4-6, print mode)
  */
 
 import { execFile } from "node:child_process";
@@ -415,13 +415,17 @@ export class JobExecutor {
  * Determine the CLI binary and arguments based on slot type, complexity, and model.
  *
  * Decision table (slotType is the primary routing signal):
- *   slotType=codex   → `codex` CLI (task as positional arg)
- *   slotType=claude_code → `claude` CLI with the resolved model
+ *   slotType=codex       → `codex --full-auto` (auto-exits after completion)
+ *   slotType=claude_code → `claude -p` with the resolved model (print mode, exits after completion)
  *
  * Model resolution (for claude CLI):
  *   model override from orchestrator → the `model` field takes precedence
  *   complexity=complex               → claude-opus-4-6
  *   otherwise                        → claude-sonnet-4-6
+ *
+ * Non-interactive execution:
+ *   - `claude -p "<task>"` — print mode: processes the task and exits (no REPL)
+ *   - `codex --full-auto "<task>"` — full-auto mode: completes and exits
  */
 function buildCommand(
   slotType: SlotType,
@@ -433,10 +437,14 @@ function buildCommand(
   // The orchestrator sets slotType to match the allocated slot, even when
   // a simple job falls back from codex to claude_code.
   if (slotType === "codex") {
-    return { cmd: "codex", args: [context] };
+    // codex CLI: `codex --full-auto "<task>"` — exits after completion
+    return { cmd: "codex", args: ["--full-auto", context] };
   }
 
-  // claude CLI: `claude --model <model> "<task>"`
+  // claude CLI: `claude -p "<task>" --model <model>`
+  // -p (print mode) processes the task and exits — no interactive REPL.
+  // The orchestrator already selects the correct model; we honour it.
+  // Fallback based on local complexity if model is somehow unset.
   const resolvedModel =
     model && model !== "codex"
       ? model
@@ -446,7 +454,7 @@ function buildCommand(
 
   return {
     cmd: "claude",
-    args: ["--model", resolvedModel, context],
+    args: ["-p", context, "--model", resolvedModel],
   };
 }
 

@@ -23,6 +23,8 @@ export type {
   StartJob,
   StopJob,
   HealthCheck,
+  VerifyJob,
+  DeployToTest,
   OrchestratorMessage,
   Heartbeat,
   JobStatusMessage,
@@ -30,6 +32,9 @@ export type {
   JobFailed,
   JobAck,
   StopAck,
+  FeatureApproved,
+  FeatureRejected,
+  VerifyResult,
   AgentMessage,
 } from "../../../packages/shared/src/messages.ts";
 
@@ -107,12 +112,17 @@ import type {
   StartJob as _StartJob,
   StopJob as _StopJob,
   HealthCheck as _HealthCheck,
+  VerifyJob as _VerifyJob,
+  DeployToTest as _DeployToTest,
   Heartbeat as _Heartbeat,
   JobStatusMessage as _JobStatusMessage,
   JobComplete as _JobComplete,
   JobFailed as _JobFailed,
   JobAck as _JobAck,
   StopAck as _StopAck,
+  FeatureApproved as _FeatureApproved,
+  FeatureRejected as _FeatureRejected,
+  VerifyResult as _VerifyResult,
 } from "../../../packages/shared/src/messages.ts";
 
 // ---------------------------------------------------------------------------
@@ -178,13 +188,35 @@ export function isHealthCheck(v: unknown): v is _HealthCheck {
   return true;
 }
 
+export function isVerifyJob(v: unknown): v is _VerifyJob {
+  if (!_isObject(v) || v.type !== "verify_job") return false;
+  if (!_hasValidVersion(v)) return false;
+  if (!_isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!_isString(v.featureBranch) || v.featureBranch.length === 0) return false;
+  if (!_isString(v.jobBranch) || v.jobBranch.length === 0) return false;
+  if (!_isString(v.acceptanceTests)) return false;
+  if (v.repoPath !== undefined && (!_isString(v.repoPath) || v.repoPath.length === 0)) return false;
+  return true;
+}
+
+export function isDeployToTest(v: unknown): v is _DeployToTest {
+  if (!_isObject(v) || v.type !== "deploy_to_test") return false;
+  if (!_hasValidVersion(v)) return false;
+  if (!_isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!_isString(v.featureBranch) || v.featureBranch.length === 0) return false;
+  if (!_isString(v.projectId) || v.projectId.length === 0) return false;
+  return true;
+}
+
 export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
   if (!_isObject(v) || !_isString(v.type)) return false;
   switch (v.type) {
-    case "start_job":    return isStartJob(v);
-    case "stop_job":     return isStopJob(v);
-    case "health_check": return isHealthCheck(v);
-    default:             return false;
+    case "start_job":       return isStartJob(v);
+    case "stop_job":        return isStopJob(v);
+    case "health_check":    return isHealthCheck(v);
+    case "verify_job":      return isVerifyJob(v);
+    case "deploy_to_test":  return isDeployToTest(v);
+    default:                return false;
   }
 }
 
@@ -252,15 +284,47 @@ export function isStopAck(v: unknown): v is _StopAck {
   return true;
 }
 
+export function isFeatureApproved(v: unknown): v is _FeatureApproved {
+  if (!_isObject(v) || v.type !== "feature_approved") return false;
+  if (!_hasValidVersion(v)) return false;
+  if (!_isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!_isString(v.machineId) || v.machineId.length === 0) return false;
+  return true;
+}
+
+export function isFeatureRejected(v: unknown): v is _FeatureRejected {
+  if (!_isObject(v) || v.type !== "feature_rejected") return false;
+  if (!_hasValidVersion(v)) return false;
+  if (!_isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!_isString(v.feedback)) return false;
+  if (!_isString(v.severity) || !["small", "big"].includes(v.severity)) return false;
+  if (!_isString(v.machineId) || v.machineId.length === 0) return false;
+  return true;
+}
+
+export function isVerifyResult(v: unknown): v is _VerifyResult {
+  if (!_isObject(v) || v.type !== "verify_result") return false;
+  if (!_hasValidVersion(v)) return false;
+  if (!_isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!_isString(v.machineId) || v.machineId.length === 0) return false;
+  if (typeof v.passed !== "boolean") return false;
+  if (!_isString(v.testOutput)) return false;
+  if (v.reviewSummary !== undefined && !_isString(v.reviewSummary)) return false;
+  return true;
+}
+
 export function isAgentMessage(v: unknown): v is AgentMessage {
   if (!_isObject(v) || !_isString(v.type)) return false;
   switch (v.type) {
-    case "heartbeat":    return isHeartbeat(v);
-    case "job_status":   return isJobStatusMessage(v);
-    case "job_complete": return isJobComplete(v);
-    case "job_failed":   return isJobFailed(v);
-    case "job_ack":      return isJobAck(v);
-    case "stop_ack":     return isStopAck(v);
-    default:             return false;
+    case "heartbeat":         return isHeartbeat(v);
+    case "job_status":        return isJobStatusMessage(v);
+    case "job_complete":      return isJobComplete(v);
+    case "job_failed":        return isJobFailed(v);
+    case "job_ack":           return isJobAck(v);
+    case "stop_ack":          return isStopAck(v);
+    case "feature_approved":  return isFeatureApproved(v);
+    case "feature_rejected":  return isFeatureRejected(v);
+    case "verify_result":     return isVerifyResult(v);
+    default:                  return false;
   }
 }

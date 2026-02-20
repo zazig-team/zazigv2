@@ -1,43 +1,47 @@
-# CPO Report: Hooks & Non-Interactive Execution
+# Pipeline Task 2 — Schema Migration Report
 
-## Summary
+**Task:** Add pipeline columns and status values to features and jobs tables
+**Branch:** zazig/pipeline-task2-schema
+**Migration:** `supabase/migrations/004_pipeline_schema_v2.sql`
+**Date:** 2026-02-20
 
-Implemented hooks and non-interactive execution for unattended local-agent jobs. Three problems solved:
+## Migration Number
 
-1. **Print mode for Claude CLI** — `buildCommand()` now uses `claude -p "<task>"` which processes the task and exits (no interactive REPL blocking tmux sessions)
-2. **Full-auto for Codex CLI** — `buildCommand()` now uses `codex --full-auto "<task>"` which completes and exits
-3. **Permission hooks** — Ported and enhanced bash-gate.sh and file-tool-gate.sh from zazig v1 to prevent permission prompts from blocking unattended agents
+Used **004** (next available after 003_multi_tenant_schema.sql). Task suggested 007 but instructed to check — 004 was the first available.
 
-## Files Changed
+## Changes
 
-- `packages/local-agent/src/executor.ts` — Updated `buildCommand()` to use `-p` (print mode) for claude and `--full-auto` for codex
-- `packages/local-agent/hooks/bash-gate.sh` — NEW: Auto-approves safe bash commands, blocks force push, git reset --hard, rm -rf outside safe targets, ~/.zazig/ access, production credentials
-- `packages/local-agent/hooks/file-tool-gate.sh` — NEW: Auto-approves Read/Write/Edit/Grep/Glob except .env files and ~/.zazig/ directory
-- `packages/local-agent/scripts/setup-hooks.sh` — NEW: Idempotent bootstrap script that installs hooks into ~/.claude/settings.json and sets up trust entries
-- `.claude/cpo-report.md` — This report
+### Features table — new columns
+- `spec text` — feature specification text
+- `acceptance_tests text` — acceptance test descriptions
+- `human_checklist text` — manual testing checklist
+- `feature_branch text` — git branch for feature
 
-## Setup Instructions
+### Features table — expanded status
+Added: `design`, `building`, `verifying`, `testing`, `done`, `cancelled`
+(Preserved existing: `proposed`, `designing`, `in_progress`, `complete`)
 
-Machine owners must run the setup script once before their machine can execute unattended agent jobs:
+### Jobs table — new columns
+- `acceptance_tests text` — acceptance tests for this job
+- `sequence integer` — ordering of jobs within a feature
+- `job_branch text` — git branch for this specific job
+- `verify_context text` — context provided to verification agent
+- `rejection_feedback text` — feedback when job is rejected
 
-```bash
-cd packages/local-agent
-./scripts/setup-hooks.sh
-```
+### Jobs table — expanded status
+Added: `verifying`, `verify_failed`, `testing`, `approved`, `rejected`, `done`, `cancelled`
+(Preserved existing: `queued`, `dispatched`, `executing`, `waiting_on_human`, `reviewing`, `complete`, `failed`)
 
-This will:
-1. Copy hook scripts to `~/.claude/hooks/zazigv2/`
-2. Merge PreToolUse hook entries into `~/.claude/settings.json` (existing settings preserved)
-3. Add deny rules for destructive commands
-4. Set up trust entries for `~/Documents/GitHub/` and `~/Documents/GitHub/.worktrees/`
+### Events table — expanded event types
+Added: `job_verifying`, `job_verify_failed`, `job_testing`, `job_approved`, `job_rejected`, `job_done`, `job_cancelled`, `feature_building`, `feature_verifying`, `feature_testing`, `feature_done`, `feature_cancelled`
 
-Requires `jq` (`brew install jq`). Restart Claude Code after running.
+### Stored procedures
+- `release_slot(p_job_id uuid)` — atomic slot release (updates machine slots + marks job done)
+- `all_feature_jobs_complete(p_feature_id uuid)` — returns true if all non-cancelled jobs are done/approved
 
-## Pre-Merge Check
-
-All checks passed (lint, typecheck). No test script configured.
+## Pre-merge check
+All checks passed (lint, tsc).
 
 ## Token Usage
-
-- Token budget: claude-ok (direct implementation)
-- No codex-delegate used — task was straightforward and well-scoped
+- **codex-delegate implement**: 1 invocation (gpt-5.3-codex, xhigh reasoning)
+- **Claude**: Discovery reads, verification, report writing

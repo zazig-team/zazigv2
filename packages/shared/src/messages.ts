@@ -144,8 +144,66 @@ export interface HealthCheck {
   correlationId?: string;
 }
 
+export const FEATURE_STATUSES = ["design", "building", "verifying", "testing", "done", "cancelled"] as const;
+export type FeatureStatus = typeof FEATURE_STATUSES[number];
+
+export const JOB_STATUSES = [
+  "design",
+  "queued",
+  "dispatched",
+  "executing",
+  "verifying",
+  "verify_failed",
+  "testing",
+  "approved",
+  "rejected",
+  "waiting_on_human",
+  "reviewing",
+  "complete",
+  "done",
+  "failed",
+  "cancelled",
+] as const;
+export type PipelineJobStatus = typeof JOB_STATUSES[number];
+
+/**
+ * Tells the local agent to verify a completed job output.
+ * Used for post-implementation validation against acceptance criteria.
+ */
+export interface VerifyJob {
+  type: "verify_job";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** Unique job identifier (assigned by the orchestrator). */
+  jobId: string;
+  /** Feature branch under review. */
+  featureBranch: string;
+  /** Job-specific working branch to verify. */
+  jobBranch: string;
+  /** Acceptance tests the verifier should run/evaluate. */
+  acceptanceTests: string;
+  /** Optional repository path on disk to use for verification. */
+  repoPath?: string;
+}
+
+/**
+ * Tells the local agent to deploy a feature branch to a test environment.
+ * Used after verification to make the feature available for review/testing.
+ */
+export interface DeployToTest {
+  type: "deploy_to_test";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** Feature identifier being deployed. */
+  featureId: string;
+  /** Branch to deploy to test environment. */
+  featureBranch: string;
+  /** Target project/environment identifier. */
+  projectId: string;
+}
+
 /** Union of all messages the orchestrator sends to a local agent. */
-export type OrchestratorMessage = StartJob | StopJob | HealthCheck;
+export type OrchestratorMessage = StartJob | StopJob | HealthCheck | VerifyJob | DeployToTest;
 
 // ---------------------------------------------------------------------------
 // Local Agent → Orchestrator messages
@@ -265,5 +323,60 @@ export interface StopAck {
   machineId: string;
 }
 
+/**
+ * Sent by the local agent when a feature is approved after review/testing.
+ * The orchestrator can advance the feature workflow to completion.
+ */
+export interface FeatureApproved {
+  type: "feature_approved";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** Feature identifier that was approved. */
+  featureId: string;
+}
+
+/**
+ * Sent by the local agent when a feature is rejected after review/testing.
+ * The orchestrator should route feedback back into the implementation cycle.
+ */
+export interface FeatureRejected {
+  type: "feature_rejected";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** Feature identifier that was rejected. */
+  featureId: string;
+  /** Human-readable rejection feedback. */
+  feedback: string;
+  /** Rejection severity used for orchestration policy decisions. */
+  severity: "small" | "big";
+}
+
+/**
+ * Sent by the local agent after running a VerifyJob request.
+ * Includes pass/fail outcome and test output for orchestrator decisions.
+ */
+export interface VerifyResult {
+  type: "verify_result";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** Job identifier that was verified. */
+  jobId: string;
+  /** True when verification passed all required checks. */
+  passed: boolean;
+  /** Raw verification/test output. */
+  testOutput: string;
+  /** Optional high-level review summary for humans/orchestrator logs. */
+  reviewSummary?: string;
+}
+
 /** Union of all messages a local agent sends to the orchestrator. */
-export type AgentMessage = Heartbeat | JobStatusMessage | JobComplete | JobFailed | JobAck | StopAck;
+export type AgentMessage =
+  | Heartbeat
+  | JobStatusMessage
+  | JobComplete
+  | JobFailed
+  | JobAck
+  | StopAck
+  | FeatureApproved
+  | FeatureRejected
+  | VerifyResult;

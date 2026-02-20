@@ -11,10 +11,14 @@ export type {
   JobStatusValue,
   AgentJobStatus,
   FailureReason,
+  FeatureStatus,
+  PipelineJobStatus,
   // Orchestrator → Local Agent messages
   StartJob,
   StopJob,
   HealthCheck,
+  VerifyJob,
+  DeployToTest,
   OrchestratorMessage,
   // Local Agent → Orchestrator messages
   Heartbeat,
@@ -23,8 +27,12 @@ export type {
   JobFailed,
   JobAck,
   StopAck,
+  FeatureApproved,
+  FeatureRejected,
+  VerifyResult,
   AgentMessage,
 } from "./messages.js";
+export { FEATURE_STATUSES, JOB_STATUSES } from "./messages.js";
 
 // ---- Card annotation (parsed from Trello card description) ----
 
@@ -109,10 +117,15 @@ export {
   isStartJob,
   isStopJob,
   isHealthCheck,
+  isVerifyJob,
+  isDeployToTest,
   isHeartbeat,
   isJobStatusMessage,
   isJobComplete,
   isJobFailed,
   isJobAck,
   isStopAck,
+  isFeatureApproved,
+  isFeatureRejected,
+  isVerifyResult,
 } from "./validators.js";

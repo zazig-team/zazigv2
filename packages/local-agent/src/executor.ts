@@ -482,10 +482,10 @@ async function spawnTmuxSession(
   cmd: string,
   args: string[]
 ): Promise<void> {
-  // Combine into a single shell string for tmux new-session
-  // Use single-quote escaping for the context string (args[0] for codex,
-  // or args[2] for claude). tmux new-session accepts a shell command string.
-  const shellCmd = shellEscape([cmd, ...args]);
+  // Combine into a single shell string for tmux new-session.
+  // Unset CLAUDECODE so nested `claude -p` sessions don't get blocked by
+  // "cannot be launched inside another Claude Code session" detection.
+  const shellCmd = `unset CLAUDECODE; ${shellEscape([cmd, ...args])}`;
 
   await execFileAsync("tmux", [
     "new-session",

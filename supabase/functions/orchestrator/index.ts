@@ -59,6 +59,7 @@ interface JobRow {
   job_type: string;
   complexity: string | null;
   slot_type: SlotType | null;
+  model: string | null;
   machine_id: string | null;
   status: string;
   context: string | null;
@@ -121,11 +122,44 @@ function incrementSlotPayload(machine: MachineRow, slotType: SlotType): Record<s
 }
 
 /**
- * Selects the model string for a StartJob message based on complexity.
- * simple/medium → sonnet, complex → opus.
+ * Resolves the model identifier and slot type from job complexity.
+ *
+ * Mapping:
+ *   simple  → codex / codex slot  (caller falls back to sonnet / claude_code if no codex slots)
+ *   medium  → claude-sonnet-4-6 / claude_code slot
+ *   complex → claude-opus-4-6 / claude_code slot
+ *
+ * If `existingModel` is non-null the job already has an orchestrator-specified
+ * model override — that value is used as-is while the slot type is still
+ * derived from complexity.
  */
-function modelForComplexity(complexity: string | null): string {
-  return complexity === "complex" ? "claude-opus-4-6" : "claude-sonnet-4-6";
+const ALLOWED_MODELS = new Set(["claude-sonnet-4-6", "claude-opus-4-6", "codex"]);
+
+function resolveModelAndSlot(
+  complexity: string | null,
+  existingModel: string | null,
+  jobId?: string,
+): { model: string; slotType: SlotType } {
+  // Validate model override against allowlist.
+  if (existingModel && !ALLOWED_MODELS.has(existingModel)) {
+    console.warn(`[orchestrator] Rejected unknown model override on job ${jobId ?? "?"}: ${existingModel}`);
+    existingModel = null; // fall through to complexity-derived logic
+  }
+
+  // Orchestrator-specified model always takes precedence.
+  if (existingModel) {
+    const slotType: SlotType = complexity === "simple" ? "codex" : "claude_code";
+    return { model: existingModel, slotType };
+  }
+
+  switch (complexity) {
+    case "simple":
+      return { model: "codex", slotType: "codex" };
+    case "complex":
+      return { model: "claude-opus-4-6", slotType: "claude_code" };
+    default: // medium or null
+      return { model: "claude-sonnet-4-6", slotType: "claude_code" };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +237,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
   const { data: queuedJobs, error: jobsErr } = await supabase
     .from("jobs")
     .select(
-      "id, company_id, role, job_type, complexity, slot_type, machine_id, status, context, branch, created_at",
+      "id, company_id, role, job_type, complexity, slot_type, model, machine_id, status, context, branch, created_at",
     )
     .eq("status", "queued")
     .order("created_at", { ascending: true });
@@ -224,7 +258,8 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
   const machineCache = new Map<string, MachineRow[]>();
 
   for (const job of queuedJobs as JobRow[]) {
-    const slotType: SlotType = job.slot_type ?? "claude_code";
+    // Derive model + slot type from complexity (with optional model override).
+    let { model, slotType } = resolveModelAndSlot(job.complexity, job.model, job.id);
 
     // Fetch available machines for this company (with capacity for the slot type).
     let machines = machineCache.get(job.company_id);
@@ -244,7 +279,17 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     }
 
     // Find a machine with an available slot of the required type.
-    const candidate = machines.find((m) => availableSlots(m, slotType) > 0);
+    let candidate = machines.find((m) => availableSlots(m, slotType) > 0);
+
+    // For simple jobs preferring codex, fall back to claude_code if no codex slots.
+    if (!candidate && slotType === "codex") {
+      slotType = "claude_code";
+      // Only change model if it was complexity-derived (not an explicit override).
+      if (!job.model) {
+        model = "claude-sonnet-4-6";
+      }
+      candidate = machines.find((m) => availableSlots(m, slotType) > 0);
+    }
 
     if (!candidate) {
       console.log(
@@ -275,11 +320,14 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     }
 
     // Dispatch: update job status → dispatched, assign machine_id.
+    // Record the resolved model and slot_type on the job for observability.
     const { error: updateJobErr } = await supabase
       .from("jobs")
       .update({
         status: "dispatched",
         machine_id: candidate.id,
+        model,
+        slot_type: slotType,
         started_at: new Date().toISOString(),
       })
       .eq("id", job.id)
@@ -296,13 +344,10 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     Object.assign(candidate, slotUpdate);
 
     // Build the StartJob message.
-    const model = modelForComplexity(job.complexity);
     const startJobMsg: StartJob = {
       type: "start_job",
       protocolVersion: PROTOCOL_VERSION,
       jobId: job.id,
-      // cardId is a required field in StartJob — use job.id as the card reference.
-      // (The full Trello card ID is not stored in jobs; the context carries the card details.)
       cardId: job.id,
       cardType: (job.job_type as StartJob["cardType"]) ?? "code",
       complexity: (job.complexity as StartJob["complexity"]) ?? "medium",

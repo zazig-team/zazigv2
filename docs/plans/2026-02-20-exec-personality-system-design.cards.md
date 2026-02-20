@@ -4,20 +4,32 @@
 **Generated:** 2026-02-20T19:30:00Z
 **Numbering:** tier.index (Phase 1 only — Phase 2+ cardified separately)
 
-## Dependency Graph
+## Build Sequence
+
+**Critical path:** `1.1 → 1.2 → 1.5` (schema → seed → dispatch hook)
 
 ```
-1.1 (schema) --+
-               |-- 1.2 (seed), 1.3 (compile), 1.7 (cli)
-               |
-1.4 (StartJob) --+-- 1.5 (dispatch hook), 1.6 (local agent)
-                  |
-1.3 (compile) ----+-- 1.5 (dispatch hook)
-                  |
-1.2 (seed) -------+-- 1.5 (dispatch hook)
-
-All cards blocked by: Pipeline Tasks 1-3 (vitest, schema infra, protocol types)
+1.1 ──┬── 1.2 (seed) ──────┐
+      ├── 1.3 (compile) ───┤
+      └── 1.7 (CLI)        ├── 1.5 (dispatch hook)
+                            │
+1.4 (StartJob) ────────────┤
+                            └── 1.6 (local agent)
 ```
+
+Ship 1.1 first, then 1.2 + 1.3 + 1.4 + 1.7 in parallel, then 1.5 and 1.6 close it out.
+
+**How they build on each other:**
+
+- **1.1 (Schema)** — Foundation. Creates the 4 tables and extends `roles` with `root_constraints`. Everything reads from or writes to these tables.
+- **1.2 (Seed data)** ← 1.1 — Populates `exec_archetypes` with 6 archetype definitions. Without seed data, the compilation module has no rows to read and dispatch has nothing to compile.
+- **1.3 (Compilation)** ← 1.1 — Pure TypeScript engine. Takes dimensions + voice_notes + philosophy + constraints + overlay → deterministic prompt string. Both the orchestrator (1.5) and CLI (1.7) call this.
+- **1.4 (StartJob field)** ← independent — Adds `personalityPrompt?: string` to the message protocol. The wire through which compiled prompts travel between orchestrator and local agent.
+- **1.5 (Dispatch hook)** ← 1.1 + 1.2 + 1.3 + 1.4 — The convergence point. At dispatch time: reads personality from DB (1.1 + 1.2), compiles (1.3), attaches to StartJob (1.4). Bottleneck card — needs all four predecessors.
+- **1.6 (Local agent)** ← 1.4 — Receiving end. Reads `personalityPrompt` from StartJob and prepends to system prompt. Implements sub-agent soul stripping. Doesn't need DB or compilation — just receives a string.
+- **1.7 (CLI)** ← 1.1 — Founder-facing inspection tool. Reads from `exec_archetypes` and `exec_personalities` directly. Independent of the dispatch pipeline (1.4–1.6).
+
+Pipeline Tasks 1-3 (vitest, schema infra, protocol types) — all landed.
 
 ---
 
@@ -27,8 +39,8 @@ All cards blocked by: Pipeline Tasks 1-3 (vitest, schema infra, protocol types)
 | Type | Feature |
 | Complexity | Medium |
 | Model | Codex |
-| Labels | codex-first, blocked |
-| Depends on | Pipeline Tasks 1-3 |
+| Labels | codex-first |
+| Depends on | -- |
 | Assigned | _unassigned_ |
 | Trello | https://trello.com/c/KBWqAZun |
 

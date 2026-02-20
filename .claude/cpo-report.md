@@ -1,38 +1,32 @@
-# CPO Report: Machine Health + Dead Machine Recovery
+# CPO Report — PR #11 P0/P1 Fix
 
-## Summary
+## P0 Fix: Missing RECOVERY_COOLDOWN_MS export
 
-Implemented machine health detection and dead machine recovery in the orchestrator edge function. The orchestrator now:
+**Problem:** `orchestrator/index.ts` imports `RECOVERY_COOLDOWN_MS` from `@zazigv2/shared`,
+but the shared shim (`supabase/functions/_shared/messages.ts`) did not export it.
+This causes the Edge Function to fail to load at runtime.
 
-1. **Detects dead machines** on each tick and marks them offline, re-queuing their in-flight jobs
-2. **Logs events** to the `events` table for both `machine_offline` and `machine_online` transitions
-3. **Detects machine recovery** when a heartbeat arrives from a previously-offline machine
-4. **Enforces flapping protection** via a 60-second recovery cooldown before dispatching new jobs to a machine that just came back online
+**Fix:** Added `export const RECOVERY_COOLDOWN_MS = 60_000;` to the Constants section
+of `_shared/messages.ts` (line 92), alongside `MACHINE_DEAD_THRESHOLD_MS`.
 
-## Files Changed
+## P1 Fix: Cold-start limitation documented
 
-| File | Change |
-|------|--------|
-| `packages/shared/src/index.ts` | Added `RECOVERY_COOLDOWN_MS = 60_000` constant |
-| `supabase/functions/orchestrator/index.ts` | Added event logging to `reapDeadMachines()`, updated `handleHeartbeat()` for offline-to-online detection with event logging and cooldown tracking, added recovery cooldown filter to `dispatchQueuedJobs()` |
+**Problem:** The `recoveryTimestamps` Map in `orchestrator/index.ts` is in-memory.
+Edge Function cold starts reset the Map, allowing dispatch to machines still in cooldown.
 
-## Design Decisions
+**Fix (Option 2 — document + warning):**
+- Enhanced the existing comment block to explicitly call out the cold-start limitation
+  and the worst-case behavior (one extra job dispatched before next reap cycle).
+- Added a `console.log` at module init to warn on cold start that cooldown state is reset.
+- Added a TODO referencing the durable DB-persisted approach for future implementation.
 
-- **In-memory cooldown tracking**: Used a `Map<string, number>` in the edge function rather than a DB column. Acceptable tradeoff: lost on cold start means worst case a machine gets jobs slightly sooner. Avoids a migration.
-- **Cooldown filtering**: Applied at the machine-fetch stage in `dispatchQueuedJobs()` so cooldown machines are excluded from the candidate pool entirely. Expired entries are cleaned up lazily.
-- **Event logging**: `machine_offline` events include `{ jobs_requeued: N }` in detail; `machine_online` events include `{ recovered: true }`.
+## Verification
 
-## Tests
-
-- No test infrastructure in this repo yet (pre-merge-check confirms "no test script")
-- TypeScript compiles without errors (`tsc --noEmit` passes)
-- Lint passes
-
-## Merge Order Note
-
-This PR touches `supabase/functions/orchestrator/index.ts`, which is also modified by the PR on branch `cpo/commit-local-agent-direct-db`. That PR should be merged first; this one will need a rebase/reconciliation afterward.
+- `tsc --noEmit`: PASS (no type errors)
+- `npm run lint`: FAIL (pre-existing — `eslint-visitor-keys` module not found in worktree;
+  same failure on base commit `5cce565` before changes)
 
 ## Token Usage
 
-- Token budget: claude-ok (wrote code directly)
-- Single-session implementation, no subagents needed
+- Token budget routing: `claude-ok` (direct implementation)
+- Changes: 2 files, ~15 lines added

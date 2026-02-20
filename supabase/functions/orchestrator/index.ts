@@ -173,10 +173,19 @@ function resolveModelAndSlot(
  * machine that just recovered, preventing flapping machines from grabbing
  * work they'll immediately drop again.
  *
- * In-memory: lost on cold start, which is acceptable — worst case a machine
- * gets jobs slightly sooner after an edge function restart.
+ * LIMITATION: This Map lives in process memory and is lost on Edge Function
+ * cold starts. A fresh instance will have an empty map and may dispatch jobs
+ * to machines still within their cooldown window. Worst case: a flapping
+ * machine receives one extra job before being reaped again on the next cycle.
+ *
+ * TODO: For durable anti-flap, persist recovery_started_at in the machines
+ * table and check it in dispatchQueuedJobs instead of this Map.
  */
 const recoveryTimestamps = new Map<string, number>();
+
+console.log(
+  "[orchestrator] Cold start — in-memory recoveryTimestamps reset (anti-flap cooldown not durable across restarts)",
+);
 
 // ---------------------------------------------------------------------------
 // Core orchestrator operations

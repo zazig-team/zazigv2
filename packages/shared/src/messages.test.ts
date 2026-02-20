@@ -72,6 +72,7 @@ describe("isFeatureApproved", () => {
     type: "feature_approved",
     protocolVersion: 1,
     featureId: "feature-1",
+    machineId: "machine-1",
   };
 
   it("returns true for a valid message", () => {
@@ -80,6 +81,11 @@ describe("isFeatureApproved", () => {
 
   it("rejects missing featureId", () => {
     const { featureId: _featureId, ...invalid } = validFeatureApproved;
+    expect(isFeatureApproved(invalid)).toBe(false);
+  });
+
+  it("rejects missing machineId", () => {
+    const { machineId: _machineId, ...invalid } = validFeatureApproved;
     expect(isFeatureApproved(invalid)).toBe(false);
   });
 });
@@ -91,6 +97,7 @@ describe("isFeatureRejected", () => {
     featureId: "feature-1",
     feedback: "Needs better naming",
     severity: "small",
+    machineId: "machine-1",
   };
 
   it("returns true for a valid message", () => {
@@ -100,6 +107,11 @@ describe("isFeatureRejected", () => {
   it("rejects invalid severity", () => {
     expect(isFeatureRejected({ ...validFeatureRejected, severity: "medium" })).toBe(false);
   });
+
+  it("rejects missing machineId", () => {
+    const { machineId: _machineId, ...invalid } = validFeatureRejected;
+    expect(isFeatureRejected(invalid)).toBe(false);
+  });
 });
 
 describe("isVerifyResult", () => {
@@ -107,6 +119,7 @@ describe("isVerifyResult", () => {
     type: "verify_result",
     protocolVersion: 1,
     jobId: "job-123",
+    machineId: "machine-1",
     passed: true,
     testOutput: "All tests passed",
   };
@@ -115,6 +128,7 @@ describe("isVerifyResult", () => {
     type: "verify_result",
     protocolVersion: 1,
     jobId: "job-124",
+    machineId: "machine-1",
     passed: false,
     testOutput: "1 test failed",
     reviewSummary: "Fix flaky integration test",
@@ -130,6 +144,11 @@ describe("isVerifyResult", () => {
 
   it("rejects missing testOutput", () => {
     const { testOutput: _testOutput, ...invalid } = validPassingVerifyResult;
+    expect(isVerifyResult(invalid)).toBe(false);
+  });
+
+  it("rejects missing machineId", () => {
+    const { machineId: _machineId, ...invalid } = validPassingVerifyResult;
     expect(isVerifyResult(invalid)).toBe(false);
   });
 });
@@ -166,6 +185,7 @@ describe("union validators", () => {
         type: "feature_approved",
         protocolVersion: 1,
         featureId: "feature-1",
+        machineId: "machine-1",
       }),
     ).toBe(true);
   });
@@ -178,6 +198,7 @@ describe("union validators", () => {
         featureId: "feature-1",
         feedback: "Needs stronger error handling",
         severity: "big",
+        machineId: "machine-1",
       }),
     ).toBe(true);
   });
@@ -188,6 +209,7 @@ describe("union validators", () => {
         type: "verify_result",
         protocolVersion: 1,
         jobId: "job-123",
+        machineId: "machine-1",
         passed: true,
         testOutput: "ok",
       }),

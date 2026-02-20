@@ -220,6 +220,7 @@ export function isFeatureApproved(v: unknown): v is FeatureApproved {
   if (!isObject(v) || v.type !== "feature_approved") return false;
   if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
   return true;
 }
 
@@ -229,6 +230,7 @@ export function isFeatureRejected(v: unknown): v is FeatureRejected {
   if (!isString(v.featureId) || v.featureId.length === 0) return false;
   if (!isString(v.feedback)) return false;
   if (!isString(v.severity) || !["small", "big"].includes(v.severity)) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
   return true;
 }
 
@@ -236,6 +238,7 @@ export function isVerifyResult(v: unknown): v is VerifyResult {
   if (!isObject(v) || v.type !== "verify_result") return false;
   if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
   if (typeof v.passed !== "boolean") return false;
   if (!isString(v.testOutput)) return false;
   if (v.reviewSummary !== undefined && !isString(v.reviewSummary)) return false;

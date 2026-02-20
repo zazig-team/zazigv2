@@ -333,6 +333,11 @@ export interface FeatureApproved {
   protocolVersion: number;
   /** Feature identifier that was approved. */
   featureId: string;
+  /**
+   * Machine that sent this approval.
+   * Allows the orchestrator to audit and verify the sender identity.
+   */
+  machineId: string;
 }
 
 /**
@@ -349,6 +354,11 @@ export interface FeatureRejected {
   feedback: string;
   /** Rejection severity used for orchestration policy decisions. */
   severity: "small" | "big";
+  /**
+   * Machine that sent this rejection.
+   * Allows the orchestrator to audit and verify the sender identity.
+   */
+  machineId: string;
 }
 
 /**
@@ -361,6 +371,11 @@ export interface VerifyResult {
   protocolVersion: number;
   /** Job identifier that was verified. */
   jobId: string;
+  /**
+   * Machine that ran the verification.
+   * Allows the orchestrator to audit and verify the sender identity.
+   */
+  machineId: string;
   /** True when verification passed all required checks. */
   passed: boolean;
   /** Raw verification/test output. */

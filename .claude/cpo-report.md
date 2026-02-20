@@ -1,32 +1,43 @@
-# CPO Report — PR #11 P0/P1 Fix
+# CPO Report: Hooks & Non-Interactive Execution
 
-## P0 Fix: Missing RECOVERY_COOLDOWN_MS export
+## Summary
 
-**Problem:** `orchestrator/index.ts` imports `RECOVERY_COOLDOWN_MS` from `@zazigv2/shared`,
-but the shared shim (`supabase/functions/_shared/messages.ts`) did not export it.
-This causes the Edge Function to fail to load at runtime.
+Implemented hooks and non-interactive execution for unattended local-agent jobs. Three problems solved:
 
-**Fix:** Added `export const RECOVERY_COOLDOWN_MS = 60_000;` to the Constants section
-of `_shared/messages.ts` (line 92), alongside `MACHINE_DEAD_THRESHOLD_MS`.
+1. **Print mode for Claude CLI** — `buildCommand()` now uses `claude -p "<task>"` which processes the task and exits (no interactive REPL blocking tmux sessions)
+2. **Full-auto for Codex CLI** — `buildCommand()` now uses `codex --full-auto "<task>"` which completes and exits
+3. **Permission hooks** — Ported and enhanced bash-gate.sh and file-tool-gate.sh from zazig v1 to prevent permission prompts from blocking unattended agents
 
-## P1 Fix: Cold-start limitation documented
+## Files Changed
 
-**Problem:** The `recoveryTimestamps` Map in `orchestrator/index.ts` is in-memory.
-Edge Function cold starts reset the Map, allowing dispatch to machines still in cooldown.
+- `packages/local-agent/src/executor.ts` — Updated `buildCommand()` to use `-p` (print mode) for claude and `--full-auto` for codex
+- `packages/local-agent/hooks/bash-gate.sh` — NEW: Auto-approves safe bash commands, blocks force push, git reset --hard, rm -rf outside safe targets, ~/.zazig/ access, production credentials
+- `packages/local-agent/hooks/file-tool-gate.sh` — NEW: Auto-approves Read/Write/Edit/Grep/Glob except .env files and ~/.zazig/ directory
+- `packages/local-agent/scripts/setup-hooks.sh` — NEW: Idempotent bootstrap script that installs hooks into ~/.claude/settings.json and sets up trust entries
+- `.claude/cpo-report.md` — This report
 
-**Fix (Option 2 — document + warning):**
-- Enhanced the existing comment block to explicitly call out the cold-start limitation
-  and the worst-case behavior (one extra job dispatched before next reap cycle).
-- Added a `console.log` at module init to warn on cold start that cooldown state is reset.
-- Added a TODO referencing the durable DB-persisted approach for future implementation.
+## Setup Instructions
 
-## Verification
+Machine owners must run the setup script once before their machine can execute unattended agent jobs:
 
-- `tsc --noEmit`: PASS (no type errors)
-- `npm run lint`: FAIL (pre-existing — `eslint-visitor-keys` module not found in worktree;
-  same failure on base commit `5cce565` before changes)
+```bash
+cd packages/local-agent
+./scripts/setup-hooks.sh
+```
+
+This will:
+1. Copy hook scripts to `~/.claude/hooks/zazigv2/`
+2. Merge PreToolUse hook entries into `~/.claude/settings.json` (existing settings preserved)
+3. Add deny rules for destructive commands
+4. Set up trust entries for `~/Documents/GitHub/` and `~/Documents/GitHub/.worktrees/`
+
+Requires `jq` (`brew install jq`). Restart Claude Code after running.
+
+## Pre-Merge Check
+
+All checks passed (lint, typecheck). No test script configured.
 
 ## Token Usage
 
-- Token budget routing: `claude-ok` (direct implementation)
-- Changes: 2 files, ~15 lines added
+- Token budget: claude-ok (direct implementation)
+- No codex-delegate used — task was straightforward and well-scoped

@@ -1,32 +1,34 @@
-# CPO Report — Pipeline Task 5: Job Verification Pipeline
+# CPO Report — Pipeline Task 9: Fix Agent Spawning for Testing Phase
 
 ## Summary
-Implemented the job verification pipeline for the local agent. After an agent completes a job, the orchestrator sends a `VerifyJob` message which triggers the `JobVerifier` to: rebase the job branch on the feature branch, run acceptance tests (`npm test`), run lint and typecheck, and if all pass, merge the job branch into the feature branch. Results are sent back as `VerifyResult` messages.
+
+Implemented the `FixAgentManager` class that manages ephemeral Claude Code sessions during the testing phase. When a feature enters testing, the orchestrator sends a `DeployToTest` message, which triggers spawning a fix agent on the feature branch in a tmux session. The fix agent receives issues from Slack and makes minimal fixes, committing and pushing after each.
 
 ## Files Changed
-- `packages/local-agent/src/verifier.ts` — new `JobVerifier` class implementing the full verification pipeline (rebase → test → lint → typecheck → merge)
-- `packages/local-agent/src/verifier.test.ts` — 9 vitest tests covering all success/failure paths (TDD: tests written first, confirmed failing, then implementation)
-- `packages/local-agent/src/executor.ts` — added `AfterJobCompleteFn` callback type and optional `afterJobComplete` parameter to `JobExecutor` constructor; called after `sendJobComplete` in `onJobEnded`
-- `packages/local-agent/src/index.ts` — wired `JobVerifier` instance to handle incoming `verify_job` messages from orchestrator
+
+- `packages/local-agent/src/fix-agent.ts` — FixAgentManager class with `spawn()`, `cleanup()`, `isActive()` methods
+- `packages/local-agent/src/fix-agent.test.ts` — 8 vitest tests covering spawn, idempotency, cleanup, and isActive
+- `packages/local-agent/src/index.ts` — Import FixAgentManager, instantiate it, wire `deploy_to_test` message to `fixAgentManager.spawn()`
 - `.claude/cpo-report.md` — this report
 
 ## Tests
-- 9 new tests added in `verifier.test.ts`:
-  - Sends passing VerifyResult when all steps succeed
-  - Sends failing VerifyResult when rebase fails
-  - Sends failing VerifyResult when tests fail
-  - Sends failing VerifyResult when lint fails
-  - Sends failing VerifyResult when typecheck fails
-  - Sends failing VerifyResult when merge fails after checks pass
-  - Uses repoPath from VerifyJob when provided
-  - Runs npm test, lint, and typecheck with correct arguments and timeouts
-  - Defaults repoDir to process.cwd() when repoPath is not provided
-- 19/19 tests passing across local-agent package (9 verifier + 10 branches)
-- TypeScript compiles cleanly (`tsc --noEmit` exit 0)
+
+- 8 new tests in `fix-agent.test.ts` (spawn, idempotency, cleanup, isActive)
+- 18/18 tests passing across local-agent package
+- TypeScript compiles cleanly (`tsc --noEmit`)
 
 ## Token Usage
-- Routing: claude-ok
-- Claude used directly for all implementation, testing, and verification
+
+- Routing: claude-ok (direct implementation)
+- No codex delegation used
+
+## Notes
+
+- The `DeployToTest` message type does not currently carry Slack channel/thread fields. A TODO was left in `index.ts` for when the protocol is extended.
+- `FixAgentManager.cleanup()` is implemented and tested but not yet wired to an orchestrator message. Cleanup will be triggered when `FeatureApproved`/`FeatureRejected` handling is added (Task 10).
+- Shell escaping follows the same pattern as `executor.ts` for consistency.
+- `CLAUDECODE` env var is unset in the tmux session to prevent nested session detection.
 
 ## Issues Encountered
-- Minor vitest v4 type compatibility issue with `vi.fn()` mock types vs `SendFn`/`ExecFn` — resolved with `as unknown as` casts in test file
+
+- None

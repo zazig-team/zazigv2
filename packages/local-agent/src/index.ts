@@ -19,6 +19,7 @@ import { SlotTracker } from "./slots.js";
 import { AgentConnection } from "./connection.js";
 import { JobExecutor } from "./executor.js";
 import { JobVerifier } from "./verifier.js";
+import { FixAgentManager } from "./fix-agent.js";
 import type { OrchestratorMessage } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
@@ -56,6 +57,9 @@ async function main(): Promise<void> {
     conn.dbClient,
   );
 
+  // Initialize fix agent manager — spawns ephemeral Claude sessions during testing phase
+  const fixAgentManager = new FixAgentManager(process.cwd());
+
   // Register message handler — dispatch StartJob/StopJob to executor
   conn.onMessage((msg: OrchestratorMessage) => {
     switch (msg.type) {
@@ -84,7 +88,17 @@ async function main(): Promise<void> {
         break;
 
       case "deploy_to_test":
-        console.log(`[local-agent] Received deploy_to_test — featureId=${msg.featureId} (handler not yet implemented)`);
+        console.log(
+          `[local-agent] Received deploy_to_test — featureId=${msg.featureId}, ` +
+            `branch=${msg.featureBranch}`
+        );
+        void fixAgentManager.spawn({
+          featureId: msg.featureId,
+          featureBranch: msg.featureBranch,
+          // TODO: Slack channel/thread should be added to DeployToTest message type
+          slackChannel: "",
+          slackThreadTs: "",
+        });
         break;
 
       default: {

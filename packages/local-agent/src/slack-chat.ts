@@ -230,14 +230,21 @@ export class SlackChatRouter {
         "-p",   // print to stdout
       ]);
 
+      // Claude Code v2 renders a status bar below the ❯ prompt line
+      // (e.g. "? for shortcuts", decorative ──── lines). So we can't just
+      // check the last non-empty line — we need to scan for the prompt.
+      // The prompt line is exactly "❯" or "❯ " (with optional trailing space),
+      // or ">" / "> " in older versions, or "$"/"%" for shell fallback.
       const lines = stdout.trimEnd().split("\n");
-      // Walk back from the last line to find a non-empty line
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (/^[❯>]\s*$/.test(trimmed)) return true;
+      }
+      // Shell fallback: check last non-empty line for $ or %
       for (let i = lines.length - 1; i >= 0; i--) {
-        const line = lines[i]!.trim();
-        if (!line) continue;
-        // Claude Code prompt: lines ending with "❯" or ">" (v2 uses ❯, older uses >)
-        // Shell prompt fallback: lines ending with "$" or "% "
-        return /[❯>$%]\s*$/.test(line);
+        const trimmed = lines[i]!.trim();
+        if (!trimmed) continue;
+        return /[$%]\s*$/.test(trimmed);
       }
       return false;
     } catch {

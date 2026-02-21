@@ -3,317 +3,431 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pipeline Dashboard</title>
+  <title>Pipeline</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
       color-scheme: dark;
-      --bg: #0a0f14;
-      --panel: #111922;
-      --panel-soft: #0f161f;
-      --border: #243241;
-      --text: #d7e3f0;
-      --muted: #91a2b4;
-      --accent: #7cc7ff;
-      --error: #fca5a5;
-      --error-bg: rgba(239, 68, 68, 0.12);
-      --progress-track: #1b2633;
-      --progress-fill: #5ba9e6;
-      --testing: rgba(59, 130, 246, 0.14);
-      --verifying: rgba(14, 165, 233, 0.14);
-      --building: rgba(245, 158, 11, 0.13);
-      --design: rgba(236, 72, 153, 0.13);
-      --done: rgba(34, 197, 94, 0.14);
-      --testing-border: #3b82f6;
-      --verifying-border: #0ea5e9;
-      --building-border: #f59e0b;
-      --design-border: #ec4899;
-      --done-border: #22c55e;
+      --bg: #08090c;
+      --surface: #101216;
+      --surface-raised: #161a1f;
+      --border: #1e2328;
+      --border-subtle: #181c21;
+      --text: #e2e4e8;
+      --text-secondary: #8b919a;
+      --text-dim: #555d68;
+
+      --col-design: #c471ed;
+      --col-building: #e8a838;
+      --col-testing: #4d8fef;
+      --col-verifying: #28b5d4;
+      --col-done: #3cbf6e;
+
+      --col-design-bg: rgba(196, 113, 237, 0.06);
+      --col-building-bg: rgba(232, 168, 56, 0.06);
+      --col-testing-bg: rgba(77, 143, 239, 0.06);
+      --col-verifying-bg: rgba(40, 181, 212, 0.06);
+      --col-done-bg: rgba(60, 191, 110, 0.06);
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      margin: 0;
-      background: radial-gradient(circle at top right, #122030 0%, #0a0f14 48%), var(--bg);
+      background: var(--bg);
       color: var(--text);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      line-height: 1.45;
+      font-family: 'DM Sans', sans-serif;
       min-height: 100vh;
+      overflow-x: auto;
+    }
+
+    /* Subtle dot grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(circle, #1a1e24 1px, transparent 1px);
+      background-size: 24px 24px;
+      opacity: 0.4;
+      pointer-events: none;
+      z-index: 0;
     }
 
     .app {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 20px 16px 40px;
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
     }
+
+    /* ── Header ────────────────────────────────── */
 
     .topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(8, 9, 12, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      flex-shrink: 0;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
       gap: 12px;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
+    }
+
+    .logo {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--col-testing);
+      box-shadow: 0 0 8px var(--col-testing), 0 0 20px rgba(77, 143, 239, 0.3);
+      animation: pulse-glow 3s ease-in-out infinite;
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 8px var(--col-testing), 0 0 20px rgba(77, 143, 239, 0.3); }
+      50% { box-shadow: 0 0 12px var(--col-testing), 0 0 30px rgba(77, 143, 239, 0.5); }
     }
 
     h1 {
-      margin: 0;
-      font-size: 1.25rem;
-      letter-spacing: 0.03em;
-      color: #e5effa;
-    }
-
-    .company-tag {
-      color: var(--accent);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text);
     }
 
     .controls {
       display: flex;
       align-items: center;
-      gap: 12px;
-      flex-wrap: wrap;
-      font-size: 0.88rem;
-      color: var(--muted);
+      gap: 16px;
     }
 
-    button {
-      border: 1px solid var(--accent);
-      background: rgba(124, 199, 255, 0.1);
-      color: var(--text);
+    .last-updated {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      letter-spacing: 0.02em;
+    }
+
+    .refresh-btn {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
       border-radius: 6px;
-      font: inherit;
-      padding: 6px 12px;
+      padding: 6px 14px;
       cursor: pointer;
+      transition: all 0.15s ease;
     }
 
-    button:hover {
-      background: rgba(124, 199, 255, 0.2);
+    .refresh-btn:hover {
+      color: var(--text);
+      border-color: #2e343b;
+      background: #1c2127;
     }
 
-    button:disabled {
-      opacity: 0.6;
-      cursor: wait;
-    }
+    .refresh-btn:disabled { opacity: 0.4; cursor: wait; }
 
     #message {
-      min-height: 24px;
-      font-size: 0.88rem;
-      color: var(--muted);
-      margin-bottom: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      padding: 0 24px;
+      min-height: 0;
+      transition: min-height 0.2s ease;
+    }
+
+    #message:not(:empty) {
+      min-height: 36px;
       display: flex;
       align-items: center;
     }
 
     #message.error {
-      color: var(--error);
-      background: var(--error-bg);
-      border: 1px solid rgba(248, 113, 113, 0.4);
-      border-radius: 6px;
-      padding: 6px 10px;
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.08);
+      border-bottom: 1px solid rgba(248, 113, 113, 0.15);
     }
 
-    .dashboard {
+    /* ── Kanban Board ──────────────────────────── */
+
+    .board {
+      display: flex;
+      gap: 1px;
+      flex: 1;
+      min-height: 0;
+      background: var(--border-subtle);
+    }
+
+    .column {
+      flex: 1;
+      min-width: 240px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      background: var(--bg);
     }
 
-    .status-group {
-      border: 1px solid var(--border);
-      border-left-width: 4px;
-      border-radius: 8px;
-      background: var(--panel-soft);
-      overflow: hidden;
-    }
-
-    .status-testing {
-      border-left-color: var(--testing-border);
-      background: linear-gradient(180deg, var(--testing), transparent 35%), var(--panel-soft);
-    }
-
-    .status-verifying {
-      border-left-color: var(--verifying-border);
-      background: linear-gradient(180deg, var(--verifying), transparent 35%), var(--panel-soft);
-    }
-
-    .status-building {
-      border-left-color: var(--building-border);
-      background: linear-gradient(180deg, var(--building), transparent 35%), var(--panel-soft);
-    }
-
-    .status-design {
-      border-left-color: var(--design-border);
-      background: linear-gradient(180deg, var(--design), transparent 35%), var(--panel-soft);
-    }
-
-    .status-done {
-      border-left-color: var(--done-border);
-      background: linear-gradient(180deg, var(--done), transparent 35%), var(--panel-soft);
-    }
-
-    .group-title {
-      margin: 0;
-      font-size: 0.98rem;
-      color: #f0f6fd;
-      letter-spacing: 0.08em;
-      padding: 10px 12px;
-      border-bottom: 1px solid rgba(145, 162, 180, 0.2);
-      background: rgba(5, 10, 15, 0.35);
-    }
-
-    .group-body {
-      padding: 8px;
+    .column-header {
+      padding: 14px 16px 12px;
       display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .feature {
-      border: 1px solid rgba(145, 162, 180, 0.2);
-      background: var(--panel);
-      border-radius: 8px;
-      padding: 10px;
-    }
-
-    .feature-head {
-      display: flex;
+      align-items: center;
       justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .column-title {
+      display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 8px;
-      font-size: 0.95rem;
     }
 
-    .feature-title {
+    .column-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .column-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
       font-weight: 600;
-      color: #eff6ff;
-      word-break: break-word;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
     }
 
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      border-radius: 999px;
-      border: 1px solid rgba(145, 162, 180, 0.35);
-      padding: 1px 8px;
-      font-size: 0.75rem;
-      line-height: 1.4;
-      white-space: nowrap;
-      color: #d6e4f2;
-      background: rgba(148, 163, 184, 0.14);
-      text-transform: lowercase;
+    .column-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      font-weight: 500;
+      color: var(--text-dim);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1px 7px;
+      min-width: 20px;
+      text-align: center;
     }
 
-    .jobs {
+    .column-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
       display: flex;
       flex-direction: column;
       gap: 8px;
     }
 
-    .jobs-empty {
-      color: var(--muted);
-      font-size: 0.85rem;
+    .column-body::-webkit-scrollbar { width: 4px; }
+    .column-body::-webkit-scrollbar-track { background: transparent; }
+    .column-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .column-empty {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      text-align: center;
+      padding: 32px 12px;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      margin: 4px;
     }
 
-    .job {
-      border: 1px solid rgba(145, 162, 180, 0.2);
-      border-radius: 6px;
-      padding: 8px;
-      background: rgba(9, 14, 20, 0.65);
+    /* ── Feature Cards ─────────────────────────── */
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      animation: card-in 0.3s ease both;
     }
 
-    .job-top {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 8px;
-      margin-bottom: 6px;
+    @keyframes card-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
-    .job-main {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-      min-width: 0;
+    .card:hover {
+      border-color: #2a3038;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
     }
 
-    .job-id {
-      color: #9cc3e7;
+    .card-accent {
+      height: 2px;
+      width: 100%;
+    }
+
+    .card-body {
+      padding: 12px 14px;
+    }
+
+    .card-title {
       font-size: 0.82rem;
-      white-space: nowrap;
-    }
-
-    .job-desc {
-      color: #d6e4f2;
-      font-size: 0.86rem;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.35;
+      margin-bottom: 10px;
       word-break: break-word;
     }
 
-    .job-meta {
+    /* ── Jobs inside cards ─────────────────────── */
+
+    .card-jobs {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .job-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 8px 10px;
+      background: var(--surface-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: 7px;
+    }
+
+    .job-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .job-info {
       display: flex;
       align-items: center;
       gap: 6px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
+      min-width: 0;
+      flex: 1;
     }
 
-    .job-model {
-      color: var(--muted);
-      font-size: 0.78rem;
-      border: 1px solid rgba(145, 162, 180, 0.25);
-      border-radius: 6px;
-      padding: 1px 6px;
-      background: rgba(148, 163, 184, 0.08);
+    .job-status-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .job-status-dot.executing {
+      background: var(--col-building);
+      box-shadow: 0 0 6px rgba(232, 168, 56, 0.5);
+      animation: dot-pulse 2s ease-in-out infinite;
+    }
+
+    .job-status-dot.queued, .job-status-dot.dispatched {
+      background: var(--text-dim);
+      animation: dot-pulse 2s ease-in-out infinite;
+    }
+
+    .job-status-dot.complete { background: var(--col-done); }
+    .job-status-dot.failed { background: #ef4444; }
+    .job-status-dot.reviewing { background: var(--col-verifying); animation: dot-pulse 2s ease-in-out infinite; }
+
+    @keyframes dot-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .job-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      color: var(--text-secondary);
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .progress-row {
+    .job-model-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.6rem;
+      color: var(--text-dim);
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      padding: 0 5px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .job-progress-track {
+      height: 3px;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .job-progress-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.4s ease;
+    }
+
+    .card-footer {
+      padding: 8px 14px 10px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
+      border-top: 1px solid var(--border-subtle);
     }
 
-    .progress-track {
+    .card-job-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--text-dim);
+    }
+
+    .card-progress-summary {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--text-dim);
+    }
+
+    /* ── Empty board ───────────────────────────── */
+
+    .empty-board {
+      display: flex;
+      align-items: center;
+      justify-content: center;
       flex: 1;
-      height: 8px;
-      background: var(--progress-track);
-      border-radius: 999px;
-      overflow: hidden;
-      border: 1px solid rgba(124, 199, 255, 0.2);
-    }
-
-    .progress-fill {
-      height: 100%;
-      width: 0;
-      background: linear-gradient(90deg, #3b82f6, var(--progress-fill));
-      transition: width 0.3s ease;
-    }
-
-    .progress-pct {
-      width: 44px;
-      text-align: right;
-      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
       font-size: 0.8rem;
+      color: var(--text-dim);
+      padding: 40px;
     }
 
-    .empty-state {
-      border: 1px dashed rgba(145, 162, 180, 0.35);
-      border-radius: 8px;
-      color: var(--muted);
-      padding: 16px;
-      text-align: center;
-      background: rgba(17, 25, 34, 0.5);
-    }
+    /* ── Responsive ────────────────────────────── */
 
-    @media (max-width: 740px) {
-      .job-top {
+    @media (max-width: 900px) {
+      .board {
         flex-direction: column;
+        gap: 0;
       }
 
-      .job-meta {
-        justify-content: flex-start;
+      .column {
+        min-width: 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .column-body {
+        max-height: 50vh;
       }
     }
   </style>
@@ -322,15 +436,18 @@
 <body>
   <div class="app">
     <header class="topbar">
-      <h1 id="title">Pipeline Dashboard</h1>
+      <div class="topbar-left">
+        <div class="logo"></div>
+        <h1>Pipeline</h1>
+      </div>
       <div class="controls">
-        <button id="refreshButton" type="button">Refresh</button>
-        <span id="lastUpdated">Last updated: never</span>
+        <span id="lastUpdated" class="last-updated"></span>
+        <button id="refreshButton" class="refresh-btn" type="button">Refresh</button>
       </div>
     </header>
 
     <div id="message" aria-live="polite" role="status"></div>
-    <main id="dashboard" class="dashboard" aria-live="polite"></main>
+    <main id="dashboard" class="board" aria-live="polite"></main>
   </div>
 
   <script>
@@ -339,51 +456,34 @@
 
       const SUPABASE_URL = 'https://jmussmwglgbwncgygzbz.supabase.co';
       const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0';
+      const FEATURES_ENDPOINT = SUPABASE_URL + '/rest/v1/features?select=*,jobs(*)&status=not.eq.cancelled&order=created_at.desc';
 
-      const STATUS_ORDER = ['testing', 'verifying', 'building', 'design', 'done'];
+      // Pipeline stage order: left → right
+      const COLUMNS = [
+        { key: 'design',    label: 'Design',    color: '#c471ed', bg: 'var(--col-design-bg)' },
+        { key: 'building',  label: 'Building',  color: '#e8a838', bg: 'var(--col-building-bg)' },
+        { key: 'testing',   label: 'Testing',   color: '#4d8fef', bg: 'var(--col-testing-bg)' },
+        { key: 'verifying', label: 'Verifying', color: '#28b5d4', bg: 'var(--col-verifying-bg)' },
+        { key: 'done',      label: 'Done',      color: '#3cbf6e', bg: 'var(--col-done-bg)' },
+      ];
 
-      const titleEl = document.getElementById('title');
+      const ACTIVE_JOB_STATUSES = new Set(['queued', 'dispatched', 'executing', 'reviewing']);
+
       const dashboardEl = document.getElementById('dashboard');
       const messageEl = document.getElementById('message');
       const lastUpdatedEl = document.getElementById('lastUpdated');
       const refreshButton = document.getElementById('refreshButton');
 
       let isFetching = false;
-      let activeCompanyId = null;
 
-      // --- URL routing ---
+      // ── Helpers ──────────────────────────────
 
-      function getCompanySlug() {
-        const path = window.location.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
-        const segment = path.split('/')[0];
-        return segment || null;
+      function formatTime(date) {
+        const pad = v => String(v).padStart(2, '0');
+        return pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
       }
 
-      async function resolveCompany(slug) {
-        const url = `${SUPABASE_URL}/rest/v1/companies?name=eq.${encodeURIComponent(slug)}&select=id,name&limit=1`;
-        const response = await fetch(url, {
-          headers: {
-            apikey: ANON_KEY,
-            Authorization: `Bearer ${ANON_KEY}`
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error(`Company lookup failed with ${response.status}`);
-        }
-
-        const rows = await response.json();
-        return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-      }
-
-      // --- Helpers ---
-
-      function formatTimestamp(date) {
-        const pad = (value) => String(value).padStart(2, '0');
-        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-      }
-
-      function setMessage(text, isError = false) {
+      function setMessage(text, isError) {
         messageEl.textContent = text;
         messageEl.className = isError ? 'error' : '';
       }
@@ -396,289 +496,223 @@
         if (typeof feature?.name === 'string' && feature.name.trim()) {
           return feature.name.trim();
         }
-
-        if (feature?.spec !== null && feature?.spec !== undefined) {
-          let specText = '';
-          if (typeof feature.spec === 'string') {
-            specText = feature.spec;
-          } else {
-            try {
-              specText = JSON.stringify(feature.spec);
-            } catch (error) {
-              specText = String(feature.spec);
-            }
-          }
-
-          const firstLine = specText.split(/\r?\n/, 1)[0].trim();
-          if (firstLine) {
-            return firstLine;
-          }
+        if (feature?.spec != null) {
+          var specText = typeof feature.spec === 'string'
+            ? feature.spec
+            : JSON.stringify(feature.spec);
+          var firstLine = specText.split(/\r?\n/, 1)[0].trim();
+          if (firstLine) return firstLine;
         }
-
-        return String(feature?.id ?? 'unknown-feature');
+        return String(feature?.id ?? 'feature');
       }
 
       function clampProgress(value) {
-        const numeric = Number(value);
-        if (!Number.isFinite(numeric)) {
-          return 0;
-        }
-        return Math.max(0, Math.min(100, Math.round(numeric)));
+        var n = Number(value);
+        return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0;
       }
 
       function getJobSummary(job) {
-        const fallbackId = String(job?.id ?? 'job');
-
-        if (job?.context === null || job?.context === undefined) {
-          return fallbackId;
-        }
-
-        let text = '';
-        if (typeof job.context === 'string') {
-          text = job.context;
-        } else {
-          try {
-            text = JSON.stringify(job.context);
-          } catch (error) {
-            text = String(job.context);
-          }
-        }
-
+        var fallback = String(job?.id ?? 'job');
+        if (job?.context == null) return fallback;
+        var text = typeof job.context === 'string' ? job.context : JSON.stringify(job.context);
         text = text.replace(/\s+/g, ' ').trim();
-        if (!text) {
-          return fallbackId;
-        }
-
-        if (text.length > 60) {
-          return `${text.slice(0, 57)}...`;
-        }
-
-        return text;
+        if (!text) return fallback;
+        return text.length > 50 ? text.slice(0, 47) + '...' : text;
       }
 
       function sortJobs(jobs) {
-        return [...jobs].sort((left, right) => {
-          const leftSeq = Number.isFinite(Number(left?.sequence)) ? Number(left.sequence) : Number.MAX_SAFE_INTEGER;
-          const rightSeq = Number.isFinite(Number(right?.sequence)) ? Number(right.sequence) : Number.MAX_SAFE_INTEGER;
-
-          if (leftSeq !== rightSeq) {
-            return leftSeq - rightSeq;
-          }
-
-          const leftCreated = String(left?.created_at || '');
-          const rightCreated = String(right?.created_at || '');
-          return leftCreated.localeCompare(rightCreated);
+        return [...jobs].sort(function(a, b) {
+          var sa = Number.isFinite(Number(a?.sequence)) ? Number(a.sequence) : Infinity;
+          var sb = Number.isFinite(Number(b?.sequence)) ? Number(b.sequence) : Infinity;
+          if (sa !== sb) return sa - sb;
+          return String(a?.created_at || '').localeCompare(String(b?.created_at || ''));
         });
       }
 
-      // --- Rendering ---
-
-      function createBadge(label) {
-        const badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = label;
-        return badge;
+      function getJobColor(status, colDef) {
+        if (status === 'complete') return 'var(--col-done)';
+        if (status === 'failed') return '#ef4444';
+        return colDef.color;
       }
 
-      function renderJob(job) {
-        const jobEl = document.createElement('div');
-        jobEl.className = 'job';
+      // ── DOM Builders ─────────────────────────
 
-        const top = document.createElement('div');
-        top.className = 'job-top';
+      function el(tag, className, text) {
+        var e = document.createElement(tag);
+        if (className) e.className = className;
+        if (text != null) e.textContent = text;
+        return e;
+      }
 
-        const main = document.createElement('div');
-        main.className = 'job-main';
+      function renderJobRow(job, colDef) {
+        var row = el('div', 'job-row');
+        var header = el('div', 'job-header');
+        var info = el('div', 'job-info');
 
-        const hasJobId = job?.id !== null && job?.id !== undefined;
-        const jobId = hasJobId ? String(job.id) : '';
-        const summary = getJobSummary(job);
+        var status = normalizeStatus(job?.status);
+        var dot = el('div', 'job-status-dot ' + status);
+        info.appendChild(dot);
 
-        if (jobId) {
-          const idEl = document.createElement('span');
-          idEl.className = 'job-id';
-          idEl.textContent = jobId;
-          main.appendChild(idEl);
-        }
-
-        if (!jobId || summary !== jobId) {
-          const descEl = document.createElement('span');
-          descEl.className = 'job-desc';
-          descEl.textContent = summary;
-          main.appendChild(descEl);
-        }
-
-        top.appendChild(main);
-
-        const meta = document.createElement('div');
-        meta.className = 'job-meta';
-
-        meta.appendChild(createBadge(normalizeStatus(job?.status) || 'unknown'));
+        var name = el('span', 'job-name', getJobSummary(job));
+        info.appendChild(name);
+        header.appendChild(info);
 
         if (job?.model) {
-          const modelEl = document.createElement('span');
-          modelEl.className = 'job-model';
-          modelEl.textContent = String(job.model);
-          meta.appendChild(modelEl);
+          var modelTag = el('span', 'job-model-tag', String(job.model).replace('claude-', '').replace('-4-6', ''));
+          header.appendChild(modelTag);
         }
 
-        top.appendChild(meta);
-        jobEl.appendChild(top);
+        row.appendChild(header);
 
-        const progress = clampProgress(job?.progress);
+        // Progress bar
+        var progress = clampProgress(job?.progress);
+        if (progress > 0 || ACTIVE_JOB_STATUSES.has(status)) {
+          var track = el('div', 'job-progress-track');
+          var fill = el('div', 'job-progress-fill');
+          fill.style.width = progress + '%';
+          fill.style.background = getJobColor(status, colDef);
+          track.appendChild(fill);
+          row.appendChild(track);
+        }
 
-        const progressRow = document.createElement('div');
-        progressRow.className = 'progress-row';
-
-        const track = document.createElement('div');
-        track.className = 'progress-track';
-
-        const fill = document.createElement('div');
-        fill.className = 'progress-fill';
-        fill.style.width = `${progress}%`;
-        track.appendChild(fill);
-
-        const percent = document.createElement('span');
-        percent.className = 'progress-pct';
-        percent.textContent = `${progress}%`;
-
-        progressRow.appendChild(track);
-        progressRow.appendChild(percent);
-        jobEl.appendChild(progressRow);
-
-        return jobEl;
+        return row;
       }
 
-      function renderFeature(feature) {
-        const featureEl = document.createElement('article');
-        featureEl.className = 'feature';
+      function renderCard(feature, colDef, delay) {
+        var card = el('div', 'card');
+        card.style.animationDelay = delay + 'ms';
 
-        const featureHead = document.createElement('div');
-        featureHead.className = 'feature-head';
+        // Colored accent strip
+        var accent = el('div', 'card-accent');
+        accent.style.background = colDef.color;
+        card.appendChild(accent);
 
-        const featureTitle = document.createElement('div');
-        featureTitle.className = 'feature-title';
-        featureTitle.textContent = '\u25b8 ' + getFeatureName(feature);
+        // Body
+        var body = el('div', 'card-body');
+        var title = el('div', 'card-title', getFeatureName(feature));
+        body.appendChild(title);
 
-        featureHead.appendChild(featureTitle);
-        featureHead.appendChild(createBadge(normalizeStatus(feature?.status) || 'unknown'));
+        var jobs = Array.isArray(feature?.jobs) ? sortJobs(feature.jobs) : [];
 
-        featureEl.appendChild(featureHead);
-
-        const jobs = Array.isArray(feature?.jobs) ? sortJobs(feature.jobs) : [];
-
-        if (!jobs.length) {
-          const emptyJobs = document.createElement('div');
-          emptyJobs.className = 'jobs-empty';
-          emptyJobs.textContent = 'No jobs';
-          featureEl.appendChild(emptyJobs);
-          return featureEl;
+        if (jobs.length > 0) {
+          var jobsContainer = el('div', 'card-jobs');
+          for (var i = 0; i < jobs.length; i++) {
+            jobsContainer.appendChild(renderJobRow(jobs[i], colDef));
+          }
+          body.appendChild(jobsContainer);
         }
 
-        const jobsContainer = document.createElement('div');
-        jobsContainer.className = 'jobs';
+        card.appendChild(body);
 
-        for (const job of jobs) {
-          jobsContainer.appendChild(renderJob(job));
+        // Footer with summary
+        if (jobs.length > 0) {
+          var footer = el('div', 'card-footer');
+          var countLabel = el('span', 'card-job-count', jobs.length + (jobs.length === 1 ? ' job' : ' jobs'));
+          footer.appendChild(countLabel);
+
+          var completed = jobs.filter(function(j) {
+            return normalizeStatus(j?.status) === 'complete';
+          }).length;
+          var progressLabel = el('span', 'card-progress-summary', completed + '/' + jobs.length + ' done');
+          footer.appendChild(progressLabel);
+
+          card.appendChild(footer);
         }
 
-        featureEl.appendChild(jobsContainer);
-        return featureEl;
+        return card;
       }
 
-      function renderDashboard(features) {
-        const grouped = new Map();
-        for (const status of STATUS_ORDER) {
-          grouped.set(status, []);
+      function renderColumn(colDef, features) {
+        var column = el('div', 'column');
+
+        var header = el('div', 'column-header');
+        var titleGroup = el('div', 'column-title');
+
+        var dot = el('div', 'column-dot');
+        dot.style.background = colDef.color;
+        titleGroup.appendChild(dot);
+
+        var name = el('span', 'column-name', colDef.label);
+        titleGroup.appendChild(name);
+
+        header.appendChild(titleGroup);
+
+        var count = el('span', 'column-count', String(features.length));
+        header.appendChild(count);
+
+        column.appendChild(header);
+
+        var body = el('div', 'column-body');
+
+        if (features.length === 0) {
+          var empty = el('div', 'column-empty', 'No features');
+          body.appendChild(empty);
+        } else {
+          for (var i = 0; i < features.length; i++) {
+            body.appendChild(renderCard(features[i], colDef, i * 50));
+          }
         }
 
-        for (const feature of features) {
-          const status = normalizeStatus(feature?.status);
-          if (status === 'cancelled') {
-            continue;
-          }
+        column.appendChild(body);
+        return column;
+      }
 
-          if (grouped.has(status)) {
-            grouped.get(status).push(feature);
+      function renderBoard(features) {
+        var grouped = {};
+        for (var c = 0; c < COLUMNS.length; c++) {
+          grouped[COLUMNS[c].key] = [];
+        }
+
+        for (var i = 0; i < features.length; i++) {
+          var status = normalizeStatus(features[i]?.status);
+          if (status === 'cancelled') continue;
+          if (grouped[status]) {
+            grouped[status].push(features[i]);
           }
         }
 
-        let renderedCount = 0;
-        const fragment = document.createDocumentFragment();
+        var fragment = document.createDocumentFragment();
+        var totalFeatures = 0;
 
-        for (const status of STATUS_ORDER) {
-          const items = grouped.get(status) || [];
-          if (items.length === 0) {
-            continue;
-          }
-
-          renderedCount += items.length;
-
-          const section = document.createElement('section');
-          section.className = 'status-group status-' + status;
-
-          const title = document.createElement('h2');
-          title.className = 'group-title';
-          title.textContent = status.toUpperCase() + ' (' + items.length + ')';
-
-          const body = document.createElement('div');
-          body.className = 'group-body';
-
-          for (const feature of items) {
-            body.appendChild(renderFeature(feature));
-          }
-
-          section.appendChild(title);
-          section.appendChild(body);
-          fragment.appendChild(section);
-        }
-
-        if (renderedCount === 0) {
-          dashboardEl.innerHTML = '<div class="empty-state">No active features</div>';
-          return;
+        for (var c = 0; c < COLUMNS.length; c++) {
+          var colFeatures = grouped[COLUMNS[c].key] || [];
+          totalFeatures += colFeatures.length;
+          fragment.appendChild(renderColumn(COLUMNS[c], colFeatures));
         }
 
         dashboardEl.replaceChildren(fragment);
+
+        if (totalFeatures === 0) {
+          dashboardEl.replaceChildren(el('div', 'empty-board', 'No active features'));
+        }
       }
 
-      // --- Data fetching ---
+      // ── Data Fetching ────────────────────────
 
-      async function fetchFeatures(companyId) {
-        let url = SUPABASE_URL + '/rest/v1/features?select=*,jobs(*)&status=not.eq.cancelled&order=created_at.desc';
-        if (companyId) {
-          url += '&company_id=eq.' + encodeURIComponent(companyId);
-        }
-
-        const response = await fetch(url, {
+      async function fetchFeatures() {
+        var response = await fetch(FEATURES_ENDPOINT, {
           method: 'GET',
           headers: {
             apikey: ANON_KEY,
             Authorization: 'Bearer ' + ANON_KEY
           }
         });
-
-        if (!response.ok) {
-          throw new Error('Failed with ' + response.status);
-        }
-
-        const payload = await response.json();
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        var payload = await response.json();
         return Array.isArray(payload) ? payload : [];
       }
 
       async function refreshDashboard() {
-        if (isFetching) {
-          return;
-        }
-
+        if (isFetching) return;
         isFetching = true;
         refreshButton.disabled = true;
 
         try {
-          const features = await fetchFeatures(activeCompanyId);
-          renderDashboard(features);
+          var features = await fetchFeatures();
+          renderBoard(features);
           setMessage('');
-          lastUpdatedEl.textContent = 'Last updated: ' + formatTimestamp(new Date());
-        } catch (error) {
+          lastUpdatedEl.textContent = formatTime(new Date());
+        } catch (err) {
           setMessage('Failed to load \u2014 retrying in 30s', true);
         } finally {
           isFetching = false;
@@ -686,53 +720,9 @@
         }
       }
 
-      // --- Init ---
-
-      async function init() {
-        const slug = getCompanySlug();
-
-        if (slug) {
-          try {
-            const company = await resolveCompany(slug);
-
-            if (!company) {
-              const emptyDiv = document.createElement('div');
-              emptyDiv.className = 'empty-state';
-              emptyDiv.textContent = 'Company not found: ' + slug;
-              dashboardEl.replaceChildren(emptyDiv);
-              setMessage('No company with slug "' + slug + '"', true);
-              refreshButton.disabled = true;
-              return;
-            }
-
-            activeCompanyId = company.id;
-            titleEl.textContent = '';
-            const pipelineText = document.createTextNode('Pipeline \u2014 ');
-            const tag = document.createElement('span');
-            tag.className = 'company-tag';
-            tag.textContent = company.name;
-            titleEl.appendChild(pipelineText);
-            titleEl.appendChild(tag);
-            document.title = 'Pipeline \u2014 ' + company.name;
-          } catch (error) {
-            // Block all data loading — user sees the error but not another company's data
-            setMessage('Failed to resolve company \u2014 ' + slug, true);
-            refreshButton.disabled = true;
-            return;
-          }
-        }
-
-        refreshButton.addEventListener('click', () => {
-          void refreshDashboard();
-        });
-
-        void refreshDashboard();
-        setInterval(() => {
-          void refreshDashboard();
-        }, 30000);
-      }
-
-      void init();
+      refreshButton.addEventListener('click', function() { void refreshDashboard(); });
+      void refreshDashboard();
+      setInterval(function() { void refreshDashboard(); }, 30000);
     })();
   </script>
 </body>

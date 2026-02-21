@@ -16,7 +16,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync } from "node:fs";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -43,6 +43,9 @@ const REPORT_RELATIVE_PATH = ".claude/cpo-report.md";
 /** Per-job report directory to prevent concurrent-completion races. */
 const REPORT_ARCHIVE_DIR = ".claude/job-reports";
 
+/** Directory where per-job tmux pipe-pane log files are written. */
+const JOB_LOG_DIR = "/tmp/zazig-job-logs";
+
 // ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
@@ -57,6 +60,10 @@ interface ActiveJob {
   settled: boolean;
   /** Timestamp (ms) when the job started executing — used for progress estimation. */
   startedAt: number;
+  /** Absolute path to the pipe-pane log file for this job. */
+  logPath: string;
+  /** Byte offset of the last chunk sent to raw_log — enables append-only writes. */
+  lastBytesSent: number;
 }
 
 /** Callback type for sending AgentMessage back to the orchestrator channel. */
@@ -153,7 +160,17 @@ export class JobExecutor {
 
     console.log(`[executor] Tmux session started — session=${sessionName}, cmd=${cmd}`);
 
-    // --- 6b. Open terminal window for the session (dev/testing) ---
+    // --- 6b. Start pipe-pane to stream session output to a log file ---
+    const logPath = jobLogPath(jobId);
+    try {
+      mkdirSync(JOB_LOG_DIR, { recursive: true });
+      await startPipePane(sessionName, logPath);
+    } catch (err) {
+      // Pipe-pane failure is non-fatal — logs simply won't be captured
+      console.warn(`[executor] pipe-pane start failed for jobId=${jobId}: ${String(err)}`);
+    }
+
+    // --- 6c. Open terminal window for the session (dev/testing) ---
     if (process.env["ZAZIG_OPEN_SESSIONS"]) {
       execFile("bash", ["-c", `ghostty -e bash -c 'tmux attach -t ${sessionName}'`], (err) => {
         if (err) console.warn(`[executor] Could not open Ghostty window: ${err.message}`);
@@ -172,6 +189,8 @@ export class JobExecutor {
       timeoutTimer: null,
       settled: false,
       startedAt: Date.now(),
+      logPath,
+      lastBytesSent: 0,
     };
     this.activeJobs.set(jobId, activeJob);
 
@@ -209,6 +228,21 @@ export class JobExecutor {
     // Kill the tmux session (best-effort)
     await killTmuxSession(job.sessionName);
 
+    // Final log flush before cleanup
+    const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+    if (logChunk !== null) {
+      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
+        job_id: jobId,
+        chunk: logChunk.chunk,
+      });
+      if (appendErr) {
+        console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+
+    // Clean up log file
+    deleteLogFile(job.logPath);
+
     // Release the slot
     this.slots.release(job.slotType);
 
@@ -229,12 +263,28 @@ export class JobExecutor {
       // Write time-based progress estimate (linear over JOB_TIMEOUT_MS, capped at 95)
       const elapsedMs = Date.now() - job.startedAt;
       const progress = Math.min(95, Math.floor((elapsedMs / JOB_TIMEOUT_MS) * 100));
+
+      // Update progress estimate
       const { error: progressErr } = await this.supabase
         .from("jobs")
         .update({ progress })
         .eq("id", jobId);
       if (progressErr) {
         console.warn(`[executor] Progress write failed for jobId=${jobId}: ${progressErr.message}`);
+      }
+
+      // Append any new log bytes since the last poll (append-only — avoids resending full log)
+      const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+      if (logChunk !== null) {
+        const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
+          job_id: jobId,
+          chunk: logChunk.chunk,
+        });
+        if (appendErr) {
+          console.warn(`[executor] Log append failed for jobId=${jobId}: ${appendErr.message}`);
+        } else {
+          job.lastBytesSent = logChunk.newOffset;
+        }
       }
       console.log(`[executor] Job still running — jobId=${jobId}, session=${job.sessionName}, progress=${progress}`);
       return;
@@ -261,6 +311,20 @@ export class JobExecutor {
     this.activeJobs.delete(jobId);
 
     await killTmuxSession(job.sessionName);
+
+    // Final log flush before marking failed
+    const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+    if (logChunk !== null) {
+      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
+        job_id: jobId,
+        chunk: logChunk.chunk,
+      });
+      if (appendErr) {
+        console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+    deleteLogFile(job.logPath);
+
     this.slots.release(job.slotType);
     await this.sendJobFailed(jobId, "Job exceeded 60-minute timeout", "timeout");
   }
@@ -299,6 +363,19 @@ export class JobExecutor {
       // rename failed → no report file, or another job already claimed it
       console.log(`[executor] No report file for jobId=${jobId}, using default result`);
     }
+
+    // Final log flush — capture anything written after the last poll tick
+    const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+    if (logChunk !== null) {
+      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
+        job_id: jobId,
+        chunk: logChunk.chunk,
+      });
+      if (appendErr) {
+        console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+    deleteLogFile(job.logPath);
 
     await this.sendJobComplete(jobId, result, report);
 
@@ -657,6 +734,64 @@ export async function spawnPersistentCpoSession(machineId: string): Promise<stri
 
   console.log(`[executor] Spawned persistent CPO session: ${sessionName}`);
   return sessionName;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Job log capture (tmux pipe-pane)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the absolute path to the pipe-pane log file for a given job.
+ */
+function jobLogPath(jobId: string): string {
+  return `${JOB_LOG_DIR}/${jobId}.log`;
+}
+
+/**
+ * Starts piping the tmux pane's output to a log file via pipe-pane.
+ * The pane writes its stdout to the log file on each flush.
+ * Call once after the session is created; the pipe runs until the session ends.
+ */
+async function startPipePane(sessionName: string, logPath: string): Promise<void> {
+  // pipe-pane feeds pane output into the given command via stdin.
+  // Using `cat >>` appends all output as it arrives.
+  // Single-quote the path — jobId is a UUID so this is safe.
+  await execFileAsync("tmux", [
+    "pipe-pane",
+    "-t", sessionName,
+    `cat >> '${logPath}'`,
+  ]);
+}
+
+/**
+ * Reads new bytes from the pipe-pane log file starting at `offsetBytes`,
+ * strips ANSI escape codes, and returns the cleaned chunk plus the new
+ * total file size (to be stored as `lastBytesSent`).
+ * Returns null if the file has no new content at or beyond the offset.
+ */
+function readLogFileFrom(logPath: string, offsetBytes: number): { chunk: string; newOffset: number } | null {
+  try {
+    const buf = readFileSync(logPath);
+    if (buf.length <= offsetBytes) return null;
+    const raw = buf.subarray(offsetBytes).toString("utf8");
+    // Strip ANSI: CSI sequences, OSC sequences, charset designators, and lone ESCs
+    const clean = raw.replace(/\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07]*\x07|[()#][A-Za-z0-9]|.)/g, "");
+    if (!clean) return null;
+    return { chunk: clean, newOffset: buf.length };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Deletes the job log file. Best-effort — errors are silently ignored.
+ */
+function deleteLogFile(logPath: string): void {
+  try {
+    rmSync(logPath);
+  } catch {
+    // File may not exist or already deleted
+  }
 }
 
 // ---------------------------------------------------------------------------

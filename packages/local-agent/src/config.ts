@@ -108,8 +108,8 @@ export function loadConfig(): MachineConfig {
   const parsedCpo = (parsed as any).cpo;
   let cpo: CpoConfig | undefined;
   if (parsedCpo?.enabled === true) {
-    const botToken = process.env["CPO_SLACK_BOT_TOKEN"] ?? parsedCpo?.slack?.bot_token;
-    const appToken = process.env["CPO_SLACK_APP_TOKEN"] ?? parsedCpo?.slack?.app_token;
+    const botToken = process.env["CPO_SLACK_BOT_TOKEN"];
+    const appToken = process.env["CPO_SLACK_APP_TOKEN"];
     if (!botToken) {
       throw new Error("cpo.enabled=true but CPO_SLACK_BOT_TOKEN is not set");
     }

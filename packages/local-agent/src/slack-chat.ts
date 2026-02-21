@@ -50,6 +50,13 @@ export class SlackChatRouter {
   private readonly allowedChannels: Set<string>;
   private readonly queue: QueuedMessage[] = [];
   private processing = false;
+  /**
+   * Deduplicates concurrent `message` + `app_mention` events for the same
+   * Slack message — both carry the same event.ts. Bounded to prevent unbounded
+   * growth in long-running processes.
+   */
+  private readonly seenTs: Set<string> = new Set();
+  private static readonly MAX_SEEN_TS = 2000;
 
   constructor(config: CpoSlackConfig, sessionName: string) {
     this.sessionName = sessionName;
@@ -106,8 +113,12 @@ export class SlackChatRouter {
 
       const channelRef = isDm ? "DM" : `#${event.channel}`;
       const threadTs = (event.thread_ts ?? event.ts) as string;
+      const eventTs = event.ts as string;
       const text = String(event.text ?? "").trim();
       if (!text) return;
+
+      // Deduplicate: app_mention + message fire for the same @mention in a channel
+      if (this.markSeen(eventTs)) return;
 
       const formatted = formatMessage(event.user as string, channelRef, threadTs, text);
       console.log(`[slack-chat] Queuing message from @${event.user} in ${channelRef}`);
@@ -119,11 +130,18 @@ export class SlackChatRouter {
     this.app.event("app_mention", async ({ event }: { event: any }) => {
       if (!event.user) return;
 
+      // Only process @mentions from allowed channels (same list as message handler)
+      if (!this.allowedChannels.has(event.channel as string)) return;
+
       const channelRef = `#${event.channel}`;
       const threadTs = (event.thread_ts ?? event.ts) as string;
+      const eventTs = event.ts as string;
       // Strip the bot mention token(s) from the text
       const text = String(event.text ?? "").replace(/<@[A-Z0-9]+>/g, "").trim();
       if (!text) return;
+
+      // Deduplicate: app_mention + message fire for the same @mention in a channel
+      if (this.markSeen(eventTs)) return;
 
       console.log(`[slack-chat] Queuing @mention from @${event.user} in ${channelRef}`);
       const formatted = formatMessage(event.user as string, channelRef, threadTs, text);
@@ -169,22 +187,30 @@ export class SlackChatRouter {
     const POLL_INTERVAL_MS = 5_000;
     const deadline = Date.now() + MAX_WAIT_MS;
 
+    let idle = false;
     while (Date.now() < deadline) {
-      if (await this.isCpoIdle()) break;
+      if (await this.isCpoIdle()) {
+        idle = true;
+        break;
+      }
       console.log(`[slack-chat] CPO busy — waiting ${POLL_INTERVAL_MS / 1000}s before retry`);
       await sleep(POLL_INTERVAL_MS);
+    }
+
+    if (!idle) {
+      console.warn(`[slack-chat] CPO still busy after ${MAX_WAIT_MS / 60_000} min — dropping message`);
+      return;
     }
 
     // Normalise newlines so multi-line messages don't send prematurely.
     // tmux send-keys treats literal \n as Enter — collapse to a space.
     const singleLine = message.replace(/\r?\n/g, " ");
 
-    await execFileAsync("tmux", [
-      "send-keys",
-      "-t", this.sessionName,
-      singleLine,
-      "Enter",
-    ]);
+    // Use -l (literal) flag so control sequences in the message text are not
+    // interpreted as keystrokes (e.g. \x1b would trigger Escape without -l).
+    // Send Enter as a separate keystroke so it is properly translated.
+    await execFileAsync("tmux", ["send-keys", "-t", this.sessionName, "-l", singleLine]);
+    await execFileAsync("tmux", ["send-keys", "-t", this.sessionName, "Enter"]);
 
     console.log(`[slack-chat] Injected message into session=${this.sessionName}`);
   }
@@ -218,6 +244,21 @@ export class SlackChatRouter {
       // Session doesn't exist yet or tmux error — not idle
       return false;
     }
+  }
+
+  /**
+   * Records an event timestamp as seen. Returns true if already seen (duplicate),
+   * false if new (caller should process). Bounded to MAX_SEEN_TS entries.
+   */
+  private markSeen(ts: string): boolean {
+    if (this.seenTs.has(ts)) return true;
+    if (this.seenTs.size >= SlackChatRouter.MAX_SEEN_TS) {
+      // Evict oldest entry (insertion order)
+      const oldest = this.seenTs.values().next().value as string;
+      this.seenTs.delete(oldest);
+    }
+    this.seenTs.add(ts);
+    return false;
   }
 }
 

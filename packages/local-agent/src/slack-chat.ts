@@ -17,7 +17,6 @@
 import { App } from "@slack/bolt";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { CpoSlackConfig } from "./config.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -58,13 +57,13 @@ export class SlackChatRouter {
   private readonly seenTs: Set<string> = new Set();
   private static readonly MAX_SEEN_TS = 2000;
 
-  constructor(config: CpoSlackConfig, sessionName: string) {
+  constructor(botToken: string, appToken: string, channels: string[], sessionName: string) {
     this.sessionName = sessionName;
-    this.allowedChannels = new Set(config.channels);
+    this.allowedChannels = new Set(channels);
 
     this.app = new App({
-      token: config.bot_token,
-      appToken: config.app_token,
+      token: botToken,
+      appToken: appToken,
       socketMode: true,
       // Silence built-in logger — we use our own console.log
       logger: {

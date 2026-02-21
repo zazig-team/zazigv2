@@ -22,20 +22,6 @@ export interface SupabaseConfig {
   service_role_key?: string;
 }
 
-export interface CpoSlackConfig {
-  /** CPO bot user OAuth token (xoxb-...). Loaded from CPO_SLACK_BOT_TOKEN env var. */
-  bot_token: string;
-  /** Socket Mode app-level token (xapp-...). Loaded from CPO_SLACK_APP_TOKEN env var. */
-  app_token: string;
-  /** Channel IDs the CPO listens to for @mentions. DMs are always accepted. */
-  channels: string[];
-}
-
-export interface CpoConfig {
-  enabled: boolean;
-  slack: CpoSlackConfig;
-}
-
 export interface MachineConfig {
   /** Stable machine identifier — used as the machineId in heartbeats and the Realtime channel name. */
   name: string;
@@ -43,19 +29,9 @@ export interface MachineConfig {
   company_id: string;
   slots: SlotConfig;
   supabase: SupabaseConfig;
-  /** Optional CPO Slack chat configuration. CPO spawning and chat routing only active when enabled. */
-  cpo?: CpoConfig;
 }
 
 const CONFIG_PATH = join(homedir(), ".zazigv2", "machine.yaml");
-
-function requireEnv(name: string): string {
-  const val = process.env[name];
-  if (!val) {
-    throw new Error(`Required environment variable ${name} is not set`);
-  }
-  return val;
-}
 
 export function loadConfig(): MachineConfig {
   let raw: string;
@@ -103,29 +79,6 @@ export function loadConfig(): MachineConfig {
   // Service-role key: optional, from env var. Used for direct DB writes (bypasses RLS).
   const serviceRoleKey = process.env["SUPABASE_SERVICE_ROLE_KEY"];
 
-  // CPO config: optional section. Tokens always come from env vars (never yaml).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const parsedCpo = (parsed as any).cpo;
-  let cpo: CpoConfig | undefined;
-  if (parsedCpo?.enabled === true) {
-    const botToken = process.env["CPO_SLACK_BOT_TOKEN"];
-    const appToken = process.env["CPO_SLACK_APP_TOKEN"];
-    if (!botToken) {
-      throw new Error("cpo.enabled=true but CPO_SLACK_BOT_TOKEN is not set");
-    }
-    if (!appToken) {
-      throw new Error("cpo.enabled=true but CPO_SLACK_APP_TOKEN is not set");
-    }
-    cpo = {
-      enabled: true,
-      slack: {
-        bot_token: botToken,
-        app_token: appToken,
-        channels: Array.isArray(parsedCpo?.slack?.channels) ? parsedCpo.slack.channels : [],
-      },
-    };
-  }
-
   return {
     name: parsed.name,
     company_id: parsed.company_id,
@@ -135,6 +88,5 @@ export function loadConfig(): MachineConfig {
       anon_key: anonKey,
       ...(serviceRoleKey ? { service_role_key: serviceRoleKey } : {}),
     },
-    ...(cpo ? { cpo } : {}),
   };
 }

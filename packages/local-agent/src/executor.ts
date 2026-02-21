@@ -24,6 +24,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType } from "@zazigv2/shared";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
+import { SlackChatRouter } from "./slack-chat.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -78,6 +79,7 @@ export type AfterJobCompleteFn = (jobId: string) => Promise<void>;
 
 export class JobExecutor {
   private readonly machineId: string;
+  private readonly companyId: string;
   private readonly slots: SlotTracker;
   private readonly send: SendFn;
   private readonly supabase: SupabaseClient;
@@ -86,14 +88,21 @@ export class JobExecutor {
   /** Map of jobId → active job state. */
   private readonly activeJobs = new Map<string, ActiveJob>();
 
+  /** SlackChatRouter for the active CPO persistent agent job, if any. */
+  private cpoRouter: SlackChatRouter | null = null;
+  /** jobId of the active CPO persistent agent job, if any. */
+  private cpoJobId: string | null = null;
+
   constructor(
     machineId: string,
+    companyId: string,
     slots: SlotTracker,
     send: SendFn,
     supabase: SupabaseClient,
     afterJobComplete?: AfterJobCompleteFn,
   ) {
     this.machineId = machineId;
+    this.companyId = companyId;
     this.slots = slots;
     this.send = send;
     this.supabase = supabase;
@@ -123,6 +132,12 @@ export class JobExecutor {
 
     // --- 2. Send JobAck immediately to confirm delivery ---
     await this.sendJobAck(jobId);
+
+    // --- 2b. Persistent agent (CPO) — separate lifecycle from regular jobs ---
+    if (msg.role === "cpo") {
+      await this.handleStartCpo(jobId, slotType);
+      return;
+    }
 
     // --- 3. Resolve context (inline or remote ref) ---
     let taskContext: string;
@@ -208,6 +223,117 @@ export class JobExecutor {
   // ---------------------------------------------------------------------------
   // Public: StopJob
   // ---------------------------------------------------------------------------
+  // Public: Graceful shutdown
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Stops all active jobs and the CPO Slack router (if running).
+   * Called by the process shutdown handler before disconnecting from Supabase.
+   */
+  async stopAll(): Promise<void> {
+    // Stop CPO Slack router first (Socket Mode disconnect)
+    if (this.cpoRouter) {
+      try { await this.cpoRouter.stop(); } catch (err) {
+        console.warn(`[executor] CPO router stop error during shutdown: ${String(err)}`);
+      }
+      this.cpoRouter = null;
+      this.cpoJobId = null;
+    }
+
+    // Kill all remaining active tmux sessions and release slots
+    for (const [, job] of this.activeJobs) {
+      this.clearJobTimers(job);
+      await killTmuxSession(job.sessionName);
+      this.slots.release(job.slotType);
+    }
+    this.activeJobs.clear();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: CPO persistent agent
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Handles a start_job for the CPO persistent agent (role === "cpo").
+   *
+   * Unlike regular jobs the CPO session:
+   *   - Runs Claude Code in interactive TUI mode (not -p print mode)
+   *   - Has no poll/timeout timers — it runs indefinitely until StopJob
+   *   - Has a SlackChatRouter that injects DMs/@mentions from Slack
+   *
+   * The session is tracked in activeJobs so StopJob can clean it up.
+   * Slack channels are fetched from companies.slack_channels at spawn time.
+   */
+  private async handleStartCpo(jobId: string, slotType: SlotType): Promise<void> {
+    // Fetch slack_channels from companies table
+    let channels: string[] = [];
+    const { data: companyRows, error: companyErr } = await this.supabase
+      .from("companies")
+      .select("slack_channels")
+      .eq("id", this.companyId)
+      .limit(1);
+    if (companyErr) {
+      console.warn(`[executor] CPO: failed to fetch slack_channels — ${companyErr.message}. Defaulting to no channels.`);
+    } else if (companyRows && companyRows.length > 0) {
+      const raw = companyRows[0]?.slack_channels;
+      channels = Array.isArray(raw) ? (raw as string[]) : [];
+    }
+
+    // Spawn the persistent CPO tmux session
+    let sessionName: string;
+    try {
+      sessionName = await spawnPersistentCpoSession(this.machineId);
+    } catch (err) {
+      console.error(`[executor] CPO: failed to spawn tmux session:`, err);
+      this.slots.release(slotType);
+      await this.sendJobFailed(jobId, `Failed to start CPO session: ${String(err)}`, "agent_crash");
+      return;
+    }
+
+    // Start Slack Socket Mode listener
+    const botToken = process.env["CPO_SLACK_BOT_TOKEN"];
+    const appToken = process.env["CPO_SLACK_APP_TOKEN"];
+    if (!botToken || !appToken) {
+      console.error("[executor] CPO: CPO_SLACK_BOT_TOKEN or CPO_SLACK_APP_TOKEN not set — stopping CPO job");
+      await killTmuxSession(sessionName);
+      this.slots.release(slotType);
+      await this.sendJobFailed(jobId, "CPO_SLACK_BOT_TOKEN or CPO_SLACK_APP_TOKEN not set", "agent_crash");
+      return;
+    }
+
+    const router = new SlackChatRouter(botToken, appToken, channels, sessionName);
+    try {
+      await router.start();
+    } catch (err) {
+      console.error(`[executor] CPO: Slack router failed to start:`, err);
+      await killTmuxSession(sessionName);
+      this.slots.release(slotType);
+      await this.sendJobFailed(jobId, `CPO Slack router failed to start: ${String(err)}`, "agent_crash");
+      return;
+    }
+
+    // Store router reference so StopJob can stop it
+    this.cpoRouter = router;
+    this.cpoJobId = jobId;
+
+    // Track in activeJobs (no poll/timeout timers — CPO runs indefinitely)
+    this.activeJobs.set(jobId, {
+      jobId,
+      slotType,
+      sessionName,
+      pollTimer: null,
+      timeoutTimer: null,
+      settled: false,
+      startedAt: Date.now(),
+      logPath: "",  // CPO log captured separately via Slack router / not pipe-paned
+      lastBytesSent: 0,
+    });
+
+    await this.sendJobStatus(jobId, "executing");
+    console.log(`[executor] CPO session=${sessionName} ready — channels=${channels.length}, jobId=${jobId}`);
+  }
+
+  // ---------------------------------------------------------------------------
 
   async handleStopJob(msg: StopJob): Promise<void> {
     const { jobId, reason } = msg;
@@ -224,6 +350,15 @@ export class JobExecutor {
     job.settled = true;
     this.clearJobTimers(job);
     this.activeJobs.delete(jobId);
+
+    // Stop CPO Slack router if this is the CPO job
+    if (jobId === this.cpoJobId && this.cpoRouter) {
+      try { await this.cpoRouter.stop(); } catch (err) {
+        console.warn(`[executor] CPO router stop error: ${String(err)}`);
+      }
+      this.cpoRouter = null;
+      this.cpoJobId = null;
+    }
 
     // Kill the tmux session (best-effort)
     await killTmuxSession(job.sessionName);
@@ -310,6 +445,13 @@ export class JobExecutor {
     this.clearJobTimers(job);
     this.activeJobs.delete(jobId);
 
+    // Stop CPO router if this is the CPO job (should not time out, but handle defensively)
+    if (jobId === this.cpoJobId && this.cpoRouter) {
+      try { await this.cpoRouter.stop(); } catch { /* best-effort */ }
+      this.cpoRouter = null;
+      this.cpoJobId = null;
+    }
+
     await killTmuxSession(job.sessionName);
 
     // Final log flush before marking failed
@@ -341,6 +483,13 @@ export class JobExecutor {
     this.clearJobTimers(job);
     this.activeJobs.delete(jobId);
     this.slots.release(job.slotType);
+
+    // Stop CPO router if the CPO session exited unexpectedly
+    if (jobId === this.cpoJobId && this.cpoRouter) {
+      try { await this.cpoRouter.stop(); } catch { /* best-effort */ }
+      this.cpoRouter = null;
+      this.cpoJobId = null;
+    }
 
     // Atomically claim the shared report file by renaming it to a per-job path.
     // If two jobs finish simultaneously, only one rename succeeds — the other

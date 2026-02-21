@@ -118,6 +118,7 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`[local-agent] Received ${signal}, shutting down gracefully...`);
+    await executor.stopAll();
     await conn.stop();
     process.exit(0);
   };

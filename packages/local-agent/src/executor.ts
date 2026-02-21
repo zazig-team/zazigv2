@@ -223,6 +223,33 @@ export class JobExecutor {
   // ---------------------------------------------------------------------------
   // Public: StopJob
   // ---------------------------------------------------------------------------
+  // Public: Graceful shutdown
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Stops all active jobs and the CPO Slack router (if running).
+   * Called by the process shutdown handler before disconnecting from Supabase.
+   */
+  async stopAll(): Promise<void> {
+    // Stop CPO Slack router first (Socket Mode disconnect)
+    if (this.cpoRouter) {
+      try { await this.cpoRouter.stop(); } catch (err) {
+        console.warn(`[executor] CPO router stop error during shutdown: ${String(err)}`);
+      }
+      this.cpoRouter = null;
+      this.cpoJobId = null;
+    }
+
+    // Kill all remaining active tmux sessions and release slots
+    for (const [, job] of this.activeJobs) {
+      this.clearJobTimers(job);
+      await killTmuxSession(job.sessionName);
+      this.slots.release(job.slotType);
+    }
+    this.activeJobs.clear();
+  }
+
+  // ---------------------------------------------------------------------------
   // Private: CPO persistent agent
   // ---------------------------------------------------------------------------
 

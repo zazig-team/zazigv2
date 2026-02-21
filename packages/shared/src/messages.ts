@@ -122,6 +122,18 @@ export interface StartJob {
    * Must not exceed MAX_PERSONALITY_PROMPT_BYTES when present.
    */
   personalityPrompt?: string;
+  /**
+   * Operational role prompt from roles.prompt — defines the agent's scope and output contract.
+   * Injected after personalityPrompt and before skill content in the 4-layer context stack.
+   * Optional; omit for codex slot_type jobs.
+   */
+  rolePrompt?: string;
+  /**
+   * Skill names from roles.skills — executor loads ~/.claude/skills/{name}/SKILL.md for each.
+   * Injected after rolePrompt and before task context in the 4-layer context stack.
+   * Optional; omit for codex slot_type jobs or roles with no skills.
+   */
+  roleSkills?: string[];
 }
 
 /**

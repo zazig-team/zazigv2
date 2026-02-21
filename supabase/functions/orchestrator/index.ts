@@ -465,6 +465,22 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     const slotUpdate = { [slotColumn]: currentSlots - 1 };
     Object.assign(candidate, slotUpdate);
 
+    // Fetch role prompt + skills for non-codex jobs that have a named role.
+    // These populate the 4-layer context stack: personality → role → skills → task.
+    let rolePrompt: string | undefined;
+    let roleSkills: string[] | undefined;
+    if (job.role && slotType !== "codex") {
+      const { data: roleRow } = await supabase
+        .from("roles")
+        .select("prompt, skills")
+        .eq("name", job.role)
+        .single();
+      if (roleRow) {
+        rolePrompt = (roleRow as { prompt: string | null; skills: string[] | null }).prompt ?? undefined;
+        roleSkills = (roleRow as { prompt: string | null; skills: string[] | null }).skills ?? undefined;
+      }
+    }
+
     // Build the StartJob message.
     const startJobMsg: StartJob = {
       type: "start_job",
@@ -478,6 +494,9 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       context: job.context ?? undefined,
       // Include role for role-based jobs (persistent agents, specialized reviewers)
       ...(job.role ? { role: job.role } : {}),
+      // Role prompt + skills for 4-layer context assembly (non-codex only)
+      ...(rolePrompt ? { rolePrompt } : {}),
+      ...(roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),
     };
 
     // Broadcast StartJob via Supabase Realtime on the machine's command channel.

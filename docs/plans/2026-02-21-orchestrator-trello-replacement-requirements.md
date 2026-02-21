@@ -1,8 +1,9 @@
 # Orchestrator Task System: Requirements from Trello Audit
 
-**Date:** 2026-02-19
+**Date:** 2026-02-21 (updated; originally 2026-02-19)
 **Author:** Tom + Claude (audit session)
 **Status:** Draft — input for orchestrator design
+**See also:** `2026-02-21-card-lifecycle-process.md` — process gaps that extend these requirements
 **Context:** Full audit of current Trello usage across all agents, automated tools, and skills. Cross-referenced against compute architecture design and product vision.
 
 ---
@@ -239,6 +240,45 @@ TaskEvent:
 - Human-readable content for founder-facing reporting
 - Queryable: "all events on task X by role `cto`"
 - The gate classification pattern should use `structured_data` rather than parsing comment text
+
+**Required event types (from process audit, 2026-02-21):**
+
+The activity log must support two specific event types that are currently missing from the Trello-based system:
+
+**1. Completion event** (Gap 7: per-card audit trail)
+
+When VP-Eng moves a task to Review, it must post a structured completion event. Without this, Done tasks have no record of what happened. Required fields:
+
+```
+TaskEvent (type: "completion"):
+  structured_data:
+    pr_url: str
+    pr_number: int
+    commits: List[str]         # commit hashes or descriptions
+    test_results: dict         # {pass: N, fail: N, tools: {ruff: pass, mypy: N errors}}
+    qa_findings: List[dict]    # [{severity: critical|high|medium, finding: str}]
+    recommendation: str        # "merge" | "merge-with-followup" | "hold"
+    followup_cards: List[str]  # IDs of any follow-up tasks created
+  content: str                 # human-readable summary (rendered in UI / Trello comment)
+```
+
+This is the structured equivalent of the manually-written completion comments visible on pre-migration cards (e.g. "✅ COMPLETE — PR #1 created ... 19/19 passing ... Code Review (4 agents): ..."). Without this, a Done task is an empty record.
+
+**2. Batch completion event** (Gap 8: feature-level narrative)
+
+When all tasks derived from a single source document (`.cards.md`) are Done, the orchestrator (or a CPO subagent) must emit a batch completion event at the source-document level — not per-task. This is the "what did we build?" question that has no answer in the current system.
+
+```
+BatchCompletion:
+  source_doc: str              # path to the originating .md or .cards.md
+  task_ids: List[str]          # all tasks in the batch
+  pr_urls: List[str]
+  completed_at: datetime
+  narrative: str               # plain English: before state, after state, what this unlocks
+  known_gaps: List[str]        # issues noted during execution, with follow-up task IDs
+```
+
+The narrative is written in plain English for the founder — not implementation detail. It answers: "what can the system do now that it couldn't before?" This maps to a `## Completion` section appended to the `.cards.md` file in the interim Trello-based system.
 
 ---
 

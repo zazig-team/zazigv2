@@ -696,17 +696,29 @@
             const company = await resolveCompany(slug);
 
             if (!company) {
-              dashboardEl.innerHTML = '<div class="empty-state">Company not found: ' + slug + '</div>';
+              const emptyDiv = document.createElement('div');
+              emptyDiv.className = 'empty-state';
+              emptyDiv.textContent = 'Company not found: ' + slug;
+              dashboardEl.replaceChildren(emptyDiv);
               setMessage('No company with slug "' + slug + '"', true);
               refreshButton.disabled = true;
               return;
             }
 
             activeCompanyId = company.id;
-            titleEl.innerHTML = 'Pipeline \u2014 <span class="company-tag">' + company.name + '</span>';
+            titleEl.textContent = '';
+            const pipelineText = document.createTextNode('Pipeline \u2014 ');
+            const tag = document.createElement('span');
+            tag.className = 'company-tag';
+            tag.textContent = company.name;
+            titleEl.appendChild(pipelineText);
+            titleEl.appendChild(tag);
             document.title = 'Pipeline \u2014 ' + company.name;
           } catch (error) {
-            setMessage('Failed to resolve company \u2014 retrying in 30s', true);
+            // Block all data loading — user sees the error but not another company's data
+            setMessage('Failed to resolve company \u2014 ' + slug, true);
+            refreshButton.disabled = true;
+            return;
           }
         }
 

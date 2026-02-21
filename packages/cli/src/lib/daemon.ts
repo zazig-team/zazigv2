@@ -16,7 +16,6 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname, resolve } from "node:path";
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const ZAZIGV2_DIR = join(homedir(), ".zazigv2");
@@ -26,13 +25,12 @@ export const LOG_PATH = join(LOG_DIR, "agent.log");
 
 /**
  * Resolve the local-agent's entry point (dist/index.js).
- * Primary: package resolution via createRequire (works when installed as dependency).
- * Fallback: adjacent package path (monorepo dev mode).
+ * Primary: import.meta.resolve (ESM-aware, correct for "type":"module" packages).
+ * Fallback: adjacent package path (monorepo dev mode, no node_modules installed).
  */
 function resolveAgentEntry(): string {
   try {
-    const req = createRequire(import.meta.url);
-    return req.resolve("@zazigv2/local-agent");
+    return fileURLToPath(import.meta.resolve("@zazigv2/local-agent"));
   } catch {
     // Dev fallback: CLI is at packages/cli/dist/index.js,
     // local-agent is at packages/local-agent/dist/index.js

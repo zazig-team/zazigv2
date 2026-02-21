@@ -50,6 +50,17 @@ export async function status(): Promise<void> {
   };
 
   try {
+    // Company name
+    const companies = await apiFetch(
+      `${creds.supabaseUrl}/rest/v1/companies` +
+        `?select=name` +
+        `&id=eq.${encodeURIComponent(cfg.company_id)}` +
+        `&limit=1`,
+      headers
+    );
+    const companyName =
+      companies.length > 0 ? String(companies[0]!.name ?? cfg.company_id) : cfg.company_id;
+
     // Machine row
     const machines = await apiFetch(
       `${creds.supabaseUrl}/rest/v1/machines` +
@@ -70,9 +81,8 @@ export async function status(): Promise<void> {
     const connIcon = connStatus === "online" ? "●" : "○";
 
     console.log(`  Connection:     ${connIcon} ${connStatus}`);
+    console.log(`  Company:        ${companyName}`);
     console.log(`  Machine:        ${String(m.name ?? cfg.name)}`);
-    console.log(`  Claude slots:   ${String(m.slots_claude_code ?? cfg.slots.claude_code)}`);
-    console.log(`  Codex slots:    ${String(m.slots_codex ?? cfg.slots.codex)}`);
 
     if (typeof m.last_heartbeat === "string") {
       const ageSec = Math.round(
@@ -81,18 +91,26 @@ export async function status(): Promise<void> {
       console.log(`  Last heartbeat: ${ageSec}s ago`);
     }
 
-    // Active jobs on this machine
+    // Active jobs — include slot_type for per-type usage counts
     const machineId = String(m.id ?? "");
     if (machineId) {
       const jobs = await apiFetch(
         `${creds.supabaseUrl}/rest/v1/jobs` +
-          `?select=id,status,context` +
+          `?select=id,status,context,slot_type` +
           `&machine_id=eq.${encodeURIComponent(machineId)}` +
           `&status=in.(queued,dispatched,executing,reviewing)`,
         headers
       );
 
+      const claudeActive = jobs.filter((j) => j.slot_type === "claude_code").length;
+      const codexActive = jobs.filter((j) => j.slot_type === "codex").length;
+      const claudeSlots = Number(m.slots_claude_code ?? cfg.slots.claude_code);
+      const codexSlots = Number(m.slots_codex ?? cfg.slots.codex);
+
+      console.log(`  Claude slots:   ${claudeActive}/${claudeSlots}`);
+      console.log(`  Codex slots:    ${codexActive}/${codexSlots}`);
       console.log(`  Active jobs:    ${jobs.length}`);
+
       for (const job of jobs) {
         const ctx =
           typeof job.context === "string"

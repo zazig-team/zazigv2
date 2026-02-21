@@ -105,6 +105,11 @@
       color: var(--text);
     }
 
+    .company-tag {
+      color: var(--col-testing);
+      margin-left: 4px;
+    }
+
     .controls {
       display: flex;
       align-items: center;
@@ -302,6 +307,18 @@
       background: var(--surface-raised);
       border: 1px solid var(--border-subtle);
       border-radius: 7px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .job-row:hover {
+      border-color: #2a3038;
+      background: #1a1e24;
+    }
+
+    .job-row:focus-visible {
+      outline: 2px solid var(--col-testing);
+      outline-offset: 1px;
     }
 
     .job-header {
@@ -413,6 +430,171 @@
       padding: 40px;
     }
 
+    /* ── Job Detail Panel (bottom sheet) ───────── */
+
+    .detail-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 100;
+      display: flex;
+      align-items: flex-end;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+
+    .detail-overlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .detail-panel {
+      width: 100%;
+      max-height: 70vh;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-radius: 16px 16px 0 0;
+      display: flex;
+      flex-direction: column;
+      transform: translateY(100%);
+      transition: transform 0.25s ease;
+    }
+
+    .detail-overlay.open .detail-panel {
+      transform: translateY(0);
+    }
+
+    .detail-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      gap: 12px;
+    }
+
+    .detail-title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .detail-live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: var(--col-building);
+      box-shadow: 0 0 6px rgba(232, 168, 56, 0.5);
+      animation: dot-pulse 2s ease-in-out infinite;
+    }
+
+    .detail-live-dot.terminal {
+      background: var(--col-done);
+      box-shadow: none;
+      animation: none;
+    }
+
+    .detail-live-dot.failed {
+      background: #ef4444;
+      box-shadow: none;
+      animation: none;
+    }
+
+    .detail-job-id {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .detail-status-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.62rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 7px;
+      flex-shrink: 0;
+    }
+
+    .detail-close {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .detail-close:hover {
+      color: var(--text);
+      border-color: #2e343b;
+      background: #1c2127;
+    }
+
+    .detail-context {
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--border-subtle);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex-shrink: 0;
+    }
+
+    .detail-log-wrap {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 18px;
+      min-height: 0;
+    }
+
+    .detail-log-wrap::-webkit-scrollbar { width: 4px; }
+    .detail-log-wrap::-webkit-scrollbar-track { background: transparent; }
+    .detail-log-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .detail-log {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .detail-log.empty {
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    .detail-footer {
+      padding: 8px 18px 10px;
+      border-top: 1px solid var(--border-subtle);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
     /* ── Responsive ────────────────────────────── */
 
     @media (max-width: 900px) {
@@ -438,7 +620,7 @@
     <header class="topbar">
       <div class="topbar-left">
         <div class="logo"></div>
-        <h1>Pipeline</h1>
+        <h1 id="boardTitle">Pipeline</h1>
       </div>
       <div class="controls">
         <span id="lastUpdated" class="last-updated"></span>
@@ -450,37 +632,100 @@
     <main id="dashboard" class="board" aria-live="polite"></main>
   </div>
 
+  <!-- Job detail bottom sheet -->
+  <div id="detailOverlay" class="detail-overlay" role="dialog" aria-modal="true" aria-label="Job detail">
+    <div class="detail-panel">
+      <div class="detail-header">
+        <div class="detail-title-group">
+          <div id="detailLiveDot" class="detail-live-dot"></div>
+          <span id="detailJobId" class="detail-job-id"></span>
+          <span id="detailStatus" class="detail-status-badge"></span>
+        </div>
+        <button id="detailClose" class="detail-close" type="button">Close</button>
+      </div>
+      <div id="detailContext" class="detail-context" style="display:none"></div>
+      <div id="detailLogWrap" class="detail-log-wrap">
+        <pre id="detailLog" class="detail-log empty">Loading&#8230;</pre>
+      </div>
+      <div class="detail-footer">
+        <span id="detailFooterText"></span>
+      </div>
+    </div>
+  </div>
+
   <script>
     (() => {
       'use strict';
 
       const SUPABASE_URL = 'https://jmussmwglgbwncgygzbz.supabase.co';
       const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0';
-      const FEATURES_ENDPOINT = SUPABASE_URL + '/rest/v1/features?select=*,jobs(*)&status=not.eq.cancelled&order=created_at.desc';
+
+      const FEATURES_BASE =
+        SUPABASE_URL + '/rest/v1/features?select=*,jobs(*)&status=not.eq.cancelled&order=created_at.desc';
+      const COMPANIES_BASE =
+        SUPABASE_URL + '/rest/v1/companies?select=id,name&limit=1&name=eq.';
+      const JOBS_BASE =
+        SUPABASE_URL + '/rest/v1/jobs?select=id,status,context,raw_log,model,progress&limit=1&id=eq.';
+
+      const AUTH_HEADERS = { apikey: ANON_KEY, Authorization: 'Bearer ' + ANON_KEY };
 
       // Pipeline stage order: left → right
       const COLUMNS = [
-        { key: 'design',    label: 'Design',    color: '#c471ed', bg: 'var(--col-design-bg)' },
-        { key: 'building',  label: 'Building',  color: '#e8a838', bg: 'var(--col-building-bg)' },
-        { key: 'testing',   label: 'Testing',   color: '#4d8fef', bg: 'var(--col-testing-bg)' },
-        { key: 'verifying', label: 'Verifying', color: '#28b5d4', bg: 'var(--col-verifying-bg)' },
-        { key: 'done',      label: 'Done',      color: '#3cbf6e', bg: 'var(--col-done-bg)' },
+        { key: 'design',    label: 'Design',    color: '#c471ed' },
+        { key: 'building',  label: 'Building',  color: '#e8a838' },
+        { key: 'testing',   label: 'Testing',   color: '#4d8fef' },
+        { key: 'verifying', label: 'Verifying', color: '#28b5d4' },
+        { key: 'done',      label: 'Done',      color: '#3cbf6e' },
       ];
 
-      const ACTIVE_JOB_STATUSES = new Set(['queued', 'dispatched', 'executing', 'reviewing']);
+      const ACTIVE_JOB_STATUSES   = new Set(['queued', 'dispatched', 'executing', 'reviewing']);
+      const TERMINAL_JOB_STATUSES = new Set(['complete', 'failed', 'cancelled']);
 
-      const dashboardEl = document.getElementById('dashboard');
-      const messageEl = document.getElementById('message');
+      // Board elements
+      const dashboardEl   = document.getElementById('dashboard');
+      const messageEl     = document.getElementById('message');
       const lastUpdatedEl = document.getElementById('lastUpdated');
       const refreshButton = document.getElementById('refreshButton');
+      const boardTitleEl  = document.getElementById('boardTitle');
 
-      let isFetching = false;
+      // Detail panel elements
+      const detailOverlay   = document.getElementById('detailOverlay');
+      const detailLiveDot   = document.getElementById('detailLiveDot');
+      const detailJobIdEl   = document.getElementById('detailJobId');
+      const detailStatusEl  = document.getElementById('detailStatus');
+      const detailContextEl = document.getElementById('detailContext');
+      const detailLogWrap   = document.getElementById('detailLogWrap');
+      const detailLogEl     = document.getElementById('detailLog');
+      const detailFooterEl  = document.getElementById('detailFooterText');
+      const detailCloseBtn  = document.getElementById('detailClose');
+
+      // State
+      let isFetching      = false;
+      let activeCompanyId = null;   // null = all companies
+      let companyBlocked  = false;  // true if company lookup failed
+
+      let openJobId       = null;   // currently open job ID in detail panel
+      let detailPollTimer = null;
 
       // ── Helpers ──────────────────────────────
 
-      function formatTime(date) {
-        const pad = v => String(v).padStart(2, '0');
-        return pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
+      function el(tag, cls, txt) {
+        var e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (txt != null) e.textContent = txt;
+        return e;
+      }
+
+      function apiFetch(url) {
+        return fetch(url, { headers: AUTH_HEADERS }).then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        });
+      }
+
+      function formatTime(d) {
+        var p = function(v) { return String(v).padStart(2, '0'); };
+        return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
       }
 
       function setMessage(text, isError) {
@@ -488,36 +733,32 @@
         messageEl.className = isError ? 'error' : '';
       }
 
-      function normalizeStatus(status) {
-        return String(status || '').trim().toLowerCase();
+      function normalizeStatus(s) {
+        return String(s || '').trim().toLowerCase();
       }
 
-      function getFeatureName(feature) {
-        if (typeof feature?.name === 'string' && feature.name.trim()) {
-          return feature.name.trim();
+      function getFeatureName(f) {
+        if (typeof f?.name === 'string' && f.name.trim()) return f.name.trim();
+        if (f?.spec != null) {
+          var t = typeof f.spec === 'string' ? f.spec : JSON.stringify(f.spec);
+          var line = t.split(/\r?\n/, 1)[0].trim();
+          if (line) return line;
         }
-        if (feature?.spec != null) {
-          var specText = typeof feature.spec === 'string'
-            ? feature.spec
-            : JSON.stringify(feature.spec);
-          var firstLine = specText.split(/\r?\n/, 1)[0].trim();
-          if (firstLine) return firstLine;
-        }
-        return String(feature?.id ?? 'feature');
+        return String(f?.id ?? 'feature');
       }
 
-      function clampProgress(value) {
-        var n = Number(value);
+      function clampProgress(v) {
+        var n = Number(v);
         return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0;
       }
 
       function getJobSummary(job) {
-        var fallback = String(job?.id ?? 'job');
-        if (job?.context == null) return fallback;
-        var text = typeof job.context === 'string' ? job.context : JSON.stringify(job.context);
-        text = text.replace(/\s+/g, ' ').trim();
-        if (!text) return fallback;
-        return text.length > 50 ? text.slice(0, 47) + '...' : text;
+        var fb = String(job?.id ?? 'job');
+        if (job?.context == null) return fb;
+        var t = typeof job.context === 'string' ? job.context : JSON.stringify(job.context);
+        t = t.replace(/\s+/g, ' ').trim();
+        if (!t) return fb;
+        return t.length > 50 ? t.slice(0, 47) + '\u2026' : t;
       }
 
       function sortJobs(jobs) {
@@ -529,51 +770,79 @@
         });
       }
 
-      function getJobColor(status, colDef) {
+      function jobProgressColor(status, colDef) {
         if (status === 'complete') return 'var(--col-done)';
-        if (status === 'failed') return '#ef4444';
+        if (status === 'failed')   return '#ef4444';
         return colDef.color;
+      }
+
+      function isAtBottom(el) {
+        return el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      }
+
+      // ── Company / URL ────────────────────────
+
+      function getCompanySlug() {
+        var seg = window.location.pathname.replace(/^\/+/, '').replace(/\/+$/, '').split('/')[0];
+        return seg || null;
+      }
+
+      async function resolveCompany(slug) {
+        var rows = await apiFetch(COMPANIES_BASE + encodeURIComponent(slug));
+        return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+      }
+
+      function setBoardTitle(companyName) {
+        // Always use textContent / DOM nodes — never innerHTML with dynamic strings
+        boardTitleEl.textContent = '';
+        boardTitleEl.appendChild(document.createTextNode('Pipeline'));
+        if (companyName) {
+          boardTitleEl.appendChild(document.createTextNode(' \u2014 '));
+          var tag = document.createElement('span');
+          tag.className = 'company-tag';
+          tag.textContent = companyName;
+          boardTitleEl.appendChild(tag);
+        }
       }
 
       // ── DOM Builders ─────────────────────────
 
-      function el(tag, className, text) {
-        var e = document.createElement(tag);
-        if (className) e.className = className;
-        if (text != null) e.textContent = text;
-        return e;
-      }
-
       function renderJobRow(job, colDef) {
+        var status = normalizeStatus(job?.status);
         var row = el('div', 'job-row');
+        row.setAttribute('role', 'button');
+        row.setAttribute('tabindex', '0');
+        row.setAttribute('aria-label', 'View log for job ' + String(job?.id ?? ''));
+
         var header = el('div', 'job-header');
         var info = el('div', 'job-info');
-
-        var status = normalizeStatus(job?.status);
-        var dot = el('div', 'job-status-dot ' + status);
-        info.appendChild(dot);
-
-        var name = el('span', 'job-name', getJobSummary(job));
-        info.appendChild(name);
+        info.appendChild(el('div', 'job-status-dot ' + status));
+        info.appendChild(el('span', 'job-name', getJobSummary(job)));
         header.appendChild(info);
 
         if (job?.model) {
-          var modelTag = el('span', 'job-model-tag', String(job.model).replace('claude-', '').replace('-4-6', ''));
-          header.appendChild(modelTag);
+          header.appendChild(el('span', 'job-model-tag',
+            String(job.model).replace('claude-', '').replace('-4-6', '')));
         }
 
         row.appendChild(header);
 
-        // Progress bar
         var progress = clampProgress(job?.progress);
         if (progress > 0 || ACTIVE_JOB_STATUSES.has(status)) {
           var track = el('div', 'job-progress-track');
           var fill = el('div', 'job-progress-fill');
           fill.style.width = progress + '%';
-          fill.style.background = getJobColor(status, colDef);
+          fill.style.background = jobProgressColor(status, colDef);
           track.appendChild(fill);
           row.appendChild(track);
         }
+
+        var jobId = String(job?.id ?? '');
+        function handleOpen() { if (jobId) openJobDetail(jobId); }
+        row.addEventListener('click', handleOpen);
+        row.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleOpen(); }
+        });
 
         return row;
       }
@@ -582,40 +851,32 @@
         var card = el('div', 'card');
         card.style.animationDelay = delay + 'ms';
 
-        // Colored accent strip
         var accent = el('div', 'card-accent');
         accent.style.background = colDef.color;
         card.appendChild(accent);
 
-        // Body
         var body = el('div', 'card-body');
-        var title = el('div', 'card-title', getFeatureName(feature));
-        body.appendChild(title);
+        body.appendChild(el('div', 'card-title', getFeatureName(feature)));
 
         var jobs = Array.isArray(feature?.jobs) ? sortJobs(feature.jobs) : [];
-
         if (jobs.length > 0) {
-          var jobsContainer = el('div', 'card-jobs');
+          var jobsWrap = el('div', 'card-jobs');
           for (var i = 0; i < jobs.length; i++) {
-            jobsContainer.appendChild(renderJobRow(jobs[i], colDef));
+            jobsWrap.appendChild(renderJobRow(jobs[i], colDef));
           }
-          body.appendChild(jobsContainer);
+          body.appendChild(jobsWrap);
         }
 
         card.appendChild(body);
 
-        // Footer with summary
         if (jobs.length > 0) {
           var footer = el('div', 'card-footer');
-          var countLabel = el('span', 'card-job-count', jobs.length + (jobs.length === 1 ? ' job' : ' jobs'));
-          footer.appendChild(countLabel);
-
-          var completed = jobs.filter(function(j) {
+          footer.appendChild(el('span', 'card-job-count',
+            jobs.length + (jobs.length === 1 ? ' job' : ' jobs')));
+          var done = jobs.filter(function(j) {
             return normalizeStatus(j?.status) === 'complete';
           }).length;
-          var progressLabel = el('span', 'card-progress-summary', completed + '/' + jobs.length + ' done');
-          footer.appendChild(progressLabel);
-
+          footer.appendChild(el('span', 'card-progress-summary', done + '/' + jobs.length + ' done'));
           card.appendChild(footer);
         }
 
@@ -623,96 +884,69 @@
       }
 
       function renderColumn(colDef, features) {
-        var column = el('div', 'column');
+        var col = el('div', 'column');
 
-        var header = el('div', 'column-header');
+        var hdr = el('div', 'column-header');
         var titleGroup = el('div', 'column-title');
-
         var dot = el('div', 'column-dot');
         dot.style.background = colDef.color;
         titleGroup.appendChild(dot);
-
-        var name = el('span', 'column-name', colDef.label);
-        titleGroup.appendChild(name);
-
-        header.appendChild(titleGroup);
-
-        var count = el('span', 'column-count', String(features.length));
-        header.appendChild(count);
-
-        column.appendChild(header);
+        titleGroup.appendChild(el('span', 'column-name', colDef.label));
+        hdr.appendChild(titleGroup);
+        hdr.appendChild(el('span', 'column-count', String(features.length)));
+        col.appendChild(hdr);
 
         var body = el('div', 'column-body');
-
         if (features.length === 0) {
-          var empty = el('div', 'column-empty', 'No features');
-          body.appendChild(empty);
+          body.appendChild(el('div', 'column-empty', 'No features'));
         } else {
           for (var i = 0; i < features.length; i++) {
             body.appendChild(renderCard(features[i], colDef, i * 50));
           }
         }
-
-        column.appendChild(body);
-        return column;
+        col.appendChild(body);
+        return col;
       }
 
       function renderBoard(features) {
         var grouped = {};
-        for (var c = 0; c < COLUMNS.length; c++) {
-          grouped[COLUMNS[c].key] = [];
-        }
+        for (var c = 0; c < COLUMNS.length; c++) grouped[COLUMNS[c].key] = [];
 
         for (var i = 0; i < features.length; i++) {
-          var status = normalizeStatus(features[i]?.status);
-          if (status === 'cancelled') continue;
-          if (grouped[status]) {
-            grouped[status].push(features[i]);
-          }
+          var s = normalizeStatus(features[i]?.status);
+          if (s !== 'cancelled' && grouped[s]) grouped[s].push(features[i]);
         }
 
-        var fragment = document.createDocumentFragment();
-        var totalFeatures = 0;
-
+        var total = 0;
+        var frag = document.createDocumentFragment();
         for (var c = 0; c < COLUMNS.length; c++) {
-          var colFeatures = grouped[COLUMNS[c].key] || [];
-          totalFeatures += colFeatures.length;
-          fragment.appendChild(renderColumn(COLUMNS[c], colFeatures));
+          var cols = grouped[COLUMNS[c].key] || [];
+          total += cols.length;
+          frag.appendChild(renderColumn(COLUMNS[c], cols));
         }
 
-        dashboardEl.replaceChildren(fragment);
-
-        if (totalFeatures === 0) {
-          dashboardEl.replaceChildren(el('div', 'empty-board', 'No active features'));
-        }
+        dashboardEl.replaceChildren(frag);
+        if (total === 0) dashboardEl.replaceChildren(el('div', 'empty-board', 'No active features'));
       }
 
-      // ── Data Fetching ────────────────────────
+      // ── Board Data Fetch ─────────────────────
 
       async function fetchFeatures() {
-        var response = await fetch(FEATURES_ENDPOINT, {
-          method: 'GET',
-          headers: {
-            apikey: ANON_KEY,
-            Authorization: 'Bearer ' + ANON_KEY
-          }
-        });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        var payload = await response.json();
+        var url = FEATURES_BASE;
+        if (activeCompanyId) url += '&company_id=eq.' + encodeURIComponent(activeCompanyId);
+        var payload = await apiFetch(url);
         return Array.isArray(payload) ? payload : [];
       }
 
       async function refreshDashboard() {
-        if (isFetching) return;
+        if (isFetching || companyBlocked) return;
         isFetching = true;
         refreshButton.disabled = true;
-
         try {
-          var features = await fetchFeatures();
-          renderBoard(features);
+          renderBoard(await fetchFeatures());
           setMessage('');
           lastUpdatedEl.textContent = formatTime(new Date());
-        } catch (err) {
+        } catch (_) {
           setMessage('Failed to load \u2014 retrying in 30s', true);
         } finally {
           isFetching = false;
@@ -720,9 +954,173 @@
         }
       }
 
-      refreshButton.addEventListener('click', function() { void refreshDashboard(); });
-      void refreshDashboard();
-      setInterval(function() { void refreshDashboard(); }, 30000);
+      // ── Job Detail Panel ─────────────────────
+
+      async function fetchJob(jobId) {
+        var rows = await apiFetch(JOBS_BASE + encodeURIComponent(jobId));
+        return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+      }
+
+      function applyJobToPanel(job) {
+        if (!job) return false;
+        var status = normalizeStatus(job.status);
+        var terminal = TERMINAL_JOB_STATUSES.has(status);
+        var failed   = status === 'failed';
+
+        // Live dot state (all textContent-safe — class names only)
+        detailLiveDot.className = 'detail-live-dot' + (failed ? ' failed' : terminal ? ' terminal' : '');
+        detailStatusEl.textContent = status;
+
+        // Context (textContent — safe)
+        var ctx = '';
+        if (job.context != null) {
+          var raw = typeof job.context === 'string' ? job.context : JSON.stringify(job.context);
+          raw = raw.replace(/\s+/g, ' ').trim();
+          ctx = raw.length > 120 ? raw.slice(0, 117) + '\u2026' : raw;
+        }
+        if (ctx) {
+          detailContextEl.textContent = ctx;
+          detailContextEl.style.display = '';
+        } else {
+          detailContextEl.style.display = 'none';
+        }
+
+        // Log content (textContent — preserves all chars, XSS-safe)
+        var atBottom = isAtBottom(detailLogWrap);
+        var logText = typeof job.raw_log === 'string' ? job.raw_log : '';
+        if (logText) {
+          detailLogEl.className = 'detail-log';
+          detailLogEl.textContent = logText;
+        } else {
+          detailLogEl.className = 'detail-log empty';
+          detailLogEl.textContent = 'No log output yet\u2026';
+        }
+
+        // Auto-scroll if user was already at bottom
+        if (atBottom) detailLogWrap.scrollTop = detailLogWrap.scrollHeight;
+
+        detailFooterEl.textContent = terminal
+          ? 'Job ' + status + ' \u2014 log frozen'
+          : 'Live \u2014 refreshing every 5s';
+
+        return terminal;
+      }
+
+      function stopDetailPoll() {
+        if (detailPollTimer !== null) {
+          clearInterval(detailPollTimer);
+          detailPollTimer = null;
+        }
+      }
+
+      function closeDetail() {
+        stopDetailPoll();
+        openJobId = null;
+        detailOverlay.classList.remove('open');
+        // Reset panel contents
+        detailLogEl.className = 'detail-log empty';
+        detailLogEl.textContent = 'Loading\u2026';
+        detailJobIdEl.textContent = '';
+        detailStatusEl.textContent = '';
+        detailContextEl.textContent = '';
+        detailContextEl.style.display = 'none';
+        detailFooterEl.textContent = '';
+      }
+
+      async function openJobDetail(jobId) {
+        stopDetailPoll();
+        openJobId = jobId;
+
+        // Show skeleton while loading
+        var shortId = jobId.slice(0, 8) + '\u2026';
+        detailJobIdEl.textContent = shortId;
+        detailStatusEl.textContent = 'loading\u2026';
+        detailLiveDot.className = 'detail-live-dot';
+        detailLogEl.className = 'detail-log empty';
+        detailLogEl.textContent = 'Loading\u2026';
+        detailContextEl.style.display = 'none';
+        detailFooterEl.textContent = '';
+
+        detailOverlay.classList.add('open');
+
+        try {
+          var job = await fetchJob(jobId);
+          if (openJobId !== jobId) return; // panel was closed or another job opened
+
+          if (!job) {
+            detailLogEl.className = 'detail-log empty';
+            detailLogEl.textContent = 'Job not found';
+            detailStatusEl.textContent = 'not found';
+            return;
+          }
+
+          detailJobIdEl.textContent = String(job.id ?? jobId).slice(0, 8) + '\u2026';
+          var terminal = applyJobToPanel(job);
+          if (terminal) return; // no polling needed for finished jobs
+
+          // Poll every 5s while job is active
+          detailPollTimer = setInterval(async function() {
+            if (openJobId !== jobId) return;
+            try {
+              var updated = await fetchJob(jobId);
+              if (openJobId !== jobId) return;
+              if (updated && applyJobToPanel(updated)) {
+                stopDetailPoll(); // job reached terminal state
+              }
+            } catch (_) { /* ignore transient poll errors */ }
+          }, 5000);
+
+        } catch (_) {
+          if (openJobId !== jobId) return;
+          detailLogEl.className = 'detail-log empty';
+          detailLogEl.textContent = 'Failed to load job';
+          detailStatusEl.textContent = 'error';
+        }
+      }
+
+      // Close on backdrop click, button, or Escape
+      detailOverlay.addEventListener('click', function(e) {
+        if (e.target === detailOverlay) closeDetail();
+      });
+      detailCloseBtn.addEventListener('click', closeDetail);
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && detailOverlay.classList.contains('open')) closeDetail();
+      });
+
+      // ── Bootstrap ────────────────────────────
+
+      async function init() {
+        var slug = getCompanySlug();
+
+        if (slug) {
+          try {
+            var company = await resolveCompany(slug);
+            if (!company) {
+              companyBlocked = true;
+              refreshButton.disabled = true;
+              setMessage('Company not found: ' + slug, true);
+              dashboardEl.replaceChildren(el('div', 'empty-board', 'Company not found: ' + slug));
+              return;
+            }
+            activeCompanyId = company.id;
+            setBoardTitle(company.name);
+          } catch (_) {
+            // Company lookup failed — never silently show all companies' data
+            companyBlocked = true;
+            refreshButton.disabled = true;
+            setMessage('Failed to resolve company \u2014 ' + slug, true);
+            return;
+          }
+        } else {
+          setBoardTitle(null);
+        }
+
+        refreshButton.addEventListener('click', function() { void refreshDashboard(); });
+        void refreshDashboard();
+        setInterval(function() { void refreshDashboard(); }, 30000);
+      }
+
+      void init();
     })();
   </script>
 </body>

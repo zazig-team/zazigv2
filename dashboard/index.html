@@ -65,6 +65,10 @@
       color: #e5effa;
     }
 
+    .company-tag {
+      color: var(--accent);
+    }
+
     .controls {
       display: flex;
       align-items: center;
@@ -318,7 +322,7 @@
 <body>
   <div class="app">
     <header class="topbar">
-      <h1>Pipeline Dashboard</h1>
+      <h1 id="title">Pipeline Dashboard</h1>
       <div class="controls">
         <button id="refreshButton" type="button">Refresh</button>
         <span id="lastUpdated">Last updated: never</span>
@@ -335,16 +339,44 @@
 
       const SUPABASE_URL = 'https://jmussmwglgbwncgygzbz.supabase.co';
       const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0';
-      const FEATURES_ENDPOINT = `${SUPABASE_URL}/rest/v1/features?select=*,jobs(*)&status=not.eq.cancelled&order=created_at.desc`;
 
       const STATUS_ORDER = ['testing', 'verifying', 'building', 'design', 'done'];
 
+      const titleEl = document.getElementById('title');
       const dashboardEl = document.getElementById('dashboard');
       const messageEl = document.getElementById('message');
       const lastUpdatedEl = document.getElementById('lastUpdated');
       const refreshButton = document.getElementById('refreshButton');
 
       let isFetching = false;
+      let activeCompanyId = null;
+
+      // --- URL routing ---
+
+      function getCompanySlug() {
+        const path = window.location.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
+        const segment = path.split('/')[0];
+        return segment || null;
+      }
+
+      async function resolveCompany(slug) {
+        const url = `${SUPABASE_URL}/rest/v1/companies?name=eq.${encodeURIComponent(slug)}&select=id,name&limit=1`;
+        const response = await fetch(url, {
+          headers: {
+            apikey: ANON_KEY,
+            Authorization: `Bearer ${ANON_KEY}`
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`Company lookup failed with ${response.status}`);
+        }
+
+        const rows = await response.json();
+        return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+      }
+
+      // --- Helpers ---
 
       function formatTimestamp(date) {
         const pad = (value) => String(value).padStart(2, '0');
@@ -439,6 +471,8 @@
         });
       }
 
+      // --- Rendering ---
+
       function createBadge(label) {
         const badge = document.createElement('span');
         badge.className = 'badge';
@@ -524,7 +558,7 @@
 
         const featureTitle = document.createElement('div');
         featureTitle.className = 'feature-title';
-        featureTitle.textContent = `▸ ${getFeatureName(feature)}`;
+        featureTitle.textContent = '\u25b8 ' + getFeatureName(feature);
 
         featureHead.appendChild(featureTitle);
         featureHead.appendChild(createBadge(normalizeStatus(feature?.status) || 'unknown'));
@@ -581,11 +615,11 @@
           renderedCount += items.length;
 
           const section = document.createElement('section');
-          section.className = `status-group status-${status}`;
+          section.className = 'status-group status-' + status;
 
           const title = document.createElement('h2');
           title.className = 'group-title';
-          title.textContent = `${status.toUpperCase()} (${items.length})`;
+          title.textContent = status.toUpperCase() + ' (' + items.length + ')';
 
           const body = document.createElement('div');
           body.className = 'group-body';
@@ -607,17 +641,24 @@
         dashboardEl.replaceChildren(fragment);
       }
 
-      async function fetchFeatures() {
-        const response = await fetch(FEATURES_ENDPOINT, {
+      // --- Data fetching ---
+
+      async function fetchFeatures(companyId) {
+        let url = SUPABASE_URL + '/rest/v1/features?select=*,jobs(*)&status=not.eq.cancelled&order=created_at.desc';
+        if (companyId) {
+          url += '&company_id=eq.' + encodeURIComponent(companyId);
+        }
+
+        const response = await fetch(url, {
           method: 'GET',
           headers: {
             apikey: ANON_KEY,
-            Authorization: `Bearer ${ANON_KEY}`
+            Authorization: 'Bearer ' + ANON_KEY
           }
         });
 
         if (!response.ok) {
-          throw new Error(`Failed with ${response.status}`);
+          throw new Error('Failed with ' + response.status);
         }
 
         const payload = await response.json();
@@ -633,26 +674,53 @@
         refreshButton.disabled = true;
 
         try {
-          const features = await fetchFeatures();
+          const features = await fetchFeatures(activeCompanyId);
           renderDashboard(features);
           setMessage('');
-          lastUpdatedEl.textContent = `Last updated: ${formatTimestamp(new Date())}`;
+          lastUpdatedEl.textContent = 'Last updated: ' + formatTimestamp(new Date());
         } catch (error) {
-          setMessage('Failed to load — retrying in 30s', true);
+          setMessage('Failed to load \u2014 retrying in 30s', true);
         } finally {
           isFetching = false;
           refreshButton.disabled = false;
         }
       }
 
-      refreshButton.addEventListener('click', () => {
-        void refreshDashboard();
-      });
+      // --- Init ---
 
-      void refreshDashboard();
-      setInterval(() => {
+      async function init() {
+        const slug = getCompanySlug();
+
+        if (slug) {
+          try {
+            const company = await resolveCompany(slug);
+
+            if (!company) {
+              dashboardEl.innerHTML = '<div class="empty-state">Company not found: ' + slug + '</div>';
+              setMessage('No company with slug "' + slug + '"', true);
+              refreshButton.disabled = true;
+              return;
+            }
+
+            activeCompanyId = company.id;
+            titleEl.innerHTML = 'Pipeline \u2014 <span class="company-tag">' + company.name + '</span>';
+            document.title = 'Pipeline \u2014 ' + company.name;
+          } catch (error) {
+            setMessage('Failed to resolve company \u2014 retrying in 30s', true);
+          }
+        }
+
+        refreshButton.addEventListener('click', () => {
+          void refreshDashboard();
+        });
+
         void refreshDashboard();
-      }, 30000);
+        setInterval(() => {
+          void refreshDashboard();
+        }, 30000);
+      }
+
+      void init();
     })();
   </script>
 </body>

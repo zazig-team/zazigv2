@@ -218,7 +218,8 @@ export class SlackChatRouter {
    * Returns true when the CPO's tmux pane shows the Claude Code prompt,
    * indicating it is idle and waiting for input.
    *
-   * Claude Code's interactive prompt shows `>` on the last visible line.
+   * Claude Code's interactive prompt shows `❯` (or `>` in older versions)
+   * on the last visible line.
    * We also accept `$` as a fallback (shell prompt if Claude exited).
    */
   private async isCpoIdle(): Promise<boolean> {
@@ -234,9 +235,9 @@ export class SlackChatRouter {
       for (let i = lines.length - 1; i >= 0; i--) {
         const line = lines[i]!.trim();
         if (!line) continue;
-        // Claude Code prompt: lines ending with ">" or "> "
+        // Claude Code prompt: lines ending with "❯" or ">" (v2 uses ❯, older uses >)
         // Shell prompt fallback: lines ending with "$" or "% "
-        return /[>$%]\s*$/.test(line);
+        return /[❯>$%]\s*$/.test(line);
       }
       return false;
     } catch {

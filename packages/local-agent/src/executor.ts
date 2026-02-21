@@ -62,6 +62,8 @@ interface ActiveJob {
   startedAt: number;
   /** Absolute path to the pipe-pane log file for this job. */
   logPath: string;
+  /** Byte offset of the last chunk sent to raw_log — enables append-only writes. */
+  lastBytesSent: number;
 }
 
 /** Callback type for sending AgentMessage back to the orchestrator channel. */
@@ -188,6 +190,7 @@ export class JobExecutor {
       settled: false,
       startedAt: Date.now(),
       logPath,
+      lastBytesSent: 0,
     };
     this.activeJobs.set(jobId, activeJob);
 
@@ -225,6 +228,18 @@ export class JobExecutor {
     // Kill the tmux session (best-effort)
     await killTmuxSession(job.sessionName);
 
+    // Final log flush before cleanup
+    const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+    if (logChunk !== null) {
+      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
+        job_id: jobId,
+        chunk: logChunk.chunk,
+      });
+      if (appendErr) {
+        console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+
     // Clean up log file
     deleteLogFile(job.logPath);
 
@@ -249,19 +264,27 @@ export class JobExecutor {
       const elapsedMs = Date.now() - job.startedAt;
       const progress = Math.min(95, Math.floor((elapsedMs / JOB_TIMEOUT_MS) * 100));
 
-      // Read log file and build update payload (always write progress, add raw_log if available)
-      const rawLog = readLogFile(job.logPath);
-      const updatePayload: Record<string, unknown> = { progress };
-      if (rawLog !== null) {
-        updatePayload["raw_log"] = rawLog;
-      }
-
+      // Update progress estimate
       const { error: progressErr } = await this.supabase
         .from("jobs")
-        .update(updatePayload)
+        .update({ progress })
         .eq("id", jobId);
       if (progressErr) {
-        console.warn(`[executor] Progress/log write failed for jobId=${jobId}: ${progressErr.message}`);
+        console.warn(`[executor] Progress write failed for jobId=${jobId}: ${progressErr.message}`);
+      }
+
+      // Append any new log bytes since the last poll (append-only — avoids resending full log)
+      const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+      if (logChunk !== null) {
+        const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
+          job_id: jobId,
+          chunk: logChunk.chunk,
+        });
+        if (appendErr) {
+          console.warn(`[executor] Log append failed for jobId=${jobId}: ${appendErr.message}`);
+        } else {
+          job.lastBytesSent = logChunk.newOffset;
+        }
       }
       console.log(`[executor] Job still running — jobId=${jobId}, session=${job.sessionName}, progress=${progress}`);
       return;
@@ -290,9 +313,15 @@ export class JobExecutor {
     await killTmuxSession(job.sessionName);
 
     // Final log flush before marking failed
-    const rawLog = readLogFile(job.logPath);
-    if (rawLog !== null) {
-      await this.supabase.from("jobs").update({ raw_log: rawLog }).eq("id", jobId);
+    const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+    if (logChunk !== null) {
+      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
+        job_id: jobId,
+        chunk: logChunk.chunk,
+      });
+      if (appendErr) {
+        console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
     }
     deleteLogFile(job.logPath);
 
@@ -336,9 +365,15 @@ export class JobExecutor {
     }
 
     // Final log flush — capture anything written after the last poll tick
-    const rawLog = readLogFile(job.logPath);
-    if (rawLog !== null) {
-      await this.supabase.from("jobs").update({ raw_log: rawLog }).eq("id", jobId);
+    const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+    if (logChunk !== null) {
+      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
+        job_id: jobId,
+        chunk: logChunk.chunk,
+      });
+      if (appendErr) {
+        console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
     }
     deleteLogFile(job.logPath);
 
@@ -694,16 +729,20 @@ async function startPipePane(sessionName: string, logPath: string): Promise<void
 }
 
 /**
- * Reads the pipe-pane log file, strips ANSI escape codes, and returns
- * the cleaned text. Returns null if the file does not exist or is empty.
+ * Reads new bytes from the pipe-pane log file starting at `offsetBytes`,
+ * strips ANSI escape codes, and returns the cleaned chunk plus the new
+ * total file size (to be stored as `lastBytesSent`).
+ * Returns null if the file has no new content at or beyond the offset.
  */
-function readLogFile(logPath: string): string | null {
+function readLogFileFrom(logPath: string, offsetBytes: number): { chunk: string; newOffset: number } | null {
   try {
-    const raw = readFileSync(logPath, "utf8");
-    if (!raw) return null;
-    // Strip ANSI escape sequences so raw_log contains clean text
-    const clean = raw.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
-    return clean || null;
+    const buf = readFileSync(logPath);
+    if (buf.length <= offsetBytes) return null;
+    const raw = buf.subarray(offsetBytes).toString("utf8");
+    // Strip ANSI: CSI sequences, OSC sequences, charset designators, and lone ESCs
+    const clean = raw.replace(/\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07]*\x07|[()#][A-Za-z0-9]|.)/g, "");
+    if (!clean) return null;
+    return { chunk: clean, newOffset: buf.length };
   } catch {
     return null;
   }

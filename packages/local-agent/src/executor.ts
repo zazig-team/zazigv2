@@ -701,6 +701,41 @@ async function isTmuxSessionAlive(sessionName: string): Promise<boolean> {
   }
 }
 
+/**
+ * Spawn a persistent Claude Code session in interactive REPL mode for the CPO role.
+ *
+ * Unlike job sessions (which use `claude -p` and exit after completion), the CPO
+ * session runs the interactive Claude Code TUI and stays alive indefinitely,
+ * receiving messages via `tmux send-keys` from the SlackChatRouter.
+ *
+ * Session name: `{machineId}-cpo`
+ * Model: claude-opus-4-6 (reasoning-grade for product decisions)
+ *
+ * If a session with the same name already exists it is killed first (clean restart).
+ *
+ * @returns The tmux session name (`{machineId}-cpo`)
+ */
+export async function spawnPersistentCpoSession(machineId: string): Promise<string> {
+  const sessionName = `${machineId}-cpo`;
+
+  // Kill any stale session from a previous run
+  await killTmuxSession(sessionName);
+
+  // Claude Code interactive TUI — no -p flag, stays in REPL
+  // Model flag selects opus-4-6 for CPO-grade reasoning
+  const shellCmd = `unset CLAUDECODE; claude --model claude-opus-4-6`;
+
+  await execFileAsync("tmux", [
+    "new-session",
+    "-d",             // detached
+    "-s", sessionName,
+    shellCmd,
+  ]);
+
+  console.log(`[executor] Spawned persistent CPO session: ${sessionName}`);
+  return sessionName;
+}
+
 // ---------------------------------------------------------------------------
 // Helper: Job log capture (tmux pipe-pane)
 // ---------------------------------------------------------------------------

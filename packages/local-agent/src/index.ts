@@ -17,9 +17,10 @@
 import { loadConfig } from "./config.js";
 import { SlotTracker } from "./slots.js";
 import { AgentConnection } from "./connection.js";
-import { JobExecutor } from "./executor.js";
+import { JobExecutor, spawnPersistentCpoSession } from "./executor.js";
 import { JobVerifier } from "./verifier.js";
 import { FixAgentManager } from "./fix-agent.js";
+import { SlackChatRouter } from "./slack-chat.js";
 import type { OrchestratorMessage } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
@@ -112,11 +113,33 @@ async function main(): Promise<void> {
   await conn.start();
 
   // ---------------------------------------------------------------------------
+  // CPO Slack chat (optional — only when cpo.enabled in machine.yaml)
+  // ---------------------------------------------------------------------------
+
+  let slackChatRouter: SlackChatRouter | null = null;
+
+  if (config.cpo?.enabled) {
+    console.log("[local-agent] CPO Slack chat enabled — spawning CPO session and starting Socket Mode");
+
+    // Spawn the persistent CPO tmux session (interactive REPL, not -p mode)
+    const cpoSessionName = await spawnPersistentCpoSession(config.name);
+
+    // Start the Slack Socket Mode listener and wire it to the CPO session
+    slackChatRouter = new SlackChatRouter(config.cpo.slack, cpoSessionName);
+    await slackChatRouter.start();
+
+    console.log(`[local-agent] CPO session=${cpoSessionName} ready for Slack messages`);
+  }
+
+  // ---------------------------------------------------------------------------
   // Graceful shutdown handlers
   // ---------------------------------------------------------------------------
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`[local-agent] Received ${signal}, shutting down gracefully...`);
+    if (slackChatRouter) {
+      await slackChatRouter.stop();
+    }
     await conn.stop();
     process.exit(0);
   };

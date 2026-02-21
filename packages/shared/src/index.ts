@@ -113,6 +113,11 @@ export const RECOVERY_COOLDOWN_MS = 60_000;
  * threads) causing broadcast failures or prompt injection via size abuse.
  */
 export const MAX_CONTEXT_BYTES = 64_000;
+/** Maximum size of a compiled personality prompt string. Compiled prompts are
+ * injected into the agent system context over Supabase Realtime in the same
+ * message as `context`, so both fields share the per-message budget.
+ */
+export const MAX_PERSONALITY_PROMPT_BYTES = 16_000;
 
 // ---- Runtime validators ----
 // Validate untrusted JSON from Supabase Realtime before acting on it.
@@ -134,3 +139,15 @@ export {
   isFeatureRejected,
   isVerifyResult,
 } from "./validators.js";
+
+// ---- Personality prompt compilation ----
+
+export type {
+  BeliefStatement,
+  AntiPattern,
+  ContextualOverlay,
+  ArchetypeDefinition,
+  CompiledPersonality,
+  PersonalityMode,
+} from "./personality/index.js";
+export { compilePersonalityPrompt } from "./personality/index.js";

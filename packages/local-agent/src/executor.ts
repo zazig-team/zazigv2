@@ -18,6 +18,8 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync } from "node:fs";
 import { promisify } from "node:util";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType } from "@zazigv2/shared";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
@@ -126,8 +128,13 @@ export class JobExecutor {
       return;
     }
 
+    // --- 3b. Assemble 4-layer context: personality → role → skills → task ---
+    // Order follows U-shaped LLM attention (Tolibear): highest-priority content first and last.
+    // Backward compat: if no personalityPrompt/rolePrompt/roleSkills, taskContext passes through unchanged.
+    const assembledContext = assembleContext(msg, taskContext);
+
     // --- 4. Build command based on complexity/model ---
-    const { cmd, args } = buildCommand(slotType, complexity, model, taskContext);
+    const { cmd, args } = buildCommand(slotType, complexity, model, assembledContext);
     const sessionName = `${this.machineId}-${jobId}`;
 
     // --- 5. Clear stale report before spawning (prevents reading a previous job's report) ---
@@ -470,6 +477,66 @@ export class JobExecutor {
  *   - `claude -p "<task>"` — print mode: processes the task and exits (no REPL)
  *   - `codex --full-auto "<task>"` — full-auto mode: completes and exits
  */
+
+// ---------------------------------------------------------------------------
+// Helper: 4-layer context assembly
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolves the path to a skill's SKILL.md file.
+ * Skill names may contain colons (e.g. "commit-commands:commit") which are valid path separators.
+ */
+function skillFilePath(name: string): string {
+  return join(homedir(), ".claude", "skills", name, "SKILL.md");
+}
+
+/**
+ * Assembles the 4-layer context stack from a StartJob message and the resolved task context.
+ *
+ * Layer order (U-shaped LLM attention — highest priority first and last):
+ *   1. personalityPrompt — who the agent is (Layer 1)
+ *   2. rolePrompt        — what the agent is operationally responsible for (Layer 2)
+ *   3. skill content     — tools and skills the agent has (Layer 3)
+ *   4. taskContext       — the actual task (Layer 4)
+ *
+ * Backward compatible: if no layers are present, returns taskContext unchanged.
+ * Missing skill files are warned and skipped — they do not fail the job.
+ */
+function assembleContext(msg: StartJob, taskContext: string): string {
+  const { personalityPrompt, rolePrompt, roleSkills } = msg;
+
+  // Fast path: no enrichment needed
+  if (!personalityPrompt && !rolePrompt && (!roleSkills || roleSkills.length === 0)) {
+    return taskContext;
+  }
+
+  const parts: string[] = [];
+
+  if (personalityPrompt) {
+    parts.push(personalityPrompt);
+  }
+
+  if (rolePrompt) {
+    parts.push(rolePrompt);
+  }
+
+  if (roleSkills && roleSkills.length > 0) {
+    for (const name of roleSkills) {
+      const filePath = skillFilePath(name);
+      try {
+        const content = readFileSync(filePath, "utf8");
+        parts.push(content);
+      } catch {
+        console.warn(`[executor] Skill file not found, skipping: ${filePath}`);
+      }
+    }
+  }
+
+  parts.push(taskContext);
+
+  return parts.join("\n\n---\n\n");
+}
+
 function buildCommand(
   slotType: SlotType,
   complexity: string,

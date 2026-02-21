@@ -115,6 +115,20 @@ The Trello system had VP-Eng and automated tools creating cards directly. Everyt
 
 Feature verification: "rebase feature branch on main, run ALL tests. Fail → identify failing job, requeue it." A rebase conflict is not a test failure — you cannot identify a failing job from a conflict. These two failure modes need separate handling, and conflict resolution may require human intervention or a defined merge strategy.
 
+### Flag 9: Heartbeat Depth — Machine-Level vs Job-Level Health
+
+The orchestrator design specifies 30s heartbeats from local agents, with machines marked dead after 2 minutes. But heartbeats are machine-level only — "this machine is online." There's no per-job health reporting. A machine can be online with an agent session stuck at a permission prompt or frozen mid-execution. This is a known v1 antipattern ("tmux has-session as sole health check").
+
+The local agent needs to report per-job health in its heartbeats: last activity timestamp, agent status (executing/idle/stuck), last tool call age. The orchestrator makes restart decisions based on richer data. Without this, the orchestrator has the same blind spot as v1's Supervisor.
+
+### Flag 10: Cron Scheduling Not Addressed
+
+The orchestrator only supports card-driven (poll-based) job dispatch. Multiple features need scheduled triggers: market researcher daily scan (product intelligence pipeline), nightly done-archiver, nightly bug-scan. A cron scheduler should be specced once in the orchestrator design. Proposed: cloud-side cron trigger creates a standard job on schedule, local agent executes it like any other job. If no machine is online at trigger time, job queues until one connects.
+
+### Flag 11: CPO Runtime Ambiguity
+
+The orchestrator design says "Zazig Python package stays for Slack bot / Agent SDK layer" but also describes CPO running on local machines managed by the local agent daemon (which "spins up tmux sessions, CLI processes"). Whether CPO is Claude Code (with Slack MCP) or Agent SDK (Slack-native) is not specified. This affects whether Claude Code skills are available to CPO — all planning workflows (brainstorming, review-plan, cardify) and the product intelligence pipeline depend on skills. Must resolve before building CPO-related features.
+
 ---
 
 ## Summary
@@ -122,7 +136,7 @@ Feature verification: "rebase feature branch on main, run ALL tests. Fail → id
 | Category | Count |
 |----------|-------|
 | Gaps (Trello requirements missing from pipeline design) | 12 |
-| Additional flags (design issues in pipeline doc itself) | 8 |
+| Additional flags (design issues in pipeline doc itself) | 11 |
 
 The pipeline design is solid on the happy path. It needs significant work on:
 

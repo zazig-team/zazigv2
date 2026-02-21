@@ -50,7 +50,7 @@ Global platform table. Defines the available agent roles across all companies.
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid | PK |
-| `name` | text | UNIQUE. e.g. `cpo`, `cto`, `engineer`, `reviewer` |
+| `name` | text | UNIQUE. e.g. `cpo`, `cto`, `engineer`, `reviewer`, `researcher`, `product_manager` |
 | `prompt` | text | System prompt for this role |
 | `description` | text | Human-readable description |
 | `is_persistent` | boolean | If true, system auto-creates a standing job when a company enables this role. Job is always redispatched if it stops. |
@@ -60,6 +60,7 @@ Global platform table. Defines the available agent roles across all companies.
 **Key decisions:**
 - Roles are platform-managed, not company-created. Companies choose which roles to enable.
 - `is_persistent` drives orchestrator behavior: persistent role jobs are never marked `complete` (only if the company disables the role). If a persistent job stops or its machine goes offline, the orchestrator redispatches it automatically.
+- Bootstrap roles include: `cpo`, `cto`, `engineer`, `reviewer`, `researcher`, `product_manager`. The product intelligence pipeline (`2026-02-20-product-intelligence-pipeline-design.md`) adds the last two — both ephemeral (`is_persistent = false`).
 
 ---
 
@@ -169,7 +170,7 @@ The unit of execution. What the orchestrator dispatches to machines.
 | `project_id` | uuid | FK → projects. **Nullable** — persistent agent jobs and company-wide work have no project. |
 | `feature_id` | uuid | FK → features. **Nullable** — persistent agents, bugs, and standalone tasks have no feature. |
 | `role` | text | Which role executes this job (FK-like to roles.name) |
-| `job_type` | text | CHECK (`code`, `infra`, `design`, `research`, `docs`, `bug`, `persistent_cpo`) |
+| `job_type` | text | CHECK (`code`, `infra`, `design`, `research`, `docs`, `bug`, `scan`, `persistent_cpo`) |
 | `complexity` | text | CHECK (`simple`, `medium`, `complex`). Nullable for persistent jobs. |
 | `slot_type` | text | CHECK (`claude_code`, `codex`). Nullable for persistent jobs. |
 | `machine_id` | uuid | FK → machines. **Nullable** — set when dispatched, cleared when parked. |

@@ -4,11 +4,13 @@
 | Date | Source | What Went Wrong | What To Do Instead |
 |------|--------|----------------|-------------------|
 | 2026-02-20 | Doppler secrets | Searched `--config dev` and found no Supabase keys. Keys are in `--config prd`. | Always check `prd` config first for zazig project in Doppler |
+| 2026-02-20 | Trello access | Said "I don't have Trello API access" when Trello API key + token are in Doppler and have been used extensively. | Always check Doppler for Trello creds. Full Trello API access across both workspaces. Using "Trello Lite" pattern. |
 
 ## User Preferences
 - TypeScript for both orchestrator and local agent
 - Supabase for state, realtime, and orchestrator hosting
-- No Trello — job queue lives in Supabase Postgres
+- Job queue lives in Supabase Postgres (not Trello)
+- Trello for project/task management — full API access via Doppler (zazig/prd). Using "Trello Lite" pattern.
 - Credential scrubbing must be built in from day one
 
 ## Codebase Gotchas

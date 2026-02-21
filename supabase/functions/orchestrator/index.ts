@@ -26,6 +26,8 @@ import {
   isJobFailed,
   isStopAck,
   isVerifyResult,
+  isFeatureApproved,
+  isFeatureRejected,
 } from "@zazigv2/shared";
 import type {
   StartJob,
@@ -37,6 +39,9 @@ import type {
   JobComplete,
   JobFailed,
   VerifyResult,
+  DeployToTest,
+  FeatureApproved,
+  FeatureRejected,
 } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
@@ -490,6 +495,22 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       continue;
     }
 
+    // Fetch role prompt + skills for non-codex jobs that have a named role.
+    // These populate the 4-layer context stack: personality → role → skills → task.
+    let rolePrompt: string | undefined;
+    let roleSkills: string[] | undefined;
+    if (job.role && slotType !== "codex") {
+      const { data: roleRow } = await supabase
+        .from("roles")
+        .select("prompt, skills")
+        .eq("name", job.role)
+        .single();
+      if (roleRow) {
+        rolePrompt = (roleRow as { prompt: string | null; skills: string[] | null }).prompt ?? undefined;
+        roleSkills = (roleRow as { prompt: string | null; skills: string[] | null }).skills ?? undefined;
+      }
+    }
+
     // Build the StartJob message.
     const startJobMsg: StartJob = {
       type: "start_job",
@@ -503,6 +524,9 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       context: job.context ?? undefined,
       // Include role for role-based jobs (persistent agents, specialized reviewers)
       ...(job.role ? { role: job.role } : {}),
+      // Role prompt + skills for 4-layer context assembly (non-codex only)
+      ...(rolePrompt ? { rolePrompt } : {}),
+      ...(roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),
     };
 
     // Broadcast StartJob via Supabase Realtime on the machine's command channel.
@@ -621,10 +645,11 @@ async function handleJobStatus(supabase: SupabaseClient, msg: JobStatusMessage):
 async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Promise<void> {
   const { jobId, machineId, result, pr } = msg;
 
-  // Fetch the job to check if it's a persistent agent (auto-requeue on completion).
+  // Fetch the job to check if it's a persistent agent (auto-requeue on completion)
+  // and whether it's a feature_verification job (triggers promoteToTesting).
   const { data: jobRow, error: fetchErr } = await supabase
     .from("jobs")
-    .select("job_type")
+    .select("job_type, context, feature_id")
     .eq("id", jobId)
     .single();
 
@@ -679,6 +704,15 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
 
   // Release the slot on the machine (both persistent and normal jobs).
   await releaseSlot(supabase, jobId, machineId);
+
+  // Check if this is a feature_verification job that completed successfully.
+  // If so, promote the feature to the test environment.
+  const contextStr = jobRow?.context ?? "{}";
+  let ctx: { type?: string } = {};
+  try { ctx = JSON.parse(contextStr); } catch { /* ignore */ }
+  if (ctx.type === "feature_verification" && jobRow?.feature_id) {
+    await promoteToTesting(supabase, jobRow.feature_id);
+  }
 }
 
 async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promise<void> {
@@ -851,6 +885,260 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
 }
 
 /**
+ * Promotes a verified feature to the test environment.
+ *
+ * Queue logic: only one feature at a time can occupy the test env per project.
+ * If another feature is already in "testing" status for the same project,
+ * this feature stays in "verifying" and will be promoted when the env is free.
+ */
+async function promoteToTesting(supabase: SupabaseClient, featureId: string): Promise<void> {
+  const { data: feature, error: fetchErr } = await supabase
+    .from("features")
+    .select("project_id, company_id, feature_branch, human_checklist")
+    .eq("id", featureId)
+    .single();
+  if (fetchErr || !feature) {
+    console.error(`[orchestrator] Failed to fetch feature ${featureId}:`, fetchErr?.message);
+    return;
+  }
+
+  // Check if another feature is already in testing for this project
+  const { data: testing, error: testingErr } = await supabase
+    .from("features")
+    .select("id")
+    .eq("project_id", feature.project_id)
+    .eq("status", "testing")
+    .limit(1);
+
+  if (testingErr) {
+    console.error(`[orchestrator] Failed to check testing queue:`, testingErr.message);
+    return;
+  }
+
+  if (testing && testing.length > 0) {
+    // Another feature occupies the test env — this feature waits in "verifying"
+    console.log(`[orchestrator] Test env busy — feature ${featureId} queued (stays in verifying)`);
+    return;
+  }
+
+  // Test env is free — promote this feature to testing
+  const { error: updateErr } = await supabase
+    .from("features")
+    .update({ status: "testing" })
+    .eq("id", featureId);
+
+  if (updateErr) {
+    console.error(`[orchestrator] Failed to set feature ${featureId} to testing:`, updateErr.message);
+    return;
+  }
+
+  console.log(`[orchestrator] Feature ${featureId} promoted to testing — sending DeployToTest`);
+
+  // Broadcast DeployToTest to all machines (the machine with this feature's job will handle it)
+  const deployMsg: DeployToTest = {
+    type: "deploy_to_test",
+    protocolVersion: PROTOCOL_VERSION,
+    featureId,
+    featureBranch: feature.feature_branch,
+    projectId: feature.project_id,
+  };
+
+  const channel = supabase.channel(`company:${feature.company_id}`);
+  await new Promise<void>((resolve) => {
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await channel.send({ type: "broadcast", event: "deploy_to_test", payload: deployMsg });
+        await channel.unsubscribe();
+        resolve();
+      }
+    });
+  });
+}
+
+export async function handleFeatureApproved(
+  supabase: SupabaseClient,
+  msg: FeatureApproved,
+): Promise<void> {
+  const { featureId } = msg;
+
+  // 1. Fetch feature for project/company context
+  const { data: feature, error: fetchErr } = await supabase
+    .from("features")
+    .select("project_id, company_id, feature_branch")
+    .eq("id", featureId)
+    .single();
+
+  if (fetchErr || !feature) {
+    console.error(`[orchestrator] Failed to fetch feature ${featureId}:`, fetchErr?.message);
+    return;
+  }
+
+  // 2. Mark feature as done (CAS: only if currently in testing)
+  const { data: updated, error: updateErr } = await supabase
+    .from("features")
+    .update({ status: "done" })
+    .eq("id", featureId)
+    .eq("status", "testing")
+    .select("id");
+
+  if (updateErr) {
+    console.error(`[orchestrator] Failed to mark feature ${featureId} done:`, updateErr.message);
+    return;
+  }
+  if (!updated || updated.length === 0) {
+    console.log(`[orchestrator] Feature ${featureId} not in testing — skipping approval`);
+    return;
+  }
+
+  // 3. Mark all non-cancelled jobs for this feature as done
+  const { error: jobsErr } = await supabase
+    .from("jobs")
+    .update({ status: "done" })
+    .eq("feature_id", featureId)
+    .not("status", "eq", "cancelled");
+
+  if (jobsErr) {
+    console.error(`[orchestrator] Failed to mark jobs done for feature ${featureId}:`, jobsErr.message);
+  }
+
+  // 4. Log approval event
+  await supabase.from("events").insert({
+    company_id: feature.company_id,
+    event_type: "feature_status_changed",
+    detail: { featureId, from: "testing", to: "done", reason: "human_approved" },
+  });
+
+  console.log(`[orchestrator] Feature ${featureId} approved — marked done, jobs done`);
+
+  // 5. Promote next queued feature from verifying → testing (drain the queue)
+  const { data: nextFeature, error: nextErr } = await supabase
+    .from("features")
+    .select("id")
+    .eq("project_id", feature.project_id)
+    .eq("status", "verifying")
+    .order("updated_at", { ascending: true })
+    .limit(1);
+
+  if (nextErr) {
+    console.error(`[orchestrator] Failed to check queue after approval:`, nextErr.message);
+    return;
+  }
+
+  if (nextFeature && nextFeature.length > 0) {
+    console.log(`[orchestrator] Promoting queued feature ${nextFeature[0].id} to testing`);
+    await promoteToTesting(supabase, nextFeature[0].id);
+  }
+}
+
+export async function handleFeatureRejected(
+  supabase: SupabaseClient,
+  msg: FeatureRejected,
+): Promise<void> {
+  const { featureId, feedback, severity } = msg;
+
+  if (severity === "small") {
+    // Small fix — fix agent handles it in-thread.
+    // The fix agent is already running (spawned when feature entered testing).
+    // Just log the feedback so it appears in the event log.
+    console.log(`[orchestrator] Feature ${featureId} — small rejection, fix agent handles in-thread`);
+
+    // Fetch company_id for the event log
+    const { data: feature } = await supabase
+      .from("features")
+      .select("company_id")
+      .eq("id", featureId)
+      .single();
+
+    if (feature) {
+      await supabase.from("events").insert({
+        company_id: feature.company_id,
+        event_type: "human_reply",
+        detail: { featureId, feedback, severity, action: "fix_agent_in_thread" },
+      });
+    }
+    return;
+  }
+
+  // severity === "big" — feature goes back to building
+  console.log(`[orchestrator] Feature ${featureId} — big rejection, returning to building`);
+
+  // 1. Fetch feature details
+  const { data: feature, error: fetchErr } = await supabase
+    .from("features")
+    .select("company_id, project_id, feature_branch, spec")
+    .eq("id", featureId)
+    .single();
+
+  if (fetchErr || !feature) {
+    console.error(`[orchestrator] Failed to fetch feature ${featureId}:`, fetchErr?.message);
+    return;
+  }
+
+  // 2. Reset feature to building (CAS: only if currently in testing)
+  const { data: updated, error: updateErr } = await supabase
+    .from("features")
+    .update({ status: "building" })
+    .eq("id", featureId)
+    .eq("status", "testing")
+    .select("id");
+
+  if (updateErr) {
+    console.error(`[orchestrator] Failed to reset feature ${featureId} to building:`, updateErr.message);
+    return;
+  }
+  if (!updated || updated.length === 0) {
+    console.log(`[orchestrator] Feature ${featureId} not in testing — skipping rejection`);
+    return;
+  }
+
+  // 3. Log rejection event
+  await supabase.from("events").insert({
+    company_id: feature.company_id,
+    event_type: "feature_status_changed",
+    detail: { featureId, from: "testing", to: "building", reason: "human_rejected", feedback, severity },
+  });
+
+  // 4. Queue a fix job with the rejection feedback
+  const { error: insertErr } = await supabase.from("jobs").insert({
+    company_id: feature.company_id,
+    project_id: feature.project_id,
+    feature_id: featureId,
+    role: "engineer",
+    job_type: "code",
+    complexity: "medium",
+    slot_type: "claude_code",
+    status: "queued",
+    context: JSON.stringify({
+      type: "rejection_fix",
+      feedback,
+      featureBranch: feature.feature_branch,
+      originalSpec: feature.spec ?? "",
+    }),
+    branch: feature.feature_branch,
+    rejection_feedback: feedback,
+  });
+
+  if (insertErr) {
+    console.error(`[orchestrator] Failed to queue fix job for feature ${featureId}:`, insertErr.message);
+  } else {
+    console.log(`[orchestrator] Queued fix job for rejected feature ${featureId}`);
+  }
+
+  // 5. Free up the test env — check queue and promote next feature
+  const { data: nextFeature, error: nextErr } = await supabase
+    .from("features")
+    .select("id")
+    .eq("project_id", feature.project_id)
+    .eq("status", "verifying")
+    .order("updated_at", { ascending: true })
+    .limit(1);
+
+  if (!nextErr && nextFeature && nextFeature.length > 0) {
+    await promoteToTesting(supabase, nextFeature[0].id);
+  }
+}
+
+/**
  * Releases one slot of the appropriate type on a machine.
  * Fetches the current job record to determine slot_type, then increments the machine counter.
  */
@@ -945,6 +1233,10 @@ async function listenForAgentMessages(
           await handleJobFailed(supabase, msg);
         } else if (isVerifyResult(msg)) {
           await handleVerifyResult(supabase, msg);
+        } else if (isFeatureApproved(msg)) {
+          await handleFeatureApproved(supabase, msg);
+        } else if (isFeatureRejected(msg)) {
+          await handleFeatureRejected(supabase, msg);
         } else if (isStopAck(msg)) {
           console.log(`[orchestrator] StopAck received — job ${(msg as { jobId: string }).jobId}`);
         } else {

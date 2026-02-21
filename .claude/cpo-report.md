@@ -29,4 +29,4 @@ Fixed two P0 bugs in `triggerFeatureVerification` and `dispatchQueuedJobs` intro
 
 ## Token Usage
 - Routing: claude-ok
-- Claude used directly for all implementation, testing, and verification
+- All code written directly by Claude (no codex delegation)

@@ -149,33 +149,43 @@ If QA was skipped (e.g. codex-first mechanical card), the comment still requires
 3. Approved → CPO moves card to Done via subagent, merges PR
 4. Rejected → CPO creates fix card with owner's feedback, VP-Eng dispatches fix
 
-**Batch completion narrative (Gap 8):**
+**The PR as the richest artifact:**
 
-When all cards from a single source document are Done, there is currently no moment where anyone synthesises what was built. Individual card completion comments describe per-card delivery. But when a group of related cards ships, the question "what do we now have that we didn't have before?" has no answer in the system.
+The pull request contains more information about what was built than anything else in the system: the description (what + why), commit list, CI results, QA review comments, and the exact diff. Once merged, all of this lives only on GitHub. There is currently no local record of what was in the PR — the Trello card has a pre-merge completion comment, but nothing captures the PR body or post-merge state locally.
 
-In a real startup this is the sprint review, release note, or CHANGELOG entry — written by the PM after a batch of related work ships.
+In a real startup, the PR description IS the completion record. Engineers write it to describe what they built; reviewers read it to understand what to approve; PMs read it to know what shipped. It's the canonical "here's what happened" artifact.
 
-**Proposed artifact:** When the last card in a `.cards.md` batch moves to Done, VP-Eng (or a CPO subagent triggered by the completion) appends a `## Completion` section to the `.cards.md` file:
+**Gap 9 — PR content not captured locally:** After merge, nothing writes the PR description or key metadata to a local file. The `.cards.md` completion section (Gap 8) is the right home — when VP-Eng creates a PR, it should pre-populate the completion section with the PR body. After merge, a subagent adds the merge commit SHA and timestamp.
+
+**Batch completion narrative (Gap 8 + 9 combined):**
+
+When the last card in a `.cards.md` batch is Done, VP-Eng (or a CPO subagent) appends a `## Completion` section to the `.cards.md` file. This section draws from the PR descriptions and the per-card completion comments written during execution:
 
 ```markdown
 ## Completion
 **Completed:** {ISO 8601 date}
 **Cards shipped:** {list of card IDs}
-**PRs merged:** {list of PR URLs}
+
+| Card | PR | Merge commit |
+|------|----|--------------|
+| {ID} -- {title} | #{number} {URL} | {SHA} |
 
 ### What we now have
 
 {Plain English. 2–4 paragraphs. Written for someone who didn't read the design doc.
 Not implementation detail. Answer: what can the system do now that it couldn't before?
-What was the before state, what is the after state, what does this unlock?}
+What was the before state, what is the after state, what does this unlock?
+Draw from the PR descriptions — they already contain this narrative.}
+
+### PR summaries
+{For each PR: paste the PR body verbatim or a condensed version. This is the local record
+of what the PR said, so you can read it without going to GitHub.}
 
 ### Known gaps / follow-ups
 {Any issues surfaced during execution that weren't fixed — link to follow-up cards if created}
 ```
 
-This keeps the full story in one place: design intent (the source doc) → card structure (`.cards.md` Phase 1) → execution outcome (`.cards.md` Completion section). You can read the file linearly from spec to shipped.
-
-The Trello cards individually link to the PR. The `.cards.md` Completion section is the human-readable narrative of what the batch delivered.
+This keeps the full story in one place: design intent (the source doc) → card structure (`.cards.md` Phase 1) → execution outcome (`.cards.md` Completion section, populated from PR descriptions after merge). You can read the file linearly from spec to shipped without ever going to GitHub or Trello.
 
 ---
 
@@ -191,6 +201,7 @@ The Trello cards individually link to the PR. The `.cards.md` Completion section
 | 6 | Execution | VP-Eng silently skips untagged cards | Medium | VP-Eng reports untagged cards in standup summary |
 | 7 | Execution / Review | VP-Eng moves cards to Review/Done without posting a completion comment — no per-card audit trail | High | VP-ENG-CLAUDE.md: mandate completion comment format before moving to Review |
 | 8 | Done | No batch completion narrative — when a group of related cards ships, "what did we build?" has no answer | High | VP-Eng or CPO subagent appends `## Completion` section to `.cards.md` when last card in batch is Done |
+| 9 | Done | PR content (description, CI results, review comments) is never captured locally — lives only on GitHub, invisible after merge | High | `.cards.md` Completion section includes PR body verbatim + merge commit SHA. VP-Eng pre-populates at PR creation time; subagent finalises after merge. |
 
 ---
 
@@ -269,3 +280,4 @@ The process gaps identified in this document map directly to orchestrator requir
 | **Gap 8** — no batch/feature completion narrative | Cardify skill: `## Completion` section in `.cards.md` | First-class `BatchCompletion` record linked to source document — queryable, durable, not buried in a markdown file |
 | **Gap 1** — review-plan not enforced before cardify | Convention only | Orchestrator can require a `source_doc_reviewed: bool` flag on batch task creation — Cardify sets it, enforced at push time |
 | **Gap 2** — ad-hoc card creation bypasses Cardify | Convention only | Orchestrator can enforce that all tasks carry a `source_doc` reference — no orphan tasks without a traceable origin |
+| **Gap 9** — PR content not captured locally after merge | `.cards.md` Completion section includes PR body + merge SHA | `BatchCompletion.pr_snapshots`: list of `{pr_number, title, body, merge_commit, merged_at}` stored server-side at merge time — no manual capture needed |

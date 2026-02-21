@@ -14,7 +14,7 @@
  *     → CPO uses slack_post_message MCP to reply
  */
 
-import { App } from "@slack/bolt";
+import { App, LogLevel } from "@slack/bolt";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -72,7 +72,7 @@ export class SlackChatRouter {
         warn: (msg) => console.warn("[slack-chat]", msg),
         error: (msg) => console.error("[slack-chat]", msg),
         setLevel: () => {},
-        getLevel: () => "warn" as const,
+        getLevel: () => LogLevel.WARN,
         setName: () => {},
       },
     });

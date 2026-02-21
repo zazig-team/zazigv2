@@ -31,6 +31,7 @@ import {
 } from "@zazigv2/shared";
 import type {
   StartJob,
+  VerifyJob,
   SlotType,
   AgentMessage,
   Heartbeat,
@@ -465,6 +466,35 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     const slotUpdate = { [slotColumn]: currentSlots - 1 };
     Object.assign(candidate, slotUpdate);
 
+    // Check if this is a verification job — route to VerifyJob instead of StartJob
+    if (job.job_type === "verify") {
+      let ctx: { featureBranch?: string; acceptanceTests?: string } = {};
+      try { ctx = JSON.parse(job.context ?? "{}"); } catch { /* ignore */ }
+
+      const verifyJobMsg: VerifyJob = {
+        type: "verify_job",
+        protocolVersion: PROTOCOL_VERSION,
+        jobId: job.id,
+        featureBranch: ctx.featureBranch ?? "",
+        jobBranch: job.branch ?? ctx.featureBranch ?? "",
+        acceptanceTests: ctx.acceptanceTests ?? "",
+      };
+
+      const channel = supabase.channel(`agent:${candidate.name}`);
+      await new Promise<void>((resolve) => {
+        channel.subscribe(async (status) => {
+          if (status === "SUBSCRIBED") {
+            await channel.send({ type: "broadcast", event: "verify_job", payload: verifyJobMsg });
+            await channel.unsubscribe();
+            resolve();
+          }
+        });
+      });
+
+      console.log(`[orchestrator] Dispatched VerifyJob ${job.id} to ${candidate.name}`);
+      continue;
+    }
+
     // Fetch role prompt + skills for non-codex jobs that have a named role.
     // These populate the 4-layer context stack: personality → role → skills → task.
     let rolePrompt: string | undefined;
@@ -796,13 +826,22 @@ export async function handleVerifyResult(supabase: SupabaseClient, msg: VerifyRe
 }
 
 export async function triggerFeatureVerification(supabase: SupabaseClient, featureId: string): Promise<void> {
-  // Mark feature as verifying
-  const { error: featureErr } = await supabase
+  // Mark feature as verifying — CAS guard: only if not already in a late-stage status.
+  // This prevents duplicate verification jobs from concurrent VerifyResult messages
+  // and blocks regression of features already past the verifying stage.
+  const { data: updated, error: featureErr } = await supabase
     .from("features")
     .update({ status: "verifying" })
-    .eq("id", featureId);
+    .eq("id", featureId)
+    .not("status", "in", '("verifying","testing","done","cancelled")')
+    .select("id");
+
   if (featureErr) {
     console.error(`[orchestrator] Failed to set feature ${featureId} to verifying:`, featureErr.message);
+    return;
+  }
+  if (!updated || updated.length === 0) {
+    console.log(`[orchestrator] Feature ${featureId} already in late-stage status — skipping verification trigger`);
     return;
   }
 
@@ -817,9 +856,8 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
     return;
   }
 
-  // Insert a feature-verification job. It uses the normal dispatch path
-  // (StartJob → executor → Claude session), with context that instructs
-  // the agent to run feature-level tests.
+  // Insert a feature-verification job. dispatchQueuedJobs routes job_type="verify"
+  // to a VerifyJob message, which the local agent's verifier picks up.
   const { error: insertErr } = await supabase
     .from("jobs")
     .insert({
@@ -827,7 +865,7 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
       project_id: feature.project_id,
       feature_id: featureId,
       role: "reviewer",
-      job_type: "code",
+      job_type: "verify",
       complexity: "simple",
       slot_type: "claude_code",
       status: "queued",

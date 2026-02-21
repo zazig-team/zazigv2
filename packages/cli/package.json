@@ -1,0 +1,26 @@
+{
+  "name": "@zazig/cli",
+  "version": "0.1.0",
+  "description": "Installable CLI for the zazigv2 local agent — login, join, start/stop/status",
+  "type": "module",
+  "bin": {
+    "zazig": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@zazigv2/local-agent": "*",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "*"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

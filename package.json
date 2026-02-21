@@ -6,7 +6,8 @@
   "workspaces": [
     "packages/orchestrator",
     "packages/local-agent",
-    "packages/shared"
+    "packages/shared",
+    "packages/cli"
   ],
   "scripts": {
     "build": "npm run build --workspaces",

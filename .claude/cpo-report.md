@@ -1,41 +1,41 @@
-# CPO Report — slack_installations DB Migration
+# CPO Report — agent-message Edge Function (outbound relay)
 
 ## Summary
-Created the `slack_installations` table migration for multi-tenant Slack integration. This table stores per-workspace Slack bot tokens that Edge Functions read to post messages.
+Created the `agent-message` Edge Function that receives outbound reply requests from agents (via the MCP tool) and routes them to the correct external platform (Slack) by parsing the opaque `conversationId`.
 
-A code review identified a P0 security finding and a P1 data quality issue — both fixed before PR creation.
+This is Wave 2, Step 4 of the bidirectional agent messaging plan.
 
 ## Discovery
-- Read all 14 existing migrations (003–016) to understand naming and patterns
-- Confirmed `companies(id)` is `UUID PRIMARY KEY` — valid FK target
-- Identified RLS pattern from 003: `service_role_full_access` + `authenticated_read_own` scoped by `company_id` via JWT
-- Confirmed `update_updated_at_column()` trigger function exists from 003
-
-## Security Fix (P0)
-**Problem:** Initial draft included an `authenticated_read_own` SELECT policy granting authenticated users access to the full row, including `bot_token` (Slack OAuth credential). No product requirement exists for authenticated users to read this table — only Edge Functions running as service_role need access.
-
-**Fix:** Dropped `authenticated_read_own` policy entirely. Only `service_role_full_access` remains.
-
-## Data Quality Fix (P1)
-Added `NOT NULL` to `installed_at` and `updated_at` — these always have `DEFAULT NOW()` so NOT NULL is safe and prevents null timestamps from sneaking in via raw SQL.
+- Read plan doc Section 4 fully — understood conversationId format and routing logic
+- Read existing `orchestrator` Edge Function to match patterns (Deno.serve, env vars, JSON responses, deno.json imports)
+- Confirmed `conversationId` split: `slack:T123:C456:1234.5678` → 4 parts via `split(':')`
+- Confirmed `slack_installations` table has `team_id TEXT PRIMARY KEY` and `bot_token TEXT NOT NULL`
 
 ## Files Changed
-- `supabase/migrations/017_slack_installations.sql` — new file (final version after security fixes)
+- `supabase/functions/agent-message/deno.json` — new file (import map matching existing pattern)
+- `supabase/functions/agent-message/index.ts` — new file (Edge Function implementation)
 
-## What the Migration Contains
-- `slack_installations` table with `team_id TEXT PRIMARY KEY` (Slack workspace ID)
-- `company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE`
-- All columns per spec: team_name, bot_token, bot_user_id, app_id, scope, authed_user_id, installed_at, updated_at
-- `updated_at` trigger reusing shared `update_updated_at_column()` function
-- Index on `company_id` for lookup performance
-- RLS enabled with `service_role_full_access` only — no authenticated user access
+## Implementation Details
+- **Auth**: Deployed WITHOUT `--no-verify-jwt` (Supabase verifies JWT). Function also validates bearer token matches `SUPABASE_ANON_KEY` for defense-in-depth.
+- **Routing**: Parses `conversationId` prefix to determine adapter. Currently supports `slack:` prefix only.
+- **Slack adapter**: Fetches `bot_token` from `slack_installations` using service_role client, POSTs to `https://slack.com/api/chat.postMessage` with `channel`, `text`, `thread_ts`.
+- **Error handling**: Returns structured `{ ok: false, error: "..." }` for all failure modes (missing fields, unknown prefix, missing Slack installation, Slack API errors).
+- **Status codes**: 400 (bad request/unknown prefix), 401 (unauthorized), 405 (wrong method), 502 (Slack API failure).
 
 ## Acceptance Criteria
-- [x] Migration file created at `supabase/migrations/017_slack_installations.sql`
-- [x] Table has all columns as specified
-- [x] `company_id` references `companies(id)` with ON DELETE CASCADE
-- [x] RLS enabled — service_role only (no authenticated user exposure of bot_token)
-- [x] Index on `company_id` for lookup performance
-- [x] Migration file follows existing naming convention (numbered prefix)
-- [x] P0 security fix: bot_token not exposed to authenticated users
-- [x] P1: installed_at/updated_at are NOT NULL
+- [x] Edge Function created at `supabase/functions/agent-message/index.ts`
+- [x] `supabase/functions/agent-message/deno.json` created (matching pattern of existing functions)
+- [x] Accepts POST with JSON body: `{ conversationId: string, text: string, jobId: string }`
+- [x] Auth: validates `Authorization: Bearer <token>` header — accepts SUPABASE_ANON_KEY
+- [x] Parses `conversationId` prefix to determine adapter (`slack:` -> Slack)
+- [x] For Slack: extracts `team_id`, `channel`, `thread_ts` from conversationId parts
+- [x] Fetches `bot_token` from `slack_installations` WHERE `team_id = parsed_team_id` using service_role client
+- [x] POSTs to `https://slack.com/api/chat.postMessage` with `channel`, `text`, `thread_ts`
+- [x] Returns `{ ok: true }` on success
+- [x] Returns `{ ok: false, error: "..." }` on failure (missing token, Slack API error, unknown prefix)
+- [x] Handles unknown conversationId prefix gracefully (return 400)
+- [x] Does NOT deploy with --no-verify-jwt (this function validates its own auth header)
+
+## Token Usage
+- Token budget: claude-ok
+- Approach: Direct implementation (no codex delegation needed — small, focused function)

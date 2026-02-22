@@ -22,6 +22,7 @@ Every other design doc handles one layer in depth. This doc is the map that show
 | Orchestrator + Dispatch | [`orchestration-server-design.md`](plans/2026-02-18-orchestration-server-design.md) |
 | Pipeline + Job Lifecycle | [`software-development-pipeline-design.md`](plans/2026-02-20-software-development-pipeline-design.md) |
 | Messaging | [`agent-messaging-bidirectional.md`](plans/2026-02-22-agent-messaging-bidirectional.md) |
+| Model Routing | Covered in this document ([Model Routing](#model-routing)) — may graduate to own design doc when local model support lands |
 
 ---
 
@@ -112,7 +113,7 @@ Executives are the leadership team. They have full identity, full knowledge, and
 | **Heartbeat** | Yes — autonomous, runs on a recurring cycle |
 | **Gateway** | Yes — founders can talk to them directly (e.g., via Slack) |
 | **Autonomy** | High — initiates work, not just responds to it |
-| **Model tier** | Opus (execs require the strongest reasoning) |
+| **Model routing** | Per-role config — see [Model Routing](#model-routing) section |
 
 Executives are **generalists within their domain**. The CPO handles product strategy, roadmap, prioritization, sprint planning, and founder communication. The CTO handles architecture, security, engineering standards, and technical health. Their broad scope is what makes them valuable — they see the whole picture for their function.
 
@@ -133,13 +134,13 @@ Employees are skilled workers with continuity and light identity. They're more n
 | **Canons** | Yes — access to relevant canon libraries |
 | **Memory** | Persistent — learns from past jobs, builds expertise over time |
 | **Heartbeat** | Yes — autonomous for routine tasks (review cycles, scheduled scans) |
-| **Gateway** | No — executives manage them, founders don't engage directly |
+| **Gateway** | Scoped — role-specific, typically write-only (e.g., Social Media Manager posts to X but doesn't receive founder DMs). Not all employees have gateways; granted per role config. |
 | **Autonomy** | Moderate — runs routine work autonomously, also dispatched by execs |
-| **Model tier** | Sonnet (capable reasoning, cost-efficient for volume) |
+| **Model routing** | Per-role config — see [Model Routing](#model-routing) section |
 
 The key insight from Chris: **narrow-scope specialists with the right knowledge injected outperform generalists reasoning from first principles.** A dedicated PR reviewer with review doctrines and the team's engineering canon will produce better reviews than a CTO doing reviews as one of twelve responsibilities.
 
-Employees have lite personality not for founder engagement (they have no gateway) but for **consistency** — a Senior Engineer's code style and commit messages should be recognizably "theirs" across jobs. A Market Researcher's daily digests should have a consistent analytical voice.
+Employees have lite personality not for founder engagement (their gateways, when they have them, are scoped and operational — not conversational) but for **consistency** — a Senior Engineer's code style and commit messages should be recognizably "theirs" across jobs. A Market Researcher's daily digests should have a consistent analytical voice.
 
 Employees are managed by executives. The CPO assigns work to the Product Manager. The CTO assigns work to the Senior Engineer. Employees can also run autonomously on heartbeat cycles (a Market Researcher runs daily scans without being told to).
 
@@ -156,13 +157,15 @@ Contractors are specialist experts hired per job. They're the most narrowly scop
 | **Skills** | Specialist skill set for their one function |
 | **Doctrines** | Yes — deep specialist doctrines (a Cybersecurity Tester has OWASP doctrines) |
 | **Canons** | Yes — specialist canon libraries (security canons, legal canons) |
-| **Memory** | None — stateless, no cross-job continuity |
+| **Memory** | Job-scoped — context within a single engagement (e.g., multi-phase migration). Optionally shared: learns patterns across jobs for the same contractor type. Opt-in per role config; some contractors are genuinely stateless. |
 | **Heartbeat** | No — not autonomous, dispatched per job |
 | **Gateway** | No — no direct engagement |
 | **Autonomy** | None — given a job, executes it, reports, gone |
-| **Model tier** | Varies — Sonnet for reasoning-heavy, Codex for mechanical |
+| **Model routing** | Per-role config — see [Model Routing](#model-routing) section |
 
-Contractors don't need personality because no one engages with them directly. They don't need memory because each job is self-contained. They don't need heartbeats because they aren't autonomous. What they *do* need is deep specialist knowledge — a Cybersecurity Tester with security doctrines + OWASP canons + pentest skills is far more effective than a generalist CTO running a security scan.
+Contractors don't need personality because no one engages with them directly. They don't need heartbeats because they aren't autonomous. What they *do* need is deep specialist knowledge — a Cybersecurity Tester with security doctrines + OWASP canons + pentest skills is far more effective than a generalist CTO running a security scan.
+
+**Contractor memory model.** Contractors have opt-in, two-tier memory. **Job-scoped memory** persists within a single engagement — a Migration Specialist doing Phase 2 of a migration can recall Phase 1 decisions without re-reading the entire context. **Shared memory** accumulates across jobs for the same contractor type — a Cybersecurity Tester that has audited 50 codebases learns common vulnerability patterns and carries those forward. Both tiers are opt-in per role config; some contractors (one-shot auditors, simple linters) should remain genuinely stateless.
 
 **The contractor marketplace.** Contractors are the natural unit for a zazig marketplace. Like real contractors, they build expertise that serves any client. A company doesn't need to "hire" a full-time Accessibility Auditor — they spin one up when needed, pay per job, and it arrives pre-loaded with accessibility doctrines and WCAG canons. This dovetails with the canon library marketplace (see knowledge architecture v5, Phase 6): you're selling pre-configured specialist knowledge, not just books.
 
@@ -187,13 +190,13 @@ Zazig Contractor Marketplace (future)
 | **Skills** | Broad | Focused | Specialist |
 | **Doctrines** | Wide domain | Deep, narrow | Deep, narrow |
 | **Canons** | All company libraries | Relevant libraries | Specialist libraries |
-| **Memory** | Persistent | Persistent | None |
+| **Memory** | Persistent | Persistent | Job-scoped + optional shared (opt-in per role) |
 | **Heartbeat** | Yes | Yes | No |
-| **Gateway** | Yes (Slack, etc.) | No | No |
+| **Gateway** | Yes — bidirectional (Slack, etc.) | Scoped — role-specific, typically write-only | No |
 | **Autonomy** | High | Moderate | None |
 | **Managed by** | Founders | Executives | Dispatched per job |
 | **Lifecycle** | Persistent (always-on) | Recurring (heartbeat cycles) | Ephemeral (spin up, execute, gone) |
-| **Model** | Opus | Sonnet | Varies |
+| **Model routing** | Per-role config (default: Opus) | Per-role config (default: Sonnet) | Per-role config (default: varies) |
 | **Identity continuity** | Strong | Moderate | None |
 
 ---
@@ -229,10 +232,10 @@ Job dispatched
 5. Load skill content from roles.skills[]
     │
     ▼
-6. Load memory context (execs + employees only):
+6. Load memory context (tier-dependent):
    ├── Exec:       Full episodic memory
    ├── Employee:   Full episodic memory
-   └── Contractor: None
+   └── Contractor: Job-scoped memory (if enabled) + shared type memory (if enabled)
     │
     ▼
 7. Assemble prompt stack in cache-optimized order
@@ -251,7 +254,13 @@ Workers with heartbeats run on recurring cycles managed by the orchestrator:
 
 ### Gateways
 
-A gateway is a bidirectional communication channel between a worker and the outside world (founders, Slack, other platforms). Only executives have gateways.
+A gateway is a communication channel between a worker and the outside world (founders, Slack, other platforms).
+
+**Executive gateways** are fully bidirectional — founders can message the CPO via Slack and receive responses. This is the primary engagement model for leadership workers.
+
+**Employee gateways** are scoped and typically write-only. A Social Media Manager may have a gateway to post to X, but does not receive founder DMs through it. Employee gateways are granted per role config — not all employees have them. The permissions model is tightly scoped: each gateway specifies allowed operations (read/write), allowed platforms, and rate limits.
+
+**Contractors** have no gateways.
 
 Gateways are implemented via platform adapters (Supabase Edge Functions) that bridge external platforms to the orchestrator's message bus. The agent receives an opaque `conversationId` and replies via `MessageOutbound` — it never knows which platform it's talking to.
 
@@ -267,7 +276,7 @@ Zazig deliberately avoids the term "agent" in its organizational model to preven
 |------------|--------------|----------|
 | **Executive** | Persistent, autonomous, full-identity leadership worker | Not "agent" (overloaded) |
 | **Employee** | Recurring, specialist, lite-identity worker | Not "sub-agent" (Claude ecosystem term) |
-| **Contractor** | Ephemeral, stateless, specialist-for-hire worker | Not "tool" or "function" |
+| **Contractor** | Ephemeral, specialist-for-hire worker (optionally scoped memory) | Not "tool" or "function" |
 | **Worker** | Generic term for any zazig AI entity across all tiers | — |
 | **Gateway** | Bidirectional comms channel to external platforms | Not "chat" or "interface" |
 | **Heartbeat** | Recurring autonomous execution cycle | — |
@@ -284,7 +293,7 @@ tier: 'exec' | 'employee' | 'contractor'
 
 The original architecture had two tiers: agents (with personality) and sub-agents (without). The three-tier model is better because:
 
-1. **Employees need memory but not full identity.** A Senior Engineer benefits from remembering past code review feedback and project patterns, but doesn't need a founder-facing personality or a philosophy statement. Two tiers forces a binary choice — full identity or none — that doesn't reflect how real organizations work.
+1. **Employees need memory but not full identity.** A Senior Engineer benefits from remembering past code review feedback and project patterns, but doesn't need a founder-facing personality or a philosophy statement. Two tiers forces a binary choice — full identity or none — that doesn't reflect how real organizations work. Even contractors benefit from scoped memory (job-scoped for multi-phase work, shared for cross-job learning) — a spectrum, not a binary.
 
 2. **Employees need autonomy but not a gateway.** A Market Researcher should run daily scans without being told to, but founders shouldn't be DMing the Market Researcher directly. Two tiers conflates autonomy (heartbeat) with accessibility (gateway).
 
@@ -332,12 +341,168 @@ The orchestrator needs to be aware of tiers for:
 
 1. **Prompt compilation** — which personality mode to use
 2. **Heartbeat management** — execs and employees get heartbeats, contractors don't
-3. **Memory injection** — execs and employees get memory, contractors don't
-4. **Gateway routing** — only execs have gateways
-5. **Slot allocation** — contractors may use cheaper model tiers
+3. **Memory injection** — execs and employees get full memory; contractors get job-scoped/shared memory if enabled
+4. **Gateway routing** — execs get bidirectional gateways; employees get scoped gateways (if configured); contractors get none
+5. **Model routing** — read `model_config` from role, resolve primary model, check local availability, select review chain (see [Model Routing](#model-routing))
 
 The `roles` table gains a `tier` column. The `StartJob` payload already supports all the required fields — tier determines which fields are populated.
 
 ---
 
-*Executives lead. Employees specialize. Contractors execute. The six layers — personality, role prompt, skills, doctrines, canons, memory — compose differently for each tier, but the orchestrator assembles them all the same way: compile at dispatch, inject as prompt, agent never sees the config. This is zazig's organizational model.*
+## Model Routing
+
+Model choice is an **orchestrator concern**, not a prompt concern. By the time the agent reads its prompt, the model decision has already been made. The orchestrator reads a `model_config` field from the role definition and routes accordingly.
+
+### The Problem
+
+A flat `model_tier: 'opus' | 'sonnet' | 'codex'` attribute is too simple. Real-world model routing involves:
+
+1. **Cost optimization** — a Senior Engineer should default to Codex for implementation, not burn Opus tokens on mechanical coding
+2. **Capability matching** — some tasks need investigation (reasoning model) before implementation (coding model), requiring two dispatches
+3. **Review chains** — cheap models produce, expensive models review. A Junior Engineer on Qwen writes code that gets reviewed by Codex or Sonnet
+4. **Local model availability** — if the host machine has Qwen or Minimax running locally, the orchestrator should prefer free local inference when the task is within capability
+5. **Subscription budget awareness** — when a founder is burning through their Claude subscription, the orchestrator should aggressively route to cheaper models
+
+### Role-Level Model Config
+
+Each role carries a `model_config` object in the `roles` table:
+
+```jsonc
+{
+  "primary": "codex",           // default dispatch model
+  "investigation": "sonnet",    // for tasks requiring reasoning/exploration first
+  "review_by": "sonnet",        // who reviews this worker's output
+  "fallback": "sonnet",         // if primary fails or exceeds scope
+  "local_eligible": true,       // can run on local models (Qwen, Minimax, etc.)
+  "local_models": ["qwen-3.5"]  // which local models are acceptable (if local_eligible)
+}
+```
+
+**Example configs by role:**
+
+| Role | primary | investigation | review_by | local_eligible | Notes |
+|------|---------|---------------|-----------|----------------|-------|
+| CPO | opus | — | — | false | Strategy requires strongest reasoning |
+| CTO | opus | — | — | false | Architecture requires strongest reasoning |
+| Senior Engineer | codex | sonnet | sonnet | false | Codex-first, Sonnet investigates and reviews |
+| Junior Engineer | qwen-3.5 | — | codex | true | Local model produces, Codex reviews |
+| PR Reviewer | sonnet | — | — | false | Review is the primary task, needs reasoning |
+| Market Researcher | minimax-2.5 | — | sonnet | true | Local model for research synthesis, Sonnet validates |
+| Cybersecurity Tester | sonnet | — | — | false | Security reasoning can't be delegated to weak models |
+
+### Dispatch Flow
+
+```
+Job arrives for role "senior-engineer"
+    │
+    ▼
+1. Read model_config from roles table
+    │
+    ▼
+2. Does task require investigation phase?
+   ├── Yes → Dispatch investigation phase on model_config.investigation (sonnet)
+   │         → Investigation report feeds into implementation task
+   └── No  → Continue
+    │
+    ▼
+3. Is model_config.local_eligible AND host has a matching local model?
+   ├── Yes → Dispatch on local model (free)
+   └── No  → Dispatch on model_config.primary (codex)
+    │
+    ▼
+4. Worker completes task
+    │
+    ▼
+5. Does model_config.review_by exist?
+   ├── Yes → Dispatch review phase on model_config.review_by (sonnet)
+   │         → Review passes → Done
+   │         → Review fails  → Re-dispatch or escalate
+   └── No  → Done
+```
+
+### The Review Chain Pattern
+
+The produce-review pattern is a **pipeline concern**, not a single-agent concern. When the orchestrator sees `review_by` in the model config, it automatically schedules a follow-up review job after the primary job completes. The worker doesn't know it's being reviewed — it just does its job and reports. The reviewer doesn't know who produced the work — it just reviews.
+
+This is structurally cheaper than running everything on expensive models:
+- Junior Engineer on Qwen (free/local) + Codex review (~$0.01/job) vs Sonnet for everything (~$0.10/job)
+- Senior Engineer on Codex (~$0.01/job) + Sonnet review (~$0.05/job) vs Opus for everything (~$0.50/job)
+
+### Transitional Note
+
+The current `codex-delegate` skill pattern (where a Claude Code agent shells out to Codex) is a transitional implementation. In zazigv2, the orchestrator handles model routing natively at dispatch time — the skill becomes unnecessary because the architecture does the routing. During the transition period, both patterns may coexist.
+
+### Future: Local Model Discovery
+
+When local model support lands, the orchestrator will need a capability registry:
+
+```jsonc
+// machine_capabilities (reported via heartbeat)
+{
+  "machine_id": "toms-macbook",
+  "local_models": [
+    { "name": "qwen-3.5", "capabilities": ["code", "creative"], "context_window": 32768 },
+    { "name": "minimax-2.5", "capabilities": ["research", "summarization"], "context_window": 65536 }
+  ]
+}
+```
+
+The orchestrator cross-references `model_config.local_models` with the host machine's reported capabilities. If there's a match, route locally. If not, fall back to `model_config.primary`. This may warrant its own design doc when implementation begins.
+
+---
+
+## Open Questions
+
+Questions to resolve before implementation. Items marked **(Chris)** need Chris's input.
+
+### 1. Heartbeat Schedule Ownership **(Chris)**
+
+Who defines employee heartbeat schedules? Options:
+
+- **A) Role config** — `heartbeat_schedule` field in the `roles` table (e.g., `"daily"`, `"hourly"`, `"every 5m"`). CTO/infra concern.
+- **B) Operational config** — per-company override in a separate config table. Product concern.
+- **C) Both** — role provides default, company can override.
+
+Needs alignment on whether this is a platform decision (same for all zazig customers) or a per-company customization.
+
+### 2. Lite Personality Dimension Selection
+
+Who curates the 2-3 personality dimensions for employee roles?
+
+- **A) Per-role in the personality table** — each role has `employee_dimensions: ["verbosity", "analysis_depth"]` hardcoded. Platform decision.
+- **B) Per-company customizable** — company admins choose which dimensions matter for their PR Reviewer. Product-facing, needs UI eventually.
+- **C) Auto-derived** — the orchestrator selects dimensions most relevant to the role's skill set. No human curation.
+
+Current lean: **(A)** for launch, graduate to **(B)** when we have a company admin UI.
+
+### 3. Employee Gateway Permissions Model
+
+Scoped gateways need a permissions schema. Draft:
+
+```jsonc
+{
+  "gateway_config": {
+    "enabled": true,
+    "platforms": ["twitter"],
+    "operations": ["write"],       // read | write | read_write
+    "rate_limit": "10/hour",
+    "requires_approval": false     // if true, posts queue for exec approval
+  }
+}
+```
+
+Does this live in the `roles` table or a separate `gateway_permissions` table? Does the `requires_approval` flow route through the managing executive or through the founder?
+
+### 4. Contractor Shared Memory Scope
+
+When a contractor type accumulates shared memory across jobs, what's the scope?
+
+- **A) Per-company** — a Cybersecurity Tester's shared memory is specific to one company's patterns
+- **B) Cross-company** — the tester learns from all companies (better expertise, privacy implications)
+- **C) Both** — per-company memory + anonymized cross-company patterns
+
+This has privacy and marketplace implications. Per-company is safe for launch. Cross-company is the marketplace differentiator but needs careful design.
+
+---
+
+*Executives lead. Employees specialize. Contractors execute. The six layers — personality, role prompt, skills, doctrines, canons, memory — compose differently for each tier, but the orchestrator assembles them all the same way: compile at dispatch, inject as prompt, agent never sees the config. Model routing sits alongside this as an orchestrator-level concern — the right model for the right task, enforced at dispatch, invisible to the worker. This is zazig's organizational model.*

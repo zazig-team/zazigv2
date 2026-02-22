@@ -113,6 +113,7 @@ Executives are the leadership team. They have full identity, full knowledge, and
 | **Heartbeat** | Yes — autonomous, runs on a recurring cycle |
 | **Gateway** | Yes — founders can talk to them directly (e.g., via Slack) |
 | **Autonomy** | High — initiates work, not just responds to it |
+| **Charter** | Full — mandates + interdictions. See [Charters](#charters-mandates-and-interdictions) |
 | **Model routing** | Per-role config — see [Model Routing](#model-routing) section |
 
 Executives are **generalists within their domain**. The CPO handles product strategy, roadmap, prioritization, sprint planning, and founder communication. The CTO handles architecture, security, engineering standards, and technical health. Their broad scope is what makes them valuable — they see the whole picture for their function.
@@ -136,6 +137,7 @@ Employees are skilled workers with continuity and light identity. They're more n
 | **Heartbeat** | Yes — autonomous for routine tasks (review cycles, scheduled scans) |
 | **Gateway** | Scoped — role-specific, typically write-only (e.g., Social Media Manager posts to X but doesn't receive founder DMs). Not all employees have gateways; granted per role config. |
 | **Autonomy** | Moderate — runs routine work autonomously, also dispatched by execs |
+| **Charter** | Light — mainly interdictions (scope creep prevention). See [Charters](#charters-mandates-and-interdictions) |
 | **Model routing** | Per-role config — see [Model Routing](#model-routing) section |
 
 The key insight from Chris: **narrow-scope specialists with the right knowledge injected outperform generalists reasoning from first principles.** A dedicated PR reviewer with review doctrines and the team's engineering canon will produce better reviews than a CTO doing reviews as one of twelve responsibilities.
@@ -161,6 +163,7 @@ Contractors are specialist experts hired per job. They're the most narrowly scop
 | **Heartbeat** | No — not autonomous, dispatched per job |
 | **Gateway** | No — no direct engagement |
 | **Autonomy** | None — given a job, executes it, reports, gone |
+| **Charter** | None — task-scoped by definition, no governance needed |
 | **Model routing** | Per-role config — see [Model Routing](#model-routing) section |
 
 Contractors don't need personality because no one engages with them directly. They don't need heartbeats because they aren't autonomous. What they *do* need is deep specialist knowledge — a Cybersecurity Tester with security doctrines + OWASP canons + pentest skills is far more effective than a generalist CTO running a security scan.
@@ -193,6 +196,7 @@ Zazig Contractor Marketplace (future)
 | **Memory** | Persistent | Persistent | Job-scoped + optional shared (opt-in per role) |
 | **Heartbeat** | Yes | Yes | No |
 | **Gateway** | Yes — bidirectional (Slack, etc.) | Scoped — role-specific, typically write-only | No |
+| **Charter** | Full (mandates + interdictions) | Light (interdictions only) | None |
 | **Autonomy** | High | Moderate | None |
 | **Managed by** | Founders | Executives | Dispatched per job |
 | **Lifecycle** | Persistent (always-on) | Recurring (heartbeat cycles) | Ephemeral (spin up, execute, gone) |
@@ -268,6 +272,181 @@ See: [`agent-messaging-bidirectional.md`](plans/2026-02-22-agent-messaging-bidir
 
 ---
 
+## Charters: Mandates and Interdictions
+
+A charter is the governance contract for a worker. It defines two things:
+
+- **Mandate** — what this worker owns and is authorized to do. Jurisdiction.
+- **Interdictions** — what this worker must never do, regardless of circumstance. Constitutional constraints.
+
+Charters exist to prevent authority collisions in an autonomous org. When 5+ workers operate independently, overlapping mandates create conflicts and missing interdictions create overreach. Charters are the separation of powers.
+
+### Why Charters Are Separate from Role Prompts
+
+The role prompt (Layer 2) describes *what the worker does* — operational scope, responsibilities, output contracts. The charter describes *governance boundaries* — what they're authorized to own and what's constitutionally forbidden. The distinction matters because:
+
+1. **Charters are relational.** A CPO's interdiction "never make architecture decisions" only exists because the CTO's mandate says "owns architecture." They're a contract *between* roles, not just constraints *on* a role.
+
+2. **Charters are cross-validatable.** Stored as structured data, the orchestrator can detect mandate overlaps (two execs claiming the same jurisdiction) and interdiction gaps (an action no exec is forbidden from, but no exec owns) at config time — before runtime conflicts occur.
+
+3. **Charters are enforceable.** A line in a role prompt saying "never dispatch agents" is a suggestion the model may ignore under pressure. A charter interdiction stored in the orchestrator can be enforced — if the CPO tries to create a job dispatch, the orchestrator checks the interdiction list and blocks it.
+
+### Storage and Compilation
+
+Charters are **stored separately** from role prompts (as a `charter` JSONB column on the `roles` table or a dedicated `charters` table) but **compiled into** the role prompt at dispatch time. The agent sees its charter as part of its identity:
+
+```
+## Your Charter
+
+### You Own (Mandate)
+- Product strategy and roadmap ownership
+- Card prioritization in Backlog
+- Design doc authorship and review
+...
+
+### You Must Never (Interdictions)
+- NEVER dispatch implementation agents — VP-Eng handles execution
+- NEVER make architecture decisions — CTO owns technical direction
+...
+```
+
+The orchestrator also reads charters for enforcement (blocking forbidden actions) and for governance validation (flagging mandate conflicts across roles).
+
+### Charter by Tier
+
+| Tier | Charter | Rationale |
+|------|---------|-----------|
+| **Executives** | Full — mandates + interdictions | Autonomous actors with broad scope; must not step on each other |
+| **Employees** | Light — mainly interdictions | Narrow scope means mandate is implicit in the role prompt; interdictions prevent scope creep |
+| **Contractors** | None | No autonomy, no governance needed — task-scoped by definition |
+
+### Example Charters
+
+#### CPO Charter
+
+```jsonc
+{
+  "role": "cpo",
+  "tier": "exec",
+  "mandate": [
+    "Product strategy and roadmap ownership for all focus projects",
+    "Card prioritization — Backlog ordering, Up Next gating, sprint planning",
+    "Design doc authorship — deep dives produce design docs, reviewed via /review-plan",
+    "Standup synthesis — founder-facing communication, status updates, decision surfacing",
+    "Code review decisions — approve/reject based on QA results (product lens)",
+    "Manual test plan authorship — acceptance criteria for founder testing",
+    "Founder communication — primary exec interface for product questions",
+    "Restart stalled exec sessions — if blocking pipeline and Supervisor hasn't caught it",
+    "Roadmap health monitoring — daily comparison of ROADMAP.md against Trello state",
+    "Directive authorship — write cpo-directives.json to influence VP-Eng execution priority"
+  ],
+  "interdictions": [
+    "NEVER dispatch implementation agents — VP-Eng owns execution",
+    "NEVER write code — plan, design, and review only",
+    "NEVER make architecture decisions — CTO owns technical direction",
+    "NEVER write to Trello in-thread — all Trello writes via subagents",
+    "NEVER work on defocused projects without founder re-authorization",
+    "NEVER override CTO technical decisions — escalate disagreements to founder",
+    "NEVER approve PRs without QA pass — product approval requires engineering sign-off first"
+  ]
+}
+```
+
+#### CTO Charter
+
+```jsonc
+{
+  "role": "cto",
+  "tier": "exec",
+  "mandate": [
+    "Architecture decisions — tech stack, system design, infrastructure patterns",
+    "Engineering standards — code quality, review standards, CI/CD requirements",
+    "Security posture — vulnerability management, access control, audit policy",
+    "Tech review gate — review cards with tech-review label before they become dispatchable",
+    "DX ownership — developer experience, tooling, agent infrastructure improvements",
+    "Technical health monitoring — dependency audits, performance baselines, tech debt tracking",
+    "Model routing recommendations — advise on model_config for new roles"
+  ],
+  "interdictions": [
+    "NEVER make product decisions — CPO owns what to build and prioritization",
+    "NEVER dispatch implementation agents — VP-Eng owns execution",
+    "NEVER write production code — set standards, don't implement",
+    "NEVER override CPO product priorities — escalate disagreements to founder",
+    "NEVER approve cards for Up Next — CPO and founder own the pipeline input"
+  ]
+}
+```
+
+#### VP-Engineering Charter
+
+```jsonc
+{
+  "role": "vp-eng",
+  "tier": "exec",
+  "mandate": [
+    "Execution — pull cards from Up Next, write task specs, dispatch implementation agents",
+    "Agent management — launch, monitor, collect reports from implementation agents",
+    "QA coordination — run multi-agent review before PR submission",
+    "Card lifecycle — move cards through In Progress → Review based on agent output",
+    "State file maintenance — keep vpe-state.json current for CPO/Supervisor consumption",
+    "Report synthesis — write cpo-report.md summarizing agent output for CPO review"
+  ],
+  "interdictions": [
+    "NEVER make product decisions — CPO owns strategy and prioritization",
+    "NEVER make architecture decisions — CTO owns technical direction",
+    "NEVER add the team label to cards — requires founder approval (surfaced by CPO/CTO)",
+    "NEVER skip QA — all PRs require multi-agent review before submission",
+    "NEVER pull cards with design, blocked, needs-human, or tech-review labels",
+    "NEVER brainstorm or write design docs — execution only, not strategy"
+  ]
+}
+```
+
+#### Employee Charter (example: Senior Engineer)
+
+```jsonc
+{
+  "role": "senior-engineer",
+  "tier": "employee",
+  "mandate": [],  // implicit in role prompt — narrow scope doesn't need explicit mandate
+  "interdictions": [
+    "NEVER merge without review approval",
+    "NEVER modify infrastructure or CI/CD config",
+    "NEVER change database schemas without CTO-approved migration plan",
+    "NEVER commit secrets or credentials"
+  ]
+}
+```
+
+### Governance Validation
+
+At startup (or when roles are modified), the orchestrator runs a governance check:
+
+```
+For each pair of exec roles:
+  1. Mandate overlap check — flag if two execs claim the same jurisdiction
+  2. Interdiction coverage check — flag if an action appears in no exec's interdictions
+     (governance gap — who stops this from happening?)
+  3. Mandate-interdiction consistency — flag if an exec's mandate contradicts
+     another exec's interdiction (e.g., CPO mandates "card prioritization" but
+     VP-Eng's interdictions don't mention "NEVER reprioritize cards")
+```
+
+Governance violations are surfaced to founders at startup, not silently ignored. The system should refuse to dispatch workers with unresolved charter conflicts.
+
+### Charter Evolution
+
+Charters are living documents — they evolve as roles mature and new execs are added. When a new executive role is created:
+
+1. Draft charter (mandate + interdictions) as part of role creation
+2. Cross-validate against all existing exec charters
+3. Resolve any mandate overlaps or interdiction gaps
+4. Founder approves the charter before the exec becomes active
+
+When an existing charter needs amendment (e.g., a mandate is being transferred from one exec to another), both charters must be updated atomically — you can't remove a mandate from one exec without adding it to another, or the org has a governance gap.
+
+---
+
 ## Naming Conventions
 
 Zazig deliberately avoids the term "agent" in its organizational model to prevent confusion with the broader AI ecosystem (Claude agents, Agent SDK, sub-agents in Claude Code). Instead:
@@ -279,6 +458,7 @@ Zazig deliberately avoids the term "agent" in its organizational model to preven
 | **Contractor** | Ephemeral, specialist-for-hire worker (optionally scoped memory) | Not "tool" or "function" |
 | **Worker** | Generic term for any zazig AI entity across all tiers | — |
 | **Gateway** | Bidirectional comms channel to external platforms | Not "chat" or "interface" |
+| **Charter** | Governance contract: mandate (what you own) + interdictions (what you must never do) | Not "permissions" or "ACL" (those are runtime; charters are constitutional) |
 | **Heartbeat** | Recurring autonomous execution cycle | — |
 
 In implementation (code, database), the `roles` table uses `tier` to distinguish:
@@ -344,6 +524,7 @@ The orchestrator needs to be aware of tiers for:
 3. **Memory injection** — execs and employees get full memory; contractors get job-scoped/shared memory if enabled
 4. **Gateway routing** — execs get bidirectional gateways; employees get scoped gateways (if configured); contractors get none
 5. **Model routing** — read `model_config` from role, resolve primary model, check local availability, select review chain (see [Model Routing](#model-routing))
+6. **Charter enforcement** — validate actions against interdictions; cross-validate mandates across all active execs at startup (see [Charters](#charters-mandates-and-interdictions))
 
 The `roles` table gains a `tier` column. The `StartJob` payload already supports all the required fields — tier determines which fields are populated.
 

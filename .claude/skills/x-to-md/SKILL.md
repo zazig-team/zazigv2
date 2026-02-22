@@ -55,7 +55,7 @@ Read the markdown output. The tool:
 - **Fetches linked external content** — blog posts, articles, etc. are inlined as "Linked Content"
 - **Strips X-internal URLs** — x.com/i/article/ and tweet links are removed from text
 
-**If the tweet links to an X Article** (`x.com/i/article/...`): The tool cannot fetch X Articles (they're behind auth). Open the URL in a browser, copy the article text, and paste it into the markdown file manually. Or use WebFetch to try to grab the content.
+**X Articles and long-form posts** are fully supported — the tool extracts full article text and note content directly from the X API (`article.plain_text` and `note_tweet.text` fields).
 
 ### Step 4: Generate a Descriptive Title
 
@@ -142,5 +142,5 @@ export X_BEARER_TOKEN=$(doppler secrets get X_BEARER_TOKEN --project zazig --con
 - Threads only include self-replies (author continuing their own thread), not replies to commenters
 - X-internal URLs (tweets, articles, moments) are stripped from text
 - External URLs are fetched and inlined as "Linked Content" when possible
-- X Articles (`x.com/i/article/`) cannot be fetched (behind auth) -- requires manual copy
+- X Articles and long-form notes are extracted via API fields (article.plain_text, note_tweet.text)
 - Budget is shared with x-scan -- coordinate usage

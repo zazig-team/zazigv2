@@ -27,9 +27,8 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   );
 }
 
-if (!SLACK_SIGNING_SECRET) {
-  throw new Error("Missing required environment variable: SLACK_SIGNING_SECRET");
-}
+// SLACK_SIGNING_SECRET validated at request time (not startup) so url_verification
+// can work before the secret is configured in Supabase.
 
 // ---------------------------------------------------------------------------
 // Event deduplication (in-memory bounded Set, max 1000 entries)
@@ -146,15 +145,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const rawBody = await req.text();
 
-  // Verify Slack request signature
-  const timestamp = req.headers.get("x-slack-request-timestamp");
-  const signature = req.headers.get("x-slack-signature");
-  const valid = await verifySlackSignature(rawBody, timestamp, signature);
-  if (!valid) {
-    console.warn("[slack-events] Invalid Slack signature — rejecting request");
-    return jsonResponse({ error: "Invalid signature" }, 401);
-  }
-
+  // Parse JSON first — needed for url_verification which must respond immediately
   let body: Record<string, unknown>;
   try {
     body = JSON.parse(rawBody);
@@ -162,9 +153,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse({ error: "Invalid JSON" }, 400);
   }
 
-  // Handle url_verification challenge
+  // Handle url_verification challenge BEFORE signature check
+  // (Slack sends this during app setup; must respond with challenge value)
   if (body.type === "url_verification") {
     return jsonResponse({ challenge: body.challenge as string });
+  }
+
+  // Verify Slack request signature for all other requests
+  if (!SLACK_SIGNING_SECRET) {
+    console.error("[slack-events] SLACK_SIGNING_SECRET not set — rejecting request");
+    return jsonResponse({ error: "Server not configured" }, 500);
+  }
+  const timestamp = req.headers.get("x-slack-request-timestamp");
+  const signature = req.headers.get("x-slack-signature");
+  const valid = await verifySlackSignature(rawBody, timestamp, signature);
+  if (!valid) {
+    console.warn("[slack-events] Invalid Slack signature — rejecting request");
+    return jsonResponse({ error: "Invalid signature" }, 401);
   }
 
   // Only handle event_callback

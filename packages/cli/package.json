@@ -1,7 +1,7 @@
 {
   "name": "@zazig/cli",
   "version": "0.1.0",
-  "description": "Installable CLI for the zazigv2 local agent — login, join, start/stop/status",
+  "description": "Installable CLI for the zazigv2 local agent — login, start/stop/status",
   "type": "module",
   "bin": {
     "zazig": "./dist/index.js"
@@ -10,15 +10,19 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
     "@zazigv2/local-agent": "*",
     "yaml": "^2.7.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "*"
+    "typescript": "*",
+    "vitest": "^4.0.18"
   },
   "engines": {
     "node": ">=20.0.0"

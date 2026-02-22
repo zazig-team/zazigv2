@@ -3,10 +3,13 @@
  *
  * Reports daemon running state, and — if running — queries Supabase for
  * the machine's connection state, heartbeat age, slot usage, and active jobs.
+ *
+ * Uses the authenticated JWT (not service-role key) for API calls.
+ * company_id is derived from credentials, not machine.yaml.
  */
 
 import { readPid, isDaemonRunning } from "../lib/daemon.js";
-import { loadCredentials } from "../lib/credentials.js";
+import { getValidCredentials } from "../lib/credentials.js";
 import { loadConfig } from "../lib/config.js";
 
 type Row = Record<string, unknown>;
@@ -32,7 +35,7 @@ export async function status(): Promise<void> {
   // Best-effort live state from Supabase — never fatal if this fails
   let creds;
   try {
-    creds = loadCredentials();
+    creds = await getValidCredentials();
   } catch {
     return; // No credentials — can't query Supabase
   }
@@ -46,27 +49,27 @@ export async function status(): Promise<void> {
 
   const headers: Record<string, string> = {
     apikey: creds.anonKey,
-    Authorization: `Bearer ${creds.serviceRoleKey}`,
+    Authorization: `Bearer ${creds.accessToken}`,
   };
 
   try {
-    // Company name
+    // Company name (uses authenticated role — RLS scopes to own company)
     const companies = await apiFetch(
       `${creds.supabaseUrl}/rest/v1/companies` +
         `?select=name` +
-        `&id=eq.${encodeURIComponent(cfg.company_id)}` +
+        `&id=eq.${encodeURIComponent(creds.companyId)}` +
         `&limit=1`,
       headers
     );
     const companyName =
-      companies.length > 0 ? String(companies[0]!.name ?? cfg.company_id) : cfg.company_id;
+      companies.length > 0 ? String(companies[0]!.name ?? creds.companyId) : creds.companyId;
 
     // Machine row
     const machines = await apiFetch(
       `${creds.supabaseUrl}/rest/v1/machines` +
         `?select=id,name,status,last_heartbeat,slots_claude_code,slots_codex` +
         `&name=eq.${encodeURIComponent(cfg.name)}` +
-        `&company_id=eq.${encodeURIComponent(cfg.company_id)}` +
+        `&company_id=eq.${encodeURIComponent(creds.companyId)}` +
         `&limit=1`,
       headers
     );

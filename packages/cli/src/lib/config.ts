@@ -2,8 +2,11 @@
  * config.ts — read/write ~/.zazigv2/machine.yaml
  *
  * The machine.yaml format is shared with the local-agent; this module only
- * handles writing it during `zazig join`. Reading is done by the local-agent
+ * handles writing it during `zazig login`. Reading is done by the local-agent
  * at runtime via its own config loader.
+ *
+ * company_id is no longer stored here — it is derived from the authenticated
+ * user's JWT claim at runtime.
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -16,7 +19,6 @@ const CONFIG_PATH = join(ZAZIGV2_DIR, "machine.yaml");
 
 export interface MachineConfig {
   name: string;
-  company_id: string;
   slots: {
     claude_code: number;
     codex: number;
@@ -35,7 +37,7 @@ export function loadConfig(): MachineConfig {
     const raw = readFileSync(CONFIG_PATH, "utf-8");
     return yamlParse(raw) as MachineConfig;
   } catch {
-    throw new Error("No machine config. Run 'zazig join <company>' first.");
+    throw new Error("No machine config. Run 'zazig login' to configure.");
   }
 }
 

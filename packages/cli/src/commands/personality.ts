@@ -2,6 +2,7 @@
  * personality.ts — zazig personality <role> [--show | --archetype [name]]
  *
  * Manages exec agent personality configuration stored in Supabase.
+ * Uses authenticated JWT for API calls. company_id from credentials.
  *
  * Usage:
  *   zazig personality cpo --show
@@ -9,8 +10,7 @@
  *   zazig personality cpo --archetype "The Strategist"
  */
 
-import { loadCredentials } from "../lib/credentials.js";
-import { loadConfig } from "../lib/config.js";
+import { getValidCredentials } from "../lib/credentials.js";
 
 interface RoleRow {
   id: string;
@@ -62,25 +62,18 @@ export async function personality(args: string[]): Promise<void> {
 
   let creds;
   try {
-    creds = loadCredentials();
+    creds = await getValidCredentials();
   } catch {
     console.error("Run 'zazig login' first.");
     process.exitCode = 1;
     return;
   }
 
-  let cfg;
-  try {
-    cfg = loadConfig();
-  } catch {
-    console.error("Run 'zazig join' first.");
-    process.exitCode = 1;
-    return;
-  }
+  const companyId = creds.companyId;
 
   const headers: Record<string, string> = {
     apikey: creds.anonKey,
-    Authorization: `Bearer ${creds.serviceRoleKey}`,
+    Authorization: `Bearer ${creds.accessToken}`,
     "Content-Type": "application/json",
   };
 
@@ -109,18 +102,18 @@ export async function personality(args: string[]): Promise<void> {
 
   try {
     if (showFlag) {
-      await showPersonality(creds.supabaseUrl, cfg.company_id, headers, role, roleId);
+      await showPersonality(creds.supabaseUrl, companyId, headers, role, roleId);
     } else if (hasArchetypeFlag && archetypeValue) {
       await switchArchetype(
         creds.supabaseUrl,
-        cfg.company_id,
+        companyId,
         headers,
         role,
         roleId,
         archetypeValue
       );
     } else {
-      await listArchetypes(creds.supabaseUrl, cfg.company_id, headers, role, roleId);
+      await listArchetypes(creds.supabaseUrl, companyId, headers, role, roleId);
     }
   } catch (err) {
     console.error(`Error: ${String(err)}`);

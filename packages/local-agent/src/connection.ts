@@ -5,13 +5,20 @@
  *   - Inbound:  `agent:${machineId}`     — receives StartJob/StopJob/HealthCheck from orchestrator
  *   - Outbound: `orchestrator:commands`   — sends Heartbeat/JobAck/JobComplete/JobFailed to orchestrator
  *
+ * Auth: Uses an authenticated Supabase client (user JWT) for both Realtime
+ * subscriptions and DB writes. No service-role key required.
+ *
  * Handles:
  *   - Dual-channel subscription with coordinated readiness
  *   - Exponential backoff on disconnect (capped at 30 s)
  *   - Heartbeat every HEARTBEAT_INTERVAL_MS (30 s)
  *   - Incoming OrchestratorMessage validation + dispatch to handlers
+ *   - Automatic JWT refresh via Supabase Auth
  */
 
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { HEARTBEAT_INTERVAL_MS, PROTOCOL_VERSION, isOrchestratorMessage } from "@zazigv2/shared";
@@ -27,9 +34,9 @@ const BACKOFF_MULTIPLIER = 2;
 export type MessageHandler = (msg: OrchestratorMessage) => void;
 
 export class AgentConnection {
-  /** Anon-key client — used for Realtime subscriptions only. */
+  /** Authenticated Supabase client — used for both Realtime and DB operations. */
   readonly supabase: SupabaseClient;
-  /** Service-role client for direct DB writes (bypasses RLS). Falls back to anon client if service_role_key not set. */
+  /** DB client for writes — same authenticated client (RLS enforced). */
   readonly dbClient: SupabaseClient;
   private readonly machineId: string;
   private readonly companyId: string;
@@ -51,6 +58,8 @@ export class AgentConnection {
     this.machineId = config.name;
     this.companyId = config.company_id;
     this.slots = slots;
+
+    // Create Supabase client — will be authenticated in authenticate()
     this.supabase = createClient(config.supabase.url, config.supabase.anon_key, {
       realtime: {
         // Node.js requires an explicit WebSocket implementation; the ws package
@@ -63,15 +72,50 @@ export class AgentConnection {
       },
     });
 
-    // Use service_role key for DB writes if available — bypasses RLS entirely.
-    // Falls back to anon client (which will fail on writes since anon policies were removed).
-    if (config.supabase.service_role_key) {
-      this.dbClient = createClient(config.supabase.url, config.supabase.service_role_key);
-      console.log("[local-agent] Using service_role key for DB writes");
-    } else {
-      this.dbClient = this.supabase;
-      console.warn("[local-agent] No SUPABASE_SERVICE_ROLE_KEY set — DB writes will use anon key (may fail)");
+    // Single authenticated client for all operations (Realtime + DB writes)
+    // RLS enforces company_id scoping automatically via the JWT claim.
+    this.dbClient = this.supabase;
+  }
+
+  /**
+   * Authenticate the Supabase client using stored JWT credentials.
+   * Must be called before start().
+   */
+  async authenticate(): Promise<void> {
+    const { auth } = this.config;
+    console.log("[local-agent] Authenticating with Supabase Auth...");
+
+    const { data, error } = await this.supabase.auth.setSession({
+      access_token: auth.accessToken,
+      refresh_token: auth.refreshToken,
+    });
+
+    if (error || !data.session) {
+      throw new Error(
+        `Supabase Auth failed: ${error?.message ?? "no session returned"}. Run 'zazig login' to re-authenticate.`
+      );
     }
+
+    console.log("[local-agent] Authenticated as user " + data.session.user.email);
+
+    // Listen for token refresh events to persist updated credentials
+    this.supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "TOKEN_REFRESHED" && session) {
+        console.log("[local-agent] JWT refreshed automatically");
+        // Best-effort persist — don't fail if write fails
+        try {
+          const credsPath = join(homedir(), ".zazigv2", "credentials.json");
+          const raw = readFileSync(credsPath, "utf-8");
+          const creds = JSON.parse(raw);
+          creds.accessToken = session.access_token;
+          creds.refreshToken = session.refresh_token;
+          mkdirSync(join(homedir(), ".zazigv2"), { recursive: true });
+          writeFileSync(credsPath, JSON.stringify(creds, null, 2) + "\n", { mode: 0o600 });
+        } catch (err) {
+          console.warn("[local-agent] Failed to persist refreshed credentials:", err);
+        }
+      }
+    });
   }
 
   /** Register a handler for incoming OrchestratorMessages. */
@@ -241,8 +285,7 @@ export class AgentConnection {
     if (this.stopped) return;
 
     const slotsAvailable = this.slots.getAvailable();
-    // Primary: write heartbeat directly to the DB — reliable, no timing dependency
-    // Uses dbClient (service_role) and scopes by both company_id and name for safety
+    // Write heartbeat directly to the DB via authenticated client (RLS-scoped)
     const { error: dbErr } = await this.dbClient
       .from("machines")
       .update({

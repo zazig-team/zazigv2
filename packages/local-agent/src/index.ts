@@ -7,11 +7,8 @@
  * Runtime: Node.js 20+
  * Start: node dist/index.js (or npm start from this package)
  *
- * Required environment:
- *   SUPABASE_ANON_KEY — Supabase anonymous API key (never hardcoded)
- *   SUPABASE_URL      — Optional override for supabase.url in machine.yaml
- *
- * Config: ~/.zazigv2/machine.yaml
+ * Auth: Reads ~/.zazigv2/credentials.json for Supabase Auth JWT.
+ * Config: ~/.zazigv2/machine.yaml (machine name + slots)
  */
 
 import { loadConfig } from "./config.js";
@@ -42,6 +39,9 @@ async function main(): Promise<void> {
   // Create and configure Realtime connection
   const conn = new AgentConnection(config, slots);
 
+  // Authenticate with Supabase Auth (JWT-based, no service-role key)
+  await conn.authenticate();
+
   // Initialize job verifier — handles VerifyJob messages inline
   const verifier = new JobVerifier(
     config.name,
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   );
 
   // Initialize job executor — passes messages back to orchestrator via conn.sendMessage
-  // conn.dbClient (service_role) is passed so the executor can write job status directly to the DB
+  // conn.dbClient (authenticated) is passed so the executor can write job status directly to the DB
   const executor = new JobExecutor(
     config.name,
     config.company_id,

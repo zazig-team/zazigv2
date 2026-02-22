@@ -36,7 +36,7 @@ export async function start(): Promise<void> {
 
   // Require machine config
   if (!configExists()) {
-    console.error("No machine config. Run 'zazig join <company>' first.");
+    console.error("No machine config. Run 'zazig login' to set up.");
     process.exitCode = 1;
     return;
   }
@@ -49,15 +49,13 @@ export async function start(): Promise<void> {
     return;
   }
 
-  // Build env for the spawned process — credentials come from the CLI,
-  // machine.yaml is read by the local-agent at startup.
+  // Build env for the spawned process — pass public Supabase values.
+  // The daemon reads credentials.json directly for auth tokens.
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     SUPABASE_ANON_KEY: creds.anonKey,
-    SUPABASE_SERVICE_ROLE_KEY: creds.serviceRoleKey,
-    // SUPABASE_URL: already in machine.yaml supabase.url; local-agent reads it from there.
-    // Setting it here too avoids any env-vs-yaml ambiguity.
     SUPABASE_URL: creds.supabaseUrl,
+    // No service-role key — daemon authenticates via JWT from credentials.json
   };
 
   let pid: number;

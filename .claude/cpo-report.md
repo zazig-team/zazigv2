@@ -1,59 +1,65 @@
-STATUS: COMPLETE
-CARD: 69985e7b60c9758f87e8d648
-FILES: packages/shared/src/messages.ts, packages/shared/src/validators.ts, supabase/functions/_shared/messages.ts, packages/local-agent/src/executor.ts
-TESTS: 9 passed
-NOTES: Added subAgentPrompt field to StartJob interface with same size constraints as personalityPrompt. assembleContext writes the prompt to ~/.zazigv2/job-{jobId}/subagent-personality.md and injects a forwarding instruction into the primary agent context. Workspace cleaned up on job complete, timeout, and stop. Existing personalityPrompt handling unchanged.
-
----
-
-# CPO Report — Local Agent: Handle MessageInbound, Create Workspace, Remove SlackChatRouter
+# CPO Report: Replace CLI service-role auth with Supabase user auth + RLS
 
 ## Summary
-Updated the local agent (Wave 3) to:
-1. Handle `MessageInbound` events by injecting them into the CPO's tmux session with queue + idle detection
-2. Create an agent workspace (`~/.zazigv2/cpo-workspace/`) with `.mcp.json` so the CPO can use the zazig-messaging MCP server
-3. Remove `SlackChatRouter` (replaced by backend Slack integration via Edge Functions)
+
+Replaced the CLI's raw service-role key authentication with Supabase Auth (email/password) across the entire CLI and local-agent stack. Users now authenticate via `zazig login` with their existing web UI credentials. The service-role key is no longer stored on operator machines. All DB operations from the local-agent use the authenticated JWT, with RLS enforcing company_id scoping automatically.
+
+## What Was Done
+
+1. **`zazig login` now uses Supabase Auth** -- prompts for email/password, calls `signInWithPassword()`, stores session tokens
+2. **`zazig join` removed entirely** -- company_id is derived from the JWT claim, not manually entered
+3. **Credentials schema updated** -- `{ supabaseUrl, anonKey, refreshToken, accessToken, userId, companyId }` replaces `{ supabaseUrl, anonKey, serviceRoleKey }`
+4. **All CLI commands use JWT auth** -- `status`, `personality`, `start` all use the access token instead of service-role key
+5. **Local-agent uses single authenticated client** -- replaces the dual anon+service_role client pattern with one JWT-authenticated client
+6. **Auto JWT refresh** -- the Supabase JS client handles token refresh; updated tokens are persisted to credentials.json
+7. **machine.yaml simplified** -- `company_id` removed; derived from credentials at runtime
+8. **Multi-company support** -- login prompts for company selection if user belongs to multiple companies
+9. **Machine setup integrated into login** -- if no machine.yaml exists after login, prompts for machine name and slots
+10. **RLS migration added** -- authenticated INSERT/UPDATE policies on machines, jobs, and events tables
 
 ## Files Changed
-- `packages/local-agent/src/executor.ts` — Added `handleMessageInbound()`, message queue + idle detection, workspace creation in `handleStartCpo()`, removed all `SlackChatRouter` references
-- `packages/local-agent/src/index.ts` — Wired `message_inbound` case to `executor.handleMessageInbound()`, updated executor constructor call with supabase URL/anon key
-- `packages/local-agent/src/executor.test.ts` — Updated constructor calls to match new signature, added `writeFileSync`/`rmSync` to fs mock
-- `packages/local-agent/src/slack-chat.ts` — **Deleted**
-- `packages/local-agent/package.json` — Removed `@slack/bolt` dependency
 
-## Implementation Details
+### CLI (`packages/cli/`)
+- `src/commands/login.ts` -- rewritten: Supabase Auth flow, multi-company, machine setup
+- `src/commands/join.ts` -- **deleted**
+- `src/commands/start.ts` -- no longer passes `SUPABASE_SERVICE_ROLE_KEY` env var
+- `src/commands/status.ts` -- uses JWT auth, companyId from credentials
+- `src/commands/personality.ts` -- uses JWT auth, companyId from credentials
+- `src/lib/credentials.ts` -- new schema, `decodeJwtPayload()`, `refreshSession()`, `getValidCredentials()`
+- `src/lib/config.ts` -- removed `company_id` from MachineConfig
+- `src/index.ts` -- removed `join` command registration
+- `src/lib/credentials.test.ts` -- **new**: 10 tests for credentials operations
+- `package.json` -- added `@supabase/supabase-js`, `vitest`, test scripts
 
-### handleMessageInbound (executor.ts)
-- Public method that checks if CPO job is running, formats the message as `[Message from {from}, conversation:{conversationId}]\n{text}`, and enqueues it
-- Messages are processed sequentially through a queue — each waits for CPO idle before injecting
-- Idle detection ported from `SlackChatRouter.isCpoIdle()`: captures tmux pane, scans for prompt markers (`❯`, `>`, `$`, `%`)
-- Polls every 5s for up to 5min; drops message if CPO doesn't become idle
-- Injection uses `tmux send-keys -l` (literal) + separate `Enter` keystroke, matching the proven pattern from SlackChatRouter
-- Newlines normalized to spaces to prevent premature entry
+### Local Agent (`packages/local-agent/`)
+- `src/config.ts` -- reads credentials.json for auth, derives company_id from JWT
+- `src/connection.ts` -- single authenticated client, `authenticate()` method, token refresh persistence
+- `src/index.ts` -- calls `conn.authenticate()` before `conn.start()`
 
-### Agent Workspace (handleStartCpo)
-- Creates `~/.zazigv2/cpo-workspace/` with `recursive: true`
-- Resolves agent-mcp-server.js path relative to compiled dist/ directory using `import.meta.url`
-- Writes `.mcp.json` with zazig-messaging MCP server config including `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `ZAZIG_JOB_ID` env vars
-- Passes workspace dir to `spawnPersistentCpoSession()` via new `-c` tmux flag
+### Database
+- `supabase/migrations/019_authenticated_write_policies.sql` -- **new**: authenticated INSERT/UPDATE on machines, UPDATE on jobs, INSERT on events
 
-### SlackChatRouter Removal
-- Deleted `slack-chat.ts` entirely
-- Removed `cpoRouter` field and all router start/stop/cleanup code from executor
-- Kept `cpoJobId` field (needed for message routing)
-- Removed `@slack/bolt` from package.json dependencies
-- Removed Slack channels fetch from `handleStartCpo()` (no longer needed)
+## Tests Added/Passing
 
-### Constructor Change
-- Added `supabaseUrl` and `supabaseAnonKey` params to `JobExecutor` constructor (needed for .mcp.json env vars)
-- Updated test file to pass the new params
+- **10 new CLI tests** (credentials.test.ts): all pass
+- **27 existing local-agent tests**: all pass (3 suites)
+- **2 pre-existing failures**: executor.test.ts and verifier.test.ts fail due to `@zazigv2/shared` package resolution in vitest (not related to this change)
 
-## Tests
-- **134 tests passing** (all local-agent + shared tests)
-- 1 pre-existing failure: `supabase/functions/orchestrator/orchestrator.test.ts` — Deno-style imports incompatible with Node vitest (not related to this change)
+## Issues / Notes
 
-## Build
-- `tsc` build succeeds with no errors
+- **014_companies_anon_rls.sql**: Wide-open anon SELECT on companies NOT removed -- pipeline dashboard still needs it
+- **JWT `company_id` claim**: Requires a custom access token hook in Supabase to inject `company_id` at the JWT top level
+- **Edge Functions**: Continue using service_role (server-side only, correct behavior)
+
+## Manual Test Steps
+
+1. `zazig login` -- enter Supabase URL, anon key, email, password
+2. Verify `~/.zazigv2/credentials.json` contains `refreshToken`, `accessToken`, `companyId` (no `serviceRoleKey`)
+3. `zazig start` -- daemon should authenticate and connect
+4. `zazig status` -- should show machine state using JWT auth
+5. Check daemon logs for "Authenticated as user" message
 
 ## Token Usage
-- Token budget: claude-ok (wrote code directly)
+
+- Token budget: claude-ok (direct implementation)
+- No codex-delegate used

@@ -50,6 +50,7 @@ import type {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error(
@@ -246,6 +247,57 @@ const recoveryTimestamps = new Map<string, number>();
 console.log(
   "[orchestrator] Cold start — in-memory recoveryTimestamps reset (anti-flap cooldown not durable across restarts)",
 );
+
+// ---------------------------------------------------------------------------
+// Title generation — short human-readable labels for jobs via Claude Haiku
+// ---------------------------------------------------------------------------
+
+/**
+ * Generates a short (3-8 word) human-readable title for a job from its context.
+ * Uses Claude Haiku for speed and cost efficiency. Returns empty string on failure.
+ */
+async function generateTitle(context: string): Promise<string> {
+  if (!ANTHROPIC_API_KEY) {
+    console.warn("[orchestrator] ANTHROPIC_API_KEY not set — skipping title generation");
+    return "";
+  }
+
+  // Strip UUIDs and trim to avoid sending large payloads
+  const cleaned = context
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "[id]")
+    .slice(0, 500);
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 30,
+        messages: [{
+          role: "user",
+          content: `Generate a 3-8 word human-readable title for this software engineering job. Return ONLY the title, nothing else.\n\nContext: ${cleaned}`,
+        }],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`[orchestrator] Title generation HTTP ${response.status}`);
+      return "";
+    }
+
+    const data = await response.json();
+    const title = data.content?.[0]?.text?.trim() || "";
+    return title.slice(0, 120);
+  } catch (err) {
+    console.error("[orchestrator] Title generation failed:", err instanceof Error ? err.message : String(err));
+    return "";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Core orchestrator operations
@@ -873,6 +925,13 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
 
   // Insert a feature-verification job. dispatchQueuedJobs routes job_type="verify"
   // to a VerifyJob message, which the local agent's verifier picks up.
+  const verifyContext = JSON.stringify({
+    type: "feature_verification",
+    featureBranch: feature.feature_branch,
+    acceptanceTests: feature.acceptance_tests ?? "",
+  });
+  const verifyTitle = await generateTitle(verifyContext);
+
   const { error: insertErr } = await supabase
     .from("jobs")
     .insert({
@@ -884,12 +943,9 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
       complexity: "simple",
       slot_type: "claude_code",
       status: "queued",
-      context: JSON.stringify({
-        type: "feature_verification",
-        featureBranch: feature.feature_branch,
-        acceptanceTests: feature.acceptance_tests ?? "",
-      }),
+      context: verifyContext,
       branch: feature.feature_branch,
+      ...(verifyTitle ? { title: verifyTitle } : {}),
     });
 
   if (insertErr) {
@@ -1114,6 +1170,14 @@ export async function handleFeatureRejected(
   });
 
   // 4. Queue a fix job with the rejection feedback
+  const fixContext = JSON.stringify({
+    type: "rejection_fix",
+    feedback,
+    featureBranch: feature.feature_branch,
+    originalSpec: feature.spec ?? "",
+  });
+  const fixTitle = await generateTitle(fixContext);
+
   const { error: insertErr } = await supabase.from("jobs").insert({
     company_id: feature.company_id,
     project_id: feature.project_id,
@@ -1123,14 +1187,10 @@ export async function handleFeatureRejected(
     complexity: "medium",
     slot_type: "claude_code",
     status: "queued",
-    context: JSON.stringify({
-      type: "rejection_fix",
-      feedback,
-      featureBranch: feature.feature_branch,
-      originalSpec: feature.spec ?? "",
-    }),
+    context: fixContext,
     branch: feature.feature_branch,
     rejection_feedback: feedback,
+    ...(fixTitle ? { title: fixTitle } : {}),
   });
 
   if (insertErr) {

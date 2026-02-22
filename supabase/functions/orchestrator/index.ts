@@ -19,6 +19,7 @@ import {
   PROTOCOL_VERSION,
   MACHINE_DEAD_THRESHOLD_MS,
   RECOVERY_COOLDOWN_MS,
+  MAX_PERSONALITY_PROMPT_BYTES,
   isHeartbeat,
   isJobAck,
   isJobStatusMessage,
@@ -29,6 +30,7 @@ import {
   isFeatureApproved,
   isFeatureRejected,
 } from "@zazigv2/shared";
+import { fetchAndCompilePersonality } from "../_shared/personality.ts";
 import type {
   StartJob,
   VerifyJob,
@@ -143,6 +145,9 @@ interface RoutingEntry {
 
 /** Cached routing table, loaded once per orchestrator invocation. */
 let routingCache: Map<string, RoutingEntry> | null = null;
+
+/** Cached personality prompts, keyed by `${companyId}:${roleName}`, reset each invocation. */
+let personalityCache: Map<string, string | undefined> | null = null;
 
 /**
  * Loads the complexity → (model, slot_type) routing from the DB.
@@ -360,8 +365,9 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
   // Cache machines fetched in this pass (keyed by company_id) to avoid redundant queries.
   const machineCache = new Map<string, MachineRow[]>();
 
-  // Reset routing cache at the start of each dispatch pass.
+  // Reset per-invocation caches at the start of each dispatch pass.
   routingCache = null;
+  personalityCache = null;
 
   for (const job of queuedJobs as JobRow[]) {
     // Load routing table (cached after first call within this invocation).
@@ -511,6 +517,40 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       }
     }
 
+    // Fetch and compile personality prompt for this company/role combination.
+    // Only injected for non-codex, role-bearing jobs. Requires company_id for tenant isolation.
+    // Graceful degradation: compilation errors or missing personality → skip injection.
+    let personalityPrompt: string | undefined;
+    if (job.role && slotType !== "codex" && job.company_id) {
+      if (!personalityCache) personalityCache = new Map();
+      const cacheKey = `${job.company_id}:${job.role}`;
+      if (personalityCache.has(cacheKey)) {
+        personalityPrompt = personalityCache.get(cacheKey);
+      } else {
+        try {
+          personalityPrompt = await fetchAndCompilePersonality(
+            supabase,
+            job.company_id,
+            job.role,
+            job.job_type,
+          );
+          // Guard against oversized prompts — isStartJob would silently reject them at the agent.
+          if (personalityPrompt && personalityPrompt.length > MAX_PERSONALITY_PROMPT_BYTES) {
+            console.warn(
+              `[orchestrator] Personality prompt for role ${job.role} exceeds ${MAX_PERSONALITY_PROMPT_BYTES} bytes — skipping injection`,
+            );
+            personalityPrompt = undefined;
+          }
+        } catch (err) {
+          console.warn(
+            `[orchestrator] Personality compilation failed for job ${job.id}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+        personalityCache.set(cacheKey, personalityPrompt);
+      }
+    }
+
     // Build the StartJob message.
     const startJobMsg: StartJob = {
       type: "start_job",
@@ -524,6 +564,8 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       context: job.context ?? undefined,
       // Include role for role-based jobs (persistent agents, specialized reviewers)
       ...(job.role ? { role: job.role } : {}),
+      // Personality prompt — compiled from archetype + dimensions + overlays (non-codex only)
+      ...(personalityPrompt ? { personalityPrompt } : {}),
       // Role prompt + skills for 4-layer context assembly (non-codex only)
       ...(rolePrompt ? { rolePrompt } : {}),
       ...(roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),

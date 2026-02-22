@@ -10,7 +10,9 @@ A reliable, distributed orchestration system that manages zazig exec agents acro
 - Implement orchestrator core (poll job queue, check slots, dispatch to local agents, track jobs)
 
 ## Next
-- CPO health monitoring + failover via local agent
+- **Triggers and events infrastructure** — the reactive layer that makes agents wake up and respond to events. 9 subsystems: deep heartbeat, cron/scheduler, universal wake, events queue (claim/ack), lifecycle hooks, concurrency lanes, external triggers, emergency stop, daemon restart recovery. Design complete (V2.2), ready to cardify. See [`triggers-and-events-design.md`](plans/2026-02-22-triggers-and-events-design.md)
+- **Bidirectional messaging** — Slack inbound/outbound via platform adapters + MCP server. Pending unification with events queue (see triggers doc). See [`agent-messaging-bidirectional.md`](plans/2026-02-22-agent-messaging-bidirectional.md)
+- CPO health monitoring + failover via local agent (covered by triggers doc Section 1: deep heartbeat)
 - Card annotation parsing (complexity + card-type)
 - Review pipeline (auto-dispatch reviewers based on card type)
 - Web UI for job queue and machine status (Tom)

@@ -1,9 +1,24 @@
 # Orchestration Server — Design Document
 
-**Date:** 2026-02-18
+**Date:** 2026-02-18 (updated 2026-02-22)
 **Status:** proposed
 **Authors:** Chris (owner), CPO (agent)
 **Part of:** [Zazig Org Model](ORG%20MODEL.md) — covers orchestrator dispatch and worker lifecycle
+
+---
+
+> **2026-02-22 Update:** The [Triggers and Events System Design](2026-02-22-triggers-and-events-design.md) (V2.2) resolves two open questions from this doc and introduces dependencies that require updates here:
+>
+> **Resolved open questions:**
+> - **#11 (Cron job scheduler)** — fully designed as Section 2 of the triggers doc. Postgres function `run_scheduler()` called by pg_cron, `scheduled_jobs` table, two modes (isolated jobs vs relay-to-CPO).
+> - **#12 (Heartbeat depth)** — fully designed as Section 1 of the triggers doc. Per-job health reporting (`JobHealth`), context health for CPO (`ContextHealth`), heartbeat receiver Edge Function, stuck detection thresholds.
+>
+> **Updates needed in this doc (not yet applied):**
+> - **Dispatch loop needs lane awareness** — the dispatch SQL must add `AND lane = $1` to support the 2-lane model (`main` + `background`). See triggers doc Section 6.
+> - **Job statuses are stale** — this doc uses `queued → dispatched → executing → reviewing → complete | failed`. The [pipeline design](2026-02-20-software-development-pipeline-design.md) supersedes with the full state machine (`design → queued → dispatched → executing → verifying → testing → approved → done`). Align this doc to the pipeline's canonical statuses.
+> - **`machines` table extended** — triggers doc adds `last_heartbeat_at TIMESTAMPTZ` and `heartbeat_payload JSONB` columns. The heartbeat receiver is an HTTP POST to a `heartbeat` Edge Function (not Realtime).
+> - **`jobs` table extended** — triggers doc adds `lane`, `priority`, `stuck_count`, `last_stuck_at`, `dispatch_attempt_id`, `origin_trust_level`, `origin_event_id`, `origin_source`.
+> - **"Heartbeat" terminology note** — the Org Model uses "heartbeat" for both machine liveness pings (30s, this doc) and employee autonomous work cycles (daily/hourly, org model). The triggers doc implements these as separate subsystems: machine heartbeat (Section 1) for liveness, scheduler/cron (Section 2) for work cycles. Implementers should not conflate the two.
 
 ---
 
@@ -387,8 +402,8 @@ id | timestamp | event_type | card_id | machine_id | detail
 6. ~~**CTO role**~~ — Resolved: CTO spins up for `infra` cards AND as reviewer for `complex` `code` cards (via `reviewer_override` in card type config).
 7. **CMO** — Parked. Revisit when marketing workstreams are active.
 8. ~~**Heartbeat interval**~~ — Resolved: 30s heartbeat, machine marked dead after 2 minutes of silence. In Progress cards re-queued.
-11. **Cron job scheduler** — The orchestrator currently only supports card-driven (poll-based) job dispatch. Scheduled jobs (market researcher daily scan, nightly done-archiver, nightly bug-scan) need a cron trigger that creates jobs on a schedule. Proposed: `cron_jobs` table with schedule expressions, orchestrator runs a scheduler loop alongside the polling loop. Jobs created by cron are standard jobs dispatched to available machines.
-12. **Heartbeat depth and scheduling split** — Current heartbeats are machine-level ("alive" or "offline"). Problem: a machine can be online but an agent session stuck at a permission prompt (v1 antipattern — "tmux has-session as sole health check"). Proposed split (leaning B): Cloud (orchestrator) owns scheduling and machine-level health. Local agent reports per-job health in heartbeats: last activity timestamp, agent status (executing/idle/stuck), last tool call age. Orchestrator makes dispatch and restart decisions based on richer data. This also determines where cron triggers live — cloud cron creates the job, local agent executes it.
+11. ~~**Cron job scheduler**~~ — Resolved: fully designed in [Triggers and Events System Design](2026-02-22-triggers-and-events-design.md) Section 2. Postgres function `run_scheduler()` called by pg_cron, `scheduled_jobs` table with two modes (isolated jobs vs relay-to-CPO), backoff, dedup, lane assignment.
+12. ~~**Heartbeat depth and scheduling split**~~ — Resolved: option B confirmed. Fully designed in [Triggers and Events System Design](2026-02-22-triggers-and-events-design.md) Section 1. Per-job `JobHealth` reporting (stuck detection, permission blocks, output stalls), CPO `ContextHealth` (compaction tracking, token estimation), heartbeat receiver Edge Function, configurable stuck thresholds per role.
 13. ~~**CPO runtime**~~ — Resolved: CPO is a **Claude Code session** with Slack MCP for human interaction (not Agent SDK). Runs locally on a host machine. Anyone in the company can chat to it via Slack. This preserves the full Claude Code toolchain (skills, hooks, MCP servers) which the exec design relies on heavily. The Zazig Python package stays as the Slack bot / Socket Mode layer only — it is NOT the exec runtime. Decision confirmed by Chris 2026-02-20.
 9. ~~**CPO failover**~~ — Resolved: yes, failover. If the CPO host machine is offline for 15 minutes, the orchestrator spins CPO up on another available machine. Under 15 minutes, it waits (handles brief sleep/restarts without unnecessary migration).
 10. ~~**Supabase project**~~ — Resolved: new dedicated Supabase project for the orchestrator.

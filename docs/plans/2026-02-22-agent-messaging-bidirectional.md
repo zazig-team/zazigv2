@@ -1,5 +1,25 @@
 # Agent Messaging: Bidirectional Agent <-> Orchestrator <-> External Platform
 
+**Date:** 2026-02-22 (updated 2026-02-22)
+
+---
+
+> **2026-02-22 Update:** The [Triggers and Events System Design](2026-02-22-triggers-and-events-design.md) (V2.2) identifies a **dual injection path conflict** between this doc and the events queue:
+>
+> **The problem:** This doc injects Slack messages directly into tmux sessions via `send-keys -l` (step 6 in Components). The triggers doc's wake handler also injects into tmux sessions via the events queue. Two independent injection paths into the same agent session can race, causing interleaved or corrupted prompts.
+>
+> **Recommended unification (not yet applied):**
+> - Slack inbound messages should enqueue as `agent_events` with `event_type='message'` and `priority=1` (high) instead of injecting directly into tmux.
+> - All injection goes through the wake handler's coalesced pipeline: enqueue → wake poke → coalesce → cheap-check → inject → ack.
+> - This gives messages claim/ack semantics (no silent loss), priority ordering across all event types, and cheap-check dedup.
+> - The `MessageInbound` Realtime broadcast (step 6) becomes a wake poke, not a direct inject.
+>
+> **Behavioral change to decide:** This doc currently returns "agent offline" when the agent isn't running. With the events queue, messages could be queued for later delivery instead. Better UX, but different behavior. Decide: bounce or queue?
+>
+> **Fix agent impact:** The [pipeline design](2026-02-20-software-development-pipeline-design.md) describes a fix agent connected to a Slack thread during `testing` status. If messages are unified with the events queue, the fix agent's communication path also routes through events. Not blocking (fix agents are Phase 2 pipeline), but must be considered during implementation.
+
+---
+
 ## Context
 The CPO can receive Slack messages (via Socket Mode on the local agent) but can't reply. The current design is fragile — if the local agent isn't running, Slack messages are lost. The fix is to move external platform communication to the backend (Supabase), making the wire protocol between agent and orchestrator platform-agnostic.
 

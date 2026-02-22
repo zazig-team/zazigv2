@@ -256,6 +256,10 @@ Workers with heartbeats run on recurring cycles managed by the orchestrator:
 - **Employees** heartbeat on role-specific schedules. A Market Researcher runs daily. A PR Reviewer polls for new PRs on a cycle. A DevOps Engineer monitors deployment health hourly.
 - **Contractors** have no heartbeat. They're dispatched, execute, report, and terminate.
 
+> **Terminology note (2026-02-22):** "Heartbeat" refers to two distinct subsystems in the implementation:
+> 1. **Machine heartbeat** — 30s liveness pings from local agent to orchestrator. Reports machine health + per-job health (`JobHealth`). Implemented in the [Triggers and Events Design](plans/2026-02-22-triggers-and-events-design.md), Section 1.
+> 2. **Worker heartbeat** (this section) — role-specific autonomous work cycles. Implemented via the **scheduler/cron** subsystem in the Triggers and Events Design, Section 2. A Market Researcher's "daily heartbeat" is a `scheduled_job` with `session_mode='isolated'` and `schedule='0 8 * * *'`. These are not heartbeat packets — they are scheduled work triggers.
+
 ### Gateways
 
 A gateway is a communication channel between a worker and the outside world (founders, Slack, other platforms).

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { StartJob } from "@zazigv2/shared";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
+import * as fsModule from "node:fs";
 import { JobExecutor, type SendFn } from "./executor.js";
 import { SlotTracker } from "./slots.js";
 
@@ -263,5 +264,75 @@ describe("JobExecutor — progress integration", () => {
     expect(failCalls.length).toBe(1);
     // sendJobFailed should NOT set progress — it leaves it as-is
     expect(failCalls[0]!.data).not.toHaveProperty("progress");
+  });
+});
+
+describe("JobExecutor - subAgentPrompt workspace", () => {
+  let send: ReturnType<typeof vi.fn>;
+  let slots: SlotTracker;
+  let supabase: ReturnType<typeof makeMockSupabase>;
+  let executor: JobExecutor;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    mockExecFileAsync = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
+    send = vi.fn().mockResolvedValue(undefined);
+    slots = new SlotTracker({ claude_code: 2, codex: 1 });
+    supabase = makeMockSupabase();
+    executor = new JobExecutor(
+      "machine-1",
+      "company-test",
+      slots,
+      send as unknown as SendFn,
+      supabase.client as any,
+      "https://test.supabase.co",
+      "test-anon-key",
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("writes subAgentPrompt to job workspace file when present", async () => {
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as Mock;
+    await executor.handleStartJob(makeStartJob({ subAgentPrompt: "# Team Values\nBe concise." }));
+
+    const subAgentCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("subagent-personality.md"),
+    );
+    expect(subAgentCall).toBeDefined();
+    expect(subAgentCall![1]).toBe("# Team Values\nBe concise.");
+  });
+
+  it("does not write workspace file when subAgentPrompt is absent", async () => {
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as Mock;
+    await executor.handleStartJob(makeStartJob());
+
+    const subAgentCalls = writeFileSyncMock.mock.calls.filter(
+      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("subagent-personality.md"),
+    );
+    expect(subAgentCalls.length).toBe(0);
+  });
+
+  it("cleans up job workspace directory on job completion", async () => {
+    const rmSyncMock = fsModule.rmSync as unknown as Mock;
+    const job = makeStartJob({ jobId: "job-ws-001", subAgentPrompt: "# Team Values" });
+    await executor.handleStartJob(job);
+
+    // Make session end (tmux has-session rejects = dead)
+    mockExecFileAsync.mockRejectedValue(new Error("session not found"));
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    const workspaceCleanupCall = rmSyncMock.mock.calls.find(
+      (call: unknown[]) =>
+        typeof call[0] === "string" &&
+        (call[0] as string).includes(".zazigv2") &&
+        (call[0] as string).includes("job-job-ws-001"),
+    );
+    expect(workspaceCleanupCall).toBeDefined();
+    expect(workspaceCleanupCall![1]).toEqual({ recursive: true });
   });
 });

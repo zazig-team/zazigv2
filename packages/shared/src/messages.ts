@@ -123,6 +123,15 @@ export interface StartJob {
    */
   personalityPrompt?: string;
   /**
+   * Pre-compiled sub-agent personality prompt. Injected into the agent workspace
+   * so the primary exec agent can forward team values to sub-agents spawned via
+   * the Task tool. Contains core beliefs, anti-patterns, and root constraints -
+   * no persona, voice, style, or domain boundaries.
+   * Optional; omit when sub-agent inheritance is not required.
+   * Must not exceed MAX_PERSONALITY_PROMPT_BYTES when present.
+   */
+  subAgentPrompt?: string;
+  /**
    * Operational role prompt from roles.prompt — defines the agent's scope and output contract.
    * Injected after personalityPrompt and before skill content in the 4-layer context stack.
    * Optional; omit for codex slot_type jobs.

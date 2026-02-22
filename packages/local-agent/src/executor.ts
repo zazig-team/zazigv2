@@ -284,9 +284,10 @@ export class JobExecutor {
     this.cpoJobId = null;
 
     // Kill all remaining active tmux sessions and release slots
-    for (const [, job] of this.activeJobs) {
+    for (const [jobId, job] of this.activeJobs) {
       this.clearJobTimers(job);
       await killTmuxSession(job.sessionName);
+      cleanupJobWorkspace(jobId);
       this.slots.release(job.slotType);
     }
     this.activeJobs.clear();
@@ -412,6 +413,7 @@ export class JobExecutor {
 
     // Clean up log file
     deleteLogFile(job.logPath);
+    cleanupJobWorkspace(jobId);
 
     // Release the slot
     this.slots.release(job.slotType);
@@ -499,6 +501,7 @@ export class JobExecutor {
       }
     }
     deleteLogFile(job.logPath);
+    cleanupJobWorkspace(jobId);
 
     this.slots.release(job.slotType);
     await this.sendJobFailed(jobId, "Job exceeded 60-minute timeout", "timeout");
@@ -556,6 +559,7 @@ export class JobExecutor {
       }
     }
     deleteLogFile(job.logPath);
+    cleanupJobWorkspace(jobId);
 
     await this.sendJobComplete(jobId, result, report);
 
@@ -827,10 +831,10 @@ function skillFilePath(name: string): string {
  * Missing skill files are warned and skipped — they do not fail the job.
  */
 function assembleContext(msg: StartJob, taskContext: string): string {
-  const { personalityPrompt, rolePrompt, roleSkills } = msg;
+  const { personalityPrompt, rolePrompt, roleSkills, subAgentPrompt, jobId } = msg;
 
   // Fast path: no enrichment needed
-  if (!personalityPrompt && !rolePrompt && (!roleSkills || roleSkills.length === 0)) {
+  if (!personalityPrompt && !rolePrompt && (!roleSkills || roleSkills.length === 0) && !subAgentPrompt) {
     return taskContext;
   }
 
@@ -854,6 +858,15 @@ function assembleContext(msg: StartJob, taskContext: string): string {
         console.warn(`[executor] Skill file not found, skipping: ${filePath}`);
       }
     }
+  }
+
+  // Sub-agent personality: write to disk and inject forward instruction
+  if (subAgentPrompt) {
+    const workspaceDir = join(homedir(), ".zazigv2", `job-${jobId}`);
+    mkdirSync(workspaceDir, { recursive: true, mode: 0o700 });
+    const personalityFile = join(workspaceDir, "subagent-personality.md");
+    writeFileSync(personalityFile, subAgentPrompt, { encoding: "utf8", mode: 0o600 });
+    parts.push(`# Sub-Agent Instructions\nWhen spawning sub-agents, begin their prompt with the content of:\n${personalityFile}`);
   }
 
   parts.push(taskContext);
@@ -1088,6 +1101,14 @@ function deleteLogFile(logPath: string): void {
   }
 }
 
+function cleanupJobWorkspace(jobId: string): void {
+  try {
+    rmSync(join(homedir(), ".zazigv2", `job-${jobId}`), { recursive: true });
+  } catch {
+    // workspace may not exist (no subAgentPrompt was written) -- fine
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helper: Shell escaping
 // ---------------------------------------------------------------------------
@@ -1104,4 +1125,3 @@ function shellEscape(parts: string[]): string {
     .map((p) => `'${p.replace(/'/g, "'\"'\"'")}'`)
     .join(" ");
 }
-

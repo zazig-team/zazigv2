@@ -6,7 +6,7 @@
 **Supersedes:** v4, v3, v2, v1, sketch (all dated 2026-02-21 or 2026-02-20)
 **Reviewed by:** CPO (Opus) interactive walkthrough, Codex (gpt-5.3-codex, xhigh reasoning), Gemini (gemini-3.1-pro-preview) — independent second opinions on all findings; adversarial review by Codex + Gemini (v3 review); second opinions on v4 revisions from both models; CPO review-plan walkthrough (v4 review)
 **Informed by:** Four independent deep research reports on agent domain knowledge and expertise (Claude, Gemini, OpenAI, last30days scan — all dated 2026-02-21)
-**Review history:** `docs/plans/2026-02-21-exec-knowledge-architecture-v2-review.md`, `docs/plans/2026-02-21-exec-knowledge-architecture-v3-review.md` (adversarial), `docs/plans/2026-02-22-knowledge-v4-revisions.md`, `docs/plans/2026-02-22-exec-knowledge-architecture-v4-review.md`
+**Review history:** `docs/plans/archive/2026-02-21-exec-knowledge-architecture-v2-review.md`, `docs/plans/archive/2026-02-21-exec-knowledge-architecture-v3-review.md` (adversarial), `docs/plans/archive/2026-02-22-knowledge-v4-revisions.md`, `docs/plans/archive/2026-02-22-exec-knowledge-architecture-v4-review.md`
 
 ---
 

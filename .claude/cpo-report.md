@@ -1,40 +1,62 @@
-# CPO Report — Agent MCP Server
+# CPO Report — slack-events Edge Function
 
 ## Summary
-Created `agent-mcp-server.ts` — a minimal stdio MCP server that gives agents a `send_message` tool to reply to external platform messages. The MCP server runs as a subprocess configured via `.mcp.json` in the agent workspace directory.
+Created the `slack-events` Supabase Edge Function that receives Slack webhook events and routes inbound messages to the running local agent via Supabase Realtime. This is Wave 2, Section 3 of the bidirectional agent messaging plan.
 
 ## Discovery
-- Read plan doc Section 5 — confirmed tool spec: `send_message(conversation_id, text)`, HTTP POST to Edge Function
-- Read `packages/local-agent/package.json` — ESM module, Node >=20, no existing bin entries
-- Read `packages/local-agent/tsconfig.json` — target ES2022, NodeNext module resolution, build outputs to `./dist`
-- Confirmed `@modelcontextprotocol/sdk` not present in any package.json — installed v1.26.0
-- Pre-existing build error: `MessageInbound` added to `OrchestratorMessage` union (Wave 1) but not handled in `index.ts` switch — added placeholder case to unblock build
+- Read `docs/plans/2026-02-22-agent-messaging-bidirectional.md` Section 3 fully
+- Studied existing `orchestrator` Edge Function for Deno patterns, import style, Supabase client creation, and Realtime broadcast pattern
+- Read `packages/shared/src/messages.ts` to understand `MessageInbound` type (already merged in Wave 1)
+- Read `supabase/functions/_shared/messages.ts` — found `MessageInbound` was not individually re-exported; added it
 
 ## Files Changed
-- `packages/local-agent/src/agent-mcp-server.ts` — **new file**, MCP server with `send_message` tool
-- `packages/local-agent/package.json` — added `@modelcontextprotocol/sdk` dependency, added `bin.zazig-agent-mcp` entry
-- `packages/local-agent/src/index.ts` — added `message_inbound` case to exhaustive switch (placeholder for Wave 2 Task 6)
+- `supabase/functions/slack-events/index.ts` — new Edge Function (main implementation)
+- `supabase/functions/slack-events/deno.json` — import map matching existing function pattern
+- `supabase/functions/_shared/messages.ts` — added `MessageInbound` to type re-exports
+
+## Implementation Details
+
+### url_verification
+Parses JSON body, returns `{ challenge: body.challenge }` with 200.
+
+### Slack Signature Verification
+HMAC-SHA256 of `v0:{timestamp}:{rawBody}` using `SLACK_SIGNING_SECRET` via Web Crypto API. Rejects requests older than 5 minutes (replay protection). Uses constant-time comparison.
+
+### Bot Message Skipping
+Returns 200 immediately if `event.bot_id` is present.
+
+### Event Deduplication
+In-memory bounded Set (max 1000 entries) with FIFO eviction. Deduplicates by `event_id`.
+
+### Agent Lookup
+1. Looks up `team_id` → `company_id` + `bot_token` from `slack_installations`
+2. Queries `jobs` WHERE `job_type = 'persistent_agent'` AND `status = 'executing'`, joins with `machines` to get machine name and status
+
+### Agent Online Path
+- Generates `conversationId = "slack:{team_id}:{channel}:{thread_ts || ts}"`
+- Broadcasts `MessageInbound` to `agent:{machineName}` channel via Supabase Realtime
+- Uses same subscribe/send/unsubscribe pattern as orchestrator
+
+### Agent Offline Path
+- Posts "The CPO is currently offline" reply to Slack using `bot_token` from `slack_installations` via `chat.postMessage`
+- Replies in-thread using `thread_ts`
+
+### Deploy Annotation
+Must deploy with `--no-verify-jwt` (Slack doesn't send JWTs).
 
 ## Acceptance Criteria
-- [x] `packages/local-agent/src/agent-mcp-server.ts` created
-- [x] File has shebang: `#!/usr/bin/env node`
-- [x] Uses `@modelcontextprotocol/sdk` with stdio transport (`StdioServerTransport`)
-- [x] Registers `send_message` tool with schema: `conversation_id` (string, required), `text` (string, required)
-- [x] Tool implementation: HTTP POST to `${process.env.SUPABASE_URL}/functions/v1/agent-message`
-- [x] Body: `{ conversationId: conversation_id, text, jobId: process.env.ZAZIG_JOB_ID ?? "" }`
-- [x] Header: `Authorization: Bearer ${process.env.SUPABASE_ANON_KEY}`
-- [x] Tool returns success message string on 200, error description on non-200
-- [x] `@modelcontextprotocol/sdk` added to `packages/local-agent/package.json` dependencies
-- [x] Bin entry added: `"zazig-agent-mcp": "./dist/agent-mcp-server.js"`
-- [x] Build succeeds: `npm run build --workspace=packages/local-agent`
-- [x] No broken imports or TypeScript errors
-
-## Test Results
-- Build: passes cleanly
-- Tests: 37 passed, 5 failed (pre-existing failures in `executor.test.ts` — `supabase.from()` undefined mock issue, unrelated to this change)
-
-## Issues Encountered
-- Pre-existing exhaustiveness error in `index.ts` — `MessageInbound` was added to the `OrchestratorMessage` union type in Wave 1 but the switch statement in `index.ts` didn't handle it. Added a placeholder `case "message_inbound"` with a TODO for Wave 2 Task 6.
+- [x] Edge Function created at `supabase/functions/slack-events/index.ts`
+- [x] `supabase/functions/slack-events/deno.json` created (matching pattern of existing functions)
+- [x] `url_verification` challenge handled
+- [x] Slack request signature verified using HMAC-SHA256
+- [x] Bot messages skipped (event.bot_id check)
+- [x] Event deduplication by event_id (in-memory bounded Set, max 1000)
+- [x] Looks up team_id → company_id from slack_installations
+- [x] Finds running agent via jobs + machines join
+- [x] Agent online: broadcasts MessageInbound to agent:{machineName}
+- [x] Agent offline: posts "CPO is currently offline" reply to Slack
+- [x] Always returns 200 within 3 seconds
+- [x] Deploy annotation: --no-verify-jwt
 
 ## Token Usage
-- Token budget routing: `claude-ok` — wrote code directly
+- Token budget: claude-ok (wrote code directly)

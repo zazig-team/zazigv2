@@ -179,6 +179,17 @@ export class JobExecutor {
     // Backward compat: if no personalityPrompt/rolePrompt/roleSkills, taskContext passes through unchanged.
     const assembledContext = assembleContext(msg, taskContext);
 
+    console.log(`[executor] Assembled context for jobId=${jobId}:\n${assembledContext}`);
+
+    // --- 3c. Persist assembled context to DB for debugging ---
+    this.supabase
+      .from("jobs")
+      .update({ assembled_context: assembledContext })
+      .eq("id", jobId)
+      .then(({ error }) => {
+        if (error) console.warn(`[executor] Failed to save assembled_context for jobId=${jobId}: ${error.message}`);
+      });
+
     // --- 4. Build command based on complexity/model ---
     const { cmd, args } = buildCommand(slotType, complexity, model, assembledContext);
     const sessionName = `${this.machineId}-${jobId}`;

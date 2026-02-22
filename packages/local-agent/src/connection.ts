@@ -274,10 +274,12 @@ export class AgentConnection {
       });
     }
 
-    console.log(
-      `[local-agent] Heartbeat — machineId=${this.machineId}, ` +
-        `slots=${JSON.stringify(slotsAvailable)}, db=${dbErr ? "FAIL" : "ok"}`
-    );
+    if (dbErr) {
+      console.warn(
+        `[local-agent] Heartbeat FAILED — machineId=${this.machineId}, ` +
+          `slots=${JSON.stringify(slotsAvailable)}, db=FAIL`
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -20,7 +20,7 @@ import { AgentConnection } from "./connection.js";
 import { JobExecutor } from "./executor.js";
 import { JobVerifier } from "./verifier.js";
 import { FixAgentManager } from "./fix-agent.js";
-import type { OrchestratorMessage } from "@zazigv2/shared";
+import type { OrchestratorMessage, MessageInbound } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -56,6 +56,8 @@ async function main(): Promise<void> {
     slots,
     (msg) => conn.sendMessage(msg),
     conn.dbClient,
+    config.supabase.url,
+    config.supabase.anon_key,
   );
 
   // Initialize fix agent manager — spawns ephemeral Claude sessions during testing phase
@@ -101,8 +103,8 @@ async function main(): Promise<void> {
         break;
 
       case "message_inbound":
-        // TODO: Route inbound messages to agent tmux session (Wave 2, Task 6)
         console.log(`[local-agent] Received message_inbound — conversationId=${msg.conversationId}, from=${msg.from}`);
+        executor.handleMessageInbound(msg as MessageInbound);
         break;
 
       default: {

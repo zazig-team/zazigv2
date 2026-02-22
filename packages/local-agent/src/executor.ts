@@ -20,11 +20,13 @@ import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync } f
 import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType } from "@zazigv2/shared";
+import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageInbound } from "@zazigv2/shared";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
-import { SlackChatRouter } from "./slack-chat.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -43,6 +45,14 @@ const REPORT_RELATIVE_PATH = ".claude/cpo-report.md";
 
 /** Per-job report directory to prevent concurrent-completion races. */
 const REPORT_ARCHIVE_DIR = ".claude/job-reports";
+
+/** Agent workspace directory for CPO (holds .mcp.json for MCP tool access). */
+const CPO_WORKSPACE_DIR = join(homedir(), ".zazigv2", "cpo-workspace");
+
+/** Max time to wait for CPO to become idle before dropping a message. */
+const INJECT_MAX_WAIT_MS = 5 * 60_000;
+/** Poll interval when waiting for CPO idle. */
+const INJECT_POLL_INTERVAL_MS = 5_000;
 
 /** Directory where per-job tmux pipe-pane log files are written. */
 const JOB_LOG_DIR = "/tmp/zazig-job-logs";
@@ -67,6 +77,12 @@ interface ActiveJob {
   lastBytesSent: number;
 }
 
+interface QueuedMessage {
+  text: string;
+  resolve: () => void;
+  reject: (err: unknown) => void;
+}
+
 /** Callback type for sending AgentMessage back to the orchestrator channel. */
 export type SendFn = (msg: AgentMessage) => Promise<void>;
 
@@ -84,14 +100,18 @@ export class JobExecutor {
   private readonly send: SendFn;
   private readonly supabase: SupabaseClient;
   private readonly afterJobComplete?: AfterJobCompleteFn;
+  private readonly supabaseUrl: string;
+  private readonly supabaseAnonKey: string;
 
   /** Map of jobId → active job state. */
   private readonly activeJobs = new Map<string, ActiveJob>();
 
-  /** SlackChatRouter for the active CPO persistent agent job, if any. */
-  private cpoRouter: SlackChatRouter | null = null;
   /** jobId of the active CPO persistent agent job, if any. */
   private cpoJobId: string | null = null;
+
+  /** Message queue for injecting into CPO tmux session when idle. */
+  private readonly messageQueue: QueuedMessage[] = [];
+  private processingQueue = false;
 
   constructor(
     machineId: string,
@@ -99,6 +119,8 @@ export class JobExecutor {
     slots: SlotTracker,
     send: SendFn,
     supabase: SupabaseClient,
+    supabaseUrl: string,
+    supabaseAnonKey: string,
     afterJobComplete?: AfterJobCompleteFn,
   ) {
     this.machineId = machineId;
@@ -106,6 +128,8 @@ export class JobExecutor {
     this.slots = slots;
     this.send = send;
     this.supabase = supabase;
+    this.supabaseUrl = supabaseUrl;
+    this.supabaseAnonKey = supabaseAnonKey;
     this.afterJobComplete = afterJobComplete;
   }
 
@@ -221,24 +245,43 @@ export class JobExecutor {
   }
 
   // ---------------------------------------------------------------------------
+  // Public: MessageInbound
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Handles an inbound message from an external platform (Slack, Discord, etc.)
+   * by formatting it and injecting into the CPO's tmux session.
+   * Messages are queued and injected one at a time, waiting for CPO idle state.
+   */
+  handleMessageInbound(msg: MessageInbound): void {
+    if (!this.cpoJobId) {
+      console.warn(`[executor] MessageInbound dropped — no CPO job running. from=${msg.from}, conversationId=${msg.conversationId}`);
+      return;
+    }
+
+    const job = this.activeJobs.get(this.cpoJobId);
+    if (!job) {
+      console.warn(`[executor] MessageInbound dropped — CPO job not in activeJobs. cpoJobId=${this.cpoJobId}`);
+      return;
+    }
+
+    const formatted = `[Message from ${msg.from}, conversation:${msg.conversationId}]\n${msg.text}`;
+    console.log(`[executor] Queuing inbound message from ${msg.from} for CPO session=${job.sessionName}`);
+    void this.enqueueMessage(formatted);
+  }
+
+  // ---------------------------------------------------------------------------
   // Public: StopJob
   // ---------------------------------------------------------------------------
   // Public: Graceful shutdown
   // ---------------------------------------------------------------------------
 
   /**
-   * Stops all active jobs and the CPO Slack router (if running).
-   * Called by the process shutdown handler before disconnecting from Supabase.
+   * Stops all active jobs. Called by the process shutdown handler before
+   * disconnecting from Supabase.
    */
   async stopAll(): Promise<void> {
-    // Stop CPO Slack router first (Socket Mode disconnect)
-    if (this.cpoRouter) {
-      try { await this.cpoRouter.stop(); } catch (err) {
-        console.warn(`[executor] CPO router stop error during shutdown: ${String(err)}`);
-      }
-      this.cpoRouter = null;
-      this.cpoJobId = null;
-    }
+    this.cpoJobId = null;
 
     // Kill all remaining active tmux sessions and release slots
     for (const [, job] of this.activeJobs) {
@@ -259,30 +302,50 @@ export class JobExecutor {
    * Unlike regular jobs the CPO session:
    *   - Runs Claude Code in interactive TUI mode (not -p print mode)
    *   - Has no poll/timeout timers — it runs indefinitely until StopJob
-   *   - Has a SlackChatRouter that injects DMs/@mentions from Slack
+   *   - Receives inbound messages via handleMessageInbound (injected into tmux)
    *
-   * The session is tracked in activeJobs so StopJob can clean it up.
-   * Slack channels are fetched from companies.slack_channels at spawn time.
+   * Before spawning, creates an agent workspace at ~/.zazigv2/cpo-workspace/
+   * with a .mcp.json that gives the CPO access to the zazig-messaging MCP server.
    */
   private async handleStartCpo(jobId: string, slotType: SlotType): Promise<void> {
-    // Fetch slack_channels from companies table
-    let channels: string[] = [];
-    const { data: companyRows, error: companyErr } = await this.supabase
-      .from("companies")
-      .select("slack_channels")
-      .eq("id", this.companyId)
-      .limit(1);
-    if (companyErr) {
-      console.warn(`[executor] CPO: failed to fetch slack_channels — ${companyErr.message}. Defaulting to no channels.`);
-    } else if (companyRows && companyRows.length > 0) {
-      const raw = companyRows[0]?.slack_channels;
-      channels = Array.isArray(raw) ? (raw as string[]) : [];
+    // --- Create agent workspace with .mcp.json ---
+    try {
+      mkdirSync(CPO_WORKSPACE_DIR, { recursive: true });
+
+      // Resolve path to the compiled agent-mcp-server.js relative to this file's dist/ location
+      const thisDir = dirname(fileURLToPath(import.meta.url));
+      const mcpServerPath = join(thisDir, "agent-mcp-server.js");
+
+      const mcpConfig = {
+        mcpServers: {
+          "zazig-messaging": {
+            command: "node",
+            args: [mcpServerPath],
+            env: {
+              SUPABASE_URL: this.supabaseUrl,
+              SUPABASE_ANON_KEY: this.supabaseAnonKey,
+              ZAZIG_JOB_ID: jobId,
+            },
+          },
+        },
+      };
+
+      writeFileSync(
+        join(CPO_WORKSPACE_DIR, ".mcp.json"),
+        JSON.stringify(mcpConfig, null, 2),
+      );
+      console.log(`[executor] CPO workspace created at ${CPO_WORKSPACE_DIR}`);
+    } catch (err) {
+      console.error(`[executor] CPO: failed to create workspace:`, err);
+      this.slots.release(slotType);
+      await this.sendJobFailed(jobId, `Failed to create CPO workspace: ${String(err)}`, "agent_crash");
+      return;
     }
 
-    // Spawn the persistent CPO tmux session
+    // --- Spawn the persistent CPO tmux session in the workspace directory ---
     let sessionName: string;
     try {
-      sessionName = await spawnPersistentCpoSession(this.machineId);
+      sessionName = await spawnPersistentCpoSession(this.machineId, CPO_WORKSPACE_DIR);
     } catch (err) {
       console.error(`[executor] CPO: failed to spawn tmux session:`, err);
       this.slots.release(slotType);
@@ -290,30 +353,6 @@ export class JobExecutor {
       return;
     }
 
-    // Start Slack Socket Mode listener
-    const botToken = process.env["CPO_SLACK_BOT_TOKEN"];
-    const appToken = process.env["CPO_SLACK_APP_TOKEN"];
-    if (!botToken || !appToken) {
-      console.error("[executor] CPO: CPO_SLACK_BOT_TOKEN or CPO_SLACK_APP_TOKEN not set — stopping CPO job");
-      await killTmuxSession(sessionName);
-      this.slots.release(slotType);
-      await this.sendJobFailed(jobId, "CPO_SLACK_BOT_TOKEN or CPO_SLACK_APP_TOKEN not set", "agent_crash");
-      return;
-    }
-
-    const router = new SlackChatRouter(botToken, appToken, channels, sessionName);
-    try {
-      await router.start();
-    } catch (err) {
-      console.error(`[executor] CPO: Slack router failed to start:`, err);
-      await killTmuxSession(sessionName);
-      this.slots.release(slotType);
-      await this.sendJobFailed(jobId, `CPO Slack router failed to start: ${String(err)}`, "agent_crash");
-      return;
-    }
-
-    // Store router reference so StopJob can stop it
-    this.cpoRouter = router;
     this.cpoJobId = jobId;
 
     // Track in activeJobs (no poll/timeout timers — CPO runs indefinitely)
@@ -325,12 +364,12 @@ export class JobExecutor {
       timeoutTimer: null,
       settled: false,
       startedAt: Date.now(),
-      logPath: "",  // CPO log captured separately via Slack router / not pipe-paned
+      logPath: "",
       lastBytesSent: 0,
     });
 
     await this.sendJobStatus(jobId, "executing");
-    console.log(`[executor] CPO session=${sessionName} ready — channels=${channels.length}, jobId=${jobId}`);
+    console.log(`[executor] CPO session=${sessionName} ready — jobId=${jobId}`);
   }
 
   // ---------------------------------------------------------------------------
@@ -351,12 +390,8 @@ export class JobExecutor {
     this.clearJobTimers(job);
     this.activeJobs.delete(jobId);
 
-    // Stop CPO Slack router if this is the CPO job
-    if (jobId === this.cpoJobId && this.cpoRouter) {
-      try { await this.cpoRouter.stop(); } catch (err) {
-        console.warn(`[executor] CPO router stop error: ${String(err)}`);
-      }
-      this.cpoRouter = null;
+    // Clear CPO job ID if this is the CPO job
+    if (jobId === this.cpoJobId) {
       this.cpoJobId = null;
     }
 
@@ -445,10 +480,8 @@ export class JobExecutor {
     this.clearJobTimers(job);
     this.activeJobs.delete(jobId);
 
-    // Stop CPO router if this is the CPO job (should not time out, but handle defensively)
-    if (jobId === this.cpoJobId && this.cpoRouter) {
-      try { await this.cpoRouter.stop(); } catch { /* best-effort */ }
-      this.cpoRouter = null;
+    // Clear CPO job ID if this is the CPO job (should not time out, but handle defensively)
+    if (jobId === this.cpoJobId) {
       this.cpoJobId = null;
     }
 
@@ -484,10 +517,8 @@ export class JobExecutor {
     this.activeJobs.delete(jobId);
     this.slots.release(job.slotType);
 
-    // Stop CPO router if the CPO session exited unexpectedly
-    if (jobId === this.cpoJobId && this.cpoRouter) {
-      try { await this.cpoRouter.stop(); } catch { /* best-effort */ }
-      this.cpoRouter = null;
+    // Clear CPO job ID if the CPO session exited unexpectedly
+    if (jobId === this.cpoJobId) {
       this.cpoJobId = null;
     }
 
@@ -538,6 +569,73 @@ export class JobExecutor {
         console.error(`[executor] afterJobComplete failed for jobId=${jobId}:`, err);
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: Message injection queue (ported from SlackChatRouter)
+  // ---------------------------------------------------------------------------
+
+  private enqueueMessage(message: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.messageQueue.push({ text: message, resolve, reject });
+      if (!this.processingQueue) {
+        void this.processMessageQueue();
+      }
+    });
+  }
+
+  private async processMessageQueue(): Promise<void> {
+    this.processingQueue = true;
+    while (this.messageQueue.length > 0) {
+      const item = this.messageQueue.shift()!;
+      try {
+        await this.injectWhenIdle(item.text);
+        item.resolve();
+      } catch (err) {
+        console.error("[executor] Failed to inject message:", err);
+        item.reject(err);
+      }
+    }
+    this.processingQueue = false;
+  }
+
+  /**
+   * Waits for the CPO tmux session to be idle, then injects the message.
+   * Polls every INJECT_POLL_INTERVAL_MS up to INJECT_MAX_WAIT_MS before dropping.
+   */
+  private async injectWhenIdle(message: string): Promise<void> {
+    const cpoJob = this.cpoJobId ? this.activeJobs.get(this.cpoJobId) : null;
+    if (!cpoJob) {
+      console.warn("[executor] injectWhenIdle: no CPO job — dropping message");
+      return;
+    }
+
+    const deadline = Date.now() + INJECT_MAX_WAIT_MS;
+    let idle = false;
+
+    while (Date.now() < deadline) {
+      if (await isCpoIdle(cpoJob.sessionName)) {
+        idle = true;
+        break;
+      }
+      console.log(`[executor] CPO busy — waiting ${INJECT_POLL_INTERVAL_MS / 1000}s before retry`);
+      await sleep(INJECT_POLL_INTERVAL_MS);
+    }
+
+    if (!idle) {
+      console.warn(`[executor] CPO still busy after ${INJECT_MAX_WAIT_MS / 60_000} min — dropping message`);
+      return;
+    }
+
+    // Normalise newlines — tmux send-keys treats literal \n as Enter
+    const singleLine = message.replace(/\r?\n/g, " ");
+
+    // Use -l (literal) flag so control sequences are not interpreted as keystrokes.
+    // Send Enter as a separate keystroke.
+    await execFileAsync("tmux", ["send-keys", "-t", cpoJob.sessionName, "-l", singleLine]);
+    await execFileAsync("tmux", ["send-keys", "-t", cpoJob.sessionName, "Enter"]);
+
+    console.log(`[executor] Injected message into CPO session=${cpoJob.sessionName}`);
   }
 
   // ---------------------------------------------------------------------------
@@ -855,16 +953,18 @@ async function isTmuxSessionAlive(sessionName: string): Promise<boolean> {
  *
  * Unlike job sessions (which use `claude -p` and exit after completion), the CPO
  * session runs the interactive Claude Code TUI and stays alive indefinitely,
- * receiving messages via `tmux send-keys` from the SlackChatRouter.
+ * receiving inbound messages via `tmux send-keys` from handleMessageInbound.
  *
  * Session name: `{machineId}-cpo`
  * Model: claude-opus-4-6 (reasoning-grade for product decisions)
  *
  * If a session with the same name already exists it is killed first (clean restart).
  *
+ * @param machineId Machine identifier for session naming.
+ * @param workingDir Optional working directory — Claude Code picks up .mcp.json from cwd.
  * @returns The tmux session name (`{machineId}-cpo`)
  */
-export async function spawnPersistentCpoSession(machineId: string): Promise<string> {
+export async function spawnPersistentCpoSession(machineId: string, workingDir?: string): Promise<string> {
   const sessionName = `${machineId}-cpo`;
 
   // Kill any stale session from a previous run
@@ -874,15 +974,60 @@ export async function spawnPersistentCpoSession(machineId: string): Promise<stri
   // Model flag selects opus-4-6 for CPO-grade reasoning
   const shellCmd = `unset CLAUDECODE; claude --model claude-opus-4-6`;
 
-  await execFileAsync("tmux", [
+  const tmuxArgs = [
     "new-session",
     "-d",             // detached
     "-s", sessionName,
+    ...(workingDir ? ["-c", workingDir] : []),
     shellCmd,
-  ]);
+  ];
 
-  console.log(`[executor] Spawned persistent CPO session: ${sessionName}`);
+  await execFileAsync("tmux", tmuxArgs);
+
+  console.log(`[executor] Spawned persistent CPO session: ${sessionName}${workingDir ? ` (cwd=${workingDir})` : ""}`);
   return sessionName;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: CPO idle detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when the CPO's tmux pane shows the Claude Code prompt,
+ * indicating it is idle and waiting for input.
+ *
+ * Claude Code's interactive prompt shows `❯` (or `>` in older versions)
+ * on a visible line. Also accepts `$` / `%` as shell fallback.
+ */
+async function isCpoIdle(sessionName: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync("tmux", [
+      "capture-pane",
+      "-t", sessionName,
+      "-p",   // print to stdout
+    ]);
+
+    // Claude Code renders a status bar below the ❯ prompt line —
+    // scan all lines for the prompt marker, not just the last line.
+    const lines = stdout.trimEnd().split("\n");
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (/^[❯>]\s*$/.test(trimmed)) return true;
+    }
+    // Shell fallback: check last non-empty line for $ or %
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const trimmed = lines[i]!.trim();
+      if (!trimmed) continue;
+      return /[$%]\s*$/.test(trimmed);
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ---------------------------------------------------------------------------

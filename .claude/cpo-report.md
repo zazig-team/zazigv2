@@ -1,62 +1,51 @@
-# CPO Report — slack-events Edge Function
+# CPO Report — Local Agent: Handle MessageInbound, Create Workspace, Remove SlackChatRouter
 
 ## Summary
-Created the `slack-events` Supabase Edge Function that receives Slack webhook events and routes inbound messages to the running local agent via Supabase Realtime. This is Wave 2, Section 3 of the bidirectional agent messaging plan.
-
-## Discovery
-- Read `docs/plans/2026-02-22-agent-messaging-bidirectional.md` Section 3 fully
-- Studied existing `orchestrator` Edge Function for Deno patterns, import style, Supabase client creation, and Realtime broadcast pattern
-- Read `packages/shared/src/messages.ts` to understand `MessageInbound` type (already merged in Wave 1)
-- Read `supabase/functions/_shared/messages.ts` — found `MessageInbound` was not individually re-exported; added it
+Updated the local agent (Wave 3) to:
+1. Handle `MessageInbound` events by injecting them into the CPO's tmux session with queue + idle detection
+2. Create an agent workspace (`~/.zazigv2/cpo-workspace/`) with `.mcp.json` so the CPO can use the zazig-messaging MCP server
+3. Remove `SlackChatRouter` (replaced by backend Slack integration via Edge Functions)
 
 ## Files Changed
-- `supabase/functions/slack-events/index.ts` — new Edge Function (main implementation)
-- `supabase/functions/slack-events/deno.json` — import map matching existing function pattern
-- `supabase/functions/_shared/messages.ts` — added `MessageInbound` to type re-exports
+- `packages/local-agent/src/executor.ts` — Added `handleMessageInbound()`, message queue + idle detection, workspace creation in `handleStartCpo()`, removed all `SlackChatRouter` references
+- `packages/local-agent/src/index.ts` — Wired `message_inbound` case to `executor.handleMessageInbound()`, updated executor constructor call with supabase URL/anon key
+- `packages/local-agent/src/executor.test.ts` — Updated constructor calls to match new signature, added `writeFileSync`/`rmSync` to fs mock
+- `packages/local-agent/src/slack-chat.ts` — **Deleted**
+- `packages/local-agent/package.json` — Removed `@slack/bolt` dependency
 
 ## Implementation Details
 
-### url_verification
-Parses JSON body, returns `{ challenge: body.challenge }` with 200.
+### handleMessageInbound (executor.ts)
+- Public method that checks if CPO job is running, formats the message as `[Message from {from}, conversation:{conversationId}]\n{text}`, and enqueues it
+- Messages are processed sequentially through a queue — each waits for CPO idle before injecting
+- Idle detection ported from `SlackChatRouter.isCpoIdle()`: captures tmux pane, scans for prompt markers (`❯`, `>`, `$`, `%`)
+- Polls every 5s for up to 5min; drops message if CPO doesn't become idle
+- Injection uses `tmux send-keys -l` (literal) + separate `Enter` keystroke, matching the proven pattern from SlackChatRouter
+- Newlines normalized to spaces to prevent premature entry
 
-### Slack Signature Verification
-HMAC-SHA256 of `v0:{timestamp}:{rawBody}` using `SLACK_SIGNING_SECRET` via Web Crypto API. Rejects requests older than 5 minutes (replay protection). Uses constant-time comparison.
+### Agent Workspace (handleStartCpo)
+- Creates `~/.zazigv2/cpo-workspace/` with `recursive: true`
+- Resolves agent-mcp-server.js path relative to compiled dist/ directory using `import.meta.url`
+- Writes `.mcp.json` with zazig-messaging MCP server config including `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `ZAZIG_JOB_ID` env vars
+- Passes workspace dir to `spawnPersistentCpoSession()` via new `-c` tmux flag
 
-### Bot Message Skipping
-Returns 200 immediately if `event.bot_id` is present.
+### SlackChatRouter Removal
+- Deleted `slack-chat.ts` entirely
+- Removed `cpoRouter` field and all router start/stop/cleanup code from executor
+- Kept `cpoJobId` field (needed for message routing)
+- Removed `@slack/bolt` from package.json dependencies
+- Removed Slack channels fetch from `handleStartCpo()` (no longer needed)
 
-### Event Deduplication
-In-memory bounded Set (max 1000 entries) with FIFO eviction. Deduplicates by `event_id`.
+### Constructor Change
+- Added `supabaseUrl` and `supabaseAnonKey` params to `JobExecutor` constructor (needed for .mcp.json env vars)
+- Updated test file to pass the new params
 
-### Agent Lookup
-1. Looks up `team_id` → `company_id` + `bot_token` from `slack_installations`
-2. Queries `jobs` WHERE `job_type = 'persistent_agent'` AND `status = 'executing'`, joins with `machines` to get machine name and status
+## Tests
+- **134 tests passing** (all local-agent + shared tests)
+- 1 pre-existing failure: `supabase/functions/orchestrator/orchestrator.test.ts` — Deno-style imports incompatible with Node vitest (not related to this change)
 
-### Agent Online Path
-- Generates `conversationId = "slack:{team_id}:{channel}:{thread_ts || ts}"`
-- Broadcasts `MessageInbound` to `agent:{machineName}` channel via Supabase Realtime
-- Uses same subscribe/send/unsubscribe pattern as orchestrator
-
-### Agent Offline Path
-- Posts "The CPO is currently offline" reply to Slack using `bot_token` from `slack_installations` via `chat.postMessage`
-- Replies in-thread using `thread_ts`
-
-### Deploy Annotation
-Must deploy with `--no-verify-jwt` (Slack doesn't send JWTs).
-
-## Acceptance Criteria
-- [x] Edge Function created at `supabase/functions/slack-events/index.ts`
-- [x] `supabase/functions/slack-events/deno.json` created (matching pattern of existing functions)
-- [x] `url_verification` challenge handled
-- [x] Slack request signature verified using HMAC-SHA256
-- [x] Bot messages skipped (event.bot_id check)
-- [x] Event deduplication by event_id (in-memory bounded Set, max 1000)
-- [x] Looks up team_id → company_id from slack_installations
-- [x] Finds running agent via jobs + machines join
-- [x] Agent online: broadcasts MessageInbound to agent:{machineName}
-- [x] Agent offline: posts "CPO is currently offline" reply to Slack
-- [x] Always returns 200 within 3 seconds
-- [x] Deploy annotation: --no-verify-jwt
+## Build
+- `tsc` build succeeds with no errors
 
 ## Token Usage
 - Token budget: claude-ok (wrote code directly)

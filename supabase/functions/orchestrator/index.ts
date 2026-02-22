@@ -499,15 +499,28 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     // These populate the 4-layer context stack: personality → role → skills → task.
     let rolePrompt: string | undefined;
     let roleSkills: string[] | undefined;
+    let personalityPrompt: string | undefined;
     if (job.role && slotType !== "codex") {
       const { data: roleRow } = await supabase
         .from("roles")
-        .select("prompt, skills")
+        .select("id, prompt, skills")
         .eq("name", job.role)
         .single();
       if (roleRow) {
-        rolePrompt = (roleRow as { prompt: string | null; skills: string[] | null }).prompt ?? undefined;
-        roleSkills = (roleRow as { prompt: string | null; skills: string[] | null }).skills ?? undefined;
+        const typed = roleRow as { id: string; prompt: string | null; skills: string[] | null };
+        rolePrompt = typed.prompt ?? undefined;
+        roleSkills = typed.skills ?? undefined;
+
+        // Fetch compiled personality prompt for this company + role
+        const { data: personality } = await supabase
+          .from("exec_personalities")
+          .select("compiled_prompt")
+          .eq("company_id", job.company_id)
+          .eq("role_id", typed.id)
+          .single();
+        if (personality?.compiled_prompt) {
+          personalityPrompt = personality.compiled_prompt;
+        }
       }
     }
 
@@ -524,6 +537,8 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       context: job.context ?? undefined,
       // Include role for role-based jobs (persistent agents, specialized reviewers)
       ...(job.role ? { role: job.role } : {}),
+      // Personality prompt for 4-layer context assembly (Layer 1+2+3 compiled)
+      ...(personalityPrompt ? { personalityPrompt } : {}),
       // Role prompt + skills for 4-layer context assembly (non-codex only)
       ...(rolePrompt ? { rolePrompt } : {}),
       ...(roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),

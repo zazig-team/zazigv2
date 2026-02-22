@@ -12,8 +12,6 @@
 import { loadCredentials } from "../lib/credentials.js";
 import { loadConfig } from "../lib/config.js";
 
-const VALID_ROLES = ["cpo", "cto"];
-
 interface RoleRow {
   id: string;
   name: string;
@@ -45,13 +43,6 @@ export async function personality(args: string[]): Promise<void> {
 
   if (!role) {
     console.error("Usage: zazig personality <role> [--show | --archetype [name]]");
-    console.error(`Valid roles: ${VALID_ROLES.join(", ")}`);
-    process.exitCode = 1;
-    return;
-  }
-
-  if (!VALID_ROLES.includes(role)) {
-    console.error(`Unknown role: ${role}. Valid roles: ${VALID_ROLES.join(", ")}`);
     process.exitCode = 1;
     return;
   }
@@ -109,7 +100,7 @@ export async function personality(args: string[]): Promise<void> {
   }
 
   if (roleRows.length === 0) {
-    console.error(`Unknown role: ${role}. Valid roles: ${VALID_ROLES.join(", ")}`);
+    console.error(`Unknown role: ${role}`);
     process.exitCode = 1;
     return;
   }
@@ -208,45 +199,41 @@ async function listArchetypes(
   roleName: string,
   roleId: string
 ): Promise<void> {
-  const archetypes = await apiFetch<Array<Pick<ArchetypeRow, "id" | "display_name" | "voice_notes">>>(
-    `${supabaseUrl}/rest/v1/exec_archetypes` +
-      `?select=id,display_name,voice_notes` +
-      `&role_id=eq.${encodeURIComponent(roleId)}` +
-      `&order=display_name.asc`,
-    headers
-  );
-
-  if (archetypes.length === 0) {
-    console.log(`No archetypes available for ${roleName}.`);
-    return;
-  }
-
-  let currentArchetypeId: string | null = null;
-  try {
-    const pRows = await apiFetch<Array<{ archetype_id: string }>>(
+  const [archetypes, pRows] = await Promise.all([
+    apiFetch<Array<Pick<ArchetypeRow, "id" | "display_name" | "voice_notes">>>(
+      `${supabaseUrl}/rest/v1/exec_archetypes` +
+        `?select=id,display_name,voice_notes` +
+        `&role_id=eq.${encodeURIComponent(roleId)}` +
+        `&order=display_name.asc`,
+      headers
+    ),
+    apiFetch<Array<{ archetype_id: string }>>(
       `${supabaseUrl}/rest/v1/exec_personalities` +
         `?select=archetype_id` +
         `&company_id=eq.${encodeURIComponent(companyId)}` +
         `&role_id=eq.${encodeURIComponent(roleId)}` +
         `&limit=1`,
       headers
-    );
-    if (pRows.length > 0) currentArchetypeId = pRows[0]!.archetype_id;
-  } catch {
-    // Best-effort — no current personality is fine
+    ).catch(() => [] as Array<{ archetype_id: string }>),
+  ]);
+
+  if (archetypes.length === 0) {
+    console.log(`No archetypes available for ${roleName}.`);
+    return;
   }
+
+  const currentArchetypeId = pRows.length > 0 ? pRows[0]!.archetype_id : null;
 
   console.log(`${roleName.toUpperCase()} Archetypes:`);
   const maxNameLen = Math.max(...archetypes.map((a) => a.display_name.length));
-  let currentName: string | null = null;
 
   for (const a of archetypes) {
     const voice = a.voice_notes ? a.voice_notes.replace(/\s+/g, " ").trim().slice(0, 80) : "";
     const suffix = voice ? ` — ${voice}` : "";
     console.log(`  ${a.display_name.padEnd(maxNameLen)}${suffix}`);
-    if (a.id === currentArchetypeId) currentName = a.display_name;
   }
 
+  const currentName = archetypes.find((a) => a.id === currentArchetypeId)?.display_name ?? null;
   console.log("");
   console.log(`Current: ${currentName ?? "(none)"}`);
   console.log(`Run 'zazig personality ${roleName} --archetype "<name>"' to switch.`);
@@ -276,6 +263,7 @@ async function switchArchetype(
   }
 
   const archetype = archetypes[0]!;
+  console.log(`Warning: switching archetype resets all evolved dimensions and overrides.`);
   console.log(`Switching ${roleName.toUpperCase()} to "${archetype.display_name}"...`);
 
   const resp = await fetch(

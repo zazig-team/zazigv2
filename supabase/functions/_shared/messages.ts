@@ -25,6 +25,7 @@ export type {
   HealthCheck,
   VerifyJob,
   DeployToTest,
+  MessageInbound,
   OrchestratorMessage,
   Heartbeat,
   JobStatusMessage,

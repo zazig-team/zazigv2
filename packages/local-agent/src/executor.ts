@@ -10,7 +10,7 @@
  *
  * Tmux session naming: `{machineId}-{jobId}`
  * Model selection (slotType is the primary routing signal):
- *   slotType=codex                     → `codex --full-auto` (exits after completion)
+ *   slotType=codex                     → `claude -p` (sonnet, with codex-delegate routing)
  *   slotType=claude_code               → `claude -p` (print mode, model from orchestrator)
  *   role != null (persistent agents)   → `claude -p` (claude-opus-4-6, print mode)
  */
@@ -59,7 +59,7 @@ You will receive messages from external platforms (Slack, Discord, etc.) injecte
 into this session. They arrive in this format:
 
 \`\`\`
-[Message from @username, conversation:slack:T04M6D7TEJF:C123:1234.5678] The message text here
+[Message from @username, conversation:slack:T04M6D7TEJF:C123] The message text here
 \`\`\`
 
 The \`conversation:...\` identifier is an opaque routing token. You do NOT need
@@ -74,22 +74,22 @@ to parse it — just echo it back when replying.
 
 Use the \`send_message\` MCP tool to reply. It takes two parameters:
 
-- **conversation_id** — the opaque ID from the inbound message (everything after \`conversation:\` up to the closing \`]\`). Example: \`slack:T04M6D7TEJF:C123:1234.5678\`
+- **conversation_id** — the opaque ID from the inbound message (everything after \`conversation:\` up to the closing \`]\`). Example: \`slack:T04M6D7TEJF:C123\`
 - **text** — your reply text (plain text, supports basic markdown)
 
 Example: if you receive:
 \`\`\`
-[Message from @tom, conversation:slack:T04M6D7TEJF:D08QZ1234:1740000000.000000] What's the status of the dashboard?
+[Message from @tom, conversation:slack:T04M6D7TEJF:D08QZ1234] What's the status of the dashboard?
 \`\`\`
 
 You would call the \`send_message\` tool with:
-- \`conversation_id\`: \`slack:T04M6D7TEJF:D08QZ1234:1740000000.000000\`
+- \`conversation_id\`: \`slack:T04M6D7TEJF:D08QZ1234\`
 - \`text\`: \`The dashboard is progressing well — feature X is in review and Y is in progress.\`
 
 **Important:**
 - Always reply via the \`send_message\` tool — do NOT just print your response
-- The conversation_id routes your reply back to the correct platform thread
-- You can send multiple replies to the same conversation_id (threaded messages)
+- The conversation_id routes your reply back to the correct Slack channel
+- You can send multiple replies to the same conversation_id
 - If you cannot determine the conversation_id, say so — do not fabricate one
 `;
 
@@ -98,6 +98,27 @@ const CPO_STARTUP_DELAY_MS = 15_000;
 
 /** Directory where per-job tmux pipe-pane log files are written. */
 const JOB_LOG_DIR = "/tmp/zazig-job-logs";
+
+/** Codex delegation instructions injected into context for codex-slotType jobs.
+ *  Matches v1's token-budget routing: Claude supervises, Codex does the heavy lifting. */
+const CODEX_ROUTING_INSTRUCTIONS = `## Codex Delegation (REQUIRED)
+
+You MUST use codex-delegate for ALL code changes. Do NOT write code directly.
+
+Run: codex-delegate implement --dir $(pwd) "description of what to implement"
+
+Requirements:
+- Clean git working tree required (commit or stash first)
+- If codex-delegate fails or the task is too complex, you may fall back to writing code directly
+- For investigation/research, use: codex-delegate investigate --dir $(pwd) "question"
+
+After codex-delegate completes, review the diff output and decide whether to keep, modify, or discard changes.`;
+
+/** Completion instructions injected into context for all jobs. */
+const COMPLETION_INSTRUCTIONS = `## On Completion
+
+Write your results to .claude/cpo-report.md including what was done and any issues.
+Commit all work, then exit.`;
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -871,18 +892,15 @@ export class JobExecutor {
 /**
  * Determine the CLI binary and arguments based on slot type, complexity, and model.
  *
- * Decision table (slotType is the primary routing signal):
- *   slotType=codex       → `codex --full-auto` (auto-exits after completion)
- *   slotType=claude_code → `claude -p` with the resolved model (print mode, exits after completion)
+ * All jobs run through `claude -p` (print mode, exits after completion).
+ * For codex slots, Claude delegates to codex-delegate internally (matching v1 pattern
+ * where Claude supervises Codex rather than Codex running standalone).
  *
- * Model resolution (for claude CLI):
+ * Model resolution:
  *   model override from orchestrator → the `model` field takes precedence
+ *   slotType=codex                   → claude-sonnet-4-6 (lighter model — Codex does heavy lifting)
  *   complexity=complex               → claude-opus-4-6
  *   otherwise                        → claude-sonnet-4-6
- *
- * Non-interactive execution:
- *   - `claude -p "<task>"` — print mode: processes the task and exits (no REPL)
- *   - `codex --full-auto "<task>"` — full-auto mode: completes and exits
  */
 
 // ---------------------------------------------------------------------------
@@ -948,7 +966,15 @@ function assembleContext(msg: StartJob, taskContext: string): string {
     parts.push(`# Sub-Agent Instructions\nWhen spawning sub-agents, begin their prompt with the content of:\n${personalityFile}`);
   }
 
+  // Codex routing: Claude supervises, Codex does the heavy lifting (matches v1 pattern)
+  if (msg.slotType === "codex") {
+    parts.push(CODEX_ROUTING_INSTRUCTIONS);
+  }
+
   parts.push(taskContext);
+
+  // Completion instructions for all jobs (improves report quality)
+  parts.push(COMPLETION_INSTRUCTIONS);
 
   return parts.join("\n\n---\n\n");
 }
@@ -959,24 +985,16 @@ function buildCommand(
   model: string,
   context: string
 ): { cmd: string; args: string[] } {
-  // slotType is the authoritative signal for which CLI to use.
-  // The orchestrator sets slotType to match the allocated slot, even when
-  // a simple job falls back from codex to claude_code.
-  if (slotType === "codex") {
-    // codex CLI: `codex --full-auto "<task>"` — exits after completion
-    return { cmd: "codex", args: ["--full-auto", context] };
-  }
-
-  // claude CLI: `claude -p "<task>" --model <model>`
-  // -p (print mode) processes the task and exits — no interactive REPL.
-  // The orchestrator already selects the correct model; we honour it.
-  // Fallback based on local complexity if model is somehow unset.
+  // All jobs run through claude -p. For codex slots, Claude delegates
+  // to codex-delegate internally (matching v1 pattern).
   const resolvedModel =
     model && model !== "codex"
       ? model
-      : complexity === "complex"
-        ? "claude-opus-4-6"
-        : "claude-sonnet-4-6";
+      : slotType === "codex"
+        ? "claude-sonnet-4-6"      // lighter model — Codex does the heavy lifting
+        : complexity === "complex"
+          ? "claude-opus-4-6"
+          : "claude-sonnet-4-6";
 
   return {
     cmd: "claude",

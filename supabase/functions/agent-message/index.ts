@@ -48,8 +48,8 @@ function jsonResponse(
 async function sendSlack(
   teamId: string,
   channel: string,
-  threadTs: string,
   text: string,
+  threadTs?: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   // Fetch bot_token from slack_installations using service_role (bypasses RLS).
   const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
@@ -82,7 +82,7 @@ async function sendSlack(
     body: JSON.stringify({
       channel,
       text,
-      thread_ts: threadTs,
+      ...(threadTs ? { thread_ts: threadTs } : {}),
     }),
   });
 
@@ -97,7 +97,7 @@ async function sendSlack(
   }
 
   console.log(
-    `[agent-message] Message sent to Slack — team:${teamId} channel:${channel} thread:${threadTs}`,
+    `[agent-message] Message sent to Slack — team:${teamId} channel:${channel}${threadTs ? ` thread:${threadTs}` : ""}`,
   );
   return { ok: true };
 }
@@ -145,16 +145,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   switch (adapter) {
     case "slack": {
-      // Format: slack:{team_id}:{channel}:{thread_ts}
+      // Format: slack:{team_id}:{channel} or slack:{team_id}:{channel}:{thread_ts}
       const [teamId, channel, threadTs] = rest;
-      if (!teamId || !channel || !threadTs) {
+      if (!teamId || !channel) {
         return jsonResponse(
-          { ok: false, error: "Invalid Slack conversationId format — expected slack:{team_id}:{channel}:{thread_ts}" },
+          { ok: false, error: "Invalid Slack conversationId format — expected slack:{team_id}:{channel}[:{thread_ts}]" },
           400,
         );
       }
 
-      const result = await sendSlack(teamId, channel, threadTs, text);
+      const result = await sendSlack(teamId, channel, text, threadTs || undefined);
       if (!result.ok) {
         return jsonResponse({ ok: false, error: result.error }, 502);
       }

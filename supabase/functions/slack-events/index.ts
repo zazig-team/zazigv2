@@ -211,7 +211,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const text = event.text as string;
   const user = event.user as string;
   const ts = event.ts as string;
-  const threadTs = (event.thread_ts as string) || ts;
 
   if (!channel || !text || !ts) {
     return jsonResponse({ ok: true });
@@ -249,7 +248,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   if (agentOnline) {
     // Generate conversationId and broadcast MessageInbound
-    const conversationId = `slack:${teamId}:${channel}:${threadTs}`;
+    // Channel-level replies — no thread_ts so the CPO responds at the channel level
+    const conversationId = `slack:${teamId}:${channel}`;
     const machineName = machineRow!.name;
 
     const messageInbound: MessageInbound = {
@@ -287,7 +287,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   } else {
     // Agent offline — reply to Slack
     console.log(`[slack-events] No running agent for company ${installation.company_id} — posting offline reply`);
-    await postOfflineReply(installation.bot_token, channel, threadTs);
+    await postOfflineReply(installation.bot_token, channel, ts);
   }
 
   // Always return 200 within 3 seconds (Slack requires fast ack)

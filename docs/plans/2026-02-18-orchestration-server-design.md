@@ -3,6 +3,7 @@
 **Date:** 2026-02-18
 **Status:** proposed
 **Authors:** Chris (owner), CPO (agent)
+**Part of:** [Zazig Org Model](ORG%20MODEL.md) — covers orchestrator dispatch and worker lifecycle
 
 ---
 

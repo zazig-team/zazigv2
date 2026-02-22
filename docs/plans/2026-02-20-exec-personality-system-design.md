@@ -3,6 +3,7 @@
 **Date:** 2026-02-20
 **Status:** proposed
 **Authors:** Tom (owner), Claude (agent)
+**Part of:** [Zazig Org Model](ORG%20MODEL.md) — covers Layer 1 (Personality)
 
 ---
 

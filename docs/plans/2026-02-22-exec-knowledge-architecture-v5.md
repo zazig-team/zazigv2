@@ -3,6 +3,7 @@
 **Date:** 2026-02-22
 **Status:** approved — implementation-ready
 **Authors:** Tom (owner), CPO (agent)
+**Part of:** [Zazig Org Model](ORG%20MODEL.md) — covers Layers 4 (Doctrines) and 5 (Canons)
 **Supersedes:** v4, v3, v2, v1, sketch (all dated 2026-02-21 or 2026-02-20)
 **Reviewed by:** CPO (Opus) interactive walkthrough, Codex (gpt-5.3-codex, xhigh reasoning), Gemini (gemini-3.1-pro-preview) — independent second opinions on all findings; adversarial review by Codex + Gemini (v3 review); second opinions on v4 revisions from both models; CPO review-plan walkthrough (v4 review)
 **Informed by:** Four independent deep research reports on agent domain knowledge and expertise (Claude, Gemini, OpenAI, last30days scan — all dated 2026-02-21)
@@ -93,7 +94,7 @@ The architecture enables all four; it's not the product by itself. This is Spoti
 
 ## Design Principles
 
-Fourteen principles, drawn from the research synthesis, three rounds of architecture review, and independent second opinions from Codex and Gemini:
+Fifteen principles, drawn from the research synthesis, three rounds of architecture review, independent second opinions from Codex and Gemini, and co-founder input:
 
 **1. Prove retrieval quality before building intelligence.** Ship Tier 1-2-3 progressive disclosure and eval first. Curator intelligence, knowledge graph automation, and archetypes are Phase 4+. This principle governs the entire phasing strategy.
 
@@ -122,6 +123,8 @@ Fourteen principles, drawn from the research synthesis, three rounds of architec
 **13. Cache-aware prompt construction.** The prompt stack splits into a static prefix (personality + role + Tier 1 knowledge index) and a dynamic suffix (per-task claims, tensions, canon summaries, task context). The static prefix is identical across all jobs for the same role within a company — maximizing cache hits on the expensive prefix content. Wrong ordering multiplies inference costs by 10x.
 
 **14. Retrieval replaceability.** The agent tool interfaces (`doctrine_search`, `canon_search`) are opaque to agents. As models evolve (larger context windows, cheaper fine-tuning), the retrieval backend can swap from embedding-based search to long-context injection to LoRA adapters without changing the tool API.
+
+**15. Narrow-scope specialists over broad generalists.** Doctrines and canons enable tightly defined, single-purpose roles (e.g., a dedicated PR reviewer) rather than overloading generalist roles (e.g., CTO doing PR review). A narrow specialist with the right knowledge injected outperforms a generalist reasoning from first principles.
 
 ---
 

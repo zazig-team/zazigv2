@@ -24,7 +24,7 @@ const originalServe = (Deno as any).serve;
 };
 
 // Now import the functions under test.
-import { handleVerifyResult, triggerFeatureVerification, handleFeatureApproved, handleFeatureRejected } from "./index.ts";
+import { handleVerifyResult, triggerFeatureVerification, triggerStandaloneVerification, handleFeatureApproved, handleFeatureRejected } from "./index.ts";
 
 // Restore Deno.serve after import.
 // deno-lint-ignore no-explicit-any
@@ -823,4 +823,153 @@ Deno.test("handleFeatureRejected — severity=big + queue exists → promotes ne
     return payload.status === "testing";
   });
   assertEquals(promoteUpdate !== undefined, true, "Should promote next feature to testing after big rejection");
+});
+
+// ---------------------------------------------------------------------------
+// Standalone job tests
+// ---------------------------------------------------------------------------
+
+Deno.test("triggerStandaloneVerification — creates verify job with standalone_verification context", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // Fetch job details
+  setResponse("jobs:select.eq.single", {
+    data: { company_id: "co-1", project_id: "proj-1", branch: "fix/bug-123" },
+    error: null,
+  });
+
+  // Insert verification job
+  setResponse("jobs:insert", { error: null });
+
+  // deno-lint-ignore no-explicit-any
+  await triggerStandaloneVerification(client as any, "standalone-job-1");
+
+  // Should fetch job details
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 2, "Should have select + insert on jobs");
+
+  // First chain: select job details
+  assertEquals(jobsChains[0].operations[0].method, "select");
+
+  // Second chain: insert verification job
+  assertEquals(jobsChains[1].operations[0].method, "insert");
+  // deno-lint-ignore no-explicit-any
+  const payload = jobsChains[1].operations[0].args[0] as any;
+  assertEquals(payload.company_id, "co-1");
+  assertEquals(payload.project_id, "proj-1");
+  assertEquals(payload.feature_id, null);
+  assertEquals(payload.role, "reviewer");
+  assertEquals(payload.job_type, "verify");
+  assertEquals(payload.status, "queued");
+  assertEquals(payload.branch, "fix/bug-123");
+
+  const context = JSON.parse(payload.context);
+  assertEquals(context.type, "standalone_verification");
+  assertEquals(context.originalJobId, "standalone-job-1");
+  assertEquals(context.jobBranch, "fix/bug-123");
+});
+
+Deno.test("handleVerifyResult — standalone verification passed → promotes to testing", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // update done → success
+  setResponse("jobs:update.eq", { error: null });
+
+  // select feature_id and context for the verify job → standalone_verification
+  setResponse("jobs:select.eq.single", {
+    data: {
+      feature_id: null,
+      context: JSON.stringify({
+        type: "standalone_verification",
+        originalJobId: "original-job-42",
+        jobBranch: "fix/bug-42",
+      }),
+    },
+    error: null,
+  });
+
+  const msg = {
+    type: "verify_result" as const,
+    protocolVersion: 1,
+    jobId: "verify-job-1",
+    machineId: "machine-1",
+    passed: true,
+    testOutput: "All tests passed",
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await handleVerifyResult(client as any, msg);
+
+  // Should have: 1 update (mark done), 1 select (feature_id+context), 1 select (fetch original job), 1 update (set testing)
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length >= 3, true, "Should have update + select + promote chains");
+
+  // First chain: update verify job to done
+  assertEquals(jobsChains[0].operations[0].method, "update");
+  // deno-lint-ignore no-explicit-any
+  assertEquals((jobsChains[0].operations[0].args[0] as any).status, "done");
+
+  // Second chain: select feature_id and context
+  assertEquals(jobsChains[1].operations[0].method, "select");
+});
+
+Deno.test("handleVerifyResult — standalone verification failed → marks verify_failed, no promotion", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // update verify_failed → success
+  setResponse("jobs:update.eq", { error: null });
+
+  const msg = {
+    type: "verify_result" as const,
+    protocolVersion: 1,
+    jobId: "verify-job-2",
+    machineId: "machine-1",
+    passed: false,
+    testOutput: "Lint errors found",
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await handleVerifyResult(client as any, msg);
+
+  // Should only have 1 jobs chain (update to verify_failed)
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 1, "Should have exactly 1 jobs chain for failed verify");
+
+  // Check it sets verify_failed
+  // deno-lint-ignore no-explicit-any
+  const updatePayload = jobsChains[0].operations[0].args[0] as any;
+  assertEquals(updatePayload.status, "verify_failed");
+});
+
+Deno.test("handleVerifyResult — job with no feature_id and no standalone context → skips", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // update done → success
+  setResponse("jobs:update.eq", { error: null });
+
+  // select feature_id and context → null feature_id, no standalone context
+  setResponse("jobs:select.eq.single", {
+    data: { feature_id: null, context: "{}" },
+    error: null,
+  });
+
+  const msg = {
+    type: "verify_result" as const,
+    protocolVersion: 1,
+    jobId: "verify-job-3",
+    machineId: "machine-1",
+    passed: true,
+    testOutput: "All tests passed",
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await handleVerifyResult(client as any, msg);
+
+  // Should have 2 jobs chains (update done + select), but NO promotion
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 2, "Should have update + select only");
+
+  // No features table access
+  const featureChains = chainedCalls.filter((c) => c.table === "features");
+  assertEquals(featureChains.length, 0, "Should not access features table");
 });

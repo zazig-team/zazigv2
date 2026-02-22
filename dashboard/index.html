@@ -766,7 +766,7 @@
       const FEATURES_BASE =
         SUPABASE_URL + '/rest/v1/features?select=id,title,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,jobs(id,title,status,progress,model,job_type,sequence,branch,created_at)&status=not.eq.cancelled&order=created_at.desc';
       const STANDALONE_JOBS_BASE =
-        SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,branch,role,job_type,created_at,company_id&feature_id=is.null&status=not.in.(cancelled,done,complete)&order=created_at.desc&limit=100';
+        SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,branch,role,job_type,created_at,company_id&feature_id=is.null&status=not.in.(cancelled,done,complete)&job_type=not.in.(persistent_agent,verify)&order=created_at.desc&limit=100';
       const COMPANIES_BASE =
         SUPABASE_URL + '/rest/v1/companies?select=id,name&limit=1&name=eq.';
       const JOB_DETAIL_BASE =
@@ -1027,7 +1027,6 @@
 
       function renderColumn(colDef, features, standaloneJobs) {
         var col = el('div', 'column');
-
         var totalCount = features.length + standaloneJobs.length;
 
         var hdr = el('div', 'column-header');

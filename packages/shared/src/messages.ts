@@ -222,8 +222,27 @@ export interface DeployToTest {
   projectId: string;
 }
 
+/**
+ * Delivers an inbound message from an external platform (Slack, Discord, etc.)
+ * to the local agent for injection into the running agent's tmux session.
+ * The conversationId is opaque to the agent — it must be echoed back in any
+ * MessageOutbound reply so the orchestrator can route the response to the
+ * correct platform thread.
+ */
+export interface MessageInbound {
+  type: "message_inbound";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** Opaque conversation identifier (e.g. "slack:T123:C456:1234.5678"). */
+  conversationId: string;
+  /** Human-readable sender (e.g. "@tom"). */
+  from: string;
+  /** Message content. */
+  text: string;
+}
+
 /** Union of all messages the orchestrator sends to a local agent. */
-export type OrchestratorMessage = StartJob | StopJob | HealthCheck | VerifyJob | DeployToTest;
+export type OrchestratorMessage = StartJob | StopJob | HealthCheck | VerifyJob | DeployToTest | MessageInbound;
 
 // ---------------------------------------------------------------------------
 // Local Agent → Orchestrator messages
@@ -404,6 +423,25 @@ export interface VerifyResult {
   reviewSummary?: string;
 }
 
+/**
+ * Sent by the local agent (via MCP tool) when an agent wants to reply to an
+ * external platform message. The orchestrator parses the conversationId prefix
+ * to determine which platform adapter should deliver the reply.
+ */
+export interface MessageOutbound {
+  type: "message_outbound";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** Job that is sending this reply. */
+  jobId: string;
+  /** Machine that is sending this reply. */
+  machineId: string;
+  /** Echoed conversationId from the original MessageInbound. */
+  conversationId: string;
+  /** Reply text. */
+  text: string;
+}
+
 /** Union of all messages a local agent sends to the orchestrator. */
 export type AgentMessage =
   | Heartbeat
@@ -414,4 +452,5 @@ export type AgentMessage =
   | StopAck
   | FeatureApproved
   | FeatureRejected
-  | VerifyResult;
+  | VerifyResult
+  | MessageOutbound;

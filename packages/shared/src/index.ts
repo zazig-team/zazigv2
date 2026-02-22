@@ -19,6 +19,7 @@ export type {
   HealthCheck,
   VerifyJob,
   DeployToTest,
+  MessageInbound,
   OrchestratorMessage,
   // Local Agent → Orchestrator messages
   Heartbeat,
@@ -30,6 +31,7 @@ export type {
   FeatureApproved,
   FeatureRejected,
   VerifyResult,
+  MessageOutbound,
   AgentMessage,
 } from "./messages.js";
 export { FEATURE_STATUSES, JOB_STATUSES } from "./messages.js";
@@ -129,6 +131,7 @@ export {
   isHealthCheck,
   isVerifyJob,
   isDeployToTest,
+  isMessageInbound,
   isHeartbeat,
   isJobStatusMessage,
   isJobComplete,
@@ -138,6 +141,7 @@ export {
   isFeatureApproved,
   isFeatureRejected,
   isVerifyResult,
+  isMessageOutbound,
 } from "./validators.js";
 
 // ---- Personality prompt compilation ----

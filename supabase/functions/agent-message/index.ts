@@ -112,12 +112,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
   }
 
-  // Validate auth header (defense-in-depth; Supabase also verifies JWT).
-  const authHeader = req.headers.get("authorization") ?? "";
-  const token = authHeader.replace(/^Bearer\s+/i, "");
-  if (!token || token !== SUPABASE_ANON_KEY) {
-    return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
-  }
+  // Auth: Supabase API Gateway verifies the JWT in the Authorization header
+  // before the request reaches this function (deployed without --no-verify-jwt).
+  // No additional token check needed here.
 
   // Parse request body.
   let body: { conversationId?: string; text?: string; jobId?: string };

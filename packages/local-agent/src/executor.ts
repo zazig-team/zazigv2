@@ -49,10 +49,52 @@ const REPORT_ARCHIVE_DIR = ".claude/job-reports";
 /** Agent workspace directory for CPO (holds .mcp.json for MCP tool access). */
 const CPO_WORKSPACE_DIR = join(homedir(), ".zazigv2", "cpo-workspace");
 
-/** Max time to wait for CPO to become idle before dropping a message. */
-const INJECT_MAX_WAIT_MS = 5 * 60_000;
-/** Poll interval when waiting for CPO idle. */
-const INJECT_POLL_INTERVAL_MS = 5_000;
+/** Instructions written to CLAUDE.md in the CPO workspace so the agent knows
+ *  how to handle inbound platform messages and reply via the MCP tool. */
+const CPO_MESSAGING_INSTRUCTIONS = `# CPO Agent Workspace
+
+## Handling Inbound Messages
+
+You will receive messages from external platforms (Slack, Discord, etc.) injected
+into this session. They arrive in this format:
+
+\`\`\`
+[Message from @username, conversation:slack:T04M6D7TEJF:C123:1234.5678] The message text here
+\`\`\`
+
+The \`conversation:...\` identifier is an opaque routing token. You do NOT need
+to parse it — just echo it back when replying.
+
+**When you receive a message like this, you should:**
+1. Read and understand the message content
+2. Formulate your response
+3. Reply using the \`send_message\` MCP tool (provided by the \`zazig-messaging\` server)
+
+## Replying to Messages
+
+Use the \`send_message\` MCP tool to reply. It takes two parameters:
+
+- **conversation_id** — the opaque ID from the inbound message (everything after \`conversation:\` up to the closing \`]\`). Example: \`slack:T04M6D7TEJF:C123:1234.5678\`
+- **text** — your reply text (plain text, supports basic markdown)
+
+Example: if you receive:
+\`\`\`
+[Message from @tom, conversation:slack:T04M6D7TEJF:D08QZ1234:1740000000.000000] What's the status of the dashboard?
+\`\`\`
+
+You would call the \`send_message\` tool with:
+- \`conversation_id\`: \`slack:T04M6D7TEJF:D08QZ1234:1740000000.000000\`
+- \`text\`: \`The dashboard is progressing well — feature X is in review and Y is in progress.\`
+
+**Important:**
+- Always reply via the \`send_message\` tool — do NOT just print your response
+- The conversation_id routes your reply back to the correct platform thread
+- You can send multiple replies to the same conversation_id (threaded messages)
+- If you cannot determine the conversation_id, say so — do not fabricate one
+`;
+
+/** Delay after CPO session spawn before allowing message injection (Claude Code startup). */
+const CPO_STARTUP_DELAY_MS = 15_000;
 
 /** Directory where per-job tmux pipe-pane log files are written. */
 const JOB_LOG_DIR = "/tmp/zazig-job-logs";
@@ -357,6 +399,29 @@ export class JobExecutor {
         join(CPO_WORKSPACE_DIR, ".mcp.json"),
         JSON.stringify(mcpConfig, null, 2),
       );
+
+      // Write CLAUDE.md with messaging instructions so the CPO knows how to
+      // handle inbound messages and reply via the send_message MCP tool.
+      writeFileSync(
+        join(CPO_WORKSPACE_DIR, "CLAUDE.md"),
+        CPO_MESSAGING_INSTRUCTIONS,
+      );
+
+      // Write .claude/settings.json to auto-approve the MCP tool so the CPO
+      // can reply to messages without manual permission prompts.
+      const claudeSettingsDir = join(CPO_WORKSPACE_DIR, ".claude");
+      mkdirSync(claudeSettingsDir, { recursive: true });
+      writeFileSync(
+        join(claudeSettingsDir, "settings.json"),
+        JSON.stringify({
+          permissions: {
+            allow: [
+              "mcp__zazig-messaging__send_message",
+            ],
+          },
+        }, null, 2),
+      );
+
       console.log(`[executor] CPO workspace created at ${CPO_WORKSPACE_DIR}`);
     } catch (err) {
       console.error(`[executor] CPO: failed to create workspace:`, err);
@@ -615,7 +680,7 @@ export class JobExecutor {
     while (this.messageQueue.length > 0) {
       const item = this.messageQueue.shift()!;
       try {
-        await this.injectWhenIdle(item.text);
+        await this.injectMessage(item.text);
         item.resolve();
       } catch (err) {
         console.error("[executor] Failed to inject message:", err);
@@ -626,31 +691,23 @@ export class JobExecutor {
   }
 
   /**
-   * Waits for the CPO tmux session to be idle, then injects the message.
-   * Polls every INJECT_POLL_INTERVAL_MS up to INJECT_MAX_WAIT_MS before dropping.
+   * Injects a message into the CPO tmux session immediately.
+   * Claude Code's interactive TUI auto-queues input — no idle detection needed.
+   * If the session just started, waits for CPO_STARTUP_DELAY_MS to let Claude Code initialize.
    */
-  private async injectWhenIdle(message: string): Promise<void> {
+  private async injectMessage(message: string): Promise<void> {
     const cpoJob = this.cpoJobId ? this.activeJobs.get(this.cpoJobId) : null;
     if (!cpoJob) {
-      console.warn("[executor] injectWhenIdle: no CPO job — dropping message");
+      console.warn("[executor] injectMessage: no CPO job — dropping message");
       return;
     }
 
-    const deadline = Date.now() + INJECT_MAX_WAIT_MS;
-    let idle = false;
-
-    while (Date.now() < deadline) {
-      if (await isCpoIdle(cpoJob.sessionName)) {
-        idle = true;
-        break;
-      }
-      console.log(`[executor] CPO busy — waiting ${INJECT_POLL_INTERVAL_MS / 1000}s before retry`);
-      await sleep(INJECT_POLL_INTERVAL_MS);
-    }
-
-    if (!idle) {
-      console.warn(`[executor] CPO still busy after ${INJECT_MAX_WAIT_MS / 60_000} min — dropping message`);
-      return;
+    // Wait for Claude Code to finish initializing if the session just spawned
+    const elapsed = Date.now() - cpoJob.startedAt;
+    if (elapsed < CPO_STARTUP_DELAY_MS) {
+      const wait = CPO_STARTUP_DELAY_MS - elapsed;
+      console.log(`[executor] CPO session is ${Math.round(elapsed / 1000)}s old — waiting ${Math.round(wait / 1000)}s for startup`);
+      await sleep(wait);
     }
 
     // Normalise newlines — tmux send-keys treats literal \n as Enter
@@ -1021,44 +1078,6 @@ export async function spawnPersistentCpoSession(machineId: string, workingDir?: 
 
   console.log(`[executor] Spawned persistent CPO session: ${sessionName}${workingDir ? ` (cwd=${workingDir})` : ""}`);
   return sessionName;
-}
-
-// ---------------------------------------------------------------------------
-// Helper: CPO idle detection
-// ---------------------------------------------------------------------------
-
-/**
- * Returns true when the CPO's tmux pane shows the Claude Code prompt,
- * indicating it is idle and waiting for input.
- *
- * Claude Code's interactive prompt shows `❯` (or `>` in older versions)
- * on a visible line. Also accepts `$` / `%` as shell fallback.
- */
-async function isCpoIdle(sessionName: string): Promise<boolean> {
-  try {
-    const { stdout } = await execFileAsync("tmux", [
-      "capture-pane",
-      "-t", sessionName,
-      "-p",   // print to stdout
-    ]);
-
-    // Claude Code renders a status bar below the ❯ prompt line —
-    // scan all lines for the prompt marker, not just the last line.
-    const lines = stdout.trimEnd().split("\n");
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (/^[❯>]\s*$/.test(trimmed)) return true;
-    }
-    // Shell fallback: check last non-empty line for $ or %
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const trimmed = lines[i]!.trim();
-      if (!trimmed) continue;
-      return /[$%]\s*$/.test(trimmed);
-    }
-    return false;
-  } catch {
-    return false;
-  }
 }
 
 function sleep(ms: number): Promise<void> {

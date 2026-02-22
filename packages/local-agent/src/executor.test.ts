@@ -21,6 +21,8 @@ vi.mock("node:fs", () => ({
   renameSync: vi.fn(),
   unlinkSync: vi.fn(),
   mkdirSync: vi.fn(),
+  writeFileSync: vi.fn(),
+  rmSync: vi.fn(),
 }));
 
 vi.mock("node:util", () => ({
@@ -120,9 +122,12 @@ describe("JobExecutor — progress integration", () => {
     supabase = makeMockSupabase();
     executor = new JobExecutor(
       "machine-1",
+      "company-test",
       slots,
       send as unknown as SendFn,
       supabase.client as any,
+      "https://test.supabase.co",
+      "test-anon-key",
     );
   });
 
@@ -242,9 +247,12 @@ describe("JobExecutor — progress integration", () => {
     // We can trigger a slot failure by trying to start a job with no slots:
     const noSlotExecutor = new JobExecutor(
       "machine-1",
+      "company-test",
       new SlotTracker({ claude_code: 0, codex: 0 }),
       send as unknown as SendFn,
       supabase.client as any,
+      "https://test.supabase.co",
+      "test-anon-key",
     );
 
     await noSlotExecutor.handleStartJob(makeStartJob());

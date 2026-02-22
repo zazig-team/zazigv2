@@ -1,31 +1,41 @@
-# CPO Report — Add MessageInbound + MessageOutbound to shared package
+# CPO Report — slack_installations DB Migration
 
 ## Summary
-Added two new message types to the shared wire protocol for bidirectional agent messaging. `MessageInbound` (orchestrator -> agent) delivers external platform messages to agents. `MessageOutbound` (agent -> orchestrator) lets agents reply via an opaque `conversationId` without knowledge of the underlying platform (Slack, Discord, etc.).
+Created the `slack_installations` table migration for multi-tenant Slack integration. This table stores per-workspace Slack bot tokens that Edge Functions read to post messages.
+
+A code review identified a P0 security finding and a P1 data quality issue — both fixed before PR creation.
+
+## Discovery
+- Read all 14 existing migrations (003–016) to understand naming and patterns
+- Confirmed `companies(id)` is `UUID PRIMARY KEY` — valid FK target
+- Identified RLS pattern from 003: `service_role_full_access` + `authenticated_read_own` scoped by `company_id` via JWT
+- Confirmed `update_updated_at_column()` trigger function exists from 003
+
+## Security Fix (P0)
+**Problem:** Initial draft included an `authenticated_read_own` SELECT policy granting authenticated users access to the full row, including `bot_token` (Slack OAuth credential). No product requirement exists for authenticated users to read this table — only Edge Functions running as service_role need access.
+
+**Fix:** Dropped `authenticated_read_own` policy entirely. Only `service_role_full_access` remains.
+
+## Data Quality Fix (P1)
+Added `NOT NULL` to `installed_at` and `updated_at` — these always have `DEFAULT NOW()` so NOT NULL is safe and prevents null timestamps from sneaking in via raw SQL.
 
 ## Files Changed
-- `packages/shared/src/messages.ts` — Added `MessageInbound` interface, `MessageOutbound` interface, updated `OrchestratorMessage` and `AgentMessage` union types
-- `packages/shared/src/validators.ts` — Added `isMessageInbound()` and `isMessageOutbound()` validators, updated `isOrchestratorMessage()` and `isAgentMessage()` switch cases
-- `packages/shared/src/index.ts` — Exported new types and validators
-- `packages/shared/src/messages.test.ts` — Added tests for both validators (valid messages, missing/empty fields, wrong protocolVersion) and union validator acceptance tests
+- `supabase/migrations/017_slack_installations.sql` — new file (final version after security fixes)
 
-## Tests
-- 92 tests pass (vitest), including 18 new tests for MessageInbound/MessageOutbound
-- `tsc --noEmit` clean
-- `npm run build` succeeds
+## What the Migration Contains
+- `slack_installations` table with `team_id TEXT PRIMARY KEY` (Slack workspace ID)
+- `company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE`
+- All columns per spec: team_name, bot_token, bot_user_id, app_id, scope, authed_user_id, installed_at, updated_at
+- `updated_at` trigger reusing shared `update_updated_at_column()` function
+- Index on `company_id` for lookup performance
+- RLS enabled with `service_role_full_access` only — no authenticated user access
 
 ## Acceptance Criteria
-- [x] `MessageInbound` interface added with type, protocolVersion, conversationId, from, text
-- [x] `MessageOutbound` interface added with type, protocolVersion, jobId, machineId, conversationId, text
-- [x] `MessageInbound` added to `OrchestratorMessage` union
-- [x] `MessageOutbound` added to `AgentMessage` union
-- [x] `isMessageInbound(msg)` validator added
-- [x] `isMessageOutbound(msg)` validator added
-- [x] `isOrchestratorMessage()` handles `"message_inbound"` case
-- [x] `isAgentMessage()` handles `"message_outbound"` case
-- [x] Existing tests still pass
-- [x] Build succeeds
-
-## Token Usage
-- Routing: claude-ok
-- All code written directly by Claude (no codex delegation)
+- [x] Migration file created at `supabase/migrations/017_slack_installations.sql`
+- [x] Table has all columns as specified
+- [x] `company_id` references `companies(id)` with ON DELETE CASCADE
+- [x] RLS enabled — service_role only (no authenticated user exposure of bot_token)
+- [x] Index on `company_id` for lookup performance
+- [x] Migration file follows existing naming convention (numbered prefix)
+- [x] P0 security fix: bot_token not exposed to authenticated users
+- [x] P1: installed_at/updated_at are NOT NULL

@@ -159,6 +159,17 @@ export class JobExecutor {
 
     // --- 2b. Persistent agent (CPO) — separate lifecycle from regular jobs ---
     if (msg.role === "cpo") {
+      // Persist assembled context for CPO jobs too (for dashboard debugging)
+      const cpoContext = assembleContext(msg, msg.context ?? "");
+      console.log(`[executor] Assembled context for CPO jobId=${jobId}:\n${cpoContext}`);
+      this.supabase
+        .from("jobs")
+        .update({ assembled_context: cpoContext })
+        .eq("id", jobId)
+        .then(({ error }) => {
+          if (error) console.warn(`[executor] Failed to save assembled_context for CPO jobId=${jobId}: ${error.message}`);
+        });
+
       await this.handleStartCpo(jobId, slotType);
       return;
     }

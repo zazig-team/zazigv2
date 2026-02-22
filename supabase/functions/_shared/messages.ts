@@ -174,6 +174,8 @@ export function isStartJob(v: unknown): v is _StartJob {
   if (v.role !== undefined && (!_isString(v.role) || (v.role as string).length === 0)) return false;
   // personalityPrompt is optional; if present: non-empty, within size budget
   if (v.personalityPrompt !== undefined && (!_isString(v.personalityPrompt) || (v.personalityPrompt as string).length === 0 || (v.personalityPrompt as string).length > MAX_PERSONALITY_PROMPT_BYTES)) return false;
+  // subAgentPrompt is optional; if present: non-empty, within size budget
+  if (v.subAgentPrompt !== undefined && (!_isString(v.subAgentPrompt) || (v.subAgentPrompt as string).length === 0 || (v.subAgentPrompt as string).length > MAX_PERSONALITY_PROMPT_BYTES)) return false;
   return true;
 }
 

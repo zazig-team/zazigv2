@@ -1,41 +1,39 @@
-# CPO Report — slack_installations DB Migration
+# CPO Report — slack-oauth Edge Function
 
 ## Summary
-Created the `slack_installations` table migration for multi-tenant Slack integration. This table stores per-workspace Slack bot tokens that Edge Functions read to post messages.
-
-A code review identified a P0 security finding and a P1 data quality issue — both fixed before PR creation.
+Created the `slack-oauth` Edge Function that handles the Slack OAuth callback. Exchanges the authorization code for a bot token and upserts the installation into `slack_installations`.
 
 ## Discovery
-- Read all 14 existing migrations (003–016) to understand naming and patterns
-- Confirmed `companies(id)` is `UUID PRIMARY KEY` — valid FK target
-- Identified RLS pattern from 003: `service_role_full_access` + `authenticated_read_own` scoped by `company_id` via JWT
-- Confirmed `update_updated_at_column()` trigger function exists from 003
-
-## Security Fix (P0)
-**Problem:** Initial draft included an `authenticated_read_own` SELECT policy granting authenticated users access to the full row, including `bot_token` (Slack OAuth credential). No product requirement exists for authenticated users to read this table — only Edge Functions running as service_role need access.
-
-**Fix:** Dropped `authenticated_read_own` policy entirely. Only `service_role_full_access` remains.
-
-## Data Quality Fix (P1)
-Added `NOT NULL` to `installed_at` and `updated_at` — these always have `DEFAULT NOW()` so NOT NULL is safe and prevents null timestamps from sneaking in via raw SQL.
+- Read plan doc Section 2: `slack-oauth` receives `code` + `state` (company_id UUID), exchanges via `oauth.v2.access`, upserts into `slack_installations`
+- Read existing `orchestrator` Edge Function for patterns: `Deno.serve()`, `Deno.env.get()`, `createClient` with service_role, `deno.json` import map
+- Read `017_slack_installations.sql` for table schema: `team_id` PK, all columns match spec, RLS service_role only
 
 ## Files Changed
-- `supabase/migrations/017_slack_installations.sql` — new file (final version after security fixes)
+- `supabase/functions/slack-oauth/deno.json` — new file (import map matching orchestrator pattern)
+- `supabase/functions/slack-oauth/index.ts` — new file (OAuth callback handler)
 
-## What the Migration Contains
-- `slack_installations` table with `team_id TEXT PRIMARY KEY` (Slack workspace ID)
-- `company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE`
-- All columns per spec: team_name, bot_token, bot_user_id, app_id, scope, authed_user_id, installed_at, updated_at
-- `updated_at` trigger reusing shared `update_updated_at_column()` function
-- Index on `company_id` for lookup performance
-- RLS enabled with `service_role_full_access` only — no authenticated user access
+## Implementation Details
+- GET handler validates `code` and `state` query params
+- Exchanges code via POST to `https://slack.com/api/oauth.v2.access` with `client_id`, `client_secret`, `code`
+- Parses response: `team.id`, `team.name`, `access_token`, `bot_user_id`, `app_id`, `scope`, `authed_user.id`
+- Upserts into `slack_installations` with `ON CONFLICT team_id` (handled by Supabase `.upsert()` with `onConflict: "team_id"`)
+- Uses service_role Supabase client for the upsert (bypasses RLS)
+- Returns success HTML on success, error responses on failure
+- Deploy annotation: `--no-verify-jwt` (Slack doesn't send JWTs)
 
 ## Acceptance Criteria
-- [x] Migration file created at `supabase/migrations/017_slack_installations.sql`
-- [x] Table has all columns as specified
-- [x] `company_id` references `companies(id)` with ON DELETE CASCADE
-- [x] RLS enabled — service_role only (no authenticated user exposure of bot_token)
-- [x] Index on `company_id` for lookup performance
-- [x] Migration file follows existing naming convention (numbered prefix)
-- [x] P0 security fix: bot_token not exposed to authenticated users
-- [x] P1: installed_at/updated_at are NOT NULL
+- [x] Edge Function created at `supabase/functions/slack-oauth/index.ts`
+- [x] `supabase/functions/slack-oauth/deno.json` created (matching existing pattern)
+- [x] Receives GET request with `code` and `state` query params
+- [x] `state` param contains `company_id` UUID
+- [x] Exchanges code via POST to `https://slack.com/api/oauth.v2.access`
+- [x] Parses response: `team.id`, `team.name`, `access_token`, `bot_user_id`, `app_id`, `scope`, `authed_user.id`
+- [x] Upserts into `slack_installations` (ON CONFLICT team_id DO UPDATE)
+- [x] Uses service_role Supabase client for the upsert
+- [x] Returns success HTML page on success
+- [x] Returns error response if code exchange fails
+- [x] Deploy annotation: `--no-verify-jwt`
+
+## Token Usage
+- Token budget: claude-ok
+- Wrote code directly (no codex-delegate)

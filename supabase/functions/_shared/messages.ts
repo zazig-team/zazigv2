@@ -161,7 +161,7 @@ const ALLOWED_MODELS = new Set([
 export function isStartJob(v: unknown): v is _StartJob {
   if (!_isObject(v) || v.type !== "start_job") return false;
   if (!_hasValidVersion(v)) return false;
-  if (!_isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!_isString(v.jobId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(v.jobId as string)) return false;
   if (!_isString(v.cardId) || v.cardId.length === 0) return false;
   if (!["code", "infra", "design", "research", "docs"].includes(v.cardType as string)) return false;
   if (!["simple", "medium", "complex"].includes(v.complexity as string)) return false;

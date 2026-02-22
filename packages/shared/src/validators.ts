@@ -80,7 +80,7 @@ function hasValidProtocolVersion(v: Record<string, unknown>): boolean {
 export function isStartJob(v: unknown): v is StartJob {
   if (!isObject(v) || v.type !== "start_job") return false;
   if (!hasValidProtocolVersion(v)) return false;
-  if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.jobId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(v.jobId)) return false;
   if (!isString(v.cardId) || v.cardId.length === 0) return false;
   if (!["code", "infra", "design", "research", "docs", "persistent_agent"].includes(v.cardType as string)) return false;
   if (!["simple", "medium", "complex"].includes(v.complexity as string)) return false;

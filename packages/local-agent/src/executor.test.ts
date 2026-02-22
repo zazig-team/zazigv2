@@ -326,13 +326,13 @@ describe("JobExecutor - subAgentPrompt workspace", () => {
     mockExecFileAsync.mockRejectedValue(new Error("session not found"));
     await vi.advanceTimersByTimeAsync(30_000);
 
-    const workspaceCleaupCall = rmSyncMock.mock.calls.find(
+    const workspaceCleanupCall = rmSyncMock.mock.calls.find(
       (call: unknown[]) =>
         typeof call[0] === "string" &&
         (call[0] as string).includes(".zazigv2") &&
         (call[0] as string).includes("job-job-ws-001"),
     );
-    expect(workspaceCleaupCall).toBeDefined();
-    expect(workspaceCleaupCall![1]).toEqual({ recursive: true });
+    expect(workspaceCleanupCall).toBeDefined();
+    expect(workspaceCleanupCall![1]).toEqual({ recursive: true });
   });
 });

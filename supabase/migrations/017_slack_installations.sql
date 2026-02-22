@@ -11,8 +11,8 @@ CREATE TABLE public.slack_installations (
   app_id          TEXT NOT NULL,
   scope           TEXT,
   authed_user_id  TEXT,
-  installed_at    TIMESTAMPTZ DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ DEFAULT NOW()
+  installed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE public.slack_installations IS 'Per-workspace Slack bot tokens. Each row represents one Slack workspace that installed the zazig app. Edge Functions read bot_token to post messages. team_id is the Slack workspace ID (e.g. T01234ABC).';
@@ -31,8 +31,3 @@ CREATE POLICY "service_role_full_access" ON public.slack_installations
     TO service_role
     USING (true)
     WITH CHECK (true);
-
-CREATE POLICY "authenticated_read_own" ON public.slack_installations
-    FOR SELECT
-    TO authenticated
-    USING (company_id = (auth.jwt() ->> 'company_id')::uuid);

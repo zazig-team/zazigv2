@@ -5,6 +5,9 @@
   "description": "Local agent daemon — connects to Supabase Realtime, executes tmux sessions",
   "type": "module",
   "main": "./dist/index.js",
+  "bin": {
+    "zazig-agent-mcp": "./dist/agent-mcp-server.js"
+  },
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -20,6 +23,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@slack/bolt": "^4.4.0",
     "@supabase/supabase-js": "^2.49.1",
     "@zazigv2/shared": "*",

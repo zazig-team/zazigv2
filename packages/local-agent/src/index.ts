@@ -100,6 +100,11 @@ async function main(): Promise<void> {
         console.warn('[local-agent] deploy_to_test: slackChannel/slackThreadTs not in protocol yet — fix agent NOT spawned');
         break;
 
+      case "message_inbound":
+        // TODO: Route inbound messages to agent tmux session (Wave 2, Task 6)
+        console.log(`[local-agent] Received message_inbound — conversationId=${msg.conversationId}, from=${msg.from}`);
+        break;
+
       default: {
         // Exhaustiveness guard — TypeScript ensures this branch is unreachable
         // if all OrchestratorMessage variants are handled above.

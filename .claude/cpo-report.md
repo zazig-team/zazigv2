@@ -1,31 +1,30 @@
-# CPO Report — Pipeline Task 6 P0 Fix: CAS Guard + VerifyJob Dispatch
+# CPO Report — Add MessageInbound + MessageOutbound to shared package
 
 ## Summary
-Fixed two P0 bugs in `triggerFeatureVerification` and `dispatchQueuedJobs` introduced by PR #25 (feature verification lifecycle).
-
-### Bug 1 (P0-1): Race condition — no CAS guard
-**Problem**: `triggerFeatureVerification` did a blind `UPDATE features SET status='verifying'` with no conditional check on current status. Concurrent `VerifyResult` messages could create duplicate verification jobs, and features already in `testing`/`done`/`cancelled` could regress to `verifying`.
-
-**Fix**: Added CAS guard using `.not("status", "in", '("verifying","testing","done","cancelled")')` and `.select("id")` to check if any rows were updated. Early return if no rows matched (feature already in late-stage status).
-
-### Bug 2 (P0-2): Feature verification dispatched as StartJob instead of VerifyJob
-**Problem**: Feature verification jobs were inserted with `job_type: "code"`, causing `dispatchQueuedJobs` to dispatch them as `StartJob` messages. The local agent's executor runs a generic Claude session — not the verifier.
-
-**Fix**:
-1. Changed `job_type: "code"` → `job_type: "verify"` in the job insert
-2. Added a `job_type === "verify"` branch in `dispatchQueuedJobs` that constructs and sends a `VerifyJob` message (with `featureBranch`, `jobBranch`, `acceptanceTests`) via Realtime broadcast, then `continue`s past the StartJob path
-3. Added `VerifyJob` to the type imports from `@zazigv2/shared`
+Added two new message types to the shared wire protocol for bidirectional agent messaging. `MessageInbound` (orchestrator -> agent) delivers external platform messages to agents. `MessageOutbound` (agent -> orchestrator) lets agents reply via an opaque `conversationId` without knowledge of the underlying platform (Slack, Discord, etc.).
 
 ## Files Changed
-- `supabase/functions/orchestrator/index.ts` — CAS guard in `triggerFeatureVerification`, `job_type: "verify"`, VerifyJob dispatch branch in `dispatchQueuedJobs`, `VerifyJob` type import
-- `supabase/functions/orchestrator/orchestrator.test.ts` — updated mock to support `.not()` chain method, updated test assertions for CAS guard chain pattern (`features:update.eq.not.select`), updated `job_type` assertion from `"code"` to `"verify"`, added CAS guard chain assertions
+- `packages/shared/src/messages.ts` — Added `MessageInbound` interface, `MessageOutbound` interface, updated `OrchestratorMessage` and `AgentMessage` union types
+- `packages/shared/src/validators.ts` — Added `isMessageInbound()` and `isMessageOutbound()` validators, updated `isOrchestratorMessage()` and `isAgentMessage()` switch cases
+- `packages/shared/src/index.ts` — Exported new types and validators
+- `packages/shared/src/messages.test.ts` — Added tests for both validators (valid messages, missing/empty fields, wrong protocolVersion) and union validator acceptance tests
+
+## Tests
+- 92 tests pass (vitest), including 18 new tests for MessageInbound/MessageOutbound
+- `tsc --noEmit` clean
+- `npm run build` succeeds
 
 ## Acceptance Criteria
-- [x] `triggerFeatureVerification` has CAS guard — exits early if feature already in verifying/testing/done/cancelled
-- [x] Feature verification jobs inserted with `job_type: "verify"` (not "code")
-- [x] `dispatchQueuedJobs` sends `VerifyJob` for `job_type === "verify"` jobs
-- [x] All existing orchestrator tests still structurally valid (Deno not installed locally — mock chain patterns and assertions updated to match new behavior)
-- [x] TypeScript compiles: shared package passes `tsc --noEmit`; orchestrator uses Deno import maps so standard tsc can't resolve `@zazigv2/shared`, but types are structurally correct
+- [x] `MessageInbound` interface added with type, protocolVersion, conversationId, from, text
+- [x] `MessageOutbound` interface added with type, protocolVersion, jobId, machineId, conversationId, text
+- [x] `MessageInbound` added to `OrchestratorMessage` union
+- [x] `MessageOutbound` added to `AgentMessage` union
+- [x] `isMessageInbound(msg)` validator added
+- [x] `isMessageOutbound(msg)` validator added
+- [x] `isOrchestratorMessage()` handles `"message_inbound"` case
+- [x] `isAgentMessage()` handles `"message_outbound"` case
+- [x] Existing tests still pass
+- [x] Build succeeds
 
 ## Token Usage
 - Routing: claude-ok

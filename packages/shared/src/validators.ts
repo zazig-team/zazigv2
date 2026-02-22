@@ -22,6 +22,7 @@ import type {
   HealthCheck,
   VerifyJob,
   DeployToTest,
+  MessageInbound,
   Heartbeat,
   JobStatusMessage,
   JobComplete,
@@ -31,6 +32,7 @@ import type {
   FeatureApproved,
   FeatureRejected,
   VerifyResult,
+  MessageOutbound,
 } from "./messages.js";
 
 import { MAX_CONTEXT_BYTES, MAX_PERSONALITY_PROMPT_BYTES, PROTOCOL_VERSION } from "./index.js";
@@ -135,6 +137,15 @@ export function isDeployToTest(v: unknown): v is DeployToTest {
   return true;
 }
 
+export function isMessageInbound(v: unknown): v is MessageInbound {
+  if (!isObject(v) || v.type !== "message_inbound") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.conversationId) || v.conversationId.length === 0) return false;
+  if (!isString(v.from) || v.from.length === 0) return false;
+  if (!isString(v.text)) return false;
+  return true;
+}
+
 export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
   if (!isObject(v) || !isString(v.type)) return false;
   switch (v.type) {
@@ -142,8 +153,9 @@ export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
     case "stop_job":        return isStopJob(v);
     case "health_check":    return isHealthCheck(v);
     case "verify_job":      return isVerifyJob(v);
-    case "deploy_to_test":  return isDeployToTest(v);
-    default:                return false;
+    case "deploy_to_test":    return isDeployToTest(v);
+    case "message_inbound":   return isMessageInbound(v);
+    default:                  return false;
   }
 }
 
@@ -236,6 +248,16 @@ export function isFeatureRejected(v: unknown): v is FeatureRejected {
   return true;
 }
 
+export function isMessageOutbound(v: unknown): v is MessageOutbound {
+  if (!isObject(v) || v.type !== "message_outbound") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
+  if (!isString(v.conversationId) || v.conversationId.length === 0) return false;
+  if (!isString(v.text)) return false;
+  return true;
+}
+
 export function isVerifyResult(v: unknown): v is VerifyResult {
   if (!isObject(v) || v.type !== "verify_result") return false;
   if (!hasValidProtocolVersion(v)) return false;
@@ -259,6 +281,7 @@ export function isAgentMessage(v: unknown): v is AgentMessage {
     case "feature_approved":  return isFeatureApproved(v);
     case "feature_rejected":  return isFeatureRejected(v);
     case "verify_result":     return isVerifyResult(v);
+    case "message_outbound":  return isMessageOutbound(v);
     default:                  return false;
   }
 }

@@ -6,6 +6,8 @@ import {
   isFeatureApproved,
   isFeatureRejected,
   isVerifyResult,
+  isMessageInbound,
+  isMessageOutbound,
   isOrchestratorMessage,
   isAgentMessage,
 } from "./validators.js";
@@ -153,6 +155,80 @@ describe("isVerifyResult", () => {
   });
 });
 
+describe("isMessageInbound", () => {
+  const validMessageInbound = {
+    type: "message_inbound",
+    protocolVersion: 1,
+    conversationId: "slack:T123:C456:1234.5678",
+    from: "@tom",
+    text: "Hey, can you check the build?",
+  };
+
+  it("returns true for a valid message", () => {
+    expect(isMessageInbound(validMessageInbound)).toBe(true);
+  });
+
+  it("accepts empty text", () => {
+    expect(isMessageInbound({ ...validMessageInbound, text: "" })).toBe(true);
+  });
+
+  it("rejects missing conversationId", () => {
+    const { conversationId: _conversationId, ...invalid } = validMessageInbound;
+    expect(isMessageInbound(invalid)).toBe(false);
+  });
+
+  it("rejects empty conversationId", () => {
+    expect(isMessageInbound({ ...validMessageInbound, conversationId: "" })).toBe(false);
+  });
+
+  it("rejects missing from", () => {
+    const { from: _from, ...invalid } = validMessageInbound;
+    expect(isMessageInbound(invalid)).toBe(false);
+  });
+
+  it("rejects wrong protocolVersion", () => {
+    expect(isMessageInbound({ ...validMessageInbound, protocolVersion: 999 })).toBe(false);
+  });
+});
+
+describe("isMessageOutbound", () => {
+  const validMessageOutbound = {
+    type: "message_outbound",
+    protocolVersion: 1,
+    jobId: "job-123",
+    machineId: "machine-1",
+    conversationId: "slack:T123:C456:1234.5678",
+    text: "Build looks good!",
+  };
+
+  it("returns true for a valid message", () => {
+    expect(isMessageOutbound(validMessageOutbound)).toBe(true);
+  });
+
+  it("accepts empty text", () => {
+    expect(isMessageOutbound({ ...validMessageOutbound, text: "" })).toBe(true);
+  });
+
+  it("rejects missing jobId", () => {
+    const { jobId: _jobId, ...invalid } = validMessageOutbound;
+    expect(isMessageOutbound(invalid)).toBe(false);
+  });
+
+  it("rejects missing machineId", () => {
+    const { machineId: _machineId, ...invalid } = validMessageOutbound;
+    expect(isMessageOutbound(invalid)).toBe(false);
+  });
+
+  it("rejects missing conversationId", () => {
+    const { conversationId: _conversationId, ...invalid } = validMessageOutbound;
+    expect(isMessageOutbound(invalid)).toBe(false);
+  });
+
+  it("rejects wrong protocolVersion", () => {
+    expect(isMessageOutbound({ ...validMessageOutbound, protocolVersion: 999 })).toBe(false);
+  });
+});
+
 describe("union validators", () => {
   it("isOrchestratorMessage accepts verify_job", () => {
     expect(
@@ -199,6 +275,31 @@ describe("union validators", () => {
         feedback: "Needs stronger error handling",
         severity: "big",
         machineId: "machine-1",
+      }),
+    ).toBe(true);
+  });
+
+  it("isOrchestratorMessage accepts message_inbound", () => {
+    expect(
+      isOrchestratorMessage({
+        type: "message_inbound",
+        protocolVersion: 1,
+        conversationId: "slack:T123:C456:1234.5678",
+        from: "@tom",
+        text: "Hello",
+      }),
+    ).toBe(true);
+  });
+
+  it("isAgentMessage accepts message_outbound", () => {
+    expect(
+      isAgentMessage({
+        type: "message_outbound",
+        protocolVersion: 1,
+        jobId: "job-123",
+        machineId: "machine-1",
+        conversationId: "slack:T123:C456:1234.5678",
+        text: "Reply",
       }),
     ).toBe(true);
   });

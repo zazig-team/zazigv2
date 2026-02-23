@@ -19,17 +19,25 @@
       --text-secondary: #8b919a;
       --text-dim: #555d68;
 
-      --col-design: #c471ed;
+      --col-ready_for_breakdown: #9b59b6;
+      --col-breakdown: #8e44ad;
       --col-building: #e8a838;
-      --col-testing: #4d8fef;
+      --col-combining: #e67e22;
       --col-verifying: #28b5d4;
-      --col-done: #3cbf6e;
+      --col-deploying_to_test: #2980b9;
+      --col-ready_to_test: #4d8fef;
+      --col-deploying_to_prod: #27ae60;
+      --col-complete: #3cbf6e;
 
-      --col-design-bg: rgba(196, 113, 237, 0.06);
+      --col-ready_for_breakdown-bg: rgba(155, 89, 182, 0.06);
+      --col-breakdown-bg: rgba(142, 68, 173, 0.06);
       --col-building-bg: rgba(232, 168, 56, 0.06);
-      --col-testing-bg: rgba(77, 143, 239, 0.06);
+      --col-combining-bg: rgba(230, 126, 34, 0.06);
       --col-verifying-bg: rgba(40, 181, 212, 0.06);
-      --col-done-bg: rgba(60, 191, 110, 0.06);
+      --col-deploying_to_test-bg: rgba(41, 128, 185, 0.06);
+      --col-ready_to_test-bg: rgba(77, 143, 239, 0.06);
+      --col-deploying_to_prod-bg: rgba(39, 174, 96, 0.06);
+      --col-complete-bg: rgba(60, 191, 110, 0.06);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -86,14 +94,14 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: var(--col-testing);
-      box-shadow: 0 0 8px var(--col-testing), 0 0 20px rgba(77, 143, 239, 0.3);
+      background: var(--col-ready_to_test);
+      box-shadow: 0 0 8px var(--col-ready_to_test), 0 0 20px rgba(77, 143, 239, 0.3);
       animation: pulse-glow 3s ease-in-out infinite;
     }
 
     @keyframes pulse-glow {
-      0%, 100% { box-shadow: 0 0 8px var(--col-testing), 0 0 20px rgba(77, 143, 239, 0.3); }
-      50% { box-shadow: 0 0 12px var(--col-testing), 0 0 30px rgba(77, 143, 239, 0.5); }
+      0%, 100% { box-shadow: 0 0 8px var(--col-ready_to_test), 0 0 20px rgba(77, 143, 239, 0.3); }
+      50% { box-shadow: 0 0 12px var(--col-ready_to_test), 0 0 30px rgba(77, 143, 239, 0.5); }
     }
 
     h1 {
@@ -106,7 +114,7 @@
     }
 
     .company-tag {
-      color: var(--col-testing);
+      color: var(--col-ready_to_test);
       margin-left: 4px;
     }
 
@@ -145,6 +153,25 @@
     }
 
     .refresh-btn:disabled { opacity: 0.4; cursor: wait; }
+
+    .company-select {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 10px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      appearance: auto;
+    }
+
+    .company-select:hover {
+      color: var(--text);
+      border-color: #2e343b;
+    }
 
     #message {
       font-family: 'JetBrains Mono', monospace;
@@ -275,7 +302,7 @@
     }
 
     .card:focus-visible {
-      outline: 2px solid var(--col-testing);
+      outline: 2px solid var(--col-ready_to_test);
       outline-offset: 1px;
     }
 
@@ -444,7 +471,7 @@
     }
 
     .detail-live-dot.terminal {
-      background: var(--col-done);
+      background: var(--col-complete);
       box-shadow: none;
       animation: none;
     }
@@ -588,7 +615,7 @@
     }
 
     .detail-job-row:focus-visible {
-      outline: 2px solid var(--col-testing);
+      outline: 2px solid var(--col-ready_to_test);
       outline-offset: 1px;
     }
 
@@ -610,8 +637,8 @@
       animation: dot-pulse 2s ease-in-out infinite;
     }
 
-    .detail-job-dot.complete {
-      background: var(--col-done);
+    .detail-job-dot.complete, .detail-job-dot.done, .detail-job-dot.approved {
+      background: var(--col-complete);
     }
 
     .detail-job-dot.failed {
@@ -733,6 +760,7 @@
         <h1 id="boardTitle">Pipeline</h1>
       </div>
       <div class="controls">
+        <select id="companySelect" class="company-select" style="display:none" aria-label="Switch company"></select>
         <span id="lastUpdated" class="last-updated"></span>
         <button id="refreshButton" class="refresh-btn" type="button">Refresh</button>
       </div>
@@ -774,6 +802,8 @@
         SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,branch,role,job_type,created_at,company_id&feature_id=is.null&status=not.in.(cancelled,done,complete)&job_type=not.in.(persistent_agent,verify)&order=created_at.desc&limit=100';
       const COMPANIES_BASE =
         SUPABASE_URL + '/rest/v1/companies?select=id,name&limit=1&name=eq.';
+      const ALL_COMPANIES_URL =
+        SUPABASE_URL + '/rest/v1/companies?select=id,name&order=name';
       const JOB_DETAIL_BASE =
         SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,raw_log,model,progress,created_at,started_at,completed_at&limit=1&id=eq.';
 
@@ -781,11 +811,15 @@
 
       // Pipeline stage order: left -> right
       const COLUMNS = [
-        { key: 'design',    label: 'Design',    color: '#c471ed' },
-        { key: 'building',  label: 'Building',  color: '#e8a838' },
-        { key: 'testing',   label: 'Testing',   color: '#4d8fef' },
-        { key: 'verifying', label: 'Verifying', color: '#28b5d4' },
-        { key: 'done',      label: 'Done',      color: '#3cbf6e' },
+        { key: 'ready_for_breakdown', label: 'Ready',     color: '#9b59b6' },
+        { key: 'breakdown',           label: 'Breakdown', color: '#8e44ad' },
+        { key: 'building',            label: 'Building',  color: '#e8a838' },
+        { key: 'combining',           label: 'Combining', color: '#e67e22' },
+        { key: 'verifying',           label: 'Verifying', color: '#28b5d4' },
+        { key: 'deploying_to_test',   label: 'Deploying', color: '#2980b9' },
+        { key: 'ready_to_test',       label: 'Testing',   color: '#4d8fef' },
+        { key: 'deploying_to_prod',   label: 'To Prod',   color: '#27ae60' },
+        { key: 'complete',            label: 'Complete',  color: '#3cbf6e' },
       ];
 
       // Only these job statuses indicate actively-working (show progress bar)
@@ -795,10 +829,12 @@
       // Map standalone job statuses to board columns
       const JOB_STATUS_TO_COLUMN = {
         queued: 'building', dispatched: 'building',
-        executing: 'building', blocked: 'building',
-        reviewing: 'verifying',
-        complete: 'done',
-        failed: 'building', cancelled: 'done',
+        executing: 'building', blocked: 'building', verify_failed: 'building',
+        waiting_on_human: 'building',
+        reviewing: 'verifying', verifying: 'verifying',
+        testing: 'ready_to_test',
+        complete: 'complete', done: 'complete', approved: 'complete',
+        failed: 'building', rejected: 'building', cancelled: 'complete',
       };
 
       // Board elements
@@ -806,6 +842,7 @@
       const messageEl     = document.getElementById('message');
       const lastUpdatedEl = document.getElementById('lastUpdated');
       const refreshButton = document.getElementById('refreshButton');
+      const companySelect = document.getElementById('companySelect');
       const boardTitleEl  = document.getElementById('boardTitle');
 
       // Detail panel elements
@@ -1396,6 +1433,35 @@
 
       // ── Bootstrap ────────────────────────────
 
+      async function loadCompanySwitcher() {
+        try {
+          var companies = await apiFetch(ALL_COMPANIES_URL);
+          if (!Array.isArray(companies) || companies.length <= 1) return;
+
+          // Show switcher only if multiple companies exist
+          companySelect.style.display = '';
+          companySelect.textContent = '';
+
+          for (var i = 0; i < companies.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = companies[i].id;
+            opt.textContent = companies[i].name;
+            if (companies[i].id === activeCompanyId) opt.selected = true;
+            companySelect.appendChild(opt);
+          }
+
+          companySelect.addEventListener('change', function() {
+            var selectedId = companySelect.value;
+            var selectedName = companySelect.options[companySelect.selectedIndex].textContent;
+            activeCompanyId = selectedId;
+            setBoardTitle(selectedName);
+            void refreshDashboard();
+          });
+        } catch (_) {
+          // Switcher is non-critical — silently ignore
+        }
+      }
+
       async function init() {
         var slug = getCompanySlug();
 
@@ -1422,6 +1488,7 @@
         }
 
         refreshButton.addEventListener('click', function() { void refreshDashboard(); });
+        void loadCompanySwitcher();
         void refreshDashboard();
         setInterval(function() { void refreshDashboard(); }, 30000);
       }

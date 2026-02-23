@@ -176,7 +176,19 @@ export interface HealthCheck {
   correlationId?: string;
 }
 
-export const FEATURE_STATUSES = ["design", "building", "verifying", "testing", "done", "cancelled"] as const;
+export const FEATURE_STATUSES = [
+  "created",
+  "ready_for_breakdown",
+  "breakdown",
+  "building",
+  "combining",
+  "verifying",
+  "deploying_to_test",
+  "ready_to_test",
+  "deploying_to_prod",
+  "complete",
+  "cancelled",
+] as const;
 export type FeatureStatus = typeof FEATURE_STATUSES[number];
 
 export const JOB_STATUSES = [

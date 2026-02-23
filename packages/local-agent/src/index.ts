@@ -37,10 +37,9 @@ async function main(): Promise<void> {
   const slots = new SlotTracker(config.slots);
 
   // Create and configure Realtime connection
+  // Auth: AgentConnection reads SUPABASE_ACCESS_TOKEN from env (set by `zazig start`)
+  // and uses it for authenticated DB writes. No explicit authenticate() call needed.
   const conn = new AgentConnection(config, slots);
-
-  // Authenticate with Supabase Auth (JWT-based, no service-role key)
-  await conn.authenticate();
 
   // Initialize job verifier — handles VerifyJob messages inline
   const verifier = new JobVerifier(

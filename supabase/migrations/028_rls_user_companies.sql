@@ -43,7 +43,7 @@ DROP POLICY IF EXISTS "authenticated_read_own" ON public.machines;
 
 CREATE POLICY "authenticated_read_own" ON public.machines
     FOR SELECT TO authenticated
-    USING (public.user_in_company(company_id));
+    USING (true);
 
 -- Drop old INSERT/UPDATE policies (025: JWT claim)
 -- Machines are physical devices — they serve ALL companies the user belongs to,

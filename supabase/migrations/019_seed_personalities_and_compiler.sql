@@ -340,7 +340,11 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    PERFORM public.compile_personality_prompt(NEW.id);
+    -- Guard against recursion: compile_personality_prompt() UPDATEs the same
+    -- row, which would re-fire this trigger without the depth check.
+    IF pg_trigger_depth() <= 1 THEN
+        PERFORM public.compile_personality_prompt(NEW.id);
+    END IF;
     RETURN NEW;
 END;
 $$;

@@ -342,20 +342,6 @@
       font-weight: 500;
     }
 
-    .card-standalone-badge {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.58rem;
-      font-weight: 500;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--text-dim);
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid var(--border-subtle);
-      border-radius: 4px;
-      padding: 0 5px;
-      margin-left: auto;
-    }
-
     /* Progress bar at bottom of card — only for actively-working items */
     .card-progress {
       height: 3px;
@@ -798,8 +784,6 @@
 
       const FEATURES_BASE =
         SUPABASE_URL + '/rest/v1/features?select=id,title,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,jobs(id,title,status,progress,model,job_type,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
-      const STANDALONE_JOBS_BASE =
-        SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,branch,role,job_type,created_at,company_id&feature_id=is.null&status=not.in.(cancelled,done,complete)&job_type=not.in.(persistent_agent,verify)&order=created_at.desc&limit=100';
       const COMPANIES_BASE =
         SUPABASE_URL + '/rest/v1/companies?select=id,name&limit=1&name=eq.';
       const ALL_COMPANIES_URL =
@@ -825,17 +809,6 @@
       // Only these job statuses indicate actively-working (show progress bar)
       const WORKING_JOB_STATUSES = new Set(['executing', 'blocked', 'reviewing']);
       const TERMINAL_JOB_STATUSES = new Set(['complete', 'failed', 'cancelled']);
-
-      // Map standalone job statuses to board columns
-      const JOB_STATUS_TO_COLUMN = {
-        queued: 'building', dispatched: 'building',
-        executing: 'building', blocked: 'building', verify_failed: 'building',
-        waiting_on_human: 'building',
-        reviewing: 'verifying', verifying: 'verifying',
-        testing: 'ready_to_test',
-        complete: 'complete', done: 'complete', approved: 'complete',
-        failed: 'building', rejected: 'building', cancelled: 'complete',
-      };
 
       // Board elements
       const dashboardEl   = document.getElementById('dashboard');
@@ -863,9 +836,8 @@
       let openDetailId    = null; // currently open feature or job ID
       let detailViewStack = []; // navigation stack for feature -> job
 
-      // Cache last fetched features + standalone jobs for detail views
+      // Cache last fetched features for detail views
       let lastFeatures = [];
-      let lastStandaloneJobs = [];
 
       // ── Helpers ──────────────────────────────
 
@@ -977,7 +949,7 @@
 
       // ── Card Rendering (compact Trello-style) ─
 
-      function renderCard(item, colDef, delay, isStandalone) {
+      function renderCard(feature, colDef, delay) {
         var card = el('div', 'card');
         card.style.animationDelay = delay + 'ms';
         card.setAttribute('role', 'button');
@@ -990,23 +962,13 @@
         var body = el('div', 'card-body');
 
         // Title
-        var title = isStandalone ? getJobTitle(item) : getFeatureTitle(item);
-        body.appendChild(el('div', 'card-title', title));
+        body.appendChild(el('div', 'card-title', getFeatureTitle(feature)));
 
         // Meta line
         var meta = el('div', 'card-meta');
-        var jobs = isStandalone ? null : (Array.isArray(item?.jobs) ? item.jobs : []);
+        var jobs = Array.isArray(feature?.jobs) ? feature.jobs : [];
 
-        if (isStandalone) {
-          var status = normalizeStatus(item?.status);
-          meta.appendChild(el('span', '', status));
-          if (item?.model) {
-            meta.appendChild(el('span', 'card-meta-sep', '\u00b7'));
-            meta.appendChild(el('span', '',
-              String(item.model).replace('claude-', '').replace('-4-6', '')));
-          }
-          meta.appendChild(el('span', 'card-standalone-badge', 'standalone'));
-        } else if (jobs && jobs.length > 0) {
+        if (jobs.length > 0) {
           var doneCount = jobs.filter(function(j) {
             var s = normalizeStatus(j?.status);
             return s === 'complete';
@@ -1027,16 +989,9 @@
         card.appendChild(body);
 
         // Progress bar — ONLY if there's an actively-working job
-        var activeJob = null;
-        if (isStandalone) {
-          if (WORKING_JOB_STATUSES.has(normalizeStatus(item?.status))) {
-            activeJob = item;
-          }
-        } else if (jobs) {
-          activeJob = jobs.find(function(j) {
-            return WORKING_JOB_STATUSES.has(normalizeStatus(j?.status));
-          });
-        }
+        var activeJob = jobs.find(function(j) {
+          return WORKING_JOB_STATUSES.has(normalizeStatus(j?.status));
+        });
 
         if (activeJob) {
           var progress = clampProgress(activeJob.progress);
@@ -1050,25 +1005,16 @@
         }
 
         // Click handler
-        var itemId = String(item?.id ?? '');
-        function handleOpen() {
-          if (isStandalone) {
-            openJobDetail(itemId);
-          } else {
-            openFeatureDetail(item);
-          }
-        }
-        card.addEventListener('click', handleOpen);
+        card.addEventListener('click', function() { openFeatureDetail(feature); });
         card.addEventListener('keydown', function(e) {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleOpen(); }
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openFeatureDetail(feature); }
         });
 
         return card;
       }
 
-      function renderColumn(colDef, features, standaloneJobs) {
+      function renderColumn(colDef, features) {
         var col = el('div', 'column');
-        var totalCount = features.length + standaloneJobs.length;
 
         var hdr = el('div', 'column-header');
         var titleGroup = el('div', 'column-title');
@@ -1077,34 +1023,26 @@
         titleGroup.appendChild(dot);
         titleGroup.appendChild(el('span', 'column-name', colDef.label));
         hdr.appendChild(titleGroup);
-        hdr.appendChild(el('span', 'column-count', String(totalCount)));
+        hdr.appendChild(el('span', 'column-count', String(features.length)));
         col.appendChild(hdr);
 
         var body = el('div', 'column-body');
-        if (totalCount === 0) {
+        if (features.length === 0) {
           body.appendChild(el('div', 'column-empty', 'No items'));
         } else {
-          var idx = 0;
           for (var i = 0; i < features.length; i++) {
-            body.appendChild(renderCard(features[i], colDef, idx * 50, false));
-            idx++;
-          }
-          for (var j = 0; j < standaloneJobs.length; j++) {
-            body.appendChild(renderCard(standaloneJobs[j], colDef, idx * 50, true));
-            idx++;
+            body.appendChild(renderCard(features[i], colDef, i * 50));
           }
         }
         col.appendChild(body);
         return col;
       }
 
-      function renderBoard(features, standaloneJobs) {
+      function renderBoard(features) {
         // Group features by status
         var featuresByCol = {};
-        var jobsByCol = {};
         for (var c = 0; c < COLUMNS.length; c++) {
           featuresByCol[COLUMNS[c].key] = [];
-          jobsByCol[COLUMNS[c].key] = [];
         }
 
         for (var i = 0; i < features.length; i++) {
@@ -1112,21 +1050,13 @@
           if (s !== 'cancelled' && featuresByCol[s]) featuresByCol[s].push(features[i]);
         }
 
-        // Group standalone jobs by mapped column
-        for (var j = 0; j < standaloneJobs.length; j++) {
-          var js = normalizeStatus(standaloneJobs[j]?.status);
-          var col = JOB_STATUS_TO_COLUMN[js] || 'building';
-          if (jobsByCol[col]) jobsByCol[col].push(standaloneJobs[j]);
-        }
-
         var total = 0;
         var frag = document.createDocumentFragment();
         for (var c = 0; c < COLUMNS.length; c++) {
           var key = COLUMNS[c].key;
           var colFeatures = featuresByCol[key] || [];
-          var colJobs = jobsByCol[key] || [];
-          total += colFeatures.length + colJobs.length;
-          frag.appendChild(renderColumn(COLUMNS[c], colFeatures, colJobs));
+          total += colFeatures.length;
+          frag.appendChild(renderColumn(COLUMNS[c], colFeatures));
         }
 
         dashboardEl.replaceChildren(frag);
@@ -1142,23 +1072,13 @@
         return Array.isArray(payload) ? payload : [];
       }
 
-      async function fetchStandaloneJobs() {
-        if (!activeCompanyId) return [];
-        var url = STANDALONE_JOBS_BASE;
-        if (activeCompanyId) url += '&company_id=eq.' + encodeURIComponent(activeCompanyId);
-        var payload = await apiFetch(url);
-        return Array.isArray(payload) ? payload : [];
-      }
-
       async function refreshDashboard() {
         if (isFetching || companyBlocked) return;
         isFetching = true;
         refreshButton.disabled = true;
         try {
-          var results = await Promise.all([fetchFeatures(), fetchStandaloneJobs()]);
-          lastFeatures = results[0];
-          lastStandaloneJobs = results[1];
-          renderBoard(lastFeatures, lastStandaloneJobs);
+          lastFeatures = await fetchFeatures();
+          renderBoard(lastFeatures);
           setMessage('');
           lastUpdatedEl.textContent = formatTime(new Date());
         } catch (_) {

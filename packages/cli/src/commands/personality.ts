@@ -10,7 +10,6 @@
  */
 
 import { getValidCredentials } from "../lib/credentials.js";
-import { loadConfig } from "../lib/config.js";
 
 interface RoleRow {
   id: string;
@@ -36,6 +35,21 @@ async function apiFetch<T>(url: string, headers: Record<string, string>): Promis
   const resp = await fetch(url, { headers });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   return resp.json() as Promise<T>;
+}
+
+/** Resolve the user's company_id from user_companies (RLS-scoped). */
+async function resolveCompanyId(
+  supabaseUrl: string,
+  headers: Record<string, string>
+): Promise<string> {
+  const rows = await apiFetch<Array<{ company_id: string }>>(
+    `${supabaseUrl}/rest/v1/user_companies?select=company_id&limit=1`,
+    headers
+  );
+  if (rows.length === 0) {
+    throw new Error("No company found for your account. Run 'zazig setup' first.");
+  }
+  return rows[0]!.company_id;
 }
 
 export async function personality(args: string[]): Promise<void> {
@@ -69,21 +83,21 @@ export async function personality(args: string[]): Promise<void> {
     return;
   }
 
-  let cfg;
-  try {
-    cfg = loadConfig();
-  } catch {
-    console.error("Run 'zazig join' first.");
-    process.exitCode = 1;
-    return;
-  }
-
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
   const headers: Record<string, string> = {
     apikey: anonKey,
     Authorization: `Bearer ${creds.accessToken}`,
     "Content-Type": "application/json",
   };
+
+  let companyId: string;
+  try {
+    companyId = await resolveCompanyId(creds.supabaseUrl, headers);
+  } catch (err) {
+    console.error(String(err));
+    process.exitCode = 1;
+    return;
+  }
 
   let roleRows: RoleRow[];
   try {
@@ -110,18 +124,18 @@ export async function personality(args: string[]): Promise<void> {
 
   try {
     if (showFlag) {
-      await showPersonality(creds.supabaseUrl, cfg.company_id, headers, role, roleId);
+      await showPersonality(creds.supabaseUrl, companyId, headers, role, roleId);
     } else if (hasArchetypeFlag && archetypeValue) {
       await switchArchetype(
         creds.supabaseUrl,
-        cfg.company_id,
+        companyId,
         headers,
         role,
         roleId,
         archetypeValue
       );
     } else {
-      await listArchetypes(creds.supabaseUrl, cfg.company_id, headers, role, roleId);
+      await listArchetypes(creds.supabaseUrl, companyId, headers, role, roleId);
     }
   } catch (err) {
     console.error(`Error: ${String(err)}`);

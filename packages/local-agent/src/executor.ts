@@ -158,7 +158,7 @@ export type AfterJobCompleteFn = (jobId: string) => Promise<void>;
 
 export class JobExecutor {
   private readonly machineId: string;
-  private readonly companyId: string;
+  private readonly companyId: string | undefined;
   private readonly slots: SlotTracker;
   private readonly send: SendFn;
   private readonly supabase: SupabaseClient;
@@ -178,7 +178,7 @@ export class JobExecutor {
 
   constructor(
     machineId: string,
-    companyId: string,
+    companyId: string | undefined,
     slots: SlotTracker,
     send: SendFn,
     supabase: SupabaseClient,

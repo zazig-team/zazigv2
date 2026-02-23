@@ -9,11 +9,9 @@
 
 import { createInterface } from "node:readline/promises";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { hostname } from "node:os";
 import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { getValidCredentials } from "../lib/credentials.js";
-import { saveConfig } from "../lib/config.js";
 
 export async function setup(): Promise<void> {
   // Step 1: Require auth
@@ -273,16 +271,6 @@ export async function setup(): Promise<void> {
 
     console.log(`Project "${projectName}" created (id: ${project!.id}).`);
 
-    // Configure local machine
-    const machineName = hostname();
-    console.log(`\nConfiguring local machine as "${machineName}"...`);
-    saveConfig({
-      name: machineName,
-      company_id: companyId,
-      slots: { claude_code: 1, codex: 0 },
-      supabase: { url: creds.supabaseUrl },
-    });
-    console.log("Machine config written to ~/.zazigv2/machine.yaml");
 
     // Step 5: Invite teammates
     // TODO: Wire to an Edge Function when available — auth.admin requires service role key

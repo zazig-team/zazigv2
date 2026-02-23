@@ -435,7 +435,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         .insert({
           company_id: job.company_id,
           project_id: job.project_id ?? null,
-          title: `One-off: ${job.context?.title ?? job.id}`,
+          title: `One-off: ${(() => { try { return JSON.parse(job.context ?? "{}").title; } catch { return null; } })() ?? job.id}`,
           status: "building",
         })
         .select("id")

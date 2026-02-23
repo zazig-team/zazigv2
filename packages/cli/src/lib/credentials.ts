@@ -16,7 +16,6 @@ export interface Credentials {
   accessToken: string;
   refreshToken: string;
   email?: string;
-  companyId?: string | null;
   supabaseUrl: string;
 }
 

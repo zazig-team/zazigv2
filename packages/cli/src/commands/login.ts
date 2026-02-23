@@ -1,22 +1,39 @@
 /**
  * login.ts — zazig login
  *
- * Opens the browser to Supabase hosted auth UI. A local HTTP callback
- * server captures the OAuth tokens and stores the refresh token in
- * ~/.zazigv2/credentials.json. No passwords handled in the CLI.
+ * Sends a magic link to the user's email. A local HTTP callback server
+ * captures the auth tokens and stores them in ~/.zazigv2/credentials.json.
+ * Company context comes from user_companies at runtime, not at login time.
  */
 
 import * as http from "node:http";
-import { exec } from "node:child_process";
 import { URL } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { saveCredentials } from "../lib/credentials.js";
 
 export async function login(): Promise<void> {
-  // 1. Find an available port
+  const supabaseUrl =
+    process.env["SUPABASE_URL"] ?? "https://jmussmwglgbwncgygzbz.supabase.co";
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
+
+  // 1. Prompt for email
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  let email: string;
+  try {
+    email = (await rl.question("Email address: ")).trim();
+  } finally {
+    rl.close();
+  }
+
+  if (!email) {
+    console.error("Email is required.");
+    process.exit(1);
+  }
+
+  // 2. Find an available port
   const port = await findAvailablePort(54321);
 
-  // 2. Start local callback server
+  // 3. Start local callback server
   let resolveCallback: (tokens: {
     access_token: string;
     refresh_token: string;
@@ -78,17 +95,29 @@ fetch('/token', {
 
   await new Promise<void>((resolve) => server.listen(port, resolve));
 
-  // 3. Open browser to Supabase auth UI
-  const supabaseUrl =
-    process.env["SUPABASE_URL"] ?? "https://jmussmwglgbwncgygzbz.supabase.co";
+  // 4. Send magic link
   const redirectTo = `http://localhost:${port}/callback`;
-  const authUrl = `${supabaseUrl}/auth/v1/authorize?provider=github&redirect_to=${encodeURIComponent(redirectTo)}`;
 
-  console.log("Opening browser to log in...");
-  console.log(`If your browser doesn't open, visit:\n  ${authUrl}`);
-  openBrowser(authUrl);
+  const resp = await fetch(`${supabaseUrl}/auth/v1/magiclink`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: anonKey,
+    },
+    body: JSON.stringify({ email, redirect_to: redirectTo }),
+  });
 
-  // 4. Wait for callback (timeout after 5 minutes)
+  if (!resp.ok) {
+    server.close();
+    console.error(`Failed to send magic link (HTTP ${resp.status}).`);
+    process.exit(1);
+  }
+
+  console.log(
+    `Magic link sent to ${email} — check your email and click the link to log in.`
+  );
+
+  // 5. Wait for callback (timeout after 5 minutes)
   const timeoutMs = 5 * 60 * 1000;
   let tokens: { access_token: string; refresh_token: string };
   try {
@@ -105,88 +134,19 @@ fetch('/token', {
 
   server.close();
 
-  // 5. Decode the JWT to get email / company_id
-  const payload = decodeJwtPayload(tokens.access_token);
-  const email = (payload?.email as string) ?? "unknown";
-
-  // Resolve company_id: top-level claim → user_metadata → app_metadata.companies
-  let companyId: string | null =
-    (payload?.company_id as string) ??
-    ((payload?.user_metadata as Record<string, unknown> | undefined)
-      ?.company_id as string | undefined) ??
-    null;
-
-  if (!companyId) {
-    const companies = (
-      payload?.app_metadata as Record<string, unknown> | undefined
-    )?.companies as Array<{ id: string; name: string }> | undefined;
-
-    if (companies && companies.length === 1) {
-      companyId = companies[0]!.id;
-    } else if (companies && companies.length > 1) {
-      console.log("\nYou belong to multiple companies:\n");
-      companies.forEach((c, i) => {
-        console.log(`  ${i + 1}. ${c.name} (${c.id})`);
-      });
-      const rl = createInterface({ input: process.stdin, output: process.stdout });
-      const answer = await rl.question("\nSelect a company (number): ");
-      rl.close();
-      const idx = parseInt(answer, 10) - 1;
-      if (idx < 0 || idx >= companies.length) {
-        console.error("Invalid selection. Run 'zazig login' again.");
-        process.exit(1);
-      }
-      companyId = companies[idx]!.id;
-    }
-  }
-
-  if (!companyId) {
-    console.error(
-      "No company_id found in your account. Contact your admin to be added to a company."
-    );
-    process.exit(1);
-  }
-
-  // 6. Save credentials
+  // 6. Save credentials — no company selection at login time
   saveCredentials({
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     email,
-    companyId,
     supabaseUrl,
   });
 
   console.log(`Logged in as ${email}`);
-  console.log(`Company: ${companyId}`);
-}
-
-function decodeJwtPayload(
-  token: string
-): Record<string, unknown> | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    return JSON.parse(
-      Buffer.from(parts[1]!, "base64url").toString("utf-8")
-    ) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-function openBrowser(url: string): void {
-  const cmd =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "start"
-        : "xdg-open";
-  exec(`${cmd} "${url}"`, (err) => {
-    if (err) console.warn("Could not open browser automatically.");
-  });
 }
 
 async function findAvailablePort(preferredPort: number): Promise<number> {
+  const http = await import("node:http");
   return new Promise((resolve) => {
     const server = http.createServer();
     server.listen(preferredPort, () => {

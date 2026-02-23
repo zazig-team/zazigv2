@@ -9,7 +9,6 @@ const validCreds = (): Credentials => ({
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsImV4cCI6OTk5OTk5OTk5OX0.sig",
   refreshToken: "refresh-token-value",
   email: "test@example.com",
-  companyId: "company-456",
 });
 
 beforeEach(() => {
@@ -84,7 +83,7 @@ describe("saveCredentials", () => {
     );
   });
 
-  it("omits undefined optional fields (email/companyId)", async () => {
+  it("omits undefined optional fields (email)", async () => {
     const fs = await import("node:fs");
     vi.mocked(fs.mkdirSync).mockReturnValue(undefined);
     vi.mocked(fs.writeFileSync).mockReturnValue(undefined);

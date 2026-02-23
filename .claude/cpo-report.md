@@ -1,4 +1,46 @@
 STATUS: COMPLETE
+CARD: 699c23aa
+
+# CPO Report: Multi-Company User Model
+
+**Branch:** `cpo/multi-company-user-model`
+**Date:** 2026-02-23
+**Trello Card:** 699c23aa
+
+## Summary
+
+Replaced single-company JWT claim model with a `user_companies` join table supporting many-to-many user-company relationships. Updated all layers: migrations, CLI auth, local agent startup, and dashboard.
+
+## Changes
+
+### Migrations
+- **027_user_companies.sql** — `user_companies` join table (user_id + company_id composite PK, RLS policies for read/insert own, service_role full access, user_id index)
+- **028_rls_user_companies.sql** — Created `user_in_company(cid)` helper function. Replaced all JWT claim-based RLS policies across 9 tables (companies, machines, projects, features, jobs, events, messages, memory_chunks, company_roles) with `user_in_company()` lookups
+
+### CLI
+- **credentials.ts** — Removed `companyId` from `Credentials` interface
+- **login.ts** — Switched from GitHub OAuth to magic link flow. Removed company selection logic, `decodeJwtPayload`, `openBrowser`. Login now only authenticates; company context comes from `user_companies` at runtime
+- **setup.ts** — After company creation, inserts into `user_companies` to link the authenticated user
+- **credentials.test.ts** — Removed `companyId` from test fixtures and assertions
+
+### Local Agent
+- **config.ts** — Made `company_id` optional in `MachineConfig`. Validation warns instead of throwing when missing
+- **connection.ts** — Added `getCompanyIds()` method that queries `user_companies` table. `start()` discovers all companies for the authenticated user at startup, logs membership. Falls back to config `company_id` if discovery fails. Heartbeat uses primary company_id or first discovered
+- **index.ts** — Passes `config.company_id ?? ""` to `JobExecutor` constructor to handle optional type
+
+### Dashboard
+- **index.html** — Added `<select id="companySelect">` company switcher in header. Populated by querying all companies. Hidden if only one company. On change, re-fetches dashboard data for selected company
+
+## Typecheck
+All 4 packages pass: `cli`, `local-agent`, `shared`, `orchestrator`.
+
+## Token Usage
+- Token budget: claude-ok (direct code writing)
+- No codex-delegate or agent teams used
+
+---
+
+PREV STATUS: COMPLETE
 CARD: 699b97ea8af43fd5e97cef65
 FILES: packages/cli/src/commands/setup.ts (new), packages/cli/src/index.ts (modified), packages/cli/src/commands/join.ts (deleted)
 TESTS: N/A — interactive CLI command, depends on PR #67 for auth types

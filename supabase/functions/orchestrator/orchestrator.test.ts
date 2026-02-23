@@ -24,7 +24,7 @@ const originalServe = (Deno as any).serve;
 };
 
 // Now import the functions under test.
-import { handleVerifyResult, triggerFeatureVerification, triggerStandaloneVerification, handleFeatureApproved, handleFeatureRejected } from "./index.ts";
+import { handleVerifyResult, triggerFeatureVerification, triggerStandaloneVerification, handleFeatureApproved, handleFeatureRejected, triggerBreakdown } from "./index.ts";
 
 // Restore Deno.serve after import.
 // deno-lint-ignore no-explicit-any
@@ -999,4 +999,115 @@ Deno.test("handleVerifyResult — job with no feature_id and no standalone conte
   // No features table access
   const featureChains = chainedCalls.filter((c) => c.table === "features");
   assertEquals(featureChains.length, 0, "Should not access features table");
+});
+
+// ---------------------------------------------------------------------------
+// triggerBreakdown tests
+// ---------------------------------------------------------------------------
+
+Deno.test("triggerBreakdown — creates queued breakdown job with correct context", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // 1. Fetch feature
+  setResponse("features:select.eq.single", {
+    data: {
+      company_id: "co-1",
+      project_id: "proj-1",
+      title: "Add user auth",
+      spec: "Implement OAuth2 login flow",
+      acceptance_tests: "Users can log in via Google",
+    },
+    error: null,
+  });
+
+  // 2. Idempotency check — no existing breakdown job
+  setResponse("jobs:select.eq.eq.not.maybeSingle", {
+    data: null,
+    error: null,
+  });
+
+  // 3. Insert breakdown job
+  setResponse("jobs:insert.select.single", {
+    data: { id: "breakdown-job-1" },
+    error: null,
+  });
+
+  // 4. CAS update feature status to building
+  setResponse("features:update.eq.eq", { error: null });
+
+  // deno-lint-ignore no-explicit-any
+  await triggerBreakdown(client as any, "feat-10");
+
+  // Verify feature was fetched
+  const featureChains = chainedCalls.filter((c) => c.table === "features");
+  assertEquals(featureChains.length, 2, "Should fetch feature + update status");
+
+  // First chain: select feature details
+  assertEquals(featureChains[0].operations[0].method, "select");
+
+  // Second chain: CAS update to building
+  assertEquals(featureChains[1].operations[0].method, "update");
+  // deno-lint-ignore no-explicit-any
+  assertEquals((featureChains[1].operations[0].args[0] as any).status, "building");
+
+  // Verify breakdown job was inserted
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 2, "Should have idempotency check + insert on jobs");
+
+  // First jobs chain: idempotency check (select)
+  assertEquals(jobsChains[0].operations[0].method, "select");
+
+  // Second jobs chain: insert breakdown job
+  assertEquals(jobsChains[1].operations[0].method, "insert");
+  // deno-lint-ignore no-explicit-any
+  const payload = jobsChains[1].operations[0].args[0] as any;
+  assertEquals(payload.company_id, "co-1");
+  assertEquals(payload.project_id, "proj-1");
+  assertEquals(payload.feature_id, "feat-10");
+  assertEquals(payload.role, "tech-lead");
+  assertEquals(payload.job_type, "breakdown");
+  assertEquals(payload.status, "queued");
+
+  const context = JSON.parse(payload.context);
+  assertEquals(context.type, "breakdown");
+  assertEquals(context.featureId, "feat-10");
+  assertEquals(context.title, "Add user auth");
+  assertEquals(context.spec, "Implement OAuth2 login flow");
+  assertEquals(context.acceptance_tests, "Users can log in via Google");
+});
+
+Deno.test("triggerBreakdown — idempotent: skips if active breakdown job exists", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // 1. Fetch feature
+  setResponse("features:select.eq.single", {
+    data: {
+      company_id: "co-1",
+      project_id: "proj-1",
+      title: "Add payments",
+      spec: "Stripe integration",
+      acceptance_tests: "Can charge a card",
+    },
+    error: null,
+  });
+
+  // 2. Idempotency check — existing active breakdown job found
+  setResponse("jobs:select.eq.eq.not.maybeSingle", {
+    data: { id: "existing-breakdown-99", status: "queued" },
+    error: null,
+  });
+
+  // deno-lint-ignore no-explicit-any
+  await triggerBreakdown(client as any, "feat-20");
+
+  // Should NOT insert a new job or update feature
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 1, "Should only have the idempotency check, no insert");
+  assertEquals(jobsChains[0].operations[0].method, "select", "Should be the select for idempotency check");
+
+  // Should NOT update feature status
+  const featureUpdates = chainedCalls.filter(
+    (c) => c.table === "features" && c.operations.some((o) => o.method === "update")
+  );
+  assertEquals(featureUpdates.length, 0, "Should not update feature when breakdown already exists");
 });

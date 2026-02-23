@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Triggers &amp; Events &mdash; Zazig Org Model</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <div class="content">
+    <div class="page-header">
+      <div class="breadcrumb"><a href="index.html">Org Model</a> / Triggers &amp; Events</div>
+      <h1>Triggers &amp; Events</h1>
+      <p class="lead">The missing layer: what causes work to happen and how subsystems communicate about it. Seven subsystems + three cross-cutting capabilities.</p>
+    </div>
+
+    <!-- Architecture Overview -->
+    <div class="section">
+      <h2>Architecture Overview</h2>
+      <p>The triggers system spans cloud and local machines, connected by Supabase Realtime websockets. Events flow from producers through a trust-classified queue, past safety gates, into execution lanes.</p>
+
+      <div class="arch-diagram">
+        <h4 style="margin-bottom:1rem">Cloud (Supabase)</h4>
+        <div class="card-grid" style="text-align:left;margin-bottom:1.5rem">
+          <div class="card" style="border-top:3px solid var(--accent)">
+            <h4 style="color:var(--accent)">Producers</h4>
+            <ul>
+              <li>Scheduler (cron)</li>
+              <li>Wake Service</li>
+              <li>Hooks Engine</li>
+              <li>External Triggers</li>
+            </ul>
+          </div>
+          <div class="card" style="border-top:3px solid var(--purple)">
+            <h4 style="color:var(--purple)">Events Table</h4>
+            <p>Postgres &mdash; trust-classified</p>
+            <ul>
+              <li><strong>Internal:</strong> cron, hooks</li>
+              <li><strong>External:</strong> webhooks</li>
+            </ul>
+          </div>
+          <div class="card" style="border-top:3px solid var(--red)">
+            <h4 style="color:var(--red)">ESTOP</h4>
+            <p>Emergency freeze gate. Blocks all event processing when activated.</p>
+          </div>
+          <div class="card" style="border-top:3px solid var(--amber)">
+            <h4 style="color:var(--amber)">Lanes</h4>
+            <ul>
+              <li><strong>Main:</strong> user-dispatched + scheduled</li>
+              <li><strong>Background:</strong> verification, review, maintenance</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="flow">
+          <div class="flow-step" style="max-width:300px;background:var(--accent-dim)">
+            <div class="step-title">Supabase Realtime</div>
+            <div class="step-detail">Websocket connection</div>
+          </div>
+        </div>
+
+        <h4 style="margin-bottom:1rem;margin-top:1rem">Local Machines</h4>
+        <div class="card-grid" style="text-align:left">
+          <div class="card" style="border-top:3px solid var(--green)">
+            <h4 style="color:var(--green)">Heartbeat</h4>
+            <p>Per-job health reporting every 30s</p>
+          </div>
+          <div class="card" style="border-top:3px solid var(--green)">
+            <h4 style="color:var(--green)">Cheap-Check</h4>
+            <p>Lightweight event triage before injection</p>
+          </div>
+          <div class="card" style="border-top:3px solid var(--green)">
+            <h4 style="color:var(--green)">Escalation</h4>
+            <p>Stuck/blocked job handling</p>
+          </div>
+          <div class="card" style="border-top:3px solid var(--green)">
+            <h4 style="color:var(--green)">Coalesced Wake Handler</h4>
+            <p>Batched event injection into agents</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1. Heartbeat System -->
+    <div class="section">
+      <h2>1. Heartbeat System</h2>
+      <p>Per-job health reporting inside the existing heartbeat envelope. The local agent inspects each running agent session and reports structured health data every 30 seconds.</p>
+
+      <div class="two-col">
+        <div>
+          <h3>JobHealth</h3>
+          <div class="code-block">
+            <span class="code-label">Heartbeat Payload</span>
+            <pre><code>{
+  jobId: string
+  status: "executing" | "idle" | "stuck" | "completing"
+  lastActivityAt: timestamp
+  toolCallAge: number
+  permissionBlocked: boolean
+  outputStalled: boolean
+}</code></pre>
+          </div>
+        </div>
+        <div>
+          <h3>CpoHealth</h3>
+          <div class="code-block">
+            <span class="code-label">CPO-Specific Fields</span>
+            <pre><code>{
+  sessionAlive: boolean
+  idle: boolean
+  messageQueueDepth: number
+  contextHealth: {
+    estimatedTokens: number
+    compactionTriggered: boolean
+    turnsSinceCompaction: number
+  }
+}</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <h3>Orchestrator Decision Table</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Condition</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>stuck</code> for 2 consecutive heartbeats</td>
+            <td>Log warning, increment <code>stuck_count</code></td>
+          </tr>
+          <tr>
+            <td><code>stuck_count &gt;= threshold</code> (default 3 = 90s)</td>
+            <td>Kill + requeue</td>
+          </tr>
+          <tr>
+            <td><code>permissionBlocked</code></td>
+            <td>Notify human via Slack</td>
+          </tr>
+          <tr>
+            <td><code>tmuxSessionAlive</code> false</td>
+            <td>Requeue as failure</td>
+          </tr>
+          <tr>
+            <td>CPO context &gt; 200 turns + compacted</td>
+            <td>Auto-restart CPO</td>
+          </tr>
+          <tr>
+            <td>No heartbeat for 2 minutes</td>
+            <td>Mark machine dead, requeue all jobs</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-amber">
+        <p><strong>Escalation chain:</strong> stuck &rarr; warning &rarr; kill &rarr; requeue. Each step is logged. Permission blocks go directly to a human because only humans can approve tool use.</p>
+      </div>
+    </div>
+
+    <!-- 2. Scheduler / Cron -->
+    <div class="section">
+      <h2>2. Scheduler / Cron</h2>
+      <p>Postgres function <code>run_scheduler()</code> called by <code>pg_cron</code> every minute. Two modes of operation depending on whether the scheduled task should run independently or relay through an existing agent.</p>
+
+      <div class="two-col">
+        <div class="card" style="border-left:3px solid var(--accent)">
+          <h4 style="color:var(--accent)">Isolated Mode</h4>
+          <p>Creates a standard job in the <code>jobs</code> table. Dispatched normally through the orchestrator to an available slot.</p>
+        </div>
+        <div class="card" style="border-left:3px solid var(--purple)">
+          <h4 style="color:var(--purple)">Relay Mode</h4>
+          <p>Enqueues a system event targeting <code>wake_target</code> (e.g., CPO). The target agent picks up the event via the wake service.</p>
+        </div>
+      </div>
+
+      <h3>Seed Jobs</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Schedule</th>
+            <th>Mode</th>
+            <th>Purpose</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>nightly-done-archiver</code></td>
+            <td><code>0 3 * * *</code></td>
+            <td><span class="badge-built">Isolated</span></td>
+            <td>Archive done jobs &gt;7 days</td>
+          </tr>
+          <tr>
+            <td><code>nightly-bug-scan</code></td>
+            <td><code>0 4 * * *</code></td>
+            <td><span class="badge-built">Isolated</span></td>
+            <td>Scan for antipatterns</td>
+          </tr>
+          <tr>
+            <td><code>standup-reminder</code></td>
+            <td><code>0 9 * * 1-5</code></td>
+            <td><span class="badge-designed">Relay (CPO)</span></td>
+            <td>Initiate standup</td>
+          </tr>
+          <tr>
+            <td><code>pipeline-health</code></td>
+            <td><code>*/30 * * * *</code></td>
+            <td><span class="badge-designed">Relay (CPO)</span></td>
+            <td>Check pipeline state</td>
+          </tr>
+          <tr>
+            <td><code>roadmap-review</code></td>
+            <td><code>0 10 * * 1</code></td>
+            <td><span class="badge-designed">Relay (CPO)</span></td>
+            <td>Weekly roadmap check</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 3. Wake Service -->
+    <div class="section">
+      <h2>3. Wake Service</h2>
+      <p>The poke mechanism that wakes agents when they have pending events. Events are coalesced to prevent interrupt storms &mdash; multiple events arriving within a window are batched into a single wake.</p>
+
+      <div class="flow">
+        <div class="flow-step">
+          <div class="step-num">Step 1</div>
+          <div class="step-title">Events Enqueue</div>
+          <div class="step-detail">Cron, hooks, or external source writes to <code>agent_events</code></div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Step 2</div>
+          <div class="step-title">Wake Poke</div>
+          <div class="step-detail">Realtime subscription fires on the target machine</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Step 3</div>
+          <div class="step-title">Coalesce</div>
+          <div class="step-detail">Batch pending events within a window to avoid interrupt storms</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Step 4</div>
+          <div class="step-title">Cheap-Check</div>
+          <div class="step-detail">Lightweight triage: is this event still relevant? Is the agent idle?</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Step 5</div>
+          <div class="step-title">Inject</div>
+          <div class="step-detail">Coalesced events injected into the agent session</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Step 6</div>
+          <div class="step-title">Ack</div>
+          <div class="step-detail">Agent acknowledges processing, events marked consumed</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Events Queue -->
+    <div class="section">
+      <h2>4. Events Queue</h2>
+      <p>The <code>agent_events</code> table in Postgres. All events are trust-classified at creation time. Trust classification determines how the event is validated and injected.</p>
+
+      <div class="two-col">
+        <div class="card" style="border-left:3px solid var(--green)">
+          <h4 style="color:var(--green)">Internal Events</h4>
+          <p>Trust level: <strong>internal</strong>. Produced by cron, hooks engine, and orchestrator state transitions. No external validation required.</p>
+          <ul>
+            <li>Scheduled wakes</li>
+            <li>Pipeline state changes</li>
+            <li>Hook-triggered actions</li>
+            <li>Job lifecycle events</li>
+          </ul>
+        </div>
+        <div class="card" style="border-left:3px solid var(--amber)">
+          <h4 style="color:var(--amber)">External Events</h4>
+          <p>Trust level: <strong>external</strong>. Produced by webhooks, GitHub, CI callbacks. Verified via HMAC signatures before processing.</p>
+          <ul>
+            <li>GitHub PR merged</li>
+            <li>CI pipeline passed/failed</li>
+            <li>Webhook callbacks</li>
+            <li>Third-party integrations</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="callout">
+        <p>All injection goes through the coalesced pipeline regardless of trust level. The difference is in <strong>validation</strong> &mdash; external events must pass HMAC verification and rate limiting before entering the queue.</p>
+      </div>
+    </div>
+
+    <!-- 5. Hooks Engine -->
+    <div class="section">
+      <h2>5. Hooks Engine</h2>
+      <p>Policy enforcement layer. Composable hooks run before and after job state transitions. Each hook is a pure function: inspect state, return allow/deny + optional side effects.</p>
+
+      <div class="card-grid">
+        <div class="card">
+          <h3>Budget Check</h3>
+          <p>Verifies the job's estimated cost fits within the team's remaining budget for the billing period. Blocks dispatch if budget would be exceeded.</p>
+        </div>
+        <div class="card">
+          <h3>Safety Gates</h3>
+          <p>Pre-dispatch validation: does the agent have the required permissions? Is the target branch protected? Are credentials available?</p>
+        </div>
+        <div class="card">
+          <h3>Slot Validation</h3>
+          <p>Confirms the target machine has an available slot matching the job's model requirement (Claude Code vs Codex).</p>
+        </div>
+      </div>
+
+      <div class="callout callout-purple">
+        <p>Hooks are <strong>composable</strong> &mdash; multiple hooks chain together in a pipeline. A job must pass all pre-hooks before dispatch. Post-hooks handle cleanup, logging, and event emission.</p>
+      </div>
+    </div>
+
+    <!-- 6. Lanes -->
+    <div class="section">
+      <h2>6. Lanes</h2>
+      <p>Two-lane execution model prevents system maintenance from blocking user-initiated work. Each lane has its own queue and slot allocation.</p>
+
+      <div class="two-col">
+        <div class="card" style="border-top:3px solid var(--accent)">
+          <h3 style="color:var(--accent)">Main Lane</h3>
+          <ul>
+            <li>User-dispatched jobs (from cards)</li>
+            <li>Scheduled isolated jobs</li>
+            <li>CPO-initiated work</li>
+          </ul>
+          <p>Priority: <strong>High</strong>. Gets first claim on available slots.</p>
+        </div>
+        <div class="card" style="border-top:3px solid var(--purple)">
+          <h3 style="color:var(--purple)">Background Lane</h3>
+          <ul>
+            <li>Verification runs</li>
+            <li>Code review jobs</li>
+            <li>System maintenance</li>
+            <li>Nightly archivers and scans</li>
+          </ul>
+          <p>Priority: <strong>Low</strong>. Only uses slots not claimed by Main lane.</p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <p>If all slots are occupied by Main lane work, Background lane jobs wait. Background work never starves user-facing work.</p>
+      </div>
+    </div>
+
+    <!-- 7. External Triggers -->
+    <div class="section">
+      <h2>7. External Triggers</h2>
+      <p>Events originating from outside the system: GitHub webhooks, CI pipeline callbacks, third-party integrations. All external triggers carry trust level <code>external</code> and require cryptographic verification.</p>
+
+      <div class="layer-stack">
+        <div class="layer-box">
+          <div class="layer-num">Source</div>
+          <div class="layer-title">GitHub / CI / Webhooks</div>
+          <div class="layer-desc">PR merged, CI passed, deployment complete, external callback</div>
+        </div>
+        <div class="layer-box">
+          <div class="layer-num">Verify</div>
+          <div class="layer-title">HMAC Signature Validation</div>
+          <div class="layer-desc">Every external event is verified against its source's signing secret. Unsigned events are dropped.</div>
+        </div>
+        <div class="layer-box">
+          <div class="layer-num">Classify</div>
+          <div class="layer-title">Trust: External</div>
+          <div class="layer-desc">Event enters the queue with external trust classification. Rate-limited per source.</div>
+        </div>
+        <div class="layer-box">
+          <div class="layer-num">Process</div>
+          <div class="layer-title">Standard Pipeline</div>
+          <div class="layer-desc">Coalesced, cheap-checked, and injected through the same path as internal events.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 8. Emergency Stop (ESTOP) -->
+    <div class="section">
+      <h2>8. Emergency Stop (ESTOP)</h2>
+      <p>Kill broadcast across all machines. When activated, every running agent is halted and every queued job is frozen. Used when agents go rogue or burn budget.</p>
+
+      <div class="flow">
+        <div class="flow-step" style="border-color:var(--red);background:var(--red-dim)">
+          <div class="step-num" style="color:var(--red)">ESTOP Activated</div>
+          <div class="step-title">Broadcast kill to all machines</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Immediate</div>
+          <div class="step-title">Freeze all jobs</div>
+          <div class="step-detail">Running &rarr; frozen, queued &rarr; frozen</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Immediate</div>
+          <div class="step-title">Kill all agent sessions</div>
+          <div class="step-detail">Local daemons terminate all tmux sessions</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Manual</div>
+          <div class="step-title">Founder reviews and lifts</div>
+          <div class="step-detail">ESTOP remains active until manually cleared</div>
+        </div>
+      </div>
+
+      <div class="callout callout-amber">
+        <p><strong>ESTOP triggers:</strong> Runaway budget consumption, agent writing to production systems, detected prompt injection, agent-to-agent feedback loops, or any founder-initiated kill switch.</p>
+      </div>
+    </div>
+
+    <!-- 9. Restart Recovery -->
+    <div class="section">
+      <h2>9. Restart Recovery</h2>
+      <p>After an ESTOP or daemon restart, the system must recover without duplicating work or allowing stale agents to corrupt requeued jobs. The key mechanism: <strong>dispatch attempt fencing</strong>.</p>
+
+      <div class="code-block">
+        <span class="code-label">Dispatch Fencing</span>
+        <pre><code>// Each dispatch generates a unique attempt ID
+dispatch_attempt_id: UUID
+
+// The agent receives this ID at launch
+// Every state mutation checks: does my attempt ID match the job's current attempt?
+// If not → this agent is stale → refuse to write, exit gracefully
+
+// On requeue:
+// 1. New dispatch_attempt_id generated
+// 2. Old agent's writes rejected by fencing check
+// 3. New agent picks up clean state</code></pre>
+      </div>
+
+      <div class="flow">
+        <div class="flow-step">
+          <div class="step-num">Step 1</div>
+          <div class="step-title">ESTOP / Restart</div>
+          <div class="step-detail">All agents terminated, jobs frozen</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Step 2</div>
+          <div class="step-title">Requeue Frozen Jobs</div>
+          <div class="step-detail">Each requeued job gets a new <code>dispatch_attempt_id</code></div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Step 3</div>
+          <div class="step-title">Fence Check</div>
+          <div class="step-detail">Stale agents with old attempt IDs cannot write state</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Step 4</div>
+          <div class="step-title">Clean Dispatch</div>
+          <div class="step-detail">New agents pick up jobs with guaranteed clean state</div>
+        </div>
+      </div>
+
+      <div class="callout callout-purple">
+        <p>Dispatch attempt fencing is the mechanism that makes the entire trigger system <strong>crash-safe</strong>. Without it, a restart could leave zombie agents writing stale results to requeued jobs.</p>
+      </div>
+    </div>
+
+  </div>
+  <div class="footer">Zazig Org Model</div>
+</div>
+<script src="nav.js"></script>
+</body>
+</html>

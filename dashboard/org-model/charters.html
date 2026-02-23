@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Charters &mdash; Zazig Org Model</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <div class="content">
+    <div class="page-header">
+      <div class="breadcrumb"><a href="index.html">Org Model</a> / Charters</div>
+      <h1>Charters: Mandates &amp; Interdictions</h1>
+      <p class="lead">A charter is the governance contract for a worker. Mandates define jurisdiction. Interdictions define constitutional constraints. Together they prevent authority collisions in an autonomous org.</p>
+    </div>
+
+    <!-- Why Charters Exist -->
+    <div class="section">
+      <h2>Why Charters Exist</h2>
+      <p>When 5+ workers operate independently, overlapping mandates create conflicts and missing interdictions create overreach. Charters are the separation of powers.</p>
+
+      <div class="two-col">
+        <div class="card" style="border-left:3px solid var(--red)">
+          <h4 style="color:var(--red)">Without Charters</h4>
+          <ul>
+            <li>CPO and CTO both claim architecture decisions</li>
+            <li>VP-Eng dispatches agents without budget checks</li>
+            <li>Senior engineers modify infrastructure unilaterally</li>
+            <li>Nobody owns QA &mdash; reviews get skipped</li>
+          </ul>
+        </div>
+        <div class="card" style="border-left:3px solid var(--green)">
+          <h4 style="color:var(--green)">With Charters</h4>
+          <ul>
+            <li>Architecture is CTO's mandate, CPO's interdiction</li>
+            <li>VP-Eng has dispatch mandate, bounded by budget hooks</li>
+            <li>Infra changes require CTO approval (enforced, not suggested)</li>
+            <li>QA is VP-Eng's mandate &mdash; no ambiguity</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Why Separate from Role Prompts -->
+    <div class="section">
+      <h2>Why Separate from Role Prompts</h2>
+      <p>Charters could live inside role prompts, but separating them into a dedicated governance layer provides three structural advantages.</p>
+
+      <div class="callout">
+        <p><strong>1. Charters are relational.</strong> CPO's interdiction "NEVER make architecture decisions" exists <em>because</em> CTO's mandate says "owns architecture." A role prompt is self-contained; a charter is defined by its relationship to other charters.</p>
+      </div>
+
+      <div class="callout callout-purple">
+        <p><strong>2. Charters are cross-validatable.</strong> The orchestrator can detect mandate overlaps and interdiction gaps at config time. If two execs both claim "owns security posture," that's flagged before any agent runs. Role prompts can't be cross-validated because they're freeform text.</p>
+      </div>
+
+      <div class="callout callout-amber">
+        <p><strong>3. Charters are enforceable.</strong> A charter interdiction stored in the orchestrator can be <em>enforced</em> (blocked at the hooks layer), not just suggested. A role prompt saying "don't write code" is a suggestion. An interdiction in the orchestrator is a wall.</p>
+      </div>
+    </div>
+
+    <!-- Charter by Tier -->
+    <div class="section">
+      <h2>Charter by Tier</h2>
+      <p>Not every worker needs the same governance weight. Charter scope scales with autonomy.</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Tier</th>
+            <th>Charter</th>
+            <th>Rationale</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Executives</strong></td>
+            <td><span class="badge-built">Full &mdash; mandates + interdictions</span></td>
+            <td>Autonomous actors with broad scope. Need explicit jurisdiction boundaries.</td>
+          </tr>
+          <tr>
+            <td><strong>Employees</strong></td>
+            <td><span class="badge-designed">Light &mdash; mainly interdictions</span></td>
+            <td>Narrow scope. Mandates are implicit in role prompt. Interdictions prevent scope creep.</td>
+          </tr>
+          <tr>
+            <td><strong>Contractors</strong></td>
+            <td><span class="badge-concept">None</span></td>
+            <td>No autonomy. Task-scoped by definition. No governance needed beyond the job spec.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Example Charters -->
+    <div class="section">
+      <h2>Example Charters</h2>
+      <p>Each executive has a full charter defining what they own (mandates) and what they must never do (interdictions). Employees get interdictions only.</p>
+
+      <!-- CPO -->
+      <h3>CPO Charter</h3>
+      <div class="code-block">
+        <span class="code-label">charter: cpo</span>
+        <pre><code>{
+  "role": "CPO",
+  "tier": "executive",
+
+  "mandates": [
+    "Product strategy ownership",
+    "Card prioritization",
+    "Design doc authorship",
+    "Standup synthesis",
+    "Code review decisions",
+    "Founder communication",
+    "Directive authorship"
+  ],
+
+  "interdictions": [
+    "NEVER dispatch agents",
+    "NEVER write code",
+    "NEVER make architecture decisions",
+    "NEVER override CTO"
+  ]
+}</code></pre>
+      </div>
+
+      <!-- CTO -->
+      <h3>CTO Charter</h3>
+      <div class="code-block">
+        <span class="code-label">charter: cto</span>
+        <pre><code>{
+  "role": "CTO",
+  "tier": "executive",
+
+  "mandates": [
+    "Architecture decisions",
+    "Engineering standards",
+    "Security posture",
+    "Tech review gate",
+    "DX ownership"
+  ],
+
+  "interdictions": [
+    "NEVER make product decisions",
+    "NEVER dispatch agents",
+    "NEVER write production code"
+  ]
+}</code></pre>
+      </div>
+
+      <!-- VP-Eng -->
+      <h3>VP-Eng Charter</h3>
+      <div class="code-block">
+        <span class="code-label">charter: vp-eng</span>
+        <pre><code>{
+  "role": "VP-Eng",
+  "tier": "executive",
+
+  "mandates": [
+    "Execution (pull cards, write specs, dispatch agents)",
+    "QA coordination",
+    "Card lifecycle",
+    "Report synthesis"
+  ],
+
+  "interdictions": [
+    "NEVER make product/architecture decisions",
+    "NEVER add team label",
+    "NEVER skip QA"
+  ]
+}</code></pre>
+      </div>
+
+      <!-- Senior Engineer -->
+      <h3>Senior Engineer Charter</h3>
+      <div class="code-block">
+        <span class="code-label">charter: senior-engineer (employee tier)</span>
+        <pre><code>{
+  "role": "Senior Engineer",
+  "tier": "employee",
+
+  "mandates": [],
+
+  "interdictions": [
+    "NEVER merge without review",
+    "NEVER modify infra",
+    "NEVER change schemas without CTO approval"
+  ]
+}</code></pre>
+      </div>
+
+      <div class="callout">
+        <p>Note the Senior Engineer has <strong>empty mandates</strong>. For employees, mandates are implicit in the role prompt. Charters only add explicit interdictions to prevent scope creep beyond the role's natural boundary.</p>
+      </div>
+    </div>
+
+    <!-- Governance Validation -->
+    <div class="section">
+      <h2>Governance Validation</h2>
+      <p>At startup, the orchestrator runs three validation checks across all loaded charters. Violations are surfaced to founders &mdash; never silently ignored.</p>
+
+      <div class="layer-stack">
+        <div class="layer-box">
+          <div class="layer-num">Check 1</div>
+          <div class="layer-title">Mandate Overlap</div>
+          <div class="layer-desc">Flag if two executives claim the same jurisdiction. Example: both CPO and CTO list "security posture" as a mandate.</div>
+        </div>
+        <div class="layer-box">
+          <div class="layer-num">Check 2</div>
+          <div class="layer-title">Interdiction Coverage</div>
+          <div class="layer-desc">Flag if a high-impact action appears in no executive's interdictions. Example: "deploy to production" isn't forbidden for anyone.</div>
+        </div>
+        <div class="layer-box">
+          <div class="layer-num">Check 3</div>
+          <div class="layer-title">Mandate-Interdiction Consistency</div>
+          <div class="layer-desc">Flag if a role's mandate conflicts with its own or another role's interdiction. Example: VP-Eng mandated to dispatch but also interdicted from dispatch.</div>
+        </div>
+      </div>
+
+      <div class="flow">
+        <div class="flow-step">
+          <div class="step-num">On Startup</div>
+          <div class="step-title">Load All Charters</div>
+          <div class="step-detail">Orchestrator loads charters from config</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Validate</div>
+          <div class="step-title">Run Cross-Charter Checks</div>
+          <div class="step-detail">Overlap, coverage, consistency</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step" style="border-color:var(--green)">
+          <div class="step-num" style="color:var(--green)">Pass</div>
+          <div class="step-title">System starts normally</div>
+        </div>
+      </div>
+
+      <div class="flow" style="margin-top:1rem">
+        <div class="flow-step" style="border-color:var(--red);background:var(--red-dim)">
+          <div class="step-num" style="color:var(--red)">Fail</div>
+          <div class="step-title">Violations surfaced to founders</div>
+          <div class="step-detail">System can start in degraded mode, but violations require human resolution</div>
+        </div>
+      </div>
+
+      <div class="callout callout-amber">
+        <p>Governance violations are <strong>never silently swallowed</strong>. A mandate overlap might be intentional (shared responsibility), but it must be explicitly acknowledged by a founder before the system runs clean.</p>
+      </div>
+    </div>
+
+    <!-- Charter Evolution -->
+    <div class="section">
+      <h2>Charter Evolution</h2>
+      <p>Charters are not static. They evolve as the org adds roles, adjusts scope, and learns from operational experience. Two primary flows.</p>
+
+      <h3>New Executive Role</h3>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="step-num">Step 1</div>
+          <div class="step-title">Draft Charter</div>
+          <div class="step-detail">Define mandates and interdictions for the new role</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Step 2</div>
+          <div class="step-title">Cross-Validate</div>
+          <div class="step-detail">Check new charter against all existing charters for overlaps and gaps</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Step 3</div>
+          <div class="step-title">Resolve Conflicts</div>
+          <div class="step-detail">Adjust mandates and interdictions across affected roles</div>
+        </div>
+        <div class="flow-arrow"></div>
+        <div class="flow-step">
+          <div class="step-num">Step 4</div>
+          <div class="step-title">Founder Approves</div>
+          <div class="step-detail">Human sign-off before the charter takes effect</div>
+        </div>
+      </div>
+
+      <h3>Charter Amendment</h3>
+      <div class="callout callout-purple">
+        <p><strong>Atomic updates:</strong> When amending a charter, both the amended charter and any affected charters must be updated atomically. You cannot remove a mandate from one role without adding it to another &mdash; or explicitly declaring the action unowned.</p>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <h4 style="color:var(--accent)">Adding a Mandate</h4>
+          <ul>
+            <li>Check no other exec already claims it</li>
+            <li>If claimed, negotiate transfer or shared ownership</li>
+            <li>Add corresponding interdiction to other relevant roles</li>
+            <li>Re-run governance validation</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4 style="color:var(--red)">Removing a Mandate</h4>
+          <ul>
+            <li>Identify which role inherits the mandate</li>
+            <li>Transfer mandate to new owner</li>
+            <li>Update interdictions across affected roles</li>
+            <li>Re-run governance validation</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <div class="footer">Zazig Org Model</div>
+</div>
+<script src="nav.js"></script>
+</body>
+</html>

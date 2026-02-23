@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open Questions &mdash; Zazig Org Model</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <div class="content">
+    <div class="page-header">
+      <div class="breadcrumb"><a href="index.html">Org Model</a> / Open Questions</div>
+      <h1>Open Questions</h1>
+      <p class="lead">Unresolved questions from the Org Model and linked design documents. Items marked (Chris) need co-founder input.</p>
+    </div>
+
+    <!-- From the Org Model -->
+    <div class="section">
+      <h2>From the Org Model</h2>
+
+      <div class="card-grid">
+        <div class="card">
+          <h3>Heartbeat Schedule Ownership <span class="badge-designed" style="font-size:0.6rem;vertical-align:middle;margin-left:0.5rem">Chris</span></h3>
+          <p>Who defines employee heartbeat schedules?</p>
+          <ul>
+            <li><strong>A) Role config</strong> &mdash; <code>heartbeat_schedule</code> field in roles table</li>
+            <li><strong>B) Operational config</strong> &mdash; per-company override</li>
+            <li><strong>C) Both</strong> &mdash; role provides default, company can override</li>
+          </ul>
+          <div class="callout callout-amber" style="margin-top:1rem;margin-bottom:0">
+            <p>Needs alignment on platform vs per-company decision.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Lite Personality Dimension Selection</h3>
+          <p>Who curates the 2&ndash;3 personality dimensions for employee roles?</p>
+          <ul>
+            <li><strong>A) Per-role</strong> &mdash; in the personality table (hardcoded, platform decision)</li>
+            <li><strong>B) Per-company</strong> &mdash; customizable (needs admin UI)</li>
+            <li><strong>C) Auto-derived</strong> &mdash; orchestrator selects most relevant</li>
+          </ul>
+          <div class="callout callout-purple" style="margin-top:1rem;margin-bottom:0">
+            <p>Current lean: <strong>A for launch</strong>, graduate to B.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Employee Gateway Permissions Model</h3>
+          <p>Scoped gateways need a permissions schema. Where does <code>gateway_config</code> live?</p>
+          <ul>
+            <li><strong>Option 1:</strong> <code>roles</code> table (alongside existing role config)</li>
+            <li><strong>Option 2:</strong> Separate <code>gateway_permissions</code> table</li>
+          </ul>
+          <p style="margin-top:0.75rem">Does <code>requires_approval</code> route through managing executive or founder?</p>
+        </div>
+
+        <div class="card">
+          <h3>Contractor Shared Memory Scope</h3>
+          <p>When a contractor type accumulates shared memory across jobs:</p>
+          <ul>
+            <li><strong>A) Per-company</strong> &mdash; safe for launch</li>
+            <li><strong>B) Cross-company</strong> &mdash; better expertise, privacy implications</li>
+            <li><strong>C) Both</strong> &mdash; per-company + anonymized cross-company</li>
+          </ul>
+          <div class="callout callout-amber" style="margin-top:1rem;margin-bottom:0">
+            <p>Has privacy and marketplace implications.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- From the Messaging Doc -->
+    <div class="section">
+      <h2>From the Messaging Doc</h2>
+
+      <div class="card">
+        <h3>Dual Injection Path Conflict</h3>
+        <p>The messaging doc injects Slack messages directly into tmux. The triggers events queue also injects into tmux. Two independent injection paths can race.</p>
+        <div class="callout callout-purple" style="margin-top:1rem">
+          <p><strong>Recommended:</strong> Unify through events queue.</p>
+        </div>
+        <p style="margin-bottom:0">Outstanding decision: <strong>bounce or queue</strong> when agent is offline?</p>
+      </div>
+    </div>
+
+    <!-- From the Triggers Doc -->
+    <div class="section">
+      <h2>From the Triggers Doc</h2>
+
+      <div class="card">
+        <h3>Implementation Decisions Remaining</h3>
+        <ul>
+          <li><strong>Cheap-check implementation details</strong> &mdash; how to make deterministic pre-screening work without burning an LLM turn on every wake</li>
+          <li><strong>Events table cleanup strategy</strong> &mdash; retention period, compaction</li>
+          <li><strong>Hook priority and ordering</strong> &mdash; when multiple hooks fire on the same event</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- From Model Routing -->
+    <div class="section">
+      <h2>From Model Routing</h2>
+
+      <div class="card">
+        <h3>Local Model Discovery Design</h3>
+        <p>When local model support lands, the orchestrator needs a capability registry. Machine heartbeats would report available local models with capabilities and context windows. Cross-referencing with role <code>model_config.local_models</code>.</p>
+        <div class="callout" style="margin-top:1rem;margin-bottom:0">
+          <p>May warrant its own design doc.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- From Role Prompts Doc -->
+    <div class="section">
+      <h2>From the Role Prompts Doc</h2>
+
+      <div class="card-grid">
+        <div class="card">
+          <h3>CTO Tech-Review Classification Workflow</h3>
+          <p>In v1, CTO ran heartbeat cycle to process tech-review cards. In v2, should be a discrete job type. Job context format TBD.</p>
+        </div>
+
+        <div class="card">
+          <h3>Per-Job-Type Skill Selection</h3>
+          <p>Different job types for the same role may need different skill subsets. Consider <code>job_type</code> &rarr; skills mapping in orchestrator routing table.</p>
+          <div class="callout callout-purple" style="margin-top:1rem;margin-bottom:0">
+            <p>Future optimization.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <div class="footer">Zazig Org Model</div>
+</div>
+<script src="nav.js"></script>
+</body>
+</html>

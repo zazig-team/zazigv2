@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Build Status &mdash; Zazig Org Model</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page-wrapper">
+  <div class="content">
+    <div class="page-header">
+      <div class="breadcrumb"><a href="index.html">Org Model</a> / Build Status</div>
+      <h1>Build Status</h1>
+      <p class="lead">What's built, what's designed, and what's still a concept. A living matrix of implementation status for every subsystem.</p>
+    </div>
+
+    <!-- Summary Metrics -->
+    <div class="section">
+      <h2>Summary Metrics</h2>
+
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-value" style="color:var(--amber)">14</div>
+          <div class="metric-label">Built</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value" style="color:var(--purple)">8</div>
+          <div class="metric-label">Designed</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value" style="color:var(--text-muted)">3</div>
+          <div class="metric-label">Concept</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Built -->
+    <div class="section">
+      <h2>Built</h2>
+      <p>Subsystems with deployed code and working implementations.</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Subsystem</th>
+            <th>Status</th>
+            <th>Evidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Supabase schema (11 core tables)</td>
+            <td><span class="badge-built">Built</span></td>
+            <td>migrations 003&ndash;032 deployed</td>
+          </tr>
+          <tr>
+            <td>Orchestrator edge function</td>
+            <td><span class="badge-built">Built</span></td>
+            <td><code>supabase/functions/orchestrator/index.ts</code> (1130+ lines)</td>
+          </tr>
+          <tr>
+            <td>Local agent daemon</td>
+            <td><span class="badge-built">Built</span></td>
+            <td><code>packages/local-agent/src/</code> (executor, connection, config)</td>
+          </tr>
+          <tr>
+            <td>CLI (login, start, stop, status, setup, personality)</td>
+            <td><span class="badge-built">Built</span></td>
+            <td><code>packages/cli/src/commands/</code></td>
+          </tr>
+          <tr>
+            <td>Shared message types</td>
+            <td><span class="badge-built">Built</span></td>
+            <td><code>packages/shared/src/messages.ts</code></td>
+          </tr>
+          <tr>
+            <td>Pipeline dashboard</td>
+            <td><span class="badge-built">Built</span></td>
+            <td><code>dashboard/index.html</code></td>
+          </tr>
+          <tr>
+            <td>Slack events adapter</td>
+            <td><span class="badge-built">Built</span></td>
+            <td><code>supabase/functions/slack-events/index.ts</code></td>
+          </tr>
+          <tr>
+            <td>Slack OAuth</td>
+            <td><span class="badge-built">Built</span></td>
+            <td><code>supabase/functions/slack-oauth/index.ts</code></td>
+          </tr>
+          <tr>
+            <td>Agent outbound messaging</td>
+            <td><span class="badge-built">Built</span></td>
+            <td><code>supabase/functions/agent-message/index.ts</code></td>
+          </tr>
+          <tr>
+            <td>Personality migration (archetypes + compiler)</td>
+            <td><span class="badge-built">Built</span></td>
+            <td>migrations 010, 018, 019</td>
+          </tr>
+          <tr>
+            <td>Role prompts + skills migration</td>
+            <td><span class="badge-built">Built</span></td>
+            <td>migration 012</td>
+          </tr>
+          <tr>
+            <td>Verifier + test runner</td>
+            <td><span class="badge-built">Built</span></td>
+            <td><code>packages/local-agent/src/verifier.ts</code>, <code>test-runner.ts</code></td>
+          </tr>
+          <tr>
+            <td>Feature + job lifecycle</td>
+            <td><span class="badge-built">Built</span></td>
+            <td>migrations 029, 030</td>
+          </tr>
+          <tr>
+            <td>Org model pitch site</td>
+            <td><span class="badge-built">Built</span></td>
+            <td><code>dashboard/org-model/</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Designed -->
+    <div class="section">
+      <h2>Designed</h2>
+      <p>Subsystems with approved design documents, ready for implementation.</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Subsystem</th>
+            <th>Status</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Triggers &amp; events infrastructure</td>
+            <td><span class="badge-designed">Designed</span></td>
+            <td>V2.2 ready to cardify</td>
+          </tr>
+          <tr>
+            <td>Knowledge system (doctrines + canons)</td>
+            <td><span class="badge-designed">Designed</span></td>
+            <td>v5 approved, implementation-ready</td>
+          </tr>
+          <tr>
+            <td>Charters (mandates + interdictions)</td>
+            <td><span class="badge-designed">Designed</span></td>
+            <td>In org model, no migration yet</td>
+          </tr>
+          <tr>
+            <td>Model routing (per-role config)</td>
+            <td><span class="badge-designed">Designed</span></td>
+            <td>In org model, no code yet</td>
+          </tr>
+          <tr>
+            <td>Worker heartbeat cycles (employee autonomy)</td>
+            <td><span class="badge-designed">Designed</span></td>
+            <td>In triggers doc &sect;2</td>
+          </tr>
+          <tr>
+            <td>Gateway permissions (scoped employee gateways)</td>
+            <td><span class="badge-designed">Designed</span></td>
+            <td>In org model, open question #3</td>
+          </tr>
+          <tr>
+            <td>Prompt stack assembly (9-position architecture)</td>
+            <td><span class="badge-designed">Designed</span></td>
+            <td>Role prompts doc, prompt ordering defined</td>
+          </tr>
+          <tr>
+            <td>Org model pitch site (remaining pages)</td>
+            <td><span class="badge-designed">Designed</span></td>
+            <td>Gateways, triggers, charters pages pending</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Concept -->
+    <div class="section">
+      <h2>Concept</h2>
+      <p>Subsystems mentioned in designs but without detailed plans yet.</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Subsystem</th>
+            <th>Status</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Contractor marketplace</td>
+            <td><span class="badge-concept">Concept</span></td>
+            <td>In org model, future section</td>
+          </tr>
+          <tr>
+            <td>Local model discovery</td>
+            <td><span class="badge-concept">Concept</span></td>
+            <td>In org model, future section</td>
+          </tr>
+          <tr>
+            <td>Voice/onboarding</td>
+            <td><span class="badge-concept">Concept</span></td>
+            <td>In roadmap &ldquo;Interaction Design&rdquo;</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+  <div class="footer">Zazig Org Model</div>
+</div>
+<script src="nav.js"></script>
+</body>
+</html>

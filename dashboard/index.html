@@ -1157,7 +1157,7 @@
           metaDiv.appendChild(row);
         }
 
-        if (feature.feature_branch) addMeta('Branch', feature.feature_branch);
+        if (feature.branch) addMeta('Branch', feature.branch);
         addMeta('Created', formatDate(feature.created_at));
         if (feature.updated_at) addMeta('Updated', formatDate(feature.updated_at));
         if (feature.created_by) addMeta('By', feature.created_by);

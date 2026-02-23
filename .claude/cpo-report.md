@@ -1,216 +1,110 @@
 STATUS: COMPLETE
-CARD: 699b97ea8af43fd5e97cef65
-FILES: packages/cli/src/commands/setup.ts (new), packages/cli/src/index.ts (modified), packages/cli/src/commands/join.ts (deleted)
-TESTS: N/A — interactive CLI command, depends on PR #67 for auth types
-NOTES: zazig setup command created with full guided flow. zazig join removed.
+CARD: job-lifecycle-cleanup
+FILES: supabase/migrations/027_job_lifecycle.sql (new), packages/shared/src/messages.ts, packages/shared/src/validators.ts, packages/shared/src/index.ts, supabase/functions/orchestrator/index.ts, supabase/functions/slack-events/index.ts, packages/local-agent/src/index.ts, packages/local-agent/src/executor.ts, dashboard/index.html
+TESTS: N/A — no test files in scope; typecheck clean across all 4 workspaces
+NOTES: Cut job statuses from 14 to 8, added blocked flow (Slack-based human input) and reviewing step (multi-agent code review trigger).
 
 ---
 
-# CPO Report — zazig setup command
+# CPO Report — Job Lifecycle Cleanup
 
 ## Summary
-Added `zazig setup` CLI command: guided flow to create a company, onboard a project (with optional AI conversation), and invite teammates. Removed `zazig join` (superseded).
+Consolidated the job status lifecycle from 14 statuses to 8, removed dead/unused statuses, added a "blocked" flow for agents requesting human input via Slack, and added a "reviewing" step that triggers multi-agent code review before marking jobs complete.
 
-## Files Changed
-- `packages/cli/src/commands/setup.ts` — **New**: full setup flow (auth check, company creation/selection, project creation with AI brief, teammate invites)
-- `packages/cli/src/index.ts` — Replaced `join` import/case with `setup`, updated help text
-- `packages/cli/src/commands/join.ts` — **Deleted**
+## New Lifecycle
+```
+queued → dispatched → executing → reviewing → complete
+                          ↓                       ↑
+                       blocked ──(Slack reply)──→ executing
 
-## Implementation Details
+Terminal: complete, failed, cancelled
+```
 
-### Auth (Step 1)
-- Uses `getValidCredentials()` from auth branch (PR #67) — auto-refreshes expired tokens
-- Creates Supabase client with `createClient()` and sets session via `auth.setSession()`
-- Exits with helpful message if not logged in
+### Removed Statuses
+`design`, `verify_failed`, `testing`, `approved`, `rejected`, `waiting_on_human`, `verifying`, `done`
 
-### Company (Steps 2-3)
-- Option 1: Create new company via `supabase.from("companies").insert()`
-- Option 2: List existing companies (RLS-scoped), let user pick if multiple
-- Falls straight into project creation after company is resolved
+### New Statuses
+- `blocked` — agent needs human input; posts question to Slack thread, unblocks on reply
+- `cancelled` — explicit cancellation (previously no distinct terminal status for this)
 
-### Project (Step 4)
-- Prompts for project name and optional git repo path
-- If repo path given: reads README.md and package.json for context
-- AI conversation (if `ANTHROPIC_API_KEY` set): calls Anthropic Messages API with `claude-haiku-4-5-20251001` to generate structured brief
-- Writes `docs/PROJECT.md` to repo if path given and brief generated
-- Fallback without API key: prompts for plain text description
-- Inserts into `projects` table with `company_id`, `name`, `repo_url`
+### Renamed
+- `done` → `complete` (clearer terminal status)
 
-### Invites (Step 5)
-- Comma-separated email input
-- Uses `supabase.auth.admin.inviteUserByEmail()` with graceful failure — admin API requires service role key, which user auth doesn't have
-- TODO comment noting Edge Function needed for production invites
+## Changes
 
-## Acceptance Criteria Met
-1. `zazig setup` registered as CLI command
-2. Requires prior `zazig login`
-3. Can create a new company + auto-flow into project
-4. Can add project to existing company (multi-company pick)
-5. Reads repo files (README, package.json)
-6. AI conversation with graceful fallback
-7. Writes docs/PROJECT.md
-8. Inserts project into projects table
-9. Invite step fails gracefully with clear message
-10. `zazig join` removed
+### 1. Migration 027_job_lifecycle.sql (new)
+- Drops old `jobs_status_check` constraint (14 statuses)
+- Migrates existing rows: `done`/`approved` → `complete`, `verify_failed`/`waiting_on_human` → `queued`, `testing`/`design`/`verifying` → `executing`, `rejected` → `failed`
+- Adds new 8-status CHECK constraint
+- Adds `blocked_reason TEXT` and `blocked_slack_thread_ts TEXT` columns
+- Creates `jobs_blocked_idx` partial index on `status = 'blocked'`
+- Updates `all_feature_jobs_complete()` to use new terminal statuses
+- Inserts `code-reviewer` role with structured review prompt (P0-P3 severity levels)
+- Extends `jobs_job_type_check` to include `review`, `combine`, `deploy`
 
-## Token Usage
-- Token budget: claude-ok (wrote code directly)
+### 2. Shared Messages (packages/shared/src/messages.ts)
+- `JOB_STATUSES`: 15 → 8 entries
+- `AgentJobStatus`: added `"blocked"` to union
+- `JobStatusValue`: added `"blocked"` and `"cancelled"`
+- New `JobBlocked` interface (agent → orchestrator): `{ type, protocolVersion, jobId, machineId, reason }`
+- New `JobUnblocked` interface (orchestrator → agent): `{ type, protocolVersion, jobId, answer }`
+- Updated `AgentMessage` union to include `JobBlocked`
+- Updated `OrchestratorMessage` union to include `JobUnblocked`
 
----
+### 3. Shared Validators (packages/shared/src/validators.ts)
+- `isJobStatusMessage`: added `"blocked"` to accepted statuses
+- New `isJobBlocked` validator (validates machineId, reason)
+- New `isJobUnblocked` validator (validates jobId, answer)
+- Updated `isOrchestratorMessage` switch for `"job_unblocked"`
+- Updated `isAgentMessage` switch for `"job_blocked"`
 
-# PR #65 Review Fixes — Follow-up Commit
+### 4. Shared Index (packages/shared/src/index.ts)
+- Exported `JobBlocked`, `JobUnblocked` types
+- Exported `isJobBlocked`, `isJobUnblocked` validators
 
-## Summary
-Applied 5 fixes from PR #65 code review (1 P0, 3 P1, 1 P2) in a single follow-up commit.
+### 5. Orchestrator (supabase/functions/orchestrator/index.ts) — largest change
+- **dispatchQueuedJobs**: removed `verify_failed` from pickup query, now only picks `queued`
+- **handleJobComplete**: rewrote to support reviewing step
+  - Review job completion: parses `originalJobId` from context, checks for P0 findings → re-queues original or marks complete
+  - Feature-linked code jobs (code/infra/bug/docs): sets job to `reviewing`, inserts code-review job with structured prompt
+  - Standalone verification path preserved with TODO
+- **handleJobBlocked** (new): sets job status to `blocked`, fetches feature's Slack thread, posts question via `postSlackMessage`, stores `blocked_slack_thread_ts`
+- **handleJobUnblocked** (new): appends answer to job context, resets status to `executing`, broadcasts `JobUnblocked` to agent machine channel
+- **handleJobStatus**: added `"blocked"` to accepted status transitions
+- **handleVerifyResult**: `verify_failed` → `queued` (re-queue), `done` → `complete`
+- **triggerStandaloneVerification**: updated idempotency guard and status transitions
+- **reapDeadMachines**: added `"blocked"` to stuck job statuses for dead machine cleanup
+- **handleFeatureApproved**: `done` → `complete` for job status updates
+- Added `isJobBlocked` handler to Realtime event router
 
-## Fixes Applied
+### 6. Slack Events (supabase/functions/slack-events/index.ts)
+- New `handleBlockedJobReply`: looks up blocked jobs by `blocked_slack_thread_ts`, broadcasts `JobUnblocked` to orchestrator
+- Updated `broadcastToOrchestrator` type to accept `JobUnblocked`
+- Blocked job thread check runs BEFORE testing thread check (priority: blocked > testing > CPO)
 
-### Fix 1 (P0): getValidCredentials() stub
-- Added `getValidCredentials()` to `credentials.ts` — async wrapper around `loadCredentials()` with TODO for token refresh when PR #66 lands
+### 7. Local Agent Index (packages/local-agent/src/index.ts)
+- Added `case "job_unblocked":` to exhaustive message router switch
+- Routes to `executor.handleJobUnblocked(msg)`
 
-### Fix 2 (P1): Removed misleading invite step
-- Replaced `auth.admin.inviteUserByEmail` flow (requires service role key, always fails with user token) with a clear skip message
-- TODO comment for wiring to Edge Function when available
+### 8. Executor (packages/local-agent/src/executor.ts)
+- Added `handleJobUnblocked` method (V1: log-only, agent reads answer from DB context)
+- Handles case where job session has died (logs + lets dispatcher re-pick)
 
-### Fix 3 (P1): repo_url stores Git remote URL
-- Prompt now asks for Git remote URL with validation (must start with http://, https://, or git@)
-- Separate `localRepoPath` prompt for reading context files (README, package.json)
-- Local path is NOT stored in DB
+### 9. Dashboard (dashboard/index.html)
+- New `.blocked` dot class (amber #f59e0b, 1s pulse animation)
+- Removed dead dot classes: `done`, `approved`, `verify_failed`, `verifying`
+- Updated `WORKING_JOB_STATUSES` to include `'blocked'`
+- Updated `TERMINAL_JOB_STATUSES`: removed `'done'`, `'approved'` → `['complete', 'failed', 'cancelled']`
+- Updated `JOB_STATUS_TO_COLUMN` mapping for 8 statuses
+- Added `blocked_reason` tooltip on job dots
+- Updated feature query to include `blocked_reason`
 
-### Fix 4 (P1): RLS INSERT policies
-- Created `supabase/migrations/024_setup_insert_policies.sql`
-- `authenticated_insert_company`: any authenticated user can create a company
-- `authenticated_insert_own_project`: scoped by JWT company_id claim
+## Design Decisions
+1. **Blocked flow via Slack threads**: Reuses existing Slack infrastructure. Agent posts question → human replies in thread → `slack-events` function detects reply and unblocks via orchestrator broadcast.
+2. **Code review as a job**: Review is modeled as a separate `review` job type, not inline logic. This means reviews consume a slot and are visible on the dashboard.
+3. **P0 severity gate**: Only P0 findings from code review cause re-queue of the original job. P1-P3 findings are logged but the job still completes.
+4. **V1 handleJobUnblocked**: The executor logs the unblock but doesn't inject text into the tmux session. The agent reads the answer from DB context on its next iteration.
 
-### Fix 5 (P2): Capture project ID + machine.yaml
-- Project insert now captures returned `id` via `.select("id").single()`
-- After project creation, writes `~/.zazigv2/machine.yaml` using existing `saveConfig()` from `config.ts`
-- Uses `os.hostname()` for machine name, defaults to 1 claude_code slot
-
-## Files Changed
-- `packages/cli/src/lib/credentials.ts` — added `getValidCredentials()` export
-- `packages/cli/src/commands/setup.ts` — all fixes applied (imports, invite removal, URL validation, project ID capture, machine config)
-- `supabase/migrations/024_setup_insert_policies.sql` — **New**: INSERT policies for companies + projects
-
-## Token Usage
-- Token budget: claude-ok (wrote code directly)
-
----
-
-# CPO Report — Test Environment Recipes & Slack Testing Loop (PR #62)
-
-CARD: test-environment-recipes
-FILES: packages/shared/src/test-recipe.ts, packages/shared/src/messages.ts, packages/shared/src/validators.ts, packages/shared/src/index.ts, packages/local-agent/src/test-runner.ts, packages/local-agent/src/test-runner.test.ts, packages/local-agent/src/connection.ts, packages/local-agent/src/index.ts, supabase/functions/orchestrator/index.ts, supabase/functions/slack-events/index.ts, supabase/migrations/021_testing_columns.sql
-TESTS: 61 passed (local-agent), 92 passed (shared) — all green
-NOTES: Implemented test environment recipes (zazig.test.yaml) and Slack testing loop. V1 supports vercel + custom providers only.
-
----
-
-# CPO Report — Test Environment Recipes & Slack Testing Loop
-
-## Summary
-Implemented the full test environment recipe system that allows projects to define `zazig.test.yaml` for automated deploy-to-test, healthcheck, and Slack-based approve/reject workflow.
-
-## What Was Done
-
-### 1. Database Migration (021_testing_columns.sql)
-- Added `test_url`, `test_started_at`, `slack_channel`, `slack_thread_ts`, `testing_machine_id` columns to `features` table
-
-### 2. TestRecipe Schema (packages/shared/src/test-recipe.ts)
-- Defined `TestRecipe`, `TestRecipeDeploy`, `TestRecipeTeardown`, `TestRecipeHealthcheck` interfaces
-- Providers: `vercel` | `custom` (v1 scope)
-- Types: `ephemeral` | `persistent`
-
-### 3. Message Protocol (packages/shared/src/messages.ts)
-- Extended `DeployToTest` with optional `changeSummary` and `repoPath`
-- Added three new agent → orchestrator messages: `DeployComplete`, `DeployFailed`, `DeployNeedsConfig`
-- Updated `AgentMessage` discriminated union
-
-### 4. Validators (packages/shared/src/validators.ts)
-- Added `isDeployComplete`, `isDeployFailed`, `isDeployNeedsConfig` type guards
-- Updated `isAgentMessage` switch for new types
-
-### 5. Test Runner (packages/local-agent/src/test-runner.ts)
-- `TestRunner` class with injectable `SpawnFn`/`FetchFn` for testing
-- `handleDeployToTest()`: reads recipe → deploys → healthchecks → reports
-- Vercel: `doppler run --project {name} --config prd -- vercel deploy --yes`
-- Custom: `doppler run --project {name} --config prd -- bash -c {script}`
-- Healthcheck: polls `{deployUrl}{path}` until 200 or timeout
-- `runTeardown()`: runs teardown script for ephemeral envs, no-op for persistent
-- `readTestRecipe()`: reads and validates `zazig.test.yaml`
-
-### 6. Connection Fix (packages/local-agent/src/connection.ts)
-- **Bug fix**: Added missing event listeners for `deploy_to_test` and `verify_job` events
-- Previously only `message` and `start_job` events were listened to, so deploy_to_test and verify_job messages from the orchestrator would never reach handlers
-
-### 7. Local Agent Wiring (packages/local-agent/src/index.ts)
-- Replaced deploy_to_test stub with actual `TestRunner` integration
-
-### 8. Orchestrator Updates (supabase/functions/orchestrator/index.ts)
-- **Bug fix**: `promoteToTesting` was broadcasting on `company:{companyId}` channel which the local agent doesn't listen to. Fixed to pick an online machine and send on `agent:{machineName}`
-- Added `handleDeployComplete`: stores `test_url`/`test_started_at` on feature, posts Slack message with test URL and checklist, stores `slack_channel`/`slack_thread_ts` for testing loop
-- Added `handleDeployFailed`: marks feature as failed, logs event
-- Added `handleDeployNeedsConfig`: marks feature needing config, logs event
-- Added Slack helpers: `getDefaultSlackChannel`, `getSlackBotToken`, `postSlackMessage`, `parseChecklist`
-
-### 9. Slack Events Updates (supabase/functions/slack-events/index.ts)
-- Added testing thread detection: checks if message is in a thread matching a feature in `testing` status
-- Approve patterns: `approve`, `approved`, `lgtm`, `ship it`, `merge`, `✅`
-- Reject patterns: `reject`, `rejected`, `fail`, `rollback`, `❌` (captures remaining text as feedback)
-- Routes `FeatureApproved`/`FeatureRejected` to orchestrator via Realtime broadcast
-
-### 10. Tests (packages/local-agent/src/test-runner.test.ts)
-- 16 tests covering: `extractUrl`, `readTestRecipe`, `TestRunner.handleDeployToTest`, `TestRunner.runTeardown`
-- Tests for: no recipe, vercel deploy, custom deploy, deploy failure, healthcheck timeout, healthcheck pass, teardown ephemeral, skip teardown persistent
-
-## Bugs Discovered & Fixed
-1. **Channel routing mismatch**: `promoteToTesting` sent on `company:` channel but local agent only listens to `agent:{machineName}`. Fixed by picking a specific online machine.
-2. **Missing event listeners**: `connection.ts` only had `message` and `start_job` event listeners. Added `deploy_to_test` and `verify_job`.
-
-## Post-PR QA Fixes (2026-02-23)
-
-### Fix 1: Wire runTeardown into handleFeatureApproved/Rejected
-- Created `runTeardown(supabase, featureId, machineId)` in orchestrator — broadcasts `teardown_test` event to the machine's agent channel and clears `testing_machine_id` on the feature
-- Wired as fire-and-forget (`.catch()`, not awaited) at the end of both `handleFeatureApproved` and `handleFeatureRejected` (big rejection path only; small rejections return early so test env stays up)
-- Extracted `machineId` from message payload in both handlers (both `FeatureApproved` and `FeatureRejected` types include `machineId`)
-
-### Fix 2: Machine affinity — store testing_machine_id on deploy
-- Added `testing_machine_id: msg.machineId` to the feature update in `handleDeployComplete`
-- End-to-end flow: `handleDeployComplete` stores `testing_machine_id` → `slack-events` reads it when building FeatureApproved/Rejected messages → orchestrator receives `machineId` in those messages → `runTeardown` routes teardown to correct machine
-
-## Build & Tests
-- Typecheck: clean across all 4 workspaces
-- Tests: 61 passed (local-agent), 92 passed (shared) — 153 total, all green
-- Token budget: claude-ok
-
-## PR #62 Review Fixes (2026-02-23)
-
-### Fix 1: Confirm testing_machine_id in handleDeployComplete
-- Already applied in prior commit — verified `testing_machine_id: msg.machineId` present
-
-### Fix 2: Add TeardownTest protocol message + local-agent handler
-- Added `TeardownTest` interface to `messages.ts` with `type`, `protocolVersion`, `featureId`, `repoPath`
-- Added to `OrchestratorMessage` union
-- Added `isTeardownTest` validator + registered in `isOrchestratorMessage` switch
-- Updated `runTeardown` in orchestrator to fetch `project.repo_url` and build proper `TeardownTest` message with `PROTOCOL_VERSION`
-- Added `case "teardown_test":` handler in local-agent switch → calls `testRunner.runTeardown(msg.repoPath)`
-- Exported `TeardownTest` type and `isTeardownTest` validator from shared package index
-
-### Fix 3: Pass repoPath in DeployToTest broadcast
-- Added project `repo_url` fetch in `promoteToTesting` after feature fetch
-- Added `repoPath: project?.repo_url ?? undefined` to `deployMsg`
-
-### Fix 4: Add partial index on features(slack_channel, slack_thread_ts)
-- Added `CREATE INDEX IF NOT EXISTS features_slack_thread_idx` to `021_testing_columns.sql`
-- Partial index: `WHERE slack_channel IS NOT NULL AND slack_thread_ts IS NOT NULL`
-
-### Rebase
-- Rebased onto master (PRs #60, #61, #63, #64, #66 merged)
-- Resolved conflicts in `orchestrator/index.ts` (kept breakdown pipeline from master + deploy handlers from branch)
-- Resolved conflicts in `cpo-report.md`
-- Fixed type errors from `DeployToTest` interface changes (added `jobType: "feature"` to test, used `featureId ?? ""` fallback)
-- Typecheck: clean across all 4 workspaces
-
-## Token Usage
-- Budget: claude-ok (direct code changes)
-- Approach: Read-first discovery → targeted edits → single commit + rebase
+## Build
+- Typecheck: clean across all 4 workspaces (shared, local-agent, orchestrator, cli)
+- Token budget: claude-ok (direct code changes)

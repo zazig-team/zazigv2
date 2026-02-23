@@ -9,7 +9,7 @@
  *   zazig personality cpo --archetype "The Strategist"
  */
 
-import { loadCredentials } from "../lib/credentials.js";
+import { getValidCredentials } from "../lib/credentials.js";
 import { loadConfig } from "../lib/config.js";
 
 interface RoleRow {
@@ -62,7 +62,7 @@ export async function personality(args: string[]): Promise<void> {
 
   let creds;
   try {
-    creds = loadCredentials();
+    creds = await getValidCredentials();
   } catch {
     console.error("Run 'zazig login' first.");
     process.exitCode = 1;
@@ -78,9 +78,10 @@ export async function personality(args: string[]): Promise<void> {
     return;
   }
 
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
   const headers: Record<string, string> = {
-    apikey: creds.anonKey,
-    Authorization: `Bearer ${creds.serviceRoleKey}`,
+    apikey: anonKey,
+    Authorization: `Bearer ${creds.accessToken}`,
     "Content-Type": "application/json",
   };
 

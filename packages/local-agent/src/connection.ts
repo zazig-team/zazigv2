@@ -63,14 +63,19 @@ export class AgentConnection {
       },
     });
 
-    // Use service_role key for DB writes if available — bypasses RLS entirely.
-    // Falls back to anon client (which will fail on writes since anon policies were removed).
-    if (config.supabase.service_role_key) {
+    // Prefer authenticated JWT for DB writes (respects RLS with user context).
+    // Fall back to service_role key (bypasses RLS), then anon client.
+    if (config.supabase.access_token) {
+      this.dbClient = createClient(config.supabase.url, config.supabase.anon_key, {
+        global: { headers: { Authorization: `Bearer ${config.supabase.access_token}` } },
+      });
+      console.log("[local-agent] Using authenticated JWT for DB writes");
+    } else if (config.supabase.service_role_key) {
       this.dbClient = createClient(config.supabase.url, config.supabase.service_role_key);
       console.log("[local-agent] Using service_role key for DB writes");
     } else {
       this.dbClient = this.supabase;
-      console.warn("[local-agent] No SUPABASE_SERVICE_ROLE_KEY set — DB writes will use anon key (may fail)");
+      console.warn("[local-agent] No access token or service_role key set — DB writes will use anon key (may fail)");
     }
   }
 

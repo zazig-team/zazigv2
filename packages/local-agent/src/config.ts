@@ -20,6 +20,8 @@ export interface SupabaseConfig {
   anon_key: string;
   /** Service-role key for direct DB writes. Bypasses RLS. Loaded from SUPABASE_SERVICE_ROLE_KEY env var. */
   service_role_key?: string;
+  /** User access token from OAuth login. Used for authenticated DB writes (respects RLS). Loaded from SUPABASE_ACCESS_TOKEN env var. */
+  access_token?: string;
 }
 
 export interface MachineConfig {
@@ -79,6 +81,9 @@ export function loadConfig(): MachineConfig {
   // Service-role key: optional, from env var. Used for direct DB writes (bypasses RLS).
   const serviceRoleKey = process.env["SUPABASE_SERVICE_ROLE_KEY"];
 
+  // Access token: from OAuth login, passed by CLI start command. Used for authenticated DB writes.
+  const accessToken = process.env["SUPABASE_ACCESS_TOKEN"];
+
   return {
     name: parsed.name,
     company_id: parsed.company_id,
@@ -87,6 +92,7 @@ export function loadConfig(): MachineConfig {
       url: supabaseUrl,
       anon_key: anonKey,
       ...(serviceRoleKey ? { service_role_key: serviceRoleKey } : {}),
+      ...(accessToken ? { access_token: accessToken } : {}),
     },
   };
 }

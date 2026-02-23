@@ -151,12 +151,12 @@ async function handleTestingThreadMessage(
   channel: string,
   threadTs: string,
   text: string,
-  _user: string,
+  user: string,
 ): Promise<boolean> {
   // Look up features in testing that have this slack_channel + slack_thread_ts
   const { data: feature, error: featureErr } = await supabase
     .from("features")
-    .select("id")
+    .select("id, testing_machine_id")
     .eq("company_id", companyId)
     .eq("slack_channel", channel)
     .eq("slack_thread_ts", threadTs)
@@ -170,42 +170,58 @@ async function handleTestingThreadMessage(
   }
 
   const trimmed = text.trim();
+  const isApprove = APPROVE_PATTERNS.test(trimmed);
+  const isReject = REJECT_PATTERNS.test(trimmed);
 
-  if (APPROVE_PATTERNS.test(trimmed)) {
-    console.log(`[slack-events] Testing thread approve for feature ${feature.id}`);
+  if (!isApprove && !isReject) {
+    // Message in testing thread but not approve/reject — don't consume it
+    return false;
+  }
+
+  // Authorization gate: only authorized approvers can approve/reject
+  const authorizedApprovers = (Deno.env.get("AUTHORIZED_APPROVERS") || "").split(",").filter(Boolean);
+  if (authorizedApprovers.length === 0) {
+    // Fail-closed: no approvers configured means no approvals allowed
+    console.warn(`[slack-events] AUTHORIZED_APPROVERS not configured — rejecting approve/reject from user ${user}`);
+    return false;
+  }
+  if (!authorizedApprovers.includes(user)) {
+    console.log(`[slack-events] Unauthorized approve/reject from user ${user}`);
+    return false;
+  }
+
+  const machineId = feature.testing_machine_id ?? null;
+
+  if (isApprove) {
+    console.log(`[slack-events] Testing thread approve for feature ${feature.id} by user ${user}`);
 
     const msg: FeatureApproved = {
       type: "feature_approved",
       protocolVersion: PROTOCOL_VERSION,
       featureId: feature.id,
-      machineId: "slack", // Source is Slack, not a machine
+      machineId,
     };
 
     await broadcastToOrchestrator(supabase, msg);
     return true;
   }
 
-  if (REJECT_PATTERNS.test(trimmed)) {
-    // Extract feedback — everything after the reject keyword
-    const feedback = trimmed.replace(REJECT_PATTERNS, "").trim() || "Rejected via Slack (no details provided)";
+  // Extract feedback — everything after the reject keyword
+  const feedback = trimmed.replace(REJECT_PATTERNS, "").trim() || "Rejected via Slack (no details provided)";
 
-    console.log(`[slack-events] Testing thread reject for feature ${feature.id}: ${feedback}`);
+  console.log(`[slack-events] Testing thread reject for feature ${feature.id} by user ${user}: ${feedback}`);
 
-    const msg: FeatureRejected = {
-      type: "feature_rejected",
-      protocolVersion: PROTOCOL_VERSION,
-      featureId: feature.id,
-      feedback,
-      severity: "big",
-      machineId: "slack",
-    };
+  const msg: FeatureRejected = {
+    type: "feature_rejected",
+    protocolVersion: PROTOCOL_VERSION,
+    featureId: feature.id,
+    feedback,
+    severity: "big",
+    machineId,
+  };
 
-    await broadcastToOrchestrator(supabase, msg);
-    return true;
-  }
-
-  // Message in testing thread but not approve/reject — don't consume it
-  return false;
+  await broadcastToOrchestrator(supabase, msg);
+  return true;
 }
 
 async function broadcastToOrchestrator(

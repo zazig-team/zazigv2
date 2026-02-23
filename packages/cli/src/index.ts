@@ -7,14 +7,12 @@
  *
  * Usage:
  *   zazig login
- *   zazig join <company>
  *   zazig start
  *   zazig stop
  *   zazig status
  */
 
 import { login } from "./commands/login.js";
-import { join } from "./commands/join.js";
 import { start } from "./commands/start.js";
 import { stop } from "./commands/stop.js";
 import { status } from "./commands/status.js";
@@ -25,10 +23,6 @@ const [, , cmd, ...args] = process.argv;
 switch (cmd) {
   case "login":
     await login();
-    break;
-
-  case "join":
-    await join(args[0]);
     break;
 
   case "start":
@@ -54,8 +48,7 @@ switch (cmd) {
     console.log("Usage: zazig <command>");
     console.log("");
     console.log("Commands:");
-    console.log("  login              Authenticate and store Supabase credentials");
-    console.log("  join <company>     Connect this machine to a company pipeline");
+    console.log("  login              Log in to zazig via browser");
     console.log("  start              Start the local agent daemon in the background");
     console.log("  stop               Stop the running daemon");
     console.log("  status             Show agent state and active jobs");

@@ -9,7 +9,7 @@
  *   5. Exits — the daemon continues running independently.
  */
 
-import { loadCredentials } from "../lib/credentials.js";
+import { getValidCredentials } from "../lib/credentials.js";
 import { configExists } from "../lib/config.js";
 import {
   isDaemonRunning,
@@ -24,10 +24,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 export async function start(): Promise<void> {
-  // Require credentials
+  // Require credentials (auto-refreshes expired token)
   let creds;
   try {
-    creds = loadCredentials();
+    creds = await getValidCredentials();
   } catch {
     console.error("Not logged in. Run 'zazig login' first.");
     process.exitCode = 1;
@@ -36,7 +36,7 @@ export async function start(): Promise<void> {
 
   // Require machine config
   if (!configExists()) {
-    console.error("No machine config. Run 'zazig join <company>' first.");
+    console.error("No machine config. Create ~/.zazigv2/machine.yaml first.");
     process.exitCode = 1;
     return;
   }
@@ -53,10 +53,7 @@ export async function start(): Promise<void> {
   // machine.yaml is read by the local-agent at startup.
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    SUPABASE_ANON_KEY: creds.anonKey,
-    SUPABASE_SERVICE_ROLE_KEY: creds.serviceRoleKey,
-    // SUPABASE_URL: already in machine.yaml supabase.url; local-agent reads it from there.
-    // Setting it here too avoids any env-vs-yaml ambiguity.
+    SUPABASE_ACCESS_TOKEN: creds.accessToken,
     SUPABASE_URL: creds.supabaseUrl,
   };
 

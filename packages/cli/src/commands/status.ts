@@ -6,7 +6,7 @@
  */
 
 import { readPid, isDaemonRunning } from "../lib/daemon.js";
-import { loadCredentials } from "../lib/credentials.js";
+import { getValidCredentials } from "../lib/credentials.js";
 import { loadConfig } from "../lib/config.js";
 
 type Row = Record<string, unknown>;
@@ -32,7 +32,7 @@ export async function status(): Promise<void> {
   // Best-effort live state from Supabase — never fatal if this fails
   let creds;
   try {
-    creds = loadCredentials();
+    creds = await getValidCredentials();
   } catch {
     return; // No credentials — can't query Supabase
   }
@@ -44,9 +44,10 @@ export async function status(): Promise<void> {
     return; // No machine config — can't query Supabase
   }
 
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
   const headers: Record<string, string> = {
-    apikey: creds.anonKey,
-    Authorization: `Bearer ${creds.serviceRoleKey}`,
+    apikey: anonKey,
+    Authorization: `Bearer ${creds.accessToken}`,
   };
 
   try {

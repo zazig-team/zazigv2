@@ -9,7 +9,7 @@ vi.mock("./branches.js", () => ({
 }));
 
 import { rebaseOnBranch, mergeJobIntoFeature } from "./branches.js";
-import { JobVerifier, type ExecFn } from "./verifier.js";
+import { JobVerifier, type ExecFn, parseVerifyReport } from "./verifier.js";
 import type { SendFn } from "./executor.js";
 
 const mockedRebase = vi.mocked(rebaseOnBranch);
@@ -37,7 +37,7 @@ describe("JobVerifier", () => {
     vi.clearAllMocks();
     send = vi.fn().mockResolvedValue(undefined);
     exec = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
-    verifier = new JobVerifier("machine-1", send as unknown as SendFn, exec as unknown as ExecFn);
+    verifier = new JobVerifier("machine-1", send as unknown as SendFn, undefined, exec as unknown as ExecFn);
   });
 
   it("sends passing VerifyResult when all steps succeed", async () => {
@@ -211,5 +211,38 @@ describe("JobVerifier", () => {
       "job/api-endpoint",
       "feature/auth",
     );
+  });
+});
+
+describe("parseVerifyReport", () => {
+  it("returns null for empty content", () => {
+    expect(parseVerifyReport("")).toBeNull();
+  });
+
+  it("returns null when no status line", () => {
+    expect(parseVerifyReport("some random text\nno status here")).toBeNull();
+  });
+
+  it("parses pass status", () => {
+    const content = "# Verify Report\nstatus: pass\nchecks:\n  tests: pass";
+    expect(parseVerifyReport(content)).toEqual({ status: "pass", failureReason: undefined });
+  });
+
+  it("parses fail status with failure_reason", () => {
+    const content = "status: fail\nfailure_reason: Tests failed — 3 assertions";
+    expect(parseVerifyReport(content)).toEqual({
+      status: "fail",
+      failureReason: "Tests failed — 3 assertions",
+    });
+  });
+
+  it("parses fail status without failure_reason", () => {
+    const content = "status: fail\nchecks:\n  tests: fail";
+    expect(parseVerifyReport(content)).toEqual({ status: "fail", failureReason: undefined });
+  });
+
+  it("ignores extra whitespace around status value", () => {
+    const content = "status: pass  \n";
+    expect(parseVerifyReport(content)).toEqual({ status: "pass", failureReason: undefined });
   });
 });

@@ -42,10 +42,12 @@ async function main(): Promise<void> {
   // and uses it for authenticated DB writes. No explicit authenticate() call needed.
   const conn = new AgentConnection(config, slots);
 
-  // Initialize job verifier — handles VerifyJob messages inline
+  // Initialize job verifier — handles VerifyJob messages via role-driven Claude session
+  // conn.dbClient passed so the verifier can load the reviewer role prompt from the DB
   const verifier = new JobVerifier(
     config.name,
     (msg) => conn.sendMessage(msg),
+    conn.dbClient,
   );
 
   // Initialize job executor — passes messages back to orchestrator via conn.sendMessage

@@ -1372,6 +1372,103 @@ export async function handleFeatureRejected(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Feature → Breakdown pipeline (Tech Lead)
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a breakdown job for an approved feature.
+ *
+ * Idempotent: skips if a non-terminal breakdown job already exists for this feature.
+ * On success, transitions the feature from 'approved' → 'building'.
+ */
+export async function triggerBreakdown(supabase: SupabaseClient, featureId: string): Promise<void> {
+  // 1. Fetch feature for company/project context
+  const { data: feature, error } = await supabase
+    .from("features")
+    .select("company_id, project_id, title, spec, acceptance_tests")
+    .eq("id", featureId)
+    .single();
+
+  if (error || !feature) {
+    console.error(`[orchestrator] triggerBreakdown: feature ${featureId} not found`);
+    return;
+  }
+
+  // 2. Check no active breakdown job already exists (idempotency)
+  const { data: existing } = await supabase
+    .from("jobs")
+    .select("id, status")
+    .eq("feature_id", featureId)
+    .eq("job_type", "breakdown")
+    .not("status", "in", '("done","failed","cancelled")')
+    .maybeSingle();
+
+  if (existing) {
+    console.log(`[orchestrator] triggerBreakdown: breakdown job ${existing.id} already exists for feature ${featureId}, skipping`);
+    return;
+  }
+
+  // 3. Insert breakdown job
+  const { data: job, error: insertErr } = await supabase
+    .from("jobs")
+    .insert({
+      company_id: feature.company_id,
+      project_id: feature.project_id,
+      feature_id: featureId,
+      role: "tech-lead",
+      job_type: "breakdown",
+      status: "queued",
+      context: JSON.stringify({
+        type: "breakdown",
+        featureId,
+        title: feature.title,
+        spec: feature.spec,
+        acceptance_tests: feature.acceptance_tests,
+      }),
+    })
+    .select("id")
+    .single();
+
+  if (insertErr || !job) {
+    console.error(`[orchestrator] Failed to insert breakdown job for feature ${featureId}:`, insertErr?.message);
+    return;
+  }
+
+  // 4. Update feature status to 'building' (breakdown is in progress)
+  await supabase
+    .from("features")
+    .update({ status: "building" })
+    .eq("id", featureId)
+    .eq("status", "approved"); // CAS guard
+
+  console.log(`[orchestrator] Created breakdown job ${job.id} for feature ${featureId}`);
+}
+
+/**
+ * Polls for features with status='approved' and triggers breakdown jobs for each.
+ * Runs once per orchestrator invocation (every ~10 s).
+ */
+async function processApprovedFeatures(supabase: SupabaseClient): Promise<void> {
+  const { data: features, error } = await supabase
+    .from("features")
+    .select("id")
+    .eq("status", "approved");
+
+  if (error) {
+    console.error("[orchestrator] Error querying approved features:", error.message);
+    return;
+  }
+
+  if (!features || features.length === 0) return;
+
+  console.log(`[orchestrator] ${features.length} approved feature(s) to process.`);
+
+  for (const feature of features as { id: string }[]) {
+    await triggerBreakdown(supabase, feature.id);
+  }
+}
+
 /**
  * Releases one slot of the appropriate type on a machine.
  * Fetches the current job record to determine slot_type, then increments the machine counter.
@@ -1506,7 +1603,10 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 2. Reap dead machines and re-queue their jobs.
     await reapDeadMachines(supabase);
 
-    // 3. Dispatch queued jobs to available machines.
+    // 3. Process approved features → create breakdown jobs.
+    await processApprovedFeatures(supabase);
+
+    // 4. Dispatch queued jobs to available machines.
     await dispatchQueuedJobs(supabase);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

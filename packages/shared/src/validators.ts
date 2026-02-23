@@ -22,6 +22,7 @@ import type {
   HealthCheck,
   VerifyJob,
   DeployToTest,
+  TeardownTest,
   MessageInbound,
   Heartbeat,
   JobStatusMessage,
@@ -147,6 +148,14 @@ export function isDeployToTest(v: unknown): v is DeployToTest {
   return true;
 }
 
+export function isTeardownTest(v: unknown): v is TeardownTest {
+  if (!isObject(v) || v.type !== "teardown_test") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!isString(v.repoPath) || v.repoPath.length === 0) return false;
+  return true;
+}
+
 export function isMessageInbound(v: unknown): v is MessageInbound {
   if (!isObject(v) || v.type !== "message_inbound") return false;
   if (!hasValidProtocolVersion(v)) return false;
@@ -164,6 +173,7 @@ export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
     case "health_check":    return isHealthCheck(v);
     case "verify_job":      return isVerifyJob(v);
     case "deploy_to_test":    return isDeployToTest(v);
+    case "teardown_test":     return isTeardownTest(v);
     case "message_inbound":   return isMessageInbound(v);
     default:                  return false;
   }

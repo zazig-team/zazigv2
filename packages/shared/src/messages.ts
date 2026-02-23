@@ -240,6 +240,20 @@ export interface DeployToTest {
 }
 
 /**
+ * Tells the local agent to run teardown for a test environment.
+ * Sent by the orchestrator after feature approval or rejection.
+ */
+export interface TeardownTest {
+  type: "teardown_test";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** Feature that was approved/rejected — used for logging. */
+  featureId: string;
+  /** Absolute path to the repository on disk (needed to find zazig.test.yaml). */
+  repoPath: string;
+}
+
+/**
  * Delivers an inbound message from an external platform (Slack, Discord, etc.)
  * to the local agent for injection into the running agent's tmux session.
  * The conversationId is opaque to the agent — it must be echoed back in any
@@ -259,7 +273,7 @@ export interface MessageInbound {
 }
 
 /** Union of all messages the orchestrator sends to a local agent. */
-export type OrchestratorMessage = StartJob | StopJob | HealthCheck | VerifyJob | DeployToTest | MessageInbound;
+export type OrchestratorMessage = StartJob | StopJob | HealthCheck | VerifyJob | DeployToTest | TeardownTest | MessageInbound;
 
 // ---------------------------------------------------------------------------
 // Local Agent → Orchestrator messages

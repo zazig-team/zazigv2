@@ -79,7 +79,7 @@ export class TestRunner {
    */
   async handleDeployToTest(msg: DeployToTest): Promise<void> {
     const repoPath = msg.repoPath ?? process.cwd();
-    const { featureId } = msg;
+    const featureId = msg.featureId ?? "";
 
     // 1. Read recipe
     const recipe = readTestRecipe(repoPath);

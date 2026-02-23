@@ -43,6 +43,7 @@ import type {
   JobFailed,
   VerifyResult,
   DeployToTest,
+  TeardownTest,
   FeatureApproved,
   FeatureRejected,
   DeployComplete,
@@ -1179,6 +1180,12 @@ async function promoteToTesting(supabase: SupabaseClient, featureId: string): Pr
 
   const targetMachine = machines[0];
 
+  const { data: project } = await supabase
+    .from("projects")
+    .select("repo_url")
+    .eq("id", feature.project_id)
+    .single();
+
   const deployMsg: DeployToTest = {
     type: "deploy_to_test",
     protocolVersion: PROTOCOL_VERSION,
@@ -1186,6 +1193,7 @@ async function promoteToTesting(supabase: SupabaseClient, featureId: string): Pr
     jobType: "feature",
     featureBranch: feature.branch,
     projectId: feature.project_id,
+    repoPath: project?.repo_url ?? undefined,
   };
 
   const channel = supabase.channel(`agent:${targetMachine.name}`);
@@ -1216,6 +1224,23 @@ async function runTeardown(
     return;
   }
 
+  // Fetch feature's project_id to look up repo_url
+  const { data: feat } = await supabase
+    .from("features")
+    .select("project_id")
+    .eq("id", featureId)
+    .single();
+
+  let repoPath = "";
+  if (feat?.project_id) {
+    const { data: project } = await supabase
+      .from("projects")
+      .select("repo_url")
+      .eq("id", feat.project_id)
+      .single();
+    repoPath = project?.repo_url ?? "";
+  }
+
   // Clear testing_machine_id on the feature
   await supabase
     .from("features")
@@ -1223,6 +1248,12 @@ async function runTeardown(
     .eq("id", featureId);
 
   // Broadcast teardown command to the machine's agent channel
+  const teardownMsg: TeardownTest = {
+    type: "teardown_test",
+    protocolVersion: PROTOCOL_VERSION,
+    featureId,
+    repoPath,
+  };
   const channel = supabase.channel(`agent:${machineId}`);
   await new Promise<void>((resolve) => {
     channel.subscribe(async (status) => {
@@ -1230,7 +1261,7 @@ async function runTeardown(
         await channel.send({
           type: "broadcast",
           event: "teardown_test",
-          payload: { featureId },
+          payload: teardownMsg,
         });
         await channel.unsubscribe();
         resolve();

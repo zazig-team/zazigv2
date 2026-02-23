@@ -15,3 +15,8 @@ COMMENT ON COLUMN public.features.test_started_at IS 'When the feature entered t
 COMMENT ON COLUMN public.features.slack_channel IS 'Slack channel ID where the testing thread lives';
 COMMENT ON COLUMN public.features.slack_thread_ts IS 'Slack thread timestamp for the testing conversation';
 COMMENT ON COLUMN public.features.testing_machine_id IS 'Machine ID that deployed the test environment (set by deploy_complete handler, used for teardown routing)';
+
+-- Index for Slack testing thread lookup — queried on every incoming Slack message
+CREATE INDEX IF NOT EXISTS features_slack_thread_idx
+    ON public.features(slack_channel, slack_thread_ts)
+    WHERE slack_channel IS NOT NULL AND slack_thread_ts IS NOT NULL;

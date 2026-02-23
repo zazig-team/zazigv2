@@ -16,6 +16,7 @@ function makeDeployMsg(overrides: Partial<DeployToTest> = {}): DeployToTest {
     type: "deploy_to_test",
     protocolVersion: PROTOCOL_VERSION,
     featureId: "feat-123",
+    jobType: "feature",
     featureBranch: "feat/my-feature",
     projectId: "proj-abc",
     ...overrides,

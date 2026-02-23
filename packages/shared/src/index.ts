@@ -19,6 +19,7 @@ export type {
   HealthCheck,
   VerifyJob,
   DeployToTest,
+  TeardownTest,
   MessageInbound,
   OrchestratorMessage,
   // Local Agent → Orchestrator messages
@@ -145,6 +146,7 @@ export {
   isHealthCheck,
   isVerifyJob,
   isDeployToTest,
+  isTeardownTest,
   isMessageInbound,
   isHeartbeat,
   isJobStatusMessage,

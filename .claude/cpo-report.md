@@ -183,6 +183,34 @@ Implemented the full test environment recipe system that allows projects to defi
 - Tests: 61 passed (local-agent), 92 passed (shared) — 153 total, all green
 - Token budget: claude-ok
 
+## PR #62 Review Fixes (2026-02-23)
+
+### Fix 1: Confirm testing_machine_id in handleDeployComplete
+- Already applied in prior commit — verified `testing_machine_id: msg.machineId` present
+
+### Fix 2: Add TeardownTest protocol message + local-agent handler
+- Added `TeardownTest` interface to `messages.ts` with `type`, `protocolVersion`, `featureId`, `repoPath`
+- Added to `OrchestratorMessage` union
+- Added `isTeardownTest` validator + registered in `isOrchestratorMessage` switch
+- Updated `runTeardown` in orchestrator to fetch `project.repo_url` and build proper `TeardownTest` message with `PROTOCOL_VERSION`
+- Added `case "teardown_test":` handler in local-agent switch → calls `testRunner.runTeardown(msg.repoPath)`
+- Exported `TeardownTest` type and `isTeardownTest` validator from shared package index
+
+### Fix 3: Pass repoPath in DeployToTest broadcast
+- Added project `repo_url` fetch in `promoteToTesting` after feature fetch
+- Added `repoPath: project?.repo_url ?? undefined` to `deployMsg`
+
+### Fix 4: Add partial index on features(slack_channel, slack_thread_ts)
+- Added `CREATE INDEX IF NOT EXISTS features_slack_thread_idx` to `021_testing_columns.sql`
+- Partial index: `WHERE slack_channel IS NOT NULL AND slack_thread_ts IS NOT NULL`
+
+### Rebase
+- Rebased onto master (PRs #60, #61, #63, #64, #66 merged)
+- Resolved conflicts in `orchestrator/index.ts` (kept breakdown pipeline from master + deploy handlers from branch)
+- Resolved conflicts in `cpo-report.md`
+- Fixed type errors from `DeployToTest` interface changes (added `jobType: "feature"` to test, used `featureId ?? ""` fallback)
+- Typecheck: clean across all 4 workspaces
+
 ## Token Usage
 - Budget: claude-ok (direct code changes)
-- Approach: Read-first discovery → targeted edits → single commit
+- Approach: Read-first discovery → targeted edits → single commit + rebase

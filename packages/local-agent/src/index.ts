@@ -109,6 +109,13 @@ async function main(): Promise<void> {
         executor.handleMessageInbound(msg as MessageInbound);
         break;
 
+      case "teardown_test":
+        console.log(
+          `[local-agent] Received teardown_test — featureId=${msg.featureId}`
+        );
+        void testRunner.runTeardown(msg.repoPath);
+        break;
+
       default: {
         // Exhaustiveness guard — TypeScript ensures this branch is unreachable
         // if all OrchestratorMessage variants are handled above.

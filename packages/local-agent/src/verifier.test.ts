@@ -37,7 +37,7 @@ describe("JobVerifier", () => {
     vi.clearAllMocks();
     send = vi.fn().mockResolvedValue(undefined);
     exec = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
-    verifier = new JobVerifier("machine-1", send as unknown as SendFn, exec as unknown as ExecFn);
+    verifier = new JobVerifier("machine-1", send as unknown as SendFn, undefined, exec as unknown as ExecFn);
   });
 
   it("sends passing VerifyResult when all steps succeed", async () => {

@@ -1,59 +1,81 @@
 STATUS: COMPLETE
-CARD: 69985e7b60c9758f87e8d648
-FILES: packages/shared/src/messages.ts, packages/shared/src/validators.ts, supabase/functions/_shared/messages.ts, packages/local-agent/src/executor.ts
-TESTS: 9 passed
-NOTES: Added subAgentPrompt field to StartJob interface with same size constraints as personalityPrompt. assembleContext writes the prompt to ~/.zazigv2/job-{jobId}/subagent-personality.md and injects a forwarding instruction into the primary agent context. Workspace cleaned up on job complete, timeout, and stop. Existing personalityPrompt handling unchanged.
+CARD: 699b906c5c4cb4af3dea67c4
+FILES: dashboard/index.html, supabase/functions/orchestrator/index.ts, supabase/migrations/019_add_title_to_jobs.sql
 
 ---
 
-# CPO Report — Local Agent: Handle MessageInbound, Create Workspace, Remove SlackChatRouter
+# CPO Report — Dashboard Card Redesign (Trello-style)
 
 ## Summary
-Updated the local agent (Wave 3) to:
-1. Handle `MessageInbound` events by injecting them into the CPO's tmux session with queue + idle detection
-2. Create an agent workspace (`~/.zazigv2/cpo-workspace/`) with `.mcp.json` so the CPO can use the zazig-messaging MCP server
-3. Remove `SlackChatRouter` (replaced by backend Slack integration via Edge Functions)
+Redesigned the pipeline dashboard from noisy data dumps to clean, Trello-style scannable cards with click-to-expand progressive disclosure. Added title generation for jobs via Claude Haiku API.
+
+## What Was Done
+
+### 1. Migration (019_add_title_to_jobs.sql)
+- Added `title VARCHAR(120)` column to `jobs` table
+- `features` table already had a `title` column from 003_multi_tenant_schema.sql — no change needed
+
+### 2. Orchestrator Title Generation
+- Added `generateTitle()` function that calls Claude Haiku (`claude-haiku-4-5-20251001`) to generate 3-8 word human-readable titles from job context
+- Strips UUIDs from context before sending to LLM, limits to 500 chars
+- Uses `ANTHROPIC_API_KEY` from environment (Doppler `zazig/prd`)
+- Integrated at both job creation points: `triggerFeatureVerification()` and `handleFeatureRejected()`
+- Graceful fallback: returns empty string if API key missing or call fails
+
+### 3. Dashboard Redesign
+**Card face (compact):**
+- Shows feature title (using `feature.title` column, fallback to spec first line, then "Untitled feature")
+- Job titles use `job.title` column, fallback to parsed context type, then truncated context
+- Meta line shows job progress count ("3/5 done") and active job count
+- No raw UUIDs or JSON visible on board view
+
+**Progress bar:**
+- ONLY shown when a job is actively in `executing` or `reviewing` status
+- Hidden for queued, dispatched, waiting, complete, failed, and all other statuses
+- Animated shimmer effect on active bars
+
+**Click-to-expand detail panel:**
+- Side panel (replaces old bottom sheet) with 480px width
+- Feature detail view: title, status, branch, timestamps, job list, spec, acceptance tests
+- Job detail view: title, status, model, progress, timestamps, context (pretty-printed JSON), raw log
+- Navigation: click job in feature detail → job detail with back button
+- Live polling (5s) for active jobs; frozen for terminal states
+
+**Standalone jobs:**
+- Separate query for `feature_id IS NULL` jobs
+- Mapped to board columns by job status (executing→Building, reviewing→Verifying, etc.)
+- Rendered as top-level cards with "standalone" badge
+- Clickable to open job detail
+
+**Kanban layout preserved:** Design → Building → Testing → Verifying → Done
 
 ## Files Changed
-- `packages/local-agent/src/executor.ts` — Added `handleMessageInbound()`, message queue + idle detection, workspace creation in `handleStartCpo()`, removed all `SlackChatRouter` references
-- `packages/local-agent/src/index.ts` — Wired `message_inbound` case to `executor.handleMessageInbound()`, updated executor constructor call with supabase URL/anon key
-- `packages/local-agent/src/executor.test.ts` — Updated constructor calls to match new signature, added `writeFileSync`/`rmSync` to fs mock
-- `packages/local-agent/src/slack-chat.ts` — **Deleted**
-- `packages/local-agent/package.json` — Removed `@slack/bolt` dependency
+1. `supabase/migrations/019_add_title_to_jobs.sql` — New migration adding title column to jobs
+2. `supabase/functions/orchestrator/index.ts` — Added `ANTHROPIC_API_KEY` env var, `generateTitle()` function, title generation at job creation
+3. `dashboard/index.html` — Complete card redesign: compact Trello-style cards, click-to-expand side panel, standalone jobs support, progress bar only for active jobs
 
-## Implementation Details
+## Migration Number
+019
 
-### handleMessageInbound (executor.ts)
-- Public method that checks if CPO job is running, formats the message as `[Message from {from}, conversation:{conversationId}]\n{text}`, and enqueues it
-- Messages are processed sequentially through a queue — each waits for CPO idle before injecting
-- Idle detection ported from `SlackChatRouter.isCpoIdle()`: captures tmux pane, scans for prompt markers (`❯`, `>`, `$`, `%`)
-- Polls every 5s for up to 5min; drops message if CPO doesn't become idle
-- Injection uses `tmux send-keys -l` (literal) + separate `Enter` keystroke, matching the proven pattern from SlackChatRouter
-- Newlines normalized to spaces to prevent premature entry
+## Manual Test Steps
 
-### Agent Workspace (handleStartCpo)
-- Creates `~/.zazigv2/cpo-workspace/` with `recursive: true`
-- Resolves agent-mcp-server.js path relative to compiled dist/ directory using `import.meta.url`
-- Writes `.mcp.json` with zazig-messaging MCP server config including `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `ZAZIG_JOB_ID` env vars
-- Passes workspace dir to `spawnPersistentCpoSession()` via new `-c` tmux flag
+**Before (old behavior):**
+- Cards showed raw UUIDs or first 50 chars of JSON context as labels
+- Job rows showed truncated `{"type":"feature_verification",...}` noise
+- Everything visible at once — no progressive disclosure
+- Progress bars shown for queued/dispatched jobs (not yet working)
+- No standalone jobs visible
 
-### SlackChatRouter Removal
-- Deleted `slack-chat.ts` entirely
-- Removed `cpoRouter` field and all router start/stop/cleanup code from executor
-- Kept `cpoJobId` field (needed for message routing)
-- Removed `@slack/bolt` from package.json dependencies
-- Removed Slack channels fetch from `handleStartCpo()` (no longer needed)
-
-### Constructor Change
-- Added `supabaseUrl` and `supabaseAnonKey` params to `JobExecutor` constructor (needed for .mcp.json env vars)
-- Updated test file to pass the new params
-
-## Tests
-- **134 tests passing** (all local-agent + shared tests)
-- 1 pre-existing failure: `supabase/functions/orchestrator/orchestrator.test.ts` — Deno-style imports incompatible with Node vitest (not related to this change)
-
-## Build
-- `tsc` build succeeds with no errors
+**After (new behavior):**
+1. Open dashboard — cards show clean titles with job count meta ("3/5 done")
+2. Progress bars ONLY appear on cards with executing/reviewing jobs (animated shimmer)
+3. Queued/completed cards have NO progress bar
+4. Click any feature card → side panel opens showing metadata + job list + spec
+5. Click a job row in the detail panel → switches to job detail with log, context, timestamps
+6. Click "← Back" to return to feature detail
+7. Standalone jobs (no feature) appear in relevant columns with "standalone" badge
+8. Press Escape or click backdrop to close detail panel
+9. No raw UUIDs or JSON visible anywhere on the board
 
 ## Token Usage
 - Token budget: claude-ok (wrote code directly)

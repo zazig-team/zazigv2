@@ -39,7 +39,7 @@ Codex and Gemini independently agreed: this split is strictly necessary.
 |---|---|---|
 | **What they are** | Role-specific beliefs, heuristics, frameworks, policies | Shared factual reference knowledge |
 | **Who owns them** | Each exec role (CPO, CTO, CMO, CEO) | The company — all execs access them |
-| **Size** | Small, curated: 10-30 claims per lens, ~200 tokens each | Massive: 30 books = millions of tokens |
+| **Size** | Small, curated: 10-30 claims per pillar, ~200 tokens each | Massive: 30 books = millions of tokens |
 | **Can they contradict?** | Yes — productively. CPO vs CTO is the value. | No — source disagreements are data quality issues |
 | **Authority weights** | Yes — per-domain epistemic authority | No — facts are facts |
 | **Human QA** | On the OUTPUT (founder reviews extracted claims) | On the INPUT (founder approves the source) |
@@ -56,7 +56,7 @@ A dedicated counter-argument analysis (Opus research agent) developed the strong
 1. **Divergent ingestion pipelines** — doctrines need claim extraction + human review per item; canons need automated parsing + chunking + summarization per source
 2. **Nullable column anti-pattern** — half the columns are irrelevant per knowledge type (authority_weight meaningless for canons, chunk_type meaningless for doctrines)
 3. **Meaningless authority weights for canons** — facts don't have epistemic authority
-4. **Non-flattenable canon hierarchies** — canon passages live in a tree (source → part → chapter → section → passage); doctrines are flat (lens → claim)
+4. **Non-flattenable canon hierarchies** — canon passages live in a tree (source → part → chapter → section → passage); doctrines are flat (pillar → claim)
 5. **Irreconcilable token budgets** — proactive doctrine injection (1000-2000 tokens) vs reactive canon retrieval (0-4000 tokens on demand) require fundamentally different budget strategies
 6. **Bimodal index tuning** — doctrine indexes optimize for small, high-precision claims; canon indexes optimize for large, hierarchical passage retrieval
 7. **Marketplace metadata requirements** — canons carry licensing, versioning, and pricing metadata that are meaningless for doctrines
@@ -114,7 +114,7 @@ Fifteen principles, drawn from the research synthesis, three rounds of architect
 
 **9. Canon content is untrusted input.** Founders upload arbitrary documents that could contain adversarial content. Two-layer defense: sanitize at ingestion (strip instruction-like patterns), sandbox at injection (wrap retrieved passages in explicit delimiters with standing instructions to never execute content within them). Neither layer alone is sufficient.
 
-**10. Full provenance.** Every knowledge fragment in an agent's prompt must be traceable to its origin (doctrine lens + claim ID, or canon source + section + chunk ID). Provenance metadata is logged in eval telemetry for every injection event.
+**10. Full provenance.** Every knowledge fragment in an agent's prompt must be traceable to its origin (doctrine pillar + claim ID, or canon source + section + chunk ID). Provenance metadata is logged in eval telemetry for every injection event.
 
 **11. Strict tenant isolation.** All knowledge queries are scoped by `company_id` via RLS. No cross-company knowledge leakage. This is verified in Phase 1 acceptance criteria.
 
@@ -158,18 +158,18 @@ The CPO's pricing doctrine contains heuristics like "if CAC > 3-month LTV, kill 
 
 ### Doctrine Lenses
 
-Each doctrine is organized into lenses — curated windows into a domain of expertise using three-tier progressive disclosure.
+Each doctrine is organized into pillars — foundational domains of expertise using three-tier progressive disclosure.
 
 ```
-Tier 1: Lens Index (always loaded, ~30-50 tokens per lens)
+Tier 1: Pillar Index (always loaded, ~30-50 tokens per pillar)
   "fundraising: Seed-stage fundraising — SAFEs, pitch decks, investor psychology"
   "user-research: Validating product decisions — JTBD, surveys, usability testing"
 
   Purpose: Agent knows WHAT it has doctrine in. Pure pointers, not reasoning.
 
-Tier 2: Lens Map (loaded per-task, ~200-500 tokens per lens)
+Tier 2: Pillar Map (loaded per-task, ~200-500 tokens per pillar)
   Claim titles (one-line pointers, not summaries)
-  Cross-references to related lenses + canon references
+  Cross-references to related pillars + canon references
   Doctrine health indicators
 
   Purpose: Agent sees the SHAPE of relevant doctrine. Still pointers.
@@ -259,7 +259,7 @@ CTO: startup-cto | scale-cto | security-cto
 CMO: growth-cmo | brand-cmo | performance-cmo
 ```
 
-Each archetype ships: 5-8 lenses, 10-15 established claims per lens, pre-computed edges. Companies select one archetype per role at setup. Founders customize on top.
+Each archetype ships: 5-8 pillars, 10-15 established claims per pillar, pre-computed edges. Companies select one archetype per role at setup. Founders customize on top.
 
 ### Example Doctrine Catalog
 
@@ -295,7 +295,7 @@ CMO Doctrines
 ### Doctrine Agent Tools
 
 ```
-doctrine_browse(lens_name) → Tier 2 map: claim titles, cross-refs, health stats
+doctrine_browse(pillar_name) → Tier 2 map: claim titles, cross-refs, health stats
 doctrine_read(claim_id) → Tier 3 body: full reasoning, examples, caveats
 doctrine_search(query, opts?) → Hybrid search across doctrine claims
 ```
@@ -336,7 +336,7 @@ Phase 1 seed data is hand-curated, not auto-extracted. This is deliberate — ha
 
 Heuristics and Frameworks require 4/4. Facts and Policies require 5/5. Each criterion is binary pass/fail, no partial credit. The rubric is a pre-flight checklist in the claim authoring template. Phase 1: human-enforced. Phase 5+: automated LLM check in the ingestion pipeline.
 
-Target: 2-3 lenses per role, 10-15 claims per lens, 100% rubric pass rate. LLM-assisted extraction from existing docs is encouraged, but every claim gets human editorial review before activation. Dedicated Curator pipeline deferred to Phase 5 when volume justifies automation.
+Target: 2-3 pillars per role, 10-15 claims per pillar, 100% rubric pass rate. LLM-assisted extraction from existing docs is encouraged, but every claim gets human editorial review before activation. Dedicated Curator pipeline deferred to Phase 5 when volume justifies automation.
 
 ---
 
@@ -526,7 +526,7 @@ Merged result shape:
 kind: doctrine | canon
 id, title/snippet, score
 citation (required for canon, optional for doctrine)
-source_path (lens path or source → section → locator)
+source_path (pillar path or source → section → locator)
 ```
 
 Implemented as a database view over split storage, not a merged table.
@@ -537,7 +537,7 @@ Implemented as a database view over split storage, not a merged table.
 STATIC PREFIX (cached across all jobs for same role):
   Position 1: Personality prompt          (who you are — highest attention)
   Position 2: Role prompt                 (what you do — includes canon sandboxing instruction)
-  Position 3: Doctrine Tier 1 lens index  (what doctrine you have — stable per role)
+  Position 3: Doctrine Tier 1 pillar index  (what doctrine you have — stable per role)
   Position 3b: Canon library pointers     (what reference libraries exist — stable per company)
 --- cache break line ---
 DYNAMIC SUFFIX (changes per task):
@@ -626,9 +626,9 @@ Step 1: Read company stage
 Step 2: Compile STATIC PREFIX (cache-friendly — Principle 13)
   2a. Personality prompt (from personality system)
   2b. Role prompt (includes canon sandboxing instruction)
-  2c. Doctrine Tier 1 Lens Index:
-      All active doctrine lenses for this role
-      Format: "lens_name: description" (one line each)
+  2c. Doctrine Tier 1 Pillar Index:
+      All active doctrine pillars for this role
+      Format: "pillar_name: description" (one line each)
       Budget: ~300-500 tokens
   2d. Canon library pointers:
       All canon libraries for this company
@@ -639,13 +639,13 @@ Step 2: Compile STATIC PREFIX (cache-friendly — Principle 13)
         ▼
 Step 3: Compile DYNAMIC SUFFIX
   3a. Proactive Doctrine Tier 2 Loading:
-      Match task context → lens embeddings
+      Match task context → pillar embeddings
       GATE: only load if similarity > 0.75
-      Select top 1-2 matching lenses
+      Select top 1-2 matching pillars
       Load: summary + claim titles + edge indicators
       Budget: ~400-800 tokens
   3b. Proactive Doctrine Tier 3 Loading:
-      From matched lenses, select claims by:
+      From matched pillars, select claims by:
         1. Filter by scope (company stage)
         2. Filter by confidence >= "emerging"
         3. Rank by: salience × embedding_similarity × stage_weight
@@ -668,7 +668,7 @@ Step 4: Token budget enforcement (Principle 12)
     1. Drop speculative doctrine claims
     2. Drop canon source summary (keep pointers only)
     3. Truncate doctrine bodies → titles only
-    4. Drop lowest-relevance doctrine lens
+    4. Drop lowest-relevance doctrine pillar
     5. NEVER drop Tier 1 doctrine index, Tension blocks, or canon pointers
   The cap is enforced by the prompt compiler. No exceptions.
         │
@@ -677,7 +677,7 @@ Step 5: Compile knowledgeContext
   Deterministic template (no LLM):
 
   ## Your Doctrine
-  [doctrine lenses, claims, tensions]
+  [doctrine pillars, claims, tensions]
 
   ## Reference Libraries
   You have access to these canons. Use canon_search()
@@ -707,9 +707,9 @@ Full Prompt Budget: 3500-6500 tokens
 ├── Personality prompt:         800-1200  (not knowledge)
 ├── Role prompt:                300-500   (not knowledge)
 ├── ┌─ KNOWLEDGE BUDGET ─────────────────── hard cap: 3500 tokens ─┐
-│   │  Doctrine Tier 1 (lens index):    300-500                    │
+│   │  Doctrine Tier 1 (pillar index):   300-500                    │
 │   │  Canon pointers:                   80-200                    │
-│   │  Doctrine Tier 2 (lens maps):    400-800                    │
+│   │  Doctrine Tier 2 (pillar maps):   400-800                    │
 │   │  Doctrine Tier 3 (claims):       600-1500                   │
 │   │  Doctrine tensions:                0-300                    │
 │   │  Canon proactive:                  0-200                    │
@@ -724,9 +724,9 @@ Full Prompt Budget: 3500-6500 tokens
 |-----------|--------|-------|
 | Personality prompt | ~800-1200 | Always injected (static prefix) |
 | Role prompt | ~300-500 | Always injected (static prefix) |
-| **Doctrine Tier 1** (lens index) | **300-500** | Always injected (static prefix) |
+| **Doctrine Tier 1** (pillar index) | **300-500** | Always injected (static prefix) |
 | **Canon pointers** | **80-200** | Always injected (static prefix) |
-| **Doctrine Tier 2** (proactive lens maps) | **400-800** | 1-2 lenses per task (dynamic) |
+| **Doctrine Tier 2** (proactive pillar maps) | **400-800** | 1-2 pillars per task (dynamic) |
 | **Doctrine Tier 3** (proactive claims) | **600-1500** | 3-5 claims per task (dynamic) |
 | **Doctrine tensions** | **0-300** | If contradictions found (dynamic) |
 | **Canon proactive** (optional source summary) | **0-200** | Only if high similarity match (dynamic) |
@@ -1256,7 +1256,7 @@ Before Phase 1 engineering starts:
 - `knowledgeContext` field in StartJob payload
 - Deterministic eval telemetry: injection logging, mention ratio tracking
 - CLI: `zazig doctrine list`, `zazig doctrine show`, `zazig doctrine add`
-- Seed data: 2-3 lenses per role, 10-15 hand-written claims per lens (using claim authoring template)
+- Seed data: 2-3 pillars per role, 10-15 hand-written claims per pillar (using claim authoring template)
 
 **Phase 1 Gate: Causal A/B Experiment.** Before Phase 2 begins, run a blind pairwise comparison: 50 paired tasks across 3+ roles, each task executed once with knowledge injection (treatment) and once without (control), at fixed temperature and seed for stochasticity control. Founder scores each pair blind (which output is better?) on 5 dimensions: task quality, groundedness, specificity, decision quality, factual accuracy. **Kill criterion:** if treatment does not win on decision quality at p<0.05 (sign test with CI), pause Phase 2 and investigate. This experiment is the Phase 1→Phase 2 gate.
 

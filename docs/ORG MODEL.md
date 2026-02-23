@@ -501,7 +501,7 @@ Lite mode is a new concept. It preserves consistency (the PR reviewer always wri
 
 ### Knowledge System
 
-The knowledge architecture (v5) applies identically across all three tiers. Executives, employees, and contractors all benefit from doctrines and canons — the difference is scope, not mechanism. A CPO gets broad product doctrines across 5 lenses. A PR Reviewer gets deep code review doctrines in 1-2 lenses. A Cybersecurity Tester gets specialist security doctrines.
+The knowledge architecture (v5) applies identically across all three tiers. Executives, employees, and contractors all benefit from doctrines and canons — the difference is scope, not mechanism. A CPO gets broad product doctrines across 5 pillars. A PR Reviewer gets deep code review doctrines in 1-2 pillars. A Cybersecurity Tester gets specialist security doctrines.
 
 Principle 15 (narrow-scope specialists over broad generalists) is the architectural justification for employees and contractors. The knowledge system makes narrow specialists viable by giving them exactly the expertise they need without requiring them to be generalists.
 

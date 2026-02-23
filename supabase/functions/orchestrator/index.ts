@@ -1202,11 +1202,50 @@ async function promoteToTesting(supabase: SupabaseClient, featureId: string): Pr
   console.log(`[orchestrator] DeployToTest sent to machine ${targetMachine.name} for feature ${featureId}`);
 }
 
+/**
+ * Sends a teardown command to the machine that deployed the test environment.
+ * Fire-and-forget — callers should .catch() and not await.
+ */
+async function runTeardown(
+  supabase: SupabaseClient,
+  featureId: string,
+  machineId: string,
+): Promise<void> {
+  if (!machineId) {
+    console.warn(`[orchestrator] No machineId for feature ${featureId} — skipping teardown`);
+    return;
+  }
+
+  // Clear testing_machine_id on the feature
+  await supabase
+    .from("features")
+    .update({ testing_machine_id: null })
+    .eq("id", featureId);
+
+  // Broadcast teardown command to the machine's agent channel
+  const channel = supabase.channel(`agent:${machineId}`);
+  await new Promise<void>((resolve) => {
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await channel.send({
+          type: "broadcast",
+          event: "teardown_test",
+          payload: { featureId },
+        });
+        await channel.unsubscribe();
+        resolve();
+      }
+    });
+  });
+
+  console.log(`[orchestrator] Teardown sent to machine ${machineId} for feature ${featureId}`);
+}
+
 export async function handleFeatureApproved(
   supabase: SupabaseClient,
   msg: FeatureApproved,
 ): Promise<void> {
-  const { featureId } = msg;
+  const { featureId, machineId } = msg;
 
   // 1. Fetch feature for project/company context
   const { data: feature, error: fetchErr } = await supabase
@@ -1275,13 +1314,18 @@ export async function handleFeatureApproved(
     console.log(`[orchestrator] Promoting queued feature ${nextFeature[0].id} to testing`);
     await promoteToTesting(supabase, nextFeature[0].id);
   }
+
+  // 6. Fire-and-forget teardown of the test environment
+  runTeardown(supabase, featureId, machineId).catch(err => {
+    console.error(`[orchestrator] teardown failed after approval, feature ${featureId}:`, err);
+  });
 }
 
 export async function handleFeatureRejected(
   supabase: SupabaseClient,
   msg: FeatureRejected,
 ): Promise<void> {
-  const { featureId, feedback, severity } = msg;
+  const { featureId, feedback, severity, machineId } = msg;
 
   if (severity === "small") {
     // Small fix — fix agent handles it in-thread.
@@ -1392,6 +1436,11 @@ export async function handleFeatureRejected(
   if (!nextErr && nextFeature && nextFeature.length > 0) {
     await promoteToTesting(supabase, nextFeature[0].id);
   }
+
+  // 6. Fire-and-forget teardown of the test environment
+  runTeardown(supabase, featureId, machineId).catch(err => {
+    console.error(`[orchestrator] teardown failed after rejection, feature ${featureId}:`, err);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1522,12 +1571,13 @@ export async function handleDeployComplete(
     return;
   }
 
-  // 2. Store test URL and timestamp on the feature
+  // 2. Store test URL, timestamp, and machine affinity on the feature
   const { error: updateErr } = await supabase
     .from("features")
     .update({
       test_url: testUrl,
       test_started_at: new Date().toISOString(),
+      testing_machine_id: msg.machineId,
     })
     .eq("id", featureId);
 

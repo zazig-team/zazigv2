@@ -24,7 +24,7 @@ import { writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageInbound } from "@zazigv2/shared";
+import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageInbound, JobUnblocked } from "@zazigv2/shared";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
 
@@ -357,6 +357,27 @@ export class JobExecutor {
 
   // ---------------------------------------------------------------------------
   // Public: StopJob
+  // ---------------------------------------------------------------------------
+  // Public: JobUnblocked
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Handles a job_unblocked message from the orchestrator.
+   * For V1: the orchestrator already updated the job context in the DB.
+   * If the tmux session is still alive, the agent will pick up the answer
+   * from its DB context on next iteration. If the session died, the
+   * dispatcher will re-pick the job since it's now back to `executing`.
+   */
+  async handleJobUnblocked(msg: JobUnblocked): Promise<void> {
+    const job = this.activeJobs.get(msg.jobId);
+    if (!job) {
+      console.log(`[executor] JobUnblocked for unknown jobId=${msg.jobId} — session may have died, dispatcher will re-pick`);
+      return;
+    }
+
+    console.log(`[executor] JobUnblocked — jobId=${msg.jobId}, session=${job.sessionName} still alive, agent will read answer from DB context`);
+  }
+
   // ---------------------------------------------------------------------------
   // Public: Graceful shutdown
   // ---------------------------------------------------------------------------

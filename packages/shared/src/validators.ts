@@ -24,6 +24,7 @@ import type {
   DeployToTest,
   TeardownTest,
   MessageInbound,
+  JobUnblocked,
   Heartbeat,
   JobStatusMessage,
   JobComplete,
@@ -37,6 +38,7 @@ import type {
   DeployComplete,
   DeployFailed,
   DeployNeedsConfig,
+  JobBlocked,
 } from "./messages.js";
 
 import { MAX_CONTEXT_BYTES, MAX_PERSONALITY_PROMPT_BYTES, PROTOCOL_VERSION } from "./index.js";
@@ -165,6 +167,14 @@ export function isMessageInbound(v: unknown): v is MessageInbound {
   return true;
 }
 
+export function isJobUnblocked(v: unknown): v is JobUnblocked {
+  if (!isObject(v) || v.type !== "job_unblocked") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.answer)) return false;
+  return true;
+}
+
 export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
   if (!isObject(v) || !isString(v.type)) return false;
   switch (v.type) {
@@ -175,6 +185,7 @@ export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
     case "deploy_to_test":    return isDeployToTest(v);
     case "teardown_test":     return isTeardownTest(v);
     case "message_inbound":   return isMessageInbound(v);
+    case "job_unblocked":     return isJobUnblocked(v);
     default:                  return false;
   }
 }
@@ -205,7 +216,7 @@ export function isJobStatusMessage(v: unknown): v is JobStatusMessage {
   if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || v.jobId.length === 0) return false;
   // Only AgentJobStatus values — agents must never send `queued` or `dispatched`.
-  const agentStatuses = ["executing", "reviewing", "complete", "failed"];
+  const agentStatuses = ["executing", "reviewing", "blocked", "complete", "failed"];
   if (!isString(v.status) || !agentStatuses.includes(v.status)) return false;
   if (v.output !== undefined && !isString(v.output)) return false;
   return true;
@@ -316,6 +327,15 @@ export function isDeployNeedsConfig(v: unknown): v is DeployNeedsConfig {
   return true;
 }
 
+export function isJobBlocked(v: unknown): v is JobBlocked {
+  if (!isObject(v) || v.type !== "job_blocked") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
+  if (!isString(v.reason) || v.reason.length === 0) return false;
+  return true;
+}
+
 export function isAgentMessage(v: unknown): v is AgentMessage {
   if (!isObject(v) || !isString(v.type)) return false;
   switch (v.type) {
@@ -332,6 +352,7 @@ export function isAgentMessage(v: unknown): v is AgentMessage {
     case "deploy_complete":     return isDeployComplete(v);
     case "deploy_failed":       return isDeployFailed(v);
     case "deploy_needs_config": return isDeployNeedsConfig(v);
+    case "job_blocked":         return isJobBlocked(v);
     default:                    return false;
   }
 }

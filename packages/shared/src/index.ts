@@ -21,6 +21,7 @@ export type {
   DeployToTest,
   TeardownTest,
   MessageInbound,
+  JobUnblocked,
   OrchestratorMessage,
   // Local Agent → Orchestrator messages
   Heartbeat,
@@ -36,6 +37,7 @@ export type {
   DeployComplete,
   DeployFailed,
   DeployNeedsConfig,
+  JobBlocked,
   AgentMessage,
 } from "./messages.js";
 export { FEATURE_STATUSES, JOB_STATUSES } from "./messages.js";
@@ -161,6 +163,8 @@ export {
   isDeployComplete,
   isDeployFailed,
   isDeployNeedsConfig,
+  isJobBlocked,
+  isJobUnblocked,
 } from "./validators.js";
 
 // ---- Personality prompt compilation ----

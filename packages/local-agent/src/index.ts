@@ -116,6 +116,11 @@ async function main(): Promise<void> {
         void testRunner.runTeardown(msg.repoPath);
         break;
 
+      case "job_unblocked":
+        console.log(`[local-agent] Job ${msg.jobId} unblocked — answer: ${msg.answer.slice(0, 80)}`);
+        void executor.handleJobUnblocked(msg);
+        break;
+
       default: {
         // Exhaustiveness guard — TypeScript ensures this branch is unreachable
         // if all OrchestratorMessage variants are handled above.

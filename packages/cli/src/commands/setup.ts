@@ -9,9 +9,11 @@
 
 import { createInterface } from "node:readline/promises";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { getValidCredentials } from "../lib/credentials.js";
+import { saveConfig } from "../lib/config.js";
 
 export async function setup(): Promise<void> {
   // Step 1: Require auth
@@ -118,16 +120,31 @@ export async function setup(): Promise<void> {
       return;
     }
 
-    const repoPath =
+    // Git remote URL for storage in the DB
+    let repoUrl: string | undefined;
+    while (true) {
+      const urlInput = (
+        await rl.question("Git remote URL (e.g. https://github.com/org/repo, or press Enter to skip): ")
+      ).trim();
+      if (!urlInput) break;
+      if (urlInput.startsWith("http://") || urlInput.startsWith("https://") || urlInput.startsWith("git@")) {
+        repoUrl = urlInput;
+        break;
+      }
+      console.error("Invalid URL — must start with http://, https://, or git@. Try again.");
+    }
+
+    // Local repo path — used only for reading context files, NOT stored in DB
+    const localRepoPath =
       (
-        await rl.question("Git repo path (or press Enter to skip): ")
+        await rl.question("Local repo path for context reading (or press Enter to skip): ")
       ).trim() || undefined;
 
-    // Read repo context if path given
+    // Read repo context if local path given
     let repoContext = "";
-    if (repoPath) {
+    if (localRepoPath) {
       for (const f of ["README.md", "README.txt", "README"]) {
-        const p = join(repoPath, f);
+        const p = join(localRepoPath, f);
         if (existsSync(p)) {
           try {
             repoContext += `\n--- ${f} ---\n${readFileSync(p, "utf-8").slice(0, 4000)}\n`;
@@ -137,7 +154,7 @@ export async function setup(): Promise<void> {
           break;
         }
       }
-      const pkgPath = join(repoPath, "package.json");
+      const pkgPath = join(localRepoPath, "package.json");
       if (existsSync(pkgPath)) {
         try {
           repoContext += `\n--- package.json ---\n${readFileSync(pkgPath, "utf-8").slice(0, 2000)}\n`;
@@ -197,9 +214,9 @@ export async function setup(): Promise<void> {
             userDescription;
           console.log(" done");
 
-          // Write PROJECT.md if repo path given
-          if (repoPath && projectBrief) {
-            const docsDir = join(repoPath, "docs");
+          // Write PROJECT.md if local repo path given
+          if (localRepoPath && projectBrief) {
+            const docsDir = join(localRepoPath, "docs");
             mkdirSync(docsDir, { recursive: true });
             const projectMdPath = join(docsDir, "PROJECT.md");
             writeFileSync(
@@ -224,12 +241,12 @@ export async function setup(): Promise<void> {
     }
 
     // Insert project
-    const { error: projError } = await supabase
+    const { data: project, error: projError } = await supabase
       .from("projects")
       .insert({
         company_id: companyId,
         name: projectName,
-        repo_url: repoPath,
+        repo_url: repoUrl,
       })
       .select("id")
       .single();
@@ -242,48 +259,24 @@ export async function setup(): Promise<void> {
       return;
     }
 
-    console.log(`Project "${projectName}" created.`);
+    console.log(`Project "${projectName}" created (id: ${project!.id}).`);
+
+    // Configure local machine
+    const machineName = hostname();
+    console.log(`\nConfiguring local machine as "${machineName}"...`);
+    saveConfig({
+      name: machineName,
+      company_id: companyId,
+      slots: { claude_code: 1, codex: 0 },
+      supabase: { url: creds.supabaseUrl },
+    });
+    console.log("Machine config written to ~/.zazigv2/machine.yaml");
 
     // Step 5: Invite teammates
-    const emailsInput = (
-      await rl.question(
-        "\nWant to invite teammates? Enter email addresses (comma-separated, or press Enter to skip):\n> "
-      )
-    ).trim();
-
-    let inviteCount = 0;
-    if (emailsInput) {
-      const emails = emailsInput
-        .split(",")
-        .map((e) => e.trim())
-        .filter(Boolean);
-
-      for (const email of emails) {
-        try {
-          // auth.admin requires service role key — will fail with user auth token.
-          // TODO: Replace with a Supabase Edge Function if admin invites are needed.
-          const { error: inviteError } =
-            await supabase.auth.admin.inviteUserByEmail(email, {
-              data: { company_id: companyId },
-            });
-
-          if (inviteError) {
-            console.error(
-              `  Failed to invite ${email}: ${inviteError.message}`
-            );
-          } else {
-            inviteCount++;
-            console.log(`  Invited ${email}`);
-          }
-        } catch {
-          console.error(
-            `  Could not send invites — admin privileges required.\n` +
-              `  Ask your Supabase admin to invite users, or use the web UI.`
-          );
-          break;
-        }
-      }
-    }
+    // TODO: Wire to an Edge Function when available — auth.admin requires service role key
+    console.log("\nTeammate invites require admin setup (service role key).");
+    console.log("To invite teammates, use the Supabase dashboard or set up the admin CLI.");
+    console.log("Skipping invite step.\n");
 
     // Step 6: Done
     console.log("\n--- Setup complete! ---");
@@ -291,9 +284,6 @@ export async function setup(): Promise<void> {
     console.log(`  Project: ${projectName}`);
     if (projectBrief) {
       console.log(`  Brief: ${projectBrief.split("\n")[0]?.slice(0, 80)}...`);
-    }
-    if (inviteCount > 0) {
-      console.log(`  ${inviteCount} teammate invite(s) sent`);
     }
     console.log("\nRun 'zazig start' to begin.");
   } finally {

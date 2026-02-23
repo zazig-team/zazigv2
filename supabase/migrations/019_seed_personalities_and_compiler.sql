@@ -1,4 +1,4 @@
--- 018_seed_personalities_and_compiler.sql
+-- 019_seed_personalities_and_compiler.sql
 -- (a) compile_personality_prompt PL/pgSQL function
 -- (b) Trigger on exec_personalities INSERT/UPDATE to auto-compile
 -- (c) Seed initial personalities for zazig-dev (CPO → Strategist, CTO → Pragmatist)

@@ -12,12 +12,23 @@ ALTER TABLE public.features
 ALTER TABLE public.features
     ADD CONSTRAINT features_status_check
     CHECK (status IN (
-        'proposed', 'designing', 'approved', 'in_progress', 'complete',
+        'proposed', 'approved', 'designing', 'in_progress', 'complete',
         'design', 'building', 'verifying', 'testing', 'done', 'cancelled'
     ));
 
 -- ============================================================
--- 2. Insert tech-lead role
+-- 2. Extend job_type constraint to support breakdown and verify job types
+-- ============================================================
+
+ALTER TABLE public.jobs DROP CONSTRAINT IF EXISTS jobs_job_type_check;
+ALTER TABLE public.jobs ADD CONSTRAINT jobs_job_type_check
+  CHECK (job_type IN (
+    'code', 'infra', 'design', 'research', 'docs', 'bug',
+    'persistent_agent', 'verify', 'breakdown'
+  ));
+
+-- ============================================================
+-- 3. Insert tech-lead role
 -- ============================================================
 
 INSERT INTO public.roles (name, description, is_persistent, default_model, slot_type, prompt, skills)
@@ -58,7 +69,7 @@ Decide:
 
 ## Output Contract
 
-Every job ends with .claude/cpo-report.md.
+Every job ends with .claude/tech-lead-report.md.
 First line: N jobs created for feature X.
 Body: list each job created with title and role.
 

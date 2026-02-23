@@ -1379,6 +1379,9 @@ export async function handleFeatureRejected(
 /**
  * Creates a breakdown job for an approved feature.
  *
+ * "approved" here means CPO pre-approval (feature spec agreed for development),
+ * NOT human post-testing approval (that's handleFeatureApproved: testing→done).
+ *
  * Idempotent: skips if a non-terminal breakdown job already exists for this feature.
  * On success, transitions the feature from 'approved' → 'building'.
  */
@@ -1418,6 +1421,8 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
       feature_id: featureId,
       role: "tech-lead",
       job_type: "breakdown",
+      complexity: "simple",
+      slot_type: "claude_code",
       status: "queued",
       context: JSON.stringify({
         type: "breakdown",
@@ -1445,15 +1450,15 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
   console.log(`[orchestrator] Created breakdown job ${job.id} for feature ${featureId}`);
 }
 
-/**
- * Polls for features with status='approved' and triggers breakdown jobs for each.
- * Runs once per orchestrator invocation (every ~10 s).
- */
+// processApprovedFeatures: polls for features that the CPO has approved for development.
+// status='approved' = "CPO agreed to build this feature — Tech Lead should break it into jobs".
+// DISTINCT from handleFeatureApproved which handles human testing approval (testing→done).
 async function processApprovedFeatures(supabase: SupabaseClient): Promise<void> {
   const { data: features, error } = await supabase
     .from("features")
     .select("id")
-    .eq("status", "approved");
+    .eq("status", "approved")
+    .limit(50);
 
   if (error) {
     console.error("[orchestrator] Error querying approved features:", error.message);

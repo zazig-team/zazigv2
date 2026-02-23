@@ -167,7 +167,22 @@ Implemented the full test environment recipe system that allows projects to defi
 1. **Channel routing mismatch**: `promoteToTesting` sent on `company:` channel but local agent only listens to `agent:{machineName}`. Fixed by picking a specific online machine.
 2. **Missing event listeners**: `connection.ts` only had `message` and `start_job` event listeners. Added `deploy_to_test` and `verify_job`.
 
+## Post-PR QA Fixes (2026-02-23)
+
+### Fix 1: Wire runTeardown into handleFeatureApproved/Rejected
+- Created `runTeardown(supabase, featureId, machineId)` in orchestrator — broadcasts `teardown_test` event to the machine's agent channel and clears `testing_machine_id` on the feature
+- Wired as fire-and-forget (`.catch()`, not awaited) at the end of both `handleFeatureApproved` and `handleFeatureRejected` (big rejection path only; small rejections return early so test env stays up)
+- Extracted `machineId` from message payload in both handlers (both `FeatureApproved` and `FeatureRejected` types include `machineId`)
+
+### Fix 2: Machine affinity — store testing_machine_id on deploy
+- Added `testing_machine_id: msg.machineId` to the feature update in `handleDeployComplete`
+- End-to-end flow: `handleDeployComplete` stores `testing_machine_id` → `slack-events` reads it when building FeatureApproved/Rejected messages → orchestrator receives `machineId` in those messages → `runTeardown` routes teardown to correct machine
+
 ## Build & Tests
 - Typecheck: clean across all 4 workspaces
 - Tests: 61 passed (local-agent), 92 passed (shared) — 153 total, all green
 - Token budget: claude-ok
+
+## Token Usage
+- Budget: claude-ok (direct code changes)
+- Approach: Read-first discovery → targeted edits → single commit

@@ -45,7 +45,7 @@ export async function setup(): Promise<void> {
     let companyName: string;
 
     if (choice === "2") {
-      // Fetch user's companies (RLS-scoped to their JWT company_id)
+      // Fetch user's companies (RLS-scoped via user_companies join table)
       const { data: companies, error } = await supabase
         .from("companies")
         .select("id, name")
@@ -94,9 +94,10 @@ export async function setup(): Promise<void> {
         return;
       }
 
+      const { data: { user } } = await supabase.auth.getUser();
       const { data: company, error } = await supabase
         .from("companies")
-        .insert({ name })
+        .insert({ name, created_by: user?.id })
         .select("id, name")
         .single();
 
@@ -111,6 +112,16 @@ export async function setup(): Promise<void> {
       companyId = company.id;
       companyName = company.name;
       console.log(`\nCompany "${companyName}" created.`);
+
+      // Link the authenticated user to the new company
+      if (user) {
+        const { error: memberErr } = await supabase
+          .from("user_companies")
+          .insert({ user_id: user.id, company_id: company.id });
+        if (memberErr) {
+          console.error(`Warning: could not link you to company: ${memberErr.message}`);
+        }
+      }
     }
 
     // Step 4: Create project

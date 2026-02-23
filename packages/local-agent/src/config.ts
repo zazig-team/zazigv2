@@ -27,8 +27,8 @@ export interface SupabaseConfig {
 export interface MachineConfig {
   /** Stable machine identifier — used as the machineId in heartbeats and the Realtime channel name. */
   name: string;
-  /** Company UUID — tenant boundary. Used to scope DB writes to the correct company. */
-  company_id: string;
+  /** Primary company UUID — used as hint for display and heartbeats. Optional: agent discovers all companies from user_companies table. */
+  company_id?: string;
   slots: SlotConfig;
   supabase: SupabaseConfig;
 }
@@ -52,8 +52,8 @@ export function loadConfig(): MachineConfig {
     throw new Error("machine.yaml: missing or invalid 'name' field");
   }
 
-  if (!parsed.company_id || typeof parsed.company_id !== "string") {
-    throw new Error("machine.yaml: missing or invalid 'company_id' field");
+  if (parsed.company_id && typeof parsed.company_id !== "string") {
+    throw new Error("machine.yaml: invalid 'company_id' field (must be a string UUID)");
   }
 
   const slots: SlotConfig = {
@@ -86,7 +86,7 @@ export function loadConfig(): MachineConfig {
 
   return {
     name: parsed.name,
-    company_id: parsed.company_id,
+    ...(parsed.company_id ? { company_id: parsed.company_id } : {}),
     slots,
     supabase: {
       url: supabaseUrl,

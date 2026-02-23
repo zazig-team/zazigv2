@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   // conn.dbClient (authenticated) is passed so the executor can write job status directly to the DB
   const executor = new JobExecutor(
     config.name,
-    config.company_id,
+    config.company_id ?? "",
     slots,
     (msg) => conn.sendMessage(msg),
     conn.dbClient,

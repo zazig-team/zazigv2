@@ -1,4 +1,4 @@
--- 011_seed_archetypes.sql
+-- 019_seed_archetypes.sql
 -- Seed 6 exec archetypes (3 CPO, 3 CTO) from the personality system design doc.
 -- CMO archetypes deferred (roadmap).
 

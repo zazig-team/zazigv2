@@ -10,6 +10,7 @@
  */
 
 import { getValidCredentials } from "../lib/credentials.js";
+import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 
 interface RoleRow {
   id: string;
@@ -83,7 +84,7 @@ export async function personality(args: string[]): Promise<void> {
     return;
   }
 
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
   const headers: Record<string, string> = {
     apikey: anonKey,
     Authorization: `Bearer ${creds.accessToken}`,

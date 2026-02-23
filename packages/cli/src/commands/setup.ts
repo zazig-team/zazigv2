@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { getValidCredentials } from "../lib/credentials.js";
+import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 
 export async function setup(): Promise<void> {
   // Step 1: Require auth
@@ -24,7 +25,7 @@ export async function setup(): Promise<void> {
     return;
   }
 
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
   const supabase = createClient(creds.supabaseUrl, anonKey);
   await supabase.auth.setSession({
     access_token: creds.accessToken,

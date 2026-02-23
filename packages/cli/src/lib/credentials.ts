@@ -8,6 +8,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_SUPABASE_ANON_KEY } from "./constants.js";
 
 const ZAZIGV2_DIR = join(homedir(), ".zazigv2");
 const CREDENTIALS_PATH = join(ZAZIGV2_DIR, "credentials.json");
@@ -63,7 +64,7 @@ function isTokenExpired(token: string): boolean {
 
 /**
  * Load credentials and auto-refresh the access token if expired.
- * Requires SUPABASE_ANON_KEY env var for the refresh API call.
+ * Uses the built-in anon key for refresh (overridable via SUPABASE_ANON_KEY env var).
  */
 export async function getValidCredentials(): Promise<Credentials> {
   const creds = loadCredentials();
@@ -73,13 +74,7 @@ export async function getValidCredentials(): Promise<Credentials> {
   }
 
   // Access token is expired — refresh it
-  const anonKey = process.env["SUPABASE_ANON_KEY"];
-  if (!anonKey) {
-    throw new Error(
-      "Access token expired and SUPABASE_ANON_KEY not set — cannot refresh. " +
-        "Run 'zazig login' again or set SUPABASE_ANON_KEY."
-    );
-  }
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
 
   const resp = await fetch(
     `${creds.supabaseUrl}/auth/v1/token?grant_type=refresh_token`,

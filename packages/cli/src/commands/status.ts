@@ -8,6 +8,7 @@
 import { readPid, isDaemonRunning } from "../lib/daemon.js";
 import { getValidCredentials } from "../lib/credentials.js";
 import { loadConfig } from "../lib/config.js";
+import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 
 type Row = Record<string, unknown>;
 
@@ -44,7 +45,7 @@ export async function status(): Promise<void> {
     return; // No machine config — can't query Supabase
   }
 
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
   const headers: Record<string, string> = {
     apikey: anonKey,
     Authorization: `Bearer ${creds.accessToken}`,

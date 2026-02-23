@@ -10,16 +10,11 @@ import * as http from "node:http";
 import { URL } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { saveCredentials } from "../lib/credentials.js";
+import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 
 export async function login(): Promise<void> {
-  const supabaseUrl =
-    process.env["SUPABASE_URL"] ?? "https://jmussmwglgbwncgygzbz.supabase.co";
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
-  if (!anonKey) {
-    console.error("Error: SUPABASE_ANON_KEY environment variable is not set.");
-    console.error("Run: export SUPABASE_ANON_KEY=your-anon-key");
-    process.exit(1);
-  }
+  const supabaseUrl = process.env["SUPABASE_URL"] ?? DEFAULT_SUPABASE_URL;
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
 
   // 1. Prompt for email
   const rl = createInterface({ input: process.stdin, output: process.stdout });

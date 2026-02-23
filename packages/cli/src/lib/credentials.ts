@@ -33,17 +33,6 @@ export function loadCredentials(): Credentials {
   }
 }
 
-/**
- * Returns valid credentials, refreshing the access token if expired.
- * NOTE: Token refresh is a stub until PR #66 (browser-auth) lands.
- * For now, returns stored credentials as-is. If expired, login again.
- */
-export async function getValidCredentials() {
-  const creds = loadCredentials();
-  // TODO(pr-66): implement token refresh using refreshToken
-  return creds;
-}
-
 export function saveCredentials(creds: Credentials): void {
   mkdirSync(ZAZIGV2_DIR, { recursive: true });
   writeFileSync(CREDENTIALS_PATH, JSON.stringify(creds, null, 2) + "\n", {

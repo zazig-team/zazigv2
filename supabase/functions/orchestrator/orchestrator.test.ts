@@ -163,7 +163,7 @@ function createSmartMockSupabase() {
     // deno-lint-ignore no-explicit-any
     const chain: any = {};
 
-    for (const method of ["select", "update", "insert", "eq", "in", "single", "order", "gt", "not", "limit"]) {
+    for (const method of ["select", "update", "insert", "eq", "in", "single", "maybeSingle", "filter", "order", "gt", "not", "limit"]) {
       // deno-lint-ignore no-explicit-any
       chain[method] = (...args: any[]) => {
         ops.push({ method, args });
@@ -838,23 +838,34 @@ Deno.test("triggerStandaloneVerification — creates verify job with standalone_
     error: null,
   });
 
+  // Idempotency check: no existing active verify job
+  setResponse("jobs:select.filter.eq.not.maybeSingle", { data: null, error: null });
+
   // Insert verification job
   setResponse("jobs:insert", { error: null });
+
+  // Update original job status to verifying
+  setResponse("jobs:update.eq", { error: null });
 
   // deno-lint-ignore no-explicit-any
   await triggerStandaloneVerification(client as any, "standalone-job-1");
 
-  // Should fetch job details
+  // Should fetch job details, check idempotency, insert, update status
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 2, "Should have select + insert on jobs");
+  assertEquals(jobsChains.length, 4, "Should have select + idempotency check + insert + status update on jobs");
 
   // First chain: select job details
   assertEquals(jobsChains[0].operations[0].method, "select");
 
-  // Second chain: insert verification job
-  assertEquals(jobsChains[1].operations[0].method, "insert");
+  // Second chain: idempotency check
+  assertEquals(jobsChains[1].operations[0].method, "select");
+  const filterOp = jobsChains[1].operations.find((o) => o.method === "filter");
+  assertEquals(filterOp !== undefined, true, "Should have filter for JSONB context check");
+
+  // Third chain: insert verification job
+  assertEquals(jobsChains[2].operations[0].method, "insert");
   // deno-lint-ignore no-explicit-any
-  const payload = jobsChains[1].operations[0].args[0] as any;
+  const payload = jobsChains[2].operations[0].args[0] as any;
   assertEquals(payload.company_id, "co-1");
   assertEquals(payload.project_id, "proj-1");
   assertEquals(payload.feature_id, null);
@@ -867,18 +878,24 @@ Deno.test("triggerStandaloneVerification — creates verify job with standalone_
   assertEquals(context.type, "standalone_verification");
   assertEquals(context.originalJobId, "standalone-job-1");
   assertEquals(context.jobBranch, "fix/bug-123");
+
+  // Fourth chain: update original job status to verifying
+  assertEquals(jobsChains[3].operations[0].method, "update");
+  // deno-lint-ignore no-explicit-any
+  assertEquals((jobsChains[3].operations[0].args[0] as any).status, "verifying");
 });
 
 Deno.test("handleVerifyResult — standalone verification passed → promotes to testing", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
-  // update done → success
+  // update done → success (handleVerifyResult marks verify job done)
   setResponse("jobs:update.eq", { error: null });
 
-  // select feature_id and context for the verify job → standalone_verification
+  // select feature_id, context, and company_id for the verify job → standalone_verification
   setResponse("jobs:select.eq.single", {
     data: {
       feature_id: null,
+      company_id: "co-1",
       context: JSON.stringify({
         type: "standalone_verification",
         originalJobId: "original-job-42",
@@ -887,6 +904,15 @@ Deno.test("handleVerifyResult — standalone verification passed → promotes to
     },
     error: null,
   });
+
+  // promoteStandaloneToTesting: select original job with company_id scope
+  setResponse("jobs:select.eq.eq.single", {
+    data: { company_id: "co-1", project_id: "proj-1", branch: "fix/bug-42" },
+    error: null,
+  });
+
+  // promoteStandaloneToTesting: update original job with company_id scope
+  setResponse("jobs:update.eq.eq", { error: null });
 
   const msg = {
     type: "verify_result" as const,
@@ -900,9 +926,10 @@ Deno.test("handleVerifyResult — standalone verification passed → promotes to
   // deno-lint-ignore no-explicit-any
   await handleVerifyResult(client as any, msg);
 
-  // Should have: 1 update (mark done), 1 select (feature_id+context), 1 select (fetch original job), 1 update (set testing)
+  // Should have: 1 update (mark done), 1 select (feature_id+context+company_id),
+  //              1 select (fetch original job w/ company scope), 1 update (set testing w/ company scope)
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length >= 3, true, "Should have update + select + promote chains");
+  assertEquals(jobsChains.length >= 4, true, "Should have update + select + promote select + promote update chains");
 
   // First chain: update verify job to done
   assertEquals(jobsChains[0].operations[0].method, "update");

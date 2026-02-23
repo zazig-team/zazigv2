@@ -1102,6 +1102,7 @@
       }
 
       async function fetchStandaloneJobs() {
+        if (!activeCompanyId) return [];
         var url = STANDALONE_JOBS_BASE;
         if (activeCompanyId) url += '&company_id=eq.' + encodeURIComponent(activeCompanyId);
         var payload = await apiFetch(url);

@@ -133,7 +133,10 @@ export function isVerifyJob(v: unknown): v is VerifyJob {
 export function isDeployToTest(v: unknown): v is DeployToTest {
   if (!isObject(v) || v.type !== "deploy_to_test") return false;
   if (!hasValidProtocolVersion(v)) return false;
-  if (!isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!isString(v.jobType) || !["feature", "standalone"].includes(v.jobType)) return false;
+  // featureId required for feature deploys, standaloneJobId required for standalone deploys
+  if (v.jobType === "feature" && (!isString(v.featureId) || v.featureId.length === 0)) return false;
+  if (v.jobType === "standalone" && (!isString(v.standaloneJobId) || v.standaloneJobId.length === 0)) return false;
   if (!isString(v.featureBranch) || v.featureBranch.length === 0) return false;
   if (!isString(v.projectId) || v.projectId.length === 0) return false;
   return true;

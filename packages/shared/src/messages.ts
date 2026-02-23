@@ -223,8 +223,12 @@ export interface DeployToTest {
   type: "deploy_to_test";
   /** Protocol version — must equal PROTOCOL_VERSION. */
   protocolVersion: number;
-  /** Feature identifier being deployed. */
-  featureId: string;
+  /** Feature identifier being deployed (feature-scoped deploys). */
+  featureId?: string;
+  /** Standalone job identifier being deployed (standalone job deploys). */
+  standaloneJobId?: string;
+  /** Discriminator: whether this deploy is for a feature or standalone job. */
+  jobType: "feature" | "standalone";
   /** Branch to deploy to test environment. */
   featureBranch: string;
   /** Target project/environment identifier. */

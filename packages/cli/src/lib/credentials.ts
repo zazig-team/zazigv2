@@ -43,7 +43,7 @@ export function saveCredentials(creds: Credentials): void {
 /**
  * Decode a JWT payload without verification (we only need exp and claims).
  */
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
+export function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return null;

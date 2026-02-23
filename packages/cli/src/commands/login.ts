@@ -9,6 +9,7 @@
 import * as http from "node:http";
 import { exec } from "node:child_process";
 import { URL } from "node:url";
+import { createInterface } from "node:readline/promises";
 import { saveCredentials } from "../lib/credentials.js";
 
 export async function login(): Promise<void> {
@@ -107,11 +108,44 @@ fetch('/token', {
   // 5. Decode the JWT to get email / company_id
   const payload = decodeJwtPayload(tokens.access_token);
   const email = (payload?.email as string) ?? "unknown";
-  const companyId =
+
+  // Resolve company_id: top-level claim → user_metadata → app_metadata.companies
+  let companyId: string | null =
     (payload?.company_id as string) ??
-    (payload?.user_metadata as Record<string, unknown> | undefined)
-      ?.company_id as string | undefined ??
+    ((payload?.user_metadata as Record<string, unknown> | undefined)
+      ?.company_id as string | undefined) ??
     null;
+
+  if (!companyId) {
+    const companies = (
+      payload?.app_metadata as Record<string, unknown> | undefined
+    )?.companies as Array<{ id: string; name: string }> | undefined;
+
+    if (companies && companies.length === 1) {
+      companyId = companies[0]!.id;
+    } else if (companies && companies.length > 1) {
+      console.log("\nYou belong to multiple companies:\n");
+      companies.forEach((c, i) => {
+        console.log(`  ${i + 1}. ${c.name} (${c.id})`);
+      });
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const answer = await rl.question("\nSelect a company (number): ");
+      rl.close();
+      const idx = parseInt(answer, 10) - 1;
+      if (idx < 0 || idx >= companies.length) {
+        console.error("Invalid selection. Run 'zazig login' again.");
+        process.exit(1);
+      }
+      companyId = companies[idx]!.id;
+    }
+  }
+
+  if (!companyId) {
+    console.error(
+      "No company_id found in your account. Contact your admin to be added to a company."
+    );
+    process.exit(1);
+  }
 
   // 6. Save credentials
   saveCredentials({
@@ -123,7 +157,7 @@ fetch('/token', {
   });
 
   console.log(`Logged in as ${email}`);
-  if (companyId) console.log(`Company: ${companyId}`);
+  console.log(`Company: ${companyId}`);
 }
 
 function decodeJwtPayload(

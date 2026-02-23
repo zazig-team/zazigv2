@@ -233,6 +233,10 @@ export interface DeployToTest {
   featureBranch: string;
   /** Target project/environment identifier. */
   projectId: string;
+  /** Summary of changes for Slack notification. */
+  changeSummary?: string;
+  /** Absolute path to the repository on disk. */
+  repoPath?: string;
 }
 
 /**
@@ -455,6 +459,54 @@ export interface MessageOutbound {
   text: string;
 }
 
+/**
+ * Sent by the local agent after successfully deploying a feature to a test environment.
+ * The orchestrator stores the test URL and opens a Slack thread for approval.
+ */
+export interface DeployComplete {
+  type: "deploy_complete";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** Feature that was deployed. */
+  featureId: string;
+  /** Machine that performed the deployment. */
+  machineId: string;
+  /** URL of the deployed test environment. */
+  testUrl: string;
+  /** Whether the test environment is ephemeral (cleaned up after testing). */
+  ephemeral: boolean;
+}
+
+/**
+ * Sent by the local agent when deployment to a test environment fails.
+ * The orchestrator logs the error and notifies via Slack.
+ */
+export interface DeployFailed {
+  type: "deploy_failed";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** Feature whose deployment failed. */
+  featureId: string;
+  /** Machine that attempted the deployment. */
+  machineId: string;
+  /** Error description. */
+  error: string;
+}
+
+/**
+ * Sent by the local agent when no zazig.test.yaml is found in the repository.
+ * The orchestrator notifies the user via Slack with instructions to create one.
+ */
+export interface DeployNeedsConfig {
+  type: "deploy_needs_config";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** Feature that needs test configuration. */
+  featureId: string;
+  /** Machine that tried to deploy. */
+  machineId: string;
+}
+
 /** Union of all messages a local agent sends to the orchestrator. */
 export type AgentMessage =
   | Heartbeat
@@ -466,4 +518,7 @@ export type AgentMessage =
   | FeatureApproved
   | FeatureRejected
   | VerifyResult
-  | MessageOutbound;
+  | MessageOutbound
+  | DeployComplete
+  | DeployFailed
+  | DeployNeedsConfig;

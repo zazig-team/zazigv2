@@ -33,6 +33,9 @@ import type {
   FeatureRejected,
   VerifyResult,
   MessageOutbound,
+  DeployComplete,
+  DeployFailed,
+  DeployNeedsConfig,
 } from "./messages.js";
 
 import { MAX_CONTEXT_BYTES, MAX_PERSONALITY_PROMPT_BYTES, PROTOCOL_VERSION } from "./index.js";
@@ -139,6 +142,8 @@ export function isDeployToTest(v: unknown): v is DeployToTest {
   if (v.jobType === "standalone" && (!isString(v.standaloneJobId) || v.standaloneJobId.length === 0)) return false;
   if (!isString(v.featureBranch) || v.featureBranch.length === 0) return false;
   if (!isString(v.projectId) || v.projectId.length === 0) return false;
+  if (v.changeSummary !== undefined && !isString(v.changeSummary)) return false;
+  if (v.repoPath !== undefined && !isString(v.repoPath)) return false;
   return true;
 }
 
@@ -274,19 +279,49 @@ export function isVerifyResult(v: unknown): v is VerifyResult {
   return true;
 }
 
+export function isDeployComplete(v: unknown): v is DeployComplete {
+  if (!isObject(v) || v.type !== "deploy_complete") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
+  if (!isString(v.testUrl) || v.testUrl.length === 0) return false;
+  if (typeof v.ephemeral !== "boolean") return false;
+  return true;
+}
+
+export function isDeployFailed(v: unknown): v is DeployFailed {
+  if (!isObject(v) || v.type !== "deploy_failed") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
+  if (!isString(v.error)) return false;
+  return true;
+}
+
+export function isDeployNeedsConfig(v: unknown): v is DeployNeedsConfig {
+  if (!isObject(v) || v.type !== "deploy_needs_config") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
+  return true;
+}
+
 export function isAgentMessage(v: unknown): v is AgentMessage {
   if (!isObject(v) || !isString(v.type)) return false;
   switch (v.type) {
-    case "heartbeat":         return isHeartbeat(v);
-    case "job_status":        return isJobStatusMessage(v);
-    case "job_complete":      return isJobComplete(v);
-    case "job_failed":        return isJobFailed(v);
-    case "job_ack":           return isJobAck(v);
-    case "stop_ack":          return isStopAck(v);
-    case "feature_approved":  return isFeatureApproved(v);
-    case "feature_rejected":  return isFeatureRejected(v);
-    case "verify_result":     return isVerifyResult(v);
-    case "message_outbound":  return isMessageOutbound(v);
-    default:                  return false;
+    case "heartbeat":           return isHeartbeat(v);
+    case "job_status":          return isJobStatusMessage(v);
+    case "job_complete":        return isJobComplete(v);
+    case "job_failed":          return isJobFailed(v);
+    case "job_ack":             return isJobAck(v);
+    case "stop_ack":            return isStopAck(v);
+    case "feature_approved":    return isFeatureApproved(v);
+    case "feature_rejected":    return isFeatureRejected(v);
+    case "verify_result":       return isVerifyResult(v);
+    case "message_outbound":    return isMessageOutbound(v);
+    case "deploy_complete":     return isDeployComplete(v);
+    case "deploy_failed":       return isDeployFailed(v);
+    case "deploy_needs_config": return isDeployNeedsConfig(v);
+    default:                    return false;
   }
 }

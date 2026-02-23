@@ -9,9 +9,9 @@
  * Runtime: Deno / Supabase Edge Functions
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
-import type { MessageInbound } from "@zazigv2/shared";
+import type { MessageInbound, FeatureApproved, FeatureRejected } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -134,6 +134,104 @@ async function postOfflineReply(
 }
 
 // ---------------------------------------------------------------------------
+// Testing thread: approve/reject parsing
+// ---------------------------------------------------------------------------
+
+const APPROVE_PATTERNS = /^(approve|approved|lgtm|ship\s*it|merge|✅)\s*$/i;
+const REJECT_PATTERNS = /^(reject|rejected|fail|rollback|❌)/i;
+
+/**
+ * Checks if a Slack message is in a testing thread for a feature in testing.
+ * If it matches approve/reject keywords, sends the appropriate message to
+ * the orchestrator and returns true. Otherwise returns false.
+ */
+async function handleTestingThreadMessage(
+  supabase: SupabaseClient,
+  companyId: string,
+  channel: string,
+  threadTs: string,
+  text: string,
+  _user: string,
+): Promise<boolean> {
+  // Look up features in testing that have this slack_channel + slack_thread_ts
+  const { data: feature, error: featureErr } = await supabase
+    .from("features")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("slack_channel", channel)
+    .eq("slack_thread_ts", threadTs)
+    .eq("status", "testing")
+    .limit(1)
+    .single();
+
+  if (featureErr || !feature) {
+    // Not a testing thread — let normal routing handle it
+    return false;
+  }
+
+  const trimmed = text.trim();
+
+  if (APPROVE_PATTERNS.test(trimmed)) {
+    console.log(`[slack-events] Testing thread approve for feature ${feature.id}`);
+
+    const msg: FeatureApproved = {
+      type: "feature_approved",
+      protocolVersion: PROTOCOL_VERSION,
+      featureId: feature.id,
+      machineId: "slack", // Source is Slack, not a machine
+    };
+
+    await broadcastToOrchestrator(supabase, msg);
+    return true;
+  }
+
+  if (REJECT_PATTERNS.test(trimmed)) {
+    // Extract feedback — everything after the reject keyword
+    const feedback = trimmed.replace(REJECT_PATTERNS, "").trim() || "Rejected via Slack (no details provided)";
+
+    console.log(`[slack-events] Testing thread reject for feature ${feature.id}: ${feedback}`);
+
+    const msg: FeatureRejected = {
+      type: "feature_rejected",
+      protocolVersion: PROTOCOL_VERSION,
+      featureId: feature.id,
+      feedback,
+      severity: "big",
+      machineId: "slack",
+    };
+
+    await broadcastToOrchestrator(supabase, msg);
+    return true;
+  }
+
+  // Message in testing thread but not approve/reject — don't consume it
+  return false;
+}
+
+async function broadcastToOrchestrator(
+  supabase: SupabaseClient,
+  payload: FeatureApproved | FeatureRejected,
+): Promise<void> {
+  const channel = supabase.channel("orchestrator:commands");
+  await new Promise<void>((resolve) => {
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        const result = await channel.send({
+          type: "broadcast",
+          event: "message",
+          payload,
+        });
+        if (result !== "ok") {
+          console.error(`[slack-events] Failed to broadcast ${payload.type} to orchestrator: ${result}`);
+        }
+        await channel.unsubscribe();
+        resolve();
+      }
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
 
@@ -216,7 +314,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse({ ok: true });
   }
 
-  console.log(`[slack-events] Processing event ${eventId} from team ${teamId} channel ${channel}`);
+  const threadTs = event.thread_ts as string | undefined;
+
+  console.log(`[slack-events] Processing event ${eventId} from team ${teamId} channel ${channel}${threadTs ? ` thread ${threadTs}` : ""}`);
 
   const supabase = makeAdminClient();
 
@@ -230,6 +330,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (installErr || !installation) {
     console.error(`[slack-events] No installation found for team ${teamId}:`, installErr?.message);
     return jsonResponse({ ok: true });
+  }
+
+  // --- Testing thread: check if this message is in a testing thread ---
+  // If the message is in a thread that matches a feature in testing, parse
+  // for approve/reject keywords and route to the orchestrator.
+  if (threadTs) {
+    const handled = await handleTestingThreadMessage(
+      supabase,
+      installation.company_id,
+      channel,
+      threadTs,
+      text,
+      user,
+    );
+    if (handled) {
+      return jsonResponse({ ok: true });
+    }
   }
 
   // Find running persistent agent (CPO)

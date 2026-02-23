@@ -94,3 +94,80 @@ Applied 5 fixes from PR #65 code review (1 P0, 3 P1, 1 P2) in a single follow-up
 
 ## Token Usage
 - Token budget: claude-ok (wrote code directly)
+
+---
+
+# CPO Report — Test Environment Recipes & Slack Testing Loop (PR #62)
+
+CARD: test-environment-recipes
+FILES: packages/shared/src/test-recipe.ts, packages/shared/src/messages.ts, packages/shared/src/validators.ts, packages/shared/src/index.ts, packages/local-agent/src/test-runner.ts, packages/local-agent/src/test-runner.test.ts, packages/local-agent/src/connection.ts, packages/local-agent/src/index.ts, supabase/functions/orchestrator/index.ts, supabase/functions/slack-events/index.ts, supabase/migrations/021_testing_columns.sql
+TESTS: 61 passed (local-agent), 92 passed (shared) — all green
+NOTES: Implemented test environment recipes (zazig.test.yaml) and Slack testing loop. V1 supports vercel + custom providers only.
+
+---
+
+# CPO Report — Test Environment Recipes & Slack Testing Loop
+
+## Summary
+Implemented the full test environment recipe system that allows projects to define `zazig.test.yaml` for automated deploy-to-test, healthcheck, and Slack-based approve/reject workflow.
+
+## What Was Done
+
+### 1. Database Migration (021_testing_columns.sql)
+- Added `test_url`, `test_started_at`, `slack_channel`, `slack_thread_ts`, `testing_machine_id` columns to `features` table
+
+### 2. TestRecipe Schema (packages/shared/src/test-recipe.ts)
+- Defined `TestRecipe`, `TestRecipeDeploy`, `TestRecipeTeardown`, `TestRecipeHealthcheck` interfaces
+- Providers: `vercel` | `custom` (v1 scope)
+- Types: `ephemeral` | `persistent`
+
+### 3. Message Protocol (packages/shared/src/messages.ts)
+- Extended `DeployToTest` with optional `changeSummary` and `repoPath`
+- Added three new agent → orchestrator messages: `DeployComplete`, `DeployFailed`, `DeployNeedsConfig`
+- Updated `AgentMessage` discriminated union
+
+### 4. Validators (packages/shared/src/validators.ts)
+- Added `isDeployComplete`, `isDeployFailed`, `isDeployNeedsConfig` type guards
+- Updated `isAgentMessage` switch for new types
+
+### 5. Test Runner (packages/local-agent/src/test-runner.ts)
+- `TestRunner` class with injectable `SpawnFn`/`FetchFn` for testing
+- `handleDeployToTest()`: reads recipe → deploys → healthchecks → reports
+- Vercel: `doppler run --project {name} --config prd -- vercel deploy --yes`
+- Custom: `doppler run --project {name} --config prd -- bash -c {script}`
+- Healthcheck: polls `{deployUrl}{path}` until 200 or timeout
+- `runTeardown()`: runs teardown script for ephemeral envs, no-op for persistent
+- `readTestRecipe()`: reads and validates `zazig.test.yaml`
+
+### 6. Connection Fix (packages/local-agent/src/connection.ts)
+- **Bug fix**: Added missing event listeners for `deploy_to_test` and `verify_job` events
+- Previously only `message` and `start_job` events were listened to, so deploy_to_test and verify_job messages from the orchestrator would never reach handlers
+
+### 7. Local Agent Wiring (packages/local-agent/src/index.ts)
+- Replaced deploy_to_test stub with actual `TestRunner` integration
+
+### 8. Orchestrator Updates (supabase/functions/orchestrator/index.ts)
+- **Bug fix**: `promoteToTesting` was broadcasting on `company:{companyId}` channel which the local agent doesn't listen to. Fixed to pick an online machine and send on `agent:{machineName}`
+- Added `handleDeployComplete`: stores `test_url`/`test_started_at` on feature, posts Slack message with test URL and checklist, stores `slack_channel`/`slack_thread_ts` for testing loop
+- Added `handleDeployFailed`: marks feature as failed, logs event
+- Added `handleDeployNeedsConfig`: marks feature needing config, logs event
+- Added Slack helpers: `getDefaultSlackChannel`, `getSlackBotToken`, `postSlackMessage`, `parseChecklist`
+
+### 9. Slack Events Updates (supabase/functions/slack-events/index.ts)
+- Added testing thread detection: checks if message is in a thread matching a feature in `testing` status
+- Approve patterns: `approve`, `approved`, `lgtm`, `ship it`, `merge`, `✅`
+- Reject patterns: `reject`, `rejected`, `fail`, `rollback`, `❌` (captures remaining text as feedback)
+- Routes `FeatureApproved`/`FeatureRejected` to orchestrator via Realtime broadcast
+
+### 10. Tests (packages/local-agent/src/test-runner.test.ts)
+- 16 tests covering: `extractUrl`, `readTestRecipe`, `TestRunner.handleDeployToTest`, `TestRunner.runTeardown`
+- Tests for: no recipe, vercel deploy, custom deploy, deploy failure, healthcheck timeout, healthcheck pass, teardown ephemeral, skip teardown persistent
+
+## Bugs Discovered & Fixed
+1. **Channel routing mismatch**: `promoteToTesting` sent on `company:` channel but local agent only listens to `agent:{machineName}`. Fixed by picking a specific online machine.
+2. **Missing event listeners**: `connection.ts` only had `message` and `start_job` event listeners. Added `deploy_to_test` and `verify_job`.
+
+## Build & Tests
+- Typecheck: clean across all 4 workspaces
+- Tests: 61 passed (local-agent), 92 passed (shared) — 153 total, all green
+- Token budget: claude-ok

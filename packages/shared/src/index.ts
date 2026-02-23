@@ -32,6 +32,9 @@ export type {
   FeatureRejected,
   VerifyResult,
   MessageOutbound,
+  DeployComplete,
+  DeployFailed,
+  DeployNeedsConfig,
   AgentMessage,
 } from "./messages.js";
 export { FEATURE_STATUSES, JOB_STATUSES } from "./messages.js";
@@ -40,6 +43,17 @@ export { FEATURE_STATUSES, JOB_STATUSES } from "./messages.js";
 
 export type { CardAnnotation } from "./annotations.js";
 export { parseAnnotation } from "./annotations.js";
+
+// ---- Test recipe schema (zazig.test.yaml) ----
+
+export type {
+  TestRecipe,
+  TestRecipeDeploy,
+  TestRecipeTeardown,
+  TestRecipeHealthcheck,
+  TestRecipeProvider,
+  TestRecipeType,
+} from "./test-recipe.js";
 
 // ---- Slack helpers ----
 
@@ -142,6 +156,9 @@ export {
   isFeatureRejected,
   isVerifyResult,
   isMessageOutbound,
+  isDeployComplete,
+  isDeployFailed,
+  isDeployNeedsConfig,
 } from "./validators.js";
 
 // ---- Personality prompt compilation ----

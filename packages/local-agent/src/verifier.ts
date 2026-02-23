@@ -45,12 +45,6 @@ const REVIEWER_SESSION_TIMEOUT_MS = 10 * 60_000;
 /** Path to the verify report relative to repo root. */
 const VERIFY_REPORT_PATH = ".claude/verify-report.md";
 
-/**
- * Minimal fallback prompt used when the reviewer role cannot be loaded from the DB.
- * Keeps verification working even without DB connectivity.
- */
-const defaultReviewerPrompt = `You are a code reviewer. Verify the branch by running: rebase onto the target branch, npm test, npm run lint, npm run typecheck. Fix trivial issues (5 lines or fewer). Write results to .claude/verify-report.md with status: pass or fail.`;
-
 export type ExecFn = (
   cmd: string,
   args: string[],
@@ -283,7 +277,7 @@ interface VerifyReport {
  * Looks for `status: pass` or `status: fail` line.
  * Looks for `failure_reason: ...` line.
  */
-function parseVerifyReport(content: string): VerifyReport | null {
+export function parseVerifyReport(content: string): VerifyReport | null {
   const statusMatch = content.match(/^status:\s*(pass|fail)\s*$/m);
   if (!statusMatch) return null;
 

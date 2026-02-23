@@ -945,7 +945,7 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
   // Fetch feature details for the verification job
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
-    .select("feature_branch, project_id, company_id, acceptance_tests")
+    .select("branch, project_id, company_id, acceptance_tests")
     .eq("id", featureId)
     .single();
   if (fetchErr || !feature) {
@@ -957,7 +957,7 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
   // to a VerifyJob message, which the local agent's verifier picks up.
   const verifyContext = JSON.stringify({
     type: "feature_verification",
-    featureBranch: feature.feature_branch,
+    featureBranch: feature.branch,
     acceptanceTests: feature.acceptance_tests ?? "",
   });
   const { data: insertedRows, error: insertErr } = await supabase
@@ -972,14 +972,14 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
       slot_type: "claude_code",
       status: "queued",
       context: verifyContext,
-      branch: feature.feature_branch,
+      branch: feature.branch,
     })
     .select("id");
 
   if (insertErr) {
     console.error(`[orchestrator] Failed to insert feature verification job for ${featureId}:`, insertErr.message);
   } else {
-    console.log(`[orchestrator] Queued feature verification job for feature ${featureId} branch ${feature.feature_branch}`);
+    console.log(`[orchestrator] Queued feature verification job for feature ${featureId} branch ${feature.branch}`);
     const jobId = insertedRows?.[0]?.id;
     if (jobId) {
       generateTitle(verifyContext).then((title) => {
@@ -1118,7 +1118,7 @@ async function promoteStandaloneToTesting(supabase: SupabaseClient, jobId: strin
 async function promoteToTesting(supabase: SupabaseClient, featureId: string): Promise<void> {
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
-    .select("project_id, company_id, feature_branch, human_checklist")
+    .select("project_id, company_id, branch, human_checklist")
     .eq("id", featureId)
     .single();
   if (fetchErr || !feature) {
@@ -1164,7 +1164,7 @@ async function promoteToTesting(supabase: SupabaseClient, featureId: string): Pr
     protocolVersion: PROTOCOL_VERSION,
     featureId,
     jobType: "feature",
-    featureBranch: feature.feature_branch,
+    featureBranch: feature.branch,
     projectId: feature.project_id,
   };
 
@@ -1189,7 +1189,7 @@ export async function handleFeatureApproved(
   // 1. Fetch feature for project/company context
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
-    .select("project_id, company_id, feature_branch")
+    .select("project_id, company_id, branch")
     .eq("id", featureId)
     .single();
 
@@ -1290,7 +1290,7 @@ export async function handleFeatureRejected(
   // 1. Fetch feature details
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
-    .select("company_id, project_id, feature_branch, spec")
+    .select("company_id, project_id, branch, spec")
     .eq("id", featureId)
     .single();
 
@@ -1327,7 +1327,7 @@ export async function handleFeatureRejected(
   const fixContext = JSON.stringify({
     type: "rejection_fix",
     feedback,
-    featureBranch: feature.feature_branch,
+    featureBranch: feature.branch,
     originalSpec: feature.spec ?? "",
   });
   const { data: insertedRows, error: insertErr } = await supabase.from("jobs").insert({
@@ -1340,7 +1340,7 @@ export async function handleFeatureRejected(
     slot_type: "claude_code",
     status: "queued",
     context: fixContext,
-    branch: feature.feature_branch,
+    branch: feature.branch,
     rejection_feedback: feedback,
   }).select("id");
 

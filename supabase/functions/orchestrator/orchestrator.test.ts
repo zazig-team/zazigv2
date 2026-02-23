@@ -320,7 +320,7 @@ Deno.test("handleVerifyResult — passed, all jobs done, triggers feature verifi
   // triggerFeatureVerification: select feature details
   setResponse("features:select.eq.single", {
     data: {
-      feature_branch: "feature/auth-system",
+      branch: "feature/auth-system",
       project_id: "proj-1",
       company_id: "company-1",
       acceptance_tests: "run npm test",
@@ -384,7 +384,7 @@ Deno.test("triggerFeatureVerification — sets feature to verifying and inserts 
   // select feature details
   setResponse("features:select.eq.single", {
     data: {
-      feature_branch: "feature/payment-flow",
+      branch: "feature/payment-flow",
       project_id: "proj-2",
       company_id: "company-2",
       acceptance_tests: "pytest tests/",
@@ -449,7 +449,7 @@ Deno.test("handleFeatureApproved — feature in testing → marks done, jobs don
 
   // 1. Fetch feature
   setResponse("features:select.eq.single", {
-    data: { project_id: "proj-1", company_id: "co-1", feature_branch: "feat/auth" },
+    data: { project_id: "proj-1", company_id: "co-1", branch: "feat/auth" },
     error: null,
   });
 
@@ -511,7 +511,7 @@ Deno.test("handleFeatureApproved — feature NOT in testing (CAS guard) → no-o
 
   // Fetch feature succeeds
   setResponse("features:select.eq.single", {
-    data: { project_id: "proj-1", company_id: "co-1", feature_branch: "feat/x" },
+    data: { project_id: "proj-1", company_id: "co-1", branch: "feat/x" },
     error: null,
   });
 
@@ -544,7 +544,7 @@ Deno.test("handleFeatureApproved — queue exists → calls promoteToTesting", a
 
   // Fetch feature
   setResponse("features:select.eq.single", {
-    data: { project_id: "proj-1", company_id: "co-1", feature_branch: "feat/auth", human_checklist: "check" },
+    data: { project_id: "proj-1", company_id: "co-1", branch: "feat/auth", human_checklist: "check" },
     error: null,
   });
 
@@ -599,7 +599,7 @@ Deno.test("handleFeatureApproved — no queue → does not call promoteToTesting
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
   setResponse("features:select.eq.single", {
-    data: { project_id: "proj-1", company_id: "co-1", feature_branch: "feat/x" },
+    data: { project_id: "proj-1", company_id: "co-1", branch: "feat/x" },
     error: null,
   });
   setResponse("features:update.eq.eq.select", { data: [{ id: "feat-1" }], error: null });
@@ -682,7 +682,7 @@ Deno.test("handleFeatureRejected — severity=big + in testing → resets to bui
 
   // Fetch feature details
   setResponse("features:select.eq.single", {
-    data: { company_id: "co-1", project_id: "proj-1", feature_branch: "feat/auth", spec: "Build auth" },
+    data: { company_id: "co-1", project_id: "proj-1", branch: "feat/auth", spec: "Build auth" },
     error: null,
   });
 
@@ -750,7 +750,7 @@ Deno.test("handleFeatureRejected — severity=big + NOT in testing (CAS guard) �
 
   // Fetch feature
   setResponse("features:select.eq.single", {
-    data: { company_id: "co-1", project_id: "proj-1", feature_branch: "feat/x", spec: "" },
+    data: { company_id: "co-1", project_id: "proj-1", branch: "feat/x", spec: "" },
     error: null,
   });
 
@@ -782,7 +782,7 @@ Deno.test("handleFeatureRejected — severity=big + queue exists → promotes ne
 
   // Fetch feature
   setResponse("features:select.eq.single", {
-    data: { company_id: "co-1", project_id: "proj-1", feature_branch: "feat/y", spec: "spec", human_checklist: "" },
+    data: { company_id: "co-1", project_id: "proj-1", branch: "feat/y", spec: "spec", human_checklist: "" },
     error: null,
   });
 

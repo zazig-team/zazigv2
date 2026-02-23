@@ -290,24 +290,22 @@ export class AgentConnection {
 
     const slotsAvailable = this.slots.getAvailable();
     // Primary: write heartbeat directly to the DB — reliable, no timing dependency
-    // Uses the primary company_id (first discovered or from config) for the heartbeat
+    let query = this.dbClient
+      .from("machines")
+      .update({
+        last_heartbeat: new Date().toISOString(),
+        status: "online",
+        slots_claude_code: slotsAvailable.claude_code,
+        slots_codex: slotsAvailable.codex,
+      })
+      .eq("name", this.machineId);
+
     const heartbeatCompanyId = this.primaryCompanyId ?? this.companyIds[0];
-    let dbErr: { message: string } | null = null;
     if (heartbeatCompanyId) {
-      const result = await this.dbClient
-        .from("machines")
-        .update({
-          last_heartbeat: new Date().toISOString(),
-          status: "online",
-          slots_claude_code: slotsAvailable.claude_code,
-          slots_codex: slotsAvailable.codex,
-        })
-        .eq("company_id", heartbeatCompanyId)
-        .eq("name", this.machineId);
-      dbErr = result.error;
-    } else {
-      dbErr = { message: "no company_id available for heartbeat" };
+      query = query.eq("company_id", heartbeatCompanyId);
     }
+
+    const { error: dbErr } = await query;
 
     if (dbErr) {
       console.warn(`[local-agent] Heartbeat DB write failed: ${dbErr.message}`);

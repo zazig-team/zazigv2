@@ -8,7 +8,7 @@
  * Start: node dist/index.js (or npm start from this package)
  *
  * Auth: Reads ~/.zazigv2/credentials.json for Supabase Auth JWT.
- * Config: ~/.zazigv2/machine.yaml (machine name + slots)
+ * Config: env vars from `zazig start` or ~/.zazigv2/config.json (machine name + slots)
  */
 
 import { loadConfig } from "./config.js";
@@ -27,7 +27,7 @@ import type { OrchestratorMessage, MessageInbound } from "@zazigv2/shared";
 async function main(): Promise<void> {
   console.log("[local-agent] Initializing...");
 
-  // Load machine config from ~/.zazigv2/machine.yaml
+  // Load machine config from env vars or ~/.zazigv2/config.json
   const config = loadConfig();
   console.log(
     `[local-agent] Config loaded — machine=${config.name}, ` +

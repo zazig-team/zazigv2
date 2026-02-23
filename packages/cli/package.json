@@ -13,8 +13,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@zazigv2/local-agent": "*",
-    "yaml": "^2.7.0"
+    "@zazigv2/local-agent": "*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

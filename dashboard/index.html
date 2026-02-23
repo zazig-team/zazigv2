@@ -19,17 +19,25 @@
       --text-secondary: #8b919a;
       --text-dim: #555d68;
 
-      --col-design: #c471ed;
+      --col-ready_for_breakdown: #9b59b6;
+      --col-breakdown: #8e44ad;
       --col-building: #e8a838;
-      --col-testing: #4d8fef;
+      --col-combining: #e67e22;
       --col-verifying: #28b5d4;
-      --col-done: #3cbf6e;
+      --col-deploying_to_test: #2980b9;
+      --col-ready_to_test: #4d8fef;
+      --col-deploying_to_prod: #27ae60;
+      --col-complete: #3cbf6e;
 
-      --col-design-bg: rgba(196, 113, 237, 0.06);
+      --col-ready_for_breakdown-bg: rgba(155, 89, 182, 0.06);
+      --col-breakdown-bg: rgba(142, 68, 173, 0.06);
       --col-building-bg: rgba(232, 168, 56, 0.06);
-      --col-testing-bg: rgba(77, 143, 239, 0.06);
+      --col-combining-bg: rgba(230, 126, 34, 0.06);
       --col-verifying-bg: rgba(40, 181, 212, 0.06);
-      --col-done-bg: rgba(60, 191, 110, 0.06);
+      --col-deploying_to_test-bg: rgba(41, 128, 185, 0.06);
+      --col-ready_to_test-bg: rgba(77, 143, 239, 0.06);
+      --col-deploying_to_prod-bg: rgba(39, 174, 96, 0.06);
+      --col-complete-bg: rgba(60, 191, 110, 0.06);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -86,14 +94,14 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: var(--col-testing);
-      box-shadow: 0 0 8px var(--col-testing), 0 0 20px rgba(77, 143, 239, 0.3);
+      background: var(--col-ready_to_test);
+      box-shadow: 0 0 8px var(--col-ready_to_test), 0 0 20px rgba(77, 143, 239, 0.3);
       animation: pulse-glow 3s ease-in-out infinite;
     }
 
     @keyframes pulse-glow {
-      0%, 100% { box-shadow: 0 0 8px var(--col-testing), 0 0 20px rgba(77, 143, 239, 0.3); }
-      50% { box-shadow: 0 0 12px var(--col-testing), 0 0 30px rgba(77, 143, 239, 0.5); }
+      0%, 100% { box-shadow: 0 0 8px var(--col-ready_to_test), 0 0 20px rgba(77, 143, 239, 0.3); }
+      50% { box-shadow: 0 0 12px var(--col-ready_to_test), 0 0 30px rgba(77, 143, 239, 0.5); }
     }
 
     h1 {
@@ -106,7 +114,7 @@
     }
 
     .company-tag {
-      color: var(--col-testing);
+      color: var(--col-ready_to_test);
       margin-left: 4px;
     }
 
@@ -275,7 +283,7 @@
     }
 
     .card:focus-visible {
-      outline: 2px solid var(--col-testing);
+      outline: 2px solid var(--col-ready_to_test);
       outline-offset: 1px;
     }
 
@@ -444,7 +452,7 @@
     }
 
     .detail-live-dot.terminal {
-      background: var(--col-done);
+      background: var(--col-complete);
       box-shadow: none;
       animation: none;
     }
@@ -588,7 +596,7 @@
     }
 
     .detail-job-row:focus-visible {
-      outline: 2px solid var(--col-testing);
+      outline: 2px solid var(--col-ready_to_test);
       outline-offset: 1px;
     }
 
@@ -611,7 +619,7 @@
     }
 
     .detail-job-dot.complete, .detail-job-dot.done, .detail-job-dot.approved {
-      background: var(--col-done);
+      background: var(--col-complete);
     }
 
     .detail-job-dot.failed, .detail-job-dot.verify_failed {
@@ -776,11 +784,15 @@
 
       // Pipeline stage order: left -> right
       const COLUMNS = [
-        { key: 'design',    label: 'Design',    color: '#c471ed' },
-        { key: 'building',  label: 'Building',  color: '#e8a838' },
-        { key: 'testing',   label: 'Testing',   color: '#4d8fef' },
-        { key: 'verifying', label: 'Verifying', color: '#28b5d4' },
-        { key: 'done',      label: 'Done',      color: '#3cbf6e' },
+        { key: 'ready_for_breakdown', label: 'Ready',     color: '#9b59b6' },
+        { key: 'breakdown',           label: 'Breakdown', color: '#8e44ad' },
+        { key: 'building',            label: 'Building',  color: '#e8a838' },
+        { key: 'combining',           label: 'Combining', color: '#e67e22' },
+        { key: 'verifying',           label: 'Verifying', color: '#28b5d4' },
+        { key: 'deploying_to_test',   label: 'Deploying', color: '#2980b9' },
+        { key: 'ready_to_test',       label: 'Testing',   color: '#4d8fef' },
+        { key: 'deploying_to_prod',   label: 'To Prod',   color: '#27ae60' },
+        { key: 'complete',            label: 'Complete',  color: '#3cbf6e' },
       ];
 
       // Only these job statuses indicate actively-working (show progress bar)
@@ -792,9 +804,9 @@
         queued: 'building', dispatched: 'building', executing: 'building', verify_failed: 'building',
         waiting_on_human: 'building',
         reviewing: 'verifying', verifying: 'verifying',
-        testing: 'testing',
-        complete: 'done', done: 'done', approved: 'done',
-        failed: 'building', rejected: 'building', cancelled: 'done',
+        testing: 'ready_to_test',
+        complete: 'complete', done: 'complete', approved: 'complete',
+        failed: 'building', rejected: 'building', cancelled: 'complete',
       };
 
       // Board elements

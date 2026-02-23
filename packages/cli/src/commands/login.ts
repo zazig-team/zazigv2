@@ -15,6 +15,11 @@ export async function login(): Promise<void> {
   const supabaseUrl =
     process.env["SUPABASE_URL"] ?? "https://jmussmwglgbwncgygzbz.supabase.co";
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
+  if (!anonKey) {
+    console.error("Error: SUPABASE_ANON_KEY environment variable is not set.");
+    console.error("Run: export SUPABASE_ANON_KEY=your-anon-key");
+    process.exit(1);
+  }
 
   // 1. Prompt for email
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -145,8 +150,7 @@ fetch('/token', {
   console.log(`Logged in as ${email}`);
 }
 
-async function findAvailablePort(preferredPort: number): Promise<number> {
-  const http = await import("node:http");
+function findAvailablePort(preferredPort: number): Promise<number> {
   return new Promise((resolve) => {
     const server = http.createServer();
     server.listen(preferredPort, () => {

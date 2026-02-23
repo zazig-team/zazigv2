@@ -94,9 +94,10 @@ export async function setup(): Promise<void> {
         return;
       }
 
+      const { data: { user } } = await supabase.auth.getUser();
       const { data: company, error } = await supabase
         .from("companies")
-        .insert({ name })
+        .insert({ name, created_by: user?.id })
         .select("id, name")
         .single();
 
@@ -113,7 +114,6 @@ export async function setup(): Promise<void> {
       console.log(`\nCompany "${companyName}" created.`);
 
       // Link the authenticated user to the new company
-      const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { error: memberErr } = await supabase
           .from("user_companies")

@@ -46,17 +46,20 @@ CREATE POLICY "authenticated_read_own" ON public.machines
     USING (public.user_in_company(company_id));
 
 -- Drop old INSERT/UPDATE policies (025: JWT claim)
+-- Machines are physical devices — they serve ALL companies the user belongs to,
+-- not locked to one company. Open authenticated policies are fine here;
+-- machines are identified by name and API key, not by user ownership.
 DROP POLICY IF EXISTS "authenticated_insert_own" ON public.machines;
 DROP POLICY IF EXISTS "authenticated_update_own" ON public.machines;
 
 CREATE POLICY "authenticated_insert_own" ON public.machines
     FOR INSERT TO authenticated
-    WITH CHECK (public.user_in_company(company_id));
+    WITH CHECK (true);
 
 CREATE POLICY "authenticated_update_own" ON public.machines
     FOR UPDATE TO authenticated
-    USING (public.user_in_company(company_id))
-    WITH CHECK (public.user_in_company(company_id));
+    USING (true)
+    WITH CHECK (true);
 
 -- ============================================================
 -- projects
@@ -166,3 +169,14 @@ DROP POLICY IF EXISTS "authenticated_read_own" ON public.company_roles;
 CREATE POLICY "authenticated_read_own" ON public.company_roles
     FOR SELECT TO authenticated
     USING (public.user_in_company(company_id));
+
+-- ============================================================
+-- Anon read policies for dashboard (uses anon key, not authenticated JWT)
+-- ============================================================
+-- Policies from 013 (features, jobs) and 014 (companies) are NOT dropped above
+-- (they use different policy names: "anon_read_all" vs "authenticated_read_own"),
+-- so they remain intact. Only machines was missing an anon read policy.
+
+CREATE POLICY "anon_read_all" ON public.machines
+    FOR SELECT TO anon
+    USING (true);

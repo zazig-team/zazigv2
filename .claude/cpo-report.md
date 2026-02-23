@@ -1,81 +1,91 @@
 STATUS: COMPLETE
-CARD: 699b906c5c4cb4af3dea67c4
-FILES: dashboard/index.html, supabase/functions/orchestrator/index.ts, supabase/migrations/019_add_title_to_jobs.sql
+CARD: 699b8e732491a4f6bbb5df6d
+FILES: supabase/functions/orchestrator/index.ts, supabase/functions/orchestrator/orchestrator.test.ts, dashboard/index.html, packages/shared/src/messages.ts, packages/shared/src/validators.ts
+TESTS: 4 existing tests updated for new signatures; test coverage preserved
+NOTES: All 6 PR #61 review findings (3 P1, 3 P2) applied as follow-up commit on cpo/standalone-jobs.
 
 ---
 
-# CPO Report — Dashboard Card Redesign (Trello-style)
+# CPO Report -- PR #61 Review Fixes (Standalone Jobs)
 
-## Summary
-Redesigned the pipeline dashboard from noisy data dumps to clean, Trello-style scannable cards with click-to-expand progressive disclosure. Added title generation for jobs via Claude Haiku API.
+## Commit
+`521f8c7` -- `fix(standalone-jobs): address PR #61 P1/P2 review findings`
 
-## What Was Done
+## All 6 Fixes Applied
 
-### 1. Migration (019_add_title_to_jobs.sql)
-- Added `title VARCHAR(120)` column to `jobs` table
-- `features` table already had a `title` column from 003_multi_tenant_schema.sql — no change needed
+### Fix 1 (P1-SEC): company_id isolation on promoteStandaloneToTesting
+- **File**: `supabase/functions/orchestrator/index.ts`
+- Added `companyId` parameter to `promoteStandaloneToTesting()`
+- Added `.eq("company_id", companyId)` to both SELECT and UPDATE queries
+- In `handleVerifyResult`, now selects `company_id` from verify job row and passes it through
+- Null guard if verify job has no company_id
 
-### 2. Orchestrator Title Generation
-- Added `generateTitle()` function that calls Claude Haiku (`claude-haiku-4-5-20251001`) to generate 3-8 word human-readable titles from job context
-- Strips UUIDs from context before sending to LLM, limits to 500 chars
-- Uses `ANTHROPIC_API_KEY` from environment (Doppler `zazig/prd`)
-- Integrated at both job creation points: `triggerFeatureVerification()` and `handleFeatureRejected()`
-- Graceful fallback: returns empty string if API key missing or call fails
+### Fix 2 (P1): Idempotency guard on triggerStandaloneVerification
+- **File**: `supabase/functions/orchestrator/index.ts`
+- Before INSERT, queries for existing active verify job via `.filter("context->>originalJobId", "eq", jobId)` with `.not("status", "in", '("done","verify_failed")')` and `.maybeSingle()`
+- If active verify job exists, logs and returns early -- prevents duplicate verify jobs from at-least-once delivery
 
-### 3. Dashboard Redesign
-**Card face (compact):**
-- Shows feature title (using `feature.title` column, fallback to spec first line, then "Untitled feature")
-- Job titles use `job.title` column, fallback to parsed context type, then truncated context
-- Meta line shows job progress count ("3/5 done") and active job count
-- No raw UUIDs or JSON visible on board view
+### Fix 3 (P1): DeployToTest extended with standaloneJobId + jobType discriminator
+- **File**: `packages/shared/src/messages.ts` -- `featureId` now optional, added `standaloneJobId?: string` and `jobType: "feature" | "standalone"`
+- **File**: `packages/shared/src/validators.ts` -- `isDeployToTest` validates `jobType`, requires `featureId` for feature deploys, `standaloneJobId` for standalone deploys
+- **File**: `supabase/functions/orchestrator/index.ts` -- `promoteStandaloneToTesting` sends `standaloneJobId` + `jobType: "standalone"`, `promoteToTesting` sends `jobType: "feature"`
 
-**Progress bar:**
-- ONLY shown when a job is actively in `executing` or `reviewing` status
-- Hidden for queued, dispatched, waiting, complete, failed, and all other statuses
-- Animated shimmer effect on active bars
+### Fix 4 (P2): Promise.all in refreshDashboard
+- **File**: `dashboard/index.html`
+- `fetchFeatures()` and `fetchStandaloneJobs()` now run in parallel via `Promise.all()`
 
-**Click-to-expand detail panel:**
-- Side panel (replaces old bottom sheet) with 480px width
-- Feature detail view: title, status, branch, timestamps, job list, spec, acceptance tests
-- Job detail view: title, status, model, progress, timestamps, context (pretty-printed JSON), raw log
-- Navigation: click job in feature detail → job detail with back button
-- Live polling (5s) for active jobs; frozen for terminal states
+### Fix 5 (P2): Company guard on null activeCompanyId
+- **File**: `dashboard/index.html`
+- `fetchStandaloneJobs()` returns `[]` immediately when `activeCompanyId` is null -- prevents querying all companies' standalone jobs
 
-**Standalone jobs:**
-- Separate query for `feature_id IS NULL` jobs
-- Mapped to board columns by job status (executing→Building, reviewing→Verifying, etc.)
-- Rendered as top-level cards with "standalone" badge
-- Clickable to open job detail
+### Fix 6 (P2): Set original job status to 'verifying'
+- **File**: `supabase/functions/orchestrator/index.ts`
+- After successful verify job INSERT in `triggerStandaloneVerification`, updates original job status to `"verifying"`
+- Provides idempotency signal and operator visibility
 
-**Kanban layout preserved:** Design → Building → Testing → Verifying → Done
+## Standalone Job Lifecycle
 
-## Files Changed
-1. `supabase/migrations/019_add_title_to_jobs.sql` — New migration adding title column to jobs
-2. `supabase/functions/orchestrator/index.ts` — Added `ANTHROPIC_API_KEY` env var, `generateTitle()` function, title generation at job creation
-3. `dashboard/index.html` — Complete card redesign: compact Trello-style cards, click-to-expand side panel, standalone jobs support, progress bar only for active jobs
+```
+queued -> dispatched -> executing -> verifying -> testing -> complete (deployed)
+  executing -> triggerStandaloneVerification (creates verify job, sets status to verifying)
+  verify job runs -> VerifyResult
+    -> passed: promoteStandaloneToTesting -> status=testing -> DeployToTest
+    -> failed: verify_failed (requeue for retry)
+  testing -> (human approval) -> done
+```
 
-## Migration Number
-019
-
-## Manual Test Steps
-
-**Before (old behavior):**
-- Cards showed raw UUIDs or first 50 chars of JSON context as labels
-- Job rows showed truncated `{"type":"feature_verification",...}` noise
-- Everything visible at once — no progressive disclosure
-- Progress bars shown for queued/dispatched jobs (not yet working)
-- No standalone jobs visible
-
-**After (new behavior):**
-1. Open dashboard — cards show clean titles with job count meta ("3/5 done")
-2. Progress bars ONLY appear on cards with executing/reviewing jobs (animated shimmer)
-3. Queued/completed cards have NO progress bar
-4. Click any feature card → side panel opens showing metadata + job list + spec
-5. Click a job row in the detail panel → switches to job detail with log, context, timestamps
-6. Click "← Back" to return to feature detail
-7. Standalone jobs (no feature) appear in relevant columns with "standalone" badge
-8. Press Escape or click backdrop to close detail panel
-9. No raw UUIDs or JSON visible anywhere on the board
+## Test Updates
+- **File**: `supabase/functions/orchestrator/orchestrator.test.ts`
+- Added `filter` and `maybeSingle` to mock chain methods
+- `triggerStandaloneVerification` test: added mock for idempotency check (returns null) and status update; updated chain count assertion from 2 to 4
+- `handleVerifyResult standalone passed` test: added `company_id: "co-1"` to verify job mock data; added `select.eq.eq.single` and `update.eq.eq` patterns for company-scoped promote queries
 
 ## Token Usage
 - Token budget: claude-ok (wrote code directly)
+- No codex delegation needed -- 6 surgical fixes across 5 files
+
+---
+
+# CPO Report -- Standalone Job Lifecycle Fix (PR #61 follow-up)
+
+## Commit
+`0ad9439` -- `fix(standalone-jobs): correct job lifecycle -- skip spurious complete state`
+
+## Problem
+`handleJobComplete()` unconditionally set `status: "complete"` for all non-persistent jobs, including standalone jobs. Then `triggerStandaloneVerification()` (Fix 6) immediately overrode it to `"verifying"`. This created a spurious state transition: `executing -> complete -> verifying`.
+
+`complete` is the terminal/deployed state -- not "execution finished".
+
+## Fix
+In `handleJobComplete()`, added `isStandaloneExecution` check (no `feature_id`, not a `verify` job). Standalone jobs now skip the `status: "complete"` update. The status stays at `executing` momentarily until `triggerStandaloneVerification` sets it to `"verifying"`.
+
+Correct lifecycle: `queued -> executing -> verifying -> testing -> complete (deployed)`
+
+## Scope
+- **1 file changed**: `supabase/functions/orchestrator/index.ts` (6 lines added, 1 removed)
+- **No test changes**: No `handleJobComplete` tests exist in the test file; `triggerStandaloneVerification` and `handleVerifyResult` tests are unaffected
+- **`handleJobFailed`**: Verified correct -- uses `"failed"` or `"queued"`, never `"complete"`
+
+## Token Usage
+- Token budget: claude-ok (wrote code directly)
+- Surgical 1-file fix, no delegation needed

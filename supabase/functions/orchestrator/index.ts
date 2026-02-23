@@ -750,10 +750,15 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
     console.log(`[orchestrator] Persistent job ${jobId} re-queued (was on machine ${machineId})`);
   } else {
     // Normal jobs: mark complete.
+    // Standalone jobs (no feature_id, not verify) skip "complete" here —
+    // triggerStandaloneVerification will set "verifying" next.
+    // "complete" is the terminal/deployed state, not "execution finished".
+    const isStandaloneExecution = !jobRow?.feature_id && jobRow?.job_type !== "verify";
+
     const { error: jobErr } = await supabase
       .from("jobs")
       .update({
-        status: "complete",
+        ...(isStandaloneExecution ? {} : { status: "complete" }),
         result,
         pr_url: pr ?? null,
         completed_at: new Date().toISOString(),
@@ -779,6 +784,12 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
   try { ctx = JSON.parse(contextStr); } catch { /* ignore */ }
   if (ctx.type === "feature_verification" && jobRow?.feature_id) {
     await promoteToTesting(supabase, jobRow.feature_id);
+  }
+
+  // Standalone job completed (no feature_id, not persistent, not a verify job)
+  // — trigger standalone verification pipeline.
+  if (!isPersistent && !jobRow.feature_id && jobRow.job_type !== "verify") {
+    await triggerStandaloneVerification(supabase, jobId);
   }
 }
 
@@ -867,13 +878,32 @@ export async function handleVerifyResult(supabase: SupabaseClient, msg: VerifyRe
   }
   console.log(`[orchestrator] Job ${jobId} verified and done`);
 
-  // Look up the feature_id for this job
+  // Look up the feature_id, context, and company_id for this job
   const { data: jobRow, error: jobErr } = await supabase
     .from("jobs")
-    .select("feature_id")
+    .select("feature_id, context, company_id")
     .eq("id", jobId)
     .single();
-  if (jobErr || !jobRow?.feature_id) {
+  if (jobErr) {
+    console.error(`[orchestrator] Failed to fetch job ${jobId} after verify:`, jobErr.message);
+    return;
+  }
+
+  // Check if this is a standalone verification job (no feature_id)
+  let verifyCtx: { type?: string; originalJobId?: string } = {};
+  try { verifyCtx = JSON.parse(jobRow?.context ?? "{}"); } catch { /* ignore */ }
+  if (verifyCtx.type === "standalone_verification" && verifyCtx.originalJobId) {
+    const verifyJobCompanyId = jobRow?.company_id;
+    if (!verifyJobCompanyId) {
+      console.error(`[orchestrator] Verify job ${jobId} has no company_id — cannot promote standalone job`);
+      return;
+    }
+    console.log(`[orchestrator] Standalone verification passed for job ${verifyCtx.originalJobId} — promoting to testing`);
+    await promoteStandaloneToTesting(supabase, verifyCtx.originalJobId, verifyJobCompanyId);
+    return;
+  }
+
+  if (!jobRow?.feature_id) {
     console.log(`[orchestrator] Job ${jobId} has no feature_id — skipping feature check`);
     return;
   }
@@ -962,6 +992,123 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
 }
 
 /**
+ * Triggers the verification pipeline for a standalone job (no feature).
+ * Creates a verify job that rebases, tests, lints, typechecks, and merges
+ * the job's branch — identical to feature verification but scoped to one job.
+ */
+export async function triggerStandaloneVerification(supabase: SupabaseClient, jobId: string): Promise<void> {
+  const { data: job, error: fetchErr } = await supabase
+    .from("jobs")
+    .select("company_id, project_id, branch")
+    .eq("id", jobId)
+    .single();
+
+  if (fetchErr || !job) {
+    console.error(`[orchestrator] Failed to fetch job ${jobId} for standalone verification:`, fetchErr?.message);
+    return;
+  }
+
+  // Idempotency guard: check for existing active verify job for this standalone job.
+  // Supabase Realtime delivers at-least-once; a duplicate job_complete event would
+  // insert a second verify job without this check.
+  const { data: existing } = await supabase
+    .from("jobs")
+    .select("id, status")
+    .filter("context->>originalJobId", "eq", jobId)
+    .eq("job_type", "verify")
+    .not("status", "in", '("done","verify_failed")')
+    .maybeSingle();
+
+  if (existing) {
+    console.log(`[orchestrator] triggerStandaloneVerification: active verify job ${existing.id} already exists for job ${jobId}, skipping`);
+    return;
+  }
+
+  const { error: insertErr } = await supabase
+    .from("jobs")
+    .insert({
+      company_id: job.company_id,
+      project_id: job.project_id,
+      feature_id: null,
+      role: "reviewer",
+      job_type: "verify",
+      complexity: "simple",
+      slot_type: "claude_code",
+      status: "queued",
+      context: JSON.stringify({
+        type: "standalone_verification",
+        originalJobId: jobId,
+        jobBranch: job.branch ?? "",
+      }),
+      branch: job.branch,
+    });
+
+  if (insertErr) {
+    console.error(`[orchestrator] Failed to insert standalone verification job for ${jobId}:`, insertErr.message);
+  } else {
+    console.log(`[orchestrator] Queued standalone verification job for job ${jobId} branch ${job.branch}`);
+
+    // Update original job status to 'verifying' — provides idempotency signal
+    // and gives operators visibility that verification is in progress.
+    await supabase
+      .from("jobs")
+      .update({ status: "verifying" })
+      .eq("id", jobId);
+  }
+}
+
+/**
+ * Promotes a standalone job to the testing phase after verification passes.
+ * Updates the original job status to "testing" and broadcasts DeployToTest.
+ */
+async function promoteStandaloneToTesting(supabase: SupabaseClient, jobId: string, companyId: string): Promise<void> {
+  const { data: job, error: fetchErr } = await supabase
+    .from("jobs")
+    .select("company_id, project_id, branch")
+    .eq("id", jobId)
+    .eq("company_id", companyId)
+    .single();
+
+  if (fetchErr || !job) {
+    console.error(`[orchestrator] promoteStandaloneToTesting: job ${jobId} not found for company ${companyId}`);
+    return;
+  }
+
+  const { error: updateErr } = await supabase
+    .from("jobs")
+    .update({ status: "testing" })
+    .eq("id", jobId)
+    .eq("company_id", companyId);
+
+  if (updateErr) {
+    console.error(`[orchestrator] Failed to set job ${jobId} to testing:`, updateErr.message);
+    return;
+  }
+
+  console.log(`[orchestrator] Standalone job ${jobId} promoted to testing — sending DeployToTest`);
+
+  const deployMsg: DeployToTest = {
+    type: "deploy_to_test",
+    protocolVersion: PROTOCOL_VERSION,
+    standaloneJobId: jobId,
+    jobType: "standalone",
+    featureBranch: job.branch ?? "",
+    projectId: job.project_id ?? "",
+  };
+
+  const channel = supabase.channel(`company:${job.company_id}`);
+  await new Promise<void>((resolve) => {
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await channel.send({ type: "broadcast", event: "deploy_to_test", payload: deployMsg });
+        await channel.unsubscribe();
+        resolve();
+      }
+    });
+  });
+}
+
+/**
  * Promotes a verified feature to the test environment.
  *
  * Queue logic: only one feature at a time can occupy the test env per project.
@@ -1016,6 +1163,7 @@ async function promoteToTesting(supabase: SupabaseClient, featureId: string): Pr
     type: "deploy_to_test",
     protocolVersion: PROTOCOL_VERSION,
     featureId,
+    jobType: "feature",
     featureBranch: feature.feature_branch,
     projectId: feature.project_id,
   };

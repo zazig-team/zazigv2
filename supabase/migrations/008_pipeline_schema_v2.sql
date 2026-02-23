@@ -18,7 +18,7 @@ ALTER TABLE public.features
     ADD COLUMN spec text,
     ADD COLUMN acceptance_tests text,
     ADD COLUMN human_checklist text,
-    ADD COLUMN feature_branch text;
+    ADD COLUMN branch text;
 
 ALTER TABLE public.features
     DROP CONSTRAINT IF EXISTS features_status_check;
@@ -37,7 +37,7 @@ ALTER TABLE public.features
 ALTER TABLE public.jobs
     ADD COLUMN acceptance_tests text,
     ADD COLUMN sequence integer,
-    ADD COLUMN job_branch text,
+    -- job_branch removed: jobs.branch already exists from 003
     ADD COLUMN verify_context text,
     ADD COLUMN rejection_feedback text;
 

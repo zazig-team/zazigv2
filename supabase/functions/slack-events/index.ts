@@ -11,7 +11,7 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
-import type { MessageInbound, FeatureApproved, FeatureRejected } from "@zazigv2/shared";
+import type { MessageInbound, FeatureApproved, FeatureRejected, JobUnblocked } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -226,7 +226,7 @@ async function handleTestingThreadMessage(
 
 async function broadcastToOrchestrator(
   supabase: SupabaseClient,
-  payload: FeatureApproved | FeatureRejected,
+  payload: FeatureApproved | FeatureRejected | JobUnblocked,
 ): Promise<void> {
   const channel = supabase.channel("orchestrator:commands");
   await new Promise<void>((resolve) => {
@@ -245,6 +245,39 @@ async function broadcastToOrchestrator(
       }
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Blocked job: unblock on thread reply
+// ---------------------------------------------------------------------------
+
+async function handleBlockedJobReply(
+  supabase: SupabaseClient,
+  companyId: string,
+  _channel: string,
+  threadTs: string,
+  text: string,
+  _user: string,
+): Promise<boolean> {
+  // Find a blocked job with this blocked_slack_thread_ts
+  const { data: job } = await supabase.from("jobs")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("blocked_slack_thread_ts", threadTs)
+    .eq("status", "blocked")
+    .limit(1).single();
+
+  if (!job) return false;
+
+  // Any reply in this thread unblocks the job (the text is the answer)
+  const msg: JobUnblocked = {
+    type: "job_unblocked",
+    protocolVersion: PROTOCOL_VERSION,
+    jobId: job.id,
+    answer: text.trim(),
+  };
+  await broadcastToOrchestrator(supabase, msg);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -346,6 +379,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (installErr || !installation) {
     console.error(`[slack-events] No installation found for team ${teamId}:`, installErr?.message);
     return jsonResponse({ ok: true });
+  }
+
+  // --- Blocked job thread: check if this reply unblocks a job ---
+  // Must run BEFORE testing thread check — blocked job threads take priority.
+  if (threadTs) {
+    const unblocked = await handleBlockedJobReply(
+      supabase, installation.company_id, channel, threadTs, text, user,
+    );
+    if (unblocked) {
+      return jsonResponse({ ok: true });
+    }
   }
 
   // --- Testing thread: check if this message is in a testing thread ---

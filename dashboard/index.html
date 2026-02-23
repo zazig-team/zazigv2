@@ -610,15 +610,20 @@
       animation: dot-pulse 2s ease-in-out infinite;
     }
 
-    .detail-job-dot.complete, .detail-job-dot.done, .detail-job-dot.approved {
+    .detail-job-dot.complete {
       background: var(--col-done);
     }
 
-    .detail-job-dot.failed, .detail-job-dot.verify_failed {
+    .detail-job-dot.failed {
       background: #ef4444;
     }
 
-    .detail-job-dot.reviewing, .detail-job-dot.verifying {
+    .detail-job-dot.blocked {
+      background: #f59e0b;
+      animation: dot-pulse 1s ease-in-out infinite;
+    }
+
+    .detail-job-dot.reviewing {
       background: var(--col-verifying);
       animation: dot-pulse 2s ease-in-out infinite;
     }
@@ -764,7 +769,7 @@
       const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0';
 
       const FEATURES_BASE =
-        SUPABASE_URL + '/rest/v1/features?select=id,title,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,jobs(id,title,status,progress,model,job_type,sequence,branch,created_at)&status=not.eq.cancelled&order=created_at.desc';
+        SUPABASE_URL + '/rest/v1/features?select=id,title,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,jobs(id,title,status,progress,model,job_type,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
       const STANDALONE_JOBS_BASE =
         SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,branch,role,job_type,created_at,company_id&feature_id=is.null&status=not.in.(cancelled,done,complete)&job_type=not.in.(persistent_agent,verify)&order=created_at.desc&limit=100';
       const COMPANIES_BASE =
@@ -784,17 +789,16 @@
       ];
 
       // Only these job statuses indicate actively-working (show progress bar)
-      const WORKING_JOB_STATUSES = new Set(['executing', 'reviewing']);
-      const TERMINAL_JOB_STATUSES = new Set(['complete', 'failed', 'cancelled', 'done', 'approved']);
+      const WORKING_JOB_STATUSES = new Set(['executing', 'blocked', 'reviewing']);
+      const TERMINAL_JOB_STATUSES = new Set(['complete', 'failed', 'cancelled']);
 
       // Map standalone job statuses to board columns
       const JOB_STATUS_TO_COLUMN = {
-        queued: 'building', dispatched: 'building', executing: 'building', verify_failed: 'building',
-        waiting_on_human: 'building',
-        reviewing: 'verifying', verifying: 'verifying',
-        testing: 'testing',
-        complete: 'done', done: 'done', approved: 'done',
-        failed: 'building', rejected: 'building', cancelled: 'done',
+        queued: 'building', dispatched: 'building',
+        executing: 'building', blocked: 'building',
+        reviewing: 'verifying',
+        complete: 'done',
+        failed: 'building', cancelled: 'done',
       };
 
       // Board elements
@@ -968,7 +972,7 @@
         } else if (jobs && jobs.length > 0) {
           var doneCount = jobs.filter(function(j) {
             var s = normalizeStatus(j?.status);
-            return s === 'complete' || s === 'done' || s === 'approved';
+            return s === 'complete';
           }).length;
           meta.appendChild(el('span', '', doneCount + '/' + jobs.length + ' done'));
 
@@ -1178,7 +1182,11 @@
               row.setAttribute('role', 'button');
               row.setAttribute('tabindex', '0');
 
-              row.appendChild(el('div', 'detail-job-dot ' + jStatus));
+              var dot = el('div', 'detail-job-dot ' + jStatus);
+              if (jStatus === 'blocked' && job.blocked_reason) {
+                dot.title = 'Blocked: ' + job.blocked_reason;
+              }
+              row.appendChild(dot);
               row.appendChild(el('span', 'detail-job-name', getJobTitle(job)));
               row.appendChild(el('span', 'detail-job-status', jStatus));
 
@@ -1281,7 +1289,7 @@
       function applyJobToPanel(job) {
         var status = normalizeStatus(job.status);
         var terminal = TERMINAL_JOB_STATUSES.has(status);
-        var failed = status === 'failed' || status === 'verify_failed';
+        var failed = status === 'failed';
 
         detailLiveDot.className = 'detail-live-dot' +
           (failed ? ' failed' : terminal ? ' terminal' :

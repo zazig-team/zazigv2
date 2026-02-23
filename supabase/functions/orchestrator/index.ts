@@ -31,6 +31,7 @@ import {
   isDeployComplete,
   isDeployFailed,
   isDeployNeedsConfig,
+  isJobBlocked,
 } from "@zazigv2/shared";
 import type {
   StartJob,
@@ -41,6 +42,8 @@ import type {
   JobStatusMessage,
   JobComplete,
   JobFailed,
+  JobBlocked,
+  JobUnblocked,
   VerifyResult,
   DeployToTest,
   TeardownTest,
@@ -72,6 +75,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 interface JobRow {
   id: string;
   company_id: string;
+  project_id: string | null;
   feature_id: string | null;
   role: string;
   job_type: string;
@@ -82,6 +86,7 @@ interface JobRow {
   status: string;
   context: string | null;
   branch: string | null;
+  result: string | null;
   created_at: string;
 }
 
@@ -350,7 +355,7 @@ async function reapDeadMachines(supabase: SupabaseClient): Promise<void> {
       .from("jobs")
       .select("id, status")
       .eq("machine_id", machine.id)
-      .in("status", ["dispatched", "executing"]);
+      .in("status", ["dispatched", "executing", "blocked"]);
 
     if (jobsErr) {
       console.error(`[orchestrator] Failed to query jobs for dead machine ${machine.id}:`, jobsErr.message);
@@ -399,9 +404,9 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
   const { data: queuedJobs, error: jobsErr } = await supabase
     .from("jobs")
     .select(
-      "id, company_id, role, job_type, complexity, slot_type, model, machine_id, status, context, branch, created_at",
+      "id, company_id, project_id, role, job_type, complexity, slot_type, model, machine_id, status, context, branch, result, created_at",
     )
-    .in("status", ["queued", "verify_failed"])
+    .eq("status", "queued")
     .order("created_at", { ascending: true });
 
   if (jobsErr) {
@@ -513,7 +518,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         started_at: new Date().toISOString(),
       })
       .eq("id", job.id)
-      .in("status", ["queued", "verify_failed"]); // optimistic lock
+      .eq("status", "queued"); // optimistic lock
 
     if (updateJobErr) {
       console.error(`[orchestrator] Failed to dispatch job ${job.id}:`, updateJobErr.message);
@@ -704,7 +709,7 @@ async function handleJobStatus(supabase: SupabaseClient, msg: JobStatusMessage):
     .from("jobs")
     .update({ status: msg.status })
     .eq("id", msg.jobId)
-    .in("status", ["dispatched", "executing", "reviewing"]) // only update non-terminal jobs
+    .in("status", ["dispatched", "executing", "blocked", "reviewing"]) // only update non-terminal jobs
     .select("id");
 
   if (error) {
@@ -719,11 +724,10 @@ async function handleJobStatus(supabase: SupabaseClient, msg: JobStatusMessage):
 async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Promise<void> {
   const { jobId, machineId, result, pr } = msg;
 
-  // Fetch the job to check if it's a persistent agent (auto-requeue on completion)
-  // and whether it's a feature_verification job (triggers promoteToTesting).
+  // Fetch the job to check type, feature_id, context, etc.
   const { data: jobRow, error: fetchErr } = await supabase
     .from("jobs")
-    .select("job_type, context, feature_id")
+    .select("job_type, context, feature_id, company_id, project_id, branch, result")
     .eq("id", jobId)
     .single();
 
@@ -755,17 +759,17 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
     }
 
     console.log(`[orchestrator] Persistent job ${jobId} re-queued (was on machine ${machineId})`);
-  } else {
-    // Normal jobs: mark complete.
-    // Standalone jobs (no feature_id, not verify) skip "complete" here —
-    // triggerStandaloneVerification will set "verifying" next.
-    // "complete" is the terminal/deployed state, not "execution finished".
-    const isStandaloneExecution = !jobRow?.feature_id && jobRow?.job_type !== "verify";
+    await releaseSlot(supabase, jobId, machineId);
+    return;
+  }
 
-    const { error: jobErr } = await supabase
+  // --- Handle review job completion (code-review results) ---
+  if (jobRow.job_type === "review") {
+    // Mark this review job as complete first
+    await supabase
       .from("jobs")
       .update({
-        ...(isStandaloneExecution ? {} : { status: "complete" }),
+        status: "complete",
         result,
         pr_url: pr ?? null,
         completed_at: new Date().toISOString(),
@@ -773,16 +777,92 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
       })
       .eq("id", jobId);
 
-    if (jobErr) {
-      console.error(`[orchestrator] Failed to mark job ${jobId} complete:`, jobErr.message);
-      return;
-    }
+    await releaseSlot(supabase, jobId, machineId);
 
-    console.log(`[orchestrator] Job ${jobId} complete (machine ${machineId})`);
+    const ctx = JSON.parse(jobRow?.context ?? "{}");
+    const originalJobId = ctx.originalJobId;
+    if (!originalJobId) return;
+
+    const hasP0 = result?.includes("P0") || result?.includes("severity: p0") || result?.includes("p0_found");
+    if (hasP0) {
+      // Re-queue original job with review feedback
+      await supabase.from("jobs")
+        .update({ status: "queued", result: null,
+                  context: JSON.stringify({ ...ctx, review_feedback: result }) })
+        .eq("id", originalJobId).eq("status", "reviewing");
+      console.log(`[orchestrator] Job ${originalJobId} re-queued after P0 review finding`);
+    } else {
+      // Clean — mark original job complete
+      await supabase.from("jobs")
+        .update({ status: "complete", completed_at: new Date().toISOString() })
+        .eq("id", originalJobId).eq("status", "reviewing");
+      console.log(`[orchestrator] Job ${originalJobId} complete after clean review`);
+
+      // Check if all feature jobs are done → trigger feature verification
+      if (jobRow.feature_id) {
+        const { data: allDone } = await supabase
+          .rpc("all_feature_jobs_complete", { p_feature_id: jobRow.feature_id });
+        if (allDone) {
+          await triggerFeatureVerification(supabase, jobRow.feature_id);
+        }
+      }
+    }
+    return;
   }
 
-  // Release the slot on the machine (both persistent and normal jobs).
+  // --- Normal (non-review, non-persistent) job completion ---
+
+  // Mark job as complete
+  const { error: jobErr } = await supabase
+    .from("jobs")
+    .update({
+      status: "complete",
+      result,
+      pr_url: pr ?? null,
+      completed_at: new Date().toISOString(),
+      machine_id: null,
+    })
+    .eq("id", jobId);
+
+  if (jobErr) {
+    console.error(`[orchestrator] Failed to mark job ${jobId} complete:`, jobErr.message);
+    await releaseSlot(supabase, jobId, machineId);
+    return;
+  }
+
+  console.log(`[orchestrator] Job ${jobId} complete (machine ${machineId})`);
+
+  // Release the slot on the machine.
   await releaseSlot(supabase, jobId, machineId);
+
+  // Trigger reviewing step for feature-linked code jobs
+  const reviewableTypes = ["code", "infra", "bug", "docs"];
+  if (jobRow.feature_id && reviewableTypes.includes(jobRow.job_type ?? "")) {
+    await supabase.from("jobs")
+      .update({ status: "reviewing" })
+      .eq("id", jobId);
+
+    // Dispatch a code-review job
+    await supabase.from("jobs").insert({
+      company_id: jobRow.company_id,
+      project_id: jobRow.project_id,
+      feature_id: jobRow.feature_id,
+      role: "code-reviewer",
+      job_type: "review",
+      complexity: "simple",
+      slot_type: "claude_code",
+      status: "queued",
+      context: JSON.stringify({
+        type: "job_code_review",
+        originalJobId: jobId,
+        jobBranch: jobRow.branch ?? "",
+      }),
+      branch: jobRow.branch,
+    });
+
+    console.log(`[orchestrator] Job ${jobId} → reviewing, code-review job queued`);
+    return;
+  }
 
   // Check if this is a feature_verification job that completed successfully.
   // If so, promote the feature to the test environment.
@@ -793,9 +873,9 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
     await promoteToTesting(supabase, jobRow.feature_id);
   }
 
+  // TODO(standalone-jobs): remove when 699c2a31 lands
   // Standalone job completed (no feature_id, not persistent, not a verify job)
-  // — trigger standalone verification pipeline.
-  if (!isPersistent && !jobRow.feature_id && jobRow.job_type !== "verify") {
+  if (!jobRow.feature_id && jobRow.job_type !== "verify") {
     await triggerStandaloneVerification(supabase, jobId);
   }
 }
@@ -818,9 +898,9 @@ async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promis
   // Decide recovery strategy based on failure reason.
   //   persistent_agent → always re-queue (must stay alive)
   //   agent_crash      → re-queue immediately on a healthy machine
-  //   ci_failure       → waiting_on_human (needs triage)
-  //   timeout          → waiting_on_human (needs triage or extended timeout)
-  //   unknown          → waiting_on_human (log and review)
+  //   ci_failure       → failed (needs triage)
+  //   timeout          → failed (needs triage or extended timeout)
+  //   unknown          → failed (log and review)
   const newStatus =
     isPersistent || failureReason === "agent_crash" ? "queued" : "failed";
 
@@ -853,37 +933,136 @@ async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promis
   await releaseSlot(supabase, jobId, machineId);
 }
 
+// ---------------------------------------------------------------------------
+// Blocked job flow — agent needs human input
+// ---------------------------------------------------------------------------
+
+async function handleJobBlocked(supabase: SupabaseClient, msg: JobBlocked): Promise<void> {
+  const { jobId, reason } = msg;
+
+  // 1. Set job to blocked, store reason
+  await supabase.from("jobs")
+    .update({ status: "blocked", blocked_reason: reason })
+    .eq("id", jobId);
+
+  // 2. Fetch job context to find the Slack channel (via feature)
+  const { data: job } = await supabase.from("jobs")
+    .select("feature_id, company_id")
+    .eq("id", jobId).single();
+
+  if (!job?.feature_id) {
+    console.log(`[orchestrator] Job ${jobId} blocked (no feature — no Slack post): ${reason}`);
+    return;
+  }
+
+  const { data: feature } = await supabase.from("features")
+    .select("slack_channel, slack_thread_ts")
+    .eq("id", job.feature_id).single();
+
+  if (!feature?.slack_channel || !feature?.slack_thread_ts) {
+    console.log(`[orchestrator] Job ${jobId} blocked (no Slack thread): ${reason}`);
+    return;
+  }
+
+  // 3. Post the question as a reply in the feature's Slack thread
+  const slackToken = await getSlackBotToken(supabase, job.company_id);
+  if (!slackToken) {
+    console.log(`[orchestrator] Job ${jobId} blocked (no Slack bot token): ${reason}`);
+    return;
+  }
+
+  const questionText = `*Agent needs input* (job \`${jobId.slice(0, 8)}\`)\n\n${reason}\n\nReply with your answer in this thread to unblock.`;
+  const resultTs = await postSlackMessage(
+    slackToken, feature.slack_channel,
+    questionText, feature.slack_thread_ts,
+  );
+
+  // 4. Store the thread_ts of our question post so slack-events can find it
+  if (resultTs) {
+    await supabase.from("jobs")
+      .update({ blocked_slack_thread_ts: resultTs })
+      .eq("id", jobId);
+  }
+
+  console.log(`[orchestrator] Job ${jobId} blocked — question posted to Slack: ${reason}`);
+}
+
+async function handleJobUnblocked(supabase: SupabaseClient, jobId: string, answer: string): Promise<void> {
+  // Append the answer to the job context and set back to executing
+  const { data: job } = await supabase.from("jobs")
+    .select("context").eq("id", jobId).single();
+
+  let ctx: Record<string, unknown> = {};
+  try { ctx = JSON.parse(job?.context ?? "{}"); } catch { /**/ }
+  const updatedCtx = JSON.stringify({ ...ctx, unblocked_answer: answer });
+
+  await supabase.from("jobs")
+    .update({ status: "executing", blocked_reason: null, blocked_slack_thread_ts: null, context: updatedCtx })
+    .eq("id", jobId).eq("status", "blocked");
+
+  // Send JobUnblocked message to the machine running this job
+  const { data: jobRow } = await supabase.from("jobs")
+    .select("machine_id, machines(name)").eq("id", jobId).single();
+
+  if (jobRow?.machine_id) {
+    const machineName = (jobRow.machines as unknown as { name: string })?.name;
+    if (machineName) {
+      const unblockedMsg: JobUnblocked = {
+        type: "job_unblocked",
+        protocolVersion: PROTOCOL_VERSION,
+        jobId,
+        answer,
+      };
+      const replyChannel = supabase.channel(`agent:${machineName}`);
+      await new Promise<void>((resolve) => {
+        replyChannel.subscribe(async (status) => {
+          if (status === "SUBSCRIBED") {
+            await replyChannel.send({
+              type: "broadcast", event: "job_unblocked",
+              payload: unblockedMsg,
+            });
+            await replyChannel.unsubscribe();
+            resolve();
+          }
+        });
+      });
+    }
+  }
+
+  console.log(`[orchestrator] Job ${jobId} unblocked — answer routed to agent`);
+}
+
 export async function handleVerifyResult(supabase: SupabaseClient, msg: VerifyResult): Promise<void> {
   const { jobId, passed, testOutput } = msg;
 
   if (!passed) {
-    // Job failed verification — mark as verify_failed for requeue
+    // Job failed verification — re-queue for retry with verify context
     const { error } = await supabase
       .from("jobs")
       .update({
-        status: "verify_failed",
+        status: "queued",
         verify_context: testOutput,
         machine_id: null,
       })
       .eq("id", jobId);
     if (error) {
-      console.error(`[orchestrator] Failed to mark job ${jobId} verify_failed:`, error.message);
+      console.error(`[orchestrator] Failed to re-queue job ${jobId} after verify failure:`, error.message);
     } else {
-      console.warn(`[orchestrator] Job ${jobId} failed verification — marked verify_failed`);
+      console.warn(`[orchestrator] Job ${jobId} failed verification — re-queued`);
     }
     return;
   }
 
-  // Job passed — mark as done
+  // Job passed — mark as complete
   const { error: doneErr } = await supabase
     .from("jobs")
-    .update({ status: "done" })
+    .update({ status: "complete" })
     .eq("id", jobId);
   if (doneErr) {
-    console.error(`[orchestrator] Failed to mark job ${jobId} done:`, doneErr.message);
+    console.error(`[orchestrator] Failed to mark job ${jobId} complete:`, doneErr.message);
     return;
   }
-  console.log(`[orchestrator] Job ${jobId} verified and done`);
+  console.log(`[orchestrator] Job ${jobId} verified and complete`);
 
   // Look up the feature_id, context, and company_id for this job
   const { data: jobRow, error: jobErr } = await supabase
@@ -1023,7 +1202,7 @@ export async function triggerStandaloneVerification(supabase: SupabaseClient, jo
     .select("id, status")
     .filter("context->>originalJobId", "eq", jobId)
     .eq("job_type", "verify")
-    .not("status", "in", '("done","verify_failed")')
+    .not("status", "in", '("complete","failed")')
     .maybeSingle();
 
   if (existing) {
@@ -1055,11 +1234,11 @@ export async function triggerStandaloneVerification(supabase: SupabaseClient, jo
   } else {
     console.log(`[orchestrator] Queued standalone verification job for job ${jobId} branch ${job.branch}`);
 
-    // Update original job status to 'verifying' — provides idempotency signal
+    // Update original job status to 'reviewing' — provides idempotency signal
     // and gives operators visibility that verification is in progress.
     await supabase
       .from("jobs")
-      .update({ status: "verifying" })
+      .update({ status: "reviewing" })
       .eq("id", jobId);
   }
 }
@@ -1081,18 +1260,19 @@ async function promoteStandaloneToTesting(supabase: SupabaseClient, jobId: strin
     return;
   }
 
+  // TODO(standalone-jobs): remove when 699c2a31 lands — testing is no longer a valid job status
   const { error: updateErr } = await supabase
     .from("jobs")
-    .update({ status: "testing" })
+    .update({ status: "complete" })
     .eq("id", jobId)
     .eq("company_id", companyId);
 
   if (updateErr) {
-    console.error(`[orchestrator] Failed to set job ${jobId} to testing:`, updateErr.message);
+    console.error(`[orchestrator] Failed to set job ${jobId} to complete:`, updateErr.message);
     return;
   }
 
-  console.log(`[orchestrator] Standalone job ${jobId} promoted to testing — sending DeployToTest`);
+  console.log(`[orchestrator] Standalone job ${jobId} promoted — sending DeployToTest`);
 
   const deployMsg: DeployToTest = {
     type: "deploy_to_test",
@@ -1307,15 +1487,15 @@ export async function handleFeatureApproved(
     return;
   }
 
-  // 3. Mark all non-cancelled jobs for this feature as done
+  // 3. Mark all non-cancelled jobs for this feature as complete
   const { error: jobsErr } = await supabase
     .from("jobs")
-    .update({ status: "done" })
+    .update({ status: "complete" })
     .eq("feature_id", featureId)
     .not("status", "eq", "cancelled");
 
   if (jobsErr) {
-    console.error(`[orchestrator] Failed to mark jobs done for feature ${featureId}:`, jobsErr.message);
+    console.error(`[orchestrator] Failed to mark jobs complete for feature ${featureId}:`, jobsErr.message);
   }
 
   // 4. Log approval event
@@ -1325,7 +1505,7 @@ export async function handleFeatureApproved(
     detail: { featureId, from: "testing", to: "done", reason: "human_approved" },
   });
 
-  console.log(`[orchestrator] Feature ${featureId} approved — marked done, jobs done`);
+  console.log(`[orchestrator] Feature ${featureId} approved — marked done, jobs complete`);
 
   // 5. Promote next queued feature from verifying → testing (drain the queue)
   const { data: nextFeature, error: nextErr } = await supabase
@@ -1935,6 +2115,8 @@ async function listenForAgentMessages(
           await handleDeployFailed(supabase, msg);
         } else if (isDeployNeedsConfig(msg)) {
           await handleDeployNeedsConfig(supabase, msg);
+        } else if (isJobBlocked(msg)) {
+          await handleJobBlocked(supabase, msg);
         } else if (isStopAck(msg)) {
           console.log(`[orchestrator] StopAck received — job ${(msg as { jobId: string }).jobId}`);
         } else {

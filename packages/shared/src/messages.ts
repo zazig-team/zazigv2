@@ -33,7 +33,8 @@ export type CardType = "code" | "infra" | "design" | "research" | "docs" | "pers
  * Lifecycle status values for a job in the orchestrator's job queue (DB model).
  *
  *   queued → dispatched → executing → reviewing → complete
- *                                              ↘ failed
+ *                           ↘ blocked (needs human input)
+ *   Plus: failed, cancelled
  *
  * NOTE: `queued` and `dispatched` are DB-only states that the local agent never
  * sends over the wire. Use `AgentJobStatus` for the set of statuses an agent
@@ -43,9 +44,11 @@ export type JobStatusValue =
   | "queued"
   | "dispatched"
   | "executing"
+  | "blocked"
   | "reviewing"
   | "complete"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 /**
  * Subset of JobStatusValue that the local agent is allowed to send in a
@@ -53,7 +56,7 @@ export type JobStatusValue =
  * are intentionally excluded — agents must never emit those values over the
  * wire.
  */
-export type AgentJobStatus = "executing" | "reviewing" | "complete" | "failed";
+export type AgentJobStatus = "executing" | "reviewing" | "blocked" | "complete" | "failed";
 
 /**
  * Structured failure reason for JobFailed messages.
@@ -177,19 +180,12 @@ export const FEATURE_STATUSES = ["design", "building", "verifying", "testing", "
 export type FeatureStatus = typeof FEATURE_STATUSES[number];
 
 export const JOB_STATUSES = [
-  "design",
   "queued",
   "dispatched",
   "executing",
-  "verifying",
-  "verify_failed",
-  "testing",
-  "approved",
-  "rejected",
-  "waiting_on_human",
+  "blocked",
   "reviewing",
   "complete",
-  "done",
   "failed",
   "cancelled",
 ] as const;
@@ -272,8 +268,20 @@ export interface MessageInbound {
   text: string;
 }
 
+/**
+ * Sent by the orchestrator when a human has answered a blocked job's question.
+ * The agent should resume executing.
+ */
+export interface JobUnblocked {
+  type: "job_unblocked";
+  protocolVersion: number;
+  jobId: string;
+  /** The human's answer to the agent's question. */
+  answer: string;
+}
+
 /** Union of all messages the orchestrator sends to a local agent. */
-export type OrchestratorMessage = StartJob | StopJob | HealthCheck | VerifyJob | DeployToTest | TeardownTest | MessageInbound;
+export type OrchestratorMessage = StartJob | StopJob | HealthCheck | VerifyJob | DeployToTest | TeardownTest | MessageInbound | JobUnblocked;
 
 // ---------------------------------------------------------------------------
 // Local Agent → Orchestrator messages
@@ -521,6 +529,19 @@ export interface DeployNeedsConfig {
   machineId: string;
 }
 
+/**
+ * Sent by the agent when it hits a blocker it cannot resolve alone.
+ * The orchestrator posts the question to the feature's Slack thread.
+ */
+export interface JobBlocked {
+  type: "job_blocked";
+  protocolVersion: number;
+  jobId: string;
+  machineId: string;
+  /** Human-readable question or blocker description. */
+  reason: string;
+}
+
 /** Union of all messages a local agent sends to the orchestrator. */
 export type AgentMessage =
   | Heartbeat
@@ -535,4 +556,5 @@ export type AgentMessage =
   | MessageOutbound
   | DeployComplete
   | DeployFailed
-  | DeployNeedsConfig;
+  | DeployNeedsConfig
+  | JobBlocked;

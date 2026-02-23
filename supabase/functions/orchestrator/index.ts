@@ -750,10 +750,15 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
     console.log(`[orchestrator] Persistent job ${jobId} re-queued (was on machine ${machineId})`);
   } else {
     // Normal jobs: mark complete.
+    // Standalone jobs (no feature_id, not verify) skip "complete" here —
+    // triggerStandaloneVerification will set "verifying" next.
+    // "complete" is the terminal/deployed state, not "execution finished".
+    const isStandaloneExecution = !jobRow?.feature_id && jobRow?.job_type !== "verify";
+
     const { error: jobErr } = await supabase
       .from("jobs")
       .update({
-        status: "complete",
+        ...(isStandaloneExecution ? {} : { status: "complete" }),
         result,
         pr_url: pr ?? null,
         completed_at: new Date().toISOString(),

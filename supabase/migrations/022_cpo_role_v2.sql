@@ -1,13 +1,16 @@
 -- 022_cpo_role_v2.sql
 -- Updates CPO role prompt for v2: feature conversations, not Trello/sprint planning.
--- Also extends features.status CHECK to include 'approved'.
+
+BEGIN;
 
 -- ---------------------------------------------------------------------------
 -- 1. Update CPO prompt and skills
 -- ---------------------------------------------------------------------------
 
-UPDATE public.roles SET
-  prompt = $$## What You Do
+DO $$
+BEGIN
+  UPDATE public.roles SET
+    prompt = $prompt$## What You Do
 
 You are the Chief Product Officer. Your job is to help users
 define and refine features for their projects. You are the
@@ -50,21 +53,17 @@ When a feature is agreed with the user:
 
 Read the task context. Chat with the user about what they want
 to build. Ask clarifying questions. Help them scope the feature.
-When agreed, create the feature. Write the report.$$,
-  skills = '{brainstorming}'
-WHERE name = 'cpo';
+When agreed, create the feature. Write the report.$prompt$,
+    skills = '{brainstorming}'
+  WHERE name = 'cpo';
 
--- ---------------------------------------------------------------------------
--- 2. Extend features status constraint to include 'approved'
--- ---------------------------------------------------------------------------
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'cpo role row not found — migration cannot proceed';
+  END IF;
+END
+$$;
 
-ALTER TABLE public.features
-    DROP CONSTRAINT IF EXISTS features_status_check;
+-- Note: 'approved' status added to features_status_check in migration 023_tech_lead_role.sql
+-- (which owns the full feature lifecycle constraint)
 
-ALTER TABLE public.features
-    ADD CONSTRAINT features_status_check
-    CHECK (status IN (
-        'proposed', 'designing', 'in_progress', 'complete',
-        'design', 'building', 'verifying', 'testing', 'done', 'cancelled',
-        'approved'
-    ));
+COMMIT;

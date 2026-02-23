@@ -46,12 +46,12 @@ NOTES: All 6 PR #61 review findings (3 P1, 3 P2) applied as follow-up commit on 
 ## Standalone Job Lifecycle
 
 ```
-queued -> dispatched -> executing -> complete
-  -> triggerStandaloneVerification (creates verify job)
-  -> verify job runs -> VerifyResult
+queued -> dispatched -> executing -> verifying -> testing -> complete (deployed)
+  executing -> triggerStandaloneVerification (creates verify job, sets status to verifying)
+  verify job runs -> VerifyResult
     -> passed: promoteStandaloneToTesting -> status=testing -> DeployToTest
     -> failed: verify_failed (requeue for retry)
-  -> testing -> (human approval) -> done
+  testing -> (human approval) -> done
 ```
 
 ## Test Updates
@@ -63,3 +63,29 @@ queued -> dispatched -> executing -> complete
 ## Token Usage
 - Token budget: claude-ok (wrote code directly)
 - No codex delegation needed -- 6 surgical fixes across 5 files
+
+---
+
+# CPO Report -- Standalone Job Lifecycle Fix (PR #61 follow-up)
+
+## Commit
+`0ad9439` -- `fix(standalone-jobs): correct job lifecycle -- skip spurious complete state`
+
+## Problem
+`handleJobComplete()` unconditionally set `status: "complete"` for all non-persistent jobs, including standalone jobs. Then `triggerStandaloneVerification()` (Fix 6) immediately overrode it to `"verifying"`. This created a spurious state transition: `executing -> complete -> verifying`.
+
+`complete` is the terminal/deployed state -- not "execution finished".
+
+## Fix
+In `handleJobComplete()`, added `isStandaloneExecution` check (no `feature_id`, not a `verify` job). Standalone jobs now skip the `status: "complete"` update. The status stays at `executing` momentarily until `triggerStandaloneVerification` sets it to `"verifying"`.
+
+Correct lifecycle: `queued -> executing -> verifying -> testing -> complete (deployed)`
+
+## Scope
+- **1 file changed**: `supabase/functions/orchestrator/index.ts` (6 lines added, 1 removed)
+- **No test changes**: No `handleJobComplete` tests exist in the test file; `triggerStandaloneVerification` and `handleVerifyResult` tests are unaffected
+- **`handleJobFailed`**: Verified correct -- uses `"failed"` or `"queued"`, never `"complete"`
+
+## Token Usage
+- Token budget: claude-ok (wrote code directly)
+- Surgical 1-file fix, no delegation needed

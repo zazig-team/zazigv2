@@ -73,3 +73,37 @@ Replaced the CLI's manual credential entry (URL + anon key + service-role key) w
 
 ## Token Usage
 - Token budget: claude-ok (wrote code directly)
+
+---
+
+# CPO Report — Port PR #59 Pieces into Browser-Auth (PR #67)
+
+## Summary
+Ported 4 missing pieces from PR #59 (`cpo/cli-supabase-auth`) into PR #67 (`cpo/cli-browser-auth`) so #59 can be closed as superseded.
+
+## Changes
+
+### 1. Migration 025: RLS write policies (`supabase/migrations/025_authenticated_write_policies.sql`) — Created
+- `authenticated_insert_own` on `machines` — users can register machines for their company
+- `authenticated_update_own` on `machines` — users can update their own machines
+- `authenticated_update_own` on `jobs` — users can update job status (heartbeats, results)
+- `authenticated_insert_own` on `events` — users can log lifecycle events
+- All policies use `(auth.jwt() ->> 'company_id')::uuid` claim matching
+
+### 2. credentials.test.ts (`packages/cli/src/lib/credentials.test.ts`) — Created
+- 10 unit tests covering credentialsExist, loadCredentials, saveCredentials, decodeJwtPayload, getValidCredentials
+- Exported `decodeJwtPayload` from credentials.ts to enable direct testing
+
+### 3. Multi-company selection (`packages/cli/src/commands/login.ts`) — Updated
+- Company resolution chain: JWT `company_id` → `user_metadata.company_id` → `app_metadata.companies` array
+- Single company in array: auto-select
+- Multiple companies: numbered prompt via `readline/promises`
+- No company found: explicit error + `process.exit(1)` (was silently passing `null`)
+
+### 4. conn.authenticate() (`packages/local-agent/src/index.ts`) — Updated
+- Added `await conn.authenticate()` before JobVerifier/JobExecutor init
+- Updated comment from "service_role" to "authenticated"
+- Updated header: removed `SUPABASE_ANON_KEY`/`SUPABASE_URL` env vars, replaced with credentials.json + machine.yaml docs
+
+## Token Usage
+- Token budget: claude-ok (wrote code directly)

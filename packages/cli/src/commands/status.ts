@@ -51,23 +51,11 @@ export async function status(): Promise<void> {
   };
 
   try {
-    // Company name
-    const companies = await apiFetch(
-      `${creds.supabaseUrl}/rest/v1/companies` +
-        `?select=name` +
-        `&id=eq.${encodeURIComponent(cfg.company_id)}` +
-        `&limit=1`,
-      headers
-    );
-    const companyName =
-      companies.length > 0 ? String(companies[0]!.name ?? cfg.company_id) : cfg.company_id;
-
-    // Machine row
+    // Machine row — query by name only (company_id no longer in local config)
     const machines = await apiFetch(
       `${creds.supabaseUrl}/rest/v1/machines` +
-        `?select=id,name,status,last_heartbeat,slots_claude_code,slots_codex` +
+        `?select=id,name,status,last_heartbeat,slots_claude_code,slots_codex,company_id` +
         `&name=eq.${encodeURIComponent(cfg.name)}` +
-        `&company_id=eq.${encodeURIComponent(cfg.company_id)}` +
         `&limit=1`,
       headers
     );
@@ -82,7 +70,6 @@ export async function status(): Promise<void> {
     const connIcon = connStatus === "online" ? "●" : "○";
 
     console.log(`  Connection:     ${connIcon} ${connStatus}`);
-    console.log(`  Company:        ${companyName}`);
     console.log(`  Machine:        ${String(m.name ?? cfg.name)}`);
 
     if (typeof m.last_heartbeat === "string") {

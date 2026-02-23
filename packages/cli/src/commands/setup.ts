@@ -9,11 +9,9 @@
 
 import { createInterface } from "node:readline/promises";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { hostname } from "node:os";
 import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { getValidCredentials } from "../lib/credentials.js";
-import { saveConfig } from "../lib/config.js";
 
 export async function setup(): Promise<void> {
   // Step 1: Require auth
@@ -45,7 +43,7 @@ export async function setup(): Promise<void> {
     let companyName: string;
 
     if (choice === "2") {
-      // Fetch user's companies (RLS-scoped to their JWT company_id)
+      // Fetch user's companies (RLS-scoped via user_companies join table)
       const { data: companies, error } = await supabase
         .from("companies")
         .select("id, name")
@@ -94,9 +92,10 @@ export async function setup(): Promise<void> {
         return;
       }
 
+      const { data: { user } } = await supabase.auth.getUser();
       const { data: company, error } = await supabase
         .from("companies")
-        .insert({ name })
+        .insert({ name, created_by: user?.id })
         .select("id, name")
         .single();
 
@@ -111,6 +110,16 @@ export async function setup(): Promise<void> {
       companyId = company.id;
       companyName = company.name;
       console.log(`\nCompany "${companyName}" created.`);
+
+      // Link the authenticated user to the new company
+      if (user) {
+        const { error: memberErr } = await supabase
+          .from("user_companies")
+          .insert({ user_id: user.id, company_id: company.id });
+        if (memberErr) {
+          console.error(`Warning: could not link you to company: ${memberErr.message}`);
+        }
+      }
     }
 
     // Step 4: Create project
@@ -262,16 +271,6 @@ export async function setup(): Promise<void> {
 
     console.log(`Project "${projectName}" created (id: ${project!.id}).`);
 
-    // Configure local machine
-    const machineName = hostname();
-    console.log(`\nConfiguring local machine as "${machineName}"...`);
-    saveConfig({
-      name: machineName,
-      company_id: companyId,
-      slots: { claude_code: 1, codex: 0 },
-      supabase: { url: creds.supabaseUrl },
-    });
-    console.log("Machine config written to ~/.zazigv2/machine.yaml");
 
     // Step 5: Invite teammates
     // TODO: Wire to an Edge Function when available — auth.admin requires service role key

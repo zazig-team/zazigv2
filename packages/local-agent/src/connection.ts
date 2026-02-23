@@ -32,7 +32,8 @@ export class AgentConnection {
   /** Service-role client for direct DB writes (bypasses RLS). Falls back to anon client if service_role_key not set. */
   readonly dbClient: SupabaseClient;
   private readonly machineId: string;
-  private readonly companyId: string;
+  private readonly primaryCompanyId: string | undefined;
+  private companyIds: string[] = [];
   private readonly config: MachineConfig;
   private readonly slots: SlotTracker;
   private readonly handlers: MessageHandler[] = [];
@@ -49,7 +50,7 @@ export class AgentConnection {
   constructor(config: MachineConfig, slots: SlotTracker) {
     this.config = config;
     this.machineId = config.name;
-    this.companyId = config.company_id;
+    this.primaryCompanyId = config.company_id;
     this.slots = slots;
     this.supabase = createClient(config.supabase.url, config.supabase.anon_key, {
       realtime: {
@@ -105,10 +106,44 @@ export class AgentConnection {
     }
   }
 
+  /**
+   * Query user_companies to get all companies the authenticated user belongs to.
+   * Falls back to config.company_id if the query fails or returns nothing.
+   */
+  async getCompanyIds(): Promise<string[]> {
+    try {
+      const { data } = await this.dbClient
+        .from("user_companies")
+        .select("company_id");
+      return (data ?? []).map(r => r.company_id);
+    } catch (err) {
+      console.warn(`[local-agent] Failed to query user_companies: ${String(err)}`);
+      return [];
+    }
+  }
+
   /** Connect to Supabase Realtime and start the heartbeat loop. */
   async start(): Promise<void> {
     console.log(`[local-agent] Starting daemon for machine: ${this.machineId}`);
     this.stopped = false;
+
+    // Discover all companies for the authenticated user
+    const discovered = await this.getCompanyIds();
+    if (discovered.length > 0) {
+      this.companyIds = discovered;
+      console.log(`[local-agent] User belongs to ${discovered.length} company(ies): ${discovered.join(", ")}`);
+    } else if (this.primaryCompanyId) {
+      this.companyIds = [this.primaryCompanyId];
+      console.warn("[local-agent] Could not discover companies from user_companies — falling back to config.company_id");
+    } else {
+      console.warn("[local-agent] No companies found and no company_id in config — heartbeats may fail");
+      this.companyIds = [];
+    }
+
+    if (!this.config.supabase.access_token && !this.config.supabase.service_role_key) {
+      console.warn("[local-agent] No access token set — multi-company lookup requires an authenticated JWT");
+    }
+
     await this.connect();
   }
 
@@ -255,8 +290,7 @@ export class AgentConnection {
 
     const slotsAvailable = this.slots.getAvailable();
     // Primary: write heartbeat directly to the DB — reliable, no timing dependency
-    // Uses dbClient (service_role) and scopes by both company_id and name for safety
-    const { error: dbErr } = await this.dbClient
+    let query = this.dbClient
       .from("machines")
       .update({
         last_heartbeat: new Date().toISOString(),
@@ -264,8 +298,14 @@ export class AgentConnection {
         slots_claude_code: slotsAvailable.claude_code,
         slots_codex: slotsAvailable.codex,
       })
-      .eq("company_id", this.companyId)
       .eq("name", this.machineId);
+
+    const heartbeatCompanyId = this.primaryCompanyId ?? this.companyIds[0];
+    if (heartbeatCompanyId) {
+      query = query.eq("company_id", heartbeatCompanyId);
+    }
+
+    const { error: dbErr } = await query;
 
     if (dbErr) {
       console.warn(`[local-agent] Heartbeat DB write failed: ${dbErr.message}`);

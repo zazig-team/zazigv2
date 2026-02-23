@@ -154,6 +154,25 @@
 
     .refresh-btn:disabled { opacity: 0.4; cursor: wait; }
 
+    .company-select {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 10px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      appearance: auto;
+    }
+
+    .company-select:hover {
+      color: var(--text);
+      border-color: #2e343b;
+    }
+
     #message {
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.75rem;
@@ -736,6 +755,7 @@
         <h1 id="boardTitle">Pipeline</h1>
       </div>
       <div class="controls">
+        <select id="companySelect" class="company-select" style="display:none" aria-label="Switch company"></select>
         <span id="lastUpdated" class="last-updated"></span>
         <button id="refreshButton" class="refresh-btn" type="button">Refresh</button>
       </div>
@@ -777,6 +797,8 @@
         SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,branch,role,job_type,created_at,company_id&feature_id=is.null&status=not.in.(cancelled,done,complete)&job_type=not.in.(persistent_agent,verify)&order=created_at.desc&limit=100';
       const COMPANIES_BASE =
         SUPABASE_URL + '/rest/v1/companies?select=id,name&limit=1&name=eq.';
+      const ALL_COMPANIES_URL =
+        SUPABASE_URL + '/rest/v1/companies?select=id,name&order=name';
       const JOB_DETAIL_BASE =
         SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,raw_log,model,progress,created_at,started_at,completed_at&limit=1&id=eq.';
 
@@ -814,6 +836,7 @@
       const messageEl     = document.getElementById('message');
       const lastUpdatedEl = document.getElementById('lastUpdated');
       const refreshButton = document.getElementById('refreshButton');
+      const companySelect = document.getElementById('companySelect');
       const boardTitleEl  = document.getElementById('boardTitle');
 
       // Detail panel elements
@@ -1400,6 +1423,35 @@
 
       // ── Bootstrap ────────────────────────────
 
+      async function loadCompanySwitcher() {
+        try {
+          var companies = await apiFetch(ALL_COMPANIES_URL);
+          if (!Array.isArray(companies) || companies.length <= 1) return;
+
+          // Show switcher only if multiple companies exist
+          companySelect.style.display = '';
+          companySelect.textContent = '';
+
+          for (var i = 0; i < companies.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = companies[i].id;
+            opt.textContent = companies[i].name;
+            if (companies[i].id === activeCompanyId) opt.selected = true;
+            companySelect.appendChild(opt);
+          }
+
+          companySelect.addEventListener('change', function() {
+            var selectedId = companySelect.value;
+            var selectedName = companySelect.options[companySelect.selectedIndex].textContent;
+            activeCompanyId = selectedId;
+            setBoardTitle(selectedName);
+            void refreshDashboard();
+          });
+        } catch (_) {
+          // Switcher is non-critical — silently ignore
+        }
+      }
+
       async function init() {
         var slug = getCompanySlug();
 
@@ -1426,6 +1478,7 @@
         }
 
         refreshButton.addEventListener('click', function() { void refreshDashboard(); });
+        void loadCompanySwitcher();
         void refreshDashboard();
         setInterval(function() { void refreshDashboard(); }, 30000);
       }

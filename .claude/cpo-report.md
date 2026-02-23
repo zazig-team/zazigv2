@@ -55,3 +55,42 @@ Added `zazig setup` CLI command: guided flow to create a company, onboard a proj
 
 ## Token Usage
 - Token budget: claude-ok (wrote code directly)
+
+---
+
+# PR #65 Review Fixes — Follow-up Commit
+
+## Summary
+Applied 5 fixes from PR #65 code review (1 P0, 3 P1, 1 P2) in a single follow-up commit.
+
+## Fixes Applied
+
+### Fix 1 (P0): getValidCredentials() stub
+- Added `getValidCredentials()` to `credentials.ts` — async wrapper around `loadCredentials()` with TODO for token refresh when PR #66 lands
+
+### Fix 2 (P1): Removed misleading invite step
+- Replaced `auth.admin.inviteUserByEmail` flow (requires service role key, always fails with user token) with a clear skip message
+- TODO comment for wiring to Edge Function when available
+
+### Fix 3 (P1): repo_url stores Git remote URL
+- Prompt now asks for Git remote URL with validation (must start with http://, https://, or git@)
+- Separate `localRepoPath` prompt for reading context files (README, package.json)
+- Local path is NOT stored in DB
+
+### Fix 4 (P1): RLS INSERT policies
+- Created `supabase/migrations/024_setup_insert_policies.sql`
+- `authenticated_insert_company`: any authenticated user can create a company
+- `authenticated_insert_own_project`: scoped by JWT company_id claim
+
+### Fix 5 (P2): Capture project ID + machine.yaml
+- Project insert now captures returned `id` via `.select("id").single()`
+- After project creation, writes `~/.zazigv2/machine.yaml` using existing `saveConfig()` from `config.ts`
+- Uses `os.hostname()` for machine name, defaults to 1 claude_code slot
+
+## Files Changed
+- `packages/cli/src/lib/credentials.ts` — added `getValidCredentials()` export
+- `packages/cli/src/commands/setup.ts` — all fixes applied (imports, invite removal, URL validation, project ID capture, machine config)
+- `supabase/migrations/024_setup_insert_policies.sql` — **New**: INSERT policies for companies + projects
+
+## Token Usage
+- Token budget: claude-ok (wrote code directly)

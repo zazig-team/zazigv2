@@ -930,9 +930,7 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
     featureBranch: feature.feature_branch,
     acceptanceTests: feature.acceptance_tests ?? "",
   });
-  const verifyTitle = await generateTitle(verifyContext);
-
-  const { error: insertErr } = await supabase
+  const { data: insertedRows, error: insertErr } = await supabase
     .from("jobs")
     .insert({
       company_id: feature.company_id,
@@ -945,13 +943,21 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
       status: "queued",
       context: verifyContext,
       branch: feature.feature_branch,
-      ...(verifyTitle ? { title: verifyTitle } : {}),
-    });
+    })
+    .select("id");
 
   if (insertErr) {
     console.error(`[orchestrator] Failed to insert feature verification job for ${featureId}:`, insertErr.message);
   } else {
     console.log(`[orchestrator] Queued feature verification job for feature ${featureId} branch ${feature.feature_branch}`);
+    const jobId = insertedRows?.[0]?.id;
+    if (jobId) {
+      generateTitle(verifyContext).then((title) => {
+        if (title) {
+          supabase.from("jobs").update({ title }).eq("id", jobId).then(() => {});
+        }
+      }).catch(() => {});
+    }
   }
 }
 
@@ -1176,9 +1182,7 @@ export async function handleFeatureRejected(
     featureBranch: feature.feature_branch,
     originalSpec: feature.spec ?? "",
   });
-  const fixTitle = await generateTitle(fixContext);
-
-  const { error: insertErr } = await supabase.from("jobs").insert({
+  const { data: insertedRows, error: insertErr } = await supabase.from("jobs").insert({
     company_id: feature.company_id,
     project_id: feature.project_id,
     feature_id: featureId,
@@ -1190,13 +1194,20 @@ export async function handleFeatureRejected(
     context: fixContext,
     branch: feature.feature_branch,
     rejection_feedback: feedback,
-    ...(fixTitle ? { title: fixTitle } : {}),
-  });
+  }).select("id");
 
   if (insertErr) {
     console.error(`[orchestrator] Failed to queue fix job for feature ${featureId}:`, insertErr.message);
   } else {
     console.log(`[orchestrator] Queued fix job for rejected feature ${featureId}`);
+    const jobId = insertedRows?.[0]?.id;
+    if (jobId) {
+      generateTitle(fixContext).then((title) => {
+        if (title) {
+          supabase.from("jobs").update({ title }).eq("id", jobId).then(() => {});
+        }
+      }).catch(() => {});
+    }
   }
 
   // 5. Free up the test env — check queue and promote next feature

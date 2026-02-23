@@ -764,9 +764,9 @@
       const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0';
 
       const FEATURES_BASE =
-        SUPABASE_URL + '/rest/v1/features?select=*,jobs(*)&status=not.eq.cancelled&order=created_at.desc';
+        SUPABASE_URL + '/rest/v1/features?select=id,title,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,jobs(id,title,status,progress,model,job_type,sequence,branch,created_at)&status=not.eq.cancelled&order=created_at.desc';
       const STANDALONE_JOBS_BASE =
-        SUPABASE_URL + '/rest/v1/jobs?select=*&feature_id=is.null&status=not.in.(cancelled,done,complete)&order=created_at.desc';
+        SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,branch,role,job_type,created_at,company_id&feature_id=is.null&status=not.in.(cancelled,done,complete)&order=created_at.desc&limit=100';
       const COMPANIES_BASE =
         SUPABASE_URL + '/rest/v1/companies?select=id,name&limit=1&name=eq.';
       const JOB_DETAIL_BASE =
@@ -1289,6 +1289,10 @@
         detailTitleEl.textContent = getJobTitle(job);
         detailStatusEl.textContent = status;
 
+        // Snapshot scroll position before rebuild
+        var wasAtBottom = isAtBottom(detailContentEl);
+        var prevScrollTop = detailContentEl.scrollTop;
+
         // Build content
         detailContentEl.textContent = '';
 
@@ -1333,6 +1337,13 @@
           ? job.raw_log : 'No log output yet\u2026';
         logArea.appendChild(logPre);
         detailContentEl.appendChild(logArea);
+
+        // Restore scroll position after rebuild
+        if (wasAtBottom) {
+          detailContentEl.scrollTop = detailContentEl.scrollHeight;
+        } else {
+          detailContentEl.scrollTop = prevScrollTop;
+        }
 
         detailFooterEl.textContent = terminal
           ? 'Job ' + status + ' \u2014 log frozen'

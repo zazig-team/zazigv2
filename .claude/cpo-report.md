@@ -1,6 +1,48 @@
 STATUS: COMPLETE
 CARD: 699c23aa
 
+## PR #68 Round 2 Fix (2026-02-23)
+
+Machines SELECT policy changed from `user_in_company(company_id)` to `USING (true)` — machines are physical devices, any authenticated user can query them. Commit `370ff54`.
+
+### Token Usage
+- Budget: claude-ok (direct edit)
+
+## PR #68 Review Fixes (2026-02-23)
+
+Applied 5 review comments (1 P0, 2 P1, 2 P2) in commit `8bca7a1`.
+
+### Fix 1 (P0): insert_own_membership policy too permissive
+- Added `created_by UUID` column to `companies` table via ALTER TABLE in migration 027
+- Replaced permissive `WITH CHECK (user_id = auth.uid())` with restricted policy requiring either company creator match OR zero existing members
+- Updated `setup.ts` to set `created_by: user?.id` on company insert
+
+### Fix 2 (P1): Machines should not be scoped per company
+- Changed machines INSERT/UPDATE policies in 028 from `user_in_company(company_id)` to `WITH CHECK (true)` / `USING (true)`
+- Machines are physical devices serving all companies; no user_id/owner_id column exists
+
+### Fix 3 (P1): Dashboard needs anon read policies
+- Confirmed anon policies from 013 (features, jobs) and 014 (companies) are NOT dropped by 028 — intact
+- Added missing `anon_read_all` SELECT policy on `machines` table in 028
+
+### Fix 4 (P2): Login missing anonKey validation
+- Added early exit with clear error message if `SUPABASE_ANON_KEY` is empty
+
+### Fix 5 (P2): Shadowed http import in findAvailablePort
+- Removed dynamic `const http = await import("node:http")` inside `findAvailablePort`
+- Changed function from `async` to sync (returns Promise directly), uses top-level static import
+
+### Files Changed
+- `supabase/migrations/027_user_companies.sql`
+- `supabase/migrations/028_rls_user_companies.sql`
+- `packages/cli/src/commands/login.ts`
+- `packages/cli/src/commands/setup.ts`
+
+### Token Usage
+- Budget: claude-ok (direct code changes)
+
+---
+
 # CPO Report: Multi-Company User Model
 
 **Branch:** `cpo/multi-company-user-model`

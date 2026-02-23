@@ -28,6 +28,9 @@ import {
   isVerifyResult,
   isFeatureApproved,
   isFeatureRejected,
+  isDeployComplete,
+  isDeployFailed,
+  isDeployNeedsConfig,
 } from "@zazigv2/shared";
 import type {
   StartJob,
@@ -40,8 +43,12 @@ import type {
   JobFailed,
   VerifyResult,
   DeployToTest,
+  TeardownTest,
   FeatureApproved,
   FeatureRejected,
+  DeployComplete,
+  DeployFailed,
+  DeployNeedsConfig,
 } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
@@ -1158,7 +1165,27 @@ async function promoteToTesting(supabase: SupabaseClient, featureId: string): Pr
 
   console.log(`[orchestrator] Feature ${featureId} promoted to testing — sending DeployToTest`);
 
-  // Broadcast DeployToTest to all machines (the machine with this feature's job will handle it)
+  // Pick an online machine to handle the deploy
+  const { data: machines, error: machErr } = await supabase
+    .from("machines")
+    .select("id, name")
+    .eq("company_id", feature.company_id)
+    .eq("status", "online")
+    .limit(1);
+
+  if (machErr || !machines || machines.length === 0) {
+    console.error(`[orchestrator] No online machine to handle DeployToTest for feature ${featureId}`);
+    return;
+  }
+
+  const targetMachine = machines[0];
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("repo_url")
+    .eq("id", feature.project_id)
+    .single();
+
   const deployMsg: DeployToTest = {
     type: "deploy_to_test",
     protocolVersion: PROTOCOL_VERSION,
@@ -1166,9 +1193,10 @@ async function promoteToTesting(supabase: SupabaseClient, featureId: string): Pr
     jobType: "feature",
     featureBranch: feature.branch,
     projectId: feature.project_id,
+    repoPath: project?.repo_url ?? undefined,
   };
 
-  const channel = supabase.channel(`company:${feature.company_id}`);
+  const channel = supabase.channel(`agent:${targetMachine.name}`);
   await new Promise<void>((resolve) => {
     channel.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
@@ -1178,13 +1206,77 @@ async function promoteToTesting(supabase: SupabaseClient, featureId: string): Pr
       }
     });
   });
+
+  console.log(`[orchestrator] DeployToTest sent to machine ${targetMachine.name} for feature ${featureId}`);
+}
+
+/**
+ * Sends a teardown command to the machine that deployed the test environment.
+ * Fire-and-forget — callers should .catch() and not await.
+ */
+async function runTeardown(
+  supabase: SupabaseClient,
+  featureId: string,
+  machineId: string,
+): Promise<void> {
+  if (!machineId) {
+    console.warn(`[orchestrator] No machineId for feature ${featureId} — skipping teardown`);
+    return;
+  }
+
+  // Fetch feature's project_id to look up repo_url
+  const { data: feat } = await supabase
+    .from("features")
+    .select("project_id")
+    .eq("id", featureId)
+    .single();
+
+  let repoPath = "";
+  if (feat?.project_id) {
+    const { data: project } = await supabase
+      .from("projects")
+      .select("repo_url")
+      .eq("id", feat.project_id)
+      .single();
+    repoPath = project?.repo_url ?? "";
+  }
+
+  // Clear testing_machine_id on the feature
+  await supabase
+    .from("features")
+    .update({ testing_machine_id: null })
+    .eq("id", featureId);
+
+  // Broadcast teardown command to the machine's agent channel
+  const teardownMsg: TeardownTest = {
+    type: "teardown_test",
+    protocolVersion: PROTOCOL_VERSION,
+    featureId,
+    repoPath,
+  };
+  const channel = supabase.channel(`agent:${machineId}`);
+  await new Promise<void>((resolve) => {
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await channel.send({
+          type: "broadcast",
+          event: "teardown_test",
+          payload: teardownMsg,
+        });
+        await channel.unsubscribe();
+        resolve();
+      }
+    });
+  });
+
+  console.log(`[orchestrator] Teardown sent to machine ${machineId} for feature ${featureId}`);
 }
 
 export async function handleFeatureApproved(
   supabase: SupabaseClient,
   msg: FeatureApproved,
 ): Promise<void> {
-  const { featureId } = msg;
+  const { featureId, machineId } = msg;
 
   // 1. Fetch feature for project/company context
   const { data: feature, error: fetchErr } = await supabase
@@ -1253,13 +1345,18 @@ export async function handleFeatureApproved(
     console.log(`[orchestrator] Promoting queued feature ${nextFeature[0].id} to testing`);
     await promoteToTesting(supabase, nextFeature[0].id);
   }
+
+  // 6. Fire-and-forget teardown of the test environment
+  runTeardown(supabase, featureId, machineId).catch(err => {
+    console.error(`[orchestrator] teardown failed after approval, feature ${featureId}:`, err);
+  });
 }
 
 export async function handleFeatureRejected(
   supabase: SupabaseClient,
   msg: FeatureRejected,
 ): Promise<void> {
-  const { featureId, feedback, severity } = msg;
+  const { featureId, feedback, severity, machineId } = msg;
 
   if (severity === "small") {
     // Small fix — fix agent handles it in-thread.
@@ -1370,6 +1467,11 @@ export async function handleFeatureRejected(
   if (!nextErr && nextFeature && nextFeature.length > 0) {
     await promoteToTesting(supabase, nextFeature[0].id);
   }
+
+  // 6. Fire-and-forget teardown of the test environment
+  runTeardown(supabase, featureId, machineId).catch(err => {
+    console.error(`[orchestrator] teardown failed after rejection, feature ${featureId}:`, err);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1474,6 +1576,260 @@ async function processApprovedFeatures(supabase: SupabaseClient): Promise<void> 
   }
 }
 
+// ---------------------------------------------------------------------------
+// Deploy result handlers
+// ---------------------------------------------------------------------------
+
+/**
+ * Handles a successful test environment deployment from a local agent.
+ * Stores the test URL on the feature, opens a Slack thread with the URL.
+ */
+export async function handleDeployComplete(
+  supabase: SupabaseClient,
+  msg: DeployComplete,
+): Promise<void> {
+  const { featureId, testUrl, ephemeral } = msg;
+
+  // 1. Fetch feature details
+  const { data: feature, error: fetchErr } = await supabase
+    .from("features")
+    .select("company_id, project_id, title, human_checklist, spec")
+    .eq("id", featureId)
+    .single();
+
+  if (fetchErr || !feature) {
+    console.error(`[orchestrator] Failed to fetch feature ${featureId} for deploy_complete:`, fetchErr?.message);
+    return;
+  }
+
+  // 2. Store test URL, timestamp, and machine affinity on the feature
+  const { error: updateErr } = await supabase
+    .from("features")
+    .update({
+      test_url: testUrl,
+      test_started_at: new Date().toISOString(),
+      testing_machine_id: msg.machineId,
+    })
+    .eq("id", featureId);
+
+  if (updateErr) {
+    console.error(`[orchestrator] Failed to update feature ${featureId} with test URL:`, updateErr.message);
+  }
+
+  // 3. Send Slack notification with test URL
+  const slackChannel = await getDefaultSlackChannel(supabase, feature.company_id);
+  if (slackChannel) {
+    const botToken = await getSlackBotToken(supabase, feature.company_id);
+    if (botToken) {
+      const checklist = parseChecklist(feature.human_checklist);
+      const checklistText = checklist.length > 0
+        ? "\n\n*Checklist:*\n" + checklist.map((item: string) => `- [ ] ${item}`).join("\n")
+        : "";
+      const envType = ephemeral ? " (ephemeral)" : " (persistent)";
+
+      const text = [
+        `*Feature ready for testing: "${feature.title ?? featureId}"*`,
+        `Deployed to: ${testUrl}${envType}`,
+        checklistText,
+        "",
+        'Reply *"approve"* or *"ship it"* to merge, or *"reject"* with feedback to fix.',
+      ].join("\n");
+
+      const threadTs = await postSlackMessage(botToken, slackChannel, text);
+
+      // Store the Slack channel and thread TS on the feature for the testing loop
+      if (threadTs) {
+        await supabase
+          .from("features")
+          .update({ slack_channel: slackChannel, slack_thread_ts: threadTs })
+          .eq("id", featureId);
+      }
+    }
+  }
+
+  // 4. Log event
+  await supabase.from("events").insert({
+    company_id: feature.company_id,
+    event_type: "feature_testing",
+    detail: { featureId, testUrl, ephemeral },
+  });
+
+  console.log(`[orchestrator] Deploy complete for feature ${featureId}: ${testUrl}`);
+}
+
+/**
+ * Handles a failed test environment deployment from a local agent.
+ * Reverts the feature to verifying status and logs the error.
+ */
+export async function handleDeployFailed(
+  supabase: SupabaseClient,
+  msg: DeployFailed,
+): Promise<void> {
+  const { featureId, error: errMsg } = msg;
+
+  const { data: feature } = await supabase
+    .from("features")
+    .select("company_id")
+    .eq("id", featureId)
+    .single();
+
+  // Revert feature from testing → verifying so it can be retried
+  const { error: updateErr } = await supabase
+    .from("features")
+    .update({ status: "verifying" })
+    .eq("id", featureId)
+    .eq("status", "testing");
+
+  if (updateErr) {
+    console.error(`[orchestrator] Failed to revert feature ${featureId} to verifying:`, updateErr.message);
+  }
+
+  // Notify via Slack
+  if (feature) {
+    const slackChannel = await getDefaultSlackChannel(supabase, feature.company_id);
+    const botToken = await getSlackBotToken(supabase, feature.company_id);
+    if (slackChannel && botToken) {
+      await postSlackMessage(
+        botToken,
+        slackChannel,
+        `Deploy failed for feature ${featureId}: ${errMsg}`,
+      );
+    }
+  }
+
+  console.warn(`[orchestrator] Deploy failed for feature ${featureId}: ${errMsg}`);
+}
+
+/**
+ * Handles a missing zazig.test.yaml in the repository.
+ * Posts a Slack message explaining how to configure test deploys.
+ */
+export async function handleDeployNeedsConfig(
+  supabase: SupabaseClient,
+  msg: DeployNeedsConfig,
+): Promise<void> {
+  const { featureId } = msg;
+
+  const { data: feature } = await supabase
+    .from("features")
+    .select("company_id")
+    .eq("id", featureId)
+    .single();
+
+  if (!feature) {
+    console.error(`[orchestrator] Failed to fetch feature ${featureId} for deploy_needs_config`);
+    return;
+  }
+
+  // Revert feature from testing → verifying
+  await supabase
+    .from("features")
+    .update({ status: "verifying" })
+    .eq("id", featureId)
+    .eq("status", "testing");
+
+  const slackChannel = await getDefaultSlackChannel(supabase, feature.company_id);
+  const botToken = await getSlackBotToken(supabase, feature.company_id);
+  if (slackChannel && botToken) {
+    const text = [
+      `Feature ${featureId} is ready for testing but no \`zazig.test.yaml\` was found in the repo root.`,
+      "",
+      "Create one with this structure:",
+      "```",
+      "name: my-project",
+      "type: ephemeral",
+      "deploy:",
+      "  provider: vercel  # or 'custom'",
+      "  project_id: prj_xxx  # vercel project ID",
+      "healthcheck:",
+      "  path: /api/health",
+      "  timeout: 120",
+      "```",
+      "",
+      "Then re-trigger verification to retry.",
+    ].join("\n");
+
+    await postSlackMessage(botToken, slackChannel, text);
+  }
+
+  console.log(`[orchestrator] Deploy needs config for feature ${featureId} — notified via Slack`);
+}
+
+// ---------------------------------------------------------------------------
+// Slack helpers (orchestrator-side)
+// ---------------------------------------------------------------------------
+
+async function getDefaultSlackChannel(
+  supabase: SupabaseClient,
+  companyId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("companies")
+    .select("slack_channels")
+    .eq("id", companyId)
+    .single();
+
+  if (!data?.slack_channels) return null;
+  const channels = data.slack_channels as string[];
+  return channels.length > 0 ? channels[0] : null;
+}
+
+async function getSlackBotToken(
+  supabase: SupabaseClient,
+  companyId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("slack_installations")
+    .select("bot_token")
+    .eq("company_id", companyId)
+    .limit(1)
+    .single();
+
+  return data?.bot_token ?? null;
+}
+
+async function postSlackMessage(
+  botToken: string,
+  channel: string,
+  text: string,
+  threadTs?: string,
+): Promise<string | null> {
+  const payload: Record<string, string> = { channel, text };
+  if (threadTs) payload.thread_ts = threadTs;
+
+  try {
+    const response = await fetch("https://slack.com/api/chat.postMessage", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${botToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      console.error(`[orchestrator] Slack API error: HTTP ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json() as { ok?: boolean; ts?: string; error?: string };
+    if (!data.ok) {
+      console.error(`[orchestrator] Slack API error: ${data.error}`);
+      return null;
+    }
+
+    return data.ts ?? null;
+  } catch (err) {
+    console.error("[orchestrator] Slack postMessage failed:", err);
+    return null;
+  }
+}
+
+function parseChecklist(raw: string | null): string[] {
+  if (!raw) return [];
+  return raw.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+}
+
 /**
  * Releases one slot of the appropriate type on a machine.
  * Fetches the current job record to determine slot_type, then increments the machine counter.
@@ -1573,6 +1929,12 @@ async function listenForAgentMessages(
           await handleFeatureApproved(supabase, msg);
         } else if (isFeatureRejected(msg)) {
           await handleFeatureRejected(supabase, msg);
+        } else if (isDeployComplete(msg)) {
+          await handleDeployComplete(supabase, msg);
+        } else if (isDeployFailed(msg)) {
+          await handleDeployFailed(supabase, msg);
+        } else if (isDeployNeedsConfig(msg)) {
+          await handleDeployNeedsConfig(supabase, msg);
         } else if (isStopAck(msg)) {
           console.log(`[orchestrator] StopAck received — job ${(msg as { jobId: string }).jobId}`);
         } else {

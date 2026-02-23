@@ -151,8 +151,16 @@ export class AgentConnection {
       this.handleIncomingPayload(payload.payload);
     });
 
-    // Also listen for start_job events (orchestrator sends with event: "start_job")
+    // Also listen for named events (orchestrator sends with event matching the message type)
     this.channel.on("broadcast", { event: "start_job" }, (payload) => {
+      this.handleIncomingPayload(payload.payload);
+    });
+
+    this.channel.on("broadcast", { event: "verify_job" }, (payload) => {
+      this.handleIncomingPayload(payload.payload);
+    });
+
+    this.channel.on("broadcast", { event: "deploy_to_test" }, (payload) => {
       this.handleIncomingPayload(payload.payload);
     });
 

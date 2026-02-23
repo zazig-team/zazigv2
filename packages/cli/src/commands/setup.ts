@@ -26,7 +26,8 @@ export async function setup(): Promise<void> {
     return;
   }
 
-  const supabase = createClient(creds.supabaseUrl, creds.anonKey);
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
+  const supabase = createClient(creds.supabaseUrl, anonKey);
   await supabase.auth.setSession({
     access_token: creds.accessToken,
     refresh_token: creds.refreshToken,

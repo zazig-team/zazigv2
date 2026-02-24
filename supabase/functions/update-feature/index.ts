@@ -1,15 +1,52 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+/**
+ * zazigv2 — update-feature Edge Function
+ *
+ * Updates an existing feature on behalf of the CPO agent.
+ * Guards status transitions: CPO may only set 'created' or 'ready_for_breakdown'.
+ * Fires a feature_status_changed event when status → ready_for_breakdown.
+ *
+ * Runtime: Deno / Supabase Edge Functions
+ */
+
+import { createClient } from "@supabase/supabase-js";
+
+// ---------------------------------------------------------------------------
+// Environment
+// ---------------------------------------------------------------------------
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error(
+    "Missing required environment variables: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function jsonResponse(body: Record<string, unknown>, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 // CPO can only set these statuses — all others are orchestrator-managed
 const ALLOWED_CPO_STATUSES = ["created", "ready_for_breakdown"] as const;
 
-serve(async (req) => {
+// ---------------------------------------------------------------------------
+// Handler
+// ---------------------------------------------------------------------------
+
+Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -17,29 +54,26 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Missing authorization header" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Missing authorization header" }, 401);
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
+      auth: { persistSession: false },
+    });
 
     const body = await req.json();
-    const { feature_id, title, description, priority, status } = body;
+    const { feature_id, title, description, priority, status, job_id } = body;
 
     if (!feature_id) {
-      return new Response(JSON.stringify({ error: "feature_id is required" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "feature_id is required" }, 400);
     }
 
     // Guard status transitions
     if (status && !ALLOWED_CPO_STATUSES.includes(status)) {
-      return new Response(JSON.stringify({
-        error: `Cannot set status '${status}' — CPO may only set: ${ALLOWED_CPO_STATUSES.join(", ")}`,
-      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return jsonResponse(
+        { error: `Cannot set status '${status}' — CPO may only set: ${ALLOWED_CPO_STATUSES.join(", ")}` },
+        400,
+      );
     }
 
     // Build update payload
@@ -48,11 +82,10 @@ serve(async (req) => {
     if (description !== undefined) updates.description = description;
     if (priority !== undefined) updates.priority = priority;
     if (status !== undefined) updates.status = status;
+    if (job_id !== undefined) updates.job_id = job_id;
 
     if (Object.keys(updates).length === 0) {
-      return new Response(JSON.stringify({ ok: true, note: "nothing to update" }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ ok: true, note: "nothing to update" });
     }
 
     const { error } = await supabase
@@ -61,9 +94,7 @@ serve(async (req) => {
       .eq("id", feature_id);
 
     if (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: error.message }, 500);
     }
 
     // If status changed to ready_for_breakdown, insert event so orchestrator picks it up
@@ -75,12 +106,8 @@ serve(async (req) => {
       });
     }
 
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ ok: true });
   } catch (err) {
-    return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: String(err) }, 500);
   }
 });

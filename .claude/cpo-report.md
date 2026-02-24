@@ -1,32 +1,33 @@
 STATUS: COMPLETE
-CARD: 699d19c4
-BRANCH: cpo/pai-executor
-FILES: packages/local-agent/src/executor.ts
-TESTS: Typecheck clean (local-agent + shared)
-NOTES: Renamed handleStartCpo → handlePersistentJob, role-agnostic dumb pipe.
+CARD: 699d19b0
+BRANCH: cpo/pai-orchestrator
+FILES: supabase/functions/orchestrator/index.ts
+TESTS: Typecheck clean (root + shared workspaces; pre-existing CLI issue unrelated)
+NOTES: Persistent agent jobs now get fully assembled CLAUDE.md in context field. Non-persistent jobs unchanged.
 
 ---
 
-# CPO Report — PAI Executor: rename handleStartCpo to handlePersistentJob
+# CPO Report — Assemble Full CLAUDE.md for Persistent Agents
 
 ## Summary
-Made `handleStartCpo` role-agnostic by renaming to `handlePersistentJob` and removing all CPO-specific hardcoding. The executor is now a dumb pipe: it writes `msg.context` as CLAUDE.md and uses `msg.role` for workspace/session naming.
+Moved CLAUDE.md assembly for persistent agent jobs from the local agent to the orchestrator. The local agent becomes a dumb pipe — it just writes whatever is in `msg.context`.
 
-## Changes (1 file, +47/-124 lines)
+## Changes
 
-### packages/local-agent/src/executor.ts
+### supabase/functions/orchestrator/index.ts (+24 lines, -6 lines)
 
-1. **Deleted `CPO_MESSAGING_INSTRUCTIONS` constant** (~40 lines) — context is now provided by orchestrator via `msg.context`
-2. **Deleted `CPO_WORKSPACE_DIR` constant** — workspace dir now derived from `msg.role`
-3. **Renamed `handleStartCpo` → `handlePersistentJob`** with new signature `(jobId, msg, slotType)`:
-   - Workspace: `~/.zazigv2/${msg.role ?? "agent"}-workspace` (was hardcoded `cpo-workspace`)
-   - CLAUDE.md: writes `msg.context ?? ""` (was hardcoded `CPO_MESSAGING_INSTRUCTIONS`)
-   - settings.json: auto-approves all 4 MCP tools (`send_message`, `create_feature`, `update_feature`, `query_projects`)
-   - tmux session: `${machineId}-${role}` (was `${machineId}-cpo`)
-4. **Updated routing** in `handleStartJob`: `cardType === "persistent_agent" || role === "cpo"`, passes full `msg`
-5. **Removed `assembleContext` call** for persistent jobs — orchestrator now pre-assembles context
-6. **Removed `spawnPersistentCpoSession` export** — spawn logic inlined into `handlePersistentJob`
+**New block** (after role/personality fetch, before StartJob construction):
+- For `persistent_agent` jobs, assembles full CLAUDE.md from `# {ROLE_NAME}`, personality prompt, `---` separator, and role prompt
+- Writes assembled string to `prompt_stack` column on the jobs row for observability
+
+**Modified StartJob construction**:
+- `context` field: `assembledContext ?? job.context ?? undefined` (persistent agents get pre-assembled context)
+- `personalityPrompt`, `rolePrompt`, `roleSkills`: gated with `job.job_type !== "persistent_agent"` (already baked into context for persistent agents)
+
+### What didn't change
+- Non-persistent job dispatch path: identical behavior, still sends separate fields for local `assembleContext()`
+- All other orchestrator logic untouched
 
 ## Token Usage
-- Budget: claude-ok (wrote code directly)
-- Approach: Full file read → systematic edits → typecheck → commit + push
+- Budget: claude-ok
+- Approach: Direct implementation — single file, well-specified change

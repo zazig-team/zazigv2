@@ -1,10 +1,17 @@
 # Jobify Skill Design — V2
 
 **Date:** 2026-02-24
-**Status:** Draft
+**Status:** Implemented (skill file + MCP tools + orchestrator dispatch)
 **Author:** Tom + Claude (brainstorming session)
 **Replaces:** Cardify (V1 Trello-based card creation)
 **Reviewed by:** Codex (gpt-5.3) and Gemini (3.1 Pro) — feedback incorporated
+**Implementation:**
+- Skill file: `projects/skills/jobify.md` (PR #86)
+- MCP tools: `query_features` + `batch_create_jobs` edge functions + MCP wrappers (PR #88)
+- DB: `depends_on UUID[]` column on jobs (PR #85, migration 039), `review` job_type (PR #89, migration 042)
+- Orchestrator: `feature_status_changed` → dispatches breakdown-specialist (PR #91)
+- Workspace: role-scoped .mcp.json + skill injection for breakdown-specialist (PR #92)
+- Role: `breakdown-specialist` in roles table (PR #85, migration 040)
 
 ---
 

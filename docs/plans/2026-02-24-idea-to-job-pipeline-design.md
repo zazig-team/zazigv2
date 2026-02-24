@@ -1,11 +1,12 @@
 # Idea to Job Pipeline Design
 
 **Date:** 2026-02-24
-**Status:** Draft
+**Status:** Implemented (infrastructure complete, pending end-to-end testing)
 **Authors:** Tom + Claude (brainstorming session)
 **Reviewed by:** Codex (gpt-5.3) and Gemini (3.1 Pro) — second opinions on MCP tooling
 **Supersedes:** Portions of `2026-02-24-software-development-pipeline-design.md` (stages 1-5), `2026-02-24-persistent-agent-identity-design.md` (MCP tool scoping), `2026-02-24-mcp-vs-skill-vs-cli-analysis.md` (decision: MCP for all, role-scoped)
 **Companion docs:** `2026-02-24-jobify-skill-design.md` (breakdown detail), `2026-02-24-featurify-skill-design.md` (structuring detail), `ORG MODEL.md` (tier/layer reference)
+**Implementation PRs:** #85 (migrations), #86 (skills), #88 (breakdown MCP tools), #89 (consistency fixes), #90 (architect MCP tools), #91 (orchestrator DAG + notifications), #92 (workspace assembly)
 
 ---
 
@@ -869,24 +870,35 @@ CPO: Job goes to queued.
 
 ## 12. Dependencies
 
-| Dependency | Status | Owner |
-|-----------|--------|-------|
-| `features` table with spec + acceptance_tests + human_checklist | Exists | Chris |
-| `jobs` table with all required columns | Exists | Chris |
-| `depends_on` UUID array column on `jobs` table | Needs migration | Chris |
-| `create_feature` edge function | Built (in agent-mcp-server.ts) | Chris |
-| `update_feature` edge function | Built (in agent-mcp-server.ts) | Chris |
-| `query_projects` MCP tool | Built (in agent-mcp-server.ts) | Chris |
-| `batch_create_jobs` MCP tool | Needs building | Chris |
-| Role-scoped `.mcp.json` generation in executor | Needs building | Chris |
-| Workspace setup for ephemeral jobs | Needs building | Chris |
-| Orchestrator event: `feature_status_changed` | Needs building | Chris |
-| Orchestrator: dispatch jobs where all `depends_on` are complete | Needs building | Chris |
-| Project Architect role in `roles` table | Needs creating | Tom/Chris |
-| Breakdown Specialist role in `roles` table | Needs creating | Tom/Chris |
-| Monitoring Agent role in `roles` table | Needs creating | Tom/Chris |
-| CPO wakeup via `MessageInbound` internal events | Needs building | Chris |
-| Monitoring agent scheduling mechanism | Needs design | Tom/Chris |
+| Dependency | Status | PR | Owner |
+|-----------|--------|-----|-------|
+| `features` table with spec + acceptance_tests + human_checklist | **Built** | 008 | Chris |
+| `jobs` table with all required columns | **Built** | 008 | Chris |
+| `depends_on` UUID array column on `jobs` table | **Built** | #85 (migration 039) | Tom |
+| `description` column on `projects` table | **Built** | #90 (migration 043) | Tom |
+| `create_feature` edge function + MCP tool | **Built + deployed** | Chris + #88 | Chris/Tom |
+| `update_feature` edge function + MCP tool | **Built + deployed** | Chris + #89 (fix) | Chris/Tom |
+| `query_projects` MCP tool | **Built** | Chris | Chris |
+| `query_features` edge function + MCP tool | **Built + deployed** | #88 | Tom |
+| `batch_create_jobs` edge function + MCP tool | **Built + deployed** | #88 | Tom |
+| `create_project` edge function + MCP tool | **Built + deployed** | #90 | Tom |
+| `batch_create_features` edge function + MCP tool | **Built + deployed** | #90 | Tom |
+| Role-scoped `.mcp.json` generation in executor | **Built** | #92 | Tom |
+| Workspace setup for ephemeral jobs | **Built** | #92 | Tom |
+| Skill file injection into workspaces | **Built** | #92 | Tom |
+| Orchestrator event: `feature_status_changed` → dispatch breakdown | **Built + deployed** | #91 | Tom |
+| Orchestrator: DAG dispatch (jobs where all `depends_on` complete) | **Built + deployed** | #91 | Tom |
+| CPO wakeup via Realtime broadcast notifications | **Built + deployed** | #91 | Tom |
+| Project Architect role in `roles` table | **Built** | #85 (migration 040) | Tom |
+| Breakdown Specialist role in `roles` table | **Built** | #85 (migration 040) | Tom |
+| Monitoring Agent role in `roles` table | **Built** | #85 (migration 040) | Tom |
+| CPO routing prompt (pipeline decision tree) | **Built** | #85 (migration 041) | Tom |
+| Jobify skill file | **Built** | #86 | Tom |
+| Featurify skill file | **Built** | #86 | Tom |
+| CPO stage skills (/plan-capability, /spec-feature, /standalone-job, /reconcile-docs) | **Built** | #86 | Tom |
+| `review` job_type in DB constraint | **Built** | #89 (migration 042) | Tom |
+| Monitoring agent scheduling mechanism | Needs design | — | Tom/Chris |
+| `commission_contractor` MCP tool (CPO → contractor dispatch) | Needs building | — | Tom/Chris |
 
 ---
 
@@ -913,7 +925,7 @@ For critical flows (auth, billing, permissions), should acceptance tests be mark
 
 ### 4. Project Architect output format
 
-What exactly does the Project Architect produce? A structured JSON project plan? Markdown? Direct Supabase records? The feature outlines need enough detail for the CPO to refine but not so much that the contractor is doing the CPO's job. **Now addressed in the featurify skill design** — see `2026-02-24-featurify-skill-design.md`.
+~~What exactly does the Project Architect produce?~~ **Resolved.** Addressed in the featurify skill design and now implemented — Project Architect uses `create_project` + `batch_create_features` MCP tools to write directly to Supabase. Feature outlines have title + description only; CPO enriches in Stage 4. See `2026-02-24-featurify-skill-design.md` and `projects/skills/featurify.md`.
 
 ### 5. Standalone job review cadence
 
@@ -924,7 +936,7 @@ The CPO reviews standalone jobs periodically. What triggers this? Options:
 
 ### 6. Skill access verification at dispatch time
 
-The `roles.skills[]` field says "this role should have these skills" but there's no verification the host machine has them. See Section 9 for options (machine capability registry, central skill distribution, or both).
+~~The `roles.skills[]` field says "this role should have these skills" but there's no verification the host machine has them.~~ **Partially resolved.** The executor now injects skill files from `projects/skills/` into ephemeral workspaces at dispatch time (PR #92). Pipeline-specific and contractor skills are distributed from the repo. General-purpose skills (deep-research, repo-recon, etc.) still depend on machine-level installation — machine capability registry remains a future item.
 
 ### 7. API keys for delegated models
 
@@ -932,7 +944,7 @@ The CPO uses second-opinion workflows to get independent review from Codex and G
 
 ### 8. Stage skill authoring
 
-The CPO Knowledge Architecture (Section 9) describes four stage skills (`/plan-capability`, `/spec-feature`, `/standalone-job`, `/reconcile-docs`). These need to be authored. Each skill is a markdown file guiding the CPO through that pipeline stage. The routing prompt in `roles.prompt` references them — they must exist before the CPO can use the pipeline.
+~~The CPO Knowledge Architecture (Section 9) describes four stage skills.~~ **Resolved.** All four stage skills authored and shipped in PR #86: `projects/skills/plan-capability.md`, `projects/skills/spec-feature.md`, `projects/skills/standalone-job.md`, `projects/skills/reconcile-docs.md`. The CPO routing prompt (migration 041) references them.
 
 ### 9. Monitoring Agent scheduling and commissioning
 
@@ -968,7 +980,7 @@ The skill should detect which mode to use based on context, or be explicitly inv
 
 ### Featurify — Project to Features
 
-~~Jobify breaks features into jobs. The inverse — breaking a project into features — is currently manual.~~ **Now designed.** Featurify follows the same Contractor Pattern (skill + MCP) as jobify. Project Architect contractor with featurify skill + role-scoped MCP tools (`query_projects`, `create_project`, `batch_create_features`). See `2026-02-24-featurify-skill-design.md`.
+~~Jobify breaks features into jobs. The inverse — breaking a project into features — is currently manual.~~ ~~**Now designed.**~~ **Now implemented.** Featurify skill built (PR #86), MCP tools deployed (PR #90: `create_project`, `batch_create_features`), Project Architect role created (PR #85, migration 040), workspace assembly injects skill at dispatch time (PR #92). See `2026-02-24-featurify-skill-design.md` and `projects/skills/featurify.md`.
 
 ### MCP Measurement
 

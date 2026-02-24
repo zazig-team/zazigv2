@@ -367,6 +367,54 @@ server.tool(
 );
 
 server.tool(
+  "query_jobs",
+  "Query jobs by job ID, feature ID, or status filter. Used by the Verification Specialist to poll job status during active acceptance testing.",
+  {
+    job_id: z.string().optional().describe("Job UUID — returns a single job with full detail"),
+    feature_id: z.string().optional().describe("Feature UUID — returns all jobs for this feature"),
+    status: z.string().optional().describe("Filter by status (e.g. 'queued', 'dispatched', 'complete')"),
+  },
+  async ({ job_id, feature_id, status }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const payload: Record<string, unknown> = {};
+    if (job_id) payload.job_id = job_id;
+    if (feature_id) payload.feature_id = feature_id;
+    if (status) payload.status = status;
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/query-jobs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { jobs: unknown[] };
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(data.jobs, null, 2) }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to query jobs (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  },
+);
+
+server.tool(
   "batch_create_jobs",
   "Atomically create multiple jobs for a feature. Used by the Breakdown Specialist after decomposing a feature via jobify. Supports temp:N references in depends_on for cross-job dependencies.",
   {
@@ -422,7 +470,7 @@ server.tool(
   "Commission an ephemeral contractor to perform pipeline work. Used by the CPO to dispatch Project Architects (featurify), Breakdown Specialists (jobify), or Monitoring Agents.",
   {
     company_id: z.string().describe("Company UUID"),
-    role: z.enum(["project-architect", "breakdown-specialist", "monitoring-agent"]).describe("Contractor role to commission"),
+    role: z.enum(["project-architect", "breakdown-specialist", "monitoring-agent", "verification-specialist"]).describe("Contractor role to commission"),
     project_id: z.string().describe("Target project UUID"),
     feature_id: z.string().optional().describe("Target feature UUID (required for breakdown-specialist)"),
     context: z.string().optional().describe("Additional instructions from the CPO"),

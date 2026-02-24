@@ -574,8 +574,9 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     const slotUpdate = { [slotColumn]: currentSlots - 1 };
     Object.assign(candidate, slotUpdate);
 
-    // Check if this is a verification job — route to VerifyJob instead of StartJob
-    if (job.job_type === "verify") {
+    // Check if this is a passive verification job — route to VerifyJob instead of StartJob.
+    // Active verification (verification-specialist) gets a normal StartJob with full workspace.
+    if (job.job_type === "verify" && job.role !== "verification-specialist") {
       let ctx: { featureBranch?: string; acceptanceTests?: string } = {};
       try { ctx = JSON.parse(job.context ?? "{}"); } catch { /* ignore */ }
 
@@ -933,11 +934,28 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
     return;
   }
 
-  // Check if this is a feature_verification job that completed successfully.
-  // If so, initiate test deployment for the feature.
+  // Check if this is a verification job that completed.
   const contextStr = jobRow?.context ?? "{}";
   let ctx: { type?: string; target?: string } = {};
   try { ctx = JSON.parse(contextStr); } catch { /* ignore */ }
+
+  // Active verification (verification-specialist): check result for pass/fail
+  if (ctx.type === "active_feature_verification" && jobRow?.feature_id) {
+    const passed = result?.startsWith("PASSED");
+    if (passed) {
+      console.log(`[orchestrator] Active verification PASSED for feature ${jobRow.feature_id} — initiating test deploy`);
+      await initiateTestDeploy(supabase, jobRow.feature_id);
+    } else {
+      console.log(`[orchestrator] Active verification FAILED for feature ${jobRow.feature_id} — notifying CPO`);
+      await notifyCPO(
+        supabase,
+        jobRow.company_id,
+        `Active verification failed for feature ${jobRow.feature_id}: ${(result ?? "").slice(0, 200)}. Needs triage.`,
+      );
+    }
+  }
+
+  // Passive verification (reviewer): initiate test deploy on success
   if (ctx.type === "feature_verification" && jobRow?.feature_id) {
     await initiateTestDeploy(supabase, jobRow.feature_id);
   }
@@ -1485,7 +1503,7 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
   // Fetch feature details for the verification job
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
-    .select("branch, project_id, company_id, acceptance_tests")
+    .select("branch, project_id, company_id, acceptance_tests, verification_type")
     .eq("id", featureId)
     .single();
   if (fetchErr || !feature) {
@@ -1493,40 +1511,79 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
     return;
   }
 
-  // Insert a feature-verification job. dispatchQueuedJobs routes job_type="verify"
-  // to a VerifyJob message, which the local agent's verifier picks up.
-  const verifyContext = JSON.stringify({
-    type: "feature_verification",
-    featureBranch: feature.branch,
-    acceptanceTests: feature.acceptance_tests ?? "",
-  });
-  const { data: insertedRows, error: insertErr } = await supabase
-    .from("jobs")
-    .insert({
-      company_id: feature.company_id,
-      project_id: feature.project_id,
-      feature_id: featureId,
-      role: "reviewer",
-      job_type: "verify",
-      complexity: "simple",
-      slot_type: "claude_code",
-      status: "queued",
-      context: verifyContext,
-      branch: feature.branch,
-    })
-    .select("id");
+  const isActive = feature.verification_type === "active";
 
-  if (insertErr) {
-    console.error(`[orchestrator] Failed to insert feature verification job for ${featureId}:`, insertErr.message);
+  if (isActive) {
+    // Active verification: dispatch a verification-specialist contractor.
+    // Gets a normal StartJob (full workspace with MCP tools + verify-feature skill).
+    const verifyContext = JSON.stringify({
+      type: "active_feature_verification",
+      feature_id: featureId,
+      acceptanceTests: feature.acceptance_tests ?? "",
+    });
+    const { data: insertedRows, error: insertErr } = await supabase
+      .from("jobs")
+      .insert({
+        company_id: feature.company_id,
+        project_id: feature.project_id,
+        feature_id: featureId,
+        role: "verification-specialist",
+        job_type: "verify",
+        complexity: "medium",
+        slot_type: "claude_code",
+        status: "queued",
+        context: verifyContext,
+      })
+      .select("id");
+
+    if (insertErr) {
+      console.error(`[orchestrator] Failed to insert active verification job for ${featureId}:`, insertErr.message);
+    } else {
+      console.log(`[orchestrator] Queued active verification (verification-specialist) for feature ${featureId}`);
+      const jobId = insertedRows?.[0]?.id;
+      if (jobId) {
+        generateTitle(verifyContext).then((title) => {
+          if (title) {
+            supabase.from("jobs").update({ title }).eq("id", jobId).then(() => {});
+          }
+        }).catch(() => {});
+      }
+    }
   } else {
-    console.log(`[orchestrator] Queued feature verification job for feature ${featureId} branch ${feature.branch}`);
-    const jobId = insertedRows?.[0]?.id;
-    if (jobId) {
-      generateTitle(verifyContext).then((title) => {
-        if (title) {
-          supabase.from("jobs").update({ title }).eq("id", jobId).then(() => {});
-        }
-      }).catch(() => {});
+    // Passive verification: existing VerifyJob path (code review + rebase + tests).
+    const verifyContext = JSON.stringify({
+      type: "feature_verification",
+      featureBranch: feature.branch,
+      acceptanceTests: feature.acceptance_tests ?? "",
+    });
+    const { data: insertedRows, error: insertErr } = await supabase
+      .from("jobs")
+      .insert({
+        company_id: feature.company_id,
+        project_id: feature.project_id,
+        feature_id: featureId,
+        role: "reviewer",
+        job_type: "verify",
+        complexity: "simple",
+        slot_type: "claude_code",
+        status: "queued",
+        context: verifyContext,
+        branch: feature.branch,
+      })
+      .select("id");
+
+    if (insertErr) {
+      console.error(`[orchestrator] Failed to insert feature verification job for ${featureId}:`, insertErr.message);
+    } else {
+      console.log(`[orchestrator] Queued passive verification (reviewer) for feature ${featureId} branch ${feature.branch}`);
+      const jobId = insertedRows?.[0]?.id;
+      if (jobId) {
+        generateTitle(verifyContext).then((title) => {
+          if (title) {
+            supabase.from("jobs").update({ title }).eq("id", jobId).then(() => {});
+          }
+        }).catch(() => {});
+      }
     }
   }
 }

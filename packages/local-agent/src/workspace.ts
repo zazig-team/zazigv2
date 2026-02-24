@@ -78,12 +78,28 @@ export function generateMcpConfig(
 }
 
 /**
+ * Standard Claude Code tools every agent needs to do its work.
+ * These are always included regardless of role.
+ */
+const STANDARD_TOOLS = [
+  "Read",
+  "Write",
+  "Edit",
+  "Bash",
+  "Glob",
+  "Grep",
+];
+
+/**
  * Returns the fully-prefixed MCP tool names that a given role is allowed to
- * invoke. Unknown roles default to an empty array (no tools).
+ * invoke, plus the standard Claude Code tools every agent needs.
+ * Unknown roles default to standard tools only (no MCP tools).
  */
 export function generateAllowedTools(role: string): string[] {
-  const tools = ROLE_ALLOWED_TOOLS[role] ?? [];
-  return tools.map((name) => `mcp__zazig-messaging__${name}`);
+  const mcpTools = (ROLE_ALLOWED_TOOLS[role] ?? []).map(
+    (name) => `mcp__zazig-messaging__${name}`,
+  );
+  return [...STANDARD_TOOLS, ...mcpTools];
 }
 
 // ---------------------------------------------------------------------------

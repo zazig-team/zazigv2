@@ -52,12 +52,11 @@ export async function status(): Promise<void> {
   };
 
   try {
-    // Machine row — query by name only (company_id no longer in local config)
+    // Machine rows — query by name (one row per company the user belongs to)
     const machines = await apiFetch(
       `${creds.supabaseUrl}/rest/v1/machines` +
         `?select=id,name,status,last_heartbeat,slots_claude_code,slots_codex,company_id` +
-        `&name=eq.${encodeURIComponent(cfg.name)}` +
-        `&limit=1`,
+        `&name=eq.${encodeURIComponent(cfg.name)}`,
       headers
     );
 
@@ -85,9 +84,10 @@ export async function status(): Promise<void> {
     if (machineId) {
       const jobs = await apiFetch(
         `${creds.supabaseUrl}/rest/v1/jobs` +
-          `?select=id,status,context,slot_type` +
+          `?select=id,status,context,slot_type,job_type` +
           `&machine_id=eq.${encodeURIComponent(machineId)}` +
-          `&status=in.(queued,dispatched,executing,reviewing)`,
+          `&status=in.(queued,dispatched,executing,reviewing)` +
+          `&job_type=neq.persistent_agent`,
         headers
       );
 
@@ -106,6 +106,34 @@ export async function status(): Promise<void> {
             ? job.context.replace(/\s+/g, " ").trim().slice(0, 55)
             : String(job.id ?? "").slice(0, 8);
         console.log(`    • [${job.status}] ${ctx}`);
+      }
+    }
+
+    // Persistent agents — query across all companies this machine is registered for
+    const companyIds = machines
+      .map((row) => String(row.company_id ?? ""))
+      .filter((id) => id.length > 0);
+
+    if (companyIds.length > 0) {
+      const persistentJobs = await apiFetch(
+        `${creds.supabaseUrl}/rest/v1/jobs` +
+          `?select=id,status,role,machine_id,company_id` +
+          `&job_type=eq.persistent_agent` +
+          `&company_id=in.(${companyIds.join(",")})`,
+        headers
+      );
+
+      if (persistentJobs.length > 0) {
+        console.log(`  Persistent agents:`);
+        for (const job of persistentJobs) {
+          const role = String(job.role ?? "unknown").toUpperCase();
+          const jobStatus = String(job.status ?? "unknown");
+          const assigned = job.machine_id ? ` on ${job.machine_id === machineId ? "this machine" : "other"}` : "";
+          const icon = jobStatus === "executing" ? "●" : jobStatus === "queued" ? "○" : "◌";
+          console.log(`    ${icon} ${role.padEnd(12)} ${jobStatus}${assigned}`);
+        }
+      } else {
+        console.log(`  Persistent agents: none`);
       }
     }
   } catch (err) {

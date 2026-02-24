@@ -20,7 +20,7 @@ Every other design doc handles one layer in depth. This doc is the map that show
 | Role Prompt + Skills | [`role-prompts-and-skills-design.md`](plans/2026-02-20-role-prompts-and-skills-design.md) |
 | Knowledge (Doctrines + Canons) | [`exec-knowledge-architecture-v5.md`](plans/2026-02-22-exec-knowledge-architecture-v5.md) |
 | Orchestrator + Dispatch | [`orchestration-server-design.md`](plans/2026-02-18-orchestration-server-design.md) |
-| Pipeline + Job Lifecycle | [`software-development-pipeline-design.md`](plans/2026-02-20-software-development-pipeline-design.md) |
+| Pipeline + Job Lifecycle | [`software-development-pipeline-design.md`](plans/2026-02-24-software-development-pipeline-design.md) |
 | Messaging | [`agent-messaging-bidirectional.md`](plans/2026-02-22-agent-messaging-bidirectional.md) |
 | Model Routing | Covered in this document ([Model Routing](#model-routing)) — may graduate to own design doc when local model support lands |
 

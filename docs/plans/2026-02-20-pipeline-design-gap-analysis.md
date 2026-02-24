@@ -3,7 +3,7 @@
 **Date:** 2026-02-20
 **Author:** Tom + Claude
 **Status:** Draft
-**Reviews:** `2026-02-20-software-development-pipeline-design.md` vs `2026-02-19-orchestrator-trello-replacement-requirements.md`
+**Reviews:** `2026-02-24-software-development-pipeline-design.md` vs `2026-02-19-orchestrator-trello-replacement-requirements.md`
 
 ---
 

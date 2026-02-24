@@ -410,6 +410,6 @@ const { data: job } = await supabase
 
 2. **Parallel job file conflicts:** If two parallel jobs modify the same file, the second to merge will hit a conflict during rebase. Should jobify flag potential file overlaps in the build sequence? Or is this purely the orchestrator's problem (hand conflict resolution to a fix agent)?
 
-3. **Pipeline design doc alignment:** The pipeline design doc (`2026-02-20-software-development-pipeline-design.md`) says the CPO breaks features into jobs. This should be updated to reflect that a breakdown specialist (with jobify) does it. The CPO owns feature design only.
+3. **Pipeline design doc alignment:** The pipeline design doc (`2026-02-24-software-development-pipeline-design.md`) says the CPO breaks features into jobs. This should be updated to reflect that a breakdown specialist (with jobify) does it. The CPO owns feature design only.
 
 4. **Acceptance test immutability:** For critical flows (auth, billing, permissions), should acceptance tests be marked immutable so implementing agents cannot silently weaken them? This could be a `critical: true` flag on specific AC IDs that the verifier treats as mandatory.

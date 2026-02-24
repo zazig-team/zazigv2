@@ -16,7 +16,7 @@
 >
 > **Behavioral change to decide:** This doc currently returns "agent offline" when the agent isn't running. With the events queue, messages could be queued for later delivery instead. Better UX, but different behavior. Decide: bounce or queue?
 >
-> **Fix agent impact:** The [pipeline design](2026-02-20-software-development-pipeline-design.md) describes a fix agent connected to a Slack thread during `testing` status. If messages are unified with the events queue, the fix agent's communication path also routes through events. Not blocking (fix agents are Phase 2 pipeline), but must be considered during implementation.
+> **Fix agent impact:** The [pipeline design](2026-02-24-software-development-pipeline-design.md) describes a fix agent connected to a Slack thread during `testing` status. If messages are unified with the events queue, the fix agent's communication path also routes through events. Not blocking (fix agents are Phase 2 pipeline), but must be considered during implementation.
 
 ---
 

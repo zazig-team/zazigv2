@@ -10,7 +10,7 @@
 
 **Tech Stack:** TypeScript, Supabase (Postgres + Edge Functions + Realtime), Node.js (local agent), Deno (orchestrator), Slack API (notifications + fix agent)
 
-**Design doc:** `docs/plans/2026-02-20-software-development-pipeline-design.md`
+**Design doc:** `docs/plans/2026-02-24-software-development-pipeline-design.md`
 
 ---
 

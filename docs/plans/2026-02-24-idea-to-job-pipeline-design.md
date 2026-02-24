@@ -4,7 +4,7 @@
 **Status:** Draft
 **Authors:** Tom + Claude (brainstorming session)
 **Reviewed by:** Codex (gpt-5.3) and Gemini (3.1 Pro) — second opinions on MCP tooling
-**Supersedes:** Portions of `2026-02-20-software-development-pipeline-design.md` (stages 1-5), `2026-02-24-persistent-agent-identity-design.md` (MCP tool scoping), `2026-02-24-mcp-vs-skill-vs-cli-analysis.md` (decision: MCP for all, role-scoped)
+**Supersedes:** Portions of `2026-02-24-software-development-pipeline-design.md` (stages 1-5), `2026-02-24-persistent-agent-identity-design.md` (MCP tool scoping), `2026-02-24-mcp-vs-skill-vs-cli-analysis.md` (decision: MCP for all, role-scoped)
 **Companion docs:** `2026-02-24-jobify-skill-design.md` (breakdown detail), `ORG MODEL.md` (tier/layer reference)
 
 ---
@@ -492,10 +492,10 @@ CPO: Job goes to queued.
 | `software-development-pipeline-design.md` | "CPO breaks features into jobs" → Breakdown Specialist does this | Job lifecycle state machine, branch strategy, two verification gates, fix agent, test env |
 | `jobify-skill-design.md` | Nothing — this doc references jobify but doesn't replace it | Entire doc (AC format, dependency graph, implementation prompt, Supabase integration) |
 
-### What needs updating in other docs
+### What was updated in other docs (2026-02-24)
 
-1. **Pipeline design doc** — Update role boundaries section to reflect that CPO does not break features into jobs. The Breakdown Specialist (via jobify) handles Stage 5.
-2. **Persistent agent identity doc** — Add note that MCP tools are now role-scoped per this design.
+1. **Pipeline design doc** (`2026-02-24-software-development-pipeline-design.md`, renamed from `2026-02-20-`) — Updated role boundaries: CPO no longer breaks features into jobs. Added Breakdown Specialist section. Updated design flow steps 4-7.
+2. **Persistent agent identity doc** (`2026-02-24-persistent-agent-identity-design.md`) — Added note that MCP tools are now role-scoped per this design. Updated MCP Tools section with reference to role-scoped tool table.
 3. **Org model** — No changes needed. This design implements the patterns already defined there (gateways, tiers, charters).
 
 ---

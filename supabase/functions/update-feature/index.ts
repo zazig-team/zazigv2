@@ -88,10 +88,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ ok: true, note: "nothing to update" });
     }
 
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from("features")
       .update(updates)
-      .eq("id", feature_id);
+      .eq("id", feature_id)
+      .select("company_id")
+      .single();
 
     if (error) {
       return jsonResponse({ error: error.message }, 500);
@@ -100,8 +102,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // If status changed to ready_for_breakdown, insert event so orchestrator picks it up
     if (status === "ready_for_breakdown") {
       await supabase.from("events").insert({
+        company_id: updated.company_id,
         feature_id,
-        event: "feature_status_changed",
+        event_type: "feature_status_changed",
         detail: { from: null, to: "ready_for_breakdown" },
       });
     }

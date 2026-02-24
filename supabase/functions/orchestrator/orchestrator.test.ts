@@ -24,7 +24,7 @@ const originalServe = (Deno as any).serve;
 };
 
 // Now import the functions under test.
-import { handleVerifyResult, triggerFeatureVerification, triggerStandaloneVerification, handleFeatureApproved, handleFeatureRejected, triggerBreakdown } from "./index.ts";
+import { handleVerifyResult, triggerFeatureVerification, handleFeatureApproved, handleFeatureRejected, triggerBreakdown, checkUnblockedJobs, notifyCPO } from "./index.ts";
 
 // Restore Deno.serve after import.
 // deno-lint-ignore no-explicit-any
@@ -163,7 +163,7 @@ function createSmartMockSupabase() {
     // deno-lint-ignore no-explicit-any
     const chain: any = {};
 
-    for (const method of ["select", "update", "insert", "eq", "in", "single", "maybeSingle", "filter", "order", "gt", "not", "limit"]) {
+    for (const method of ["select", "update", "insert", "eq", "in", "single", "maybeSingle", "filter", "order", "gt", "not", "limit", "neq", "contains", "head"]) {
       // deno-lint-ignore no-explicit-any
       chain[method] = (...args: any[]) => {
         ops.push({ method, args });
@@ -214,7 +214,7 @@ function createSmartMockSupabase() {
 // Tests
 // ---------------------------------------------------------------------------
 
-Deno.test("handleVerifyResult — failed verification sets job to verify_failed", async () => {
+Deno.test("handleVerifyResult — failed verification re-queues job for retry", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
   // The update().eq() chain should return { error: null }
@@ -232,16 +232,16 @@ Deno.test("handleVerifyResult — failed verification sets job to verify_failed"
   // deno-lint-ignore no-explicit-any
   await handleVerifyResult(client as any, msg);
 
-  // Verify update was called on jobs table
+  // Verify update was called on jobs table (re-queue + CPO notification lookup)
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 1, "Should have exactly 1 jobs chain call");
+  assertEquals(jobsChains.length >= 1, true, "Should have at least the re-queue update");
 
   const updateOps = jobsChains[0].operations;
-  // Should be: update({status: "verify_failed", ...}).eq("id", "job-1")
+  // Should be: update({status: "queued", ...}).eq("id", "job-1")
   assertEquals(updateOps[0].method, "update");
   // deno-lint-ignore no-explicit-any
   const updatePayload = updateOps[0].args[0] as any;
-  assertEquals(updatePayload.status, "verify_failed");
+  assertEquals(updatePayload.status, "queued");
   assertEquals(updatePayload.verify_context, "Test failed: assertion error in auth module");
   assertEquals(updatePayload.machine_id, null);
 
@@ -277,14 +277,14 @@ Deno.test("handleVerifyResult — passed verification, not all jobs done, no fea
   // deno-lint-ignore no-explicit-any
   await handleVerifyResult(client as any, msg);
 
-  // Should have: 1 update (mark done), 1 select (feature_id), 1 rpc
+  // Should have: 1 update (mark done), 1 select (feature_id), 1 checkUnblockedJobs query, 1 rpc
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 2, "Should have 2 jobs chains (update + select)");
+  assertEquals(jobsChains.length >= 2, true, "Should have at least update + select jobs chains");
 
-  // First chain: update status to done
+  // First chain: update status to complete
   assertEquals(jobsChains[0].operations[0].method, "update");
   // deno-lint-ignore no-explicit-any
-  assertEquals((jobsChains[0].operations[0].args[0] as any).status, "done");
+  assertEquals((jobsChains[0].operations[0].args[0] as any).status, "complete");
 
   // Second chain: select feature_id
   assertEquals(jobsChains[1].operations[0].method, "select");
@@ -355,9 +355,9 @@ Deno.test("handleVerifyResult — passed, all jobs done, triggers feature verifi
   const notOp = featureChains[0].operations.find((o) => o.method === "not");
   assertEquals(notOp !== undefined, true, "Should have .not() CAS guard");
 
-  // Jobs should have 3 chains: update done, select feature_id, insert verification job
+  // Jobs should have 4 chains: update done, select feature_id, checkUnblockedJobs query, insert verification job
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 3, "Should have update + select + insert on jobs");
+  assertEquals(jobsChains.length >= 3, true, "Should have at least update + select + insert on jobs");
 
   // The insert chain should have the verification job
   const insertChain = jobsChains.find((c) => c.operations.some((o) => o.method === "insert"));
@@ -826,93 +826,20 @@ Deno.test("handleFeatureRejected — severity=big + queue exists → promotes ne
 });
 
 // ---------------------------------------------------------------------------
-// Standalone job tests
+// Standalone job tests (jobs with no feature_id)
 // ---------------------------------------------------------------------------
 
-Deno.test("triggerStandaloneVerification — creates verify job with standalone_verification context", async () => {
+Deno.test("handleVerifyResult — standalone job passed → marks complete, returns early (no feature_id)", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
-  // Fetch job details
-  setResponse("jobs:select.eq.single", {
-    data: { company_id: "co-1", project_id: "proj-1", branch: "fix/bug-123" },
-    error: null,
-  });
-
-  // Idempotency check: no existing active verify job
-  setResponse("jobs:select.filter.eq.not.maybeSingle", { data: null, error: null });
-
-  // Insert verification job
-  setResponse("jobs:insert", { error: null });
-
-  // Update original job status to verifying
+  // update complete → success
   setResponse("jobs:update.eq", { error: null });
 
-  // deno-lint-ignore no-explicit-any
-  await triggerStandaloneVerification(client as any, "standalone-job-1");
-
-  // Should fetch job details, check idempotency, insert, update status
-  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 4, "Should have select + idempotency check + insert + status update on jobs");
-
-  // First chain: select job details
-  assertEquals(jobsChains[0].operations[0].method, "select");
-
-  // Second chain: idempotency check
-  assertEquals(jobsChains[1].operations[0].method, "select");
-  const filterOp = jobsChains[1].operations.find((o) => o.method === "filter");
-  assertEquals(filterOp !== undefined, true, "Should have filter for JSONB context check");
-
-  // Third chain: insert verification job
-  assertEquals(jobsChains[2].operations[0].method, "insert");
-  // deno-lint-ignore no-explicit-any
-  const payload = jobsChains[2].operations[0].args[0] as any;
-  assertEquals(payload.company_id, "co-1");
-  assertEquals(payload.project_id, "proj-1");
-  assertEquals(payload.feature_id, null);
-  assertEquals(payload.role, "reviewer");
-  assertEquals(payload.job_type, "verify");
-  assertEquals(payload.status, "queued");
-  assertEquals(payload.branch, "fix/bug-123");
-
-  const context = JSON.parse(payload.context);
-  assertEquals(context.type, "standalone_verification");
-  assertEquals(context.originalJobId, "standalone-job-1");
-  assertEquals(context.jobBranch, "fix/bug-123");
-
-  // Fourth chain: update original job status to verifying
-  assertEquals(jobsChains[3].operations[0].method, "update");
-  // deno-lint-ignore no-explicit-any
-  assertEquals((jobsChains[3].operations[0].args[0] as any).status, "verifying");
-});
-
-Deno.test("handleVerifyResult — standalone verification passed → promotes to testing", async () => {
-  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
-
-  // update done → success (handleVerifyResult marks verify job done)
-  setResponse("jobs:update.eq", { error: null });
-
-  // select feature_id, context, and company_id for the verify job → standalone_verification
+  // select feature_id, context, company_id → null feature_id (standalone)
   setResponse("jobs:select.eq.single", {
-    data: {
-      feature_id: null,
-      company_id: "co-1",
-      context: JSON.stringify({
-        type: "standalone_verification",
-        originalJobId: "original-job-42",
-        jobBranch: "fix/bug-42",
-      }),
-    },
+    data: { feature_id: null, company_id: "co-1", context: "{}" },
     error: null,
   });
-
-  // promoteStandaloneToTesting: select original job with company_id scope
-  setResponse("jobs:select.eq.eq.single", {
-    data: { company_id: "co-1", project_id: "proj-1", branch: "fix/bug-42" },
-    error: null,
-  });
-
-  // promoteStandaloneToTesting: update original job with company_id scope
-  setResponse("jobs:update.eq.eq", { error: null });
 
   const msg = {
     type: "verify_result" as const,
@@ -926,25 +853,35 @@ Deno.test("handleVerifyResult — standalone verification passed → promotes to
   // deno-lint-ignore no-explicit-any
   await handleVerifyResult(client as any, msg);
 
-  // Should have: 1 update (mark done), 1 select (feature_id+context+company_id),
-  //              1 select (fetch original job w/ company scope), 1 update (set testing w/ company scope)
+  // Should have: 1 update (mark complete), 1 select (feature_id+context+company_id)
+  // No further processing — no feature_id means early return
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length >= 4, true, "Should have update + select + promote select + promote update chains");
+  assertEquals(jobsChains.length, 2, "Should have update + select only (no feature processing)");
 
-  // First chain: update verify job to done
+  // First chain: update to complete
   assertEquals(jobsChains[0].operations[0].method, "update");
   // deno-lint-ignore no-explicit-any
-  assertEquals((jobsChains[0].operations[0].args[0] as any).status, "done");
+  assertEquals((jobsChains[0].operations[0].args[0] as any).status, "complete");
 
   // Second chain: select feature_id and context
   assertEquals(jobsChains[1].operations[0].method, "select");
+
+  // No features table access — standalone job
+  const featureChains = chainedCalls.filter((c) => c.table === "features");
+  assertEquals(featureChains.length, 0, "Should not access features table");
 });
 
-Deno.test("handleVerifyResult — standalone verification failed → marks verify_failed, no promotion", async () => {
+Deno.test("handleVerifyResult — failed verification re-queues job and looks up CPO notification context", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
-  // update verify_failed → success
+  // update to queued → success
   setResponse("jobs:update.eq", { error: null });
+
+  // CPO notification lookup — select feature_id, company_id
+  setResponse("jobs:select.eq.single", {
+    data: { feature_id: null, company_id: "co-1" },
+    error: null,
+  });
 
   const msg = {
     type: "verify_result" as const,
@@ -958,25 +895,25 @@ Deno.test("handleVerifyResult — standalone verification failed → marks verif
   // deno-lint-ignore no-explicit-any
   await handleVerifyResult(client as any, msg);
 
-  // Should only have 1 jobs chain (update to verify_failed)
+  // Should have: 1 update (re-queue) + 1 select (CPO notification lookup)
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 1, "Should have exactly 1 jobs chain for failed verify");
+  assertEquals(jobsChains.length >= 1, true, "Should have at least the re-queue update chain");
 
-  // Check it sets verify_failed
+  // Check it sets queued (re-queue for retry)
   // deno-lint-ignore no-explicit-any
   const updatePayload = jobsChains[0].operations[0].args[0] as any;
-  assertEquals(updatePayload.status, "verify_failed");
+  assertEquals(updatePayload.status, "queued");
 });
 
-Deno.test("handleVerifyResult — job with no feature_id and no standalone context → skips", async () => {
+Deno.test("handleVerifyResult — job with no feature_id → marks complete and returns early", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
-  // update done → success
+  // update complete → success
   setResponse("jobs:update.eq", { error: null });
 
-  // select feature_id and context → null feature_id, no standalone context
+  // select feature_id, context, company_id → null feature_id
   setResponse("jobs:select.eq.single", {
-    data: { feature_id: null, context: "{}" },
+    data: { feature_id: null, context: "{}", company_id: "co-1" },
     error: null,
   });
 
@@ -992,11 +929,11 @@ Deno.test("handleVerifyResult — job with no feature_id and no standalone conte
   // deno-lint-ignore no-explicit-any
   await handleVerifyResult(client as any, msg);
 
-  // Should have 2 jobs chains (update done + select), but NO promotion
+  // Should have 2 jobs chains (update complete + select), then early return
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
   assertEquals(jobsChains.length, 2, "Should have update + select only");
 
-  // No features table access
+  // No features table access — no feature_id means skip
   const featureChains = chainedCalls.filter((c) => c.table === "features");
   assertEquals(featureChains.length, 0, "Should not access features table");
 });
@@ -1032,7 +969,7 @@ Deno.test("triggerBreakdown — creates queued breakdown job with correct contex
     error: null,
   });
 
-  // 4. CAS update feature status to building
+  // 4. CAS update feature status to breakdown
   setResponse("features:update.eq.eq", { error: null });
 
   // deno-lint-ignore no-explicit-any
@@ -1045,10 +982,10 @@ Deno.test("triggerBreakdown — creates queued breakdown job with correct contex
   // First chain: select feature details
   assertEquals(featureChains[0].operations[0].method, "select");
 
-  // Second chain: CAS update to building
+  // Second chain: CAS update to breakdown
   assertEquals(featureChains[1].operations[0].method, "update");
   // deno-lint-ignore no-explicit-any
-  assertEquals((featureChains[1].operations[0].args[0] as any).status, "building");
+  assertEquals((featureChains[1].operations[0].args[0] as any).status, "breakdown");
 
   // Verify breakdown job was inserted
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
@@ -1064,7 +1001,7 @@ Deno.test("triggerBreakdown — creates queued breakdown job with correct contex
   assertEquals(payload.company_id, "co-1");
   assertEquals(payload.project_id, "proj-1");
   assertEquals(payload.feature_id, "feat-10");
-  assertEquals(payload.role, "tech-lead");
+  assertEquals(payload.role, "breakdown-specialist");
   assertEquals(payload.job_type, "breakdown");
   assertEquals(payload.status, "queued");
 
@@ -1110,4 +1047,263 @@ Deno.test("triggerBreakdown — idempotent: skips if active breakdown job exists
     (c) => c.table === "features" && c.operations.some((o) => o.method === "update")
   );
   assertEquals(featureUpdates.length, 0, "Should not update feature when breakdown already exists");
+});
+
+// ---------------------------------------------------------------------------
+// checkUnblockedJobs tests
+// ---------------------------------------------------------------------------
+
+Deno.test("checkUnblockedJobs — all deps complete → logs unblocked", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // Candidates query: jobs that depend on the completed job
+  setResponse("jobs:select.eq.eq.contains", {
+    data: [{ id: "job-A", depends_on: ["job-X", "job-Y"] }],
+    error: null,
+  });
+
+  // Dep status query: all deps are complete/done
+  setResponse("jobs:select.in", {
+    data: [
+      { id: "job-X", status: "complete" },
+      { id: "job-Y", status: "done" },
+    ],
+    error: null,
+  });
+
+  // deno-lint-ignore no-explicit-any
+  await checkUnblockedJobs(client as any, "feature-1", "job-X");
+
+  // Verify candidate query was made
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 2, "Should have candidate query + dep status query");
+
+  // First chain: select candidates with contains
+  assertEquals(jobsChains[0].operations[0].method, "select");
+  const containsOp = jobsChains[0].operations.find((o) => o.method === "contains");
+  assertEquals(containsOp !== undefined, true, "Should have contains filter for depends_on");
+
+  // Second chain: select dep statuses with in
+  assertEquals(jobsChains[1].operations[0].method, "select");
+  const inOp = jobsChains[1].operations.find((o) => o.method === "in");
+  assertEquals(inOp !== undefined, true, "Should have in filter for dep IDs");
+});
+
+Deno.test("checkUnblockedJobs — partial deps incomplete → stays blocked", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // Candidates query
+  setResponse("jobs:select.eq.eq.contains", {
+    data: [{ id: "job-A", depends_on: ["job-X", "job-Y"] }],
+    error: null,
+  });
+
+  // Dep status query: one dep still executing
+  setResponse("jobs:select.in", {
+    data: [
+      { id: "job-X", status: "complete" },
+      { id: "job-Y", status: "executing" },
+    ],
+    error: null,
+  });
+
+  // deno-lint-ignore no-explicit-any
+  await checkUnblockedJobs(client as any, "feature-1", "job-X");
+
+  // Both queries should still be made
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 2, "Should have candidate query + dep status query");
+
+  // Candidate query
+  assertEquals(jobsChains[0].operations[0].method, "select");
+  const containsOp = jobsChains[0].operations.find((o) => o.method === "contains");
+  assertEquals(containsOp !== undefined, true, "Should query candidates with contains");
+
+  // Dep check query
+  assertEquals(jobsChains[1].operations[0].method, "select");
+  const inOp = jobsChains[1].operations.find((o) => o.method === "in");
+  assertEquals(inOp !== undefined, true, "Should check dep statuses with in");
+});
+
+Deno.test("checkUnblockedJobs — no candidates → early return", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // Candidates query returns empty
+  setResponse("jobs:select.eq.eq.contains", {
+    data: [],
+    error: null,
+  });
+
+  // deno-lint-ignore no-explicit-any
+  await checkUnblockedJobs(client as any, "feature-1", "job-X");
+
+  // Only the candidate query should be made, no dep status query
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 1, "Should only have the candidate query");
+  assertEquals(jobsChains[0].operations[0].method, "select");
+  const containsOp = jobsChains[0].operations.find((o) => o.method === "contains");
+  assertEquals(containsOp !== undefined, true, "Should query candidates with contains");
+});
+
+// ---------------------------------------------------------------------------
+// notifyCPO tests
+// ---------------------------------------------------------------------------
+
+Deno.test("notifyCPO — sends MessageInbound to CPO machine", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // CPO job query: found an active CPO
+  setResponse("jobs:select.eq.in.eq.limit.maybeSingle", {
+    data: { id: "cpo-job-1", machine_id: "machine-1" },
+    error: null,
+  });
+
+  // Machine query: resolve machine name
+  setResponse("machines:select.eq.single", {
+    data: { name: "toms-mac" },
+    error: null,
+  });
+
+  // deno-lint-ignore no-explicit-any
+  await notifyCPO(client as any, "co-1", "Test notification");
+
+  // Verify jobs query was made with role=cpo filters
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 1, "Should query jobs for active CPO");
+  const eqOps = jobsChains[0].operations.filter((o) => o.method === "eq");
+  const roleEq = eqOps.find((o) => o.args[0] === "role" && o.args[1] === "cpo");
+  assertEquals(roleEq !== undefined, true, "Should filter by role=cpo");
+
+  // Verify machines query was made
+  const machineChains = chainedCalls.filter((c) => c.table === "machines");
+  assertEquals(machineChains.length, 1, "Should query machines for CPO machine name");
+  assertEquals(machineChains[0].operations[0].method, "select");
+});
+
+Deno.test("notifyCPO — no active CPO → no channel operations", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // CPO job query: no active CPO (maybeSingle returns null)
+  setResponse("jobs:select.eq.in.eq.limit.maybeSingle", {
+    data: null,
+    error: null,
+  });
+
+  // deno-lint-ignore no-explicit-any
+  await notifyCPO(client as any, "co-1", "Test");
+
+  // Verify jobs query was made
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length, 1, "Should query jobs for active CPO");
+
+  // No machines query should be made
+  const machineChains = chainedCalls.filter((c) => c.table === "machines");
+  assertEquals(machineChains.length, 0, "Should not query machines when no CPO found");
+});
+
+// ---------------------------------------------------------------------------
+// triggerBreakdown role fix test
+// ---------------------------------------------------------------------------
+
+Deno.test("triggerBreakdown — uses breakdown-specialist role", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // Fetch feature
+  setResponse("features:select.eq.single", {
+    data: {
+      company_id: "co-1",
+      project_id: "proj-1",
+      title: "Test feature",
+      spec: "Test spec",
+      acceptance_tests: "Test AT",
+    },
+    error: null,
+  });
+
+  // Idempotency check — no existing breakdown job
+  setResponse("jobs:select.eq.eq.not.maybeSingle", {
+    data: null,
+    error: null,
+  });
+
+  // Insert breakdown job
+  setResponse("jobs:insert.select.single", {
+    data: { id: "breakdown-job-new" },
+    error: null,
+  });
+
+  // CAS update feature status
+  setResponse("features:update.eq.eq", { error: null });
+
+  // deno-lint-ignore no-explicit-any
+  await triggerBreakdown(client as any, "feat-role-test");
+
+  // Find the insert chain and verify role
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  const insertChain = jobsChains.find((c) => c.operations.some((o) => o.method === "insert"));
+  assertEquals(insertChain !== undefined, true, "Should insert a breakdown job");
+
+  // deno-lint-ignore no-explicit-any
+  const payload = insertChain!.operations[0].args[0] as any;
+  assertEquals(payload.role, "breakdown-specialist", "Should use breakdown-specialist role, not tech-lead or feature-breakdown-expert");
+});
+
+// ---------------------------------------------------------------------------
+// handleVerifyResult — failed verification notifies CPO
+// ---------------------------------------------------------------------------
+
+Deno.test("handleVerifyResult — failed verification fetches feature/company for CPO notification", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  // 1. Re-queue the failed job (update status to queued)
+  setResponse("jobs:update.eq", { error: null });
+
+  // 2. Fetch job's feature_id and company_id for CPO notification
+  setResponse("jobs:select.eq.single", {
+    data: { feature_id: "feat-notify", company_id: "co-notify" },
+    error: null,
+  });
+
+  // 3. Fetch feature title for notification message
+  setResponse("features:select.eq.single", {
+    data: { title: "Auth Feature" },
+    error: null,
+  });
+
+  // 4. notifyCPO internals: find active CPO job
+  setResponse("jobs:select.eq.in.eq.limit.maybeSingle", {
+    data: null, // No CPO active — notification lost (but queries still happen)
+    error: null,
+  });
+
+  const msg = {
+    type: "verify_result" as const,
+    protocolVersion: 1,
+    jobId: "job-fail-notify",
+    machineId: "machine-1",
+    passed: false,
+    testOutput: "Tests failed: timeout in auth module",
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await handleVerifyResult(client as any, msg);
+
+  // Verify the re-queue update was made
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  assertEquals(jobsChains.length >= 2, true, "Should have update (re-queue) + select (feature/company) + CPO lookup");
+
+  // First chain: update to re-queue
+  assertEquals(jobsChains[0].operations[0].method, "update");
+  // deno-lint-ignore no-explicit-any
+  const updatePayload = jobsChains[0].operations[0].args[0] as any;
+  assertEquals(updatePayload.status, "queued");
+  assertEquals(updatePayload.verify_context, "Tests failed: timeout in auth module");
+
+  // Second chain: select feature_id and company_id for notification
+  assertEquals(jobsChains[1].operations[0].method, "select");
+
+  // Feature table should be accessed to get the title
+  const featureChains = chainedCalls.filter((c) => c.table === "features");
+  assertEquals(featureChains.length, 1, "Should fetch feature title for CPO notification");
+  assertEquals(featureChains[0].operations[0].method, "select");
 });

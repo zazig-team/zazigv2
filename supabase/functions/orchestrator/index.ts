@@ -88,6 +88,7 @@ interface JobRow {
   branch: string | null;
   result: string | null;
   created_at: string;
+  depends_on: string[] | null;
 }
 
 interface MachineRow {
@@ -404,7 +405,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
   const { data: queuedJobs, error: jobsErr } = await supabase
     .from("jobs")
     .select(
-      "id, company_id, project_id, feature_id, role, job_type, complexity, slot_type, model, machine_id, status, context, branch, result, created_at",
+      "id, company_id, project_id, feature_id, role, job_type, complexity, slot_type, model, machine_id, status, context, branch, result, created_at, depends_on",
     )
     .eq("status", "queued")
     .order("created_at", { ascending: true });
@@ -448,6 +449,27 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       await supabase.from("jobs").update({ feature_id: wrapperFeature.id }).eq("id", job.id);
       job.feature_id = wrapperFeature.id;
       console.log(`[orchestrator] Auto-created wrapper feature ${wrapperFeature.id} for standalone job ${job.id}`);
+    }
+
+    // DAG check: if this job has dependencies, verify they are all complete before dispatch.
+    if (job.depends_on && job.depends_on.length > 0) {
+      const { data: depJobs, error: depErr } = await supabase
+        .from("jobs")
+        .select("id, status")
+        .in("id", job.depends_on);
+
+      if (depErr) {
+        console.error(`[orchestrator] Failed to check depends_on for job ${job.id}:`, depErr.message);
+        continue;
+      }
+
+      const allComplete = depJobs && depJobs.length === job.depends_on.length &&
+        depJobs.every((d: { status: string }) => d.status === "complete" || d.status === "done");
+
+      if (!allComplete) {
+        console.log(`[orchestrator] Job ${job.id} blocked by unfinished dependencies — skipping`);
+        continue;
+      }
     }
 
     // Load routing table (cached after first call within this invocation).
@@ -769,7 +791,7 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
   // Fetch the job to check type, feature_id, context, etc.
   const { data: jobRow, error: fetchErr } = await supabase
     .from("jobs")
-    .select("job_type, context, feature_id, company_id, project_id, branch, result")
+    .select("job_type, context, feature_id, company_id, project_id, branch, result, role")
     .eq("id", jobId)
     .single();
 
@@ -877,6 +899,11 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
   // Release the slot on the machine.
   await releaseSlot(supabase, jobId, machineId);
 
+  // DAG: check if this completion unblocks other queued jobs in the same feature.
+  if (jobRow.feature_id) {
+    await checkUnblockedJobs(supabase, jobRow.feature_id, jobId);
+  }
+
   // Trigger reviewing step for feature-linked code jobs
   const reviewableTypes = ["code", "infra", "bug", "docs"];
   if (jobRow.feature_id && reviewableTypes.includes(jobRow.job_type ?? "")) {
@@ -923,6 +950,49 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
       .eq("id", jobRow.feature_id)
       .eq("status", "breakdown");
     console.log(`[orchestrator] Breakdown complete — feature ${jobRow.feature_id} → building`);
+
+    // Notify CPO about breakdown completion with job stats
+    const { data: featureJobs } = await supabase
+      .from("jobs")
+      .select("id, depends_on")
+      .eq("feature_id", jobRow.feature_id)
+      .eq("status", "queued")
+      .neq("job_type", "breakdown");
+    const totalJobs = featureJobs?.length ?? 0;
+    const dispatchable = featureJobs?.filter(
+      (j: { depends_on: string[] | null }) => !j.depends_on || j.depends_on.length === 0,
+    ).length ?? 0;
+    const { data: feat } = await supabase
+      .from("features")
+      .select("title")
+      .eq("id", jobRow.feature_id)
+      .single();
+    const featureTitle = feat?.title ?? jobRow.feature_id;
+    await notifyCPO(
+      supabase,
+      jobRow.company_id,
+      `Feature "${featureTitle}" broken into ${totalJobs} jobs. ${dispatchable} immediately dispatchable (no dependencies).`,
+    );
+  }
+
+  // Handle project-architect job completion: notify CPO about new project structure
+  if (jobRow?.role === "project-architect" && jobRow?.company_id) {
+    // Count features created for the project
+    const projCtx: { projectId?: string; projectName?: string } = (() => {
+      try { return JSON.parse(jobRow.context ?? "{}"); } catch { return {}; }
+    })();
+    if (projCtx.projectId) {
+      const { count: featureCount } = await supabase
+        .from("features")
+        .select("id", { count: "exact", head: true })
+        .eq("project_id", projCtx.projectId);
+      const projectName = projCtx.projectName ?? projCtx.projectId;
+      await notifyCPO(
+        supabase,
+        jobRow.company_id,
+        `Project "${projectName}" created with ${featureCount ?? 0} feature outlines. Ready for your review.`,
+      );
+    }
   }
 
   // Handle combine job completion: feature transitions combining → verifying
@@ -1090,6 +1160,131 @@ async function handleJobUnblocked(supabase: SupabaseClient, jobId: string, answe
   console.log(`[orchestrator] Job ${jobId} unblocked — answer routed to agent`);
 }
 
+// ---------------------------------------------------------------------------
+// DAG: check if completing a job unblocks other queued jobs in the same feature
+// ---------------------------------------------------------------------------
+
+/**
+ * After a job completes, checks if any queued jobs in the same feature had it
+ * in their depends_on array and are now fully unblocked. Logs which jobs became
+ * dispatchable — the next dispatchQueuedJobs cycle will pick them up.
+ */
+export async function checkUnblockedJobs(
+  supabase: SupabaseClient,
+  featureId: string,
+  completedJobId: string,
+): Promise<void> {
+  // Find queued jobs in this feature that reference the completed job in depends_on
+  const { data: candidates, error: candErr } = await supabase
+    .from("jobs")
+    .select("id, depends_on")
+    .eq("feature_id", featureId)
+    .eq("status", "queued")
+    .contains("depends_on", [completedJobId]);
+
+  if (candErr) {
+    console.error(`[orchestrator] checkUnblockedJobs: failed to query candidates for feature ${featureId}:`, candErr.message);
+    return;
+  }
+
+  if (!candidates || candidates.length === 0) return;
+
+  for (const candidate of candidates) {
+    const deps = (candidate.depends_on as string[]) ?? [];
+    if (deps.length === 0) continue;
+
+    // Check if ALL dependencies are now complete
+    const { data: depJobs, error: depErr } = await supabase
+      .from("jobs")
+      .select("id, status")
+      .in("id", deps);
+
+    if (depErr) {
+      console.error(`[orchestrator] checkUnblockedJobs: failed to check deps for job ${candidate.id}:`, depErr.message);
+      continue;
+    }
+
+    const allComplete = depJobs && depJobs.length === deps.length &&
+      depJobs.every((d: { status: string }) => d.status === "complete" || d.status === "done");
+
+    if (allComplete) {
+      console.log(`[orchestrator] Job ${candidate.id} is now unblocked (all ${deps.length} dependencies complete)`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CPO notification helper — send messages to the active CPO agent
+// ---------------------------------------------------------------------------
+
+/**
+ * Sends a notification message to the active CPO agent via Realtime.
+ * If no CPO is active, logs a warning and returns (message lost — CPO will catch up on next wakeup).
+ */
+export async function notifyCPO(
+  supabase: SupabaseClient,
+  companyId: string,
+  text: string,
+): Promise<void> {
+  // Find the active CPO job
+  const { data: cpoJob, error: cpoErr } = await supabase
+    .from("jobs")
+    .select("id, machine_id")
+    .eq("role", "cpo")
+    .in("status", ["dispatched", "executing"])
+    .eq("company_id", companyId)
+    .limit(1)
+    .maybeSingle();
+
+  if (cpoErr) {
+    console.error(`[orchestrator] notifyCPO: failed to find CPO job for company ${companyId}:`, cpoErr.message);
+    return;
+  }
+
+  if (!cpoJob || !cpoJob.machine_id) {
+    console.warn(`[orchestrator] notifyCPO: no active CPO for company ${companyId} — notification lost: ${text}`);
+    return;
+  }
+
+  // Get machine name for the Realtime channel
+  const { data: machine, error: machErr } = await supabase
+    .from("machines")
+    .select("name")
+    .eq("id", cpoJob.machine_id)
+    .single();
+
+  if (machErr || !machine) {
+    console.error(`[orchestrator] notifyCPO: failed to fetch machine ${cpoJob.machine_id}:`, machErr?.message);
+    return;
+  }
+
+  // Send MessageInbound via Realtime
+  const messagePayload = {
+    type: "message_inbound",
+    protocolVersion: PROTOCOL_VERSION,
+    conversationId: `internal:notification:${crypto.randomUUID()}`,
+    from: "orchestrator",
+    text,
+  };
+
+  const channel = supabase.channel(`agent:${machine.name}`);
+  await new Promise<void>((resolve) => {
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await channel.send({
+          type: "broadcast",
+          event: "message_inbound",
+          payload: messagePayload,
+        });
+        await channel.unsubscribe();
+        resolve();
+      }
+    });
+  });
+
+  console.log(`[orchestrator] Notified CPO on machine ${machine.name}: ${text.slice(0, 100)}`);
+}
+
 export async function handleVerifyResult(supabase: SupabaseClient, msg: VerifyResult): Promise<void> {
   const { jobId, passed, testOutput } = msg;
 
@@ -1108,6 +1303,27 @@ export async function handleVerifyResult(supabase: SupabaseClient, msg: VerifyRe
     } else {
       console.warn(`[orchestrator] Job ${jobId} failed verification — re-queued`);
     }
+
+    // Notify CPO about verification failure
+    const { data: failedJob } = await supabase
+      .from("jobs")
+      .select("feature_id, company_id")
+      .eq("id", jobId)
+      .single();
+    if (failedJob?.feature_id && failedJob?.company_id) {
+      const { data: feat } = await supabase
+        .from("features")
+        .select("title")
+        .eq("id", failedJob.feature_id)
+        .single();
+      const title = feat?.title ?? failedJob.feature_id;
+      await notifyCPO(
+        supabase,
+        failedJob.company_id,
+        `Feature "${title}" failed verification: ${(testOutput ?? "").slice(0, 200)}. Needs triage.`,
+      );
+    }
+
     return;
   }
 
@@ -1137,6 +1353,9 @@ export async function handleVerifyResult(supabase: SupabaseClient, msg: VerifyRe
     console.log(`[orchestrator] Job ${jobId} has no feature_id — skipping feature check`);
     return;
   }
+
+  // DAG: check if this verified completion unblocks other queued jobs.
+  await checkUnblockedJobs(supabase, jobRow.feature_id, jobId);
 
   // Check if all jobs for this feature are now done
   const { data: allDone, error: rpcErr } = await supabase
@@ -1788,7 +2007,7 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
       company_id: feature.company_id,
       project_id: feature.project_id,
       feature_id: featureId,
-      role: "feature-breakdown-expert",
+      role: "breakdown-specialist",
       job_type: "breakdown",
       complexity: "simple",
       slot_type: "claude_code",

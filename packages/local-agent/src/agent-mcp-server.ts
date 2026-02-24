@@ -226,6 +226,105 @@ server.tool(
   },
 );
 
+server.tool(
+  "query_features",
+  "Query features for a project or fetch a single feature by ID. Used by the Breakdown Specialist to read feature specs before running jobify.",
+  {
+    feature_id: z.string().optional().describe("Feature UUID — returns a single feature with full detail"),
+    project_id: z.string().optional().describe("Project UUID — returns all features for this project"),
+    status: z.string().optional().describe("Filter by status (e.g. 'ready_for_breakdown')"),
+  },
+  async ({ feature_id, project_id, status }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const payload: Record<string, unknown> = {};
+    if (feature_id) payload.feature_id = feature_id;
+    if (project_id) payload.project_id = project_id;
+    if (status) payload.status = status;
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/query-features`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { features: unknown[] };
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(data.features, null, 2) }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to query features (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  },
+);
+
+server.tool(
+  "batch_create_jobs",
+  "Atomically create multiple jobs for a feature. Used by the Breakdown Specialist after decomposing a feature via jobify. Supports temp:N references in depends_on for cross-job dependencies.",
+  {
+    feature_id: z.string().describe("Parent feature UUID"),
+    jobs: z.array(z.object({
+      title: z.string().describe("Job title"),
+      spec: z.string().describe("Self-contained task description"),
+      acceptance_tests: z.string().describe("Gherkin acceptance criteria with AC-{SEQ}-{NUM} IDs"),
+      role: z.string().describe("Which worker type executes this (e.g. 'senior-engineer', 'junior-engineer')"),
+      job_type: z.enum(["code", "infra", "design", "research", "docs", "bug", "persistent_agent", "verify", "breakdown", "combine", "deploy", "review"]).describe("Category of work"),
+      complexity: z.enum(["simple", "medium", "complex"]).describe("Estimated effort — routes to model"),
+      depends_on: z.array(z.string()).optional().describe("Dependencies — use 'temp:N' for jobs in this batch (0-based index) or UUIDs for existing jobs"),
+    })).describe("Array of job objects to create"),
+  },
+  async ({ feature_id, jobs }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/batch-create-jobs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ feature_id, jobs }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { jobs: Array<{ job_id: string; title: string; status: string }> };
+      const summary = data.jobs.map((j) => `- ${j.title} (${j.job_id}): ${j.status}`).join("\n");
+      return {
+        content: [{ type: "text" as const, text: `Created ${data.jobs.length} jobs:\n${summary}` }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to create jobs (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  },
+);
+
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);

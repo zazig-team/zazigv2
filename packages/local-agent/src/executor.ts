@@ -27,6 +27,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageInbound, JobUnblocked } from "@zazigv2/shared";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
+import { setupJobWorkspace } from "./workspace.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -207,6 +208,33 @@ export class JobExecutor {
         if (error) console.warn(`[executor] Failed to save assembled_context for jobId=${jobId}: ${error.message}`);
       });
 
+    // --- 3d. Set up workspace for role-based ephemeral jobs ---
+    let ephemeralWorkspaceDir: string | undefined;
+    if (msg.role) {
+      const thisDir = dirname(fileURLToPath(import.meta.url));
+      const mcpServerPath = join(thisDir, "agent-mcp-server.js");
+      ephemeralWorkspaceDir = join(homedir(), ".zazigv2", `job-${jobId}`);
+
+      try {
+        setupJobWorkspace({
+          workspaceDir: ephemeralWorkspaceDir,
+          mcpServerPath,
+          supabaseUrl: this.supabaseUrl,
+          supabaseAnonKey: this.supabaseAnonKey,
+          jobId,
+          role: msg.role,
+          claudeMdContent: assembledContext,
+          skills: msg.roleSkills,
+          repoSkillsDir: join(process.cwd(), "projects", "skills"),
+        });
+        console.log(`[executor] Ephemeral workspace created at ${ephemeralWorkspaceDir} for role=${msg.role}`);
+      } catch (err) {
+        console.warn(`[executor] Failed to create ephemeral workspace for jobId=${jobId}: ${String(err)}`);
+        // Non-fatal — job can still run without workspace
+        ephemeralWorkspaceDir = undefined;
+      }
+    }
+
     // --- 4. Build command based on complexity/model ---
     const { cmd, args } = buildCommand(slotType, complexity, model, assembledContext);
     const sessionName = `${this.machineId}-${jobId}`;
@@ -217,7 +245,7 @@ export class JobExecutor {
 
     // --- 6. Spawn tmux session ---
     try {
-      await spawnTmuxSession(sessionName, cmd, args);
+      await spawnTmuxSession(sessionName, cmd, args, ephemeralWorkspaceDir);
     } catch (err) {
       console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
       this.slots.release(slotType);
@@ -364,54 +392,19 @@ export class JobExecutor {
 
     // --- Create agent workspace with .mcp.json ---
     try {
-      mkdirSync(workspaceDir, { recursive: true });
-
       // Resolve path to the compiled agent-mcp-server.js relative to this file's dist/ location
       const thisDir = dirname(fileURLToPath(import.meta.url));
       const mcpServerPath = join(thisDir, "agent-mcp-server.js");
 
-      const mcpConfig = {
-        mcpServers: {
-          "zazig-messaging": {
-            command: "node",
-            args: [mcpServerPath],
-            env: {
-              SUPABASE_URL: this.supabaseUrl,
-              SUPABASE_ANON_KEY: this.supabaseAnonKey,
-              ZAZIG_JOB_ID: jobId,
-            },
-          },
-        },
-      };
-
-      writeFileSync(
-        join(workspaceDir, ".mcp.json"),
-        JSON.stringify(mcpConfig, null, 2),
-      );
-
-      // Write CLAUDE.md with context from the orchestrator (pre-assembled)
-      writeFileSync(
-        join(workspaceDir, "CLAUDE.md"),
-        msg.context ?? "",
-      );
-
-      // Write .claude/settings.json to auto-approve all MCP tools so the agent
-      // can operate without manual permission prompts.
-      const claudeSettingsDir = join(workspaceDir, ".claude");
-      mkdirSync(claudeSettingsDir, { recursive: true });
-      writeFileSync(
-        join(claudeSettingsDir, "settings.json"),
-        JSON.stringify({
-          permissions: {
-            allow: [
-              "mcp__zazig-messaging__send_message",
-              "mcp__zazig-messaging__create_feature",
-              "mcp__zazig-messaging__update_feature",
-              "mcp__zazig-messaging__query_projects",
-            ],
-          },
-        }, null, 2),
-      );
+      setupJobWorkspace({
+        workspaceDir,
+        mcpServerPath,
+        supabaseUrl: this.supabaseUrl,
+        supabaseAnonKey: this.supabaseAnonKey,
+        jobId,
+        role,
+        claudeMdContent: msg.context ?? "",
+      });
 
       // Persist context to DB for observability (fire-and-forget)
       this.supabase
@@ -1009,19 +1002,22 @@ function buildCommand(
 async function spawnTmuxSession(
   sessionName: string,
   cmd: string,
-  args: string[]
+  args: string[],
+  cwd?: string,
 ): Promise<void> {
   // Combine into a single shell string for tmux new-session.
   // Unset CLAUDECODE so nested `claude -p` sessions don't get blocked by
   // "cannot be launched inside another Claude Code session" detection.
   const shellCmd = `unset CLAUDECODE; ${shellEscape([cmd, ...args])}`;
 
-  await execFileAsync("tmux", [
+  const tmuxArgs = [
     "new-session",
     "-d",           // detached
     "-s", sessionName,
+    ...(cwd ? ["-c", cwd] : []),
     shellCmd,       // the command the session runs
-  ]);
+  ];
+  await execFileAsync("tmux", tmuxArgs);
 }
 
 /**

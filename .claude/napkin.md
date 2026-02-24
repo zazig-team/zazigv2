@@ -18,6 +18,9 @@
 - Chris = Speaker 2 in meeting transcripts (transcription tool keeps re-labelling him as Speaker 11/12/13/14 too)
 
 ## Patterns That Work
+- Documentation reconciliation as an explicit planning activity — iterating across existing docs to build clarity before structuring into features
+- Contractor Pattern: skill (reasoning/decomposition brain) + role-scoped MCP (typed DB writes hands) — replicable across contractor roles
+- CPO Knowledge Architecture: lean routing prompt (~200 tokens permanent) + stage-specific skills (load on demand) + doctrines (proactively injected beliefs). Avoids 2000+ token permanent context cost.
 
 ## Patterns That Don't Work
 

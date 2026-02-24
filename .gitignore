@@ -12,3 +12,4 @@ coverage/
 *.tsbuildinfo
 .obsidian/
 projects/personality/.claude/napkin.md
+.claude/handover.yml

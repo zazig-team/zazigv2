@@ -275,6 +275,98 @@ server.tool(
 );
 
 server.tool(
+  "create_project",
+  "Create a new project for a company. Used by the Project Architect when structuring an approved plan.",
+  {
+    company_id: z.string().describe("Company ID this project belongs to"),
+    name: z.string().describe("Project name"),
+    description: z.string().optional().describe("Project description"),
+    status: z.enum(["active", "paused", "archived"]).optional().describe("Project status (default: active)"),
+  },
+  async ({ company_id, name, description, status }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/create-project`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ company_id, name, description, status }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { project_id: string };
+      return {
+        content: [{ type: "text" as const, text: `Project created successfully. project_id: ${data.project_id}` }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to create project (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  },
+);
+
+server.tool(
+  "batch_create_features",
+  "Atomically create multiple feature outlines for a project. Used by the Project Architect after decomposing a plan into features via featurify.",
+  {
+    project_id: z.string().describe("Parent project UUID"),
+    features: z.array(z.object({
+      title: z.string().describe("Feature title"),
+      description: z.string().optional().describe("Brief feature outline (NOT a full spec — CPO enriches later)"),
+      priority: z.enum(["low", "medium", "high"]).optional().describe("Feature priority (default: medium)"),
+      depends_on_index: z.array(z.number()).optional().describe("Indexes into this array for inter-feature dependencies (informational)"),
+    })).describe("Array of feature outline objects to create"),
+  },
+  async ({ project_id, features }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/batch-create-features`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ project_id, features }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { features: Array<{ feature_id: string; title: string; status: string }> };
+      const summary = data.features.map((f) => `- ${f.title} (${f.feature_id}): ${f.status}`).join("\n");
+      return {
+        content: [{ type: "text" as const, text: `Created ${data.features.length} features:\n${summary}` }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to create features (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  },
+);
+
+server.tool(
   "batch_create_jobs",
   "Atomically create multiple jobs for a feature. Used by the Breakdown Specialist after decomposing a feature via jobify. Supports temp:N references in depends_on for cross-job dependencies.",
   {

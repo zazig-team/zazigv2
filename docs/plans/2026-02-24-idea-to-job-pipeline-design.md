@@ -5,7 +5,7 @@
 **Authors:** Tom + Claude (brainstorming session)
 **Reviewed by:** Codex (gpt-5.3) and Gemini (3.1 Pro) — second opinions on MCP tooling
 **Supersedes:** Portions of `2026-02-24-software-development-pipeline-design.md` (stages 1-5), `2026-02-24-persistent-agent-identity-design.md` (MCP tool scoping), `2026-02-24-mcp-vs-skill-vs-cli-analysis.md` (decision: MCP for all, role-scoped)
-**Companion docs:** `2026-02-24-jobify-skill-design.md` (breakdown detail), `ORG MODEL.md` (tier/layer reference)
+**Companion docs:** `2026-02-24-jobify-skill-design.md` (breakdown detail), `2026-02-24-featurify-skill-design.md` (structuring detail), `ORG MODEL.md` (tier/layer reference)
 
 ---
 
@@ -24,12 +24,13 @@ This document describes the full pipeline from a human having an idea to jobs be
 | Orchestrator | Deterministic server | Always-on | Notification bus, dispatch, status transitions — no LLM |
 | Project Architect | Contractor (Tier 3) | Ephemeral | Structures approved plans into projects + feature outlines |
 | Breakdown Specialist | Contractor (Tier 3) | Ephemeral | Breaks features into executable jobs (jobify skill) |
+| Monitoring Agent | Contractor (Tier 3) | Ephemeral (scheduled) | Scans for opportunities, researches viability, proposes to CPO |
 
 ---
 
 ## 1. Pipeline Stages
 
-Seven stages, two entry points.
+Seven stages, three entry points.
 
 ```
 ENTRY POINT A: Through CPO (full pipeline)
@@ -37,6 +38,9 @@ ENTRY POINT A: Through CPO (full pipeline)
 
 ENTRY POINT B: Standalone (quick fixes, bypass CPO)
   Human → orchestrator → single orphan job
+
+ENTRY POINT C: Agent-initiated (automated discovery)
+  Monitoring Agent → research → proposal → CPO → Human approval
 
 ─────────────────────────────────────────────────────
 
@@ -47,6 +51,99 @@ ENTRY POINT B: Standalone (quick fixes, bypass CPO)
 [5] BREAKDOWN        Breakdown Specialist runs jobify → jobs in Supabase
 [6] EXECUTION        Orchestrator dispatches jobs to workers
 [7] VERIFICATION     Two gates (job verify, feature verify) → ship
+```
+
+### Pipeline flow diagram
+
+```
+  ENTRY POINT A                ENTRY POINT C
+  Human → CPO                  Monitoring Agent
+  (gateway)                    (scheduled)
+       │                            │
+       │                    ┌───────┴────────┐
+       │                    │ Research &     │
+       │                    │ discovery      │
+       │                    │ x-scan,        │
+       │                    │ deep-research, │
+       │                    │ repo-recon     │
+       │                    └───────┬────────┘
+       │                            │
+       │                    ┌───────┴────────┐
+       │                    │ Internal       │
+       │                    │ proposal       │
+       │                    │ (internal-     │
+       │                    │  proposal)     │
+       │                    └───────┬────────┘
+       │                            │
+       │                    ┌───────┴────────┐
+       │                    │ CPO reviews    │
+       │                    │ proposal,      │
+       │                    │ presents to    │
+       │                    │ human          │
+       │                    └───────┬────────┘
+       │                            │
+       │                   Approved? ◆─── No ──→ Parked/killed
+       │                            │ Yes
+       ▼                            ▼
+  ┌──────────────────────────────────────┐
+  │ [1] IDEATION                         │
+  │     CPO + Human (or CPO + proposal)  │
+  └──────────────────┬───────────────────┘
+                     │
+            CPO triage by scope
+           ┌─────────┼─────────────┐
+           ▼         ▼             ▼
+       New       Single        Quick fix
+    capability   feature       ───────────────► ENTRY POINT B
+           │         │                          /standalone-job
+           ▼         │                          → job queued
+  ┌─────────────┐    │
+  │ [2] PLANNING│    │
+  │ CPO + Human │    │
+  │ /plan-      │    │
+  │  capability │    │
+  │ /reconcile- │    │
+  │  docs       │    │
+  │ review-plan │    │
+  └──────┬──────┘    │
+         │           │
+         ▼           │
+  ┌─────────────┐    │
+  │ [3] STRUCT  │    │
+  │ Project     │    │
+  │ Architect   │    │
+  │ featurify   │    │
+  └──────┬──────┘    │
+         │           │
+         ▼           ▼
+  ┌──────────────────────────┐
+  │ [4] FEATURE DESIGN       │
+  │ CPO + Human (per feature)│
+  │ /spec-feature            │
+  └────────────┬─────────────┘
+               │
+               ▼
+  ┌──────────────────────────┐
+  │ [5] BREAKDOWN            │
+  │ Breakdown Specialist     │
+  │ jobify                   │
+  └────────────┬─────────────┘
+               │
+               ▼
+  ┌──────────────────────────┐
+  │ [6] EXECUTION            │
+  │ Orchestrator → Workers   │
+  │ repo-recon               │
+  └────────────┬─────────────┘
+               │
+               ▼
+  ┌──────────────────────────┐
+  │ [7] VERIFICATION & SHIP  │
+  │ Job verify → Feature     │
+  │ verify → Ship            │
+  │ multi-agent-review       │
+  │ second-opinion           │
+  └──────────────────────────┘
 ```
 
 ### Entry Point A: Through CPO
@@ -63,17 +160,45 @@ For quick fixes, small tasks, and anything too small for a project or feature. H
 
 The CPO reviews standalone jobs periodically to ensure they don't accumulate into an untracked shadow backlog.
 
+### Entry Point C: Agent-initiated
+
+For opportunities discovered through automated monitoring. A separate Monitoring Agent — commissioned by the CPO on a schedule or triggered by external events — runs independently to scan for opportunities and research their viability.
+
+**The flow:**
+
+1. **Discovery** — Monitoring Agent scans for signals (social media via `x-scan`, industry trends via `deep-research`, codebase improvements via `repo-recon`)
+2. **Research** — Agent investigates viability, gathers evidence, assesses effort vs impact
+3. **Proposal** — Agent structures findings using `internal-proposal` skill ("Today X. What if Y? We propose Z.")
+4. **CPO review** — Proposal delivered to CPO via orchestrator notification. CPO evaluates product fit, timing, strategic alignment
+5. **Human approval** — CPO presents the proposal to the human via gateway with a recommendation
+6. **Pipeline entry** — If approved, enters at Stage 1/2 with the proposal as context. The human may not see the idea again until a fully specced feature emerges at Stage 4
+
+**The key difference from Entry Point A:** The human didn't initiate the idea. The first time they see it is as a structured proposal with research backing, not a raw thought. The CPO acts as curator — filtering agent-discovered opportunities down to the ones worth the human's attention.
+
+**Future: autonomy levels.** A per-company setting could control how much human involvement is required:
+
+| Level | Behaviour |
+|-------|-----------|
+| **Always ask** (default) | Proposal requires explicit human approval before entering pipeline |
+| **Trust but verify** | CPO auto-approves and enters pipeline, human notified and can halt at any stage |
+| **Full autonomy** | Build it, tell me when it ships |
+
+This is not designed in now — the default is always-ask. The autonomy toggle is a future exploration once trust is established through the always-ask path.
+
 ### Stage Ownership
 
-| Stage | Owner | Output |
-|-------|-------|--------|
-| 1. Ideation | Human + CPO | Raw idea, conversation context |
-| 2. Planning | CPO + Human | Approved plan (scope, goals, constraints). Includes documentation reconciliation — updating existing docs affected by the plan. |
-| 3. Structuring | Project Architect (contractor) | Project record + feature outlines in Supabase |
-| 4. Feature Design | CPO + Human | Fully specced feature (spec, AC, human checklist) |
-| 5. Breakdown | Breakdown Specialist (contractor) | Jobs in Supabase (`queued`, with `depends_on` DAG) |
-| 6. Execution | Orchestrator + Workers | Code on branches |
-| 7. Verification & Ship | Orchestrator + Human | Merged, deployed, done |
+| Stage | Owner | Skills used | Output |
+|-------|-------|------------|--------|
+| Entry Point C | Monitoring Agent → CPO → Human | `x-scan`, `deep-research`, `repo-recon`, `internal-proposal`, `review-plan` (autonomous) | Approved proposal, enters Stage 1/2 |
+| 1. Ideation | Human + CPO | — | Raw idea, conversation context |
+| 2. Planning | CPO + Human | `/plan-capability`, `/reconcile-docs`, `review-plan`, `deep-research`* | Approved plan (scope, goals, constraints). Includes documentation reconciliation. |
+| 3. Structuring | Project Architect (contractor) | `featurify` | Project record + feature outlines in Supabase |
+| 4. Feature Design | CPO + Human | `/spec-feature`, `second-opinion`* | Fully specced feature (spec, AC, human checklist) |
+| 5. Breakdown | Breakdown Specialist (contractor) | `jobify` | Jobs in Supabase (`queued`, with `depends_on` DAG) |
+| 6. Execution | Orchestrator + Workers | `repo-recon`* | Code on branches |
+| 7. Verification & Ship | Orchestrator + Human | `multi-agent-review`*, `second-opinion`* | Merged, deployed, done |
+
+\* General-purpose skill — used when applicable, not every time.
 
 ---
 
@@ -333,6 +458,43 @@ Orchestrator dispatches contractor
 
 This pattern is replicable for any future contractor that needs to read from Supabase, reason about the data, and write structured output back. The skill is the variable; the MCP plumbing is the constant.
 
+### Skill requirements by role and stage
+
+Every actor in the pipeline needs specific skills at specific stages. This matrix maps which skills must be available to whom and when — critical for workspace assembly (the orchestrator must include the right skills in `.claude/settings.json` at dispatch time) and for machine capability verification (general-purpose skills may require machine-level installation).
+
+**Pipeline-specific skills** — tied to a single stage, loaded on demand:
+
+| Skill | Type | Used by | Pipeline stage | Purpose |
+|-------|------|---------|---------------|---------|
+| `/plan-capability` | Stage skill | CPO | 2. Planning | Guides scope assessment, multi-round dialogue, research commissioning |
+| `/reconcile-docs` | Stage skill | CPO | 2. Planning (substage) | Reading existing docs, identifying gaps, updating cross-references |
+| `/spec-feature` | Stage skill | CPO | 4. Feature Design | Guides spec writing, AC format, human checklist, status transition |
+| `/standalone-job` | Stage skill | CPO | Entry Point B | Creating well-formed standalone job with spec + Gherkin AC |
+| `featurify` | Contractor skill | Project Architect | 3. Structuring | Breaks project plan into feature outlines |
+| `jobify` | Contractor skill | Breakdown Specialist | 5. Breakdown | Breaks features into executable jobs with dependency DAG |
+| `internal-proposal` | Contractor skill | Monitoring Agent | Entry Point C | Structures discovered opportunity into proposal format |
+
+**General-purpose skills** — may be used at multiple stages or by multiple actors:
+
+| Skill | Used by | Pipeline stages | Purpose |
+|-------|---------|----------------|---------|
+| `deep-research` | Research Contractor, Monitoring Agent | 2. Planning, Entry Point C | Investigates technologies, patterns, trade-offs |
+| `repo-recon` | Research Contractor, Workers | 2. Planning, 6. Execution | Analyses existing codebase for patterns and constraints |
+| `x-scan` | Monitoring Agent | Entry Point C | Scans social/web for opportunities and signals |
+| `review-plan` | CPO, any reviewer | 2. Planning, post-3. Structuring | Reviews and critiques plan quality. Two modes: **interactive** (CPO walks through plan with human, iterates on gaps together) and **autonomous** (CPO reviews solo or with contractor, commissions second opinions, applies recommendations without human in the loop — used in agent-initiated flows) |
+| `second-opinion` | CPO | 2. Planning, 4. Feature Design | Gets independent review from Codex/Gemini on design decisions |
+| `multi-agent-review` | Orchestrator / Workers | 7. Verification | Multi-perspective code review (security, performance, architecture, simplicity) |
+
+**Skill distribution model:**
+
+| Skill type | Distribution | Availability |
+|-----------|-------------|-------------|
+| Stage skills (`/plan-capability`, etc.) | Centrally stored (Supabase or git) | Pulled into workspace at dispatch time by orchestrator |
+| Contractor skills (`jobify`, `featurify`, `internal-proposal`) | Centrally stored | Pulled into workspace at dispatch time by orchestrator |
+| General-purpose (`deep-research`, `repo-recon`, etc.) | Machine-installed | Verified via machine capability registry (see Section 9) |
+
+**Why this matters:** When the orchestrator dispatches a Breakdown Specialist, it must assemble a workspace that includes the `jobify` skill. If it dispatches a Monitoring Agent, that agent needs `x-scan`, `deep-research`, `repo-recon`, and `internal-proposal`. The skill matrix is the orchestrator's reference for workspace assembly — alongside the role-scoped MCP tools table above.
+
 ### Measure and revisit
 
 The MCP decision is not permanent. To validate it:
@@ -395,6 +557,7 @@ The CPO receives this exactly like a human message and can reason + act on it.
 | Feature testing complete (human approved) | "Feature {name} shipped to production." |
 | Feature rejected (big) | "Feature {name} rejected by {user}: {feedback}. Needs redesign." |
 | Standalone job backlog growing | "There are {N} unreviewed standalone jobs." |
+| Monitoring agent proposal ready | "Monitoring agent has a proposal: {title}. Review and decide whether to present to human." |
 
 ### What the orchestrator does NOT do
 
@@ -466,11 +629,18 @@ When a human brings an idea:
 2. Quick fix with no project context → standalone job (/standalone-job)
 3. Single feature for existing project → /spec-feature
 4. New capability requiring multiple features → /plan-capability
-   - Includes documentation reconciliation
+   - Includes documentation reconciliation (/reconcile-docs)
    - Commissions Project Architect when plan is approved
 5. After structuring complete (notification) → review feature outlines
 6. For each feature → /spec-feature
 7. When feature spec approved → set status to ready_for_breakdown
+
+When a monitoring agent sends a proposal:
+1. Review the proposal for product fit and strategic alignment
+2. If promising → run review-plan (autonomous), commission second-opinion
+3. Present to human with recommendation
+4. If human approves → enter pipeline at step 4 above (/plan-capability)
+5. If human rejects → park or kill the proposal
 
 The orchestrator handles everything after ready_for_breakdown.
 ```
@@ -625,7 +795,42 @@ CPO: Repeats for "Session Management" and "RBAC".
 [Stage 5: Breakdown — triggered per feature as each reaches ready_for_breakdown]
 ```
 
-### Example C: Standalone quick fix
+### Example C: Agent-discovered opportunity
+
+```
+[Entry Point C: Monitoring Agent discovers opportunity]
+Monitoring Agent: Scheduled weekly scan runs (x-scan, deep-research).
+Monitoring Agent: Spots that three competitor products launched voice
+                  interfaces in the last month. Researches viability
+                  for zazig (repo-recon on existing gateway architecture).
+Monitoring Agent: Creates internal proposal:
+  "Today: All agent communication is text-based via gateway adapters.
+   Which is a problem, because: voice is emerging as a preferred
+   interface for async product conversations.
+   What if?: Users could talk to the CPO by voice, same gateway pattern.
+   Hypothesis: Adding a voice gateway adapter would increase engagement
+   for founders who prefer async voice notes over typing.
+   We propose: A voice gateway adapter that transcribes → sends to CPO
+   → CPO replies via text → TTS back to user."
+
+[CPO reviews proposal]
+Orchestrator: Delivers proposal to CPO as internal notification.
+CPO: Reviews for product fit. "This aligns with our channel-agnostic
+     gateway architecture — it's just another adapter."
+CPO: Runs review-plan (autonomous mode) — commissions second opinion
+     from Codex on technical feasibility.
+CPO: Presents to human via Slack: "Our monitoring spotted an opportunity.
+     Three competitors launched voice interfaces. We could add a voice
+     gateway adapter — here's the proposal. Worth pursuing?"
+
+[Human approves]
+Human: "Yes, but low priority — after auth is done."
+CPO: Notes priority, enters pipeline at Stage 2 when auth completes.
+     From here, standard pipeline: planning → structuring → feature
+     design → breakdown → execution → verification.
+```
+
+### Example D: Standalone quick fix (Entry Point B)
 
 ```
 Human: "The favicon is broken."
@@ -679,7 +884,9 @@ CPO: Job goes to queued.
 | Orchestrator: dispatch jobs where all `depends_on` are complete | Needs building | Chris |
 | Project Architect role in `roles` table | Needs creating | Tom/Chris |
 | Breakdown Specialist role in `roles` table | Needs creating | Tom/Chris |
+| Monitoring Agent role in `roles` table | Needs creating | Tom/Chris |
 | CPO wakeup via `MessageInbound` internal events | Needs building | Chris |
+| Monitoring agent scheduling mechanism | Needs design | Tom/Chris |
 
 ---
 
@@ -727,6 +934,24 @@ The CPO uses second-opinion workflows to get independent review from Codex and G
 
 The CPO Knowledge Architecture (Section 9) describes four stage skills (`/plan-capability`, `/spec-feature`, `/standalone-job`, `/reconcile-docs`). These need to be authored. Each skill is a markdown file guiding the CPO through that pipeline stage. The routing prompt in `roles.prompt` references them — they must exist before the CPO can use the pipeline.
 
+### 9. Monitoring Agent scheduling and commissioning
+
+Entry Point C introduces a Monitoring Agent that discovers opportunities autonomously. Open questions:
+
+- **Who commissions it?** The CPO could schedule monitoring jobs as a routine (e.g., "scan X/Twitter for {topic} weekly"). Or the orchestrator could have a cron-like schedule for monitoring jobs.
+- **What triggers a scan?** Time-based (daily/weekly), event-based (new competitor release detected), or CPO-directed ("research what's happening in {space}")
+- **How many monitoring agents?** One per project domain? One generalist? Per-topic subscriptions?
+- **Proposal quality gate** — Who decides whether a monitoring agent's proposal is worth the CPO's attention? Every proposal hitting the CPO creates context cost. Should there be a pre-filter (e.g., confidence threshold, relevance score) or does the CPO review everything?
+
+### 10. Review-plan modes
+
+`review-plan` operates in two distinct modes that the skill needs to support:
+
+- **Interactive** — CPO walks through a plan with the human, discussing gaps, getting input. Standard mode when human initiated the idea.
+- **Autonomous** — CPO reviews a plan solo (or with a contractor), commissions second opinions from other models, and applies recommendations. Used in agent-initiated flows (Entry Point C) where the human hasn't been involved yet, and in cases where the human explicitly delegates review authority.
+
+The skill should detect which mode to use based on context, or be explicitly invoked in a given mode. This affects which questions are asked (interactive asks the human; autonomous asks other models) and what the output is (interactive produces a conversation; autonomous produces a revised plan with a changelog).
+
 ---
 
 ## 14. Future Exploration
@@ -756,6 +981,8 @@ Run controlled experiments comparing:
 
 ## TL;DR
 
-An idea enters through the CPO (or as a standalone quick fix). The CPO triages by scope, plans with the human, and commissions a Project Architect to structure the work. The CPO then specs each feature through conversation, setting `status: ready_for_breakdown` when satisfied. The orchestrator dispatches a Breakdown Specialist who runs jobify to produce executable jobs with Gherkin acceptance criteria and a dependency DAG. Jobs queue in Supabase and the existing pipeline handles execution, verification, and shipping.
+An idea enters through three paths: a human talks to the CPO (Entry Point A), a quick fix goes straight to a standalone job (Entry Point B), or a Monitoring Agent discovers an opportunity through automated research and proposes it to the CPO for human approval (Entry Point C). The CPO triages by scope, plans with the human, and commissions a Project Architect to structure the work. The CPO then specs each feature through conversation, setting `status: ready_for_breakdown` when satisfied. The orchestrator dispatches a Breakdown Specialist who runs jobify to produce executable jobs with Gherkin acceptance criteria and a dependency DAG. Jobs queue in Supabase and the existing pipeline handles execution, verification, and shipping.
+
+Every actor needs specific skills at specific stages — pipeline-specific skills (like `jobify`, `featurify`, `/spec-feature`) are loaded on demand per stage, while general-purpose skills (like `deep-research`, `review-plan`, `second-opinion`) are used across stages when applicable. The orchestrator assembles workspaces with role-scoped MCP tools and the right skills at dispatch time.
 
 All workers — executives, employees, contractors — get MCP tools scoped to their role. The orchestrator is a deterministic pipe that dispatches work and routes notifications. The CPO is the only actor that reasons about product — everything else is mechanical or specialist.

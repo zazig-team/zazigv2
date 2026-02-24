@@ -20,12 +20,16 @@ export type {
   JobStatusValue,
   AgentJobStatus,
   FailureReason,
+  FeatureStatus,
+  PipelineJobStatus,
   StartJob,
   StopJob,
   HealthCheck,
   VerifyJob,
   DeployToTest,
+  TeardownTest,
   MessageInbound,
+  JobUnblocked,
   OrchestratorMessage,
   Heartbeat,
   JobStatusMessage,
@@ -36,15 +40,20 @@ export type {
   FeatureApproved,
   FeatureRejected,
   VerifyResult,
+  MessageOutbound,
+  DeployComplete,
+  DeployFailed,
+  DeployNeedsConfig,
+  JobBlocked,
   AgentMessage,
 } from "../../../packages/shared/src/messages.ts";
 
-// ---------------------------------------------------------------------------
-// Re-export from annotations.ts
-// ---------------------------------------------------------------------------
+export { FEATURE_STATUSES, JOB_STATUSES } from "../../../packages/shared/src/messages.ts";
 
-export type { CardAnnotation } from "../../../packages/shared/src/annotations.ts";
-export { parseAnnotation } from "../../../packages/shared/src/annotations.ts";
+// NOTE: annotations.ts is intentionally NOT re-exported here.
+// It contains `import type ... from "./messages.js"` (Node ESM convention)
+// which the Supabase edge function bundler cannot resolve. No edge function
+// currently uses parseAnnotation, so we omit it to avoid the BOOT_ERROR.
 
 // ---------------------------------------------------------------------------
 // Re-export machine / job types declared inline in index.ts
@@ -116,6 +125,9 @@ import type {
   HealthCheck as _HealthCheck,
   VerifyJob as _VerifyJob,
   DeployToTest as _DeployToTest,
+  TeardownTest as _TeardownTest,
+  MessageInbound as _MessageInbound,
+  JobUnblocked as _JobUnblocked,
   Heartbeat as _Heartbeat,
   JobStatusMessage as _JobStatusMessage,
   JobComplete as _JobComplete,
@@ -125,6 +137,11 @@ import type {
   FeatureApproved as _FeatureApproved,
   FeatureRejected as _FeatureRejected,
   VerifyResult as _VerifyResult,
+  MessageOutbound as _MessageOutbound,
+  DeployComplete as _DeployComplete,
+  DeployFailed as _DeployFailed,
+  DeployNeedsConfig as _DeployNeedsConfig,
+  JobBlocked as _JobBlocked,
 } from "../../../packages/shared/src/messages.ts";
 
 // ---------------------------------------------------------------------------
@@ -163,7 +180,7 @@ export function isStartJob(v: unknown): v is _StartJob {
   if (!_hasValidVersion(v)) return false;
   if (!_isString(v.jobId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(v.jobId as string)) return false;
   if (!_isString(v.cardId) || v.cardId.length === 0) return false;
-  if (!["code", "infra", "design", "research", "docs"].includes(v.cardType as string)) return false;
+  if (!["code", "infra", "design", "research", "docs", "persistent_agent"].includes(v.cardType as string)) return false;
   if (!["simple", "medium", "complex"].includes(v.complexity as string)) return false;
   if (!["claude_code", "codex"].includes(v.slotType as string)) return false;
   if (!_isString(v.model) || !ALLOWED_MODELS.has(v.model)) return false;
@@ -172,9 +189,7 @@ export function isStartJob(v: unknown): v is _StartJob {
   if (!hasContext && !hasContextRef) return false;
   if (hasContext && (v.context as string).length > MAX_CONTEXT_BYTES) return false;
   if (v.role !== undefined && (!_isString(v.role) || (v.role as string).length === 0)) return false;
-  // personalityPrompt is optional; if present: non-empty, within size budget
   if (v.personalityPrompt !== undefined && (!_isString(v.personalityPrompt) || (v.personalityPrompt as string).length === 0 || (v.personalityPrompt as string).length > MAX_PERSONALITY_PROMPT_BYTES)) return false;
-  // subAgentPrompt is optional; if present: non-empty, within size budget
   if (v.subAgentPrompt !== undefined && (!_isString(v.subAgentPrompt) || (v.subAgentPrompt as string).length === 0 || (v.subAgentPrompt as string).length > MAX_PERSONALITY_PROMPT_BYTES)) return false;
   return true;
 }
@@ -208,9 +223,38 @@ export function isVerifyJob(v: unknown): v is _VerifyJob {
 export function isDeployToTest(v: unknown): v is _DeployToTest {
   if (!_isObject(v) || v.type !== "deploy_to_test") return false;
   if (!_hasValidVersion(v)) return false;
-  if (!_isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!_isString(v.jobType) || !["feature", "standalone"].includes(v.jobType as string)) return false;
+  if (v.jobType === "feature" && (!_isString(v.featureId) || (v.featureId as string).length === 0)) return false;
+  if (v.jobType === "standalone" && (!_isString(v.standaloneJobId) || (v.standaloneJobId as string).length === 0)) return false;
   if (!_isString(v.featureBranch) || v.featureBranch.length === 0) return false;
   if (!_isString(v.projectId) || v.projectId.length === 0) return false;
+  if (v.changeSummary !== undefined && !_isString(v.changeSummary)) return false;
+  if (v.repoPath !== undefined && !_isString(v.repoPath)) return false;
+  return true;
+}
+
+export function isTeardownTest(v: unknown): v is _TeardownTest {
+  if (!_isObject(v) || v.type !== "teardown_test") return false;
+  if (!_hasValidVersion(v)) return false;
+  if (!_isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!_isString(v.repoPath) || v.repoPath.length === 0) return false;
+  return true;
+}
+
+export function isMessageInbound(v: unknown): v is _MessageInbound {
+  if (!_isObject(v) || v.type !== "message_inbound") return false;
+  if (!_hasValidVersion(v)) return false;
+  if (!_isString(v.conversationId) || v.conversationId.length === 0) return false;
+  if (!_isString(v.from) || v.from.length === 0) return false;
+  if (!_isString(v.text)) return false;
+  return true;
+}
+
+export function isJobUnblocked(v: unknown): v is _JobUnblocked {
+  if (!_isObject(v) || v.type !== "job_unblocked") return false;
+  if (!_hasValidVersion(v)) return false;
+  if (!_isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!_isString(v.answer)) return false;
   return true;
 }
 
@@ -222,6 +266,9 @@ export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
     case "health_check":    return isHealthCheck(v);
     case "verify_job":      return isVerifyJob(v);
     case "deploy_to_test":  return isDeployToTest(v);
+    case "teardown_test":   return isTeardownTest(v);
+    case "message_inbound": return isMessageInbound(v);
+    case "job_unblocked":   return isJobUnblocked(v);
     default:                return false;
   }
 }
@@ -245,7 +292,7 @@ export function isJobStatusMessage(v: unknown): v is _JobStatusMessage {
   if (!_isObject(v) || v.type !== "job_status") return false;
   if (!_hasValidVersion(v)) return false;
   if (!_isString(v.jobId) || v.jobId.length === 0) return false;
-  const agentStatuses = ["executing", "reviewing", "complete", "failed"];
+  const agentStatuses = ["executing", "reviewing", "blocked", "complete", "failed"];
   if (!_isString(v.status) || !agentStatuses.includes(v.status)) return false;
   if (v.output !== undefined && !_isString(v.output)) return false;
   return true;
@@ -319,18 +366,69 @@ export function isVerifyResult(v: unknown): v is _VerifyResult {
   return true;
 }
 
+export function isMessageOutbound(v: unknown): v is _MessageOutbound {
+  if (!_isObject(v) || v.type !== "message_outbound") return false;
+  if (!_hasValidVersion(v)) return false;
+  if (!_isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!_isString(v.machineId) || v.machineId.length === 0) return false;
+  if (!_isString(v.conversationId) || v.conversationId.length === 0) return false;
+  if (!_isString(v.text)) return false;
+  return true;
+}
+
+export function isDeployComplete(v: unknown): v is _DeployComplete {
+  if (!_isObject(v) || v.type !== "deploy_complete") return false;
+  if (!_hasValidVersion(v)) return false;
+  if (!_isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!_isString(v.machineId) || v.machineId.length === 0) return false;
+  if (!_isString(v.testUrl) || v.testUrl.length === 0) return false;
+  if (typeof v.ephemeral !== "boolean") return false;
+  return true;
+}
+
+export function isDeployFailed(v: unknown): v is _DeployFailed {
+  if (!_isObject(v) || v.type !== "deploy_failed") return false;
+  if (!_hasValidVersion(v)) return false;
+  if (!_isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!_isString(v.machineId) || v.machineId.length === 0) return false;
+  if (!_isString(v.error)) return false;
+  return true;
+}
+
+export function isDeployNeedsConfig(v: unknown): v is _DeployNeedsConfig {
+  if (!_isObject(v) || v.type !== "deploy_needs_config") return false;
+  if (!_hasValidVersion(v)) return false;
+  if (!_isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!_isString(v.machineId) || v.machineId.length === 0) return false;
+  return true;
+}
+
+export function isJobBlocked(v: unknown): v is _JobBlocked {
+  if (!_isObject(v) || v.type !== "job_blocked") return false;
+  if (!_hasValidVersion(v)) return false;
+  if (!_isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!_isString(v.machineId) || v.machineId.length === 0) return false;
+  if (!_isString(v.reason) || v.reason.length === 0) return false;
+  return true;
+}
+
 export function isAgentMessage(v: unknown): v is AgentMessage {
   if (!_isObject(v) || !_isString(v.type)) return false;
   switch (v.type) {
-    case "heartbeat":         return isHeartbeat(v);
-    case "job_status":        return isJobStatusMessage(v);
-    case "job_complete":      return isJobComplete(v);
-    case "job_failed":        return isJobFailed(v);
-    case "job_ack":           return isJobAck(v);
-    case "stop_ack":          return isStopAck(v);
-    case "feature_approved":  return isFeatureApproved(v);
-    case "feature_rejected":  return isFeatureRejected(v);
-    case "verify_result":     return isVerifyResult(v);
-    default:                  return false;
+    case "heartbeat":           return isHeartbeat(v);
+    case "job_status":          return isJobStatusMessage(v);
+    case "job_complete":        return isJobComplete(v);
+    case "job_failed":          return isJobFailed(v);
+    case "job_ack":             return isJobAck(v);
+    case "stop_ack":            return isStopAck(v);
+    case "feature_approved":    return isFeatureApproved(v);
+    case "feature_rejected":    return isFeatureRejected(v);
+    case "verify_result":       return isVerifyResult(v);
+    case "message_outbound":    return isMessageOutbound(v);
+    case "deploy_complete":     return isDeployComplete(v);
+    case "deploy_failed":       return isDeployFailed(v);
+    case "deploy_needs_config": return isDeployNeedsConfig(v);
+    case "job_blocked":         return isJobBlocked(v);
+    default:                    return false;
   }
 }

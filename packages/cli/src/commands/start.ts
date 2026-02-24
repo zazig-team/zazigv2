@@ -20,6 +20,7 @@ import {
   startDaemon,
   readPid,
   isRunning,
+  removePidFile,
   LOG_PATH,
 } from "../lib/daemon.js";
 
@@ -108,12 +109,24 @@ export async function start(): Promise<void> {
 
   const config = loadConfig();
 
-  // Already running?
+  // Already running — stop it first, then restart with fresh credentials
   if (isDaemonRunning()) {
-    const pid = readPid();
-    console.log(`Agent is already running (PID ${pid}).`);
-    console.log("Use 'zazig status' to check state or 'zazig stop' to stop.");
-    return;
+    const oldPid = readPid();
+    process.stdout.write(`Restarting agent (PID ${oldPid})...`);
+    try {
+      process.kill(oldPid!, "SIGTERM");
+    } catch { /* already gone */ }
+
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      await sleep(200);
+      if (!isRunning(oldPid!)) break;
+    }
+    if (isRunning(oldPid!)) {
+      try { process.kill(oldPid!, "SIGKILL"); } catch { /* */ }
+    }
+    removePidFile();
+    console.log(" stopped.");
   }
 
   // Build env for the spawned process

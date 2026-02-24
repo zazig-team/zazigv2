@@ -429,7 +429,8 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
 
   for (const job of queuedJobs as JobRow[]) {
     // Auto-create a wrapper feature for jobs with no feature_id.
-    if (!job.feature_id) {
+    // Persistent agents are company-wide (no project or feature) — skip wrapper creation.
+    if (!job.feature_id && job.job_type !== "persistent_agent") {
       const { data: wrapperFeature, error: wfErr } = await supabase
         .from("features")
         .insert({

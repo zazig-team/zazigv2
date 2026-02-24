@@ -289,31 +289,38 @@ export class AgentConnection {
   }
 
   private async registerMachine(): Promise<void> {
-    const companyId = this.primaryCompanyId ?? this.companyIds[0];
-    if (!companyId) {
-      console.warn("[local-agent] No company — skipping machine registration");
+    if (this.companyIds.length === 0) {
+      console.warn("[local-agent] No companies — skipping machine registration");
       return;
     }
 
     const slotsAvailable = this.slots.getAvailable();
-    const { error } = await this.dbClient
-      .from("machines")
-      .upsert(
-        {
-          name: this.machineId,
-          company_id: companyId,
-          status: "online",
-          last_heartbeat: new Date().toISOString(),
-          slots_claude_code: slotsAvailable.claude_code,
-          slots_codex: slotsAvailable.codex,
-        },
-        { onConflict: "company_id,name" }
-      );
+    const row = {
+      name: this.machineId,
+      status: "online",
+      last_heartbeat: new Date().toISOString(),
+      slots_claude_code: slotsAvailable.claude_code,
+      slots_codex: slotsAvailable.codex,
+    };
 
-    if (error) {
-      console.warn(`[local-agent] Machine registration failed: ${error.message}`);
+    let failures = 0;
+    for (const companyId of this.companyIds) {
+      const { error } = await this.dbClient
+        .from("machines")
+        .upsert(
+          { ...row, company_id: companyId },
+          { onConflict: "company_id,name" }
+        );
+      if (error) {
+        console.warn(`[local-agent] Machine registration failed for company ${companyId}: ${error.message}`);
+        failures++;
+      }
+    }
+
+    if (failures === 0) {
+      console.log(`[local-agent] Machine registered for ${this.companyIds.length} company(ies)`);
     } else {
-      console.log("[local-agent] Machine registered");
+      console.warn(`[local-agent] Machine registration: ${this.companyIds.length - failures}/${this.companyIds.length} succeeded`);
     }
   }
 
@@ -322,22 +329,29 @@ export class AgentConnection {
 
     const slotsAvailable = this.slots.getAvailable();
     // Primary: write heartbeat directly to the DB — reliable, no timing dependency
-    let query = this.dbClient
-      .from("machines")
-      .update({
-        last_heartbeat: new Date().toISOString(),
-        status: "online",
-        slots_claude_code: slotsAvailable.claude_code,
-        slots_codex: slotsAvailable.codex,
-      })
-      .eq("name", this.machineId);
+    // Update all company rows so the orchestrator sees this machine as online for every company.
+    const updatePayload = {
+      last_heartbeat: new Date().toISOString(),
+      status: "online",
+      slots_claude_code: slotsAvailable.claude_code,
+      slots_codex: slotsAvailable.codex,
+    };
 
-    const heartbeatCompanyId = this.primaryCompanyId ?? this.companyIds[0];
-    if (heartbeatCompanyId) {
-      query = query.eq("company_id", heartbeatCompanyId);
+    let dbErr: Error | null = null;
+    if (this.companyIds.length > 0) {
+      const { error } = await this.dbClient
+        .from("machines")
+        .update(updatePayload)
+        .eq("name", this.machineId)
+        .in("company_id", this.companyIds);
+      if (error) dbErr = error;
+    } else {
+      const { error } = await this.dbClient
+        .from("machines")
+        .update(updatePayload)
+        .eq("name", this.machineId);
+      if (error) dbErr = error;
     }
-
-    const { error: dbErr } = await query;
 
     if (dbErr) {
       console.warn(`[local-agent] Heartbeat DB write failed: ${dbErr.message}`);

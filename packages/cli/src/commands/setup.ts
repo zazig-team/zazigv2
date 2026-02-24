@@ -468,53 +468,77 @@ export async function setup(): Promise<void> {
     // Step 4: Connect Slack workspace
     const supabaseUrl = creds.supabaseUrl;
     let slackWorkspaceName: string | undefined;
-    const connectSlack = (
-      await rl.question("\nConnect Slack workspace? [y/n]: ")
-    ).trim().toLowerCase();
 
-    if (connectSlack === "y" || connectSlack === "yes") {
-      const slackClientId = process.env["SLACK_CLIENT_ID"] ?? DEFAULT_SLACK_CLIENT_ID;
-      const scopes = "app_mentions:read,channels:history,chat:write,im:history";
-      const redirectUri = `${supabaseUrl}/functions/v1/slack-oauth`;
-      const oauthUrl =
-        `https://slack.com/oauth/v2/authorize?client_id=${slackClientId}` +
-        `&scope=${scopes}&state=${companyId}` +
-        `&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    console.log("\nNext, connect Slack so you can chat with your AI agents.");
+    await rl.question("Press Enter to open Slack authorization...");
 
-      console.log("\nOpening Slack authorization in your browser...");
-      const openCmd = process.platform === "darwin" ? "open" : "xdg-open";
+    const slackClientId = process.env["SLACK_CLIENT_ID"] ?? DEFAULT_SLACK_CLIENT_ID;
+    const scopes = "app_mentions:read,channels:history,channels:manage,chat:write,im:history";
+    const redirectUri = `${supabaseUrl}/functions/v1/slack-oauth`;
+    const oauthUrl =
+      `https://slack.com/oauth/v2/authorize?client_id=${slackClientId}` +
+      `&scope=${scopes}&state=${companyId}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}`;
+
+    const openCmd = process.platform === "darwin" ? "open" : "xdg-open";
+    try {
+      execSync(`${openCmd} "${oauthUrl}"`, { stdio: "pipe" });
+    } catch {
+      console.log("Could not open browser. Visit this URL manually:");
+      console.log(`  ${oauthUrl}`);
+    }
+
+    console.log("Waiting for Slack authorization...");
+    const pollStart = Date.now();
+    const POLL_TIMEOUT_MS = 180_000; // 3 minutes
+    const POLL_INTERVAL_MS = 2_000;
+
+    while (Date.now() - pollStart < POLL_TIMEOUT_MS) {
+      const { data } = await supabase
+        .from("slack_installations")
+        .select("team_name")
+        .eq("company_id", companyId)
+        .limit(1)
+        .single();
+
+      if (data?.team_name) {
+        slackWorkspaceName = data.team_name;
+        console.log(`Slack workspace "${slackWorkspaceName}" connected!`);
+        break;
+      }
+
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    }
+
+    if (!slackWorkspaceName) {
+      console.log("Timed out waiting for Slack authorization.");
+      console.log("You can connect Slack later by re-running setup.");
+    }
+
+    // Create a Slack channel for CPO conversations
+    let slackChannelName: string | undefined;
+    if (slackWorkspaceName) {
+      const defaultChannel = "zazig-cpo";
+      const channelInput = (
+        await rl.question(`\nSlack channel for CPO conversations [${defaultChannel}]: `)
+      ).trim() || defaultChannel;
+
+      process.stdout.write(`Creating #${channelInput}...`);
       try {
-        execSync(`${openCmd} "${oauthUrl}"`, { stdio: "pipe" });
-      } catch {
-        console.log("Could not open browser. Visit this URL manually:");
-        console.log(`  ${oauthUrl}`);
-      }
-
-      console.log("Waiting for Slack authorization...");
-      const pollStart = Date.now();
-      const POLL_TIMEOUT_MS = 180_000; // 3 minutes
-      const POLL_INTERVAL_MS = 2_000;
-
-      while (Date.now() - pollStart < POLL_TIMEOUT_MS) {
-        const { data } = await supabase
-          .from("slack_installations")
-          .select("team_name")
-          .eq("company_id", companyId)
-          .limit(1)
-          .single();
-
-        if (data?.team_name) {
-          slackWorkspaceName = data.team_name;
-          console.log(`Slack workspace "${slackWorkspaceName}" connected!`);
-          break;
+        const res = await fetch(`${supabaseUrl}/functions/v1/slack-create-channel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ company_id: companyId, channel_name: channelInput }),
+        });
+        const result = await res.json() as { ok: boolean; channel_name?: string; error?: string };
+        if (result.ok) {
+          slackChannelName = result.channel_name;
+          console.log(` done! #${slackChannelName} is ready.`);
+        } else {
+          console.log(` failed: ${result.error}`);
         }
-
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-      }
-
-      if (!slackWorkspaceName) {
-        console.log("Timed out waiting for Slack authorization.");
-        console.log("You can connect Slack later by re-running setup.");
+      } catch (err) {
+        console.log(` failed: ${String(err)}`);
       }
     }
 
@@ -611,7 +635,7 @@ export async function setup(): Promise<void> {
       console.log(`  Brief:    ${projectBrief.split("\n")[0]?.slice(0, 80)}...`);
     }
     if (slackWorkspaceName) {
-      console.log(`  Slack:    ${slackWorkspaceName}`);
+      console.log(`  Slack:    ${slackWorkspaceName}${slackChannelName ? ` (#${slackChannelName})` : ""}`);
     }
     if (cpoArchetype) {
       console.log(`  CPO:      ${cpoArchetype}`);

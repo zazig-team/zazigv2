@@ -20,6 +20,8 @@ export interface SlotConfig {
 export interface MachineConfig {
   /** Stable machine identifier — used as machineId in heartbeats and Realtime channel name. */
   name: string;
+  /** Primary company UUID — the agent registers the machine under this company. */
+  company_id?: string;
   slots: SlotConfig;
 }
 
@@ -38,6 +40,7 @@ export function loadConfig(): MachineConfig {
 
     return {
       name: parsed.name,
+      company_id: parsed.company_id,
       slots: {
         claude_code: parsed.slots?.claude_code ?? 4,
         codex: parsed.slots?.codex ?? 4,

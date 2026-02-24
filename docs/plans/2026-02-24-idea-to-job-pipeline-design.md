@@ -1180,6 +1180,57 @@ Feature created with full Gherkin acceptance criteria (200 status check, JSON bo
 
 ---
 
+## What's Next: CPO Persistent Agent
+
+All pipeline infrastructure is tested and working. The remaining piece is the **CPO persistent agent** — the human-facing entry point that turns Entry Point A from a curl command into a conversation.
+
+### What exists
+
+- The CPO role prompt is in the DB (migrations 038, 041) with the pipeline routing decision tree
+- The CPO's MCP tools are defined in `workspace.ts`: `send_message`, `query_projects`, `create_feature`, `update_feature`, `commission_contractor`
+- The executor has a `handlePersistentJob` path (routes `persistent_agent` card types)
+- `MessageInbound` handler exists for injecting messages into a running CPO session
+- The orchestrator auto-requeues persistent jobs on completion (failover-safe)
+
+### What's missing
+
+The executor's persistent job path doesn't get the same workspace treatment as ephemeral jobs. Specifically:
+
+1. **Prompt stack not injected** — the CPO currently gets a hardcoded `CPO_MESSAGING_INSTRUCTIONS` constant instead of the assembled 4-layer prompt (personality → role prompt → skills → task context). The role prompt, pipeline routing, and MCP tool docs never reach the CPO.
+2. **No workspace assembly** — persistent agents don't get `.mcp.json`, `.claude/settings.json`, or skill files. The CPO can't call MCP tools or use pipeline skills (`/plan-capability`, `/spec-feature`, etc.).
+3. **No message injection** — the `MessageInbound` handler is wired but the CPO needs to be running with a proper workspace first.
+
+### The fix
+
+Chris's design doc (`2026-02-24-persistent-agent-identity-design.md`) covers this:
+
+- Rename `handleStartCpo` → role-agnostic `handlePersistentJob`
+- Delete the `CPO_MESSAGING_INSTRUCTIONS` constant
+- Write the assembled context (from `assembleContext()`) as `CLAUDE.md` in the persistent workspace
+- Apply the same workspace setup (`.mcp.json`, `.claude/settings.json`, skills) that ephemeral jobs already get
+- Move CPO-specific messaging instructions into the `roles.prompt` column in the DB
+
+This is mostly wiring — the workspace assembly logic already exists for ephemeral contractors. The persistent path just needs to use it.
+
+### End state
+
+Once complete, the full Entry Point A flow becomes:
+
+```
+Human types in terminal → CPO session receives message
+→ CPO assesses scope, asks clarifying questions
+→ CPO commissions project-architect (via MCP)
+→ Architect creates project + features (via MCP)
+→ CPO reviews feature outlines, sets ready_for_breakdown (via MCP)
+→ Orchestrator auto-triggers breakdown-specialist
+→ Breakdown specialist creates jobs with DAG (via MCP)
+→ Jobs dispatch and execute → code review → verification → deploy
+```
+
+Every link after `ready_for_breakdown` is already automated and tested (Tests 1-8).
+
+---
+
 ## TL;DR
 
 An idea enters through three paths: a human talks to the CPO (Entry Point A), a quick fix goes straight to a standalone job (Entry Point B), or a Monitoring Agent discovers an opportunity through automated research and proposes it to the CPO for human approval (Entry Point C). The CPO triages by scope, plans with the human, and commissions a Project Architect to structure the work. The CPO then specs each feature through conversation, setting `status: ready_for_breakdown` when satisfied. The orchestrator dispatches a Breakdown Specialist who runs jobify to produce executable jobs with Gherkin acceptance criteria and a dependency DAG. Jobs queue in Supabase and the existing pipeline handles execution, verification, and shipping.

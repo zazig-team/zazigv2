@@ -417,6 +417,51 @@ server.tool(
   },
 );
 
+server.tool(
+  "commission_contractor",
+  "Commission an ephemeral contractor to perform pipeline work. Used by the CPO to dispatch Project Architects (featurify), Breakdown Specialists (jobify), or Monitoring Agents.",
+  {
+    company_id: z.string().describe("Company UUID"),
+    role: z.enum(["project-architect", "breakdown-specialist", "monitoring-agent"]).describe("Contractor role to commission"),
+    project_id: z.string().describe("Target project UUID"),
+    feature_id: z.string().optional().describe("Target feature UUID (required for breakdown-specialist)"),
+    context: z.string().optional().describe("Additional instructions from the CPO"),
+  },
+  async ({ company_id, role, project_id, feature_id, context }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/commission-contractor`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ company_id, role, project_id, feature_id, context }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { job_id: string; role: string; status: string };
+      return {
+        content: [{ type: "text" as const, text: `Contractor commissioned successfully. job_id: ${data.job_id}, role: ${data.role}, status: ${data.status}` }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to commission contractor (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  },
+);
+
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);

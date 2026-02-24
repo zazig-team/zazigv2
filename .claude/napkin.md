@@ -26,6 +26,10 @@
 - Always check highest existing migration number with `ls supabase/migrations/` before naming — plan said 045/046 but 045 was already taken (features_priority), so actual was 046/047
 - `verification_type` column on features — `'passive'` (default, existing reviewer) or `'active'` (verification-specialist contractor)
 - `CardType` in shared/messages.ts must match DB `job_type` constraint — if you add a new job_type to the DB, also add it to the TS type and `isStartJob` validator. Missing `"verify"` caused jobs to be silently rejected by the local-agent.
+- Long prompts exceed OS `ARG_MAX` if passed as `claude -p "<context>"` CLI arg — must pipe via `cat .zazig-prompt.txt | claude --model X -p` instead. The `-p` flag must be last (reads stdin).
+- Executor report path: agent writes `.claude/cpo-report.md` relative to workspace CWD (`~/.zazigv2/job-<id>/`), not `$HOME`. Executor checks workspace dir first, falls back to `$HOME`.
+- `batch-create-jobs` temp reference format is `temp:N` (colon), not `temp-N` (dash)
+- `assembled_context` column doesn't exist on jobs table yet — the executor's DB write fails silently (non-blocking)
 
 ## Patterns That Work
 - Running migrations: Use Supabase Management API (`POST https://api.supabase.com/v1/projects/jmussmwglgbwncgygzbz/database/query`) with `SUPABASE_ACCESS_TOKEN` from Doppler. `supabase db push` doesn't work due to migration history mismatch with numbered naming convention.

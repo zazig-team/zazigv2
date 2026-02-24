@@ -1,12 +1,12 @@
 # Idea to Job Pipeline Design
 
 **Date:** 2026-02-24
-**Status:** Implemented (infrastructure complete, pending end-to-end testing)
+**Status:** Implemented and tested (Entry Point B single job + DAG dispatch verified end-to-end)
 **Authors:** Tom + Claude (brainstorming session)
 **Reviewed by:** Codex (gpt-5.3) and Gemini (3.1 Pro) — second opinions on MCP tooling
 **Supersedes:** Portions of `2026-02-24-software-development-pipeline-design.md` (stages 1-5), `2026-02-24-persistent-agent-identity-design.md` (MCP tool scoping), `2026-02-24-mcp-vs-skill-vs-cli-analysis.md` (decision: MCP for all, role-scoped)
 **Companion docs:** `2026-02-24-jobify-skill-design.md` (breakdown detail), `2026-02-24-featurify-skill-design.md` (structuring detail), `ORG MODEL.md` (tier/layer reference)
-**Implementation PRs:** #85 (migrations), #86 (skills), #88 (breakdown MCP tools), #89 (consistency fixes), #90 (architect MCP tools), #91 (orchestrator DAG + notifications), #92 (workspace assembly)
+**Implementation PRs:** #85 (migrations), #86 (skills), #88 (breakdown MCP tools), #89 (consistency fixes), #90 (architect MCP tools), #91 (orchestrator DAG + notifications), #92 (workspace assembly), #93 (commission_contractor)
 
 ---
 
@@ -898,7 +898,8 @@ CPO: Job goes to queued.
 | CPO stage skills (/plan-capability, /spec-feature, /standalone-job, /reconcile-docs) | **Built** | #86 | Tom |
 | `review` job_type in DB constraint | **Built** | #89 (migration 042) | Tom |
 | Monitoring agent scheduling mechanism | Needs design | — | Tom/Chris |
-| `commission_contractor` MCP tool (CPO → contractor dispatch) | Needs building | — | Tom/Chris |
+| `commission_contractor` edge function + MCP tool | **Built + deployed** | #93 | Tom |
+| Migration 044: relax feature_id constraint for contractors | **Built + deployed** | #93 | Tom |
 
 ---
 
@@ -988,6 +989,194 @@ Run controlled experiments comparing:
 - Full MCP (all tools as MCP) vs hybrid (high-frequency MCP, low-frequency CLI)
 - Measure: time to context compression, error rate on DB operations, session duration
 - Decision point: if MCP sessions show no meaningful compression penalty, keep MCP for all
+
+---
+
+## 15. Test Results
+
+### Test 1: Single Job Dispatch (Entry Point B)
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Inserted a single job directly into `jobs` table with `status: queued`. The orchestrator picked it up on the next cron tick, matched it to `toms-macbook-pro-2023-local` (online, codex slots available), and dispatched via websocket. The local agent spawned a Codex session which executed the task and reported completion.
+
+| Field | Value |
+|-------|-------|
+| Job ID | `b6c94e52-4f6d-4efa-9552-392bea0a5d85` |
+| Task | Create `pipeline-test.md` with content |
+| Complexity | `simple` → routed to Codex |
+| Machine | `toms-macbook-pro-2023-local` |
+| Created | 18:12:10 |
+| Started | 18:13:04 |
+| Completed | 18:14:05 |
+| Duration | ~60s |
+
+**What it proved:** Orchestrator dispatch, slot matching, local agent execution, status lifecycle (`queued` → `executing` → `complete`), heartbeat liveness.
+
+### Test 2: DAG Dispatch (3-Job Dependency Chain)
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Created 3 jobs with a linear dependency chain: A → B → C. All `queued` simultaneously. The orchestrator correctly dispatched only Job A (no dependencies), held B and C, then unblocked each on successive cron ticks as their dependencies completed.
+
+| Job | Depends On | Started | Completed | Duration |
+|-----|-----------|---------|-----------|----------|
+| A (root) | — | 18:23:04 | 18:24:05 | 61s |
+| B (depends A) | A | 18:25:05 | 18:25:35 | 30s |
+| C (depends B) | B | 18:26:05 | 18:27:05 | 60s |
+
+```
+Job A  ████████████░░░░░░░░░░░░  18:23 → 18:24
+                    ↓ unblocked B
+Job B  ░░░░░░░░░░░░██████░░░░░░  18:25 → 18:25
+                          ↓ unblocked C
+Job C  ░░░░░░░░░░░░░░░░░░██████  18:26 → 18:27
+```
+
+**What it proved:** `depends_on` enforcement, DAG-aware dispatch (blocked jobs held until all dependencies `complete`), per-cron-tick unblocking, sequential chain execution across 3 orchestrator cycles.
+
+### Test 3: Parallel DAG (Fan-In)
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Created 3 jobs in a fan-in pattern: D and E have no dependencies (should run in parallel), F depends on both D and E (should wait for both).
+
+| Job | Depends On | Started | Completed | Duration |
+|-----|-----------|---------|-----------|----------|
+| D (root 1) | — | 18:48:04 | 18:49:05 | 61s |
+| E (root 2) | — | 18:48:04 | 18:49:05 | 61s |
+| F (depends D+E) | D, E | 18:50:04 | 18:51:05 | 61s |
+
+```
+Job D  ████████████░░░░░░░░░░  18:48 → 18:49
+Job E  ████████████░░░░░░░░░░  18:48 → 18:49  (parallel with D)
+                    ↓ both complete, F unblocked
+Job F  ░░░░░░░░░░░░████████░░  18:50 → 18:51
+```
+
+**What it proved:** Parallel dispatch (D and E started within 200ms of each other), multi-dependency gate (F waited until *both* D and E were complete), fan-in DAG pattern works.
+
+### Test 4: Commission Contractor (Edge Function)
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Tested the `commission-contractor` edge function (PR #93) by commissioning all three contractor types:
+
+| Contractor | Job ID | job_type | feature_id | Status |
+|-----------|--------|----------|------------|--------|
+| project-architect | `a4f9b0db` | design | null | queued → executing |
+| breakdown-specialist | `3e5cecf1` | breakdown | `2249831b` (provided) | queued |
+| monitoring-agent | `82e95cd1` | research | null | queued |
+
+**Validation tests (all correctly rejected):**
+- Project architect with feature_id → `"feature_id must not be provided for project-architect"`
+- Breakdown specialist without feature_id → `"feature_id is required for breakdown-specialist"`
+- Invalid role (senior-engineer) → `"role must be one of: project-architect, breakdown-specialist, monitoring-agent"`
+
+**What it proved:** CPO can commission contractors via MCP, role-specific validation enforced, correct job_type and complexity mapping, nullable feature_id for project-level contractors (migration 044).
+
+**Known issue:** `contractor_commissioned` events not appearing in events table — silent insert failure. Non-blocking; needs investigation.
+
+### Test 5: Workspace Assembly
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Dispatched a job and verified the ephemeral workspace contained all required files:
+
+| File | Size | Status |
+|------|------|--------|
+| `.mcp.json` | 599 bytes | Present — MCP server config pointing at zazig-messaging |
+| `CLAUDE.md` | 19,652 bytes | Present — assembled context (personality → role → task) |
+| `.claude/settings.json` | 175 bytes | Present — role-scoped permissions |
+| `.zazig-prompt.txt` | 19,652 bytes | Present — prompt file for stdin piping |
+| `.claude/skills/` | absent | Correct — monitoring-agent has no skills on disk |
+
+Settings.json verified: standard tools (Read, Write, Edit, Bash, Glob, Grep) + role-scoped MCP tool (`mcp__zazig-messaging__send_message` for monitoring-agent).
+
+**What it proved:** Workspace assembly produces a complete, role-scoped environment. Agents get the right MCP config, permissions, and prompt stack.
+
+**Bugs found and fixed during testing:**
+1. **Report path mismatch:** Executor looked for report at `$HOME/.claude/cpo-report.md` but agent writes relative to workspace CWD (`~/.zazigv2/job-<id>/.claude/cpo-report.md`). Fixed by checking workspace dir first, falling back to `$HOME`.
+2. **"Command too long" error:** Assembled context exceeded OS `ARG_MAX` when passed as CLI argument to `claude -p`. Fixed by writing prompt to `.zazig-prompt.txt` and piping via `cat .zazig-prompt.txt | claude --model X -p`.
+3. **Arg order:** `-p` must be last (it's a flag reading stdin, not an option taking a value).
+
+**Known issues (non-blocking):**
+- `assembled_context` column doesn't exist in jobs table — DB write fails silently
+- Agent needs proper Supabase Auth JWT (not Management API token) for heartbeats
+
+### Test 6: `batch-create-jobs` Temp Reference Resolution
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Created 3 jobs via `batch-create-jobs` edge function with `temp:0` references in `depends_on`:
+
+| Job | Title | depends_on | Resolved |
+|-----|-------|-----------|----------|
+| `ea657198` | Foundation job (no deps) | `[]` | — |
+| Job 2 | Dependent job (needs foundation) | `["temp:0"]` | `["ea657198-4a24-494c-a611-ffa3fc0046e1"]` |
+| Job 3 | Parallel job (also needs foundation) | `["temp:0"]` | `["ea657198-4a24-494c-a611-ffa3fc0046e1"]` |
+
+Feature status transitioned from `ready_for_breakdown` → `breakdown` as expected.
+
+**What it proved:** Temp reference resolution works — `temp:N` references in `depends_on` are replaced with real UUIDs from the same batch. Feature status transitions on job creation. DAG structure preserved through the edge function.
+
+**Note:** Temp reference format is `temp:N` (colon), not `temp-N` (dash).
+
+### Test 7: Claude Code Slot Routing
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Created two jobs with different complexity levels and verified the orchestrator routes them to the correct slot type:
+
+| Job | Role | Complexity | Routed to |
+|-----|------|-----------|-----------|
+| Slot routing test - medium | senior-engineer | medium | `claude_code` |
+| Slot routing test - simple | junior-engineer | simple | `codex` |
+
+**What it proved:** The orchestrator's complexity-to-slot routing works correctly. Medium/complex jobs go to Claude Code slots, simple jobs go to Codex slots. This ensures expensive model capacity is reserved for tasks that need reasoning.
+
+### Test 8: Full Entry Point A (First Link)
+
+**Date:** 2026-02-24
+**Result:** PASS (partial chain — as expected)
+
+Commissioned a project-architect contractor and watched the full first link execute end-to-end:
+
+| Step | Status | Details |
+|------|--------|---------|
+| Commission contractor | Done | Job `990e9f71` created with `queued` status |
+| Dispatch | Done | Orchestrator assigned to local machine |
+| Agent execution | Done | Project-architect ran in tmux, 3 API turns |
+| MCP: `create_project` | Done | "Pipeline Integration Test" (`77376ed5`) created in DB |
+| MCP: `batch_create_features` | Done | "Hello-Test Edge Function" (`4b9c9ef6`) with Gherkin ACs in DB |
+| Report written | Done | `cpo-report.md` claimed from workspace to `~/.claude/job-reports/` |
+| Job completion | Done | `job_complete` sent back to orchestrator |
+
+Feature created with full Gherkin acceptance criteria (200 status check, JSON body match, Content-Type header). Status: `created`. Chain stops here as expected — auto-trigger from `created` → breakdown specialist is not yet wired.
+
+**What it proved:** A contractor can be commissioned, dispatched, execute with MCP tools (creating real projects and features in the DB), produce a report, and complete cleanly. The first link of Entry Point A works end-to-end.
+
+**What remains for full chain:** Orchestrator auto-chaining (architect completion → auto-commission breakdown specialist → jobs → execute). CPO persistent agent as the human-facing entry point.
+
+### All Tests Complete
+
+| Test | Capability | Result |
+|------|-----------|--------|
+| 1 | Single job dispatch | PASS |
+| 2 | DAG dispatch (3-job chain) | PASS |
+| 3 | Parallel DAG (fan-in) | PASS |
+| 4 | Commission contractor | PASS |
+| 5 | Workspace assembly | PASS |
+| 6 | `batch-create-jobs` temp refs | PASS |
+| 7 | Slot routing | PASS |
+| 8 | Full Entry Point A (first link) | PASS |
 
 ---
 

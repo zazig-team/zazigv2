@@ -406,10 +406,10 @@ const { data: job } = await supabase
 
 ## Remaining Open Questions
 
-1. **Project → Feature breakdown (featurify):** Separate skill needed for step [3] of the pipeline. Not designed yet, follows the same pattern — takes a project, breaks into features, pushes to Supabase. Future work.
+1. ~~**Project → Feature breakdown (featurify):** Separate skill needed for step [3] of the pipeline.~~ **Resolved (2026-02-24):** Featurify design doc created. Same pattern — Project Architect contractor with featurify skill + role-scoped MCP tools. See `2026-02-24-featurify-skill-design.md`.
 
 2. **Parallel job file conflicts:** If two parallel jobs modify the same file, the second to merge will hit a conflict during rebase. Should jobify flag potential file overlaps in the build sequence? Or is this purely the orchestrator's problem (hand conflict resolution to a fix agent)?
 
-3. **Pipeline design doc alignment:** The pipeline design doc (`2026-02-24-software-development-pipeline-design.md`) says the CPO breaks features into jobs. This should be updated to reflect that a breakdown specialist (with jobify) does it. The CPO owns feature design only.
+3. ~~**Pipeline design doc alignment:** The pipeline design doc says the CPO breaks features into jobs.~~ **Resolved (2026-02-24):** Pipeline design doc updated in PR #82. Breakdown Specialist section added, CPO role boundaries corrected.
 
 4. **Acceptance test immutability:** For critical flows (auth, billing, permissions), should acceptance tests be marked immutable so implementing agents cannot silently weaken them? This could be a `critical: true` flag on specific AC IDs that the verifier treats as mandatory.

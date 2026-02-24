@@ -46,52 +46,6 @@ const REPORT_RELATIVE_PATH = ".claude/cpo-report.md";
 /** Per-job report directory to prevent concurrent-completion races. */
 const REPORT_ARCHIVE_DIR = ".claude/job-reports";
 
-/** Agent workspace directory for CPO (holds .mcp.json for MCP tool access). */
-const CPO_WORKSPACE_DIR = join(homedir(), ".zazigv2", "cpo-workspace");
-
-/** Instructions written to CLAUDE.md in the CPO workspace so the agent knows
- *  how to handle inbound platform messages and reply via the MCP tool. */
-const CPO_MESSAGING_INSTRUCTIONS = `# CPO Agent Workspace
-
-## Handling Inbound Messages
-
-You will receive messages from external platforms (Slack, Discord, etc.) injected
-into this session. They arrive in this format:
-
-\`\`\`
-[Message from @username, conversation:slack:T04M6D7TEJF:C123] The message text here
-\`\`\`
-
-The \`conversation:...\` identifier is an opaque routing token. You do NOT need
-to parse it — just echo it back when replying.
-
-**When you receive a message like this, you should:**
-1. Read and understand the message content
-2. Formulate your response
-3. Reply using the \`send_message\` MCP tool (provided by the \`zazig-messaging\` server)
-
-## Replying to Messages
-
-Use the \`send_message\` MCP tool to reply. It takes two parameters:
-
-- **conversation_id** — the opaque ID from the inbound message (everything after \`conversation:\` up to the closing \`]\`). Example: \`slack:T04M6D7TEJF:C123\`
-- **text** — your reply text (plain text, supports basic markdown)
-
-Example: if you receive:
-\`\`\`
-[Message from @tom, conversation:slack:T04M6D7TEJF:D08QZ1234] What's the status of the dashboard?
-\`\`\`
-
-You would call the \`send_message\` tool with:
-- \`conversation_id\`: \`slack:T04M6D7TEJF:D08QZ1234\`
-- \`text\`: \`The dashboard is progressing well — feature X is in review and Y is in progress.\`
-
-**Important:**
-- Always reply via the \`send_message\` tool — do NOT just print your response
-- The conversation_id routes your reply back to the correct Slack channel
-- You can send multiple replies to the same conversation_id
-- If you cannot determine the conversation_id, say so — do not fabricate one
-`;
 
 /** Delay after CPO session spawn before allowing message injection (Claude Code startup). */
 const CPO_STARTUP_DELAY_MS = 15_000;
@@ -170,7 +124,7 @@ export class JobExecutor {
   private readonly activeJobs = new Map<string, ActiveJob>();
 
   /** jobId of the active CPO persistent agent job, if any. */
-  private cpoJobId: string | null = null;
+  private persistentJobId: string | null = null;
 
   /** Message queue for injecting into CPO tmux session when idle. */
   private readonly messageQueue: QueuedMessage[] = [];
@@ -220,20 +174,9 @@ export class JobExecutor {
     // --- 2. Send JobAck immediately to confirm delivery ---
     await this.sendJobAck(jobId);
 
-    // --- 2b. Persistent agent (CPO) — separate lifecycle from regular jobs ---
-    if (msg.role === "cpo") {
-      // Persist assembled context for CPO jobs too (for dashboard debugging)
-      const cpoContext = assembleContext(msg, msg.context ?? "");
-      console.log(`[executor] Assembled context for CPO jobId=${jobId}:\n${cpoContext}`);
-      this.supabase
-        .from("jobs")
-        .update({ assembled_context: cpoContext })
-        .eq("id", jobId)
-        .then(({ error }) => {
-          if (error) console.warn(`[executor] Failed to save assembled_context for CPO jobId=${jobId}: ${error.message}`);
-        });
-
-      await this.handleStartCpo(jobId, slotType);
+    // --- 2b. Persistent agent — separate lifecycle from regular jobs ---
+    if (msg.cardType === "persistent_agent" || msg.role === "cpo") {
+      await this.handlePersistentJob(jobId, msg, slotType);
       return;
     }
 
@@ -339,14 +282,14 @@ export class JobExecutor {
    * Messages are queued and injected one at a time, waiting for CPO idle state.
    */
   handleMessageInbound(msg: MessageInbound): void {
-    if (!this.cpoJobId) {
+    if (!this.persistentJobId) {
       console.warn(`[executor] MessageInbound dropped — no CPO job running. from=${msg.from}, conversationId=${msg.conversationId}`);
       return;
     }
 
-    const job = this.activeJobs.get(this.cpoJobId);
+    const job = this.activeJobs.get(this.persistentJobId);
     if (!job) {
-      console.warn(`[executor] MessageInbound dropped — CPO job not in activeJobs. cpoJobId=${this.cpoJobId}`);
+      console.warn(`[executor] MessageInbound dropped — CPO job not in activeJobs. persistentJobId=${this.persistentJobId}`);
       return;
     }
 
@@ -387,7 +330,7 @@ export class JobExecutor {
    * disconnecting from Supabase.
    */
   async stopAll(): Promise<void> {
-    this.cpoJobId = null;
+    this.persistentJobId = null;
 
     // Kill all remaining active tmux sessions and release slots
     for (const [jobId, job] of this.activeJobs) {
@@ -400,24 +343,28 @@ export class JobExecutor {
   }
 
   // ---------------------------------------------------------------------------
-  // Private: CPO persistent agent
+  // Private: Persistent agent (role-agnostic)
   // ---------------------------------------------------------------------------
 
   /**
-   * Handles a start_job for the CPO persistent agent (role === "cpo").
+   * Handles a start_job for a persistent agent (cardType === "persistent_agent").
    *
-   * Unlike regular jobs the CPO session:
+   * Unlike regular jobs the persistent session:
    *   - Runs Claude Code in interactive TUI mode (not -p print mode)
    *   - Has no poll/timeout timers — it runs indefinitely until StopJob
    *   - Receives inbound messages via handleMessageInbound (injected into tmux)
    *
-   * Before spawning, creates an agent workspace at ~/.zazigv2/cpo-workspace/
-   * with a .mcp.json that gives the CPO access to the zazig-messaging MCP server.
+   * Before spawning, creates an agent workspace at ~/.zazigv2/{role}-workspace/
+   * with a .mcp.json that gives the agent access to the zazig-messaging MCP server.
+   * CLAUDE.md content comes from msg.context (pre-assembled by orchestrator).
    */
-  private async handleStartCpo(jobId: string, slotType: SlotType): Promise<void> {
+  private async handlePersistentJob(jobId: string, msg: StartJob, slotType: SlotType): Promise<void> {
+    const role = msg.role ?? "agent";
+    const workspaceDir = join(homedir(), ".zazigv2", `${role}-workspace`);
+
     // --- Create agent workspace with .mcp.json ---
     try {
-      mkdirSync(CPO_WORKSPACE_DIR, { recursive: true });
+      mkdirSync(workspaceDir, { recursive: true });
 
       // Resolve path to the compiled agent-mcp-server.js relative to this file's dist/ location
       const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -438,20 +385,19 @@ export class JobExecutor {
       };
 
       writeFileSync(
-        join(CPO_WORKSPACE_DIR, ".mcp.json"),
+        join(workspaceDir, ".mcp.json"),
         JSON.stringify(mcpConfig, null, 2),
       );
 
-      // Write CLAUDE.md with messaging instructions so the CPO knows how to
-      // handle inbound messages and reply via the send_message MCP tool.
+      // Write CLAUDE.md with context from the orchestrator (pre-assembled)
       writeFileSync(
-        join(CPO_WORKSPACE_DIR, "CLAUDE.md"),
-        CPO_MESSAGING_INSTRUCTIONS,
+        join(workspaceDir, "CLAUDE.md"),
+        msg.context ?? "",
       );
 
-      // Write .claude/settings.json to auto-approve the MCP tool so the CPO
-      // can reply to messages without manual permission prompts.
-      const claudeSettingsDir = join(CPO_WORKSPACE_DIR, ".claude");
+      // Write .claude/settings.json to auto-approve all MCP tools so the agent
+      // can operate without manual permission prompts.
+      const claudeSettingsDir = join(workspaceDir, ".claude");
       mkdirSync(claudeSettingsDir, { recursive: true });
       writeFileSync(
         join(claudeSettingsDir, "settings.json"),
@@ -459,33 +405,58 @@ export class JobExecutor {
           permissions: {
             allow: [
               "mcp__zazig-messaging__send_message",
+              "mcp__zazig-messaging__create_feature",
+              "mcp__zazig-messaging__update_feature",
+              "mcp__zazig-messaging__query_projects",
             ],
           },
         }, null, 2),
       );
 
-      console.log(`[executor] CPO workspace created at ${CPO_WORKSPACE_DIR}`);
+      // Persist context to DB for observability (fire-and-forget)
+      this.supabase
+        .from("jobs")
+        .update({ prompt_stack: msg.context ?? "" })
+        .eq("id", jobId)
+        .then(({ error }) => {
+          if (error) console.warn(`[executor] Failed to save prompt_stack for jobId=${jobId}: ${error.message}`);
+        });
+
+      console.log(`[executor] Persistent agent workspace created at ${workspaceDir}`);
     } catch (err) {
-      console.error(`[executor] CPO: failed to create workspace:`, err);
+      console.error(`[executor] Persistent agent: failed to create workspace:`, err);
       this.slots.release(slotType);
-      await this.sendJobFailed(jobId, `Failed to create CPO workspace: ${String(err)}`, "agent_crash");
+      await this.sendJobFailed(jobId, `Failed to create agent workspace: ${String(err)}`, "agent_crash");
       return;
     }
 
-    // --- Spawn the persistent CPO tmux session in the workspace directory ---
-    let sessionName: string;
+    // --- Spawn the persistent tmux session in the workspace directory ---
+    const sessionName = `${this.machineId}-${role}`;
     try {
-      sessionName = await spawnPersistentCpoSession(this.machineId, CPO_WORKSPACE_DIR);
+      // Kill any stale session from a previous run
+      await killTmuxSession(sessionName);
+
+      const shellCmd = `unset CLAUDECODE; claude --model claude-opus-4-6`;
+      const tmuxArgs = [
+        "new-session",
+        "-d",
+        "-s", sessionName,
+        "-c", workspaceDir,
+        shellCmd,
+      ];
+      await execFileAsync("tmux", tmuxArgs);
+
+      console.log(`[executor] Spawned persistent ${role} session: ${sessionName} (cwd=${workspaceDir})`);
     } catch (err) {
-      console.error(`[executor] CPO: failed to spawn tmux session:`, err);
+      console.error(`[executor] Persistent agent: failed to spawn tmux session:`, err);
       this.slots.release(slotType);
-      await this.sendJobFailed(jobId, `Failed to start CPO session: ${String(err)}`, "agent_crash");
+      await this.sendJobFailed(jobId, `Failed to start agent session: ${String(err)}`, "agent_crash");
       return;
     }
 
-    this.cpoJobId = jobId;
+    this.persistentJobId = jobId;
 
-    // Track in activeJobs (no poll/timeout timers — CPO runs indefinitely)
+    // Track in activeJobs (no poll/timeout timers — persistent agent runs indefinitely)
     this.activeJobs.set(jobId, {
       jobId,
       slotType,
@@ -499,7 +470,7 @@ export class JobExecutor {
     });
 
     await this.sendJobStatus(jobId, "executing");
-    console.log(`[executor] CPO session=${sessionName} ready — jobId=${jobId}`);
+    console.log(`[executor] Persistent ${role} session=${sessionName} ready — jobId=${jobId}`);
   }
 
   // ---------------------------------------------------------------------------
@@ -521,8 +492,8 @@ export class JobExecutor {
     this.activeJobs.delete(jobId);
 
     // Clear CPO job ID if this is the CPO job
-    if (jobId === this.cpoJobId) {
-      this.cpoJobId = null;
+    if (jobId === this.persistentJobId) {
+      this.persistentJobId = null;
     }
 
     // Kill the tmux session (best-effort)
@@ -612,8 +583,8 @@ export class JobExecutor {
     this.activeJobs.delete(jobId);
 
     // Clear CPO job ID if this is the CPO job (should not time out, but handle defensively)
-    if (jobId === this.cpoJobId) {
-      this.cpoJobId = null;
+    if (jobId === this.persistentJobId) {
+      this.persistentJobId = null;
     }
 
     await killTmuxSession(job.sessionName);
@@ -650,8 +621,8 @@ export class JobExecutor {
     this.slots.release(job.slotType);
 
     // Clear CPO job ID if the CPO session exited unexpectedly
-    if (jobId === this.cpoJobId) {
-      this.cpoJobId = null;
+    if (jobId === this.persistentJobId) {
+      this.persistentJobId = null;
     }
 
     // Atomically claim the shared report file by renaming it to a per-job path.
@@ -738,7 +709,7 @@ export class JobExecutor {
    * If the session just started, waits for CPO_STARTUP_DELAY_MS to let Claude Code initialize.
    */
   private async injectMessage(message: string): Promise<void> {
-    const cpoJob = this.cpoJobId ? this.activeJobs.get(this.cpoJobId) : null;
+    const cpoJob = this.persistentJobId ? this.activeJobs.get(this.persistentJobId) : null;
     if (!cpoJob) {
       console.warn("[executor] injectMessage: no CPO job — dropping message");
       return;
@@ -1079,45 +1050,6 @@ async function isTmuxSessionAlive(sessionName: string): Promise<boolean> {
   }
 }
 
-/**
- * Spawn a persistent Claude Code session in interactive REPL mode for the CPO role.
- *
- * Unlike job sessions (which use `claude -p` and exit after completion), the CPO
- * session runs the interactive Claude Code TUI and stays alive indefinitely,
- * receiving inbound messages via `tmux send-keys` from handleMessageInbound.
- *
- * Session name: `{machineId}-cpo`
- * Model: claude-opus-4-6 (reasoning-grade for product decisions)
- *
- * If a session with the same name already exists it is killed first (clean restart).
- *
- * @param machineId Machine identifier for session naming.
- * @param workingDir Optional working directory — Claude Code picks up .mcp.json from cwd.
- * @returns The tmux session name (`{machineId}-cpo`)
- */
-export async function spawnPersistentCpoSession(machineId: string, workingDir?: string): Promise<string> {
-  const sessionName = `${machineId}-cpo`;
-
-  // Kill any stale session from a previous run
-  await killTmuxSession(sessionName);
-
-  // Claude Code interactive TUI — no -p flag, stays in REPL
-  // Model flag selects opus-4-6 for CPO-grade reasoning
-  const shellCmd = `unset CLAUDECODE; claude --model claude-opus-4-6`;
-
-  const tmuxArgs = [
-    "new-session",
-    "-d",             // detached
-    "-s", sessionName,
-    ...(workingDir ? ["-c", workingDir] : []),
-    shellCmd,
-  ];
-
-  await execFileAsync("tmux", tmuxArgs);
-
-  console.log(`[executor] Spawned persistent CPO session: ${sessionName}${workingDir ? ` (cwd=${workingDir})` : ""}`);
-  return sessionName;
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

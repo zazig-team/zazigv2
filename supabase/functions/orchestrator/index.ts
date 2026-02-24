@@ -610,6 +610,27 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       }
     }
 
+    // For persistent_agent jobs: assemble the full CLAUDE.md content here
+    // so the executor can write it directly as CLAUDE.md (no assembly in the local agent).
+    let assembledContext: string | undefined;
+    if (job.job_type === "persistent_agent") {
+      const roleName = job.role ?? "Agent";
+      const parts: string[] = [`# ${roleName.toUpperCase()}`];
+      if (personalityPrompt) parts.push(personalityPrompt);
+      parts.push("---");
+      if (rolePrompt) parts.push(rolePrompt);
+      assembledContext = parts.join("\n\n");
+
+      // Write to prompt_stack for observability (fire-and-forget)
+      supabase
+        .from("jobs")
+        .update({ prompt_stack: assembledContext })
+        .eq("id", job.id)
+        .then(({ error }) => {
+          if (error) console.warn(`[orchestrator] Failed to save prompt_stack for jobId=${job.id}: ${error.message}`);
+        });
+    }
+
     // Build the StartJob message.
     const startJobMsg: StartJob = {
       type: "start_job",
@@ -620,14 +641,13 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       complexity: (job.complexity as StartJob["complexity"]) ?? "medium",
       slotType,
       model,
-      context: job.context ?? undefined,
+      context: assembledContext ?? job.context ?? undefined,
       // Include role for role-based jobs (persistent agents, specialized reviewers)
       ...(job.role ? { role: job.role } : {}),
-      // Personality prompt for 4-layer context assembly (Layer 1+2+3 compiled)
-      ...(personalityPrompt ? { personalityPrompt } : {}),
-      // Role prompt + skills for 4-layer context assembly (non-codex only)
-      ...(rolePrompt ? { rolePrompt } : {}),
-      ...(roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),
+      // For non-persistent jobs, still send the separate layers for assembleContext()
+      ...(job.job_type !== "persistent_agent" && personalityPrompt ? { personalityPrompt } : {}),
+      ...(job.job_type !== "persistent_agent" && rolePrompt ? { rolePrompt } : {}),
+      ...(job.job_type !== "persistent_agent" && roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),
     };
 
     // Broadcast StartJob via Supabase Realtime on the machine's command channel.

@@ -39,19 +39,21 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-const CONTRACTOR_ROLES = ["project-architect", "breakdown-specialist", "monitoring-agent"] as const;
+const CONTRACTOR_ROLES = ["project-architect", "breakdown-specialist", "monitoring-agent", "verification-specialist"] as const;
 type ContractorRole = typeof CONTRACTOR_ROLES[number];
 
 const ROLE_JOB_TITLES: Record<ContractorRole, string> = {
   "project-architect": "Structure project into features",
   "breakdown-specialist": "Break down feature into jobs",
   "monitoring-agent": "Automated codebase scan",
+  "verification-specialist": "Verify feature acceptance criteria",
 };
 
 const ROLE_JOB_TYPES: Record<ContractorRole, string> = {
   "project-architect": "design",
   "breakdown-specialist": "breakdown",
   "monitoring-agent": "research",
+  "verification-specialist": "verify",
 };
 
 // ---------------------------------------------------------------------------
@@ -93,10 +95,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: "project_id is required" }, 400);
     }
 
-    // breakdown-specialist requires feature_id (they break down a specific feature)
-    if (role === "breakdown-specialist" && !feature_id) {
+    // breakdown-specialist and verification-specialist require feature_id
+    if ((role === "breakdown-specialist" || role === "verification-specialist") && !feature_id) {
       return jsonResponse(
-        { error: "feature_id is required for breakdown-specialist" },
+        { error: `feature_id is required for ${role}` },
         400,
       );
     }

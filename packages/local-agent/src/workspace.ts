@@ -44,6 +44,7 @@ export const ROLE_ALLOWED_TOOLS: Record<string, string[]> = {
   "senior-engineer": ["query_features"],
   reviewer: ["query_features"],
   "monitoring-agent": ["send_message"],
+  "verification-specialist": ["query_features", "query_jobs", "batch_create_jobs", "commission_contractor"],
   "job-combiner": [],
   deployer: [],
 };

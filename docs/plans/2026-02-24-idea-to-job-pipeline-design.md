@@ -1163,7 +1163,7 @@ Feature created with full Gherkin acceptance criteria (200 status check, JSON bo
 
 **What it proved:** A contractor can be commissioned, dispatched, execute with MCP tools (creating real projects and features in the DB), produce a report, and complete cleanly. The first link of Entry Point A works end-to-end.
 
-**What remains for full chain:** Orchestrator auto-chaining (architect completion → auto-commission breakdown specialist → jobs → execute). CPO persistent agent as the human-facing entry point.
+**What remains for full chain:** The orchestrator auto-chaining is already wired — `processReadyForBreakdown` scans for features with `status: ready_for_breakdown` and calls `triggerBreakdown` on each dispatch cycle. The intentional manual step is the CPO reviewing the architect's feature outlines and setting `ready_for_breakdown` when satisfied. After that, the full chain is automatic: breakdown → jobs dispatch (DAG) → execute → code review → verification → test deploy → human approval → prod deploy → complete. The only missing piece is the **CPO persistent agent** as the human-facing entry point (Chris's WIP).
 
 ### All Tests Complete
 

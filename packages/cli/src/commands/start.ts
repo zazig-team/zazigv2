@@ -11,6 +11,7 @@
  */
 
 import { hostname } from "node:os";
+import { execSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { getValidCredentials } from "../lib/credentials.js";
 import { configExists, loadConfig, saveConfig } from "../lib/config.js";
@@ -32,17 +33,25 @@ function generateMachineName(): string {
   return raw.replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "") || "my-machine";
 }
 
-async function promptForConfig(): Promise<void> {
+async function promptForConfig(codexInstalled: boolean): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
   console.log("zazig: first run — let's configure this machine.\n");
 
   try {
     const claudeAns = await rl.question("Max concurrent Claude Code sessions [4]: ");
-    const codexAns  = await rl.question("Max concurrent Codex sessions [4]: ");
-
     const claudeCount = parseInt(claudeAns.trim(), 10) || 4;
-    const codexCount  = parseInt(codexAns.trim(),  10) || 4;
+
+    let codexCount = 0;
+    if (codexInstalled) {
+      const codexAns = await rl.question("Max concurrent Codex sessions [4]: ");
+      codexCount = parseInt(codexAns.trim(), 10) || 4;
+    } else {
+      console.log("\nCodex CLI is not installed — Codex slots set to 0.");
+      console.log("To enable Codex agents later, install it:");
+      console.log("  npm install -g @openai/codex\n");
+    }
+
     const name = generateMachineName();
 
     saveConfig({
@@ -59,6 +68,29 @@ async function promptForConfig(): Promise<void> {
 }
 
 export async function start(): Promise<void> {
+  // Check prerequisites
+  let claudeInstalled = false;
+  try {
+    execSync("claude --version", { stdio: "pipe" });
+    claudeInstalled = true;
+  } catch { /* not installed */ }
+
+  if (!claudeInstalled) {
+    console.error("Claude Code is not installed.");
+    console.error("zazig requires Claude Code to run AI coding agents.\n");
+    console.error("Install it:");
+    console.error("  npm install -g @anthropic-ai/claude-code\n");
+    console.error("Then authenticate:  claude login\n");
+    process.exitCode = 1;
+    return;
+  }
+
+  let codexInstalled = false;
+  try {
+    execSync("codex --version", { stdio: "pipe" });
+    codexInstalled = true;
+  } catch { /* not installed */ }
+
   // Require credentials (auto-refreshes expired token)
   let creds;
   try {
@@ -71,7 +103,7 @@ export async function start(): Promise<void> {
 
   // First-run config
   if (!configExists()) {
-    await promptForConfig();
+    await promptForConfig(codexInstalled);
   }
 
   const config = loadConfig();
@@ -106,7 +138,7 @@ export async function start(): Promise<void> {
   await sleep(1500);
 
   if (isRunning(pid)) {
-    console.log(`Agent started (PID ${pid}).`);
+    console.log("Zazig started successfully.");
     console.log(`Logs: ${LOG_PATH}`);
   } else {
     console.error(`Agent failed to start. Check ${LOG_PATH}`);

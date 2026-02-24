@@ -30,8 +30,9 @@ export async function login(): Promise<void> {
     process.exit(1);
   }
 
-  // 2. Find an available port
-  const port = await findAvailablePort(54321);
+  // 2. Find an available port. Prefer 3000 because Supabase's site_url
+  //    (the fallback redirect) points to 127.0.0.1:3000.
+  const port = await findAvailablePort(3000);
 
   // 3. Start local callback server
   let resolveCallback: (tokens: {
@@ -45,29 +46,34 @@ export async function login(): Promise<void> {
     resolveCallback = resolve;
   });
 
-  const server = http.createServer((req, res) => {
-    const url = new URL(req.url!, `http://localhost:${port}`);
-
-    if (url.pathname === "/callback") {
-      // Supabase puts tokens in the URL hash fragment. Serve a page that
-      // reads the hash and POSTs the tokens back to our local server.
-      res.writeHead(200, { "Content-Type": "text/html" });
-      res.end(`<!DOCTYPE html>
+  // HTML page that reads tokens from the URL hash and POSTs them back.
+  const callbackHtml = `<!DOCTYPE html>
 <html><body>
 <p>Login successful &mdash; you can close this tab.</p>
 <script>
 const hash = window.location.hash.substring(1);
 const params = new URLSearchParams(hash);
-fetch('/token', {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({
-    access_token: params.get('access_token'),
-    refresh_token: params.get('refresh_token'),
-  })
-});
+const at = params.get('access_token');
+const rt = params.get('refresh_token');
+if (at && rt) {
+  fetch('/token', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ access_token: at, refresh_token: rt })
+  });
+} else {
+  document.body.innerHTML = '<p>Login failed &mdash; no tokens received.</p>';
+}
 </script>
-</body></html>`);
+</body></html>`;
+
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url!, `http://127.0.0.1:${port}`);
+
+    if (url.pathname === "/" || url.pathname === "/callback") {
+      // Handle both root (site_url fallback) and /callback (explicit redirect_to)
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(callbackHtml);
     } else if (url.pathname === "/token" && req.method === "POST") {
       let body = "";
       req.on("data", (chunk: Buffer) => {
@@ -93,10 +99,11 @@ fetch('/token', {
     }
   });
 
-  await new Promise<void>((resolve) => server.listen(port, resolve));
+  // Bind to 127.0.0.1 to match Supabase site_url (127.0.0.1:3000)
+  await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
 
   // 4. Send magic link
-  const redirectTo = `http://localhost:${port}/callback`;
+  const redirectTo = `http://127.0.0.1:${port}/callback`;
 
   const resp = await fetch(`${supabaseUrl}/auth/v1/magiclink`, {
     method: "POST",
@@ -123,9 +130,10 @@ fetch('/token', {
   try {
     tokens = await Promise.race([
       callbackPromise,
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Login timed out")), timeoutMs)
-      ),
+      new Promise<never>((_, reject) => {
+        const t = setTimeout(() => reject(new Error("Login timed out")), timeoutMs);
+        t.unref(); // Don't keep the process alive after login succeeds
+      }),
     ]);
   } catch (err) {
     server.close();
@@ -148,14 +156,14 @@ fetch('/token', {
 function findAvailablePort(preferredPort: number): Promise<number> {
   return new Promise((resolve) => {
     const server = http.createServer();
-    server.listen(preferredPort, () => {
+    server.listen(preferredPort, "127.0.0.1", () => {
       const addr = server.address() as { port: number };
       server.close(() => resolve(addr.port));
     });
     server.on("error", () => {
       // Preferred port taken — use any available port
       const s = http.createServer();
-      s.listen(0, () => {
+      s.listen(0, "127.0.0.1", () => {
         const addr = s.address() as { port: number };
         s.close(() => resolve(addr.port));
       });

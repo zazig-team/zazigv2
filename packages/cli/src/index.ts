@@ -14,6 +14,7 @@
  */
 
 import { login } from "./commands/login.js";
+import { logout } from "./commands/logout.js";
 import { setup } from "./commands/setup.js";
 import { start } from "./commands/start.js";
 import { stop } from "./commands/stop.js";
@@ -25,6 +26,10 @@ const [, , cmd, ...args] = process.argv;
 switch (cmd) {
   case "login":
     await login();
+    break;
+
+  case "logout":
+    logout();
     break;
 
   case "setup":
@@ -55,6 +60,7 @@ switch (cmd) {
     console.log("");
     console.log("Commands:");
     console.log("  login              Log in to zazig via browser");
+    console.log("  logout             Log out and remove stored credentials");
     console.log("  setup              Create a company, onboard a project, invite teammates");
     console.log("  start              Start the local agent daemon in the background");
     console.log("  stop               Stop the running daemon");

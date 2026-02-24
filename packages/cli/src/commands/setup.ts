@@ -9,12 +9,47 @@
 
 import { createInterface } from "node:readline/promises";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { join } from "node:path";
+import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { getValidCredentials } from "../lib/credentials.js";
-import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
+import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 
 export async function setup(): Promise<void> {
+  // Step 0: Check prerequisites
+  let ghInstalled = false;
+  try {
+    execSync("gh --version", { stdio: "pipe" });
+    ghInstalled = true;
+  } catch { /* not installed */ }
+
+  if (!ghInstalled) {
+    console.log("\nGitHub CLI (gh) is not installed.");
+    console.log("zazig uses gh to create and manage GitHub repositories during setup.\n");
+    console.log("Install it:");
+    console.log("  macOS:   brew install gh");
+    console.log("  Linux:   https://github.com/cli/cli/blob/trunk/docs/install_linux.md");
+    console.log("  Windows: winget install --id GitHub.cli\n");
+    console.log("Then authenticate:  gh auth login\n");
+    process.exitCode = 1;
+    return;
+  }
+
+  let ghAuthed = false;
+  try {
+    execSync("gh auth status", { stdio: "pipe" });
+    ghAuthed = true;
+  } catch { /* not authenticated */ }
+
+  if (!ghAuthed) {
+    console.log("\nGitHub CLI is installed but not authenticated.");
+    console.log("Run:  gh auth login\n");
+    process.exitCode = 1;
+    return;
+  }
+
   // Step 1: Require auth
   let creds;
   try {
@@ -27,13 +62,42 @@ export async function setup(): Promise<void> {
 
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
   const supabase = createClient(creds.supabaseUrl, anonKey);
-  await supabase.auth.setSession({
+  const { error: sessionError } = await supabase.auth.setSession({
     access_token: creds.accessToken,
     refresh_token: creds.refreshToken,
   });
 
+  if (sessionError) {
+    console.error(`Authentication failed: ${sessionError.message}`);
+    console.error("Try running 'zazig login' again.");
+    process.exitCode = 1;
+    return;
+  }
+
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
+    // Check for pending invites
+    const { data: pendingInvites } = await supabase.rpc("get_my_pending_invites");
+    if (pendingInvites && pendingInvites.length > 0) {
+      console.log("\nYou have pending invites:");
+      for (const inv of pendingInvites as Array<{ invite_id: string; company_name: string }>) {
+        const answer = (
+          await rl.question(`  Join "${inv.company_name}"? [y/n]: `)
+        ).trim().toLowerCase();
+        if (answer === "y" || answer === "yes") {
+          const { error } = await supabase.rpc("accept_invite", { p_invite_id: inv.invite_id });
+          if (error) {
+            console.error(`    Failed: ${error.message}`);
+          } else {
+            console.log(`    Joined ${inv.company_name}`);
+          }
+        } else {
+          await supabase.rpc("decline_invite", { p_invite_id: inv.invite_id });
+          console.log(`    Declined.`);
+        }
+      }
+    }
+
     // Step 2: Ask what to do
     console.log("\nWhat would you like to do?");
     console.log("  1. Create a new company");
@@ -94,33 +158,38 @@ export async function setup(): Promise<void> {
       }
 
       const { data: { user } } = await supabase.auth.getUser();
-      const { data: company, error } = await supabase
-        .from("companies")
-        .insert({ name, created_by: user?.id })
-        .select("id, name")
-        .single();
-
-      if (error || !company) {
-        console.error(
-          `Failed to create company: ${error?.message ?? "unknown error"}`
-        );
+      if (!user) {
+        console.error("Could not resolve authenticated user. Try 'zazig login' again.");
         process.exitCode = 1;
         return;
       }
 
-      companyId = company.id;
-      companyName = company.name;
-      console.log(`\nCompany "${companyName}" created.`);
+      // Generate UUID client-side to avoid needing a RETURNING clause.
+      // PostgREST's RETURNING requires the SELECT policy to pass, but the
+      // user_companies link doesn't exist yet at insert time.
+      const newCompanyId = randomUUID();
+
+      const { error } = await supabase
+        .from("companies")
+        .insert({ id: newCompanyId, name, created_by: user.id });
+
+      if (error) {
+        console.error(`Failed to create company: ${error.message}`);
+        process.exitCode = 1;
+        return;
+      }
 
       // Link the authenticated user to the new company
-      if (user) {
-        const { error: memberErr } = await supabase
-          .from("user_companies")
-          .insert({ user_id: user.id, company_id: company.id });
-        if (memberErr) {
-          console.error(`Warning: could not link you to company: ${memberErr.message}`);
-        }
+      const { error: memberErr } = await supabase
+        .from("user_companies")
+        .insert({ user_id: user.id, company_id: newCompanyId });
+      if (memberErr) {
+        console.error(`Warning: could not link you to company: ${memberErr.message}`);
       }
+
+      companyId = newCompanyId;
+      companyName = name;
+      console.log(`\nCompany "${companyName}" created.`);
     }
 
     // Step 4: Create project
@@ -131,25 +200,149 @@ export async function setup(): Promise<void> {
       return;
     }
 
-    // Git remote URL for storage in the DB
+    // Git repo — create new or link existing
     let repoUrl: string | undefined;
-    while (true) {
-      const urlInput = (
-        await rl.question("Git remote URL (e.g. https://github.com/org/repo, or press Enter to skip): ")
-      ).trim();
-      if (!urlInput) break;
-      if (urlInput.startsWith("http://") || urlInput.startsWith("https://") || urlInput.startsWith("git@")) {
-        repoUrl = urlInput;
-        break;
+    console.log("\nGit repository:");
+    console.log("  1. Create a new GitHub repo");
+    console.log("  2. Use an existing repo URL");
+    console.log("  3. Skip");
+    const repoChoice = (await rl.question("\nChoice [1/2/3]: ")).trim();
+
+    if (repoChoice === "1") {
+      const defaultName = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const repoName = (
+        await rl.question(`Repo name [${defaultName}]: `)
+      ).trim() || defaultName;
+
+      // Detect GitHub orgs the user belongs to
+      let orgList: string[] = [];
+      try {
+        const orgsJson = execSync("gh api user/orgs --jq '.[].login'", { encoding: "utf-8" }).trim();
+        if (orgsJson) orgList = orgsJson.split("\n").filter(Boolean);
+      } catch { /* no orgs or gh issue — fall through to personal */ }
+
+      let owner = "";
+      if (orgList.length > 0) {
+        console.log("\nCreate under:");
+        console.log("  1. Personal account");
+        for (let i = 0; i < orgList.length; i++) {
+          console.log(`  ${i + 2}. ${orgList[i]}`);
+        }
+        const ownerIdx = parseInt(
+          (await rl.question(`Choice [1-${orgList.length + 1}]: `)).trim(), 10
+        );
+        if (ownerIdx >= 2 && ownerIdx <= orgList.length + 1) {
+          owner = orgList[ownerIdx - 2]! + "/";
+        }
       }
-      console.error("Invalid URL — must start with http://, https://, or git@. Try again.");
+
+      try {
+        const result = execSync(
+          `gh repo create ${owner}${repoName} --private --clone=false`,
+          { encoding: "utf-8" }
+        ).trim();
+        // gh repo create prints the URL
+        repoUrl = result.match(/https:\/\/github\.com\/\S+/)?.[0] ?? result;
+        console.log(`Repository created: ${repoUrl}`);
+      } catch (err) {
+        console.error(`Failed to create repo: ${String(err)}`);
+        console.error("Continuing without a repo URL.");
+      }
+    } else if (repoChoice === "2") {
+      // Pick an account/org first, then show repos under it
+      let ghUser = "";
+      try {
+        ghUser = execSync("gh api user --jq '.login'", { encoding: "utf-8" }).trim();
+      } catch { /* ignore */ }
+
+      let orgList: string[] = [];
+      try {
+        const orgsRaw = execSync("gh api user/orgs --jq '.[].login'", { encoding: "utf-8" }).trim();
+        if (orgsRaw) orgList = orgsRaw.split("\n").filter(Boolean);
+      } catch { /* ignore */ }
+
+      let selectedOwner = ghUser;
+      if (orgList.length > 0) {
+        console.log("\nShow repos for:");
+        if (ghUser) console.log(`  1. ${ghUser} (personal)`);
+        for (let i = 0; i < orgList.length; i++) {
+          console.log(`  ${(ghUser ? 2 : 1) + i}. ${orgList[i]}`);
+        }
+        const manualIdx = (ghUser ? 2 : 1) + orgList.length;
+        console.log(`  ${manualIdx}. Enter URL manually`);
+        const ownerIdx = parseInt(
+          (await rl.question(`\nChoice [1-${manualIdx}]: `)).trim(), 10
+        );
+        if (ghUser && ownerIdx === 1) {
+          selectedOwner = ghUser;
+        } else if (ownerIdx === manualIdx) {
+          // Manual entry
+          const urlInput = (await rl.question("Git remote URL: ")).trim();
+          if (urlInput) repoUrl = urlInput;
+          selectedOwner = ""; // skip repo listing
+        } else {
+          const orgIdx = ownerIdx - (ghUser ? 2 : 1);
+          if (orgIdx >= 0 && orgIdx < orgList.length) {
+            selectedOwner = orgList[orgIdx]!;
+          }
+        }
+      }
+
+      if (selectedOwner && !repoUrl) {
+        let repos: Array<{ name: string; url: string }> = [];
+        try {
+          const raw = execSync(
+            `gh repo list ${selectedOwner} --limit 30 --json name,url --jq '.[] | "\\(.name)\\t\\(.url)"'`,
+            { encoding: "utf-8" }
+          ).trim();
+          if (raw) {
+            repos = raw.split("\n").map((line) => {
+              const [name, url] = line.split("\t");
+              return { name: name!, url: url! };
+            });
+          }
+        } catch { /* fall through to manual */ }
+
+        if (repos.length > 0) {
+          console.log(`\nRepos in ${selectedOwner}:`);
+          for (let i = 0; i < repos.length; i++) {
+            console.log(`  [${i + 1}] ${repos[i]!.name}`);
+          }
+          console.log(`  [${repos.length + 1}] Enter URL manually`);
+          const repoIdx = parseInt(
+            (await rl.question(`\nChoice [1-${repos.length + 1}]: `)).trim(), 10
+          );
+          if (repoIdx >= 1 && repoIdx <= repos.length) {
+            repoUrl = repos[repoIdx - 1]!.url;
+            console.log(`Selected: ${repoUrl}`);
+          } else if (repoIdx === repos.length + 1) {
+            const urlInput = (await rl.question("Git remote URL: ")).trim();
+            if (urlInput) repoUrl = urlInput;
+          }
+        } else {
+          console.log(`\nNo repos found under ${selectedOwner}.`);
+          const urlInput = (
+            await rl.question("Git remote URL (or press Enter to skip): ")
+          ).trim();
+          if (urlInput) repoUrl = urlInput;
+        }
+      }
     }
 
     // Local repo path — used only for reading context files, NOT stored in DB
+    // Default to ~/Documents/GitHub/<repo-name> if we can infer a repo name
+    let defaultLocalPath: string | undefined;
+    if (repoUrl) {
+      const repoName = repoUrl.replace(/\.git$/, "").split("/").pop();
+      if (repoName) {
+        defaultLocalPath = join(homedir(), "Documents", "GitHub", repoName);
+      }
+    }
+    const localPathPrompt = defaultLocalPath
+      ? `Local repo path [${defaultLocalPath}]: `
+      : "Local repo path for context reading (or press Enter to skip): ";
     const localRepoPath =
-      (
-        await rl.question("Local repo path for context reading (or press Enter to skip): ")
-      ).trim() || undefined;
+      (await rl.question(localPathPrompt)).trim() || defaultLocalPath;
 
     // Read repo context if local path given
     let repoContext = "";
@@ -251,16 +444,16 @@ export async function setup(): Promise<void> {
       ).trim();
     }
 
-    // Insert project
-    const { data: project, error: projError } = await supabase
+    // Insert project (same pattern: client-side UUID to avoid RETURNING + SELECT policy conflict)
+    const newProjectId = randomUUID();
+    const { error: projError } = await supabase
       .from("projects")
       .insert({
+        id: newProjectId,
         company_id: companyId,
         name: projectName,
         repo_url: repoUrl,
-      })
-      .select("id")
-      .single();
+      });
 
     if (projError) {
       console.error(
@@ -270,21 +463,67 @@ export async function setup(): Promise<void> {
       return;
     }
 
-    console.log(`Project "${projectName}" created (id: ${project!.id}).`);
+    console.log(`Project "${projectName}" created (id: ${newProjectId}).`);
 
 
     // Step 5: Invite teammates
-    // TODO: Wire to an Edge Function when available — auth.admin requires service role key
-    console.log("\nTeammate invites require admin setup (service role key).");
-    console.log("To invite teammates, use the Supabase dashboard or set up the admin CLI.");
-    console.log("Skipping invite step.\n");
+    console.log("\nTeammates:");
+    console.log("  1. Invite teammates to the company");
+    console.log("  2. Skip for now");
+    const inviteChoice = (await rl.question("\nChoice [1/2]: ")).trim();
+
+    const supabaseUrl = creds.supabaseUrl;
+    const invitedEmails: string[] = [];
+
+    if (inviteChoice === "1") {
+    console.log("\nEnter email addresses (empty line to finish):");
+
+    while (true) {
+      const email = (await rl.question("  Email: ")).trim();
+      if (!email) break;
+      if (!email.includes("@")) {
+        console.error("    Invalid email, try again.");
+        continue;
+      }
+
+      // Insert invite record
+      const { error: invErr } = await supabase
+        .from("invites")
+        .insert({ company_id: companyId, email, invited_by: (await supabase.auth.getUser()).data.user!.id });
+
+      if (invErr) {
+        if (invErr.message.includes("duplicate")) {
+          console.log(`    ${email} already invited.`);
+        } else {
+          console.error(`    Failed to invite ${email}: ${invErr.message}`);
+        }
+        continue;
+      }
+
+      // Send magic link so they get an account when they click it
+      await fetch(`${supabaseUrl}/auth/v1/magiclink`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: anonKey,
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      invitedEmails.push(email);
+      console.log(`    Invited ${email}`);
+    }
+    }
 
     // Step 6: Done
     console.log("\n--- Setup complete! ---");
-    console.log(`  Company: ${companyName}`);
-    console.log(`  Project: ${projectName}`);
+    console.log(`  Company:  ${companyName}`);
+    console.log(`  Project:  ${projectName}`);
     if (projectBrief) {
-      console.log(`  Brief: ${projectBrief.split("\n")[0]?.slice(0, 80)}...`);
+      console.log(`  Brief:    ${projectBrief.split("\n")[0]?.slice(0, 80)}...`);
+    }
+    if (invitedEmails.length > 0) {
+      console.log(`  Invited:  ${invitedEmails.join(", ")}`);
     }
     console.log("\nRun 'zazig start' to begin.");
   } finally {

@@ -108,6 +108,12 @@ export interface Job {
   result: string | null;
 }
 
+// ---- Supabase defaults (public client keys — safe to embed) ----
+
+export const DEFAULT_SUPABASE_URL = "https://jmussmwglgbwncgygzbz.supabase.co";
+export const DEFAULT_SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0";
+
 // ---- Constants ----
 
 /**

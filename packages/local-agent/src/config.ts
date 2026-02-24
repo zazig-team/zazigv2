@@ -13,6 +13,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from "@zazigv2/shared";
 
 export interface SlotConfig {
   claude_code: number;
@@ -70,20 +71,9 @@ export function loadConfig(): MachineConfig {
     );
   }
 
-  // Supabase config — from env vars only
-  const supabaseUrl = process.env["SUPABASE_URL"];
-  if (!supabaseUrl) {
-    throw new Error(
-      "SUPABASE_URL env var not set. Run 'zazig start' (it sets this automatically)."
-    );
-  }
-
-  const anonKey = process.env["SUPABASE_ANON_KEY"];
-  if (!anonKey) {
-    throw new Error(
-      "SUPABASE_ANON_KEY env var not set. Set it via Doppler or export before starting."
-    );
-  }
+  // Supabase config — env vars with embedded defaults
+  const supabaseUrl = process.env["SUPABASE_URL"] ?? DEFAULT_SUPABASE_URL;
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
 
   const serviceRoleKey = process.env["SUPABASE_SERVICE_ROLE_KEY"];
   const accessToken    = process.env["SUPABASE_ACCESS_TOKEN"];

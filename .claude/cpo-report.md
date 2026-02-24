@@ -1,42 +1,52 @@
-# CPO Report — DAG Dispatch + CPO Notifications
+# CPO Report — Phase 5: Workspace Assembly
 
 ## Summary
-Added DAG-aware job dispatch, dependency-unblocking on completion, and CPO notification system to the orchestrator. Fixed breakdown specialist role name. All new functionality has passing tests.
+Added role-scoped workspace assembly to the zazigv2 executor so that ALL workers — persistent and ephemeral — get properly configured workspaces with role-scoped MCP tools, CLAUDE.md, and settings. Previously only persistent jobs got full workspace setup; ephemeral jobs ran bare `claude -p` with no MCP access.
 
 ## Agent Team Summary
-- **Team composition**: 2 agents (orchestrator-agent, test-agent) using general-purpose subagent type
-- **Contract chain**: orchestrator-agent (upstream, delivered function signatures) → test-agent (downstream, wrote tests against contracts)
+- **Team composition**: 3 agents (workspace-module, executor-integration, test-writer), all general-purpose
+- **Contract chain**: workspace-module → executor-integration → test-writer
+  - workspace-module delivered: `WorkspaceConfig` interface, `generateMcpConfig()`, `generateAllowedTools()`, `setupJobWorkspace()` exports
+  - executor-integration consumed those exports to refactor handlePersistentJob and add ephemeral workspace setup
+  - test-writer consumed both to write 20 tests (9 workspace + 11 executor)
 - **Files per teammate**:
-  - orchestrator-agent: `supabase/functions/orchestrator/index.ts`
-  - test-agent: `supabase/functions/orchestrator/orchestrator.test.ts`
-- **Agent Teams value assessment**: Clean split with zero merge conflicts. Contract-first delivery worked well — test-agent received exact function signatures from orchestrator-agent. The 2-agent setup was appropriate for this scope. Team lead fixed pre-existing test mismatches that the test-agent flagged.
+  - workspace-module: `packages/local-agent/src/workspace.ts` (new)
+  - executor-integration: `packages/local-agent/src/executor.ts` (modified)
+  - test-writer: `packages/local-agent/src/workspace.test.ts` (new), `packages/local-agent/src/executor.test.ts` (modified)
+- **Agent Teams value assessment**: Moderate value — the task had clear layer boundaries that made parallel work feasible. The workspace-module agent could work independently, and the test-writer could start on workspace.test.ts while executor-integration was still working. The sequential dependency for executor.test.ts additions meant full parallelism wasn't achievable.
 
 ## Changes
 
-### `supabase/functions/orchestrator/index.ts` (+225 lines)
-- **DAG dispatch** (lines 454-473): `dispatchQueuedJobs` now checks `depends_on` arrays before dispatching. Jobs with unfinished dependencies are skipped with a log message.
-- **`checkUnblockedJobs`** (lines 1172-1214): New exported function. When a job completes, queries for queued jobs in the same feature that reference the completed job in `depends_on`, then checks if ALL their dependencies are now complete.
-- **`notifyCPO`** (lines 1224-1286): New exported function. Finds the active CPO job, resolves its machine name, and sends a `MessageInbound` via Supabase Realtime broadcast.
-- **CPO notification on breakdown complete** (lines 954-975): After breakdown job finishes, notifies CPO with job count and dispatchable count.
-- **CPO notification on project-architect complete** (lines 978-996): After project structuring, notifies CPO with feature count.
-- **CPO notification on verification failure** (lines 1307-1325): On failed verification, notifies CPO with test output snippet.
-- **`depends_on` on JobRow interface** (line 91): Added to type and SELECT query.
-- **Role fix** (line 2010): Changed `triggerBreakdown` role from `"feature-breakdown-expert"` to `"breakdown-specialist"` to match migration 040.
-- **Integration**: `checkUnblockedJobs` called in `handleJobComplete` (line 903) and `handleVerifyResult` (line 1358).
+### packages/local-agent/src/workspace.ts (NEW)
+- `WorkspaceConfig` interface — configuration for workspace setup
+- `ROLE_ALLOWED_TOOLS` constant — maps 8 roles to their allowed MCP tool names
+- `generateMcpConfig()` — returns `.mcp.json` structure for zazig-messaging MCP server
+- `generateAllowedTools()` — returns `mcp__zazig-messaging__`-prefixed tool names for a role
+- `setupJobWorkspace()` — creates complete workspace directory: `.mcp.json`, `CLAUDE.md`, `.claude/settings.json`, skill files
 
-### `supabase/functions/orchestrator/orchestrator.test.ts` (+420/-115 lines)
-- **7 new tests**: checkUnblockedJobs (3 tests: all-deps-complete, partial-incomplete, no-candidates), notifyCPO (2 tests: sends message, no active CPO), triggerBreakdown role fix, handleVerifyResult CPO notification
-- **Mock enhancements**: Added `contains`, `neq`, `head` to smart mock method list
-- **Pre-existing test fixes**: Fixed 6 tests with wrong status expectations (`verify_failed`→`queued`, `done`→`complete`), removed reference to non-existent `triggerStandaloneVerification` function, adjusted chain count assertions for new checkUnblockedJobs integration
+### packages/local-agent/src/executor.ts (MODIFIED)
+- Added `import { setupJobWorkspace } from "./workspace.js"`
+- Refactored `handlePersistentJob` to use `setupJobWorkspace()` instead of inline file writes (net -8 lines)
+- Added ephemeral workspace setup in `handleStartJob` (step 3d): creates workspace at `~/.zazigv2/job-{jobId}/` when `msg.role` is present
+- Modified `spawnTmuxSession()` to accept optional `cwd` parameter, passes `-c` to tmux
+- Non-fatal: workspace creation failure for ephemeral jobs logs a warning and falls back to bare execution
+- Backward compatible: jobs without `role` field continue to work exactly as before
+
+### packages/local-agent/src/workspace.test.ts (NEW)
+- 9 tests covering `generateAllowedTools`, `generateMcpConfig`, and `setupJobWorkspace`
+- Tests skill injection, missing skill warning, empty skills array
+
+### packages/local-agent/src/executor.test.ts (MODIFIED)
+- Added "JobExecutor — ephemeral workspace setup" describe block (2 tests)
+- Tests: ephemeral job WITH role gets workspace files, WITHOUT role does not
 
 ## Testing
-- **18 tests pass** (all new + previously-passing tests)
-- **6 tests fail** — all pre-existing mock limitations, not caused by our changes:
-  - 3x `insert().select()` not supported by mock (triggerFeatureVerification, handleFeatureRejected)
-  - 2x double `.eq().eq()` not supported by mock (handleFeatureApproved, handleFeatureRejected)
-  - 1x test assumes triggerFeatureVerification but code calls triggerCombining
+- All 20 tests pass (9 workspace + 11 executor)
+- TypeScript compiles clean (`tsc --noEmit` zero errors)
+- Role scoping verified: breakdown-specialist gets only `query_features` and `batch_create_jobs`
 
 ## Decisions Made
-- `checkUnblockedJobs` is a logging-only function for now — it identifies unblocked jobs but doesn't mutate state (dispatch happens on next orchestrator tick)
-- `notifyCPO` uses `MessageInbound` over Realtime broadcast, with `conversationId: "internal:notification:{uuid}"` pattern
-- CPO notification is best-effort: if no active CPO, message is lost with a warning log (CPO catches up on next wakeup)
+- Workspace creation failure for ephemeral jobs is non-fatal (warning + fallback to bare execution)
+- Skill files sourced from `projects/skills/` relative to `process.cwd()`
+- Skill directory convention: `.claude/skills/{skillName}/SKILL.md` (matches Claude Code's expectations)
+- `ROLE_ALLOWED_TOOLS` uses raw tool names; prefix added in `generateAllowedTools()` for cleaner mapping

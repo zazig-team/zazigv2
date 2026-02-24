@@ -336,3 +336,69 @@ describe("JobExecutor - subAgentPrompt workspace", () => {
     expect(workspaceCleanupCall![1]).toEqual({ recursive: true });
   });
 });
+
+describe("JobExecutor — ephemeral workspace setup", () => {
+  let send: ReturnType<typeof vi.fn>;
+  let slots: SlotTracker;
+  let supabase: ReturnType<typeof makeMockSupabase>;
+  let executor: JobExecutor;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    mockExecFileAsync = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
+    send = vi.fn().mockResolvedValue(undefined);
+    slots = new SlotTracker({ claude_code: 2, codex: 1 });
+    supabase = makeMockSupabase();
+    executor = new JobExecutor(
+      "machine-1",
+      "company-test",
+      slots,
+      send as unknown as SendFn,
+      supabase.client as any,
+      "https://test.supabase.co",
+      "test-anon-key",
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("creates workspace for ephemeral job with role field", async () => {
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as Mock;
+    await executor.handleStartJob(makeStartJob({
+      role: "breakdown-specialist",
+      roleSkills: ["jobify"],
+    }));
+
+    // Should have written .mcp.json to a workspace directory
+    const mcpJsonCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes(".mcp.json") && (call[0] as string).includes("job-job-001"),
+    );
+    expect(mcpJsonCall).toBeDefined();
+
+    // Should have written settings.json with only breakdown-specialist tools
+    const settingsCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("settings.json") && (call[0] as string).includes("job-job-001"),
+    );
+    expect(settingsCall).toBeDefined();
+    const settingsContent = JSON.parse(settingsCall![1] as string);
+    expect(settingsContent.permissions.allow).toEqual([
+      "mcp__zazig-messaging__query_features",
+      "mcp__zazig-messaging__batch_create_jobs",
+    ]);
+  });
+
+  it("does NOT create workspace for ephemeral job without role field", async () => {
+    const mkdirSyncMock = fsModule.mkdirSync as unknown as Mock;
+    await executor.handleStartJob(makeStartJob({ role: undefined }));
+
+    // Should NOT have created a workspace directory with "job-" prefix
+    const workspaceCalls = mkdirSyncMock.mock.calls.filter(
+      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("job-job-001"),
+    );
+    expect(workspaceCalls.length).toBe(0);
+  });
+});

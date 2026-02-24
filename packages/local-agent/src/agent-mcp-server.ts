@@ -131,6 +131,7 @@ server.tool(
   async ({ feature_id, title, description, priority, status }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const jobId = process.env.ZAZIG_JOB_ID ?? "";
 
     if (!supabaseUrl || !supabaseAnonKey) {
       return {
@@ -145,7 +146,7 @@ server.tool(
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ feature_id, title, description, priority, status }),
+      body: JSON.stringify({ feature_id, title, description, priority, status, job_id: jobId }),
     });
 
     if (response.ok) {

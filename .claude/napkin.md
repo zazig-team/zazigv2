@@ -25,6 +25,7 @@
 - `triggerBreakdown` role is `breakdown-specialist` (not `feature-breakdown-expert` or `tech-lead`)
 - Always check highest existing migration number with `ls supabase/migrations/` before naming — plan said 045/046 but 045 was already taken (features_priority), so actual was 046/047
 - `verification_type` column on features — `'passive'` (default, existing reviewer) or `'active'` (verification-specialist contractor)
+- `CardType` in shared/messages.ts must match DB `job_type` constraint — if you add a new job_type to the DB, also add it to the TS type and `isStartJob` validator. Missing `"verify"` caused jobs to be silently rejected by the local-agent.
 
 ## Patterns That Work
 - Running migrations: Use Supabase Management API (`POST https://api.supabase.com/v1/projects/jmussmwglgbwncgygzbz/database/query`) with `SUPABASE_ACCESS_TOKEN` from Doppler. `supabase db push` doesn't work due to migration history mismatch with numbered naming convention.

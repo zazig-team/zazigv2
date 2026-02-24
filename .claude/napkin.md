@@ -20,6 +20,11 @@
 - Every Supabase edge function needs its own `deno.json` with `"@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2"` import map — bare imports don't work in Deno runtime
 - Deploy edge functions: `SUPABASE_ACCESS_TOKEN=$(doppler secrets get SUPABASE_ACCESS_TOKEN --project zazig --config prd --plain) npx supabase functions deploy <name> --no-verify-jwt --project-ref jmussmwglgbwncgygzbz`
 - Jobs table has `context` column (not `spec`) for the task description — jobify `spec` field maps to `context` in DB
+- Orchestrator tests: env vars MUST be set via CLI (`SUPABASE_URL=... deno test`), NOT just `Deno.env.set()` in the test file — ES module static imports are hoisted above all code, so the module loads before env vars are set
+- Orchestrator test mock (`createSmartMockSupabase`): does NOT support `insert().select()` or double `.eq().eq()` chains — 6 pre-existing test failures from this limitation
+- `triggerBreakdown` role is `breakdown-specialist` (not `feature-breakdown-expert` or `tech-lead`)
+- Always check highest existing migration number with `ls supabase/migrations/` before naming — plan said 045/046 but 045 was already taken (features_priority), so actual was 046/047
+- `verification_type` column on features — `'passive'` (default, existing reviewer) or `'active'` (verification-specialist contractor)
 
 ## Patterns That Work
 - Running migrations: Use Supabase Management API (`POST https://api.supabase.com/v1/projects/jmussmwglgbwncgygzbz/database/query`) with `SUPABASE_ACCESS_TOKEN` from Doppler. `supabase db push` doesn't work due to migration history mismatch with numbered naming convention.

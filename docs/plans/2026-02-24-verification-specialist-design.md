@@ -1,7 +1,7 @@
 # Verification Specialist Contractor
 
 **Date:** 2026-02-24
-**Status:** Design complete, ready for implementation
+**Status:** Implemented and deployed (PR #94)
 **Author:** Tom + Claude (brainstorming session)
 **Pattern:** Contractor Pattern (skill + MCP). See `2026-02-24-idea-to-job-pipeline-design.md` Section 6.
 **Companion:** `2026-02-24-idea-to-job-pipeline-design.md` (pipeline context), `2026-02-24-jobify-skill-design.md` (contractor pattern reference)
@@ -47,115 +47,94 @@ The `verification_type` column on features controls which path. Default is `pass
 
 ---
 
-## Implementation (9 steps)
+## Implementation (9 steps) — All Complete
 
-### Step 1: Migration — `verification-specialist` role
+### Step 1: Migration — `verification-specialist` role ✅
 
-**Create:** `supabase/migrations/045_verification_specialist_role.sql`
+**Created:** `supabase/migrations/046_verification_specialist_role.sql` (renumbered from 045 — 045 was taken by features_priority)
 
-Insert into `roles` table:
-- name: `verification-specialist`
-- is_persistent: false
-- default_model: `claude-sonnet-4-6`
-- slot_type: `claude_code`
-- prompt: Role prompt explaining the contractor's purpose and report format
-- skills: `{verify-feature}`
+Inserted into `roles` table with full role prompt defining report format, constraints, and output contract. Skills: `{verify-feature}`.
 
-### Step 2: Migration — `verification_type` column on features
+### Step 2: Migration — `verification_type` column on features ✅
 
-**Create:** `supabase/migrations/046_feature_verification_type.sql`
+**Created:** `supabase/migrations/047_feature_verification_type.sql` (renumbered from 046)
 
 ```sql
 ALTER TABLE public.features
-  ADD COLUMN verification_type text NOT NULL DEFAULT 'passive'
+  ADD COLUMN IF NOT EXISTS verification_type text NOT NULL DEFAULT 'passive'
   CHECK (verification_type IN ('passive', 'active'));
 ```
 
-- `passive` (default): existing reviewer path (code review + rebase + tests)
-- `active`: Verification Specialist exercises the system against ACs
+### Step 3: `query-jobs` edge function ✅
 
-### Step 3: `query-jobs` edge function
+**Created:** `supabase/functions/query-jobs/index.ts` + `deno.json`
 
-**Create:** `supabase/functions/query-jobs/index.ts` + `deno.json`
+Mirrors `query-features/index.ts`. Accepts `job_id`, `feature_id`, `status`. Returns: id, title, status, role, job_type, complexity, depends_on, started_at, completed_at, result, feature_id, project_id.
 
-Pattern: mirrors `query-features/index.ts`. Accepts:
-- `job_id` (optional) — single job lookup
-- `feature_id` (optional) — all jobs for a feature
-- `status` (optional) — filter by status
+### Step 4: `query_jobs` MCP tool ✅
 
-Returns: id, title, status, role, job_type, depends_on, started_at, completed_at, result.
+**Edited:** `packages/local-agent/src/agent-mcp-server.ts`
 
-### Step 4: `query_jobs` MCP tool
+Added `query_jobs` tool calling the `query-jobs` edge function.
 
-**Edit:** `packages/local-agent/src/agent-mcp-server.ts`
+### Step 5: `verify-feature` skill file ✅
 
-Add `query_jobs` tool following existing patterns. Calls the `query-jobs` edge function.
+**Created:** `projects/skills/verify-feature.md`
 
-### Step 5: `verify-feature` skill file
+Full contractor skill with 6-step procedure, polling strategy (10s intervals, 3 min per-AC timeout, 15 min total), report format, and MCP tool mapping.
 
-**Create:** `projects/skills/verify-feature.md`
+### Step 6: Update `workspace.ts` — role-scoped tools ✅
 
-The brain of the Verification Specialist. Follows jobify.md pattern. Defines:
-- How to parse Gherkin ACs from feature record
-- How to translate each AC into executable test steps using MCP tools
-- Polling strategy (10s intervals, 3 min per-AC timeout, 15 min total)
-- Report format: `.claude/verification-report.md` with per-AC pass/fail
+**Edited:** `packages/local-agent/src/workspace.ts`
 
-### Step 6: Update `workspace.ts` — role-scoped tools
-
-**Edit:** `packages/local-agent/src/workspace.ts`
-
-Add to `ROLE_ALLOWED_TOOLS`:
 ```typescript
 "verification-specialist": ["query_features", "query_jobs", "batch_create_jobs", "commission_contractor"],
 ```
 
-### Step 7: Update `commission-contractor` edge function
+### Step 7: Update `commission-contractor` edge function ✅
 
-**Edit:** `supabase/functions/commission-contractor/index.ts`
+**Edited:** `supabase/functions/commission-contractor/index.ts`
 
-- Add `"verification-specialist"` to `CONTRACTOR_ROLES`
-- Add title: `"Verify feature acceptance criteria"`
-- Add job_type: `"verify"`
-- Verification specialist requires `feature_id` (like breakdown-specialist)
+- Added `"verification-specialist"` to `CONTRACTOR_ROLES`, titles, types
+- `feature_id` required (same validation as breakdown-specialist)
 
-### Step 8: Update orchestrator — auto-commission on feature completion
+### Step 8: Update orchestrator — auto-commission on feature completion ✅
 
-**Edit:** `supabase/functions/orchestrator/index.ts`
+**Edited:** `supabase/functions/orchestrator/index.ts`
 
-In `triggerFeatureVerification()`:
-- Read `feature.verification_type`
-- If `active`: insert a job with `role: "verification-specialist"`, `job_type: "verify"`, context containing feature_id + acceptance_tests
-- If `passive`: existing reviewer path (unchanged)
+Three changes:
+1. `dispatchQueuedJobs`: Routes `verify` jobs with `role !== "verification-specialist"` to VerifyJob; verification-specialist gets normal StartJob (full workspace)
+2. `triggerFeatureVerification`: Reads `verification_type` from feature; branches to active (verification-specialist) or passive (reviewer) path
+3. `handleJobComplete`: Active verification result parsing — starts with "PASSED" → `initiateTestDeploy()`, otherwise → notify CPO
 
-In dispatch logic (`dispatchQueuedJobs`):
-- When `job_type === "verify"` and `role === "verification-specialist"`: dispatch as normal `StartJob` (not `VerifyJob`), so it gets full workspace with MCP tools and skills
-- When `job_type === "verify"` and `role === "reviewer"`: existing `VerifyJob` path (unchanged)
+### Step 9: Update `commission_contractor` MCP tool ✅
 
-In `handleJobComplete`:
-- Handle verification-specialist completion: read result, if passed → `initiateTestDeploy()`, if failed → notify CPO
+**Edited:** `packages/local-agent/src/agent-mcp-server.ts`
 
-### Step 9: Update `commission_contractor` MCP tool
-
-**Edit:** `packages/local-agent/src/agent-mcp-server.ts`
-
-Add `"verification-specialist"` to the role enum in the commission_contractor tool's zod schema.
+Added `"verification-specialist"` to the role enum in the zod schema.
 
 ---
 
 ## Files Summary
 
-| File | Action |
-|------|--------|
-| `supabase/migrations/045_verification_specialist_role.sql` | CREATE |
-| `supabase/migrations/046_feature_verification_type.sql` | CREATE |
-| `supabase/functions/query-jobs/index.ts` | CREATE |
-| `supabase/functions/query-jobs/deno.json` | CREATE |
-| `projects/skills/verify-feature.md` | CREATE |
-| `supabase/functions/commission-contractor/index.ts` | EDIT |
-| `supabase/functions/orchestrator/index.ts` | EDIT |
-| `packages/local-agent/src/agent-mcp-server.ts` | EDIT |
-| `packages/local-agent/src/workspace.ts` | EDIT |
+| File | Action | Migration # |
+|------|--------|-------------|
+| `supabase/migrations/046_verification_specialist_role.sql` | CREATE | 046 |
+| `supabase/migrations/047_feature_verification_type.sql` | CREATE | 047 |
+| `supabase/functions/query-jobs/index.ts` | CREATE | — |
+| `supabase/functions/query-jobs/deno.json` | CREATE | — |
+| `projects/skills/verify-feature.md` | CREATE | — |
+| `supabase/functions/commission-contractor/index.ts` | EDIT | — |
+| `supabase/functions/orchestrator/index.ts` | EDIT | — |
+| `packages/local-agent/src/agent-mcp-server.ts` | EDIT | — |
+| `packages/local-agent/src/workspace.ts` | EDIT | — |
+
+## Deployment
+
+All migrations run and edge functions deployed (2026-02-24). Verified:
+- `verification-specialist` role exists in DB with correct model/skills
+- `verification_type` column exists on features with default `'passive'`
+- `query-jobs`, `commission-contractor`, `orchestrator` edge functions deployed
 
 ---
 

@@ -1,33 +1,31 @@
 STATUS: COMPLETE
-CARD: 699d19b0
-BRANCH: cpo/pai-orchestrator
-FILES: supabase/functions/orchestrator/index.ts
-TESTS: Typecheck clean (root + shared workspaces; pre-existing CLI issue unrelated)
-NOTES: Persistent agent jobs now get fully assembled CLAUDE.md in context field. Non-persistent jobs unchanged.
+CARD: 1.10
+BRANCH: cpo/personality-subagent-prompt
+FILES: supabase/migrations/042_personality_sub_agent_compiler.sql, supabase/functions/orchestrator/index.ts
+TESTS: Lint 0 errors; shared+orchestrator build clean; executor tests 9/9 pass
+NOTES: Sub-agent personality prompt compiled and sent end-to-end. Pre-existing test failures unrelated.
 
 ---
 
-# CPO Report — Assemble Full CLAUDE.md for Persistent Agents
+# CPO Report — Card 1.10: Compile and send subAgentPrompt in StartJob
 
 ## Summary
-Moved CLAUDE.md assembly for persistent agent jobs from the local agent to the orchestrator. The local agent becomes a dumb pipe — it just writes whatever is in `msg.context`.
+Wired the sub-agent personality prompt end-to-end: a new DB compiler function produces a stripped-down prompt (core beliefs, anti-patterns, root constraints only), the trigger auto-compiles it alongside the full personality prompt, and the orchestrator sends it as `subAgentPrompt` in StartJob messages. The local agent (PR #54, already merged) writes this to `subagent-personality.md` in the job workspace for Task-tool sub-agents to inherit.
 
-## Changes
+## Files Changed
 
-### supabase/functions/orchestrator/index.ts (+24 lines, -6 lines)
+### supabase/migrations/042_personality_sub_agent_compiler.sql (new)
+- Adds `compiled_sub_agent_prompt` column to `exec_personalities`
+- Creates `compile_personality_prompt_sub_agent(uuid)` function — compiles only Standards (core beliefs), Patterns to Reject (anti-patterns), Constraints (root constraints)
+- Updates `trigger_compile_personality()` to call both compilers
+- Backfills existing personality rows
 
-**New block** (after role/personality fetch, before StartJob construction):
-- For `persistent_agent` jobs, assembles full CLAUDE.md from `# {ROLE_NAME}`, personality prompt, `---` separator, and role prompt
-- Writes assembled string to `prompt_stack` column on the jobs row for observability
+### supabase/functions/orchestrator/index.ts
+- Fetches `compiled_sub_agent_prompt` alongside `compiled_prompt` in personality query
+- Declares `subAgentPrompt` variable at same scope as `rolePrompt`, `roleSkills`, `personalityPrompt`
+- Includes `subAgentPrompt` in StartJob message for non-persistent jobs (same gating as personalityPrompt)
 
-**Modified StartJob construction**:
-- `context` field: `assembledContext ?? job.context ?? undefined` (persistent agents get pre-assembled context)
-- `personalityPrompt`, `rolePrompt`, `roleSkills`: gated with `job.job_type !== "persistent_agent"` (already baked into context for persistent agents)
-
-### What didn't change
-- Non-persistent job dispatch path: identical behavior, still sends separate fields for local `assembleContext()`
-- All other orchestrator logic untouched
-
-## Token Usage
-- Budget: claude-ok
-- Approach: Direct implementation — single file, well-specified change
+## Tests
+- `npm run lint` — 0 errors (22 pre-existing warnings)
+- `npm run build` — shared + orchestrator pass; local-agent has pre-existing workspace linking issue
+- `npm test` — executor tests pass (9/9 including subAgentPrompt workspace tests); pre-existing failures in shared (pipeline status arrays) and local-agent (git rebase tests) unrelated to this change

@@ -15,7 +15,7 @@
 >
 > **Updates needed in this doc (not yet applied):**
 > - **Dispatch loop needs lane awareness** — the dispatch SQL must add `AND lane = $1` to support the 2-lane model (`main` + `background`). See triggers doc Section 6.
-> - **Job statuses are stale** — this doc uses `queued → dispatched → executing → reviewing → complete | failed`. The [pipeline design](2026-02-20-software-development-pipeline-design.md) supersedes with the full state machine (`design → queued → dispatched → executing → verifying → testing → approved → done`). Align this doc to the pipeline's canonical statuses.
+> - **Job statuses are stale** — this doc uses `queued → dispatched → executing → reviewing → complete | failed`. The [pipeline design](2026-02-24-software-development-pipeline-design.md) supersedes with the full state machine (`design → queued → dispatched → executing → verifying → testing → approved → done`). Align this doc to the pipeline's canonical statuses.
 > - **`machines` table extended** — triggers doc adds `last_heartbeat_at TIMESTAMPTZ` and `heartbeat_payload JSONB` columns. The heartbeat receiver is an HTTP POST to a `heartbeat` Edge Function (not Realtime).
 > - **`jobs` table extended** — triggers doc adds `lane`, `priority`, `stuck_count`, `last_stuck_at`, `dispatch_attempt_id`, `origin_trust_level`, `origin_event_id`, `origin_source`.
 > - **"Heartbeat" terminology note** — the Org Model uses "heartbeat" for both machine liveness pings (30s, this doc) and employee autonomous work cycles (daily/hourly, org model). The triggers doc implements these as separate subsystems: machine heartbeat (Section 1) for liveness, scheduler/cron (Section 2) for work cycles. Implementers should not conflate the two.

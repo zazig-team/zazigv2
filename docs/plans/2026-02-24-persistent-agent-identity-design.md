@@ -3,6 +3,7 @@
 **Date:** 2026-02-24
 **Status:** Approved
 **Context:** CPO persistent agent acts like zazig v1 — references Trello, VP-Eng, etc. The interactive TUI session receives no v2 identity, role prompt, or personality. The 4-layer context is computed but never injected.
+**Updated (2026-02-24):** MCP tools are now role-scoped per worker, not one-size-fits-all. All workers (executives, employees, contractors) get workspace setup with role-specific `.mcp.json`. See `2026-02-24-idea-to-job-pipeline-design.md` Section 6 for the full tooling architecture.
 
 ## Problem
 
@@ -63,7 +64,9 @@ No assembly, no constants, no role-specific logic.
 
 ### MCP Tools
 
-All tools live in the existing `agent-mcp-server.ts`. Every persistent agent gets the same tool set.
+> **Note:** The design below describes the initial implementation where all tools live in one MCP server. Per the idea-to-job pipeline design, MCP tools are now **role-scoped** — each worker gets a `.mcp.json` with only the tools relevant to its function. The CPO gets `send_message`, `query_projects`, `create_feature`, `update_feature`. Other roles get different tool sets. See `2026-02-24-idea-to-job-pipeline-design.md` Section 6 for the full role-scoped tool table.
+
+All tools currently live in the existing `agent-mcp-server.ts`. The executor generates a role-specific `.mcp.json` at workspace creation time.
 
 | Tool | Purpose | Backend |
 |------|---------|---------|

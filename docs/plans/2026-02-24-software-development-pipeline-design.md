@@ -1,8 +1,9 @@
 # Software Development Pipeline Design
 
-**Date:** 2026-02-20
+**Date:** 2026-02-20 (updated 2026-02-24)
 **Status:** Approved
 **Author:** CPO + Chris (brainstorming session)
+**Updated:** Role boundaries revised — CPO no longer breaks features into jobs; Breakdown Specialist (contractor) handles this via jobify skill. Design flow updated. See `2026-02-24-idea-to-job-pipeline-design.md` for the full idea-to-job pipeline.
 
 ---
 
@@ -53,9 +54,10 @@ A job is the unit of execution. Each job belongs to a feature and represents one
 1. Human talks to CPO in Slack about a feature idea. Conversation is dialogue-friendly and bite-sized from the agent POV.
 2. CPO asks clarifying questions, drafts feature-level spec + acceptance tests + human checklist
 3. Human reviews and approves
-4. CPO breaks the feature into jobs, each with scoped spec and acceptance tests
-5. A job cannot move from `design` to `queued` unless `spec` and `acceptance_tests` are populated
-6. Feature status moves to `building` once jobs are queued
+4. CPO sets feature status to `ready_for_breakdown`
+5. Orchestrator dispatches a **Breakdown Specialist** (contractor) who runs the jobify skill to decompose the feature into jobs with Gherkin acceptance criteria and a `depends_on` DAG
+6. A job cannot move to `queued` unless `spec` and `acceptance_tests` are populated (enforced by jobify)
+7. Feature status moves to `building` once jobs are queued
 
 ---
 
@@ -198,12 +200,22 @@ Owns the entire mechanical pipeline:
 
 Only involved for human-facing decisions:
 - Design features with the human (spec, acceptance tests, human checklist)
-- Break features into jobs
+- Set feature status to `ready_for_breakdown` when spec is complete
 - Prioritize the queue ("pause X, ship Y first")
 - Status summaries ("what's the pipeline look like?")
 - Triage big rejections (feature needs redesign)
+- Commission contractors (Project Architect, research) when needed
 
-CPO never dispatches agents, deploys, merges, or sends operational notifications.
+CPO never breaks features into jobs (Breakdown Specialist does this), dispatches implementation agents, deploys, merges, or sends operational notifications.
+
+### Breakdown Specialist (contractor)
+
+Ephemeral contractor dispatched by orchestrator when a feature reaches `ready_for_breakdown`:
+- Runs the jobify skill to decompose the feature into executable jobs
+- Produces Gherkin acceptance criteria with unique IDs per job
+- Creates a `depends_on` DAG for parallel execution
+- Pushes jobs to Supabase with `status: queued`
+- See `2026-02-24-jobify-skill-design.md` for full detail
 
 ### Fix Agent (tactical)
 

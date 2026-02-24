@@ -1229,6 +1229,10 @@ Human types in terminal → CPO session receives message
 
 Every link after `ready_for_breakdown` is already automated and tested (Tests 1-8).
 
+### Future improvement: report persistence
+
+Job reports are currently written to local filesystem (`~/.claude/job-reports/<jobId>.md`). The executor reads the first line as the `result` string and sends it to the orchestrator, but the full report body is only accessible on the machine that ran the job. Reports should be written back to the DB (either the existing `result` column or a new `report` text column on `jobs`) so the orchestrator, CPO, and other agents can read full reports without filesystem access.
+
 ---
 
 ## TL;DR

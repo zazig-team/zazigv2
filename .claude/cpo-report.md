@@ -1,58 +1,33 @@
 STATUS: COMPLETE
-CARD: 699c2a31
-BRANCH: cpo/remove-standalone-jobs
-FILES: supabase/migrations/031_require_feature_id.sql (new), supabase/functions/orchestrator/index.ts, dashboard/index.html
-TESTS: Typecheck clean across all 4 workspaces
-NOTES: Removed standalone jobs path — all jobs now require a feature. Auto-create wrapper features for jobs with no feature_id.
+CARD: 699d19b0
+BRANCH: cpo/pai-orchestrator
+FILES: supabase/functions/orchestrator/index.ts
+TESTS: Typecheck clean (root + shared workspaces; pre-existing CLI issue unrelated)
+NOTES: Persistent agent jobs now get fully assembled CLAUDE.md in context field. Non-persistent jobs unchanged.
 
 ---
 
-# CPO Report — Remove Standalone Jobs
+# CPO Report — Assemble Full CLAUDE.md for Persistent Agents
 
 ## Summary
-Removed the entire "standalone jobs" code path. Every job must now belong to a feature. Jobs arriving with no `feature_id` get an auto-created wrapper feature before dispatch. Migration backfills existing standalone jobs and enforces `NOT NULL`.
+Moved CLAUDE.md assembly for persistent agent jobs from the local agent to the orchestrator. The local agent becomes a dumb pipe — it just writes whatever is in `msg.context`.
 
 ## Changes
 
-### 1. Migration 031_require_feature_id.sql (new)
-- Inserts one "Standalone work" feature per company for existing orphaned jobs
-- Links orphaned jobs (`feature_id IS NULL`) to their company's wrapper feature
-- `ALTER TABLE jobs ALTER COLUMN feature_id SET NOT NULL`
+### supabase/functions/orchestrator/index.ts (+24 lines, -6 lines)
 
-### 2. Orchestrator (supabase/functions/orchestrator/index.ts)
-- **Removed** `triggerStandaloneVerification` function (~60 lines)
-- **Removed** `promoteStandaloneToTesting` function (~47 lines)
-- **Removed** standalone block in `handleJobComplete` (TODO comment + `if (!jobRow.feature_id)` → `triggerStandaloneVerification`)
-- **Removed** standalone verification check in `handleVerifyResult` (`verifyCtx.type === "standalone_verification"` block)
-- **Changed** `JobRow.feature_id` from `string | null` → `string`
-- **Added** `feature_id` to `dispatchQueuedJobs` select columns
-- **Added** auto-create wrapper feature block at top of dispatch loop: creates a "One-off: {title}" feature in `building` status for any job with no `feature_id`
+**New block** (after role/personality fetch, before StartJob construction):
+- For `persistent_agent` jobs, assembles full CLAUDE.md from `# {ROLE_NAME}`, personality prompt, `---` separator, and role prompt
+- Writes assembled string to `prompt_stack` column on the jobs row for observability
 
-### 3. Dashboard (dashboard/index.html)
-- **Removed** `STANDALONE_JOBS_BASE` URL constant
-- **Removed** `fetchStandaloneJobs()` function
-- **Removed** `.card-standalone-badge` CSS block
-- **Removed** `JOB_STATUS_TO_COLUMN` mapping (only used for standalone job column placement)
-- **Removed** `lastStandaloneJobs` cache variable
-- **Simplified** `renderCard()`: removed `isStandalone` parameter and standalone-specific rendering
-- **Simplified** `renderColumn()`: removed `standaloneJobs` parameter
-- **Simplified** `renderBoard()`: removed `standaloneJobs` parameter and standalone grouping logic
-- **Simplified** `refreshDashboard()`: single `fetchFeatures()` call instead of `Promise.all`
+**Modified StartJob construction**:
+- `context` field: `assembledContext ?? job.context ?? undefined` (persistent agents get pre-assembled context)
+- `personalityPrompt`, `rolePrompt`, `roleSkills`: gated with `job.job_type !== "persistent_agent"` (already baked into context for persistent agents)
 
-### 4. messages.ts (packages/shared/src/messages.ts)
-- No changes needed — no `feature_id` field exists in the protocol message types
-- `DeployToTest.standaloneJobId` and `jobType: "standalone"` remain in the protocol for backwards compat (can be cleaned up in a future card)
-
-## Design Decisions
-1. **Wrapper features are "One-off: {title}"**: Uses job title or ID as the feature title, with status `building` so they flow through the normal pipeline.
-2. **Migration uses "Standalone work" as backfill title**: Simple, descriptive, and `ON CONFLICT DO NOTHING` prevents duplicates if migration is re-run.
-3. **Didn't touch DeployToTest protocol**: The `standaloneJobId` and `jobType: "standalone"` fields in messages.ts are protocol-level and affect the local agent contract. Removing them is a separate concern.
-
-## Net Impact
-- **-238 lines, +74 lines** across 3 files (net -164 lines)
-- Two entire functions removed from orchestrator
-- Dashboard fetch reduced from 2 API calls to 1
+### What didn't change
+- Non-persistent job dispatch path: identical behavior, still sends separate fields for local `assembleContext()`
+- All other orchestrator logic untouched
 
 ## Token Usage
-- Budget: claude-ok (wrote code directly)
-- Approach: Full read of all 4 files → systematic edits → typecheck → commit + push
+- Budget: claude-ok
+- Approach: Direct implementation — single file, well-specified change

@@ -25,6 +25,7 @@ export interface SupabaseConfig {
   anon_key: string;
   service_role_key?: string;
   access_token?: string;
+  refresh_token?: string;
 }
 
 export interface MachineConfig {
@@ -77,6 +78,7 @@ export function loadConfig(): MachineConfig {
 
   const serviceRoleKey = process.env["SUPABASE_SERVICE_ROLE_KEY"];
   const accessToken    = process.env["SUPABASE_ACCESS_TOKEN"];
+  const refreshToken   = process.env["SUPABASE_REFRESH_TOKEN"];
 
   return {
     name,
@@ -86,6 +88,7 @@ export function loadConfig(): MachineConfig {
       anon_key: anonKey,
       ...(serviceRoleKey ? { service_role_key: serviceRoleKey } : {}),
       ...(accessToken    ? { access_token: accessToken }        : {}),
+      ...(refreshToken   ? { refresh_token: refreshToken }      : {}),
     },
   };
 }

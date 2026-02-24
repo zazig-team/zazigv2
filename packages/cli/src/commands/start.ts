@@ -133,6 +133,7 @@ export async function start(): Promise<void> {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     SUPABASE_ACCESS_TOKEN: creds.accessToken,
+    SUPABASE_REFRESH_TOKEN: creds.refreshToken,
     SUPABASE_URL: creds.supabaseUrl,
     ZAZIG_MACHINE_NAME: config.name,
     ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots.claude_code),

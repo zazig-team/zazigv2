@@ -14,10 +14,15 @@
 
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
 import WebSocket from "ws";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { HEARTBEAT_INTERVAL_MS, PROTOCOL_VERSION, isOrchestratorMessage } from "@zazigv2/shared";
 import type { OrchestratorMessage, Heartbeat, AgentMessage } from "@zazigv2/shared";
 import type { MachineConfig } from "./config.js";
 import type { SlotTracker } from "./slots.js";
+
+const CREDENTIALS_PATH = join(homedir(), ".zazigv2", "credentials.json");
 
 // Backoff constants
 const BACKOFF_BASE_MS = 1_000;
@@ -64,13 +69,19 @@ export class AgentConnection {
       },
     });
 
-    // Prefer authenticated JWT for DB writes (respects RLS with user context).
+    // Prefer authenticated JWT with auto-refresh for DB writes (respects RLS).
     // Fall back to service_role key (bypasses RLS), then anon client.
-    if (config.supabase.access_token) {
+    if (config.supabase.access_token && config.supabase.refresh_token) {
+      // Create client with autoRefreshToken enabled (default).
+      // We'll call auth.setSession() in start() to activate the managed session.
+      this.dbClient = createClient(config.supabase.url, config.supabase.anon_key);
+      console.log("[local-agent] Using authenticated JWT with auto-refresh for DB writes");
+    } else if (config.supabase.access_token) {
+      // No refresh token — fall back to static header (will expire after ~1h)
       this.dbClient = createClient(config.supabase.url, config.supabase.anon_key, {
         global: { headers: { Authorization: `Bearer ${config.supabase.access_token}` } },
       });
-      console.log("[local-agent] Using authenticated JWT for DB writes");
+      console.warn("[local-agent] No refresh token — JWT will expire after ~1h");
     } else if (config.supabase.service_role_key) {
       this.dbClient = createClient(config.supabase.url, config.supabase.service_role_key);
       console.log("[local-agent] Using service_role key for DB writes");
@@ -126,6 +137,46 @@ export class AgentConnection {
   async start(): Promise<void> {
     console.log(`[local-agent] Starting daemon for machine: ${this.machineId}`);
     this.stopped = false;
+
+    // Initialize managed auth session for automatic token refresh.
+    // supabase-js will refresh the access token ~10s before expiry.
+    if (this.config.supabase.access_token && this.config.supabase.refresh_token) {
+      const { error } = await this.dbClient.auth.setSession({
+        access_token: this.config.supabase.access_token,
+        refresh_token: this.config.supabase.refresh_token,
+      });
+      if (error) {
+        console.warn(`[local-agent] Failed to set auth session: ${error.message}`);
+      } else {
+        console.log("[local-agent] Auth session initialized — auto-refresh enabled");
+      }
+
+      // Write refreshed tokens back to credentials.json so CLI commands also benefit.
+      this.dbClient.auth.onAuthStateChange((_event, session) => {
+        if (session?.access_token && session?.refresh_token) {
+          try {
+            // Read existing credentials to preserve email and other fields
+            let existing: Record<string, unknown> = {};
+            try {
+              existing = JSON.parse(readFileSync(CREDENTIALS_PATH, "utf-8"));
+            } catch { /* file may not exist yet */ }
+
+            const creds = {
+              ...existing,
+              accessToken: session.access_token,
+              refreshToken: session.refresh_token,
+              email: session.user?.email ?? existing.email,
+              supabaseUrl: this.config.supabase.url,
+            };
+            mkdirSync(join(homedir(), ".zazigv2"), { recursive: true });
+            writeFileSync(CREDENTIALS_PATH, JSON.stringify(creds, null, 2) + "\n", { mode: 0o600 });
+            console.log(`[local-agent] Credentials refreshed and saved to disk`);
+          } catch (err) {
+            console.warn(`[local-agent] Failed to save refreshed credentials: ${String(err)}`);
+          }
+        }
+      });
+    }
 
     // Discover all companies for the authenticated user
     const discovered = await this.getCompanyIds();

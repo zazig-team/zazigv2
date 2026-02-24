@@ -144,6 +144,9 @@ export class AgentConnection {
       console.warn("[local-agent] No access token set — multi-company lookup requires an authenticated JWT");
     }
 
+    // Register/upsert machine row so heartbeats and status queries work
+    await this.registerMachine();
+
     await this.connect();
   }
 
@@ -282,6 +285,35 @@ export class AgentConnection {
     if (this.heartbeatTimer !== null) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+  }
+
+  private async registerMachine(): Promise<void> {
+    const companyId = this.primaryCompanyId ?? this.companyIds[0];
+    if (!companyId) {
+      console.warn("[local-agent] No company — skipping machine registration");
+      return;
+    }
+
+    const slotsAvailable = this.slots.getAvailable();
+    const { error } = await this.dbClient
+      .from("machines")
+      .upsert(
+        {
+          name: this.machineId,
+          company_id: companyId,
+          status: "online",
+          last_heartbeat: new Date().toISOString(),
+          slots_claude_code: slotsAvailable.claude_code,
+          slots_codex: slotsAvailable.codex,
+        },
+        { onConflict: "company_id,name" }
+      );
+
+    if (error) {
+      console.warn(`[local-agent] Machine registration failed: ${error.message}`);
+    } else {
+      console.log("[local-agent] Machine registered");
     }
   }
 

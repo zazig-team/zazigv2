@@ -93,6 +93,8 @@ interface ActiveJob {
   logPath: string;
   /** Byte offset of the last chunk sent to raw_log — enables append-only writes. */
   lastBytesSent: number;
+  /** Ephemeral workspace directory (if created). Used for report lookup + cleanup. */
+  workspaceDir?: string;
 }
 
 interface QueuedMessage {
@@ -236,8 +238,14 @@ export class JobExecutor {
     }
 
     // --- 4. Build command based on complexity/model ---
-    const { cmd, args } = buildCommand(slotType, complexity, model, assembledContext);
+    const { cmd, args } = buildCommand(slotType, complexity, model);
     const sessionName = `${this.machineId}-${jobId}`;
+
+    // --- 4b. Write prompt to file (piped via stdin to avoid CLI arg length limits) ---
+    const promptDir = ephemeralWorkspaceDir ?? join(homedir(), ".zazigv2", `job-${jobId}`);
+    mkdirSync(promptDir, { recursive: true });
+    const promptFilePath = join(promptDir, ".zazig-prompt.txt");
+    writeFileSync(promptFilePath, assembledContext);
 
     // --- 5. Clear stale report before spawning (prevents reading a previous job's report) ---
     const reportPath = `${process.env["HOME"] ?? "/tmp"}/${REPORT_RELATIVE_PATH}`;
@@ -245,7 +253,7 @@ export class JobExecutor {
 
     // --- 6. Spawn tmux session ---
     try {
-      await spawnTmuxSession(sessionName, cmd, args, ephemeralWorkspaceDir);
+      await spawnTmuxSession(sessionName, cmd, args, ephemeralWorkspaceDir, promptFilePath);
     } catch (err) {
       console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
       this.slots.release(slotType);
@@ -286,6 +294,7 @@ export class JobExecutor {
       startedAt: Date.now(),
       logPath,
       lastBytesSent: 0,
+      workspaceDir: ephemeralWorkspaceDir,
     };
     this.activeJobs.set(jobId, activeJob);
 
@@ -618,25 +627,36 @@ export class JobExecutor {
       this.persistentJobId = null;
     }
 
-    // Atomically claim the shared report file by renaming it to a per-job path.
-    // If two jobs finish simultaneously, only one rename succeeds — the other
-    // gets "no report" which is safe (the orchestrator still gets JobComplete).
+    // Look for the report file. Agents write .claude/cpo-report.md relative to
+    // their CWD which is the ephemeral workspace dir (e.g. ~/.zazigv2/job-<id>/).
+    // Fall back to $HOME for persistent agents that don't have a workspace dir.
     const homeDir = process.env["HOME"] ?? "/tmp";
-    const reportPath = `${homeDir}/${REPORT_RELATIVE_PATH}`;
     const archiveDir = `${homeDir}/${REPORT_ARCHIVE_DIR}`;
     const jobReportPath = `${archiveDir}/${jobId}.md`;
+
+    // Candidate paths in priority order: workspace dir first, then $HOME
+    const candidatePaths: string[] = [];
+    if (job.workspaceDir) {
+      candidatePaths.push(`${job.workspaceDir}/${REPORT_RELATIVE_PATH}`);
+    }
+    candidatePaths.push(`${homeDir}/${REPORT_RELATIVE_PATH}`);
 
     let result = "Job completed.";
     let report: string | undefined;
 
-    try {
-      mkdirSync(archiveDir, { recursive: true });
-      renameSync(reportPath, jobReportPath);
-      report = readFileSync(jobReportPath, "utf-8");
-      result = report.split("\n")[0] ?? "Job completed.";
-      console.log(`[executor] Claimed report for jobId=${jobId} → ${jobReportPath}`);
-    } catch {
-      // rename failed → no report file, or another job already claimed it
+    mkdirSync(archiveDir, { recursive: true });
+    for (const candidatePath of candidatePaths) {
+      try {
+        renameSync(candidatePath, jobReportPath);
+        report = readFileSync(jobReportPath, "utf-8");
+        result = report.split("\n")[0] ?? "Job completed.";
+        console.log(`[executor] Claimed report for jobId=${jobId} from ${candidatePath} → ${jobReportPath}`);
+        break;
+      } catch {
+        // This candidate didn't have a report — try next
+      }
+    }
+    if (!report) {
       console.log(`[executor] No report file for jobId=${jobId}, using default result`);
     }
 
@@ -968,10 +988,11 @@ function buildCommand(
   slotType: SlotType,
   complexity: string,
   model: string,
-  context: string
 ): { cmd: string; args: string[] } {
   // All jobs run through claude -p. For codex slots, Claude delegates
   // to codex-delegate internally (matching v1 pattern).
+  // The prompt is piped via stdin (not passed as CLI arg) to avoid OS
+  // argument length limits when context is large.
   const resolvedModel =
     model && model !== "codex"
       ? model
@@ -983,7 +1004,7 @@ function buildCommand(
 
   return {
     cmd: "claude",
-    args: ["-p", context, "--model", resolvedModel],
+    args: ["--model", resolvedModel, "-p"],
   };
 }
 
@@ -1004,11 +1025,17 @@ async function spawnTmuxSession(
   cmd: string,
   args: string[],
   cwd?: string,
+  promptFile?: string,
 ): Promise<void> {
   // Combine into a single shell string for tmux new-session.
   // Unset CLAUDECODE so nested `claude -p` sessions don't get blocked by
   // "cannot be launched inside another Claude Code session" detection.
-  const shellCmd = `unset CLAUDECODE; ${shellEscape([cmd, ...args])}`;
+  // When a promptFile is provided, pipe it via stdin to avoid OS argument
+  // length limits (ARG_MAX) when the assembled context is large.
+  const claudeCmd = shellEscape([cmd, ...args]);
+  const shellCmd = promptFile
+    ? `unset CLAUDECODE; cat ${shellEscape([promptFile])} | ${claudeCmd}`
+    : `unset CLAUDECODE; ${claudeCmd}`;
 
   const tmuxArgs = [
     "new-session",

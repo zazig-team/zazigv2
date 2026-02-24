@@ -14,6 +14,8 @@
 - Credential scrubbing must be built in from day one
 
 ## Codebase Gotchas
+- Spelling: "canons" not "cannons", "Zazig" not "ZeZig/Zezig", "pillar" not "lens", "Supabase" not "SuperBase/super base"
+- Chris = Speaker 2 in meeting transcripts (transcription tool keeps re-labelling him as Speaker 11/12/13/14 too)
 
 ## Patterns That Work
 

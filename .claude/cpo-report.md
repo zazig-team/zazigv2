@@ -1,45 +1,33 @@
 STATUS: COMPLETE
-CARD: 699d19d6
-BRANCH: cpo/pai-mcp-tools
-FILES: packages/local-agent/src/agent-mcp-server.ts
-TESTS: Typecheck clean (tsc --noEmit)
-NOTES: Added 3 new MCP tools for CPO agent: create_feature, update_feature, query_projects.
+CARD: 699d19b0
+BRANCH: cpo/pai-orchestrator
+FILES: supabase/functions/orchestrator/index.ts
+TESTS: Typecheck clean (root + shared workspaces; pre-existing CLI issue unrelated)
+NOTES: Persistent agent jobs now get fully assembled CLAUDE.md in context field. Non-persistent jobs unchanged.
 
 ---
 
-# CPO Report — PAI MCP Tools
+# CPO Report — Assemble Full CLAUDE.md for Persistent Agents
 
 ## Summary
-Added 3 new MCP tools to `agent-mcp-server.ts` following the existing `send_message` pattern. These give the CPO agent the ability to create features, refine them, and query the project/feature pipeline.
+Moved CLAUDE.md assembly for persistent agent jobs from the local agent to the orchestrator. The local agent becomes a dumb pipe — it just writes whatever is in `msg.context`.
 
 ## Changes
 
-### packages/local-agent/src/agent-mcp-server.ts (+152 lines)
+### supabase/functions/orchestrator/index.ts (+24 lines, -6 lines)
 
-**Tool 1: `create_feature`**
-- POSTs to `create-feature` edge function
-- Params: `title` (required), `description`, `project_id`, `priority` (low/medium/high)
-- Passes `job_id` from env for audit trail
-- Returns `feature_id` on success
+**New block** (after role/personality fetch, before StartJob construction):
+- For `persistent_agent` jobs, assembles full CLAUDE.md from `# {ROLE_NAME}`, personality prompt, `---` separator, and role prompt
+- Writes assembled string to `prompt_stack` column on the jobs row for observability
 
-**Tool 2: `update_feature`**
-- POSTs to `update-feature` edge function
-- Params: `feature_id` (required), `title`, `description`, `priority`, `status`
-- Status restricted to `created` | `ready_for_breakdown` (CPO guardrail)
-- Returns success/error message
+**Modified StartJob construction**:
+- `context` field: `assembledContext ?? job.context ?? undefined` (persistent agents get pre-assembled context)
+- `personalityPrompt`, `rolePrompt`, `roleSkills`: gated with `job.job_type !== "persistent_agent"` (already baked into context for persistent agents)
 
-**Tool 3: `query_projects`**
-- Queries Supabase REST API directly (no edge function needed)
-- Params: `company_id` (optional), `include_features` (optional boolean)
-- Auto-resolves `company_id` from `ZAZIG_JOB_ID` if not provided
-- Supports embedded `features()` select for project+feature view
-- Returns JSON array of projects
-
-## Design Decisions
-1. All tools follow the same auth pattern as `send_message` (env vars, Bearer token, `as const` content type)
-2. `query_projects` uses the REST API directly rather than an edge function — reads don't need orchestrator logic
-3. `update_feature` status enum is intentionally limited — CPO shouldn't push features past `ready_for_breakdown`
+### What didn't change
+- Non-persistent job dispatch path: identical behavior, still sends separate fields for local `assembleContext()`
+- All other orchestrator logic untouched
 
 ## Token Usage
-- Budget: claude-ok (wrote code directly)
-- Approach: Read existing file → add tools from spec → typecheck → commit + push
+- Budget: claude-ok
+- Approach: Direct implementation — single file, well-specified change

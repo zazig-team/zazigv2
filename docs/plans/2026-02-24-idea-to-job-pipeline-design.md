@@ -68,7 +68,7 @@ The CPO reviews standalone jobs periodically to ensure they don't accumulate int
 | Stage | Owner | Output |
 |-------|-------|--------|
 | 1. Ideation | Human + CPO | Raw idea, conversation context |
-| 2. Planning | CPO + Human | Approved plan (scope, goals, constraints) |
+| 2. Planning | CPO + Human | Approved plan (scope, goals, constraints). Includes documentation reconciliation — updating existing docs affected by the plan. |
 | 3. Structuring | Project Architect (contractor) | Project record + feature outlines in Supabase |
 | 4. Feature Design | CPO + Human | Fully specced feature (spec, AC, human checklist) |
 | 5. Breakdown | Breakdown Specialist (contractor) | Jobs in Supabase (`queued`, with `depends_on` DAG) |
@@ -101,6 +101,24 @@ For new capabilities, the CPO runs a planning conversation:
 - Output: an approved plan with clear boundaries
 
 The CPO does not create the project itself. Once the plan is approved, it commissions a Project Architect contractor.
+
+### Documentation reconciliation
+
+Complex planning often requires iterating across existing design docs before the plan is ready. This is a distinct activity that happens naturally during planning — not feature design, not spec work, but ensuring the documentation landscape is coherent before breaking anything down.
+
+The CPO (or a contractor it commissions) may need to:
+
+- **Read existing docs** to understand what's already decided and how the new plan relates
+- **Identify gaps, contradictions, or stale content** across docs that the new plan exposes
+- **Update affected docs** — close open questions now resolved, correct statements now superseded
+- **Fix cross-references** — ensure docs link to each other correctly, especially when renaming or restructuring
+- **Produce new docs** that crystallize patterns spotted during planning (e.g., a pattern emerging across two designs gets its own section or doc)
+
+This is the equivalent of a product person reading all existing specs before writing a new one — making sure the existing specs still make sense in light of what's about to change. It prevents the documentation landscape from drifting out of sync with the actual design, which would cause downstream confusion when contractors and implementing agents reference these docs.
+
+**When this matters most:** When the plan touches multiple existing systems or design docs. A small single-feature addition may not need reconciliation. A multi-feature capability that changes how existing systems interact needs thorough reconciliation before structuring begins.
+
+**Who does it:** The CPO does lightweight reconciliation itself (reading docs, spotting contradictions, updating cross-references). For deep reconciliation requiring codebase analysis or architecture review, the CPO commissions a research contractor or involves the CTO.
 
 ### What the CPO does NOT do at this stage
 
@@ -290,6 +308,31 @@ This is a core principle from the org model: the only difference between tiers i
 
 The current implementation only does this for persistent jobs. Ephemeral jobs need the same treatment.
 
+### The Contractor Pattern: Skill + MCP
+
+A consistent architecture emerges across specialist contractors: each contractor is a **skill wrapping role-scoped MCP tools**. The skill provides the reasoning and decomposition logic; the MCP tools provide typed database operations.
+
+```
+Orchestrator dispatches contractor
+  → Contractor gets workspace:
+      - CLAUDE.md (role prompt + knowledge layers)
+      - .mcp.json (role-scoped MCP tools)
+      - .claude/settings.json (auto-approved tools)
+  → Skill loaded per job type (guides reasoning, quality gates, output format)
+  → MCP tools execute the writes (batch insert to Supabase)
+```
+
+| Contractor | Skill | MCP Tools (reads) | MCP Tools (writes) |
+|------------|-------|-------------------|---------------------|
+| Breakdown Specialist | jobify | `query_features` | `batch_create_jobs` |
+| Project Architect | featurify | `query_projects` | `create_project`, `batch_create_features` |
+
+**Why the skill is separate from the MCP tool:** The skill contains decomposition logic — how to break work apart, quality rules, Gherkin format, dependency reasoning, complexity routing. This is LLM reasoning that belongs in the agent prompt. The MCP tool is a dumb typed POST that validates schema and inserts rows. Putting reasoning in the edge function would break the principle of dumb infrastructure + smart agents.
+
+**Why not put the logic in the edge function:** The orchestrator and edge functions are deterministic — no LLM, no reasoning. A "smart" edge function that takes a feature and returns jobs would push LLM reasoning into server-side code, which contradicts the architecture. The agent does the thinking; the infrastructure does the writing.
+
+This pattern is replicable for any future contractor that needs to read from Supabase, reason about the data, and write structured output back. The skill is the variable; the MCP plumbing is the constant.
+
 ### Measure and revisit
 
 The MCP decision is not permanent. To validate it:
@@ -391,7 +434,126 @@ Workers don't talk to each other. All coordination flows through the orchestrato
 
 ---
 
-## 9. Worked Examples
+## 9. CPO Knowledge Architecture
+
+### The problem
+
+The CPO is a persistent session with many responsibilities — product strategy, standup, prioritization, triage, feature design, documentation reconciliation, contractor commissioning. The pipeline described in this document is one of several things the CPO knows how to do.
+
+If we put the full procedural detail for every pipeline stage into the role prompt, it's enormous — potentially 2000+ tokens of permanent context. The CPO pays that cost even when it's doing a simple standup or answering a question about project status.
+
+If we don't put it in the role prompt, the CPO doesn't know what to do when someone says "I want to add authentication."
+
+### Solution: Routing prompt + stage skills + doctrines
+
+Three layers, each with different context characteristics:
+
+| Layer | What it contains | Context cost | When loaded |
+|-------|-----------------|-------------|-------------|
+| **Routing prompt** | Decision tree — how to assess scope and which skill to invoke | ~200 tokens, permanent | Always in `roles.prompt` |
+| **Stage skills** | Detailed procedures for each pipeline stage | ~500-1000 tokens per skill, temporary | On demand, when the CPO enters that stage |
+| **Doctrines** | Beliefs about how work should flow — "documentation must be coherent before structuring" | Proactively injected when relevant | Via knowledge system similarity matching |
+
+### The routing prompt (in `roles.prompt`)
+
+A lean decision tree that fits in ~200 tokens:
+
+```markdown
+## Pipeline: Idea to Job
+
+When a human brings an idea:
+1. Assess scope — query existing projects, ask clarifying questions
+2. Quick fix with no project context → standalone job (/standalone-job)
+3. Single feature for existing project → /spec-feature
+4. New capability requiring multiple features → /plan-capability
+   - Includes documentation reconciliation
+   - Commissions Project Architect when plan is approved
+5. After structuring complete (notification) → review feature outlines
+6. For each feature → /spec-feature
+7. When feature spec approved → set status to ready_for_breakdown
+
+The orchestrator handles everything after ready_for_breakdown.
+```
+
+This tells the CPO *what to do* at each decision point and *which skill to invoke* for the detailed procedure. It does not contain the detailed procedure itself.
+
+### Stage skills
+
+Each pipeline stage has a corresponding skill with the full procedural detail:
+
+| Skill | Stage | What it guides |
+|-------|-------|---------------|
+| `/plan-capability` | 2. Planning | Scope assessment, multi-round dialogue, research commissioning, documentation reconciliation, when to commission Project Architect |
+| `/spec-feature` | 4. Feature Design | Spec writing, acceptance criteria format, human checklist, when to set `ready_for_breakdown` |
+| `/standalone-job` | Entry Point B | Creating a well-formed standalone job with spec + Gherkin AC |
+| `/reconcile-docs` | 2. Planning (substage) | Reading existing docs, identifying gaps, updating cross-references, closing resolved open questions |
+
+Skills load on demand — when the CPO enters planning mode, it invokes `/plan-capability` and gets the full procedure. When it's doing a standup, none of these are in context.
+
+**Key insight:** The CPO doesn't need to remember the full procedure for every stage. It needs to know *which stage it's in* (the routing prompt handles this) and *how to execute that stage* (the skill handles this). The routing prompt is the table of contents; the skills are the chapters.
+
+### Doctrines (reinforcing beliefs)
+
+Doctrines provide the *why* behind the pipeline, injected by the knowledge system when the conversation touches relevant topics:
+
+- "Every capability that spans multiple features needs a project — no exceptions"
+- "Documentation must be coherent before structuring begins — stale docs cause downstream confusion"
+- "Feature outlines are deliberately incomplete — the CPO enriches them through conversation with the human"
+- "Jobs go directly to queued — the design stage belongs to features, not jobs"
+- "The orchestrator is deterministic — if it requires reasoning, it belongs to an executive or contractor"
+
+These reinforce the pipeline's principles even when no skill is loaded. A doctrine fires when the CPO is tempted to skip reconciliation, or create a project without a Project Architect, or put too much detail into a feature outline.
+
+### How this works in practice
+
+```
+Human: "We need to add user authentication to the platform."
+
+CPO reads routing prompt:
+  → This is a new capability requiring multiple features → invoke /plan-capability
+
+/plan-capability skill loads (~800 tokens, temporary):
+  → Guides CPO through scope questions
+  → Triggers /reconcile-docs substage (reads existing docs, spots affected designs)
+  → Multi-round dialogue with human
+  → Produces approved plan
+  → Skill says: "Commission Project Architect now"
+
+CPO calls commission_contractor MCP tool
+  → Orchestrator dispatches Project Architect with featurify skill
+  → ... time passes ...
+
+Orchestrator notification arrives:
+  "Project 'User Authentication' created with 3 feature outlines."
+
+CPO reads routing prompt:
+  → After structuring complete → review outlines, then /spec-feature for each
+
+/spec-feature skill loads for Feature 1:
+  → Guides CPO through spec conversation with human
+  → When spec is complete, set status to ready_for_breakdown
+
+Skill unloads. CPO moves to Feature 2.
+```
+
+At no point is the full pipeline procedure in context simultaneously. The CPO loads what it needs, when it needs it, guided by a 200-token routing prompt.
+
+### Skill access and verification
+
+Skills are listed in `roles.skills[]` in the Supabase `roles` table. The orchestrator writes these into the workspace's skill configuration at dispatch time.
+
+**Open question: Runtime verification.** The `roles.skills[]` field says "this role should have these skills," but there's no verification that the host machine actually has them installed. Today this is implicit — Tom's machine has codex-delegate and gemini-delegate because Tom set them up. Chris's machine may not.
+
+Options:
+- **A) Machine capability registry** — The local agent reports installed skills/tools as part of its heartbeat or registration. The orchestrator only dispatches to machines that have the required tools.
+- **B) Skill distribution** — Skills are stored centrally (Supabase or git) and the local agent pulls them at workspace creation time. No machine-specific installation needed.
+- **C) Both** — Central skills for zazig-owned skills + machine capability check for third-party tools (codex, gemini).
+
+Current lean: **(C)** — zazig skills should be centrally distributed (they're just markdown files), but external tool access (Codex auth, Gemini API keys) is a machine-level concern that needs verification.
+
+**Open question: API keys for delegated models.** The CPO uses `/second-opinion` to get independent review from Codex and Gemini. Codex uses login-based auth (browser OAuth flow — `codex login`). Gemini needs an API key in the environment. For a persistent autonomous session, these need to be available without human intervention. Codex's browser-based auth is the harder problem — it doesn't fit an autonomous agent model. This needs investigation.
+
+## 10. Worked Examples
 
 ### Example A: "Add dark mode to the dashboard"
 
@@ -481,7 +643,7 @@ CPO: Job goes to queued.
 
 ---
 
-## 10. Relationship to Existing Docs
+## 11. Relationship to Existing Docs
 
 ### What this doc supersedes
 
@@ -500,7 +662,7 @@ CPO: Job goes to queued.
 
 ---
 
-## 11. Dependencies
+## 12. Dependencies
 
 | Dependency | Status | Owner |
 |-----------|--------|-------|
@@ -521,7 +683,7 @@ CPO: Job goes to queued.
 
 ---
 
-## 12. Open Questions
+## 13. Open Questions
 
 ### 1. How does the CPO commission a contractor?
 
@@ -544,7 +706,7 @@ For critical flows (auth, billing, permissions), should acceptance tests be mark
 
 ### 4. Project Architect output format
 
-What exactly does the Project Architect produce? A structured JSON project plan? Markdown? Direct Supabase records? The feature outlines need enough detail for the CPO to refine but not so much that the contractor is doing the CPO's job.
+What exactly does the Project Architect produce? A structured JSON project plan? Markdown? Direct Supabase records? The feature outlines need enough detail for the CPO to refine but not so much that the contractor is doing the CPO's job. **Now addressed in the featurify skill design** — see `2026-02-24-featurify-skill-design.md`.
 
 ### 5. Standalone job review cadence
 
@@ -553,9 +715,21 @@ The CPO reviews standalone jobs periodically. What triggers this? Options:
 - Threshold-based: "you have N unreviewed standalone jobs"
 - CPO heartbeat includes standalone review as a routine task
 
+### 6. Skill access verification at dispatch time
+
+The `roles.skills[]` field says "this role should have these skills" but there's no verification the host machine has them. See Section 9 for options (machine capability registry, central skill distribution, or both).
+
+### 7. API keys for delegated models
+
+The CPO uses second-opinion workflows to get independent review from Codex and Gemini. Codex uses login-based auth (browser OAuth — `codex login`). Gemini needs an API key. For autonomous sessions, these need to be available without human intervention. Codex's browser-based auth doesn't fit an autonomous agent model — needs investigation.
+
+### 8. Stage skill authoring
+
+The CPO Knowledge Architecture (Section 9) describes four stage skills (`/plan-capability`, `/spec-feature`, `/standalone-job`, `/reconcile-docs`). These need to be authored. Each skill is a markdown file guiding the CPO through that pipeline stage. The routing prompt in `roles.prompt` references them — they must exist before the CPO can use the pipeline.
+
 ---
 
-## 13. Future Exploration
+## 14. Future Exploration
 
 ### Aqua — P2P Agent Messaging
 
@@ -569,7 +743,7 @@ The CPO reviews standalone jobs periodically. What triggers this? Options:
 
 ### Featurify — Project to Features
 
-Jobify breaks features into jobs. The inverse — breaking a project into features — is currently manual (Project Architect + CPO review). A `featurify` skill could automate the Project Architect's work, similar to how jobify automates the Breakdown Specialist's work. Same pattern: read project, produce feature outlines, push to Supabase.
+~~Jobify breaks features into jobs. The inverse — breaking a project into features — is currently manual.~~ **Now designed.** Featurify follows the same Contractor Pattern (skill + MCP) as jobify. Project Architect contractor with featurify skill + role-scoped MCP tools (`query_projects`, `create_project`, `batch_create_features`). See `2026-02-24-featurify-skill-design.md`.
 
 ### MCP Measurement
 

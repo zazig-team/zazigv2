@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { getValidCredentials } from "../lib/credentials.js";
-import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
+import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY, DEFAULT_SLACK_CLIENT_ID } from "../lib/constants.js";
 
 export async function setup(): Promise<void> {
   // Step 0: Check prerequisites
@@ -465,14 +465,102 @@ export async function setup(): Promise<void> {
 
     console.log(`Project "${projectName}" created (id: ${newProjectId}).`);
 
+    // Step 4: Connect Slack workspace
+    const supabaseUrl = creds.supabaseUrl;
+    let slackWorkspaceName: string | undefined;
+    const connectSlack = (
+      await rl.question("\nConnect Slack workspace? [y/n]: ")
+    ).trim().toLowerCase();
 
-    // Step 5: Invite teammates
+    if (connectSlack === "y" || connectSlack === "yes") {
+      const slackClientId = process.env["SLACK_CLIENT_ID"] ?? DEFAULT_SLACK_CLIENT_ID;
+      const scopes = "app_mentions:read,channels:history,chat:write,im:history";
+      const redirectUri = `${supabaseUrl}/functions/v1/slack-oauth`;
+      const oauthUrl =
+        `https://slack.com/oauth/v2/authorize?client_id=${slackClientId}` +
+        `&scope=${scopes}&state=${companyId}` +
+        `&redirect_uri=${encodeURIComponent(redirectUri)}`;
+
+      console.log("\nOpening Slack authorization in your browser...");
+      const openCmd = process.platform === "darwin" ? "open" : "xdg-open";
+      try {
+        execSync(`${openCmd} "${oauthUrl}"`, { stdio: "pipe" });
+      } catch {
+        console.log("Could not open browser. Visit this URL manually:");
+        console.log(`  ${oauthUrl}`);
+      }
+
+      console.log("Waiting for Slack authorization...");
+      const pollStart = Date.now();
+      const POLL_TIMEOUT_MS = 180_000; // 3 minutes
+      const POLL_INTERVAL_MS = 2_000;
+
+      while (Date.now() - pollStart < POLL_TIMEOUT_MS) {
+        const { data } = await supabase
+          .from("slack_installations")
+          .select("team_name")
+          .eq("company_id", companyId)
+          .limit(1)
+          .single();
+
+        if (data?.team_name) {
+          slackWorkspaceName = data.team_name;
+          console.log(`Slack workspace "${slackWorkspaceName}" connected!`);
+          break;
+        }
+
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      }
+
+      if (!slackWorkspaceName) {
+        console.log("Timed out waiting for Slack authorization.");
+        console.log("You can connect Slack later by re-running setup.");
+      }
+    }
+
+    // Step 5: Configure CPO
+    let cpoArchetype: string | undefined;
+    console.log("\nConfigure your CPO:");
+    console.log("  1. The Strategist — data-driven, methodical, speaks in frameworks");
+    console.log("  2. Founder's Instinct — direct, high-energy, trusts gut with data");
+    console.log("  3. The Operator — terse, execution-focused, sprint-cadence rhythm");
+    console.log("  4. Skip");
+    const archChoice = (await rl.question("\nChoice [1]: ")).trim() || "1";
+
+    const archetypeMap: Record<string, string> = {
+      "1": "strategist",
+      "2": "founders-instinct",
+      "3": "operator",
+    };
+    const archName = archetypeMap[archChoice];
+    const archDisplayNames: Record<string, string> = {
+      "strategist": "The Strategist",
+      "founders-instinct": "Founder's Instinct",
+      "operator": "The Operator",
+    };
+
+    if (archName) {
+      const { data: rpcResult, error: rpcErr } = await supabase.rpc(
+        "setup_company_cpo",
+        { p_company_id: companyId, p_archetype_name: archName },
+      );
+
+      if (rpcErr) {
+        console.error(`Failed to configure CPO: ${rpcErr.message}`);
+      } else if (rpcResult && !(rpcResult as { ok: boolean }).ok) {
+        console.error(`Failed to configure CPO: ${(rpcResult as { error: string }).error}`);
+      } else {
+        cpoArchetype = archDisplayNames[archName];
+        console.log(`CPO configured with "${cpoArchetype}" personality.`);
+      }
+    }
+
+    // Step 6: Invite teammates
     console.log("\nTeammates:");
     console.log("  1. Invite teammates to the company");
     console.log("  2. Skip for now");
     const inviteChoice = (await rl.question("\nChoice [1/2]: ")).trim();
 
-    const supabaseUrl = creds.supabaseUrl;
     const invitedEmails: string[] = [];
 
     if (inviteChoice === "1") {
@@ -515,12 +603,18 @@ export async function setup(): Promise<void> {
     }
     }
 
-    // Step 6: Done
+    // Step 7: Done
     console.log("\n--- Setup complete! ---");
     console.log(`  Company:  ${companyName}`);
     console.log(`  Project:  ${projectName}`);
     if (projectBrief) {
       console.log(`  Brief:    ${projectBrief.split("\n")[0]?.slice(0, 80)}...`);
+    }
+    if (slackWorkspaceName) {
+      console.log(`  Slack:    ${slackWorkspaceName}`);
+    }
+    if (cpoArchetype) {
+      console.log(`  CPO:      ${cpoArchetype}`);
     }
     if (invitedEmails.length > 0) {
       console.log(`  Invited:  ${invitedEmails.join(", ")}`);

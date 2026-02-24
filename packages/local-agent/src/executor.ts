@@ -124,7 +124,7 @@ export class JobExecutor {
   private readonly activeJobs = new Map<string, ActiveJob>();
 
   /** jobId of the active CPO persistent agent job, if any. */
-  private cpoJobId: string | null = null;
+  private persistentJobId: string | null = null;
 
   /** Message queue for injecting into CPO tmux session when idle. */
   private readonly messageQueue: QueuedMessage[] = [];
@@ -282,14 +282,14 @@ export class JobExecutor {
    * Messages are queued and injected one at a time, waiting for CPO idle state.
    */
   handleMessageInbound(msg: MessageInbound): void {
-    if (!this.cpoJobId) {
+    if (!this.persistentJobId) {
       console.warn(`[executor] MessageInbound dropped — no CPO job running. from=${msg.from}, conversationId=${msg.conversationId}`);
       return;
     }
 
-    const job = this.activeJobs.get(this.cpoJobId);
+    const job = this.activeJobs.get(this.persistentJobId);
     if (!job) {
-      console.warn(`[executor] MessageInbound dropped — CPO job not in activeJobs. cpoJobId=${this.cpoJobId}`);
+      console.warn(`[executor] MessageInbound dropped — CPO job not in activeJobs. persistentJobId=${this.persistentJobId}`);
       return;
     }
 
@@ -330,7 +330,7 @@ export class JobExecutor {
    * disconnecting from Supabase.
    */
   async stopAll(): Promise<void> {
-    this.cpoJobId = null;
+    this.persistentJobId = null;
 
     // Kill all remaining active tmux sessions and release slots
     for (const [jobId, job] of this.activeJobs) {
@@ -413,6 +413,15 @@ export class JobExecutor {
         }, null, 2),
       );
 
+      // Persist context to DB for observability (fire-and-forget)
+      this.supabase
+        .from("jobs")
+        .update({ prompt_stack: msg.context ?? "" })
+        .eq("id", jobId)
+        .then(({ error }) => {
+          if (error) console.warn(`[executor] Failed to save prompt_stack for jobId=${jobId}: ${error.message}`);
+        });
+
       console.log(`[executor] Persistent agent workspace created at ${workspaceDir}`);
     } catch (err) {
       console.error(`[executor] Persistent agent: failed to create workspace:`, err);
@@ -445,7 +454,7 @@ export class JobExecutor {
       return;
     }
 
-    this.cpoJobId = jobId;
+    this.persistentJobId = jobId;
 
     // Track in activeJobs (no poll/timeout timers — persistent agent runs indefinitely)
     this.activeJobs.set(jobId, {
@@ -483,8 +492,8 @@ export class JobExecutor {
     this.activeJobs.delete(jobId);
 
     // Clear CPO job ID if this is the CPO job
-    if (jobId === this.cpoJobId) {
-      this.cpoJobId = null;
+    if (jobId === this.persistentJobId) {
+      this.persistentJobId = null;
     }
 
     // Kill the tmux session (best-effort)
@@ -574,8 +583,8 @@ export class JobExecutor {
     this.activeJobs.delete(jobId);
 
     // Clear CPO job ID if this is the CPO job (should not time out, but handle defensively)
-    if (jobId === this.cpoJobId) {
-      this.cpoJobId = null;
+    if (jobId === this.persistentJobId) {
+      this.persistentJobId = null;
     }
 
     await killTmuxSession(job.sessionName);
@@ -612,8 +621,8 @@ export class JobExecutor {
     this.slots.release(job.slotType);
 
     // Clear CPO job ID if the CPO session exited unexpectedly
-    if (jobId === this.cpoJobId) {
-      this.cpoJobId = null;
+    if (jobId === this.persistentJobId) {
+      this.persistentJobId = null;
     }
 
     // Atomically claim the shared report file by renaming it to a per-job path.
@@ -700,7 +709,7 @@ export class JobExecutor {
    * If the session just started, waits for CPO_STARTUP_DELAY_MS to let Claude Code initialize.
    */
   private async injectMessage(message: string): Promise<void> {
-    const cpoJob = this.cpoJobId ? this.activeJobs.get(this.cpoJobId) : null;
+    const cpoJob = this.persistentJobId ? this.activeJobs.get(this.persistentJobId) : null;
     if (!cpoJob) {
       console.warn("[executor] injectMessage: no CPO job — dropping message");
       return;

@@ -615,18 +615,20 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     let assembledContext: string | undefined;
     if (job.job_type === "persistent_agent") {
       const roleName = job.role ?? "Agent";
-      const roleDisplayName = roleName.charAt(0).toUpperCase() + roleName.slice(1).toUpperCase();
-      const parts: string[] = [`# ${roleDisplayName}`];
+      const parts: string[] = [`# ${roleName.toUpperCase()}`];
       if (personalityPrompt) parts.push(personalityPrompt);
       parts.push("---");
       if (rolePrompt) parts.push(rolePrompt);
       assembledContext = parts.join("\n\n");
 
-      // Write to prompt_stack for observability
-      await supabase
+      // Write to prompt_stack for observability (fire-and-forget)
+      supabase
         .from("jobs")
         .update({ prompt_stack: assembledContext })
-        .eq("id", job.id);
+        .eq("id", job.id)
+        .then(({ error }) => {
+          if (error) console.warn(`[orchestrator] Failed to save prompt_stack for jobId=${job.id}: ${error.message}`);
+        });
     }
 
     // Build the StartJob message.

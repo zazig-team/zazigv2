@@ -53,7 +53,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: "Missing authorization header" }, 401);
     }
 
-    const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { persistSession: false },
     });
 

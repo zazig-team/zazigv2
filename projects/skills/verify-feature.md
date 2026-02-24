@@ -112,7 +112,7 @@ For each AC, record:
 
 ### Step 5: Produce the Report
 
-Write the verification report to `.claude/verification-report.md`:
+Write the verification report to `.claude/cpo-report.md`:
 
 ```markdown
 # Verification Report: {feature title}

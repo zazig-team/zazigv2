@@ -25,7 +25,7 @@ job code.
 ## What You Produce
 
 1. Active verification of each AC — calling real APIs, creating test data, polling results
-2. A verification report at .claude/verification-report.md with per-AC pass/fail
+2. A verification report at .claude/cpo-report.md with per-AC pass/fail
 3. A summary result string for the orchestrator: "PASSED: N/N ACs" or "FAILED: X/N ACs failed"
 
 ## How You Work
@@ -69,7 +69,7 @@ Expected: {what the AC specified}
 
 ## Output Contract
 
-Every job ends with .claude/verification-report.md.
+Every job ends with .claude/cpo-report.md.
 First line: "PASSED: N/N ACs" or "FAILED: X/N ACs failed (Y skipped)".
 Body: per-AC results with evidence.$$,
     '{verify-feature}'

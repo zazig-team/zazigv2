@@ -9,7 +9,7 @@
  *   - .claude/skills/     — optional skill files copied from the repo
  */
 
-import { writeFileSync, mkdirSync, existsSync, copyFileSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, copyFileSync, readFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -160,6 +160,30 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
       } else {
         console.warn(`[workspace] Skill file not found: ${skillPath}`);
       }
+    }
+  }
+
+  // 7. If the workspace is inside a git worktree, update .gitignore to prevent
+  //    agents from accidentally committing overlay files.
+  const gitMarker = join(config.workspaceDir, ".git");
+  if (existsSync(gitMarker)) {
+    const GITIGNORE_MARKER = "# zazig workspace files (auto-generated)";
+    const gitignorePath = join(config.workspaceDir, ".gitignore");
+    const GITIGNORE_BLOCK = [
+      GITIGNORE_MARKER,
+      "CLAUDE.md",
+      ".mcp.json",
+      ".claude/",
+      ".zazig-prompt.txt",
+      "subagent-personality.md",
+      "",
+    ].join("\n");
+
+    const existingContent = existsSync(gitignorePath)
+      ? readFileSync(gitignorePath, "utf8")
+      : "";
+    if (!existingContent.includes(GITIGNORE_MARKER)) {
+      appendFileSync(gitignorePath, (existingContent.endsWith("\n") || existingContent === "" ? "" : "\n") + GITIGNORE_BLOCK);
     }
   }
 }

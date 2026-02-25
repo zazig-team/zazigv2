@@ -5,10 +5,13 @@
  * the machine's connection state, heartbeat age, slot usage, and active jobs.
  */
 
-import { readPid, isDaemonRunning } from "../lib/daemon.js";
+import { readPid, isDaemonRunning, readPidForCompany, isDaemonRunningForCompany } from "../lib/daemon.js";
 import { getValidCredentials } from "../lib/credentials.js";
 import { loadConfig } from "../lib/config.js";
 import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
+import { readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 type Row = Record<string, unknown>;
 
@@ -19,15 +22,41 @@ function apiFetch(url: string, headers: Record<string, string>): Promise<Row[]> 
   });
 }
 
-export async function status(): Promise<void> {
-  const pid = readPid();
-  const running = isDaemonRunning();
+/**
+ * Find any running daemon — checks per-company PID files first,
+ * falls back to legacy daemon.pid.
+ */
+function findRunningDaemon(): { pid: number; companyId: string | null } | null {
+  const zazigDir = join(homedir(), ".zazigv2");
+  // Check per-company PID files (UUID.pid)
+  try {
+    const uuidPattern = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.pid$/;
+    for (const entry of readdirSync(zazigDir)) {
+      const match = entry.match(uuidPattern);
+      if (match) {
+        const companyId = match[1]!;
+        if (isDaemonRunningForCompany(companyId)) {
+          return { pid: readPidForCompany(companyId)!, companyId };
+        }
+      }
+    }
+  } catch { /* dir may not exist */ }
+  // Fallback to legacy daemon.pid
+  if (isDaemonRunning()) {
+    return { pid: readPid()!, companyId: null };
+  }
+  return null;
+}
 
-  if (!running) {
+export async function status(): Promise<void> {
+  const daemon = findRunningDaemon();
+
+  if (!daemon) {
     console.log("Agent is not running.");
     return;
   }
 
+  const { pid } = daemon;
   console.log(`Agent is running (PID ${pid}).`);
 
   // Best-effort live state from Supabase — never fatal if this fails

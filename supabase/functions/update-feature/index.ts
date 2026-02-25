@@ -62,7 +62,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     const body = await req.json();
-    const { feature_id, title, description, priority, status, job_id } = body;
+    const { feature_id, title, description, priority, status, spec, acceptance_tests, human_checklist, job_id } = body;
 
     if (!feature_id) {
       return jsonResponse({ error: "feature_id is required" }, 400);
@@ -82,6 +82,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (description !== undefined) updates.description = description;
     if (priority !== undefined) updates.priority = priority;
     if (status !== undefined) updates.status = status;
+    if (spec !== undefined) updates.spec = spec;
+    if (acceptance_tests !== undefined) updates.acceptance_tests = acceptance_tests;
+    if (human_checklist !== undefined) updates.human_checklist = human_checklist;
     // job_id and company_id are used for auth/resolution only — not stored on features
 
     if (Object.keys(updates).length === 0) {

@@ -128,8 +128,11 @@ server.tool(
     description: z.string().optional().describe("New feature description"),
     priority: z.enum(["low", "medium", "high"]).optional().describe("New priority"),
     status: z.enum(["created", "ready_for_breakdown"]).optional().describe("New status (CPO can only set 'created' or 'ready_for_breakdown')"),
+    spec: z.string().optional().describe("Full feature spec (self-contained, readable by Breakdown Specialist)"),
+    acceptance_tests: z.string().optional().describe("Feature-level acceptance criteria"),
+    human_checklist: z.string().optional().describe("Manual verification steps for human on test server"),
   },
-  async ({ feature_id, title, description, priority, status }) => {
+  async ({ feature_id, title, description, priority, status, spec, acceptance_tests, human_checklist }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -148,7 +151,7 @@ server.tool(
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ feature_id, title, description, priority, status, job_id: jobId, company_id: companyId }),
+      body: JSON.stringify({ feature_id, title, description, priority, status, spec, acceptance_tests, human_checklist, job_id: jobId, company_id: companyId }),
     });
 
     if (response.ok) {

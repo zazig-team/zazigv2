@@ -332,7 +332,7 @@ export class JobExecutor {
       protocolVersion: 1,
       jobId: `persistent-${job.role}-${companyId}`,
       cardId: `persistent-${job.role}`,
-      cardType: "persistent_agent" as const,
+      cardType: "code" as const,
       complexity: "medium" as const,
       slotType: job.slot_type as SlotType,
       model: job.model,

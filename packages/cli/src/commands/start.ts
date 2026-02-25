@@ -5,7 +5,7 @@
  *   1. Verifies credentials (auto-refreshes expired token).
  *   2. On first run: prompts for slot config and saves ~/.zazigv2/config.json.
  *   3. Fetches user companies, picks one (or uses --company flag).
- *   4. Checks if daemon is already running for that company.
+ *   4. Stops existing daemon if already running for that company.
  *   5. Spawns the local-agent as a detached child process.
  *   6. Waits 3s, discovers agent sessions, launches TUI (unless --no-tui).
  */
@@ -138,12 +138,24 @@ export async function start(): Promise<void> {
 
   console.log(`Starting zazig for ${company.name}...`);
 
-  // Already running check
+  // Stop existing daemon before (re)starting
   if (isDaemonRunningForCompany(company.id)) {
-    const pid = readPidForCompany(company.id);
-    console.log(`Zazig is already running for ${company.name} (PID ${pid}).`);
-    console.log("Run 'zazig chat' to reconnect, or 'zazig stop' to stop it.");
-    return;
+    const oldPid = readPidForCompany(company.id);
+    if (oldPid && isProcessRunning(oldPid)) {
+      process.stdout.write(`Stopping existing daemon (PID ${oldPid})...`);
+      try { process.kill(oldPid, "SIGTERM"); } catch { /* */ }
+
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        await sleep(200);
+        if (!isProcessRunning(oldPid)) break;
+      }
+      if (isProcessRunning(oldPid)) {
+        try { process.kill(oldPid, "SIGKILL"); } catch { /* */ }
+      }
+      console.log(" stopped.");
+    }
+    removePidFileForCompany(company.id);
   }
 
   // Build env for the spawned process

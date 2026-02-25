@@ -23,6 +23,7 @@ export interface WorkspaceConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
   jobId: string;
+  companyId?: string;
   role: string;
   claudeMdContent: string;
   skills?: string[];
@@ -60,7 +61,7 @@ export const ROLE_ALLOWED_TOOLS: Record<string, string[]> = {
  */
 export function generateMcpConfig(
   mcpServerPath: string,
-  env: { supabaseUrl: string; supabaseAnonKey: string; jobId: string },
+  env: { supabaseUrl: string; supabaseAnonKey: string; jobId: string; companyId?: string },
 ): object {
   return {
     mcpServers: {
@@ -71,6 +72,7 @@ export function generateMcpConfig(
           SUPABASE_URL: env.supabaseUrl,
           SUPABASE_ANON_KEY: env.supabaseAnonKey,
           ZAZIG_JOB_ID: env.jobId,
+          ...(env.companyId ? { ZAZIG_COMPANY_ID: env.companyId } : {}),
         },
       },
     },
@@ -120,6 +122,7 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     supabaseUrl: config.supabaseUrl,
     supabaseAnonKey: config.supabaseAnonKey,
     jobId: config.jobId,
+    companyId: config.companyId,
   });
   writeFileSync(
     join(config.workspaceDir, ".mcp.json"),

@@ -82,7 +82,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (description !== undefined) updates.description = description;
     if (priority !== undefined) updates.priority = priority;
     if (status !== undefined) updates.status = status;
-    if (job_id !== undefined) updates.job_id = job_id;
+    // job_id and company_id are used for auth/resolution only — not stored on features
 
     if (Object.keys(updates).length === 0) {
       return jsonResponse({ ok: true, note: "nothing to update" });

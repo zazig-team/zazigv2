@@ -481,6 +481,7 @@ export class JobExecutor {
         supabaseUrl: this.supabaseUrl,
         supabaseAnonKey: this.supabaseAnonKey,
         jobId,
+        companyId: resolvedCompanyId,
         role,
         claudeMdContent: msg.context ?? "",
       });

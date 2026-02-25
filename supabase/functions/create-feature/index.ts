@@ -58,15 +58,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     const body = await req.json();
-    const { project_id, title, description, priority, job_id } = body;
+    const { project_id, title, description, priority, job_id, company_id: explicit_company_id } = body;
 
     if (!title) {
       return jsonResponse({ error: "title is required" }, 400);
     }
 
-    // Resolve company_id from job_id
-    let company_id: string | null = null;
-    if (job_id) {
+    // Resolve company_id: explicit param > job lookup
+    let company_id: string | null = explicit_company_id ?? null;
+    if (!company_id && job_id) {
       const { data: job } = await supabase
         .from("jobs")
         .select("company_id")
@@ -76,7 +76,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     if (!company_id) {
-      return jsonResponse({ error: "Cannot resolve company_id — job_id required" }, 400);
+      return jsonResponse({ error: "Cannot resolve company_id — provide company_id or valid job_id" }, 400);
     }
 
     // Insert feature

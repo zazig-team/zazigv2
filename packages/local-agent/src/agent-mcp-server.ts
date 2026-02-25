@@ -86,6 +86,7 @@ server.tool(
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
 
     if (!supabaseUrl || !supabaseAnonKey) {
       return {
@@ -100,7 +101,7 @@ server.tool(
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ title, description, project_id, priority, job_id: jobId }),
+      body: JSON.stringify({ title, description, project_id, priority, job_id: jobId, company_id: companyId }),
     });
 
     if (response.ok) {
@@ -132,6 +133,7 @@ server.tool(
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
 
     if (!supabaseUrl || !supabaseAnonKey) {
       return {
@@ -146,7 +148,7 @@ server.tool(
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ feature_id, title, description, priority, status, job_id: jobId }),
+      body: JSON.stringify({ feature_id, title, description, priority, status, job_id: jobId, company_id: companyId }),
     });
 
     if (response.ok) {
@@ -182,8 +184,11 @@ server.tool(
       };
     }
 
-    // Resolve company_id from job if not provided
+    // Resolve company_id: explicit param > env var > job lookup
     let resolvedCompanyId = company_id;
+    if (!resolvedCompanyId) {
+      resolvedCompanyId = process.env.ZAZIG_COMPANY_ID;
+    }
     if (!resolvedCompanyId && jobId) {
       const jobResp = await fetch(
         `${supabaseUrl}/rest/v1/jobs?id=eq.${jobId}&select=company_id`,

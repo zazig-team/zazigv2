@@ -548,6 +548,275 @@ server.tool(
 );
 
 server.tool(
+  "create_idea",
+  "Create a new idea in the ideas inbox",
+  {
+    raw_text: z.string().describe("Raw text of the idea"),
+    originator: z.string().describe("Who originated this idea"),
+    source: z.enum(["terminal", "slack", "telegram", "agent", "web", "api", "monitoring"]).optional().describe("Source channel of the idea"),
+    title: z.string().optional().describe("Optional title for the idea"),
+    description: z.string().optional().describe("Optional description"),
+    scope: z.string().optional().describe("Scope of the idea"),
+    complexity: z.string().optional().describe("Estimated complexity"),
+    domain: z.string().optional().describe("Domain this idea belongs to"),
+    autonomy: z.string().optional().describe("Autonomy level"),
+    tags: z.array(z.string()).optional().describe("Tags for the idea"),
+    flags: z.array(z.string()).optional().describe("Flags for the idea"),
+    clarification_notes: z.string().optional().describe("Notes requiring clarification"),
+    processed_by: z.string().optional().describe("Agent or person who processed this idea"),
+    source_ref: z.string().optional().describe("Reference to the source (e.g. message ID)"),
+    project_id: z.string().optional().describe("Project to associate this idea with"),
+    priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("Idea priority"),
+    suggested_exec: z.string().optional().describe("Suggested executor for this idea"),
+  },
+  async ({ raw_text, originator, source, title, description, scope, complexity, domain, autonomy, tags, flags, clarification_notes, processed_by, source_ref, project_id, priority, suggested_exec }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/create-idea`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ raw_text, originator, source, title, description, scope, complexity, domain, autonomy, tags, flags, clarification_notes, processed_by, source_ref, project_id, priority, suggested_exec, job_id: jobId, company_id: companyId }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { idea_id: string };
+      return {
+        content: [{ type: "text" as const, text: `Idea created successfully. idea_id: ${data.idea_id}` }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to create idea (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  },
+);
+
+server.tool(
+  "query_ideas",
+  "Query ideas from the inbox with optional filters",
+  {
+    idea_id: z.string().optional().describe("Idea UUID — returns a single idea with full detail"),
+    status: z.string().optional().describe("Filter by status (e.g. 'new', 'triaged', 'parked', 'rejected')"),
+    domain: z.string().optional().describe("Filter by domain"),
+    source: z.string().optional().describe("Filter by source channel"),
+    priority: z.string().optional().describe("Filter by priority"),
+    project_id: z.string().optional().describe("Filter by project ID"),
+    search: z.string().optional().describe("Full-text search across idea content"),
+    limit: z.number().optional().describe("Maximum number of ideas to return"),
+  },
+  async ({ idea_id, status, domain, source, priority, project_id, search, limit }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/query-ideas`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ idea_id, status, domain, source, priority, project_id, search, limit, job_id: jobId, company_id: companyId }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { ideas: unknown[] };
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(data.ideas, null, 2) }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to query ideas (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  },
+);
+
+server.tool(
+  "update_idea",
+  "Update triage metadata on an existing idea",
+  {
+    idea_id: z.string().describe("ID of the idea to update"),
+    title: z.string().optional().describe("New title"),
+    description: z.string().optional().describe("New description"),
+    status: z.enum(["new", "triaged", "parked", "rejected"]).optional().describe("New status"),
+    priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("New priority"),
+    suggested_exec: z.string().optional().describe("Suggested executor"),
+    tags: z.array(z.string()).optional().describe("Updated tags"),
+    flags: z.array(z.string()).optional().describe("Updated flags"),
+    clarification_notes: z.string().optional().describe("Clarification notes"),
+    triage_notes: z.string().optional().describe("Notes from triage"),
+    project_id: z.string().optional().describe("Associated project ID"),
+  },
+  async ({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/update-idea`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id, job_id: jobId, company_id: companyId }),
+    });
+
+    if (response.ok) {
+      return {
+        content: [{ type: "text" as const, text: "Idea updated successfully." }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to update idea (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  },
+);
+
+server.tool(
+  "promote_idea",
+  "Promote a triaged idea to a feature, job, or research track",
+  {
+    idea_id: z.string().describe("ID of the idea to promote"),
+    promote_to: z.enum(["feature", "job", "research"]).describe("Target type to promote the idea to"),
+    project_id: z.string().optional().describe("Project to associate the promoted item with"),
+    title: z.string().optional().describe("Override title for the promoted item"),
+  },
+  async ({ idea_id, promote_to, project_id, title }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/promote-idea`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ idea_id, promote_to, project_id, title, job_id: jobId, company_id: companyId }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { idea_id: string; promoted_to_type: string; promoted_to_id: string };
+      return {
+        content: [{ type: "text" as const, text: `Idea promoted. idea_id: ${data.idea_id}, promoted_to_type: ${data.promoted_to_type}, promoted_to_id: ${data.promoted_to_id}` }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to promote idea (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  },
+);
+
+server.tool(
+  "batch_create_ideas",
+  "Atomically create multiple ideas in the inbox (used by Ideaify for multi-idea splits)",
+  {
+    ideas: z.array(z.object({
+      raw_text: z.string().describe("Raw text of the idea"),
+      originator: z.string().describe("Who originated this idea"),
+      source: z.enum(["terminal", "slack", "telegram", "agent", "web", "api", "monitoring"]).optional().describe("Source channel"),
+      title: z.string().optional().describe("Optional title"),
+      description: z.string().optional().describe("Optional description"),
+      scope: z.string().optional().describe("Scope of the idea"),
+      complexity: z.string().optional().describe("Estimated complexity"),
+      domain: z.string().optional().describe("Domain this idea belongs to"),
+      autonomy: z.string().optional().describe("Autonomy level"),
+      tags: z.array(z.string()).optional().describe("Tags"),
+      flags: z.array(z.string()).optional().describe("Flags"),
+      clarification_notes: z.string().optional().describe("Clarification notes"),
+      processed_by: z.string().optional().describe("Agent or person who processed this idea"),
+      source_ref: z.string().optional().describe("Reference to the source"),
+      project_id: z.string().optional().describe("Project to associate with"),
+      priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("Idea priority"),
+      suggested_exec: z.string().optional().describe("Suggested executor"),
+    })).describe("Array of idea objects to create"),
+  },
+  async ({ ideas }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/batch-create-ideas`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ ideas, job_id: jobId, company_id: companyId }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { ideas: Array<{ idea_id: string; title: string; status: string }> };
+      const summary = data.ideas.map((i) => `- ${i.title} (${i.idea_id}): ${i.status}`).join("\n");
+      return {
+        content: [{ type: "text" as const, text: `Created ${data.ideas.length} ideas:\n${summary}` }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to create ideas (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  },
+);
+
+server.tool(
   "execute_sql",
   "Execute a scoped SQL statement against the pipeline database. Restricted to jobs, features, agent_events, machines tables. Used by pipeline-technician for prescribed operations.",
   {

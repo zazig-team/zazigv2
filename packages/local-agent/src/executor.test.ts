@@ -4,6 +4,8 @@ import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import * as fsModule from "node:fs";
 import { JobExecutor, type SendFn, enqueueWithCap, MAX_QUEUE_SIZE, type QueuedMessage } from "./executor.js";
 import { SlotTracker } from "./slots.js";
+import { RepoManager } from "./branches.js";
+import { setupJobWorkspace } from "./workspace.js";
 
 // ---------------------------------------------------------------------------
 // Mock child_process + fs + util at module level
@@ -34,6 +36,28 @@ vi.mock("node:util", () => ({
   }),
 }));
 
+let lastRepoManagerInstance: any;
+vi.mock("./branches.js", () => {
+  class MockRepoManager {
+    ensureRepo = vi.fn().mockResolvedValue("/tmp/mock-repo");
+    ensureFeatureBranch = vi.fn().mockResolvedValue(undefined);
+    createJobWorktree = vi.fn().mockResolvedValue({
+      worktreePath: "/tmp/mock-worktree",
+      jobBranch: "job/job-001",
+    });
+    removeJobWorktree = vi.fn().mockResolvedValue(undefined);
+    pushJobBranch = vi.fn().mockResolvedValue(undefined);
+    constructor() {
+      lastRepoManagerInstance = this;
+    }
+  }
+  return { RepoManager: MockRepoManager };
+});
+
+vi.mock("./workspace.js", () => ({
+  setupJobWorkspace: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -51,6 +75,9 @@ function makeStartJob(overrides?: Partial<StartJob>): StartJob {
     slotType: "claude_code",
     model: "claude-opus-4-6",
     context: "Implement the feature.",
+    projectId: "proj-001",
+    repoUrl: "https://github.com/test/repo.git",
+    featureBranch: "feature/test-branch",
     ...overrides,
   };
 }
@@ -65,15 +92,31 @@ interface UpdateCall {
 function makeMockSupabase() {
   const calls: UpdateCall[] = [];
 
-  const client = {
-    from: vi.fn((table: string) => ({
-      update: vi.fn((data: Record<string, unknown>) => ({
-        eq: vi.fn((col: string, val: string) => {
+  const makeChainable = (table: string) => {
+    const chain = {
+      update: vi.fn((data: Record<string, unknown>) => {
+        const eqFn = vi.fn((col: string, val: string) => {
           calls.push({ table, data, eqColumn: col, eqValue: val });
-          return Promise.resolve({ error: null });
-        }),
+          const result = Promise.resolve({ error: null, data: null }) as any;
+          result.eq = eqFn;
+          return result;
+        });
+        return { eq: eqFn };
+      }),
+      select: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+          })),
+          single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+        })),
       })),
-    })),
+    };
+    return chain;
+  };
+
+  const client = {
+    from: vi.fn((table: string) => makeChainable(table)),
   };
 
   return { client: client as unknown, calls };
@@ -317,8 +360,7 @@ describe("JobExecutor - subAgentPrompt workspace", () => {
     expect(subAgentCalls.length).toBe(0);
   });
 
-  it("cleans up job workspace directory on job completion", async () => {
-    const rmSyncMock = fsModule.rmSync as unknown as Mock;
+  it("cleans up git worktree on job completion", async () => {
     const job = makeStartJob({ jobId: "job-ws-001", subAgentPrompt: "# Team Values" });
     await executor.handleStartJob(job);
 
@@ -326,14 +368,8 @@ describe("JobExecutor - subAgentPrompt workspace", () => {
     mockExecFileAsync.mockRejectedValue(new Error("session not found"));
     await vi.advanceTimersByTimeAsync(30_000);
 
-    const workspaceCleanupCall = rmSyncMock.mock.calls.find(
-      (call: unknown[]) =>
-        typeof call[0] === "string" &&
-        (call[0] as string).includes(".zazigv2") &&
-        (call[0] as string).includes("job-job-ws-001"),
-    );
-    expect(workspaceCleanupCall).toBeDefined();
-    expect(workspaceCleanupCall![1]).toEqual({ recursive: true });
+    // With git worktree flow, cleanup calls removeJobWorktree on the RepoManager instance
+    expect(lastRepoManagerInstance.removeJobWorktree).toHaveBeenCalled();
   });
 });
 
@@ -366,29 +402,20 @@ describe("JobExecutor — ephemeral workspace setup", () => {
     vi.useRealTimers();
   });
 
-  it("creates workspace for ephemeral job with role field", async () => {
-    const writeFileSyncMock = fsModule.writeFileSync as unknown as Mock;
+  it("calls setupJobWorkspace for ephemeral job with role field", async () => {
+    const setupMock = setupJobWorkspace as unknown as Mock;
     await executor.handleStartJob(makeStartJob({
       role: "breakdown-specialist",
       roleSkills: ["jobify"],
     }));
 
-    // Should have written .mcp.json to a workspace directory
-    const mcpJsonCall = writeFileSyncMock.mock.calls.find(
-      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes(".mcp.json") && (call[0] as string).includes("job-job-001"),
-    );
-    expect(mcpJsonCall).toBeDefined();
-
-    // Should have written settings.json with only breakdown-specialist tools
-    const settingsCall = writeFileSyncMock.mock.calls.find(
-      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("settings.json") && (call[0] as string).includes("job-job-001"),
-    );
-    expect(settingsCall).toBeDefined();
-    const settingsContent = JSON.parse(settingsCall![1] as string);
-    expect(settingsContent.permissions.allow).toEqual([
-      "mcp__zazig-messaging__query_features",
-      "mcp__zazig-messaging__batch_create_jobs",
-    ]);
+    // setupJobWorkspace should have been called with the worktree path and role
+    expect(setupMock).toHaveBeenCalledTimes(1);
+    const config = setupMock.mock.calls[0]![0];
+    expect(config.workspaceDir).toBe("/tmp/mock-worktree");
+    expect(config.role).toBe("breakdown-specialist");
+    expect(config.skills).toEqual(["jobify"]);
+    expect(config.jobId).toBe("job-001");
   });
 
   it("does NOT create workspace for ephemeral job without role field", async () => {

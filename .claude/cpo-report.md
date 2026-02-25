@@ -1,48 +1,34 @@
-# CPO Report -- commission_contractor
+STATUS: COMPLETE
+
+# CPO Report — Terminal-First CPO 3.1: Per-company daemon management + company picker
+
+**Branch:** `cpo/tfc-daemon`
+**Trello card:** 699e436b
+**Commit:** `71b9904` — `feat(cli): per-company daemon PID management + company picker`
 
 ## Summary
 
-Built the `commission_contractor` tool -- the mechanism for the CPO to dispatch ephemeral contractor agents (Project Architect, Breakdown Specialist, Monitoring Agent) by creating queued jobs. Includes a database migration, Supabase edge function, MCP tool, and workspace permission update.
+Implemented Tasks 3-4 from the terminal-first CPO plan:
 
-## Agent Team Summary
+### Change 1: `packages/cli/src/lib/daemon.ts`
+Added 6 per-company daemon management functions at the end of the file, preserving all existing functions:
+- `pidPathForCompany(companyId)` — returns `~/.zazigv2/{companyId}.pid`
+- `logPathForCompany(companyId)` — returns `~/.zazigv2/logs/{companyId}.log` (creates log dir)
+- `readPidForCompany(companyId)` — reads PID from company-specific PID file
+- `isDaemonRunningForCompany(companyId)` — checks if company daemon process is alive
+- `removePidFileForCompany(companyId)` — cleans up PID file
+- `startDaemonForCompany(env, companyId)` — spawns detached daemon with company-scoped PID/log files
 
-- **Team composition**: 2 general-purpose agents (cloud-agent, local-agent) + 1 code-reviewer
-- **Contract chain**: Pre-defined API contract -- both agents worked in parallel since the edge function request/response shape was fully specified upfront
-- **Files per teammate**:
-  - cloud-agent: `supabase/migrations/044_relax_feature_id_contractor.sql`, `supabase/functions/commission-contractor/index.ts`, `supabase/functions/commission-contractor/deno.json`
-  - local-agent: `packages/local-agent/src/agent-mcp-server.ts`, `packages/local-agent/src/workspace.ts`
-- **Agent Teams value assessment**: Parallel execution saved time -- both agents completed independently without coordination overhead. The pre-defined contract meant no upstream/downstream dependency. Total wall-clock time was dominated by the slower agent (cloud-agent with 3 files) rather than the sum of both.
+No new imports needed — all dependencies (`spawn`, `openSync`, `readFileSync`, `writeFileSync`, `unlinkSync`, `mkdirSync`, `join`, `isRunning`, `resolveAgentEntry`, `ZAZIGV2_DIR`) were already present.
 
-## Code Review
+### Change 2: `packages/cli/src/lib/company-picker.ts` (new file)
+- `fetchUserCompanies(supabaseUrl, anonKey, accessToken)` — fetches companies via Supabase REST (`user_companies` join `companies`)
+- `pickCompany(companies)` — auto-selects if single company, prompts via readline if multiple
 
-Integration check by team lead verified:
-- Edge function follows existing patterns (batch-create-jobs, batch-create-features)
-- Validation rules correct: breakdown-specialist requires feature_id, project-architect rejects it
-- Uses `context` column (not `spec`) for job description
-- Event type `contractor_commissioned` fires correctly
-- MCP tool request/response matches edge function contract
-- CPO workspace includes `commission_contractor` in allowed tools
+## Typecheck
+- `npx tsc -p packages/cli/tsconfig.json --noEmit` passes with zero new errors
+- Pre-existing error in `constants.ts` (unresolved `@zazigv2/shared` module) confirmed on base branch — not introduced by this change
 
-## Changes
-
-| File | Change |
-|------|--------|
-| `supabase/migrations/044_relax_feature_id_contractor.sql` | New -- relaxes constraint for contractor roles |
-| `supabase/functions/commission-contractor/index.ts` | New -- edge function with validation, job insert, event |
-| `supabase/functions/commission-contractor/deno.json` | New -- Deno import map |
-| `packages/local-agent/src/agent-mcp-server.ts` | Edit -- added `commission_contractor` tool |
-| `packages/local-agent/src/workspace.ts` | Edit -- added `commission_contractor` to CPO allowed tools |
-
-## Testing
-
-Manual testing required post-merge:
-1. Deploy migration 044 via Management API
-2. Deploy edge function: `SUPABASE_ACCESS_TOKEN=$(doppler secrets get SUPABASE_ACCESS_TOKEN --project zazig --config prd --plain) npx supabase functions deploy commission-contractor --no-verify-jwt --project-ref jmussmwglgbwncgygzbz`
-3. Test each contractor role via MCP tool or direct edge function call
-
-## Decisions Made
-
-- Contractor roles hardcoded in both constraint and edge function (not table-driven) -- matches the existing pattern for job_type validation
-- Role lookup against `roles` table ensures only provisioned roles can be commissioned
-- `medium` complexity for all contractors -- they need Claude Code, not Codex
-- Event type `contractor_commissioned` (not reusing `job_created`) for clear audit trail
+## Token Usage
+- Token budget: claude-ok (wrote code directly)
+- Approach: direct implementation, no codex-delegate needed for 2 focused changes

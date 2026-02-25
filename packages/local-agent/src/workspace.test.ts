@@ -9,6 +9,8 @@ vi.mock("node:fs", () => ({
   mkdirSync: vi.fn(),
   existsSync: vi.fn(() => false),
   copyFileSync: vi.fn(),
+  readFileSync: vi.fn(() => ""),
+  appendFileSync: vi.fn(),
 }));
 
 import { generateAllowedTools, generateMcpConfig, setupJobWorkspace, ROLE_ALLOWED_TOOLS } from "./workspace.js";
@@ -21,26 +23,52 @@ import * as fsModule from "node:fs";
 describe("generateAllowedTools", () => {
   it("returns prefixed tool names for cpo role", () => {
     expect(generateAllowedTools("cpo")).toEqual([
-      "mcp__zazig-messaging__send_message",
+      "Read",
+      "Write",
+      "Edit",
+      "Bash",
+      "Glob",
+      "Grep",
       "mcp__zazig-messaging__query_projects",
       "mcp__zazig-messaging__create_feature",
       "mcp__zazig-messaging__update_feature",
+      "mcp__zazig-messaging__commission_contractor",
     ]);
   });
 
   it("returns prefixed tool names for breakdown-specialist", () => {
     expect(generateAllowedTools("breakdown-specialist")).toEqual([
+      "Read",
+      "Write",
+      "Edit",
+      "Bash",
+      "Glob",
+      "Grep",
       "mcp__zazig-messaging__query_features",
       "mcp__zazig-messaging__batch_create_jobs",
     ]);
   });
 
-  it("returns empty array for job-combiner", () => {
-    expect(generateAllowedTools("job-combiner")).toEqual([]);
+  it("returns standard tools only for job-combiner", () => {
+    expect(generateAllowedTools("job-combiner")).toEqual([
+      "Read",
+      "Write",
+      "Edit",
+      "Bash",
+      "Glob",
+      "Grep",
+    ]);
   });
 
-  it("returns empty array for unknown role", () => {
-    expect(generateAllowedTools("nonexistent-role")).toEqual([]);
+  it("returns standard tools only for unknown role", () => {
+    expect(generateAllowedTools("nonexistent-role")).toEqual([
+      "Read",
+      "Write",
+      "Edit",
+      "Bash",
+      "Glob",
+      "Grep",
+    ]);
   });
 });
 
@@ -122,7 +150,9 @@ describe("setupJobWorkspace", () => {
   it("copies skill files when skills and repoSkillsDir are provided", () => {
     const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
     const copyFileSyncMock = fsModule.copyFileSync as unknown as ReturnType<typeof vi.fn>;
-    existsSyncMock.mockReturnValue(true);
+    existsSyncMock.mockImplementation((p: string) =>
+      typeof p === "string" && p.endsWith(".md"),
+    );
 
     setupJobWorkspace({
       workspaceDir: "/tmp/test-workspace",

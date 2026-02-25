@@ -92,6 +92,9 @@ export function isStartJob(v: unknown): v is StartJob {
   if (!["simple", "medium", "complex"].includes(v.complexity as string)) return false;
   if (!["claude_code", "codex"].includes(v.slotType as string)) return false;
   if (!isString(v.model) || !ALLOWED_MODELS.has(v.model)) return false;
+  if (!isString(v.projectId) || v.projectId.length === 0) return false;
+  if (!isString(v.repoUrl) || v.repoUrl.length === 0) return false;
+  if (!isString(v.featureBranch) || v.featureBranch.length === 0) return false;
   // Either context (inline) or contextRef (URL) must be present — not both undefined.
   const hasContext = isString(v.context);
   const hasContextRef = isString(v.contextRef) && v.contextRef.length > 0;

@@ -98,6 +98,12 @@ export interface StartJob {
   slotType: SlotType;
   /** Model identifier to pass to the execution agent (e.g. "claude-opus-4-6", "codex"). */
   model: string;
+  /** Project UUID — executor uses to cache repo clone by project. */
+  projectId: string;
+  /** GitHub HTTPS URL from projects.repo_url — executor clones from this. */
+  repoUrl: string;
+  /** Feature branch name from features.branch — job branches are created off this. */
+  featureBranch: string;
   /**
    * Inline card context (description, repo info, instructions) for the agent prompt.
    * Optional when `contextRef` is provided; required otherwise.

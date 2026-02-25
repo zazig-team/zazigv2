@@ -2,7 +2,7 @@
  * zazigv2 — commission-contractor Edge Function
  *
  * Creates a single queued job for a contractor role (project-architect,
- * breakdown-specialist, monitoring-agent). Called by the CPO when it needs
+ * monitoring-agent, verification-specialist). Called by the CPO when it needs
  * to commission work that doesn't fit the normal feature→job pipeline.
  *
  * Runtime: Deno / Supabase Edge Functions
@@ -39,19 +39,19 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-const CONTRACTOR_ROLES = ["project-architect", "breakdown-specialist", "monitoring-agent", "verification-specialist"] as const;
+// breakdown-specialist is NOT here — the orchestrator auto-dispatches breakdown
+// when a feature reaches ready_for_breakdown (processReadyForBreakdown).
+const CONTRACTOR_ROLES = ["project-architect", "monitoring-agent", "verification-specialist"] as const;
 type ContractorRole = typeof CONTRACTOR_ROLES[number];
 
 const ROLE_JOB_TITLES: Record<ContractorRole, string> = {
   "project-architect": "Structure project into features",
-  "breakdown-specialist": "Break down feature into jobs",
   "monitoring-agent": "Automated codebase scan",
   "verification-specialist": "Verify feature acceptance criteria",
 };
 
 const ROLE_JOB_TYPES: Record<ContractorRole, string> = {
   "project-architect": "design",
-  "breakdown-specialist": "breakdown",
   "monitoring-agent": "research",
   "verification-specialist": "verify",
 };
@@ -95,8 +95,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: "project_id is required" }, 400);
     }
 
-    // breakdown-specialist and verification-specialist require feature_id
-    if ((role === "breakdown-specialist" || role === "verification-specialist") && !feature_id) {
+    // verification-specialist requires feature_id
+    if (role === "verification-specialist" && !feature_id) {
       return jsonResponse(
         { error: `feature_id is required for ${role}` },
         400,

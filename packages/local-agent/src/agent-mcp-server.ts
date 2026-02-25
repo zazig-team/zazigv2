@@ -472,12 +472,12 @@ server.tool(
 
 server.tool(
   "commission_contractor",
-  "Commission an ephemeral contractor to perform pipeline work. Used by the CPO to dispatch Project Architects (featurify), Breakdown Specialists (jobify), or Monitoring Agents.",
+  "Commission an ephemeral contractor to perform pipeline work. Used by the CPO to dispatch Project Architects (featurify), Monitoring Agents, or Verification Specialists.",
   {
     company_id: z.string().describe("Company UUID"),
-    role: z.enum(["project-architect", "breakdown-specialist", "monitoring-agent", "verification-specialist"]).describe("Contractor role to commission"),
+    role: z.enum(["project-architect", "monitoring-agent", "verification-specialist"]).describe("Contractor role to commission"),
     project_id: z.string().describe("Target project UUID"),
-    feature_id: z.string().optional().describe("Target feature UUID (required for breakdown-specialist)"),
+    feature_id: z.string().optional().describe("Target feature UUID (required for verification-specialist)"),
     context: z.string().optional().describe("Additional instructions from the CPO"),
   },
   async ({ company_id, role, project_id, feature_id, context }) => {

@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ideas Inbox — Zazig</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08090c;
+      --surface: #101216;
+      --surface-raised: #161a1f;
+      --border: #1e2328;
+      --border-subtle: #181c21;
+      --text: #e2e4e8;
+      --text-secondary: #8b919a;
+      --text-dim: #555d68;
+
+      /* Priority border colors */
+      --priority-urgent: #ef4444;
+      --priority-high: #f97316;
+      --priority-medium: #eab308;
+      --priority-low: #6b7280;
+
+      /* Scope badge colors */
+      --scope-job: #4d8fef;
+      --scope-job-bg: rgba(77, 143, 239, 0.12);
+      --scope-feature: #9b59b6;
+      --scope-feature-bg: rgba(155, 89, 182, 0.12);
+      --scope-project: #27ae60;
+      --scope-project-bg: rgba(39, 174, 96, 0.12);
+      --scope-research: #28b5d4;
+      --scope-research-bg: rgba(40, 181, 212, 0.12);
+
+      /* Accent */
+      --accent: #4d8fef;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(circle, #1a1e24 1px, transparent 1px);
+      background-size: 24px 24px;
+      opacity: 0.4;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* ── Topbar ────────────────────────────────── */
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(8, 9, 12, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      flex-shrink: 0;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent), 0 0 20px rgba(77, 143, 239, 0.3);
+      flex-shrink: 0;
+    }
+
+    .page-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .mock-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #eab308;
+      background: rgba(234, 179, 8, 0.1);
+      border: 1px solid rgba(234, 179, 8, 0.2);
+      border-radius: 4px;
+      padding: 3px 8px;
+    }
+
+    /* ── Filter tabs ───────────────────────────── */
+
+    #filter-tabs {
+      padding: 0 24px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(8, 9, 12, 0.6);
+      flex-shrink: 0;
+    }
+
+    #filter-tabs nav {
+      display: flex;
+      gap: 0;
+      white-space: nowrap;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+
+    #filter-tabs nav::-webkit-scrollbar {
+      display: none;
+    }
+
+    .tab {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      padding: 12px 16px 10px;
+      cursor: pointer;
+      transition: color 0.15s ease, border-color 0.15s ease;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .tab:hover {
+      color: var(--text);
+    }
+
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab .count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+    }
+
+    .tab.active .count {
+      color: var(--accent);
+      opacity: 0.7;
+    }
+
+    /* ── Main content ──────────────────────────── */
+
+    .content {
+      flex: 1;
+      padding: 24px;
+      max-width: 800px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* ── Ideas grid ────────────────────────────── */
+
+    #ideas-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    /* ── State messages ────────────────────────── */
+
+    #loading-state,
+    #empty-state,
+    #error-state {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      text-align: center;
+      padding: 48px 24px;
+      letter-spacing: 0.02em;
+    }
+
+    #error-state {
+      color: #f87171;
+    }
+
+    /* ── Idea cards ────────────────────────────── */
+
+    .idea-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      animation: card-in 0.25s ease both;
+    }
+
+    @keyframes card-in {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .idea-card:hover {
+      border-color: #2a3038;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Priority left-border for triaged cards */
+    .idea-card--triaged {
+      border-left-width: 3px;
+    }
+
+    .idea-card--triaged.priority-urgent { border-left-color: var(--priority-urgent); }
+    .idea-card--triaged.priority-high   { border-left-color: var(--priority-high); }
+    .idea-card--triaged.priority-medium { border-left-color: var(--priority-medium); }
+    .idea-card--triaged.priority-low    { border-left-color: var(--priority-low); }
+
+    /* Parked cards: muted */
+    .idea-card--parked { opacity: 0.6; }
+    .idea-card--parked:hover { opacity: 1; }
+
+    /* ── Card layout ───────────────────────────── */
+
+    .card-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .card-row:last-child { margin-bottom: 0; }
+
+    .card-row--left {
+      justify-content: flex-start;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.35;
+      margin-bottom: 6px;
+    }
+
+    .card-title--struck {
+      text-decoration: line-through;
+      color: var(--text-dim);
+    }
+
+    .card-raw-text {
+      font-size: 14px;
+      color: var(--text);
+      line-height: 1.5;
+      margin-bottom: 8px;
+    }
+
+    .card-desc {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.45;
+      margin-bottom: 8px;
+    }
+
+    .card-desc--muted {
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    /* ── Card meta / header ────────────────────── */
+
+    .card-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+
+    .source-icon {
+      font-size: 14px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .originator {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--text-dim);
+      letter-spacing: 0.04em;
+    }
+
+    .rel-time {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      margin-left: auto;
+    }
+
+    /* ── Badges ────────────────────────────────── */
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 8px;
+    }
+
+    .badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: lowercase;
+      border-radius: 4px;
+      padding: 2px 8px;
+      white-space: nowrap;
+    }
+
+    /* Tag badges (neutral) */
+    .badge--tag {
+      color: var(--text-dim);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+    }
+
+    /* Scope badges */
+    .badge--job      { color: var(--scope-job);      background: var(--scope-job-bg);      border: 1px solid rgba(77,143,239,0.2); }
+    .badge--feature  { color: var(--scope-feature);  background: var(--scope-feature-bg);  border: 1px solid rgba(155,89,182,0.2); }
+    .badge--project  { color: var(--scope-project);  background: var(--scope-project-bg);  border: 1px solid rgba(39,174,96,0.2); }
+    .badge--research { color: var(--scope-research); background: var(--scope-research-bg); border: 1px solid rgba(40,181,212,0.2); }
+
+    /* Complexity badges */
+    .badge--trivial  { color: #22c55e; background: rgba(34,197,94,0.1);  border: 1px solid rgba(34,197,94,0.2); }
+    .badge--small    { color: #14b8a6; background: rgba(20,184,166,0.1); border: 1px solid rgba(20,184,166,0.2); }
+    .badge--medium   { color: #eab308; background: rgba(234,179,8,0.1); border: 1px solid rgba(234,179,8,0.2); }
+    .badge--large    { color: #f97316; background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.2); }
+    .badge--unknown  { color: var(--text-dim); background: var(--surface-raised); border: 1px solid var(--border); }
+
+    /* Exec badge */
+    .badge--exec {
+      color: var(--text-secondary);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+    }
+
+    /* Promoted badge */
+    .badge--promoted {
+      color: #27ae60;
+      background: rgba(39,174,96,0.12);
+      border: 1px solid rgba(39,174,96,0.2);
+      font-size: 0.72rem;
+    }
+
+    /* ── Actions placeholder ───────────────────── */
+
+    .card-actions {
+      margin-top: 10px;
+      min-height: 0;
+      /* Populated in Job 3 */
+    }
+
+    /* ── Resurface button ──────────────────────── */
+
+    .resurface-btn {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: lowercase;
+      color: var(--text-secondary);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px 10px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      margin-top: 8px;
+    }
+
+    .resurface-btn:hover {
+      color: var(--text);
+      border-color: #2e343b;
+      background: #1c2127;
+    }
+
+    /* ── Promoted date / by ────────────────────── */
+
+    .promoted-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    /* ── Mobile ────────────────────────────────── */
+
+    @media (max-width: 640px) {
+      .topbar {
+        padding: 12px 16px;
+      }
+
+      #filter-tabs {
+        padding: 0 12px;
+      }
+
+      .content {
+        padding: 16px 12px;
+      }
+
+      .idea-card {
+        padding: 14px;
+        margin-bottom: 10px;
+      }
+
+      .card-title {
+        font-size: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="logo-dot"></div>
+        <span class="page-title">Ideas Inbox</span>
+      </div>
+      <div class="topbar-right">
+        <!-- PHASE 1 INTEGRATION POINT: Remove mock-badge once ideas table is deployed -->
+        <span class="mock-badge" id="mock-indicator" hidden>mock data</span>
+      </div>
+    </header>
+
+    <div id="filter-tabs">
+      <nav id="filter-tabs-nav" role="tablist">
+        <button data-status="all" class="tab active" role="tab" aria-selected="true">All <span class="count"></span></button>
+        <button data-status="new" class="tab" role="tab" aria-selected="false">New <span class="count"></span></button>
+        <button data-status="triaged" class="tab" role="tab" aria-selected="false">Triaged <span class="count"></span></button>
+        <button data-status="promoted" class="tab" role="tab" aria-selected="false">Promoted <span class="count"></span></button>
+        <button data-status="parked" class="tab" role="tab" aria-selected="false">Parked <span class="count"></span></button>
+        <button data-status="rejected" class="tab" role="tab" aria-selected="false">Rejected <span class="count"></span></button>
+      </nav>
+    </div>
+
+    <main class="content">
+      <div id="loading-state">Loading ideas…</div>
+      <div id="error-state" hidden></div>
+      <div id="empty-state" hidden></div>
+      <div id="ideas-grid" hidden></div>
+    </main>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

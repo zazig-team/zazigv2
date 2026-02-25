@@ -629,7 +629,7 @@ export class JobExecutor {
       // Kill any stale session from a previous run
       await killTmuxSession(sessionName);
 
-      const shellCmd = `unset CLAUDECODE; claude --model claude-opus-4-6`;
+      const shellCmd = `unset CLAUDECODE; claude --model claude-opus-4-6 --dangerously-skip-permissions`;
       const tmuxArgs = [
         "new-session",
         "-d",

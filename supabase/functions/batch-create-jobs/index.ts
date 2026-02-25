@@ -91,9 +91,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: `Feature not found: ${feature_id}` }, 404);
     }
 
-    if (feature.status !== "ready_for_breakdown") {
+    // Accept both: orchestrator sets 'breakdown' when dispatching the breakdown job,
+    // but the specialist needs to call batch_create_jobs while the feature is in that status.
+    if (feature.status !== "ready_for_breakdown" && feature.status !== "breakdown") {
       return jsonResponse(
-        { error: `Feature status is '${feature.status}' — must be 'ready_for_breakdown'` },
+        { error: `Feature status is '${feature.status}' — must be 'ready_for_breakdown' or 'breakdown'` },
         400,
       );
     }
@@ -236,24 +238,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
       createdJobIds.push(inserted.id);
     }
 
-    // --- Update feature status to 'breakdown' ---
+    // --- Update feature status to 'breakdown' (if not already) ---
 
-    const { error: updateError } = await supabase
-      .from("features")
-      .update({ status: "breakdown" })
-      .eq("id", feature_id);
+    if (feature.status !== "breakdown") {
+      const { error: updateError } = await supabase
+        .from("features")
+        .update({ status: "breakdown" })
+        .eq("id", feature_id);
 
-    if (updateError) {
-      return jsonResponse({ error: `Jobs created but failed to update feature status: ${updateError.message}` }, 500);
+      if (updateError) {
+        return jsonResponse({ error: `Jobs created but failed to update feature status: ${updateError.message}` }, 500);
+      }
+
+      await supabase.from("events").insert({
+        company_id: feature.company_id,
+        event_type: "feature_status_changed",
+        detail: { feature_id, from: "ready_for_breakdown", to: "breakdown", job_count: jobs.length },
+      });
     }
-
-    // --- Insert feature_status_changed event ---
-
-    await supabase.from("events").insert({
-      company_id: feature.company_id,
-      event_type: "feature_status_changed",
-      detail: { feature_id, from: "ready_for_breakdown", to: "breakdown", job_count: jobs.length },
-    });
 
     // --- Return summary ---
 

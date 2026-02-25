@@ -609,6 +609,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     let rolePrompt: string | undefined;
     let roleSkills: string[] | undefined;
     let personalityPrompt: string | undefined;
+    let subAgentPrompt: string | undefined;
     if (job.role && slotType !== "codex") {
       const { data: roleRow } = await supabase
         .from("roles")
@@ -620,15 +621,18 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         rolePrompt = typed.prompt ?? undefined;
         roleSkills = typed.skills ?? undefined;
 
-        // Fetch compiled personality prompt for this company + role
+        // Fetch compiled personality prompt + sub-agent prompt for this company + role
         const { data: personality } = await supabase
           .from("exec_personalities")
-          .select("compiled_prompt")
+          .select("compiled_prompt, compiled_sub_agent_prompt")
           .eq("company_id", job.company_id)
           .eq("role_id", typed.id)
           .single();
         if (personality?.compiled_prompt) {
-          personalityPrompt = personality.compiled_prompt;
+          personalityPrompt = personality.compiled_prompt as string;
+        }
+        if ((personality as Record<string, unknown>)?.compiled_sub_agent_prompt) {
+          subAgentPrompt = (personality as Record<string, unknown>).compiled_sub_agent_prompt as string;
         }
       }
     }
@@ -669,6 +673,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       ...(job.role ? { role: job.role } : {}),
       // For non-persistent jobs, still send the separate layers for assembleContext()
       ...(job.job_type !== "persistent_agent" && personalityPrompt ? { personalityPrompt } : {}),
+      ...(job.job_type !== "persistent_agent" && subAgentPrompt ? { subAgentPrompt } : {}),
       ...(job.job_type !== "persistent_agent" && rolePrompt ? { rolePrompt } : {}),
       ...(job.job_type !== "persistent_agent" && roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),
     };

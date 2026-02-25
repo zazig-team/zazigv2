@@ -204,12 +204,14 @@ async function recoverStuckJobs(
 
     const machineIds = machines.map((m: { id: string }) => m.id);
 
-    // Find stuck jobs: dispatched (broadcast missed) or executing (daemon killed mid-job)
+    // Find stuck jobs: dispatched means the Realtime broadcast was missed.
+    // NOTE: only reset 'dispatched' — not 'executing'. Executing jobs have an
+    // active tmux session; resetting them would fight the running executor.
     const { data: stuckJobs, error: jobErr } = await dbClient
       .from("jobs")
       .select("id, status, job_type, role")
       .in("machine_id", machineIds)
-      .in("status", ["dispatched", "executing"]);
+      .eq("status", "dispatched");
 
     if (jobErr) {
       console.error("[local-agent] Error querying stuck jobs:", jobErr.message);

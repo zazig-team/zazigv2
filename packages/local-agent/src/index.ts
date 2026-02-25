@@ -140,6 +140,14 @@ async function main(): Promise<void> {
   // These are stuck because the Realtime broadcast was missed or the daemon was killed.
   await recoverStuckJobs(conn.dbClient, config.name);
 
+  // Poll for dispatched jobs every 30s — the Realtime broadcast is fire-and-forget
+  // so the agent may miss start_job messages. This resets them to queued so the
+  // orchestrator re-dispatches on its next cycle.
+  const RECOVERY_POLL_MS = 30_000;
+  setInterval(() => {
+    void recoverStuckJobs(conn.dbClient, config.name);
+  }, RECOVERY_POLL_MS);
+
   // Discover and spawn persistent agents if ZAZIG_COMPANY_ID is set
   const companyId = process.env["ZAZIG_COMPANY_ID"];
   if (companyId) {

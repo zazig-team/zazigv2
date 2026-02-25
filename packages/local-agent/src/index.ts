@@ -11,6 +11,21 @@
  * Config: env vars from `zazig start` or ~/.zazigv2/config.json (machine name + slots)
  */
 
+import { createWriteStream } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+// Tee all console output to a log file for debugging
+const logPath = join(homedir(), ".zazigv2", "local-agent.log");
+const logStream = createWriteStream(logPath, { flags: "a" });
+const origLog = console.log;
+const origErr = console.error;
+const origWarn = console.warn;
+const ts = () => new Date().toISOString();
+console.log = (...args: unknown[]) => { const line = `${ts()} ${args.join(" ")}\n`; logStream.write(line); origLog(...args); };
+console.error = (...args: unknown[]) => { const line = `${ts()} ERROR ${args.join(" ")}\n`; logStream.write(line); origErr(...args); };
+console.warn = (...args: unknown[]) => { const line = `${ts()} WARN ${args.join(" ")}\n`; logStream.write(line); origWarn(...args); };
+
 import { loadConfig } from "./config.js";
 import { SlotTracker } from "./slots.js";
 import { AgentConnection } from "./connection.js";

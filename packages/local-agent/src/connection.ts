@@ -246,21 +246,30 @@ export class AgentConnection {
       },
     });
 
+    // Catch-all: log every broadcast event received on this channel
+    this.channel.on("broadcast", { event: "*" }, (payload) => {
+      console.log(`[local-agent][DEBUG] Broadcast received — event=${(payload as Record<string, unknown>).event ?? "unknown"}, keys=${Object.keys(payload)}`);
+    });
+
     // Listen for broadcast messages from the orchestrator
     this.channel.on("broadcast", { event: "message" }, (payload) => {
+      console.log(`[local-agent][DEBUG] Matched event=message`);
       this.handleIncomingPayload(payload.payload);
     });
 
     // Also listen for named events (orchestrator sends with event matching the message type)
     this.channel.on("broadcast", { event: "start_job" }, (payload) => {
+      console.log(`[local-agent][DEBUG] Matched event=start_job`);
       this.handleIncomingPayload(payload.payload);
     });
 
     this.channel.on("broadcast", { event: "verify_job" }, (payload) => {
+      console.log(`[local-agent][DEBUG] Matched event=verify_job`);
       this.handleIncomingPayload(payload.payload);
     });
 
     this.channel.on("broadcast", { event: "deploy_to_test" }, (payload) => {
+      console.log(`[local-agent][DEBUG] Matched event=deploy_to_test`);
       this.handleIncomingPayload(payload.payload);
     });
 
@@ -339,6 +348,9 @@ export class AgentConnection {
     // Send immediately, then on interval
     void this.sendHeartbeat();
     this.heartbeatTimer = setInterval(() => {
+      // Log channel state alongside heartbeat for debugging
+      const inState = this.channel?.state ?? "null";
+      console.log(`[local-agent][DEBUG] Channel state: inbound=${inState}, machineId=${this.machineId}`);
       void this.sendHeartbeat();
     }, HEARTBEAT_INTERVAL_MS);
   }

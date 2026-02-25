@@ -583,14 +583,17 @@ export class JobExecutor {
         claudeMdContent: msg.context ?? "",
       });
 
-      // Persist context to DB for observability (fire-and-forget)
-      this.supabase
-        .from("jobs")
-        .update({ prompt_stack: msg.context ?? "" })
-        .eq("id", jobId)
-        .then(({ error }) => {
-          if (error) console.warn(`[executor] Failed to save prompt_stack for jobId=${jobId}: ${error.message}`);
-        });
+      // Persist context to DB for observability (fire-and-forget).
+      // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).
+      if (!jobId.startsWith("persistent-")) {
+        this.supabase
+          .from("jobs")
+          .update({ prompt_stack: msg.context ?? "" })
+          .eq("id", jobId)
+          .then(({ error }) => {
+            if (error) console.warn(`[executor] Failed to save prompt_stack for jobId=${jobId}: ${error.message}`);
+          });
+      }
 
       console.log(`[executor] Persistent agent workspace created at ${workspaceDir}`);
 
@@ -1096,14 +1099,17 @@ export class JobExecutor {
     status: "executing" | "reviewing" | "complete" | "failed",
     output?: string
   ): Promise<void> {
-    // Primary: write directly to DB
-    const { error: dbErr } = await this.supabase
-      .from("jobs")
-      .update({ status })
-      .eq("id", jobId);
+    // Primary: write directly to DB.
+    // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).
+    if (!jobId.startsWith("persistent-")) {
+      const { error: dbErr } = await this.supabase
+        .from("jobs")
+        .update({ status })
+        .eq("id", jobId);
 
-    if (dbErr) {
-      console.warn(`[executor] sendJobStatus DB write failed for jobId=${jobId}: ${dbErr.message}`);
+      if (dbErr) {
+        console.warn(`[executor] sendJobStatus DB write failed for jobId=${jobId}: ${dbErr.message}`);
+      }
     }
 
     // Secondary: broadcast via Realtime
@@ -1121,19 +1127,22 @@ export class JobExecutor {
     result: string,
     report?: string
   ): Promise<void> {
-    // Primary: write directly to DB
-    const { error: dbErr } = await this.supabase
-      .from("jobs")
-      .update({
-        status: "complete",
-        result,
-        completed_at: new Date().toISOString(),
-        progress: 100,
-      })
-      .eq("id", jobId);
+    // Primary: write directly to DB.
+    // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).
+    if (!jobId.startsWith("persistent-")) {
+      const { error: dbErr } = await this.supabase
+        .from("jobs")
+        .update({
+          status: "complete",
+          result,
+          completed_at: new Date().toISOString(),
+          progress: 100,
+        })
+        .eq("id", jobId);
 
-    if (dbErr) {
-      console.warn(`[executor] sendJobComplete DB write failed for jobId=${jobId}: ${dbErr.message}`);
+      if (dbErr) {
+        console.warn(`[executor] sendJobComplete DB write failed for jobId=${jobId}: ${dbErr.message}`);
+      }
     }
 
     // Secondary: broadcast via Realtime
@@ -1152,14 +1161,17 @@ export class JobExecutor {
     error: string,
     failureReason: FailureReason
   ): Promise<void> {
-    // Primary: write directly to DB — persist error detail in result column
-    const { error: dbErr } = await this.supabase
-      .from("jobs")
-      .update({ status: "failed", result: `FAILED: ${error}` })
-      .eq("id", jobId);
+    // Primary: write directly to DB — persist error detail in result column.
+    // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).
+    if (!jobId.startsWith("persistent-")) {
+      const { error: dbErr } = await this.supabase
+        .from("jobs")
+        .update({ status: "failed", result: `FAILED: ${error}` })
+        .eq("id", jobId);
 
-    if (dbErr) {
-      console.warn(`[executor] sendJobFailed DB write failed for jobId=${jobId}: ${dbErr.message}`);
+      if (dbErr) {
+        console.warn(`[executor] sendJobFailed DB write failed for jobId=${jobId}: ${dbErr.message}`);
+      }
     }
 
     // Secondary: broadcast via Realtime

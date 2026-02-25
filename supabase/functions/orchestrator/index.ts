@@ -678,6 +678,9 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
               `[orchestrator] Dispatched job ${job.id} → machine ${candidate.name} (${slotType}, model: ${model})`,
             );
           }
+          // Allow time for the message to be delivered before tearing down the channel.
+          // Without this delay, unsubscribe() can race with message delivery.
+          await new Promise(r => setTimeout(r, 500));
           await channel.unsubscribe();
           resolve();
         }

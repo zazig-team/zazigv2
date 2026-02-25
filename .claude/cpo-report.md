@@ -1,40 +1,21 @@
-# CPO Report: Terminal-First CPO 4.1 — Split-screen TUI with blessed
+# CPO Report — Task 1: persistent_agents table
 
 **STATUS: COMPLETE**
 
-**Branch:** `cpo/tfc-tui`
-**Trello Card:** 699e4382
-**Date:** 2026-02-25
-
 ## Summary
 
-Implemented a split-screen TUI for persistent agent interaction using the `blessed` library. The TUI provides:
+Created `supabase/migrations/048_persistent_agents.sql` with:
 
-- **Top pane:** Read-only stream of active agent tmux session via `capture-pane` polling (300ms interval)
-- **Bottom pane:** Status bar showing active agent tabs + text input line
-- **Tab key:** Cycles between persistent agent sessions
-- **Enter key:** Sends typed message to active agent via `tmux send-keys`
-- **Ctrl+C:** Graceful shutdown (clears interval, destroys screen, calls shutdown callback)
+- `persistent_agents` table: one row per (company, role, machine)
+- Columns: id, company_id, role, machine_id, status (running/stopped/error), prompt_stack, last_heartbeat, created_at
+- Foreign keys to `companies` and `machines` with CASCADE deletes
+- UNIQUE constraint on (company_id, role, machine_id)
+- RLS enabled with policy allowing users to manage their own company's agents via `user_companies`
 
-## Changes
+## Branch
 
-| File | Change |
-|------|--------|
-| `packages/cli/package.json` | Added `blessed` and `@types/blessed` dependencies |
-| `packages/cli/src/commands/chat.ts` | New — TUI with launchTui(), chat(), discoverAgentSessions() |
-| `packages/cli/src/index.ts` | Added chat command registration + help text |
-
-## Adaptation Notes
-
-The design doc referenced `isDaemonRunningForCompany`, `fetchUserCompanies`, and `pickCompany` — these modules don't exist in the codebase yet. The `chat()` standalone function was adapted to use:
-- `isDaemonRunning()` from `daemon.ts` (checks PID file)
-- `loadConfig()` from `config.ts` (gets machine name for session discovery)
-
-## Typecheck
-
-All new/modified files pass `tsc --noEmit`. Only pre-existing error is in `constants.ts` (missing `@zazigv2/shared` module) — unrelated to this work.
+`cpo/tfc-migration` — pushed to origin.
 
 ## Token Usage
 
-- Token budget: `claude-ok` (direct code writing)
-- Approach: Wrote code directly, no codex-delegate needed for this scope
+Single-file SQL migration. No subagents or codex delegation needed. Minimal token usage.

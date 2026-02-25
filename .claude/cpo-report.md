@@ -1,48 +1,37 @@
-# CPO Report -- commission_contractor
+# CPO Report — Terminal-First CPO 5.1
+
+**STATUS: COMPLETE**
+
+**Branch:** `cpo/tfc-cli`
+**Trello Card:** 699e438b
+**Commit:** `8213a46` — `feat(cli): company picker + TUI in start/stop, fix chat() daemon check`
 
 ## Summary
 
-Built the `commission_contractor` tool -- the mechanism for the CPO to dispatch ephemeral contractor agents (Project Architect, Breakdown Specialist, Monitoring Agent) by creating queued jobs. Includes a database migration, Supabase edge function, MCP tool, and workspace permission update.
-
-## Agent Team Summary
-
-- **Team composition**: 2 general-purpose agents (cloud-agent, local-agent) + 1 code-reviewer
-- **Contract chain**: Pre-defined API contract -- both agents worked in parallel since the edge function request/response shape was fully specified upfront
-- **Files per teammate**:
-  - cloud-agent: `supabase/migrations/044_relax_feature_id_contractor.sql`, `supabase/functions/commission-contractor/index.ts`, `supabase/functions/commission-contractor/deno.json`
-  - local-agent: `packages/local-agent/src/agent-mcp-server.ts`, `packages/local-agent/src/workspace.ts`
-- **Agent Teams value assessment**: Parallel execution saved time -- both agents completed independently without coordination overhead. The pre-defined contract meant no upstream/downstream dependency. Total wall-clock time was dominated by the slower agent (cloud-agent with 3 files) rather than the sum of both.
-
-## Code Review
-
-Integration check by team lead verified:
-- Edge function follows existing patterns (batch-create-jobs, batch-create-features)
-- Validation rules correct: breakdown-specialist requires feature_id, project-architect rejects it
-- Uses `context` column (not `spec`) for job description
-- Event type `contractor_commissioned` fires correctly
-- MCP tool request/response matches edge function contract
-- CPO workspace includes `commission_contractor` in allowed tools
+Implemented Tasks 7-9 from the Terminal-First CPO plan: rewrote `start.ts` and `stop.ts` with company picker support, created `chat.ts` with TUI and fixed `isDaemonRunningForCompany` usage, and registered the `chat` command in `index.ts`.
 
 ## Changes
 
-| File | Change |
-|------|--------|
-| `supabase/migrations/044_relax_feature_id_contractor.sql` | New -- relaxes constraint for contractor roles |
-| `supabase/functions/commission-contractor/index.ts` | New -- edge function with validation, job insert, event |
-| `supabase/functions/commission-contractor/deno.json` | New -- Deno import map |
-| `packages/local-agent/src/agent-mcp-server.ts` | Edit -- added `commission_contractor` tool |
-| `packages/local-agent/src/workspace.ts` | Edit -- added `commission_contractor` to CPO allowed tools |
+### New Files
+- **`packages/cli/src/commands/chat.ts`** — Split-screen TUI (blessed) with `launchTui()`, `discoverAgentSessions()`, and `chat()` function using `isDaemonRunningForCompany` (fixing the 4.1 bug)
+- **`packages/cli/src/lib/company-picker.ts`** — `fetchUserCompanies()` and `pickCompany()` helpers for multi-company selection
 
-## Testing
+### Modified Files
+- **`packages/cli/src/commands/start.ts`** — Rewrote with `--company` and `--no-tui` flags, company picker, per-company PID files (`startDaemonForCompany`), 3s wait + session discovery, TUI launch
+- **`packages/cli/src/commands/stop.ts`** — Rewrote with company picker + per-company PID teardown via `readPidForCompany`/`removePidFileForCompany`
+- **`packages/cli/src/lib/daemon.ts`** — Added per-company functions: `pidPathForCompany`, `logPathForCompany`, `readPidForCompany`, `isDaemonRunningForCompany`, `removePidFileForCompany`, `startDaemonForCompany`
+- **`packages/cli/src/index.ts`** — Registered `chat` command + updated help text
+- **`packages/cli/package.json`** — Added `blessed` + `@types/blessed` dependencies
 
-Manual testing required post-merge:
-1. Deploy migration 044 via Management API
-2. Deploy edge function: `SUPABASE_ACCESS_TOKEN=$(doppler secrets get SUPABASE_ACCESS_TOKEN --project zazig --config prd --plain) npx supabase functions deploy commission-contractor --no-verify-jwt --project-ref jmussmwglgbwncgygzbz`
-3. Test each contractor role via MCP tool or direct edge function call
+### Key Behaviors
+- `zazig start`: credentials -> config -> company picker (or `--company` flag) -> already-running check -> spawn daemon with `ZAZIG_COMPANY_ID`/`ZAZIG_COMPANY_NAME` env -> wait 3s -> discover tmux sessions -> launch TUI (or `--no-tui` for headless)
+- `zazig stop`: credentials -> company picker -> per-company PID lookup -> SIGTERM -> 10s grace -> SIGKILL fallback
+- `zazig chat`: credentials -> company picker -> `isDaemonRunningForCompany` check -> discover sessions -> launch TUI (read-only reconnect, daemon keeps running on Ctrl+C)
 
-## Decisions Made
+## Typecheck
 
-- Contractor roles hardcoded in both constraint and edge function (not table-driven) -- matches the existing pattern for job_type validation
-- Role lookup against `roles` table ensures only provisioned roles can be commissioned
-- `medium` complexity for all contractors -- they need Claude Code, not Codex
-- Event type `contractor_commissioned` (not reusing `job_created`) for clear audit trail
+Only pre-existing error remains: `@zazigv2/shared` module not found in `constants.ts` (not introduced by this change).
+
+## Token Usage
+
+Single-session implementation -- no subagents or teams used. Direct code writing per `claude-ok` budget.

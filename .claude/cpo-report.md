@@ -1,48 +1,40 @@
-# CPO Report -- commission_contractor
+# CPO Report: Terminal-First CPO 4.1 — Split-screen TUI with blessed
+
+**STATUS: COMPLETE**
+
+**Branch:** `cpo/tfc-tui`
+**Trello Card:** 699e4382
+**Date:** 2026-02-25
 
 ## Summary
 
-Built the `commission_contractor` tool -- the mechanism for the CPO to dispatch ephemeral contractor agents (Project Architect, Breakdown Specialist, Monitoring Agent) by creating queued jobs. Includes a database migration, Supabase edge function, MCP tool, and workspace permission update.
+Implemented a split-screen TUI for persistent agent interaction using the `blessed` library. The TUI provides:
 
-## Agent Team Summary
-
-- **Team composition**: 2 general-purpose agents (cloud-agent, local-agent) + 1 code-reviewer
-- **Contract chain**: Pre-defined API contract -- both agents worked in parallel since the edge function request/response shape was fully specified upfront
-- **Files per teammate**:
-  - cloud-agent: `supabase/migrations/044_relax_feature_id_contractor.sql`, `supabase/functions/commission-contractor/index.ts`, `supabase/functions/commission-contractor/deno.json`
-  - local-agent: `packages/local-agent/src/agent-mcp-server.ts`, `packages/local-agent/src/workspace.ts`
-- **Agent Teams value assessment**: Parallel execution saved time -- both agents completed independently without coordination overhead. The pre-defined contract meant no upstream/downstream dependency. Total wall-clock time was dominated by the slower agent (cloud-agent with 3 files) rather than the sum of both.
-
-## Code Review
-
-Integration check by team lead verified:
-- Edge function follows existing patterns (batch-create-jobs, batch-create-features)
-- Validation rules correct: breakdown-specialist requires feature_id, project-architect rejects it
-- Uses `context` column (not `spec`) for job description
-- Event type `contractor_commissioned` fires correctly
-- MCP tool request/response matches edge function contract
-- CPO workspace includes `commission_contractor` in allowed tools
+- **Top pane:** Read-only stream of active agent tmux session via `capture-pane` polling (300ms interval)
+- **Bottom pane:** Status bar showing active agent tabs + text input line
+- **Tab key:** Cycles between persistent agent sessions
+- **Enter key:** Sends typed message to active agent via `tmux send-keys`
+- **Ctrl+C:** Graceful shutdown (clears interval, destroys screen, calls shutdown callback)
 
 ## Changes
 
 | File | Change |
 |------|--------|
-| `supabase/migrations/044_relax_feature_id_contractor.sql` | New -- relaxes constraint for contractor roles |
-| `supabase/functions/commission-contractor/index.ts` | New -- edge function with validation, job insert, event |
-| `supabase/functions/commission-contractor/deno.json` | New -- Deno import map |
-| `packages/local-agent/src/agent-mcp-server.ts` | Edit -- added `commission_contractor` tool |
-| `packages/local-agent/src/workspace.ts` | Edit -- added `commission_contractor` to CPO allowed tools |
+| `packages/cli/package.json` | Added `blessed` and `@types/blessed` dependencies |
+| `packages/cli/src/commands/chat.ts` | New — TUI with launchTui(), chat(), discoverAgentSessions() |
+| `packages/cli/src/index.ts` | Added chat command registration + help text |
 
-## Testing
+## Adaptation Notes
 
-Manual testing required post-merge:
-1. Deploy migration 044 via Management API
-2. Deploy edge function: `SUPABASE_ACCESS_TOKEN=$(doppler secrets get SUPABASE_ACCESS_TOKEN --project zazig --config prd --plain) npx supabase functions deploy commission-contractor --no-verify-jwt --project-ref jmussmwglgbwncgygzbz`
-3. Test each contractor role via MCP tool or direct edge function call
+The design doc referenced `isDaemonRunningForCompany`, `fetchUserCompanies`, and `pickCompany` — these modules don't exist in the codebase yet. The `chat()` standalone function was adapted to use:
+- `isDaemonRunning()` from `daemon.ts` (checks PID file)
+- `loadConfig()` from `config.ts` (gets machine name for session discovery)
 
-## Decisions Made
+## Typecheck
 
-- Contractor roles hardcoded in both constraint and edge function (not table-driven) -- matches the existing pattern for job_type validation
-- Role lookup against `roles` table ensures only provisioned roles can be commissioned
-- `medium` complexity for all contractors -- they need Claude Code, not Codex
-- Event type `contractor_commissioned` (not reusing `job_created`) for clear audit trail
+All new/modified files pass `tsc --noEmit`. Only pre-existing error is in `constants.ts` (missing `@zazigv2/shared` module) — unrelated to this work.
+
+## Token Usage
+
+- Token budget: `claude-ok` (direct code writing)
+- Approach: Wrote code directly, no codex-delegate needed for this scope

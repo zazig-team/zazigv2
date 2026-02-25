@@ -41,19 +41,21 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 
 // breakdown-specialist is NOT here — the orchestrator auto-dispatches breakdown
 // when a feature reaches ready_for_breakdown (processReadyForBreakdown).
-const CONTRACTOR_ROLES = ["project-architect", "monitoring-agent", "verification-specialist"] as const;
+const CONTRACTOR_ROLES = ["project-architect", "monitoring-agent", "verification-specialist", "pipeline-technician"] as const;
 type ContractorRole = typeof CONTRACTOR_ROLES[number];
 
 const ROLE_JOB_TITLES: Record<ContractorRole, string> = {
   "project-architect": "Structure project into features",
   "monitoring-agent": "Automated codebase scan",
   "verification-specialist": "Verify feature acceptance criteria",
+  "pipeline-technician": "Execute prescribed pipeline operations",
 };
 
 const ROLE_JOB_TYPES: Record<ContractorRole, string> = {
   "project-architect": "design",
   "monitoring-agent": "research",
   "verification-specialist": "verify",
+  "pipeline-technician": "infra",
 };
 
 // ---------------------------------------------------------------------------

@@ -87,11 +87,12 @@ export function launchTui(options: ChatOptions): void {
   });
 
   // --- Input line ---
-  const inputBox = blessed.textbox({
+  const inputBox = blessed.textarea({
     bottom: 0,
     left: 0,
     width: "100%",
     height: 3,
+    keys: true,
     inputOnFocus: true,
     border: { type: "line" },
     style: {
@@ -168,13 +169,13 @@ export function launchTui(options: ChatOptions): void {
     onShutdown();
   });
 
-  // Input handling
-  inputBox.on("submit", (value: string) => {
+  // Input handling — Enter sends message, clears input
+  inputBox.key("enter", () => {
+    const value = inputBox.getValue();
     if (value.trim()) {
       sendMessage(value.trim());
     }
     inputBox.clearValue();
-    inputBox.focus();
     screen.render();
   });
 

@@ -135,6 +135,18 @@ async function main(): Promise<void> {
   // Start the connection (connects + begins heartbeat loop)
   await conn.start();
 
+  // Discover and spawn persistent agents if ZAZIG_COMPANY_ID is set
+  const companyId = process.env["ZAZIG_COMPANY_ID"];
+  if (companyId) {
+    await discoverAndSpawnPersistentAgents(
+      config.supabase.url,
+      config.supabase.anon_key,
+      config.supabase.access_token,
+      companyId,
+      executor,
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Graceful shutdown handlers
   // ---------------------------------------------------------------------------
@@ -150,6 +162,51 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
   console.log("[local-agent] Daemon running. Press Ctrl+C to stop.");
+}
+
+// ---------------------------------------------------------------------------
+// Persistent agent discovery
+// ---------------------------------------------------------------------------
+
+async function discoverAndSpawnPersistentAgents(
+  supabaseUrl: string,
+  anonKey: string,
+  accessToken: string | undefined,
+  companyId: string,
+  executor: JobExecutor,
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `${supabaseUrl}/functions/v1/company-persistent-jobs?company_id=${encodeURIComponent(companyId)}`,
+      {
+        headers: {
+          apikey: anonKey,
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+      }
+    );
+
+    if (!res.ok) {
+      console.error(`[local-agent] Failed to fetch persistent jobs: HTTP ${res.status}`);
+      return;
+    }
+
+    const jobs = (await res.json()) as Array<{
+      role: string;
+      prompt_stack: string;
+      skills: string[];
+      model: string;
+      slot_type: string;
+    }>;
+
+    console.log(`[local-agent] Discovered ${jobs.length} persistent agent(s) for company ${companyId}`);
+
+    for (const job of jobs) {
+      await executor.spawnPersistentAgent(job, companyId);
+    }
+  } catch (err) {
+    console.error(`[local-agent] Error during persistent agent discovery:`, err);
+  }
 }
 
 main().catch((err) => {

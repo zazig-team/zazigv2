@@ -25,7 +25,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageInbound, JobUnblocked } from "@zazigv2/shared";
-import { PROTOCOL_VERSION } from "@zazigv2/shared";
+import { PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
 import { setupJobWorkspace } from "./workspace.js";
 
@@ -128,6 +128,12 @@ export class JobExecutor {
 
   /** jobId of the active CPO persistent agent job, if any. */
   private persistentJobId: string | null = null;
+
+  /** Role of the active persistent agent (for DB updates on shutdown). */
+  private persistentJobRole: string | null = null;
+
+  /** Heartbeat timer for updating persistent_agents.last_heartbeat. */
+  private persistentHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Message queue for injecting into CPO tmux session when idle. */
   private readonly messageQueue: QueuedMessage[] = [];
@@ -310,6 +316,47 @@ export class JobExecutor {
   }
 
   // ---------------------------------------------------------------------------
+  // Public: Spawn a persistent agent from a job definition
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Spawns a persistent agent from a company-persistent-jobs definition.
+   * Builds a synthetic StartJob-like message and delegates to handlePersistentJob.
+   */
+  async spawnPersistentAgent(
+    job: { role: string; prompt_stack: string; skills: string[]; model: string; slot_type: string },
+    companyId: string,
+  ): Promise<void> {
+    const syntheticMsg = {
+      type: "start_job" as const,
+      protocolVersion: 1,
+      jobId: `persistent-${job.role}-${companyId}`,
+      cardId: `persistent-${job.role}`,
+      cardType: "persistent_agent" as const,
+      complexity: "medium" as const,
+      slotType: job.slot_type as SlotType,
+      model: job.model,
+      role: job.role,
+      context: job.prompt_stack,
+    };
+
+    // Acquire slot before spawning
+    try {
+      this.slots.acquire(syntheticMsg.slotType);
+    } catch (err) {
+      console.error(`[executor] No slot available for persistent agent role=${job.role}:`, err);
+      return;
+    }
+
+    await this.handlePersistentJob(
+      `persistent-${job.role}`,
+      syntheticMsg as StartJob,
+      syntheticMsg.slotType,
+      companyId,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Public: MessageInbound
   // ---------------------------------------------------------------------------
 
@@ -367,7 +414,7 @@ export class JobExecutor {
    * disconnecting from Supabase.
    */
   async stopAll(): Promise<void> {
-    this.persistentJobId = null;
+    this.clearPersistentAgent();
 
     // Kill all remaining active tmux sessions and release slots
     for (const [jobId, job] of this.activeJobs) {
@@ -395,9 +442,12 @@ export class JobExecutor {
    * with a .mcp.json that gives the agent access to the zazig-messaging MCP server.
    * CLAUDE.md content comes from msg.context (pre-assembled by orchestrator).
    */
-  private async handlePersistentJob(jobId: string, msg: StartJob, slotType: SlotType): Promise<void> {
+  private async handlePersistentJob(jobId: string, msg: StartJob, slotType: SlotType, companyId?: string): Promise<void> {
     const role = msg.role ?? "agent";
-    const workspaceDir = join(homedir(), ".zazigv2", `${role}-workspace`);
+    const resolvedCompanyId = companyId ?? process.env["ZAZIG_COMPANY_ID"] ?? "";
+    const workspaceDir = resolvedCompanyId
+      ? join(homedir(), ".zazigv2", `${resolvedCompanyId}-${role}-workspace`)
+      : join(homedir(), ".zazigv2", `${role}-workspace`);
 
     // --- Create agent workspace with .mcp.json ---
     try {
@@ -425,6 +475,26 @@ export class JobExecutor {
         });
 
       console.log(`[executor] Persistent agent workspace created at ${workspaceDir}`);
+
+      // Upsert into persistent_agents for observability
+      if (resolvedCompanyId) {
+        this.supabase
+          .from("persistent_agents")
+          .upsert(
+            {
+              company_id: resolvedCompanyId,
+              role,
+              machine_id: this.machineId,
+              status: "running",
+              prompt_stack: msg.context ?? "",
+              last_heartbeat: new Date().toISOString(),
+            },
+            { onConflict: "company_id,role,machine_id" }
+          )
+          .then(({ error }) => {
+            if (error) console.warn(`[executor] Failed to upsert persistent_agents for ${role}: ${error.message}`);
+          });
+      }
     } catch (err) {
       console.error(`[executor] Persistent agent: failed to create workspace:`, err);
       this.slots.release(slotType);
@@ -457,6 +527,22 @@ export class JobExecutor {
     }
 
     this.persistentJobId = jobId;
+    this.persistentJobRole = role;
+
+    // Start heartbeat timer for persistent_agents table
+    if (resolvedCompanyId) {
+      this.persistentHeartbeatTimer = setInterval(() => {
+        this.supabase
+          .from("persistent_agents")
+          .update({ last_heartbeat: new Date().toISOString() })
+          .eq("company_id", resolvedCompanyId)
+          .eq("machine_id", this.machineId)
+          .eq("status", "running")
+          .then(({ error }) => {
+            if (error) console.warn(`[executor] Heartbeat update failed for persistent_agents: ${error.message}`);
+          });
+      }, HEARTBEAT_INTERVAL_MS);
+    }
 
     // Track in activeJobs (no poll/timeout timers — persistent agent runs indefinitely)
     this.activeJobs.set(jobId, {
@@ -493,9 +579,9 @@ export class JobExecutor {
     this.clearJobTimers(job);
     this.activeJobs.delete(jobId);
 
-    // Clear CPO job ID if this is the CPO job
+    // Clear persistent agent state if this is the persistent job
     if (jobId === this.persistentJobId) {
-      this.persistentJobId = null;
+      this.clearPersistentAgent();
     }
 
     // Kill the tmux session (best-effort)
@@ -584,9 +670,9 @@ export class JobExecutor {
     this.clearJobTimers(job);
     this.activeJobs.delete(jobId);
 
-    // Clear CPO job ID if this is the CPO job (should not time out, but handle defensively)
+    // Clear persistent agent state if this is the persistent job (should not time out, but handle defensively)
     if (jobId === this.persistentJobId) {
-      this.persistentJobId = null;
+      this.clearPersistentAgent();
     }
 
     await killTmuxSession(job.sessionName);
@@ -622,9 +708,9 @@ export class JobExecutor {
     this.activeJobs.delete(jobId);
     this.slots.release(job.slotType);
 
-    // Clear CPO job ID if the CPO session exited unexpectedly
+    // Clear persistent agent state if the persistent session exited unexpectedly
     if (jobId === this.persistentJobId) {
-      this.persistentJobId = null;
+      this.clearPersistentAgent();
     }
 
     // Look for the report file. Agents write .claude/cpo-report.md relative to
@@ -745,6 +831,37 @@ export class JobExecutor {
     await execFileAsync("tmux", ["send-keys", "-t", cpoJob.sessionName, "Enter"]);
 
     console.log(`[executor] Injected message into CPO session=${cpoJob.sessionName}`);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: Persistent agent cleanup
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Marks the persistent agent as stopped in the DB and clears the heartbeat timer.
+   * Called before nulling persistentJobId on any shutdown path.
+   */
+  private clearPersistentAgent(): void {
+    if (this.persistentHeartbeatTimer) {
+      clearInterval(this.persistentHeartbeatTimer);
+      this.persistentHeartbeatTimer = null;
+    }
+
+    const companyId = process.env["ZAZIG_COMPANY_ID"] ?? "";
+    if (companyId && this.persistentJobRole) {
+      this.supabase
+        .from("persistent_agents")
+        .update({ status: "stopped" })
+        .eq("company_id", companyId)
+        .eq("role", this.persistentJobRole)
+        .eq("machine_id", this.machineId)
+        .then(({ error }) => {
+          if (error) console.warn(`[executor] Failed to update persistent_agents status: ${error.message}`);
+        });
+    }
+
+    this.persistentJobId = null;
+    this.persistentJobRole = null;
   }
 
   // ---------------------------------------------------------------------------

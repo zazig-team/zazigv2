@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ideas Pipeline — Unified Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Work+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-deep: #08090f;
+  --bg: #0c0e17;
+  --bg-elevated: #111422;
+  --bg-card: #161a2e;
+  --text: #e4e8f7;
+  --text-secondary: #9ba3c2;
+  --text-muted: #5a6180;
+  --border: rgba(130, 150, 220, 0.12);
+  --accent-capture: #f59e0b;
+  --accent-process: #8b5cf6;
+  --accent-store: #3b82f6;
+  --accent-triage: #10b981;
+  --accent-present: #ec4899;
+  --accent-glow-capture: rgba(245, 158, 11, 0.3);
+  --accent-glow-process: rgba(139, 92, 246, 0.3);
+  --accent-glow-store: rgba(59, 130, 246, 0.3);
+  --accent-glow-triage: rgba(16, 185, 129, 0.3);
+  --accent-glow-present: rgba(236, 72, 153, 0.3);
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Work Sans', sans-serif;
+  background: var(--bg-deep);
+  color: var(--text);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ─── NAV ─── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(8, 9, 15, 0.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 0.8rem 2rem;
+  display: flex; align-items: center; justify-content: space-between;
+}
+nav .logo { font-family: 'Space Mono', monospace; font-size: 0.85rem; color: var(--text-muted); letter-spacing: 0.05em; }
+nav .links { display: flex; gap: 1.5rem; }
+nav .links a { font-size: 0.8rem; color: var(--text-muted); text-decoration: none; transition: color 0.2s; }
+nav .links a:hover { color: var(--text); }
+@media (max-width: 768px) { nav .links { display: none; } }
+
+/* ─── HERO ─── */
+.hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 6rem 2rem 4rem;
+  overflow: hidden;
+}
+
+.hero-bg {
+  position: absolute; inset: 0;
+  pointer-events: none;
+}
+
+.grid-overlay {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(130, 150, 220, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(130, 150, 220, 0.04) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 10%, transparent 70%);
+}
+
+.hero-glow {
+  position: absolute;
+  width: 600px; height: 600px;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.08) 0%, transparent 70%);
+  animation: breathe 8s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  50% { transform: translate(-50%, -50%) scale(1.3); opacity: 0.5; }
+}
+
+.hero-badge {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--accent-process);
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 100px;
+  padding: 0.4rem 1.2rem;
+  margin-bottom: 2rem;
+}
+
+.hero h1 {
+  font-size: clamp(2.2rem, 5vw, 4rem);
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.15;
+  margin-bottom: 1.2rem;
+  max-width: 700px;
+}
+
+.hero .subtitle {
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  color: var(--text-secondary);
+  text-align: center;
+  max-width: 600px;
+  font-weight: 300;
+  margin-bottom: 3rem;
+}
+
+/* ─── PIPELINE FLOW (Hero) ─── */
+.pipeline-flow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 1rem;
+  width: 100%;
+  max-width: 900px;
+}
+
+.pipeline-node {
+  display: flex; flex-direction: column;
+  align-items: center; gap: 0.5rem;
+  padding: 1rem 1.2rem;
+  position: relative;
+}
+
+.pipeline-node .dot {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.2rem;
+  position: relative;
+}
+
+.pipeline-node .dot::after {
+  content: '';
+  position: absolute; inset: -4px;
+  border-radius: 50%;
+  border: 1px solid;
+  opacity: 0.3;
+  animation: pulse-ring 3s ease-in-out infinite;
+}
+
+@keyframes pulse-ring {
+  0%, 100% { transform: scale(1); opacity: 0.3; }
+  50% { transform: scale(1.3); opacity: 0; }
+}
+
+.pipeline-node:nth-child(1) .dot { background: rgba(245, 158, 11, 0.15); box-shadow: 0 0 20px var(--accent-glow-capture); }
+.pipeline-node:nth-child(1) .dot::after { border-color: var(--accent-capture); animation-delay: 0s; }
+.pipeline-node:nth-child(3) .dot { background: rgba(139, 92, 246, 0.15); box-shadow: 0 0 20px var(--accent-glow-process); }
+.pipeline-node:nth-child(3) .dot::after { border-color: var(--accent-process); animation-delay: 0.6s; }
+.pipeline-node:nth-child(5) .dot { background: rgba(59, 130, 246, 0.15); box-shadow: 0 0 20px var(--accent-glow-store); }
+.pipeline-node:nth-child(5) .dot::after { border-color: var(--accent-store); animation-delay: 1.2s; }
+.pipeline-node:nth-child(7) .dot { background: rgba(16, 185, 129, 0.15); box-shadow: 0 0 20px var(--accent-glow-triage); }
+.pipeline-node:nth-child(7) .dot::after { border-color: var(--accent-triage); animation-delay: 1.8s; }
+.pipeline-node:nth-child(9) .dot { background: rgba(236, 72, 153, 0.15); box-shadow: 0 0 20px var(--accent-glow-present); }
+.pipeline-node:nth-child(9) .dot::after { border-color: var(--accent-present); animation-delay: 2.4s; }
+
+.pipeline-node .label {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+.pipeline-arrow {
+  width: 40px; height: 2px;
+  position: relative;
+  overflow: hidden;
+}
+
+.pipeline-arrow::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, var(--text-muted), transparent);
+  animation: flow-arrow 2s linear infinite;
+}
+
+.pipeline-arrow::after {
+  content: '';
+  position: absolute;
+  right: -3px; top: -3px;
+  width: 0; height: 0;
+  border-left: 6px solid var(--text-muted);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+
+@keyframes flow-arrow {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@media (max-width: 640px) {
+  .pipeline-arrow { width: 20px; }
+  .pipeline-node { padding: 0.6rem; }
+  .pipeline-node .dot { width: 36px; height: 36px; font-size: 0.9rem; }
+}
+
+/* ─── SECTION BASE ─── */
+section {
+  padding: 5rem 2rem;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+section h2 {
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  font-weight: 700;
+  margin-bottom: 0.6rem;
+}
+
+section .section-sub {
+  font-size: 1rem;
+  color: var(--text-secondary);
+  font-weight: 300;
+  margin-bottom: 2.5rem;
+  max-width: 600px;
+}
+
+/* ─── THE PROBLEM ─── */
+.problem-section {
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.problem-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.2rem;
+}
+
+.problem-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.problem-card:hover {
+  border-color: rgba(239, 68, 68, 0.3);
+  transform: translateY(-2px);
+}
+
+.problem-card .icon { font-size: 1.4rem; margin-bottom: 0.8rem; }
+.problem-card h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.5rem; }
+.problem-card p { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; }
+
+/* ─── LAYER SECTIONS ─── */
+.layer-section {
+  position: relative;
+  padding-top: 3rem;
+}
+
+.layer-tag {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  border-radius: 100px;
+  padding: 0.3rem 0.8rem;
+  display: inline-block;
+  margin-bottom: 1rem;
+}
+
+.layer-capture .layer-tag { color: var(--accent-capture); background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); }
+.layer-process .layer-tag { color: var(--accent-process); background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.2); }
+.layer-store .layer-tag { color: var(--accent-store); background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); }
+.layer-triage .layer-tag { color: var(--accent-triage); background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); }
+.layer-present .layer-tag { color: var(--accent-present); background: rgba(236, 72, 153, 0.1); border: 1px solid rgba(236, 72, 153, 0.2); }
+
+.layer-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .layer-content { grid-template-columns: 1fr; }
+}
+
+.layer-desc p {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+  line-height: 1.7;
+}
+
+.layer-desc strong { color: var(--text); }
+
+.layer-detail {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.layer-detail h4 {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+}
+
+.channel-list, .tool-list, .status-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.channel-list li, .tool-list li, .status-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.channel-list li .ch-icon,
+.tool-list li .tool-icon {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.layer-capture .ch-icon { background: rgba(245, 158, 11, 0.1); }
+.layer-store .tool-icon { background: rgba(59, 130, 246, 0.1); }
+
+.ch-name, .tool-name { font-weight: 500; color: var(--text); }
+
+/* ─── LIFECYCLE ─── */
+.lifecycle-flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 2rem 0;
+}
+
+.status-node {
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.status-new { background: rgba(59, 130, 246, 0.15); color: var(--accent-store); border: 1px solid rgba(59, 130, 246, 0.3); }
+.status-triaged { background: rgba(16, 185, 129, 0.15); color: var(--accent-triage); border: 1px solid rgba(16, 185, 129, 0.3); }
+.status-promoted { background: rgba(139, 92, 246, 0.15); color: var(--accent-process); border: 1px solid rgba(139, 92, 246, 0.3); }
+.status-parked { background: rgba(245, 158, 11, 0.15); color: var(--accent-capture); border: 1px solid rgba(245, 158, 11, 0.3); }
+.status-rejected { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+
+.lifecycle-arrow {
+  color: var(--text-muted);
+  font-size: 1.2rem;
+}
+
+/* ─── FLOWS ─── */
+.flows-section {
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.flow-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.flow-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem 2rem;
+  transition: transform 0.2s;
+}
+
+.flow-card:hover { transform: translateY(-2px); }
+
+.flow-card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.flow-card .flow-scenario {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-bottom: 1rem;
+}
+
+.flow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.15rem;
+  align-items: center;
+}
+
+.flow-step {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.flow-step.capture { background: rgba(245, 158, 11, 0.1); color: var(--accent-capture); }
+.flow-step.process { background: rgba(139, 92, 246, 0.1); color: var(--accent-process); }
+.flow-step.store { background: rgba(59, 130, 246, 0.1); color: var(--accent-store); }
+.flow-step.triage { background: rgba(16, 185, 129, 0.1); color: var(--accent-triage); }
+.flow-step.present { background: rgba(236, 72, 153, 0.1); color: var(--accent-present); }
+
+.flow-arrow-sm { color: var(--text-muted); font-size: 0.85rem; padding: 0 0.15rem; }
+
+/* ─── PHASES ─── */
+.phases-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.phase-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.phase-card:hover { transform: translateY(-2px); }
+
+.phase-card .phase-num {
+  font-family: 'Space Mono', monospace;
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: rgba(130, 150, 220, 0.08);
+  position: absolute;
+  top: 0.5rem; right: 1rem;
+}
+
+.phase-card h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.phase-card .phase-layers {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.5rem;
+}
+
+.phase-card .phase-effort {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.phase-card .phase-effort strong {
+  color: var(--text);
+}
+
+/* ─── PRINCIPLE BAR ─── */
+.principle-bar {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  padding: 2rem;
+  flex-wrap: wrap;
+}
+
+.principle {
+  text-align: center;
+  max-width: 180px;
+}
+
+.principle .p-num {
+  font-family: 'Space Mono', monospace;
+  font-size: 2rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent-process), var(--accent-store));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.principle .p-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.2rem;
+}
+
+/* ─── DOES / DOESN'T ─── */
+.does-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.2rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+  .does-grid { grid-template-columns: 1fr; }
+}
+
+.does-col h4 {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.8rem;
+}
+
+.does-col.yes h4 { color: var(--accent-triage); }
+.does-col.no h4 { color: #ef4444; }
+
+.does-col ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.does-col ul li {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  padding-left: 1.2rem;
+  position: relative;
+}
+
+.does-col.yes ul li::before { content: '+'; position: absolute; left: 0; color: var(--accent-triage); font-weight: 700; }
+.does-col.no ul li::before { content: '-'; position: absolute; left: 0; color: #ef4444; font-weight: 700; }
+
+/* ─── FOOTER ─── */
+footer {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+footer a { color: var(--text-secondary); text-decoration: none; }
+
+/* ─── DIVIDER ─── */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+  margin: 0 auto;
+  max-width: 600px;
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">zazigv2 / ideas pipeline</div>
+  <div class="links">
+    <a href="#layers">Layers</a>
+    <a href="#lifecycle">Lifecycle</a>
+    <a href="#flows">Flows</a>
+    <a href="#phases">Phases</a>
+  </div>
+</nav>
+
+<!-- ═══ HERO ═══ -->
+<section class="hero">
+  <div class="hero-bg">
+    <div class="hero-glow"></div>
+    <div class="grid-overlay"></div>
+  </div>
+
+  <div class="hero-badge">Unified Architecture</div>
+  <h1>From Raw Thought to Pipeline Entry</h1>
+  <p class="subtitle">Five layers. Each has one job. No layer does another layer's job. Four proposals, one system.</p>
+
+  <div class="pipeline-flow">
+    <div class="pipeline-node">
+      <div class="dot">&#x1F4E1;</div>
+      <span class="label">Capture</span>
+    </div>
+    <div class="pipeline-arrow"></div>
+    <div class="pipeline-node">
+      <div class="dot">&#x2699;</div>
+      <span class="label">Process</span>
+    </div>
+    <div class="pipeline-arrow"></div>
+    <div class="pipeline-node">
+      <div class="dot">&#x1F4BE;</div>
+      <span class="label">Store</span>
+    </div>
+    <div class="pipeline-arrow"></div>
+    <div class="pipeline-node">
+      <div class="dot">&#x2696;</div>
+      <span class="label">Triage</span>
+    </div>
+    <div class="pipeline-arrow"></div>
+    <div class="pipeline-node">
+      <div class="dot">&#x1F441;</div>
+      <span class="label">Present</span>
+    </div>
+  </div>
+
+  <div class="principle-bar">
+    <div class="principle">
+      <div class="p-num">5</div>
+      <div class="p-label">Layers</div>
+    </div>
+    <div class="principle">
+      <div class="p-num">1</div>
+      <div class="p-label">Canonical Schema</div>
+    </div>
+    <div class="principle">
+      <div class="p-num">5</div>
+      <div class="p-label">MCP Tools</div>
+    </div>
+    <div class="principle">
+      <div class="p-num">~16</div>
+      <div class="p-label">Jobs to Build</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ PROBLEM ═══ -->
+<section class="problem-section" style="max-width: 100%; padding: 4rem 2rem;">
+  <div style="max-width: 1000px; margin: 0 auto;">
+    <h2>The Problem</h2>
+    <p class="section-sub">Four proposals designed the same system independently.</p>
+    <div class="problem-grid">
+      <div class="problem-card">
+        <div class="icon">&#x1F4CB;</div>
+        <h3>Two Table Schemas</h3>
+        <p>Ideas Inbox and Ideaify both defined the ideas table with incompatible field names, different scopes, and conflicting design philosophies.</p>
+      </div>
+      <div class="problem-card">
+        <div class="icon">&#x1F527;</div>
+        <h3>Duplicate MCP Tools</h3>
+        <p>Both proposals defined create_idea and query_ideas with different parameter signatures. No single source of truth.</p>
+      </div>
+      <div class="problem-card">
+        <div class="icon">&#x1F500;</div>
+        <h3>Blurred Boundaries</h3>
+        <p>Processing and triage responsibilities overlapped. The Telegram bot did its own processing instead of routing to Ideaify.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ LAYERS ═══ -->
+<div id="layers">
+
+<!-- Layer 1: Capture -->
+<section class="layer-section layer-capture">
+  <span class="layer-tag">Layer 1</span>
+  <h2>Capture</h2>
+  <p class="section-sub">Receive raw input from any channel. Transcribe voice. Route to processing. Nothing more.</p>
+  <div class="layer-content">
+    <div class="layer-desc">
+      <p>Capture channels are <strong>thin adapters</strong>. They receive a message, optionally transcribe voice to text, and hand off to Ideaify. They do not clean, categorise, or store ideas.</p>
+      <p>This means every channel benefits from the same processing quality. <strong>Ideaify improves once, everywhere.</strong> Adding a new channel (email, WhatsApp, web form) is trivial — just route text.</p>
+      <p>Voice transcription belongs here because it transforms a non-text format into text. It's mechanical, not intelligent. Recommended: <strong>gpt-4o-transcribe</strong>.</p>
+    </div>
+    <div class="layer-detail">
+      <h4>Capture Channels</h4>
+      <ul class="channel-list">
+        <li><span class="ch-icon">&#x1F4BB;</span><span class="ch-name">Terminal</span> — CPO receives, runs ideaify</li>
+        <li><span class="ch-icon">&#x2708;</span><span class="ch-name">Telegram</span> — Voice + text, transcribe, hand off</li>
+        <li><span class="ch-icon">&#x1F4AC;</span><span class="ch-name">Slack</span> — Text, route to ideaify</li>
+        <li><span class="ch-icon">&#x1F916;</span><span class="ch-name">Agents</span> — Already structured, skip ideaify</li>
+        <li><span class="ch-icon">&#x1F310;</span><span class="ch-name">Web / API</span> — Direct POST to edge function</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<div class="section-divider"></div>
+
+<!-- Layer 2: Process -->
+<section class="layer-section layer-process">
+  <span class="layer-tag">Layer 2</span>
+  <h2>Process (Ideaify)</h2>
+  <p class="section-sub">Clean, split, and categorise raw input into structured idea records. Data cleaning, not product judgment.</p>
+  <div class="layer-content">
+    <div class="layer-desc">
+      <p>Ideaify's most valuable function is <strong>multi-idea splitting</strong>. A 10-minute voice note covering 5 topics becomes 5 clean, individual idea records. Conservative splitting — when in doubt, don't split.</p>
+      <p>Each idea gets categorised by <strong>scope</strong> (job/feature/initiative), <strong>complexity</strong>, <strong>domain</strong> (product/engineering/marketing), and <strong>autonomy level</strong>. Ambiguity is flagged, not resolved.</p>
+      <p><strong>Phase 1:</strong> CPO runs ideaify as a skill. <strong>Phase 2:</strong> Ideaify becomes an intake-processor contractor, dispatched automatically. Same skill, different runner.</p>
+    </div>
+    <div class="layer-detail">
+      <div class="does-grid">
+        <div class="does-col yes">
+          <h4>Ideaify does</h4>
+          <ul>
+            <li>Clean raw text into clear prose</li>
+            <li>Split multi-idea inputs</li>
+            <li>Categorise by scope and domain</li>
+            <li>Tag with metadata</li>
+            <li>Flag ambiguity and duplicates</li>
+          </ul>
+        </div>
+        <div class="does-col no">
+          <h4>Ideaify does not</h4>
+          <ul>
+            <li>Judge whether ideas are good</li>
+            <li>Research feasibility</li>
+            <li>Prioritise ideas</li>
+            <li>Create features or jobs</li>
+            <li>Ask for clarification</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="section-divider"></div>
+
+<!-- Layer 3: Store -->
+<section class="layer-section layer-store">
+  <span class="layer-tag">Layer 3</span>
+  <h2>Store (Ideas Inbox)</h2>
+  <p class="section-sub">One Supabase table. One schema. Five MCP tools. The single source of truth.</p>
+  <div class="layer-content">
+    <div class="layer-desc">
+      <p>The canonical <code>ideas</code> table merges the best of both archived schemas. <strong>raw_text</strong> preserves the original input verbatim. <strong>title + description</strong> hold the cleaned version from Ideaify.</p>
+      <p><strong>source + originator</strong> are separate fields. Source = channel (where it came from). Originator = actor (who said it). "CTO noticed a problem" = source: terminal, originator: cto.</p>
+      <p>Full traceability: <code>idea_created</code> &rarr; <code>idea_triaged</code> &rarr; <code>idea_promoted</code> &rarr; <code>feature_created</code>. Every feature traces back to the original raw thought.</p>
+    </div>
+    <div class="layer-detail">
+      <h4>MCP Tools</h4>
+      <ul class="tool-list">
+        <li><span class="tool-icon">+</span><span class="tool-name">create_idea</span> — insert a new idea</li>
+        <li><span class="tool-icon">?</span><span class="tool-name">query_ideas</span> — search + filter</li>
+        <li><span class="tool-icon">&#x270E;</span><span class="tool-name">update_idea</span> — triage fields</li>
+        <li><span class="tool-icon">&#x2191;</span><span class="tool-name">promote_idea</span> — atomic promote</li>
+        <li><span class="tool-icon">++</span><span class="tool-name">batch_create_ideas</span> — multi-idea splits</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<div class="section-divider"></div>
+
+<!-- Layer 4: Triage -->
+<section class="layer-section layer-triage" id="lifecycle">
+  <span class="layer-tag">Layer 4</span>
+  <h2>Triage (CPO Sweep)</h2>
+  <p class="section-sub">The CPO reviews, enriches, prioritises, and decides: promote, park, or reject.</p>
+  <div class="layer-content">
+    <div class="layer-desc">
+      <p>Triage is a <strong>behavioural addition to the CPO's existing role</strong>, not a separate system. During standup or conversation start, the CPO sweeps the inbox for new ideas.</p>
+      <p>For each idea: review, refine if needed, set priority, recommend an action. The CPO <strong>prepares ideas for human decision</strong>.</p>
+      <p><strong>Trust boundary evolves over time.</strong> v1: always ask. v2: CPO can promote small items. v3: full autonomy. Trust is earned through demonstrated good triage.</p>
+    </div>
+    <div class="layer-detail">
+      <h4>Idea Lifecycle</h4>
+      <div class="lifecycle-flow">
+        <span class="status-node status-new">new</span>
+        <span class="lifecycle-arrow">&rarr;</span>
+        <span class="status-node status-triaged">triaged</span>
+        <span class="lifecycle-arrow">&rarr;</span>
+        <span class="status-node status-promoted">promoted</span>
+      </div>
+      <div class="lifecycle-flow" style="margin-top: 0.5rem;">
+        <span style="color: var(--text-muted); font-size: 0.75rem;">or</span>
+        <span class="lifecycle-arrow">&rarr;</span>
+        <span class="status-node status-parked">parked</span>
+        <span style="color: var(--text-muted); font-size: 0.75rem; padding: 0 0.3rem;">or</span>
+        <span class="status-node status-rejected">rejected</span>
+      </div>
+      <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 1rem; text-align: center;">Parked ideas can resurface. Rejected ideas are preserved for context.</p>
+    </div>
+  </div>
+</section>
+
+<div class="section-divider"></div>
+
+<!-- Layer 5: Present -->
+<section class="layer-section layer-present">
+  <span class="layer-tag">Layer 5</span>
+  <h2>Present (Idea Visualiser)</h2>
+  <p class="section-sub">Render ideas and documents for human review at every lifecycle stage. Approve from your phone.</p>
+  <div class="layer-content">
+    <div class="layer-desc">
+      <p>The visualiser works at <strong>multiple stages</strong>: raw ideas as compact cards, triaged ideas with enrichment, proposals as full documents, features as pipeline status trackers.</p>
+      <p>Each view includes <strong>interactive actions</strong>: approve, reject, comment, request changes. Deep-links back to the CPO conversation close the loop between mobile review and terminal action.</p>
+      <p>Hosted as a <strong>private Netlify deployment</strong>. Vanilla HTML + Mermaid.js. Reads from Supabase and the docs/plans/ repo directory.</p>
+    </div>
+    <div class="layer-detail">
+      <h4>Renders at Every Stage</h4>
+      <ul class="tool-list">
+        <li><span class="tool-icon" style="background: rgba(59, 130, 246, 0.1);">&#x1F4DD;</span><span class="tool-name">Raw idea</span> — compact card with flags</li>
+        <li><span class="tool-icon" style="background: rgba(16, 185, 129, 0.1);">&#x2696;</span><span class="tool-name">Triaged idea</span> — enriched with recommendation</li>
+        <li><span class="tool-icon" style="background: rgba(139, 92, 246, 0.1);">&#x1F4C4;</span><span class="tool-name">Proposal</span> — full doc with decisions</li>
+        <li><span class="tool-icon" style="background: rgba(236, 72, 153, 0.1);">&#x1F3D7;</span><span class="tool-name">Feature</span> — pipeline status tracker</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<!-- ═══ FLOWS ═══ -->
+<section class="flows-section" id="flows" style="max-width: 100%; padding: 4rem 2rem;">
+  <div style="max-width: 1000px; margin: 0 auto;">
+    <h2>How Ideas Flow</h2>
+    <p class="section-sub">Three real scenarios showing the full pipeline in action.</p>
+    <div class="flow-cards">
+
+      <div class="flow-card">
+        <h3>&#x1F3A4; Voice Note on the Go</h3>
+        <p class="flow-scenario">Tom records a rambling voice note while walking the dog. It contains 3 ideas.</p>
+        <div class="flow-steps">
+          <span class="flow-step capture">Telegram receives</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step capture">Transcribe voice</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step process">Ideaify splits 3 ideas</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step store">3 records in inbox</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step triage">CPO sweeps + triages</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step present">Tom reviews on phone</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step triage">Approves promotion</span>
+        </div>
+      </div>
+
+      <div class="flow-card">
+        <h3>&#x1F4BB; Terminal Conversation</h3>
+        <p class="flow-scenario">"We should fix the auth timeout and also add rate limiting."</p>
+        <div class="flow-steps">
+          <span class="flow-step capture">CPO receives text</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step process">Ideaify splits 2 ideas</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step store">2 records in inbox</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step triage">CPO triages immediately</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step triage">Auth &rarr; job, Rate limit &rarr; feature</span>
+        </div>
+      </div>
+
+      <div class="flow-card">
+        <h3>&#x1F916; Agent-Discovered Opportunity</h3>
+        <p class="flow-scenario">Monitoring Agent spots a competitor feature worth investigating.</p>
+        <div class="flow-steps">
+          <span class="flow-step capture">Agent creates idea</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step store">Structured, skips ideaify</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step triage">CPO triages in sweep</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step triage">Promotes to research</span>
+          <span class="flow-arrow-sm">&rarr;</span>
+          <span class="flow-step present">Proposal on Visualiser</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══ PHASES ═══ -->
+<section id="phases">
+  <h2>Implementation Phases</h2>
+  <p class="section-sub">Four phases. Phase 1 is the foundation. Phases 3 and 4 can run in parallel.</p>
+  <div class="phases-grid">
+    <div class="phase-card">
+      <span class="phase-num">1</span>
+      <h3>Ideas Table + MCP Tools</h3>
+      <div class="phase-layers">Store layer</div>
+      <p class="phase-effort"><strong>3-4 jobs</strong> — Migration, edge functions, MCP wrappers</p>
+    </div>
+    <div class="phase-card">
+      <span class="phase-num">2</span>
+      <h3>Ideaify Skill + CPO Update</h3>
+      <div class="phase-layers">Process + Triage</div>
+      <p class="phase-effort"><strong>2 jobs</strong> — Skill file, CPO role prompt</p>
+    </div>
+    <div class="phase-card">
+      <span class="phase-num">3</span>
+      <h3>Telegram Bot</h3>
+      <div class="phase-layers">Capture layer</div>
+      <p class="phase-effort"><strong>4-5 jobs</strong> — Bot, transcription, routing</p>
+    </div>
+    <div class="phase-card">
+      <span class="phase-num">4</span>
+      <h3>Idea Visualiser</h3>
+      <div class="phase-layers">Present layer</div>
+      <p class="phase-effort"><strong>5-7 jobs</strong> — Templates, approval UI, hosting</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>Ideas Pipeline Unified Design &mdash; zazigv2 &mdash; <a href="#">docs/plans/2026-02-25-ideas-pipeline-unified-design.md</a></p>
+  <p style="margin-top: 0.3rem;">Four proposals, one system.</p>
+</footer>
+
+</body>
+</html>

@@ -8,7 +8,7 @@
 
 ___
 ## Tom feedback
-2026-02-25 I've changed from spec visualiser to idea visualiser. I think this could be used to review things at multiple stages, e.g. after /internal-proposal, after it's a design, after it's requirements, or even to understand fully what's been built. Can you redraft with that in mind?
+2026-02-25 I've changed from spec visualiser to idea visualiser. I think this could be used to review things at multiple stages, e.g. after /internal-proposal, after it's a design, after it's requirements, or even to understand fully what's been built. Can you redraft with that in mind? also should maybe link into the ideaify proposal.
 
 ---
 

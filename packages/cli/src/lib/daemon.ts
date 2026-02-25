@@ -99,3 +99,48 @@ export function removePidFile(): void {
     // File may already be gone — that's fine
   }
 }
+
+// --- Per-company daemon management ---
+
+export function pidPathForCompany(companyId: string): string {
+  return join(ZAZIGV2_DIR, `${companyId}.pid`);
+}
+
+export function logPathForCompany(companyId: string): string {
+  const logDir = join(ZAZIGV2_DIR, "logs");
+  mkdirSync(logDir, { recursive: true });
+  return join(logDir, `${companyId}.log`);
+}
+
+export function readPidForCompany(companyId: string): number | null {
+  const pidPath = pidPathForCompany(companyId);
+  try {
+    return parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
+  } catch {
+    return null;
+  }
+}
+
+export function isDaemonRunningForCompany(companyId: string): boolean {
+  const pid = readPidForCompany(companyId);
+  return pid !== null && isRunning(pid);
+}
+
+export function removePidFileForCompany(companyId: string): void {
+  try { unlinkSync(pidPathForCompany(companyId)); } catch { /* */ }
+}
+
+export function startDaemonForCompany(env: NodeJS.ProcessEnv, companyId: string): number {
+  const agentEntry = resolveAgentEntry();
+  const logPath = logPathForCompany(companyId);
+  const logFd = openSync(logPath, "a");
+  const child = spawn(process.execPath, [agentEntry], {
+    detached: true,
+    stdio: ["ignore", logFd, logFd],
+    env,
+  });
+  child.unref();
+  const pid = child.pid!;
+  writeFileSync(pidPathForCompany(companyId), String(pid));
+  return pid;
+}

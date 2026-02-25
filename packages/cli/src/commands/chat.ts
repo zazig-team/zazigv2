@@ -1,15 +1,14 @@
 /**
- * chat.ts — split-screen TUI for persistent agent interaction.
+ * chat.ts — native tmux-based agent interaction.
  *
- * Top: read-only stream of active agent tmux session (capture-pane polling).
- * Bottom: status bar.
- * All keystrokes forwarded directly to the active tmux session.
- * Tab: switch between persistent agents.
- * Ctrl+C: graceful shutdown (stops daemon + agents).
+ * Links all agent tmux sessions as windows in a single viewer session,
+ * then attaches. User gets native tmux input, mouse scrolling, and
+ * Ctrl+B n/p (or window numbers) to switch between agents.
+ *
+ * No blessed, no custom TUI, no keystroke forwarding — just tmux.
  */
 
-import blessed from "blessed";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { fetchUserCompanies, pickCompany } from "../lib/company-picker.js";
 import { getValidCredentials } from "../lib/credentials.js";
 import { isDaemonRunningForCompany } from "../lib/daemon.js";
@@ -19,12 +18,6 @@ import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 interface AgentSession {
   role: string;
   sessionName: string;
-}
-
-interface ChatOptions {
-  companyName: string;
-  agents: AgentSession[];
-  onShutdown: () => void;
 }
 
 export function discoverAgentSessions(
@@ -48,7 +41,15 @@ export function discoverAgentSessions(
   }
 }
 
-export function launchTui(options: ChatOptions): void {
+/**
+ * Create a viewer tmux session that links all agent windows together,
+ * enable mouse scrolling, then attach.
+ */
+export function launchTui(options: {
+  companyName: string;
+  agents: AgentSession[];
+  onShutdown: () => void;
+}): void {
   const { companyName, agents, onShutdown } = options;
 
   if (agents.length === 0) {
@@ -56,118 +57,93 @@ export function launchTui(options: ChatOptions): void {
     return;
   }
 
-  let activeIndex = 0;
-  let captureInterval: ReturnType<typeof setInterval> | null = null;
+  const viewerSession = `zazig-view-${companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 
-  const screen = blessed.screen({
-    smartCSR: true,
-    title: `zazig — ${companyName}`,
-  });
+  // Kill stale viewer session if it exists
+  try {
+    execSync(`tmux kill-session -t ${viewerSession}`, { stdio: "pipe" });
+  } catch { /* didn't exist */ }
 
-  // --- Agent output (full height minus status bar) ---
-  const outputBox = blessed.box({
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%-1",
-    scrollable: true,
-    alwaysScroll: true,
-    scrollbar: { ch: "│" },
-    tags: false,
-    style: { fg: "white", bg: "black" },
-  });
-
-  // --- Status bar ---
-  const statusBar = blessed.box({
-    bottom: 0,
-    left: 0,
-    width: "100%",
-    height: 1,
-    tags: true,
-    style: { fg: "white", bg: "blue" },
-  });
-
-  screen.append(outputBox);
-  screen.append(statusBar);
-
-  function updateStatusBar(): void {
-    const tabs = agents
-      .map((a, i) =>
-        i === activeIndex
-          ? `{bold}[${a.role.toUpperCase()}]{/bold}`
-          : ` ${a.role.toUpperCase()} `
-      )
-      .join("  ");
-    statusBar.setContent(`  ${companyName} · ${tabs}    Tab: switch  Ctrl+C: quit`);
-    screen.render();
+  // Create viewer session (detached, with first agent linked)
+  const firstAgent = agents[0]!;
+  try {
+    // Create session by linking to the first agent's window
+    execSync(
+      `tmux new-session -d -s ${viewerSession} -t ${firstAgent.sessionName}`,
+      { stdio: "pipe" }
+    );
+    // Rename the window to the role
+    execSync(
+      `tmux rename-window -t ${viewerSession} ${firstAgent.role.toUpperCase()}`,
+      { stdio: "pipe" }
+    );
+  } catch (err) {
+    console.error(`Failed to create viewer session: ${String(err)}`);
+    return;
   }
 
-  function capturePane(): void {
-    const session = agents[activeIndex]!.sessionName;
+  // Link remaining agent sessions as additional windows
+  for (let i = 1; i < agents.length; i++) {
+    const agent = agents[i]!;
     try {
-      const output = execSync(
-        `tmux capture-pane -t ${session} -p -S -200`,
-        { encoding: "utf-8", timeout: 2000 }
+      execSync(
+        `tmux link-window -s ${agent.sessionName}:0 -t ${viewerSession}`,
+        { stdio: "pipe" }
       );
-      outputBox.setContent(output);
-      outputBox.setScrollPerc(100);
-      screen.render();
-    } catch {
-      // Session may not exist yet or tmux not ready
+      // Rename the linked window
+      const winIndex = i + 1; // window 0 is first agent, but link-window adds at next index
+      try {
+        execSync(
+          `tmux rename-window -t ${viewerSession}:${winIndex} ${agent.role.toUpperCase()}`,
+          { stdio: "pipe" }
+        );
+      } catch { /* rename is best-effort */ }
+    } catch (err) {
+      console.warn(`Could not link ${agent.role} session: ${String(err)}`);
     }
   }
 
-  function startCapture(): void {
-    if (captureInterval) clearInterval(captureInterval);
-    capturePane();
-    captureInterval = setInterval(capturePane, 300);
-  }
+  // Enable mouse mode for scrolling
+  try {
+    execSync(`tmux set -t ${viewerSession} mouse on`, { stdio: "pipe" });
+  } catch { /* best-effort */ }
 
-  /** Forward raw bytes to the active tmux session using send-keys -H (hex). */
-  function forwardRaw(buf: Buffer): void {
-    const session = agents[activeIndex]!.sessionName;
-    const hexKeys = Array.from(buf).map((b) => `0x${b.toString(16).padStart(2, "0")}`).join(" ");
-    try {
-      execSync(`tmux send-keys -t ${session} -H ${hexKeys}`, {
-        timeout: 2000,
-      });
-    } catch {
-      // Session may have died
-    }
-  }
+  // Set status bar to show agent windows
+  try {
+    execSync(
+      `tmux set -t ${viewerSession} status-style "bg=blue,fg=white"`,
+      { stdio: "pipe" }
+    );
+    execSync(
+      `tmux set -t ${viewerSession} status-left " ${companyName} | "`,
+      { stdio: "pipe" }
+    );
+    execSync(
+      `tmux set -t ${viewerSession} status-right " Ctrl+B n: next agent | Ctrl+B d: detach "`,
+      { stdio: "pipe" }
+    );
+  } catch { /* best-effort */ }
 
-  // --- Raw stdin for input, blessed kept for rendering only ---
-  // Blessed's screen set stdin to raw mode. We add our own 'data' handler
-  // alongside blessed's (blessed needs its listeners for internal rendering).
-  // Blessed's 'keypress' events fire duplicates but we don't use them.
-  process.stdin.on("data", (buf: Buffer) => {
-    const str = buf.toString();
+  console.log(`Attaching to agents for ${companyName}...`);
+  console.log("Switch agents: Ctrl+B n/p | Scroll: mouse wheel | Detach: Ctrl+B d\n");
 
-    // Ctrl+C (0x03): shutdown TUI
-    if (str === "\x03") {
-      if (captureInterval) clearInterval(captureInterval);
-      screen.destroy();
-      onShutdown();
-      return;
-    }
-
-    // Tab (0x09): cycle agents
-    if (str === "\x09") {
-      if (agents.length > 1) {
-        activeIndex = (activeIndex + 1) % agents.length;
-        updateStatusBar();
-        capturePane();
-      }
-      return;
-    }
-
-    // Everything else: forward raw bytes to tmux
-    forwardRaw(buf);
+  // Attach — this blocks until the user detaches
+  const result = spawnSync("tmux", ["attach", "-t", viewerSession], {
+    stdio: "inherit",
   });
 
-  updateStatusBar();
-  startCapture();
-  screen.render();
+  // Clean up viewer session after detach
+  try {
+    execSync(`tmux kill-session -t ${viewerSession}`, { stdio: "pipe" });
+  } catch { /* already gone */ }
+
+  if (result.status !== 0) {
+    console.error("tmux attach failed.");
+    process.exitCode = 1;
+    return;
+  }
+
+  onShutdown();
 }
 
 export async function chat(): Promise<void> {
@@ -205,7 +181,6 @@ export async function chat(): Promise<void> {
     agents: agentSessions,
     onShutdown: () => {
       console.log("\nDisconnected from agents (daemon still running).");
-      process.exit(0);
     },
   });
 }

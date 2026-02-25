@@ -201,17 +201,16 @@ export async function start(): Promise<void> {
   if (noTui) {
     console.log("Zazig started successfully (headless).");
     console.log(`Logs: ${logPathForCompany(company.id)}`);
+  } else if (agentSessions.length === 0) {
+    console.log("No agent sessions found. Daemon may still be starting up.");
+    console.log(`Logs: ${logPathForCompany(company.id)}`);
   } else {
     launchTui({
       companyName: company.name,
       agents: agentSessions,
       onShutdown: () => {
-        try {
-          process.kill(pid, "SIGTERM");
-        } catch { /* */ }
-        removePidFileForCompany(company.id);
-        console.log("\nZazig stopped.");
-        process.exit(0);
+        console.log("\nDetached from agents (daemon still running in background).");
+        console.log("Run 'zazig chat' to reconnect, or 'zazig stop' to stop it.");
       },
     });
   }

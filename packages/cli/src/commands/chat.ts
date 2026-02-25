@@ -136,13 +136,10 @@ export function launchTui(options: ChatOptions): void {
     }
   }
 
-  // --- Bypass blessed's keypress handling entirely ---
-  // Listen on process.stdin directly for raw bytes. One 'data' event per keystroke.
-  // Blessed's screen already set stdin to raw mode, so we get individual keypresses.
-  // Remove blessed's listeners to prevent it from also processing input.
-  process.stdin.removeAllListeners("keypress");
-  process.stdin.removeAllListeners("data");
-
+  // --- Raw stdin for input, blessed kept for rendering only ---
+  // Blessed's screen set stdin to raw mode. We add our own 'data' handler
+  // alongside blessed's (blessed needs its listeners for internal rendering).
+  // Blessed's 'keypress' events fire duplicates but we don't use them.
   process.stdin.on("data", (buf: Buffer) => {
     const str = buf.toString();
 

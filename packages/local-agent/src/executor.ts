@@ -28,6 +28,7 @@ import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageI
 import { PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
 import { setupJobWorkspace } from "./workspace.js";
+import { RepoManager } from "./branches.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -72,8 +73,9 @@ After codex-delegate completes, review the diff output and decide whether to kee
 /** Completion instructions injected into context for all jobs. */
 const COMPLETION_INSTRUCTIONS = `## On Completion
 
+Commit all work to the current branch. Do NOT commit .mcp.json, .claude/, or CLAUDE.md.
 Write your results to .claude/cpo-report.md including what was done and any issues.
-Commit all work, then exit.`;
+Then exit.`;
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -95,6 +97,12 @@ interface ActiveJob {
   lastBytesSent: number;
   /** Ephemeral workspace directory (if created). Used for report lookup + cleanup. */
   workspaceDir?: string;
+  /** Git worktree path for this job — agent CWD and workspace root. */
+  worktreePath?: string;
+  /** Bare repo directory used to manage this job's worktree. */
+  repoDir?: string;
+  /** Job branch name (job/{jobId}) pushed to origin after completion. */
+  jobBranch?: string;
 }
 
 interface QueuedMessage {
@@ -125,6 +133,9 @@ export class JobExecutor {
 
   /** Map of jobId → active job state. */
   private readonly activeJobs = new Map<string, ActiveJob>();
+
+  /** Manages bare repo clones and job worktrees for all dispatched jobs. */
+  private readonly repoManager = new RepoManager();
 
   /** jobId of the active CPO persistent agent job, if any. */
   private persistentJobId: string | null = null;
@@ -236,31 +247,50 @@ export class JobExecutor {
         if (error) console.warn(`[executor] Failed to save assembled_context for jobId=${jobId}: ${error.message}`);
       });
 
-    // --- 3d. Set up workspace for role-based ephemeral jobs ---
+    // --- 3d. Create git worktree and set up workspace inside it ---
+    // Every job now runs inside a real git worktree (no scratch-dir fallback).
     let ephemeralWorkspaceDir: string | undefined;
-    if (msg.role) {
-      const thisDir = dirname(fileURLToPath(import.meta.url));
-      const mcpServerPath = join(thisDir, "agent-mcp-server.js");
-      ephemeralWorkspaceDir = join(homedir(), ".zazigv2", `job-${jobId}`);
+    let worktreePath: string | undefined;
+    let repoDir: string | undefined;
+    let jobBranch: string | undefined;
 
-      try {
-        setupJobWorkspace({
-          workspaceDir: ephemeralWorkspaceDir,
-          mcpServerPath,
-          supabaseUrl: this.supabaseUrl,
-          supabaseAnonKey: this.supabaseAnonKey,
-          jobId,
-          role: msg.role,
-          claudeMdContent: assembledContext,
-          skills: msg.roleSkills,
-          repoSkillsDir: join(process.cwd(), "projects", "skills"),
-        });
-        console.log(`[executor] Ephemeral workspace created at ${ephemeralWorkspaceDir} for role=${msg.role}`);
-      } catch (err) {
-        console.warn(`[executor] Failed to create ephemeral workspace for jobId=${jobId}: ${String(err)}`);
-        // Non-fatal — job can still run without workspace
-        ephemeralWorkspaceDir = undefined;
-      }
+    try {
+      const projectName = msg.repoUrl.split("/").pop()?.replace(/\.git$/, "") ?? jobId;
+      repoDir = await this.repoManager.ensureRepo(msg.repoUrl, projectName);
+      await this.repoManager.ensureFeatureBranch(repoDir, msg.featureBranch);
+      const worktreeResult = await this.repoManager.createJobWorktree(repoDir, msg.featureBranch, jobId);
+      worktreePath = worktreeResult.worktreePath;
+      jobBranch = worktreeResult.jobBranch;
+      ephemeralWorkspaceDir = worktreePath;
+
+      console.log(`[executor] Git worktree created at ${worktreePath} (branch: ${jobBranch}) for jobId=${jobId}`);
+    } catch (err) {
+      console.error(`[executor] Failed to create git worktree for jobId=${jobId}:`, err);
+      this.slots.release(slotType);
+      await this.sendJobFailed(jobId, `Failed to create git worktree: ${String(err)}`, "agent_crash");
+      return;
+    }
+
+    // Set up workspace overlay (CLAUDE.md, .mcp.json, .claude/) inside the worktree.
+    const thisDir = dirname(fileURLToPath(import.meta.url));
+    const mcpServerPath = join(thisDir, "agent-mcp-server.js");
+    try {
+      setupJobWorkspace({
+        workspaceDir: worktreePath,
+        mcpServerPath,
+        supabaseUrl: this.supabaseUrl,
+        supabaseAnonKey: this.supabaseAnonKey,
+        jobId,
+        companyId: this.companyId,
+        role: msg.role ?? "senior-engineer",
+        claudeMdContent: assembledContext,
+        skills: msg.roleSkills,
+        repoSkillsDir: join(process.cwd(), "projects", "skills"),
+      });
+      console.log(`[executor] Workspace overlay written to ${worktreePath} for jobId=${jobId}`);
+    } catch (err) {
+      console.warn(`[executor] Failed to write workspace overlay for jobId=${jobId}: ${String(err)}`);
+      // Non-fatal — job can still run without workspace overlay
     }
 
     // --- 4. Build command based on complexity/model ---
@@ -268,9 +298,9 @@ export class JobExecutor {
     const sessionName = `${this.machineId}-${jobId}`;
 
     // --- 4b. Write prompt to file (piped via stdin to avoid CLI arg length limits) ---
-    const promptDir = ephemeralWorkspaceDir ?? join(homedir(), ".zazigv2", `job-${jobId}`);
-    mkdirSync(promptDir, { recursive: true });
-    const promptFilePath = join(promptDir, ".zazig-prompt.txt");
+    // Write to the worktree dir — the agent's CWD is the worktree.
+    mkdirSync(worktreePath, { recursive: true });
+    const promptFilePath = join(worktreePath, ".zazig-prompt.txt");
     writeFileSync(promptFilePath, assembledContext);
 
     // --- 5. Clear stale report before spawning (prevents reading a previous job's report) ---
@@ -327,6 +357,9 @@ export class JobExecutor {
       logPath,
       lastBytesSent: 0,
       workspaceDir: ephemeralWorkspaceDir,
+      worktreePath,
+      repoDir,
+      jobBranch,
     };
     this.activeJobs.set(jobId, activeJob);
 

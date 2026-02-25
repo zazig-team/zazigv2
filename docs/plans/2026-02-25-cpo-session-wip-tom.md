@@ -16,18 +16,38 @@ The handover from the previous session identified 5 gaps in the persistent agent
 8. **Wrote pipeline project definition change plan** — 9 specific edits documented in `2026-02-25-pipeline-project-definition-changes.md`
 9. **Applied all 9 pipeline design doc edits** — `2026-02-24-idea-to-job-pipeline-design.md` now reflects project = repo model, tags, and updated triage/structuring language
 10. **Produced 9 research proposals** — see "Research proposals" section below
+11. **Unified 4 Ideas Pipeline proposals** — single five-layer design (Capture → Process → Store → Triage → Present). Archived originals. Created visual at `docs/visuals/ideas-pipeline.html`.
+12. **Specced and pipelined 5 features** — Ideas Pipeline phases 1-4 + Skills Distribution CLI. All broke down successfully, now at `building`/`combining`.
+13. **Dispatched 5 CTO blockers** — all committed to master (trust prompt, UUID type error, stale breakdown, skills gap, branch generation + 2 bonus fixes)
+14. **Diagnosed and fixed dispatch blocker** — root cause: 3 undeployed orchestrator commits + null `features.branch` / `projects.repo_url`. CTO deployed + set data.
+15. **CI/CD autodeploy shipped** — commit `c3c6396`, GitHub Action active. Auto-deploys edge functions on push to `supabase/functions/`.
+16. **Null-context silent failure** — CTO discovered, specced as feature `2e9a34a6` (3 fixes, 5 ACs). Now at `breakdown`.
+17. **Wrote `/drive-pipeline` skill** — CPO operational runbook at `.claude/skills/drive-pipeline/SKILL.md` in the repo. Covers inbox sweep, scope routing, notification handling, pipeline state awareness, trust boundaries.
+18. **Injected Pipeline Operations into CPO role prompt** — CTO deployed migration 054 appending `## Pipeline Operations` section + updating skills array. Ensures CPO loads drive-pipeline at session start.
+19. **Updated Phase 2 spec** (38a1d16e) — added drive-pipeline registration in CPO skills array + pipeline awareness/notification handling additions to CPO role prompt job.
+20. **query_idea_status commissioned** — CTO commissioned as standalone job (`3c6b11f8`). One edge function + one MCP tool wrapper, traces idea → feature → jobs. Now at `breakdown`.
+21. **CLI versioning prompt written** — `zazig --version`, version on start, version in status. Git hash-based (0.1.0+949cb4c). Not yet delivered to CTO.
 
 ## Feature status board
 
-*Updated: session 3 reconciliation (2026-02-25)*
+*Updated: session 3 late (2026-02-25)*
 
 ### In the pipeline (active)
 
 | Feature | ID | Status | Notes |
 |---|---|---|---|
-| Terminal-Mode Orchestrator Notifications | d78a3b06 | **combining** | All 5 code jobs **complete**. Combiner job queued but not yet dispatched. See "Dispatch investigation" below. |
-| Persistent Agent Bootstrap Parity | d1c730fb | **ready_for_breakdown** | Stale jobs cleaned up. Fresh breakdown job `fdf9ff99` queued but not yet dispatched. Same dispatch question as above. |
-| Pipeline Smoke Tests | 2e9f067c | **verifying** | Active verification of dispatch, DAG execution, contractor commissioning. |
+| Ideas Inbox: Table, Edge Functions & MCP Tools | ea21ee02 | **combining** | Phase 1 Ideas Pipeline. All code jobs done, combining. Tag: ideas-pipeline |
+| Ideaify Skill & CPO Triage Integration | 38a1d16e | **combining** | Phase 2 Ideas Pipeline. Spec updated to include drive-pipeline registration + pipeline awareness. Tag: ideas-pipeline |
+| Telegram Ideas Bot | 59b8d9e5 | **building** | Phase 3 Ideas Pipeline. Tag: ideas-pipeline |
+| Idea Visualiser | 33f9e3c1 | **building** | Phase 4 Ideas Pipeline. Tag: ideas-pipeline |
+| Skills Distribution CLI | 84e5c68a | **combining** | Phases 2-3, all code jobs done, combining. |
+| Terminal-Mode Orchestrator Notifications | d78a3b06 | **combining** | All 5 code jobs complete. Combiner was stuck (null-context bug) — resolved, slot freed. Now combining again. |
+| Persistent Agent Bootstrap Parity | d1c730fb | **combining** | Breakdown + build completed, now combining. |
+| Pipeline Smoke Tests | 2e9f067c | **verifying** | Active verification. |
+| Fix: Null-context jobs silently rejected | 2e9a34a6 | **breakdown** | CTO specced (root cause chain, 3 fixes, 5 ACs). Breakdown in progress. |
+| query-idea-status edge function + MCP tool | 3c6b11f8 | **breakdown** | CTO commissioned as standalone job. Breakdown in progress. |
+| Lifecycle polling gaps | bc9e2a0f | **queued** | Missing transition fallbacks in orchestrator. |
+| Clean slate on re-breakdown | 33e0b29e | **queued** | Stale job idempotency bug — delete old breakdown/combine jobs on re-breakdown. |
 
 ### Not started (on board, not specced)
 
@@ -69,21 +89,9 @@ Previously 7+ features stuck in `combining`. All cleaned up — no longer visibl
 
 ---
 
-## New issue: queued jobs not dispatching
+## ~~New issue: queued jobs not dispatching~~ — RESOLVED
 
-**Severity:** Potentially blocking both active features.
-
-**What's happening:**
-- d78a3b06 combiner job `7fd2c92d` is `queued` with no `started_at` — all 5 code jobs completed, but the combiner hasn't been picked up
-- d1c730fb breakdown job `fdf9ff99` is `queued` with no `started_at` — the stale job blocker is cleared but the new breakdown hasn't dispatched
-
-**Possible causes:**
-1. Orchestrator dispatch loop not running (server down or paused?)
-2. No machine with available slots online
-3. Job type routing issue — combiner/breakdown roles may need specific dispatch handling
-4. Dispatch cycle timing — may just need a trigger or a poll cycle to fire
-
-**Action needed:** Investigate whether the orchestrator is actively dispatching. Check machine heartbeats and slot availability.
+Root cause: 3 orchestrator commits not deployed to Supabase + `features.branch` and `projects.repo_url` were null. CTO deployed edge functions, set missing data via SQL, manually invoked orchestrator. Pipeline flowing — all features progressed through breakdown into building/combining. CI/CD autodeploy (commit `c3c6396`) now prevents committed-but-not-deployed class of issues.
 
 ---
 
@@ -100,10 +108,15 @@ Previously 7+ features stuck in `combining`. All cleaned up — no longer visibl
 | 7 | Event name mismatch (`message_inbound` vs `message`) | **Job complete** — fix landed in d78a3b06 Job 4 (dafd87cf) |
 | 8 | Daemon tracks single persistent target (no multi-role routing) | **Job complete** — refactored in d78a3b06 Job 5 (bc0a2e93) |
 | 9 | 7+ features stuck in `combining` status | **Resolved** — cleaned up, no longer in project |
-| 10 | Queued jobs not dispatching | **New** — both d78a3b06 combiner and d1c730fb breakdown sitting queued with no started_at |
+| 10 | Queued jobs not dispatching | **Fixed** — root cause: 3 orchestrator commits not deployed + features.branch and projects.repo_url null. CTO deployed edge functions, set missing data, pipeline flowing. |
 | 11 | `execute-sql` quoted identifier bypass | **Fixed** — regex now matches `"quoted"` identifiers + rejects zero-extraction evasion (deployed 2026-02-25) |
 | 12 | `execute-sql` DO/COPY/CALL block bypass | **Fixed** — added DO, COPY, CALL to syntax blocklist (deployed 2026-02-25) |
 | 13 | `execute-sql` no audit trail | **Fixed** — `sql_executed` events now logged to `agent_events` after each execution (deployed 2026-02-25) |
+| 17 | Null-context jobs silently consume machine slots | **Specced & in pipeline** — feature `2e9a34a6` created with full spec (root cause chain, 3 defense-in-depth fixes, 5 ACs). Now at `breakdown`. Primary fix: `undefined` → `"{}"`. |
+| 18 | Committed-but-not-deployed edge functions | **Fixed** — CI/CD autodeploy shipped (commit `c3c6396`). GitHub Action auto-deploys on push to `supabase/functions/`. Secrets from Doppler. |
+| 19 | CPO not loading drive-pipeline skill at session start | **Fixed** — CTO deployed migration 054: `## Pipeline Operations` section appended to CPO role prompt (Position 2), skills array updated. Ensures behavioral triggers at high-attention prompt position. |
+| 20 | Re-breakdown blocked by stale jobs | **Queued** — feature `33e0b29e`. Fix: DELETE old breakdown/combine jobs before creating new ones on `ready_for_breakdown` transition. |
+| 21 | Lifecycle polling gaps | **Queued** — feature `bc9e2a0f`. Missing transition fallbacks in orchestrator polling loop. |
 | 14 | `zazig status` reads wrong PID file | **Fixed** — `status.ts` called `isDaemonRunning()` which reads legacy `daemon.pid`, but `start.ts` now uses `startDaemonForCompany()` which writes to `{companyId}.pid` (e.g. `00000000-...pid`). Daemon was alive the whole time but status reported "not running". Fix: `findRunningDaemon()` scans `~/.zazigv2/` for UUID-pattern `.pid` files first, falls back to legacy. Commit `117c141`. |
 | 15 | Persistent agent trust prompt blocks headless CTO/CPO sessions | **Not fixed** — `executor.ts` spawns Claude Code with `claude --model claude-opus-4-6` but no `--dangerously-skip-permissions` flag. Claude Code shows an interactive "Do you trust this folder?" dialog the first time it encounters a workspace with no trust record in `~/.claude/projects/`. For CPO this was accepted in a prior session so it works. CTO had never been trusted, so it sat stuck at the prompt indefinitely. The workspace `.claude/settings.json` already scopes tool permissions per role, so adding `--dangerously-skip-permissions` to the spawn command just skips the interactive trust UI without losing safety. Fix location: `packages/local-agent/src/executor.ts` line ~632, the `shellCmd` construction for persistent agents. |
 | 16 | Persistent agent jobId is not a valid UUID — DB writes silently fail | **Not fixed** — `spawnPersistentAgent()` calls `handlePersistentJob()` with `persistent-${job.role}` (e.g. `"persistent-cto"`) as the jobId parameter. `handlePersistentJob` then tries to write to the `jobs` table using `.eq("id", jobId)`, but the `jobs.id` column is type UUID. Postgres rejects `"persistent-cto"` with `invalid input syntax for type uuid`. This means `prompt_stack` is never persisted and `sendJobStatus` DB writes fail silently. The agent spawns and runs fine — the errors are non-fatal — but observability is broken. Fix: either pass the full synthetic jobId (`persistent-${job.role}-${companyId}`) which is still not a UUID, or skip `jobs` table writes entirely for persistent agents since they don't have real job rows. Location: `packages/local-agent/src/executor.ts` lines 451-456. |
@@ -123,12 +136,22 @@ Previously 7+ features stuck in `combining`. All cleaned up — no longer visibl
 - [x] ~~Triage stuck combining features~~ — **Done** (cleaned up, no longer in project)
 - [x] ~~Merge stale projects~~ — **Done** (Pipeline Infrastructure and Pipeline Integration Test merged into zazigv2, deleted)
 - [x] ~~Run tags migration~~ — **Done** (`features.tags TEXT[]` + GIN index applied)
-- [ ] **Investigate why queued jobs aren't dispatching** — both d78a3b06 combiner and d1c730fb breakdown stuck in `queued`
+- [x] ~~Investigate why queued jobs aren't dispatching~~ — **Fixed** (undeployed orchestrator + null data)
+- [x] ~~Unified 4 Ideas Pipeline proposals~~ — single design doc at `docs/plans/2026-02-25-ideas-pipeline-unified-design.md`
+- [x] ~~Spec and pipeline Ideas Pipeline (4 phases)~~ — all at `building`
+- [x] ~~Spec and pipeline Skills Distribution CLI~~ — at `building`
+- [x] ~~Deploy orchestrator edge function~~ — CTO deployed, 3 commits now live
+- [x] ~~Clean up stale combine job `7fd2c92d`~~ — null-context bug, slot freed
 - [ ] Review overlap between d1c730fb (Bootstrap Parity) and 991a062c (Persistent Agent Identity)
 - [ ] Configure Gemini API key for second-opinion workflow (GEMINI_API_KEY not set)
-- [ ] Pipeline bug: decide whether to create a feature for the re-breakdown systemic fix or handle as a quick patch
+- [x] ~~Pipeline re-breakdown systemic fix~~ — **Queued** — feature `33e0b29e` (clean slate on re-breakdown)
+- [ ] NEW: Lifecycle polling gaps — feature `bc9e2a0f` (missing transition fallbacks) — queued
 - [ ] Update MCP tools — add `tags` parameter to `create_feature` and `batch_create_features` edge functions
-- [ ] Review 9 research proposals (see below)
+- [x] ~~Review CI/CD autodeploy proposal~~ — **Done** — shipped, commit `c3c6396`, GitHub Action active
+- [x] ~~Null-context validator fix~~ — **Specced** — feature `2e9a34a6` at `breakdown`
+- [x] ~~Drive-pipeline skill~~ — **Done** — written to repo, role prompt injected via migration 054
+- [x] ~~query_idea_status~~ — **In pipeline** — commissioned by CTO as standalone job `3c6b11f8`, at `breakdown`
+- [ ] CTO CLI versioning prompt — written but not yet delivered
 
 ## Design decisions made this session
 
@@ -165,30 +188,46 @@ With projects now meaning repo-level products, we lose mid-level grouping. Solut
 - [x] ~~Triage stuck combining features~~ — **Done**
 - [x] ~~Merge stale projects~~ — **Done**
 - [x] ~~Run tags migration~~ — **Done**
-- [ ] **Investigate why queued jobs aren't dispatching** — top priority
+- [x] ~~Investigate why queued jobs aren't dispatching~~ — **Fixed**
+- [x] ~~Unified 4 Ideas Pipeline proposals~~ — **Done**
+- [x] ~~Spec and pipeline 5 features~~ — moving through pipeline (combining/building)
+- [x] ~~Deploy orchestrator~~ — **Done**
+- [x] ~~Clean up stale combine job~~ — **Done**
+- [x] ~~CI/CD autodeploy~~ — **Shipped** (commit `c3c6396`)
+- [x] ~~Null-context validator fix~~ — **Specced** (feature `2e9a34a6` at `breakdown`)
+- [x] ~~Drive-pipeline skill~~ — **Written** + role prompt injected (migration 054)
+- [x] ~~query_idea_status~~ — **In pipeline** (`3c6b11f8` at `breakdown`)
 - [ ] Review overlap between d1c730fb (Bootstrap Parity) and 991a062c (Persistent Agent Identity)
 - [ ] Configure Gemini API key for second-opinion workflow (GEMINI_API_KEY not set)
-- [ ] Pipeline re-breakdown systemic fix — quick patch or feature?
+- [x] ~~Pipeline re-breakdown systemic fix~~ — **Queued** (`33e0b29e`)
+- [ ] Lifecycle polling gaps — feature `bc9e2a0f` queued
 - [ ] Update MCP tools — add `tags` parameter to `create_feature` and `batch_create_features`
-- [ ] Review 9 research proposals
+- [ ] CTO CLI versioning prompt — written, not delivered
 
-## Needs CPO action (this session)
+## Needs CPO action (next session)
 
-- [ ] Investigate dispatch — why are d1c730fb breakdown and d78a3b06 combiner stuck in `queued`?
-- [ ] After dispatch is resolved: monitor d1c730fb breakdown, confirm jobs are created
-- [ ] After dispatch is resolved: confirm d78a3b06 combiner runs and feature moves to `verifying`
+- [ ] Monitor 10 active features — 5 combining, 2 building, 2 breaking down, 1 verifying
+- [ ] Deep-dive brainstorms on each Ideas Pipeline layer (Tom requested)
 - [ ] Consider speccing the remaining high-priority features (Event Queue, Execution Gates)
 - [ ] Create a Pipeline Infrastructure feature for the re-breakdown bug if Tom prefers pipeline fix over quick patch
-- [x] ~~Apply pipeline design doc edits per the project definition change plan~~ — Done (session 2)
+- [ ] Review CTO's work — 10+ commits landed this session, consider multi-agent review
+- [ ] Review remaining proposals: CPO Autonomous Execution, Zazig Terminal, Strategy Sim
+- [x] ~~Write /drive-pipeline skill~~ — **Done**
+- [x] ~~Inject drive-pipeline into role prompt~~ — **Done** (migration 054)
+- [x] ~~Update Phase 2 spec with drive-pipeline additions~~ — **Done**
+- [x] ~~Investigate dispatch~~ — **Fixed**
+- [x] ~~Apply pipeline design doc edits~~ — Done (session 2)
 
 ## Current priority order
 
-1. **Investigate dispatch** — why are queued jobs (d78a3b06 combiner, d1c730fb breakdown) not being picked up? Check orchestrator status, machine heartbeats, slot availability.
+1. **Monitor active features** — 5 combining, 2 building, 2 breaking down, 1 verifying. Watch for transitions and failures.
 2. **Update MCP tools** — add `tags` parameter to `create_feature` and `batch_create_features` edge functions
 3. **Pipeline re-breakdown systemic fix** — quick patch or feature through the pipeline?
 4. **Review d1c730fb vs 991a062c overlap** — are these redundant or complementary?
-5. **Gemini API key** — set `GEMINI_API_KEY` for second-opinion workflow
-6. **Review 9 research proposals** — see below
+5. **Deep-dive brainstorms** — individual Ideas Pipeline layer sessions with Tom
+6. **Review remaining proposals** — CPO Autonomous Execution, Zazig Terminal, Strategy Sim
+7. **CTO CLI versioning prompt** — deliver to CTO
+8. **Gemini API key** — set `GEMINI_API_KEY` for second-opinion workflow
 
 ---
 
@@ -223,14 +262,14 @@ Strategy Sim ← Ideas Inbox (ideas become decision points)
 Strategy Sim ← Spec Visualiser (shared approval UI patterns)
 ```
 
-### Suggested implementation order
+### Suggested implementation order (updated)
 
-1. **Skills Distribution Phase 1** (~20 lines) — unblocks everything else
-2. **CPO Autonomous Execution** (role prompt + skill edits) — zero code, immediate CPO improvement
-3. **Ideas Inbox** (migration + edge functions + MCP tools) — foundation for 2, 3, 6
-4. **Ideaify Skill** (skill file) — processes input for inbox
-5. **CPO Pipeline Orchestration** (`/drive-pipeline` skill) — CPO knows how to run the pipeline
-6. **Telegram Ideas Bot** — mobile capture into inbox
-7. **Spec Visualiser** — approval workflow
-8. **Zazig Terminal Phase 0** — enhanced TUI + web dashboard
-9. **Strategy Sim Phase 1** — decision infrastructure + Command Board (could subsume parts of Spec Visualiser and Zazig Terminal dashboard)
+1. ~~**Skills Distribution Phase 1**~~ — **in pipeline** (84e5c68a, combining)
+2. **CPO Autonomous Execution** (role prompt + skill edits) — zero code, immediate CPO improvement. Not yet started.
+3. ~~**Ideas Inbox**~~ — **in pipeline** (ea21ee02, combining)
+4. ~~**Ideaify Skill**~~ — **in pipeline** (38a1d16e, combining)
+5. ~~**CPO Pipeline Orchestration**~~ — **Done** — skill written, role prompt injected, Phase 2 spec updated
+6. ~~**Telegram Ideas Bot**~~ — **in pipeline** (59b8d9e5, building)
+7. **Spec Visualiser** — not started. Approval workflow.
+8. **Zazig Terminal Phase 0** — not started. Enhanced TUI + web dashboard.
+9. **Strategy Sim Phase 1** — not started. Decision infrastructure + Command Board.

@@ -46,8 +46,8 @@ ENTRY POINT C: Agent-initiated (automated discovery)
 ─────────────────────────────────────────────────────
 
 [1] IDEATION         Human has an idea, talks to CPO
-[2] PLANNING         CPO + Human refine scope, decide project vs feature
-[3] STRUCTURING      Project Architect creates project + feature outlines
+[2] PLANNING         CPO + Human refine scope, decide single feature vs multi-feature initiative
+[3] STRUCTURING      Project Architect creates feature outlines (new project only if new repo needed)
 [4] FEATURE DESIGN   CPO + Human spec each feature (AC, checklist)
 [5] BREAKDOWN        Breakdown Specialist runs jobify → jobs in Supabase
 [6] EXECUTION        Orchestrator dispatches jobs to workers
@@ -193,7 +193,7 @@ This is not designed in now — the default is always-ask. The autonomy toggle i
 | Entry Point C | Monitoring Agent → CPO → Human | `x-scan`, `deep-research`, `repo-recon`, `internal-proposal`, `review-plan` (autonomous) | Approved proposal, enters Stage 1/2 |
 | 1. Ideation | Human + CPO | — | Raw idea, conversation context |
 | 2. Planning | CPO + Human | `/plan-capability`, `/reconcile-docs`, `review-plan`, `deep-research`* | Approved plan (scope, goals, constraints). Includes documentation reconciliation. |
-| 3. Structuring | Project Architect (contractor) | `featurify` | Project record + feature outlines in Supabase |
+| 3. Structuring | Project Architect (contractor) | `featurify` | Feature outlines with initiative tags in Supabase (new project record only if new repo) |
 | 4. Feature Design | CPO + Human | `/spec-feature`, `second-opinion`* | Fully specced feature (spec, AC, human checklist) |
 | 5. Breakdown | Breakdown Specialist (contractor) | `jobify` | Jobs in Supabase (`queued`, with `depends_on` DAG) |
 | 6. Execution | Orchestrator + Workers | `repo-recon`* | Code on branches |
@@ -213,9 +213,10 @@ A human talks to the CPO. The channel doesn't matter — the CPO receives messag
 
 The CPO's first job is scope assessment. It asks clarifying questions, checks existing projects (via `query_projects` MCP tool), and determines whether this is:
 
-1. **A feature for an existing project** — "Add dark mode to the dashboard app." CPO finds the project, skips to Stage 4.
-2. **A new capability requiring a project** — "We need user authentication." CPO enters planning mode.
+1. **A single feature** — "Add dark mode to the dashboard app." CPO creates under existing project, skips to Stage 4.
+2. **A multi-feature initiative** — "We need user authentication." CPO enters planning mode, then creates multiple features under the existing project with shared initiative tags.
 3. **A quick fix / standalone job** — "Fix the favicon." Entry Point B — standalone job, no project needed.
+4. **A genuinely new product/repo** (rare) — "We need a separate mobile app." Stage 2 (deep planning) → Stage 3 (new project creation).
 
 ### Planning (when needed)
 
@@ -261,17 +262,17 @@ The CPO reasons and acts — it uses MCP tools for executive actions (creating f
 
 ### The Project Architect
 
-Every project is created by a Project Architect contractor. No exceptions. Even a "lightweight" project goes through this path. The reasoning:
+The Project Architect's primary job is structuring multi-feature initiatives into feature outlines within an existing project. Creating a new project (new repo) is rare and still goes through the architect, but the common case is `batch_create_features` under an existing `project_id`, not `create_project`. The reasoning for always using an architect:
 
-- **Consistency** — every project has the same structure regardless of how it was conceived
+- **Consistency** — every initiative gets the same structuring process regardless of how it was conceived
 - **CPO stays strategic** — the CPO's context is too valuable to spend on mechanical structuring
 - **Quality** — the Project Architect is a specialist with structuring skills and doctrines; the CPO is a generalist
 
 ### What the Project Architect produces
 
-1. **Project record** in Supabase (name, description, status, company_id)
-2. **Feature outlines** — one per major capability, with enough detail for the CPO to refine but not fully specced. Each feature gets a record in Supabase with `status: created`.
-3. **Dependency notes** — which features depend on others, what the critical path looks like
+1. **Feature outlines** under the existing project — one per major capability, with enough detail for the CPO to refine but not fully specced. Each feature gets a record in Supabase with `status: created` and shared initiative tags (e.g. `['user-auth']`).
+2. **Dependency notes** — which features depend on others, what the critical path looks like
+3. **Project record** (rare) — only when a genuinely new product/repo is needed. Most work uses `batch_create_features` under an existing `project_id`.
 
 ### How it's triggered
 
@@ -418,7 +419,7 @@ Not every worker needs every tool. The orchestrator assembles a role-specific `.
 |------|-------|-----------|
 | CPO | `send_message`, `query_projects`, `create_feature`, `update_feature` | Product brain — communicates, reads state, manages features |
 | CTO | `send_message`, `query_projects`, `query_architecture` (future) | Architecture oversight, reads state |
-| Project Architect | `create_project`, `create_feature`, `query_projects` | Structuring — creates projects and feature outlines |
+| Project Architect | `create_project`, `create_feature`, `query_projects` | Structuring — creates feature outlines under existing projects (with initiative tags). `create_project` used rarely — most work creates features under existing projects. |
 | Breakdown Specialist | `query_features`, `batch_create_jobs` | Reads features, creates jobs atomically |
 | Senior Engineer | `query_job`, `update_job_status` | Reads assignment, reports completion |
 
@@ -451,7 +452,7 @@ Orchestrator dispatches contractor
 | Contractor | Skill | MCP Tools (reads) | MCP Tools (writes) |
 |------------|-------|-------------------|---------------------|
 | Breakdown Specialist | jobify | `query_features` | `batch_create_jobs` |
-| Project Architect | featurify | `query_projects` | `create_project`, `batch_create_features` |
+| Project Architect | featurify | `query_projects` | `create_project` (rare), `batch_create_features` (with initiative tags) |
 
 **Why the skill is separate from the MCP tool:** The skill contains decomposition logic — how to break work apart, quality rules, Gherkin format, dependency reasoning, complexity routing. This is LLM reasoning that belongs in the agent prompt. The MCP tool is a dumb typed POST that validates schema and inserts rows. Putting reasoning in the edge function would break the principle of dumb infrastructure + smart agents.
 
@@ -627,11 +628,12 @@ A lean decision tree that fits in ~200 tokens:
 
 When a human brings an idea:
 1. Assess scope — query existing projects, ask clarifying questions
-2. Quick fix with no project context → standalone job (/standalone-job)
-3. Single feature for existing project → /spec-feature
-4. New capability requiring multiple features → /plan-capability
+2. Quick fix → standalone job (/standalone-job)
+3. Single feature → /spec-feature (create under existing project)
+4. Multi-feature initiative → /plan-capability
    - Includes documentation reconciliation (/reconcile-docs)
-   - Commissions Project Architect when plan is approved
+   - Commissions Project Architect to create feature outlines under existing project
+5. New product/repo (rare) → deep planning → Project Architect creates new project
 5. After structuring complete (notification) → review feature outlines
 6. For each feature → /spec-feature
 7. When feature spec approved → set status to ready_for_breakdown
@@ -667,7 +669,7 @@ Skills load on demand — when the CPO enters planning mode, it invokes `/plan-c
 
 Doctrines provide the *why* behind the pipeline, injected by the knowledge system when the conversation touches relevant topics:
 
-- "Every capability that spans multiple features needs a project — no exceptions"
+- "Every capability that spans multiple features needs a planning step and structured feature outlines — but not necessarily a new project. Features are grouped under the project (repo) they belong to with shared initiative tags. A new project means a new repository."
 - "Documentation must be coherent before structuring begins — stale docs cause downstream confusion"
 - "Feature outlines are deliberately incomplete — the CPO enriches them through conversation with the human"
 - "Jobs go directly to queued — the design stage belongs to features, not jobs"
@@ -784,9 +786,9 @@ Human: Approves plan.
 [Stage 3: Structuring]
 CPO: Commissions Project Architect.
 Orchestrator: Dispatches Project Architect with approved plan.
-Project Architect: Creates project "User Authentication" with 3 feature outlines.
-Orchestrator: Notifies CPO — "Project 'User Authentication' created
-              with 3 feature outlines."
+Project Architect: Creates 3 feature outlines under the zazigv2 project for User Authentication: OAuth Provider Integration, Session Management, Permission Model. All tagged `['user-auth']`.
+Orchestrator: Notifies CPO — "3 feature outlines created under zazigv2
+              for User Authentication initiative."
 
 [Stage 4: Feature Design — repeated for each feature]
 CPO: Takes feature outline for "OAuth Integration", enriches through

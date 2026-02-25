@@ -52,6 +52,11 @@ const REPORT_ARCHIVE_DIR = ".claude/job-reports";
 /** Delay after CPO session spawn before allowing message injection (Claude Code startup). */
 const CPO_STARTUP_DELAY_MS = 15_000;
 
+/** Maximum number of messages held in the injection queue.
+ *  When exceeded, the oldest notification-type message is dropped.
+ *  Human messages are never dropped. */
+export const MAX_QUEUE_SIZE = 20;
+
 /** Directory where per-job tmux pipe-pane log files are written. */
 const JOB_LOG_DIR = "/tmp/zazig-job-logs";
 
@@ -116,7 +121,7 @@ interface ActivePersistentAgent {
   startedAt: number;
 }
 
-interface QueuedMessage {
+export interface QueuedMessage {
   text: string;
   /** Tmux session to inject into. */
   sessionName: string;
@@ -124,6 +129,8 @@ interface QueuedMessage {
   startedAt: number;
   resolve: () => void;
   reject: (err: unknown) => void;
+  /** Discriminates pipeline notifications (droppable) from human messages (never dropped). */
+  type: "notification" | "human";
 }
 
 /** Callback type for sending AgentMessage back to the orchestrator channel. */
@@ -131,6 +138,31 @@ export type SendFn = (msg: AgentMessage) => Promise<void>;
 
 /** Callback invoked after a job completes, before slot release. Enables verification pipeline. */
 export type AfterJobCompleteFn = (jobId: string) => Promise<void>;
+
+// ---------------------------------------------------------------------------
+// Queue helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Pushes `message` onto `queue`, then enforces `maxSize` by dropping the oldest
+ * notification-type message if the cap is exceeded.  Human messages are never
+ * dropped.  If the queue is over-cap and contains only human messages, the cap
+ * is not enforced and a warning is logged instead.
+ *
+ * Exported for unit testing.
+ */
+export function enqueueWithCap(queue: QueuedMessage[], message: QueuedMessage, maxSize: number): void {
+  queue.push(message);
+  if (queue.length > maxSize) {
+    const notifIdx = queue.findIndex((m) => m.type === "notification");
+    if (notifIdx !== -1) {
+      const dropped = queue.splice(notifIdx, 1)[0]!;
+      console.log(`[daemon] Dropped notification message due to queue cap: ${dropped.text.slice(0, 80)}`);
+    } else {
+      console.warn("[daemon] Queue cap exceeded but no notification messages to drop — queue contains only human messages");
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // JobExecutor
@@ -922,9 +954,9 @@ export class JobExecutor {
   // Private: Message injection queue (ported from SlackChatRouter)
   // ---------------------------------------------------------------------------
 
-  private enqueueMessage(message: string, sessionName: string, startedAt: number): Promise<void> {
+  private enqueueMessage(message: string, sessionName: string, startedAt: number, type: "notification" | "human" = "human"): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.messageQueue.push({ text: message, sessionName, startedAt, resolve, reject });
+      enqueueWithCap(this.messageQueue, { text: message, sessionName, startedAt, type, resolve, reject }, MAX_QUEUE_SIZE);
       if (!this.processingQueue) {
         void this.processMessageQueue();
       }

@@ -44,25 +44,37 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 // ---------------------------------------------------------------------------
 
 const TABLE_ALLOWLIST = ["jobs", "features", "agent_events", "machines"];
-const SYNTAX_BLOCKLIST = /\b(DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE)\b/i;
+const SYNTAX_BLOCKLIST = /\b(DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|DO|COPY|CALL)\b/i;
+
+/** Matches an unquoted identifier (\w+) or a double-quoted identifier ("...") */
+const IDENT = /(?:(\w+)|"([^"]+)")/;
 
 /** Extract table names referenced via FROM, INTO, UPDATE, JOIN, DELETE FROM */
 function extractTableNames(sql: string): string[] {
-  const patterns = [
-    /\bFROM\s+(\w+)/gi,
-    /\bINTO\s+(\w+)/gi,
-    /\bUPDATE\s+(\w+)/gi,
-    /\bJOIN\s+(\w+)/gi,
-    /\bDELETE\s+FROM\s+(\w+)/gi,
-  ];
+  const keywords = ["FROM", "INTO", "UPDATE", "JOIN"];
   const tables = new Set<string>();
-  for (const pattern of patterns) {
+  for (const kw of keywords) {
+    const pattern = new RegExp(`\\b${kw}\\s+${IDENT.source}`, "gi");
     let match;
     while ((match = pattern.exec(sql)) !== null) {
-      tables.add(match[1].toLowerCase());
+      const name = (match[1] ?? match[2]).toLowerCase();
+      tables.add(name);
     }
   }
+  // Also handle DELETE FROM specifically (two-keyword prefix)
+  const delPattern = new RegExp(`\\bDELETE\\s+FROM\\s+${IDENT.source}`, "gi");
+  let dm;
+  while ((dm = delPattern.exec(sql)) !== null) {
+    const name = (dm[1] ?? dm[2]).toLowerCase();
+    tables.add(name);
+  }
   return [...tables];
+}
+
+/** Detect if the SQL references tables via keywords but we extracted none — signals an evasion attempt */
+function hasUnextractableTableRef(sql: string): boolean {
+  const tableKeywords = /\b(FROM|INTO|UPDATE|JOIN|DELETE\s+FROM)\b/i;
+  return tableKeywords.test(sql);
 }
 
 /** Check that DELETE/UPDATE statements contain a WHERE clause */
@@ -93,9 +105,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const body = await req.json();
-    const { sql, expected_affected_rows } = body as {
+    const { sql, expected_affected_rows, job_id } = body as {
       sql: string;
       expected_affected_rows?: number;
+      job_id?: string;
     };
 
     if (!sql || typeof sql !== "string") {
@@ -105,13 +118,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // --- Syntax blocklist ---
     if (SYNTAX_BLOCKLIST.test(sql)) {
       return jsonResponse(
-        { error: "SQL contains blocked syntax (DROP, ALTER, TRUNCATE, CREATE, GRANT, REVOKE)" },
+        { error: "SQL contains blocked syntax (DROP, ALTER, TRUNCATE, CREATE, GRANT, REVOKE, DO, COPY, CALL)" },
         400,
       );
     }
 
     // --- Table allowlist ---
     const tables = extractTableNames(sql);
+    if (tables.length === 0 && hasUnextractableTableRef(sql)) {
+      return jsonResponse(
+        { error: "SQL references tables but none could be extracted — possible identifier evasion" },
+        400,
+      );
+    }
     const disallowed = tables.filter((t) => !TABLE_ALLOWLIST.includes(t));
     if (disallowed.length > 0) {
       return jsonResponse(
@@ -150,6 +169,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
       affected_rows !== expected_affected_rows
     ) {
       result.warning = `Expected ${expected_affected_rows} affected rows but got ${affected_rows}`;
+    }
+
+    // --- Audit log ---
+    try {
+      await supabase.from("agent_events").insert({
+        job_id: job_id ?? null,
+        event_type: "sql_executed",
+        payload: {
+          sql,
+          tables,
+          affected_rows,
+          expected_affected_rows: expected_affected_rows ?? null,
+        },
+      });
+    } catch (_auditErr) {
+      // Non-blocking — don't fail the response if audit insert fails
     }
 
     return jsonResponse(result);

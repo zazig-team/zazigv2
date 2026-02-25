@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import type { StartJob } from "@zazigv2/shared";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import * as fsModule from "node:fs";
-import { JobExecutor, type SendFn } from "./executor.js";
+import { JobExecutor, type SendFn, enqueueWithCap, MAX_QUEUE_SIZE, type QueuedMessage } from "./executor.js";
 import { SlotTracker } from "./slots.js";
 
 // ---------------------------------------------------------------------------
@@ -400,5 +400,53 @@ describe("JobExecutor — ephemeral workspace setup", () => {
       (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("job-job-001"),
     );
     expect(workspaceCalls.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// messageQueue — cap behaviour (pure helper)
+// ---------------------------------------------------------------------------
+
+function makeQueuedMessage(overrides: Partial<QueuedMessage> = {}): QueuedMessage {
+  return {
+    text: "[Pipeline] notification",
+    sessionName: "test-session",
+    startedAt: 0,
+    type: "notification",
+    resolve: () => {},
+    reject: () => {},
+    ...overrides,
+  };
+}
+
+describe("messageQueue — queue cap (enqueueWithCap)", () => {
+  it("queue length stays ≤ MAX_QUEUE_SIZE when enqueuing 25 notification messages", () => {
+    const queue: QueuedMessage[] = [];
+    for (let i = 0; i < 25; i++) {
+      enqueueWithCap(queue, makeQueuedMessage({ text: `[Pipeline] notification ${i}` }), MAX_QUEUE_SIZE);
+    }
+    expect(queue.length).toBeLessThanOrEqual(MAX_QUEUE_SIZE);
+  });
+
+  it("preserves all human messages in the queue when notifications are dropped", () => {
+    const queue: QueuedMessage[] = [];
+    for (let i = 0; i < 3; i++) {
+      enqueueWithCap(queue, makeQueuedMessage({ text: `hello from human ${i}`, type: "human" }), MAX_QUEUE_SIZE);
+    }
+    for (let i = 0; i < 25; i++) {
+      enqueueWithCap(queue, makeQueuedMessage({ text: `[Pipeline] notification ${i}` }), MAX_QUEUE_SIZE);
+    }
+    const humans = queue.filter((m) => m.type === "human");
+    expect(humans).toHaveLength(3);
+    expect(queue.length).toBeLessThanOrEqual(MAX_QUEUE_SIZE);
+  });
+
+  it("allows queue to exceed cap when all queued messages are human", () => {
+    const queue: QueuedMessage[] = [];
+    for (let i = 0; i < 25; i++) {
+      enqueueWithCap(queue, makeQueuedMessage({ text: `hello from human ${i}`, type: "human" }), MAX_QUEUE_SIZE);
+    }
+    // No notifications to drop → queue exceeds cap
+    expect(queue.length).toBe(25);
   });
 });

@@ -13,3 +13,11 @@ coverage/
 .obsidian/
 projects/personality/.claude/napkin.md
 .claude/handover.yml
+# zazig workspace files (auto-generated)
+CLAUDE.md
+.mcp.json
+.claude/
+.zazig-prompt.txt
+subagent-personality.md
+# ideas-visualiser build outputs
+web/ideas-visualiser/docs/

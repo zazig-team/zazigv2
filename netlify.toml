@@ -1,0 +1,19 @@
+[build]
+  base    = "web/ideas-visualiser"
+  command = "npm install && node build.js"
+  publish = "."
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Redirect root to docs list
+[[redirects]]
+  from   = "/"
+  to     = "/index.html"
+  status = 200
+
+# SPA-style: unknown paths fall back to index
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200

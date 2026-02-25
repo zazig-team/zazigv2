@@ -184,7 +184,7 @@ export class JobExecutor {
     await this.sendJobAck(jobId);
 
     // --- 2b. Persistent agent — separate lifecycle from regular jobs ---
-    if (msg.cardType === "persistent_agent" || msg.role === "cpo") {
+    if (msg.role === "cpo") {
       await this.handlePersistentJob(jobId, msg, slotType);
       return;
     }

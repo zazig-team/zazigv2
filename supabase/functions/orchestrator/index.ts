@@ -430,8 +430,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
 
   for (const job of queuedJobs as JobRow[]) {
     // Auto-create a wrapper feature for jobs with no feature_id.
-    // Persistent agents are company-wide (no project or feature) — skip wrapper creation.
-    if (!job.feature_id && job.job_type !== "persistent_agent") {
+    if (!job.feature_id) {
       const { data: wrapperFeature, error: wfErr } = await supabase
         .from("features")
         .insert({
@@ -637,27 +636,6 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       }
     }
 
-    // For persistent_agent jobs: assemble the full CLAUDE.md content here
-    // so the executor can write it directly as CLAUDE.md (no assembly in the local agent).
-    let assembledContext: string | undefined;
-    if (job.job_type === "persistent_agent") {
-      const roleName = job.role ?? "Agent";
-      const parts: string[] = [`# ${roleName.toUpperCase()}`];
-      if (personalityPrompt) parts.push(personalityPrompt);
-      parts.push("---");
-      if (rolePrompt) parts.push(rolePrompt);
-      assembledContext = parts.join("\n\n");
-
-      // Write to prompt_stack for observability (fire-and-forget)
-      supabase
-        .from("jobs")
-        .update({ prompt_stack: assembledContext })
-        .eq("id", job.id)
-        .then(({ error }) => {
-          if (error) console.warn(`[orchestrator] Failed to save prompt_stack for jobId=${job.id}: ${error.message}`);
-        });
-    }
-
     // Build the StartJob message.
     const startJobMsg: StartJob = {
       type: "start_job",
@@ -668,14 +646,13 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       complexity: (job.complexity as StartJob["complexity"]) ?? "medium",
       slotType,
       model,
-      context: assembledContext ?? job.context ?? undefined,
-      // Include role for role-based jobs (persistent agents, specialized reviewers)
+      context: job.context ?? undefined,
+      // Include role for role-based jobs (specialized reviewers, etc.)
       ...(job.role ? { role: job.role } : {}),
-      // For non-persistent jobs, still send the separate layers for assembleContext()
-      ...(job.job_type !== "persistent_agent" && personalityPrompt ? { personalityPrompt } : {}),
-      ...(job.job_type !== "persistent_agent" && subAgentPrompt ? { subAgentPrompt } : {}),
-      ...(job.job_type !== "persistent_agent" && rolePrompt ? { rolePrompt } : {}),
-      ...(job.job_type !== "persistent_agent" && roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),
+      ...(personalityPrompt ? { personalityPrompt } : {}),
+      ...(subAgentPrompt ? { subAgentPrompt } : {}),
+      ...(rolePrompt ? { rolePrompt } : {}),
+      ...(roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),
     };
 
     // Broadcast StartJob via Supabase Realtime on the machine's command channel.
@@ -803,32 +780,6 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
 
   if (fetchErr || !jobRow) {
     console.error(`[orchestrator] Could not fetch job ${jobId} for completion:`, fetchErr?.message);
-    await releaseSlot(supabase, jobId, machineId);
-    return;
-  }
-
-  const isPersistent = jobRow.job_type === "persistent_agent";
-
-  if (isPersistent) {
-    // Persistent jobs auto-requeue: reset to queued, clear machine assignment,
-    // store last result for observability but don't set completed_at.
-    const { error: requeueErr } = await supabase
-      .from("jobs")
-      .update({
-        status: "queued",
-        result,
-        pr_url: pr ?? null,
-        machine_id: null,
-        started_at: null,
-      })
-      .eq("id", jobId);
-
-    if (requeueErr) {
-      console.error(`[orchestrator] Failed to re-queue persistent job ${jobId}:`, requeueErr.message);
-      return;
-    }
-
-    console.log(`[orchestrator] Persistent job ${jobId} re-queued (was on machine ${machineId})`);
     await releaseSlot(supabase, jobId, machineId);
     return;
   }
@@ -1034,26 +985,13 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
 async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promise<void> {
   const { jobId, machineId, error: errMsg, failureReason } = msg;
 
-  // Fetch job to check if persistent (persistent jobs always re-queue on failure).
-  const { data: failedJobRow, error: fetchErr } = await supabase
-    .from("jobs")
-    .select("job_type")
-    .eq("id", jobId)
-    .single();
-
-  if (fetchErr) {
-    console.error(`[orchestrator] Could not fetch job ${jobId} type:`, fetchErr.message);
-  }
-  const isPersistent = fetchErr ? true : failedJobRow?.job_type === "persistent_agent";
-
   // Decide recovery strategy based on failure reason.
-  //   persistent_agent → always re-queue (must stay alive)
   //   agent_crash      → re-queue immediately on a healthy machine
   //   ci_failure       → failed (needs triage)
   //   timeout          → failed (needs triage or extended timeout)
   //   unknown          → failed (log and review)
   const newStatus =
-    isPersistent || failureReason === "agent_crash" ? "queued" : "failed";
+    failureReason === "agent_crash" ? "queued" : "failed";
 
   const updatePayload: Record<string, unknown> = {
     status: newStatus,
@@ -1062,8 +1000,6 @@ async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promis
 
   if (newStatus !== "queued") {
     updatePayload.completed_at = new Date().toISOString();
-  } else if (isPersistent) {
-    updatePayload.started_at = null;
   }
 
   const { error: jobErr } = await supabase
@@ -1074,9 +1010,8 @@ async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promis
   if (jobErr) {
     console.error(`[orchestrator] Failed to update failed job ${jobId}:`, jobErr.message);
   } else {
-    const suffix = isPersistent ? " (persistent — auto-requeued)" : "";
     console.warn(
-      `[orchestrator] Job ${jobId} failed (reason: ${failureReason}, error: ${errMsg}) → ${newStatus}${suffix}`,
+      `[orchestrator] Job ${jobId} failed (reason: ${failureReason}, error: ${errMsg}) → ${newStatus}`,
     );
   }
 

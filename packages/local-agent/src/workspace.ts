@@ -38,7 +38,7 @@ export interface WorkspaceConfig {
  * The `mcp__zazig-messaging__` prefix is added by `generateAllowedTools`.
  */
 export const ROLE_ALLOWED_TOOLS: Record<string, string[]> = {
-  cpo: ["send_message", "query_projects", "create_feature", "update_feature", "commission_contractor"],
+  cpo: ["query_projects", "create_feature", "update_feature", "commission_contractor"],
   "project-architect": ["create_project", "batch_create_features", "query_projects"],
   "breakdown-specialist": ["query_features", "batch_create_jobs"],
   "senior-engineer": ["query_features"],

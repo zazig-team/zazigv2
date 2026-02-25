@@ -2278,6 +2278,123 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
       await triggerCombining(supabase, feature.id);
     }
   }
+
+  // --- 3. verifying → deploying_to_test ---
+  // Features stuck in 'verifying' where the verify job is complete.
+  const { data: verifyingFeatures, error: vErr } = await supabase
+    .from("features")
+    .select("id")
+    .eq("status", "verifying")
+    .limit(50);
+
+  if (vErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying verifying features:", vErr.message);
+  }
+
+  for (const feature of (verifyingFeatures ?? []) as { id: string }[]) {
+    const { data: verifyJobs } = await supabase
+      .from("jobs")
+      .select("id, context, result")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "verify")
+      .eq("status", "complete")
+      .limit(1);
+
+    if (!verifyJobs || verifyJobs.length === 0) {
+      console.warn(`[orchestrator] processFeatureLifecycle: feature ${feature.id} in verifying but no complete verify job — skipping`);
+      continue;
+    }
+
+    const verifyJob = verifyJobs[0] as { id: string; context: string; result: string | null };
+    let verifyCtx: { type?: string } = {};
+    try { verifyCtx = JSON.parse(verifyJob.context ?? "{}"); } catch { /* ignore */ }
+
+    if (verifyCtx.type === "active_feature_verification") {
+      // Active verification: replicate handleJobComplete condition — only advance on PASSED
+      if ((verifyJob.result ?? "").startsWith("PASSED")) {
+        console.log(`[orchestrator] processFeatureLifecycle: feature ${feature.id} active verify PASSED — initiating test deploy`);
+        await initiateTestDeploy(supabase, feature.id);
+      } else {
+        console.warn(`[orchestrator] processFeatureLifecycle: feature ${feature.id} active verify not PASSED — not advancing`);
+      }
+    } else if (verifyCtx.type === "feature_verification") {
+      // Passive verification: replicate handleJobComplete condition — always advance
+      console.log(`[orchestrator] processFeatureLifecycle: feature ${feature.id} passive verify complete — initiating test deploy`);
+      await initiateTestDeploy(supabase, feature.id);
+    }
+  }
+
+  // --- 4. deploying_to_test → ready_to_test ---
+  // Features stuck in 'deploying_to_test' where the test deploy is done.
+  // Test deployments are driven by WebSocket (deploy_complete message), not a DB job.
+  // The completion signal is test_url being non-null — set atomically with the status
+  // update by handleDeployComplete. A non-null test_url while status is still
+  // deploying_to_test indicates the WebSocket message was processed but the status
+  // update was lost (e.g. CAS guard race). If test_url is null, the deploy is still
+  // in progress or the deploy_complete message was missed.
+  const { data: deployingTestFeatures, error: dtErr } = await supabase
+    .from("features")
+    .select("id, test_url")
+    .eq("status", "deploying_to_test")
+    .limit(50);
+
+  if (dtErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying deploying_to_test features:", dtErr.message);
+  }
+
+  for (const feature of (deployingTestFeatures ?? []) as { id: string; test_url: string | null }[]) {
+    if (!feature.test_url) {
+      console.warn(`[orchestrator] processFeatureLifecycle: feature ${feature.id} in deploying_to_test but no test_url — deploy in progress or signal lost`);
+      continue;
+    }
+
+    const { error: dtUpdateErr } = await supabase
+      .from("features")
+      .update({ status: "ready_to_test" })
+      .eq("id", feature.id)
+      .eq("status", "deploying_to_test");
+
+    if (!dtUpdateErr) {
+      console.log(`[orchestrator] processFeatureLifecycle: feature ${feature.id} deploying_to_test → ready_to_test`);
+    }
+  }
+
+  // --- 5. deploying_to_prod → complete ---
+  // Features stuck in 'deploying_to_prod' where the prod deploy job is complete.
+  // Prod deploys go through the jobs table (job_type = "deploy", ctx.target = "prod").
+  const { data: deployingProdFeatures, error: dpErr } = await supabase
+    .from("features")
+    .select("id")
+    .eq("status", "deploying_to_prod")
+    .limit(50);
+
+  if (dpErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying deploying_to_prod features:", dpErr.message);
+  }
+
+  for (const feature of (deployingProdFeatures ?? []) as { id: string }[]) {
+    const { data: deployJobs } = await supabase
+      .from("jobs")
+      .select("id, context")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "deploy")
+      .eq("status", "complete")
+      .limit(10);
+
+    // Find the prod deploy job — distinguished by ctx.target === "prod" (matches handleJobComplete check)
+    const prodJob = (deployJobs ?? []).find((j: { context: string }) => {
+      try { return (JSON.parse(j.context ?? "{}") as { target?: string }).target === "prod"; }
+      catch { return false; }
+    });
+
+    if (!prodJob) {
+      console.warn(`[orchestrator] processFeatureLifecycle: feature ${feature.id} in deploying_to_prod but no complete prod deploy job — skipping`);
+      continue;
+    }
+
+    console.log(`[orchestrator] processFeatureLifecycle: feature ${feature.id} prod deploy job complete — transitioning to complete`);
+    await handleProdDeployComplete(supabase, feature.id);
+  }
 }
 
 // ---------------------------------------------------------------------------

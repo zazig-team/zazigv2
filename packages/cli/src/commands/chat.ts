@@ -123,12 +123,12 @@ export function launchTui(options: ChatOptions): void {
     captureInterval = setInterval(capturePane, 300);
   }
 
-  /** Forward a raw key sequence to the active tmux session. */
-  function forwardKey(sequence: string): void {
+  /** Forward raw bytes to the active tmux session using send-keys -H (hex). */
+  function forwardRaw(buf: Buffer): void {
     const session = agents[activeIndex]!.sessionName;
+    const hexKeys = Array.from(buf).map((b) => `0x${b.toString(16).padStart(2, "0")}`).join(" ");
     try {
-      // Use -l for literal characters, avoids tmux interpreting key names
-      execSync(`tmux send-keys -t ${session} -l ${JSON.stringify(sequence)}`, {
+      execSync(`tmux send-keys -t ${session} -H ${hexKeys}`, {
         timeout: 2000,
       });
     } catch {
@@ -136,42 +136,26 @@ export function launchTui(options: ChatOptions): void {
     }
   }
 
-  /** Forward a named tmux key (Enter, BSpace, Escape, etc.) */
-  function forwardNamedKey(tmuxKeyName: string): void {
-    const session = agents[activeIndex]!.sessionName;
-    try {
-      execSync(`tmux send-keys -t ${session} ${tmuxKeyName}`, {
-        timeout: 2000,
-      });
-    } catch {
-      // Session may have died
-    }
-  }
+  // --- Bypass blessed's keypress handling entirely ---
+  // Listen on process.stdin directly for raw bytes. One 'data' event per keystroke.
+  // Blessed's screen already set stdin to raw mode, so we get individual keypresses.
+  // Remove blessed's listeners to prevent it from also processing input.
+  process.stdin.removeAllListeners("keypress");
+  process.stdin.removeAllListeners("data");
 
-  // --- All keystrokes forwarded to tmux except Tab and Ctrl+C ---
-  // Blessed fires duplicate keypress events per keystroke (~2ms apart).
-  // Dedup by timestamp: ignore events within 10ms of the previous identical key.
-  let lastKeyTime = 0;
-  let lastKeyFull = "";
+  process.stdin.on("data", (buf: Buffer) => {
+    const str = buf.toString();
 
-  screen.on("keypress", (_ch: string | undefined, key: { sequence?: string; full: string; name: string; ctrl: boolean; meta: boolean; shift: boolean }) => {
-    if (!key) return;
-    const now = Date.now();
-    const id = key.full ?? key.sequence ?? "";
-    if (id === lastKeyFull && now - lastKeyTime < 10) return;
-    lastKeyTime = now;
-    lastKeyFull = id;
-
-    // Ctrl+C: shutdown TUI
-    if (key.ctrl && key.name === "c") {
+    // Ctrl+C (0x03): shutdown TUI
+    if (str === "\x03") {
       if (captureInterval) clearInterval(captureInterval);
       screen.destroy();
       onShutdown();
       return;
     }
 
-    // Tab: cycle agents
-    if (key.name === "tab") {
+    // Tab (0x09): cycle agents
+    if (str === "\x09") {
       if (agents.length > 1) {
         activeIndex = (activeIndex + 1) % agents.length;
         updateStatusBar();
@@ -180,39 +164,8 @@ export function launchTui(options: ChatOptions): void {
       return;
     }
 
-    // Named keys that tmux needs as key names (not literal)
-    const namedKeyMap: Record<string, string> = {
-      enter: "Enter",
-      return: "Enter",
-      backspace: "BSpace",
-      escape: "Escape",
-      up: "Up",
-      down: "Down",
-      left: "Left",
-      right: "Right",
-      home: "Home",
-      end: "End",
-      pageup: "PageUp",
-      pagedown: "PageDown",
-      delete: "DC",
-    };
-
-    const tmuxKey = namedKeyMap[key.name];
-    if (tmuxKey) {
-      forwardNamedKey(tmuxKey);
-      return;
-    }
-
-    // Ctrl+key combos
-    if (key.ctrl && key.sequence) {
-      forwardKey(key.sequence);
-      return;
-    }
-
-    // Regular characters — forward the raw sequence
-    if (key.sequence) {
-      forwardKey(key.sequence);
-    }
+    // Everything else: forward raw bytes to tmux
+    forwardRaw(buf);
   });
 
   updateStatusBar();

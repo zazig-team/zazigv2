@@ -1,9 +1,8 @@
 /**
- * zazigv2 — update-feature Edge Function
+ * zazigv2 — create-project Edge Function
  *
- * Updates an existing feature on behalf of the CPO agent.
- * Guards status transitions: CPO may only set 'created' or 'ready_for_breakdown'.
- * Fires a feature_status_changed event when status → ready_for_breakdown.
+ * Creates a new project record. The Project Architect contractor
+ * calls this when structuring an approved plan.
  *
  * Runtime: Deno / Supabase Edge Functions
  */
@@ -39,9 +38,6 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-// CPO can only set these statuses — all others are orchestrator-managed
-const ALLOWED_CPO_STATUSES = ["created", "ready_for_breakdown"] as const;
-
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
@@ -62,54 +58,44 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     const body = await req.json();
-    const { feature_id, title, description, priority, status, job_id } = body;
+    const { company_id, name, description, status } = body;
 
-    if (!feature_id) {
-      return jsonResponse({ error: "feature_id is required" }, 400);
+    if (!name || typeof name !== "string" || name.trim() === "") {
+      return jsonResponse({ error: "name is required (non-empty string)" }, 400);
     }
 
-    // Guard status transitions
-    if (status && !ALLOWED_CPO_STATUSES.includes(status)) {
-      return jsonResponse(
-        { error: `Cannot set status '${status}' — CPO may only set: ${ALLOWED_CPO_STATUSES.join(", ")}` },
-        400,
-      );
+    if (!company_id) {
+      return jsonResponse({ error: "company_id is required" }, 400);
     }
 
-    // Build update payload
-    const updates: Record<string, unknown> = {};
-    if (title !== undefined) updates.title = title;
-    if (description !== undefined) updates.description = description;
-    if (priority !== undefined) updates.priority = priority;
-    if (status !== undefined) updates.status = status;
-    if (job_id !== undefined) updates.job_id = job_id;
+    // Validate company exists
+    const { data: company, error: companyError } = await supabase
+      .from("companies")
+      .select("id")
+      .eq("id", company_id)
+      .single();
 
-    if (Object.keys(updates).length === 0) {
-      return jsonResponse({ ok: true, note: "nothing to update" });
+    if (companyError || !company) {
+      return jsonResponse({ error: `Company not found: ${company_id}` }, 404);
     }
 
-    const { data: updated, error } = await supabase
-      .from("features")
-      .update(updates)
-      .eq("id", feature_id)
-      .select("company_id")
+    // Insert project
+    const { data: project, error } = await supabase
+      .from("projects")
+      .insert({
+        company_id,
+        name: name.trim(),
+        description: description ?? null,
+        status: status ?? "active",
+      })
+      .select("id")
       .single();
 
     if (error) {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    // If status changed to ready_for_breakdown, insert event so orchestrator picks it up
-    if (status === "ready_for_breakdown") {
-      await supabase.from("events").insert({
-        company_id: updated.company_id,
-        feature_id,
-        event_type: "feature_status_changed",
-        detail: { from: null, to: "ready_for_breakdown" },
-      });
-    }
-
-    return jsonResponse({ ok: true });
+    return jsonResponse({ project_id: project.id });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

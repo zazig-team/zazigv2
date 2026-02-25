@@ -27,6 +27,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageInbound, JobUnblocked } from "@zazigv2/shared";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
+import { setupJobWorkspace } from "./workspace.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -92,6 +93,8 @@ interface ActiveJob {
   logPath: string;
   /** Byte offset of the last chunk sent to raw_log — enables append-only writes. */
   lastBytesSent: number;
+  /** Ephemeral workspace directory (if created). Used for report lookup + cleanup. */
+  workspaceDir?: string;
 }
 
 interface QueuedMessage {
@@ -207,9 +210,42 @@ export class JobExecutor {
         if (error) console.warn(`[executor] Failed to save assembled_context for jobId=${jobId}: ${error.message}`);
       });
 
+    // --- 3d. Set up workspace for role-based ephemeral jobs ---
+    let ephemeralWorkspaceDir: string | undefined;
+    if (msg.role) {
+      const thisDir = dirname(fileURLToPath(import.meta.url));
+      const mcpServerPath = join(thisDir, "agent-mcp-server.js");
+      ephemeralWorkspaceDir = join(homedir(), ".zazigv2", `job-${jobId}`);
+
+      try {
+        setupJobWorkspace({
+          workspaceDir: ephemeralWorkspaceDir,
+          mcpServerPath,
+          supabaseUrl: this.supabaseUrl,
+          supabaseAnonKey: this.supabaseAnonKey,
+          jobId,
+          role: msg.role,
+          claudeMdContent: assembledContext,
+          skills: msg.roleSkills,
+          repoSkillsDir: join(process.cwd(), "projects", "skills"),
+        });
+        console.log(`[executor] Ephemeral workspace created at ${ephemeralWorkspaceDir} for role=${msg.role}`);
+      } catch (err) {
+        console.warn(`[executor] Failed to create ephemeral workspace for jobId=${jobId}: ${String(err)}`);
+        // Non-fatal — job can still run without workspace
+        ephemeralWorkspaceDir = undefined;
+      }
+    }
+
     // --- 4. Build command based on complexity/model ---
-    const { cmd, args } = buildCommand(slotType, complexity, model, assembledContext);
+    const { cmd, args } = buildCommand(slotType, complexity, model);
     const sessionName = `${this.machineId}-${jobId}`;
+
+    // --- 4b. Write prompt to file (piped via stdin to avoid CLI arg length limits) ---
+    const promptDir = ephemeralWorkspaceDir ?? join(homedir(), ".zazigv2", `job-${jobId}`);
+    mkdirSync(promptDir, { recursive: true });
+    const promptFilePath = join(promptDir, ".zazig-prompt.txt");
+    writeFileSync(promptFilePath, assembledContext);
 
     // --- 5. Clear stale report before spawning (prevents reading a previous job's report) ---
     const reportPath = `${process.env["HOME"] ?? "/tmp"}/${REPORT_RELATIVE_PATH}`;
@@ -217,7 +253,7 @@ export class JobExecutor {
 
     // --- 6. Spawn tmux session ---
     try {
-      await spawnTmuxSession(sessionName, cmd, args);
+      await spawnTmuxSession(sessionName, cmd, args, ephemeralWorkspaceDir, promptFilePath);
     } catch (err) {
       console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
       this.slots.release(slotType);
@@ -258,6 +294,7 @@ export class JobExecutor {
       startedAt: Date.now(),
       logPath,
       lastBytesSent: 0,
+      workspaceDir: ephemeralWorkspaceDir,
     };
     this.activeJobs.set(jobId, activeJob);
 
@@ -364,54 +401,19 @@ export class JobExecutor {
 
     // --- Create agent workspace with .mcp.json ---
     try {
-      mkdirSync(workspaceDir, { recursive: true });
-
       // Resolve path to the compiled agent-mcp-server.js relative to this file's dist/ location
       const thisDir = dirname(fileURLToPath(import.meta.url));
       const mcpServerPath = join(thisDir, "agent-mcp-server.js");
 
-      const mcpConfig = {
-        mcpServers: {
-          "zazig-messaging": {
-            command: "node",
-            args: [mcpServerPath],
-            env: {
-              SUPABASE_URL: this.supabaseUrl,
-              SUPABASE_ANON_KEY: this.supabaseAnonKey,
-              ZAZIG_JOB_ID: jobId,
-            },
-          },
-        },
-      };
-
-      writeFileSync(
-        join(workspaceDir, ".mcp.json"),
-        JSON.stringify(mcpConfig, null, 2),
-      );
-
-      // Write CLAUDE.md with context from the orchestrator (pre-assembled)
-      writeFileSync(
-        join(workspaceDir, "CLAUDE.md"),
-        msg.context ?? "",
-      );
-
-      // Write .claude/settings.json to auto-approve all MCP tools so the agent
-      // can operate without manual permission prompts.
-      const claudeSettingsDir = join(workspaceDir, ".claude");
-      mkdirSync(claudeSettingsDir, { recursive: true });
-      writeFileSync(
-        join(claudeSettingsDir, "settings.json"),
-        JSON.stringify({
-          permissions: {
-            allow: [
-              "mcp__zazig-messaging__send_message",
-              "mcp__zazig-messaging__create_feature",
-              "mcp__zazig-messaging__update_feature",
-              "mcp__zazig-messaging__query_projects",
-            ],
-          },
-        }, null, 2),
-      );
+      setupJobWorkspace({
+        workspaceDir,
+        mcpServerPath,
+        supabaseUrl: this.supabaseUrl,
+        supabaseAnonKey: this.supabaseAnonKey,
+        jobId,
+        role,
+        claudeMdContent: msg.context ?? "",
+      });
 
       // Persist context to DB for observability (fire-and-forget)
       this.supabase
@@ -625,25 +627,36 @@ export class JobExecutor {
       this.persistentJobId = null;
     }
 
-    // Atomically claim the shared report file by renaming it to a per-job path.
-    // If two jobs finish simultaneously, only one rename succeeds — the other
-    // gets "no report" which is safe (the orchestrator still gets JobComplete).
+    // Look for the report file. Agents write .claude/cpo-report.md relative to
+    // their CWD which is the ephemeral workspace dir (e.g. ~/.zazigv2/job-<id>/).
+    // Fall back to $HOME for persistent agents that don't have a workspace dir.
     const homeDir = process.env["HOME"] ?? "/tmp";
-    const reportPath = `${homeDir}/${REPORT_RELATIVE_PATH}`;
     const archiveDir = `${homeDir}/${REPORT_ARCHIVE_DIR}`;
     const jobReportPath = `${archiveDir}/${jobId}.md`;
+
+    // Candidate paths in priority order: workspace dir first, then $HOME
+    const candidatePaths: string[] = [];
+    if (job.workspaceDir) {
+      candidatePaths.push(`${job.workspaceDir}/${REPORT_RELATIVE_PATH}`);
+    }
+    candidatePaths.push(`${homeDir}/${REPORT_RELATIVE_PATH}`);
 
     let result = "Job completed.";
     let report: string | undefined;
 
-    try {
-      mkdirSync(archiveDir, { recursive: true });
-      renameSync(reportPath, jobReportPath);
-      report = readFileSync(jobReportPath, "utf-8");
-      result = report.split("\n")[0] ?? "Job completed.";
-      console.log(`[executor] Claimed report for jobId=${jobId} → ${jobReportPath}`);
-    } catch {
-      // rename failed → no report file, or another job already claimed it
+    mkdirSync(archiveDir, { recursive: true });
+    for (const candidatePath of candidatePaths) {
+      try {
+        renameSync(candidatePath, jobReportPath);
+        report = readFileSync(jobReportPath, "utf-8");
+        result = report.split("\n")[0] ?? "Job completed.";
+        console.log(`[executor] Claimed report for jobId=${jobId} from ${candidatePath} → ${jobReportPath}`);
+        break;
+      } catch {
+        // This candidate didn't have a report — try next
+      }
+    }
+    if (!report) {
       console.log(`[executor] No report file for jobId=${jobId}, using default result`);
     }
 
@@ -975,10 +988,11 @@ function buildCommand(
   slotType: SlotType,
   complexity: string,
   model: string,
-  context: string
 ): { cmd: string; args: string[] } {
   // All jobs run through claude -p. For codex slots, Claude delegates
   // to codex-delegate internally (matching v1 pattern).
+  // The prompt is piped via stdin (not passed as CLI arg) to avoid OS
+  // argument length limits when context is large.
   const resolvedModel =
     model && model !== "codex"
       ? model
@@ -990,7 +1004,7 @@ function buildCommand(
 
   return {
     cmd: "claude",
-    args: ["-p", context, "--model", resolvedModel],
+    args: ["--model", resolvedModel, "-p"],
   };
 }
 
@@ -1009,19 +1023,28 @@ function buildCommand(
 async function spawnTmuxSession(
   sessionName: string,
   cmd: string,
-  args: string[]
+  args: string[],
+  cwd?: string,
+  promptFile?: string,
 ): Promise<void> {
   // Combine into a single shell string for tmux new-session.
   // Unset CLAUDECODE so nested `claude -p` sessions don't get blocked by
   // "cannot be launched inside another Claude Code session" detection.
-  const shellCmd = `unset CLAUDECODE; ${shellEscape([cmd, ...args])}`;
+  // When a promptFile is provided, pipe it via stdin to avoid OS argument
+  // length limits (ARG_MAX) when the assembled context is large.
+  const claudeCmd = shellEscape([cmd, ...args]);
+  const shellCmd = promptFile
+    ? `unset CLAUDECODE; cat ${shellEscape([promptFile])} | ${claudeCmd}`
+    : `unset CLAUDECODE; ${claudeCmd}`;
 
-  await execFileAsync("tmux", [
+  const tmuxArgs = [
     "new-session",
     "-d",           // detached
     "-s", sessionName,
+    ...(cwd ? ["-c", cwd] : []),
     shellCmd,       // the command the session runs
-  ]);
+  ];
+  await execFileAsync("tmux", tmuxArgs);
 }
 
 /**

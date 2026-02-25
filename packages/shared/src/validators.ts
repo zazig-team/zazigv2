@@ -88,7 +88,7 @@ export function isStartJob(v: unknown): v is StartJob {
   if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(v.jobId)) return false;
   if (!isString(v.cardId) || v.cardId.length === 0) return false;
-  if (!["code", "infra", "design", "research", "docs", "persistent_agent"].includes(v.cardType as string)) return false;
+  if (!["code", "infra", "design", "research", "docs", "persistent_agent", "verify", "breakdown"].includes(v.cardType as string)) return false;
   if (!["simple", "medium", "complex"].includes(v.complexity as string)) return false;
   if (!["claude_code", "codex"].includes(v.slotType as string)) return false;
   if (!isString(v.model) || !ALLOWED_MODELS.has(v.model)) return false;

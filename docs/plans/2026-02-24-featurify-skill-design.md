@@ -1,10 +1,16 @@
 # Featurify Skill Design
 
 **Date:** 2026-02-24
-**Status:** Draft
+**Status:** Implemented (skill file + MCP tools + workspace assembly)
 **Author:** Tom + Claude (brainstorming session)
 **Pattern:** Mirrors jobify — same Contractor Pattern (skill + MCP). See `2026-02-24-idea-to-job-pipeline-design.md` Section 6, "The Contractor Pattern."
 **Companion:** `2026-02-24-jobify-skill-design.md` (the job-level equivalent)
+**Implementation:**
+- Skill file: `projects/skills/featurify.md` (PR #86)
+- MCP tools: `create_project` + `batch_create_features` edge functions + MCP wrappers (PR #90)
+- DB: `description` column on projects (PR #90, migration 043)
+- Workspace: role-scoped .mcp.json + skill injection for project-architect (PR #92)
+- Role: `project-architect` in roles table (PR #85, migration 040)
 
 ---
 

@@ -27,7 +27,7 @@ export type Complexity = "simple" | "medium" | "complex";
  * Category of work described by a Trello card.
  * Determines which execution agent and reviewer the orchestrator selects.
  */
-export type CardType = "code" | "infra" | "design" | "research" | "docs" | "persistent_agent";
+export type CardType = "code" | "infra" | "design" | "research" | "docs" | "persistent_agent" | "verify" | "breakdown";
 
 /**
  * Lifecycle status values for a job in the orchestrator's job queue (DB model).

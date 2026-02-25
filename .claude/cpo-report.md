@@ -1,31 +1,21 @@
-STATUS: COMPLETE
-CARD: 1.10
-BRANCH: cpo/personality-subagent-prompt
-FILES: supabase/migrations/042_personality_sub_agent_compiler.sql, supabase/functions/orchestrator/index.ts
-TESTS: Lint 0 errors; shared+orchestrator build clean; executor tests 9/9 pass
-NOTES: Sub-agent personality prompt compiled and sent end-to-end. Pre-existing test failures unrelated.
+# CPO Report — Task 1: persistent_agents table
 
----
-
-# CPO Report — Card 1.10: Compile and send subAgentPrompt in StartJob
+**STATUS: COMPLETE**
 
 ## Summary
-Wired the sub-agent personality prompt end-to-end: a new DB compiler function produces a stripped-down prompt (core beliefs, anti-patterns, root constraints only), the trigger auto-compiles it alongside the full personality prompt, and the orchestrator sends it as `subAgentPrompt` in StartJob messages. The local agent (PR #54, already merged) writes this to `subagent-personality.md` in the job workspace for Task-tool sub-agents to inherit.
 
-## Files Changed
+Created `supabase/migrations/048_persistent_agents.sql` with:
 
-### supabase/migrations/042_personality_sub_agent_compiler.sql (new)
-- Adds `compiled_sub_agent_prompt` column to `exec_personalities`
-- Creates `compile_personality_prompt_sub_agent(uuid)` function — compiles only Standards (core beliefs), Patterns to Reject (anti-patterns), Constraints (root constraints)
-- Updates `trigger_compile_personality()` to call both compilers
-- Backfills existing personality rows
+- `persistent_agents` table: one row per (company, role, machine)
+- Columns: id, company_id, role, machine_id, status (running/stopped/error), prompt_stack, last_heartbeat, created_at
+- Foreign keys to `companies` and `machines` with CASCADE deletes
+- UNIQUE constraint on (company_id, role, machine_id)
+- RLS enabled with policy allowing users to manage their own company's agents via `user_companies`
 
-### supabase/functions/orchestrator/index.ts
-- Fetches `compiled_sub_agent_prompt` alongside `compiled_prompt` in personality query
-- Declares `subAgentPrompt` variable at same scope as `rolePrompt`, `roleSkills`, `personalityPrompt`
-- Includes `subAgentPrompt` in StartJob message for non-persistent jobs (same gating as personalityPrompt)
+## Branch
 
-## Tests
-- `npm run lint` — 0 errors (22 pre-existing warnings)
-- `npm run build` — shared + orchestrator pass; local-agent has pre-existing workspace linking issue
-- `npm test` — executor tests pass (9/9 including subAgentPrompt workspace tests); pre-existing failures in shared (pipeline status arrays) and local-agent (git rebase tests) unrelated to this change
+`cpo/tfc-migration` — pushed to origin.
+
+## Token Usage
+
+Single-file SQL migration. No subagents or codex delegation needed. Minimal token usage.

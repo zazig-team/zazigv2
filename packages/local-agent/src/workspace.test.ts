@@ -1,0 +1,187 @@
+import { describe, expect, it, vi, beforeEach } from "vitest";
+
+// ---------------------------------------------------------------------------
+// Mock node:fs at module level (before importing the module under test)
+// ---------------------------------------------------------------------------
+
+vi.mock("node:fs", () => ({
+  writeFileSync: vi.fn(),
+  mkdirSync: vi.fn(),
+  existsSync: vi.fn(() => false),
+  copyFileSync: vi.fn(),
+}));
+
+import { generateAllowedTools, generateMcpConfig, setupJobWorkspace, ROLE_ALLOWED_TOOLS } from "./workspace.js";
+import * as fsModule from "node:fs";
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("generateAllowedTools", () => {
+  it("returns prefixed tool names for cpo role", () => {
+    expect(generateAllowedTools("cpo")).toEqual([
+      "mcp__zazig-messaging__send_message",
+      "mcp__zazig-messaging__query_projects",
+      "mcp__zazig-messaging__create_feature",
+      "mcp__zazig-messaging__update_feature",
+    ]);
+  });
+
+  it("returns prefixed tool names for breakdown-specialist", () => {
+    expect(generateAllowedTools("breakdown-specialist")).toEqual([
+      "mcp__zazig-messaging__query_features",
+      "mcp__zazig-messaging__batch_create_jobs",
+    ]);
+  });
+
+  it("returns empty array for job-combiner", () => {
+    expect(generateAllowedTools("job-combiner")).toEqual([]);
+  });
+
+  it("returns empty array for unknown role", () => {
+    expect(generateAllowedTools("nonexistent-role")).toEqual([]);
+  });
+});
+
+describe("generateMcpConfig", () => {
+  it("returns correct MCP server structure", () => {
+    const config = generateMcpConfig("/path/to/server.js", {
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-123",
+    });
+    expect(config).toEqual({
+      mcpServers: {
+        "zazig-messaging": {
+          command: "node",
+          args: ["/path/to/server.js"],
+          env: {
+            SUPABASE_URL: "https://test.supabase.co",
+            SUPABASE_ANON_KEY: "test-key",
+            ZAZIG_JOB_ID: "job-123",
+          },
+        },
+      },
+    });
+  });
+});
+
+describe("setupJobWorkspace", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("creates workspace directory, .mcp.json, CLAUDE.md, and settings.json", () => {
+    const mkdirSyncMock = fsModule.mkdirSync as unknown as ReturnType<typeof vi.fn>;
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-456",
+      role: "breakdown-specialist",
+      claudeMdContent: "# Test CLAUDE.md",
+    });
+
+    // Verify mkdirSync called with workspaceDir (recursive)
+    expect(mkdirSyncMock).toHaveBeenCalledWith("/tmp/test-workspace", { recursive: true });
+
+    // Verify writeFileSync called 3 times (mcp.json, CLAUDE.md, settings.json)
+    expect(writeFileSyncMock).toHaveBeenCalledTimes(3);
+
+    // 1. .mcp.json
+    const mcpCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes(".mcp.json"),
+    );
+    expect(mcpCall).toBeDefined();
+    const mcpContent = JSON.parse(mcpCall![1] as string);
+    expect(mcpContent.mcpServers["zazig-messaging"]).toBeDefined();
+    expect(mcpContent.mcpServers["zazig-messaging"].env.ZAZIG_JOB_ID).toBe("job-456");
+
+    // 2. CLAUDE.md
+    const claudeCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("CLAUDE.md"),
+    );
+    expect(claudeCall).toBeDefined();
+    expect(claudeCall![1]).toBe("# Test CLAUDE.md");
+
+    // 3. .claude/settings.json
+    const settingsCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("settings.json"),
+    );
+    expect(settingsCall).toBeDefined();
+    const settingsContent = JSON.parse(settingsCall![1] as string);
+    expect(settingsContent.permissions.allow).toEqual(
+      generateAllowedTools("breakdown-specialist"),
+    );
+  });
+
+  it("copies skill files when skills and repoSkillsDir are provided", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const copyFileSyncMock = fsModule.copyFileSync as unknown as ReturnType<typeof vi.fn>;
+    existsSyncMock.mockReturnValue(true);
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-789",
+      role: "breakdown-specialist",
+      claudeMdContent: "# Test",
+      skills: ["jobify"],
+      repoSkillsDir: "/repo/projects/skills",
+    });
+
+    expect(copyFileSyncMock).toHaveBeenCalledWith(
+      "/repo/projects/skills/jobify.md",
+      "/tmp/test-workspace/.claude/skills/jobify/SKILL.md",
+    );
+  });
+
+  it("warns and skips missing skill files", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const copyFileSyncMock = fsModule.copyFileSync as unknown as ReturnType<typeof vi.fn>;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    existsSyncMock.mockReturnValue(false);
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-missing",
+      role: "breakdown-specialist",
+      claudeMdContent: "# Test",
+      skills: ["nonexistent"],
+      repoSkillsDir: "/repo/projects/skills",
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Skill file not found"),
+    );
+    expect(copyFileSyncMock).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  it("skips skill injection when skills array is empty", () => {
+    const copyFileSyncMock = fsModule.copyFileSync as unknown as ReturnType<typeof vi.fn>;
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-no-skills",
+      role: "breakdown-specialist",
+      claudeMdContent: "# Test",
+      skills: [],
+    });
+
+    expect(copyFileSyncMock).not.toHaveBeenCalled();
+  });
+});

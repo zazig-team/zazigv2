@@ -1,9 +1,9 @@
 /**
- * zazigv2 — update-feature Edge Function
+ * zazigv2 — query-features Edge Function
  *
- * Updates an existing feature on behalf of the CPO agent.
- * Guards status transitions: CPO may only set 'created' or 'ready_for_breakdown'.
- * Fires a feature_status_changed event when status → ready_for_breakdown.
+ * Bounded read of features for a given project_id or feature_id.
+ * The Breakdown Specialist needs to read a feature's spec and
+ * acceptance criteria before running jobify.
  *
  * Runtime: Deno / Supabase Edge Functions
  */
@@ -39,8 +39,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-// CPO can only set these statuses — all others are orchestrator-managed
-const ALLOWED_CPO_STATUSES = ["created", "ready_for_breakdown"] as const;
+const FEATURE_SELECT = "id, title, description, spec, acceptance_tests, human_checklist, status, priority, project_id";
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -62,54 +61,47 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     const body = await req.json();
-    const { feature_id, title, description, priority, status, job_id } = body;
+    const { feature_id, project_id, status } = body;
 
-    if (!feature_id) {
-      return jsonResponse({ error: "feature_id is required" }, 400);
-    }
-
-    // Guard status transitions
-    if (status && !ALLOWED_CPO_STATUSES.includes(status)) {
+    if (!feature_id && !project_id) {
       return jsonResponse(
-        { error: `Cannot set status '${status}' — CPO may only set: ${ALLOWED_CPO_STATUSES.join(", ")}` },
+        { error: "At least one of feature_id or project_id is required" },
         400,
       );
     }
 
-    // Build update payload
-    const updates: Record<string, unknown> = {};
-    if (title !== undefined) updates.title = title;
-    if (description !== undefined) updates.description = description;
-    if (priority !== undefined) updates.priority = priority;
-    if (status !== undefined) updates.status = status;
-    if (job_id !== undefined) updates.job_id = job_id;
+    // Single feature by ID
+    if (feature_id) {
+      const { data, error } = await supabase
+        .from("features")
+        .select(FEATURE_SELECT)
+        .eq("id", feature_id)
+        .single();
 
-    if (Object.keys(updates).length === 0) {
-      return jsonResponse({ ok: true, note: "nothing to update" });
+      if (error) {
+        return jsonResponse({ error: error.message }, 404);
+      }
+
+      return jsonResponse({ features: [data] });
     }
 
-    const { data: updated, error } = await supabase
+    // Features for a project, optionally filtered by status
+    let query = supabase
       .from("features")
-      .update(updates)
-      .eq("id", feature_id)
-      .select("company_id")
-      .single();
+      .select(FEATURE_SELECT)
+      .eq("project_id", project_id);
+
+    if (status) {
+      query = query.eq("status", status);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    // If status changed to ready_for_breakdown, insert event so orchestrator picks it up
-    if (status === "ready_for_breakdown") {
-      await supabase.from("events").insert({
-        company_id: updated.company_id,
-        feature_id,
-        event_type: "feature_status_changed",
-        detail: { from: null, to: "ready_for_breakdown" },
-      });
-    }
-
-    return jsonResponse({ ok: true });
+    return jsonResponse({ features: data ?? [] });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

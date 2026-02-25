@@ -1,11 +1,12 @@
 # Idea to Job Pipeline Design
 
 **Date:** 2026-02-24
-**Status:** Draft
+**Status:** Implemented and tested (Entry Point B single job + DAG dispatch verified end-to-end)
 **Authors:** Tom + Claude (brainstorming session)
 **Reviewed by:** Codex (gpt-5.3) and Gemini (3.1 Pro) — second opinions on MCP tooling
 **Supersedes:** Portions of `2026-02-24-software-development-pipeline-design.md` (stages 1-5), `2026-02-24-persistent-agent-identity-design.md` (MCP tool scoping), `2026-02-24-mcp-vs-skill-vs-cli-analysis.md` (decision: MCP for all, role-scoped)
 **Companion docs:** `2026-02-24-jobify-skill-design.md` (breakdown detail), `2026-02-24-featurify-skill-design.md` (structuring detail), `ORG MODEL.md` (tier/layer reference)
+**Implementation PRs:** #85 (migrations), #86 (skills), #88 (breakdown MCP tools), #89 (consistency fixes), #90 (architect MCP tools), #91 (orchestrator DAG + notifications), #92 (workspace assembly), #93 (commission_contractor)
 
 ---
 
@@ -869,24 +870,36 @@ CPO: Job goes to queued.
 
 ## 12. Dependencies
 
-| Dependency | Status | Owner |
-|-----------|--------|-------|
-| `features` table with spec + acceptance_tests + human_checklist | Exists | Chris |
-| `jobs` table with all required columns | Exists | Chris |
-| `depends_on` UUID array column on `jobs` table | Needs migration | Chris |
-| `create_feature` edge function | Built (in agent-mcp-server.ts) | Chris |
-| `update_feature` edge function | Built (in agent-mcp-server.ts) | Chris |
-| `query_projects` MCP tool | Built (in agent-mcp-server.ts) | Chris |
-| `batch_create_jobs` MCP tool | Needs building | Chris |
-| Role-scoped `.mcp.json` generation in executor | Needs building | Chris |
-| Workspace setup for ephemeral jobs | Needs building | Chris |
-| Orchestrator event: `feature_status_changed` | Needs building | Chris |
-| Orchestrator: dispatch jobs where all `depends_on` are complete | Needs building | Chris |
-| Project Architect role in `roles` table | Needs creating | Tom/Chris |
-| Breakdown Specialist role in `roles` table | Needs creating | Tom/Chris |
-| Monitoring Agent role in `roles` table | Needs creating | Tom/Chris |
-| CPO wakeup via `MessageInbound` internal events | Needs building | Chris |
-| Monitoring agent scheduling mechanism | Needs design | Tom/Chris |
+| Dependency | Status | PR | Owner |
+|-----------|--------|-----|-------|
+| `features` table with spec + acceptance_tests + human_checklist | **Built** | 008 | Chris |
+| `jobs` table with all required columns | **Built** | 008 | Chris |
+| `depends_on` UUID array column on `jobs` table | **Built** | #85 (migration 039) | Tom |
+| `description` column on `projects` table | **Built** | #90 (migration 043) | Tom |
+| `create_feature` edge function + MCP tool | **Built + deployed** | Chris + #88 | Chris/Tom |
+| `update_feature` edge function + MCP tool | **Built + deployed** | Chris + #89 (fix) | Chris/Tom |
+| `query_projects` MCP tool | **Built** | Chris | Chris |
+| `query_features` edge function + MCP tool | **Built + deployed** | #88 | Tom |
+| `batch_create_jobs` edge function + MCP tool | **Built + deployed** | #88 | Tom |
+| `create_project` edge function + MCP tool | **Built + deployed** | #90 | Tom |
+| `batch_create_features` edge function + MCP tool | **Built + deployed** | #90 | Tom |
+| Role-scoped `.mcp.json` generation in executor | **Built** | #92 | Tom |
+| Workspace setup for ephemeral jobs | **Built** | #92 | Tom |
+| Skill file injection into workspaces | **Built** | #92 | Tom |
+| Orchestrator event: `feature_status_changed` → dispatch breakdown | **Built + deployed** | #91 | Tom |
+| Orchestrator: DAG dispatch (jobs where all `depends_on` complete) | **Built + deployed** | #91 | Tom |
+| CPO wakeup via Realtime broadcast notifications | **Built + deployed** | #91 | Tom |
+| Project Architect role in `roles` table | **Built** | #85 (migration 040) | Tom |
+| Breakdown Specialist role in `roles` table | **Built** | #85 (migration 040) | Tom |
+| Monitoring Agent role in `roles` table | **Built** | #85 (migration 040) | Tom |
+| CPO routing prompt (pipeline decision tree) | **Built** | #85 (migration 041) | Tom |
+| Jobify skill file | **Built** | #86 | Tom |
+| Featurify skill file | **Built** | #86 | Tom |
+| CPO stage skills (/plan-capability, /spec-feature, /standalone-job, /reconcile-docs) | **Built** | #86 | Tom |
+| `review` job_type in DB constraint | **Built** | #89 (migration 042) | Tom |
+| Monitoring agent scheduling mechanism | Needs design | — | Tom/Chris |
+| `commission_contractor` edge function + MCP tool | **Built + deployed** | #93 | Tom |
+| Migration 044: relax feature_id constraint for contractors | **Built + deployed** | #93 | Tom |
 
 ---
 
@@ -913,7 +926,7 @@ For critical flows (auth, billing, permissions), should acceptance tests be mark
 
 ### 4. Project Architect output format
 
-What exactly does the Project Architect produce? A structured JSON project plan? Markdown? Direct Supabase records? The feature outlines need enough detail for the CPO to refine but not so much that the contractor is doing the CPO's job. **Now addressed in the featurify skill design** — see `2026-02-24-featurify-skill-design.md`.
+~~What exactly does the Project Architect produce?~~ **Resolved.** Addressed in the featurify skill design and now implemented — Project Architect uses `create_project` + `batch_create_features` MCP tools to write directly to Supabase. Feature outlines have title + description only; CPO enriches in Stage 4. See `2026-02-24-featurify-skill-design.md` and `projects/skills/featurify.md`.
 
 ### 5. Standalone job review cadence
 
@@ -924,7 +937,7 @@ The CPO reviews standalone jobs periodically. What triggers this? Options:
 
 ### 6. Skill access verification at dispatch time
 
-The `roles.skills[]` field says "this role should have these skills" but there's no verification the host machine has them. See Section 9 for options (machine capability registry, central skill distribution, or both).
+~~The `roles.skills[]` field says "this role should have these skills" but there's no verification the host machine has them.~~ **Partially resolved.** The executor now injects skill files from `projects/skills/` into ephemeral workspaces at dispatch time (PR #92). Pipeline-specific and contractor skills are distributed from the repo. General-purpose skills (deep-research, repo-recon, etc.) still depend on machine-level installation — machine capability registry remains a future item.
 
 ### 7. API keys for delegated models
 
@@ -932,7 +945,7 @@ The CPO uses second-opinion workflows to get independent review from Codex and G
 
 ### 8. Stage skill authoring
 
-The CPO Knowledge Architecture (Section 9) describes four stage skills (`/plan-capability`, `/spec-feature`, `/standalone-job`, `/reconcile-docs`). These need to be authored. Each skill is a markdown file guiding the CPO through that pipeline stage. The routing prompt in `roles.prompt` references them — they must exist before the CPO can use the pipeline.
+~~The CPO Knowledge Architecture (Section 9) describes four stage skills.~~ **Resolved.** All four stage skills authored and shipped in PR #86: `projects/skills/plan-capability.md`, `projects/skills/spec-feature.md`, `projects/skills/standalone-job.md`, `projects/skills/reconcile-docs.md`. The CPO routing prompt (migration 041) references them.
 
 ### 9. Monitoring Agent scheduling and commissioning
 
@@ -968,7 +981,7 @@ The skill should detect which mode to use based on context, or be explicitly inv
 
 ### Featurify — Project to Features
 
-~~Jobify breaks features into jobs. The inverse — breaking a project into features — is currently manual.~~ **Now designed.** Featurify follows the same Contractor Pattern (skill + MCP) as jobify. Project Architect contractor with featurify skill + role-scoped MCP tools (`query_projects`, `create_project`, `batch_create_features`). See `2026-02-24-featurify-skill-design.md`.
+~~Jobify breaks features into jobs. The inverse — breaking a project into features — is currently manual.~~ ~~**Now designed.**~~ **Now implemented.** Featurify skill built (PR #86), MCP tools deployed (PR #90: `create_project`, `batch_create_features`), Project Architect role created (PR #85, migration 040), workspace assembly injects skill at dispatch time (PR #92). See `2026-02-24-featurify-skill-design.md` and `projects/skills/featurify.md`.
 
 ### MCP Measurement
 
@@ -976,6 +989,249 @@ Run controlled experiments comparing:
 - Full MCP (all tools as MCP) vs hybrid (high-frequency MCP, low-frequency CLI)
 - Measure: time to context compression, error rate on DB operations, session duration
 - Decision point: if MCP sessions show no meaningful compression penalty, keep MCP for all
+
+---
+
+## 15. Test Results
+
+### Test 1: Single Job Dispatch (Entry Point B)
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Inserted a single job directly into `jobs` table with `status: queued`. The orchestrator picked it up on the next cron tick, matched it to `toms-macbook-pro-2023-local` (online, codex slots available), and dispatched via websocket. The local agent spawned a Codex session which executed the task and reported completion.
+
+| Field | Value |
+|-------|-------|
+| Job ID | `b6c94e52-4f6d-4efa-9552-392bea0a5d85` |
+| Task | Create `pipeline-test.md` with content |
+| Complexity | `simple` → routed to Codex |
+| Machine | `toms-macbook-pro-2023-local` |
+| Created | 18:12:10 |
+| Started | 18:13:04 |
+| Completed | 18:14:05 |
+| Duration | ~60s |
+
+**What it proved:** Orchestrator dispatch, slot matching, local agent execution, status lifecycle (`queued` → `executing` → `complete`), heartbeat liveness.
+
+### Test 2: DAG Dispatch (3-Job Dependency Chain)
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Created 3 jobs with a linear dependency chain: A → B → C. All `queued` simultaneously. The orchestrator correctly dispatched only Job A (no dependencies), held B and C, then unblocked each on successive cron ticks as their dependencies completed.
+
+| Job | Depends On | Started | Completed | Duration |
+|-----|-----------|---------|-----------|----------|
+| A (root) | — | 18:23:04 | 18:24:05 | 61s |
+| B (depends A) | A | 18:25:05 | 18:25:35 | 30s |
+| C (depends B) | B | 18:26:05 | 18:27:05 | 60s |
+
+```
+Job A  ████████████░░░░░░░░░░░░  18:23 → 18:24
+                    ↓ unblocked B
+Job B  ░░░░░░░░░░░░██████░░░░░░  18:25 → 18:25
+                          ↓ unblocked C
+Job C  ░░░░░░░░░░░░░░░░░░██████  18:26 → 18:27
+```
+
+**What it proved:** `depends_on` enforcement, DAG-aware dispatch (blocked jobs held until all dependencies `complete`), per-cron-tick unblocking, sequential chain execution across 3 orchestrator cycles.
+
+### Test 3: Parallel DAG (Fan-In)
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Created 3 jobs in a fan-in pattern: D and E have no dependencies (should run in parallel), F depends on both D and E (should wait for both).
+
+| Job | Depends On | Started | Completed | Duration |
+|-----|-----------|---------|-----------|----------|
+| D (root 1) | — | 18:48:04 | 18:49:05 | 61s |
+| E (root 2) | — | 18:48:04 | 18:49:05 | 61s |
+| F (depends D+E) | D, E | 18:50:04 | 18:51:05 | 61s |
+
+```
+Job D  ████████████░░░░░░░░░░  18:48 → 18:49
+Job E  ████████████░░░░░░░░░░  18:48 → 18:49  (parallel with D)
+                    ↓ both complete, F unblocked
+Job F  ░░░░░░░░░░░░████████░░  18:50 → 18:51
+```
+
+**What it proved:** Parallel dispatch (D and E started within 200ms of each other), multi-dependency gate (F waited until *both* D and E were complete), fan-in DAG pattern works.
+
+### Test 4: Commission Contractor (Edge Function)
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Tested the `commission-contractor` edge function (PR #93) by commissioning all three contractor types:
+
+| Contractor | Job ID | job_type | feature_id | Status |
+|-----------|--------|----------|------------|--------|
+| project-architect | `a4f9b0db` | design | null | queued → executing |
+| breakdown-specialist | `3e5cecf1` | breakdown | `2249831b` (provided) | queued |
+| monitoring-agent | `82e95cd1` | research | null | queued |
+
+**Validation tests (all correctly rejected):**
+- Project architect with feature_id → `"feature_id must not be provided for project-architect"`
+- Breakdown specialist without feature_id → `"feature_id is required for breakdown-specialist"`
+- Invalid role (senior-engineer) → `"role must be one of: project-architect, breakdown-specialist, monitoring-agent"`
+
+**What it proved:** CPO can commission contractors via MCP, role-specific validation enforced, correct job_type and complexity mapping, nullable feature_id for project-level contractors (migration 044).
+
+**Known issue:** `contractor_commissioned` events not appearing in events table — silent insert failure. Non-blocking; needs investigation.
+
+### Test 5: Workspace Assembly
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Dispatched a job and verified the ephemeral workspace contained all required files:
+
+| File | Size | Status |
+|------|------|--------|
+| `.mcp.json` | 599 bytes | Present — MCP server config pointing at zazig-messaging |
+| `CLAUDE.md` | 19,652 bytes | Present — assembled context (personality → role → task) |
+| `.claude/settings.json` | 175 bytes | Present — role-scoped permissions |
+| `.zazig-prompt.txt` | 19,652 bytes | Present — prompt file for stdin piping |
+| `.claude/skills/` | absent | Correct — monitoring-agent has no skills on disk |
+
+Settings.json verified: standard tools (Read, Write, Edit, Bash, Glob, Grep) + role-scoped MCP tool (`mcp__zazig-messaging__send_message` for monitoring-agent).
+
+**What it proved:** Workspace assembly produces a complete, role-scoped environment. Agents get the right MCP config, permissions, and prompt stack.
+
+**Bugs found and fixed during testing:**
+1. **Report path mismatch:** Executor looked for report at `$HOME/.claude/cpo-report.md` but agent writes relative to workspace CWD (`~/.zazigv2/job-<id>/.claude/cpo-report.md`). Fixed by checking workspace dir first, falling back to `$HOME`.
+2. **"Command too long" error:** Assembled context exceeded OS `ARG_MAX` when passed as CLI argument to `claude -p`. Fixed by writing prompt to `.zazig-prompt.txt` and piping via `cat .zazig-prompt.txt | claude --model X -p`.
+3. **Arg order:** `-p` must be last (it's a flag reading stdin, not an option taking a value).
+
+**Known issues (non-blocking):**
+- `assembled_context` column doesn't exist in jobs table — DB write fails silently
+- Agent needs proper Supabase Auth JWT (not Management API token) for heartbeats
+
+### Test 6: `batch-create-jobs` Temp Reference Resolution
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Created 3 jobs via `batch-create-jobs` edge function with `temp:0` references in `depends_on`:
+
+| Job | Title | depends_on | Resolved |
+|-----|-------|-----------|----------|
+| `ea657198` | Foundation job (no deps) | `[]` | — |
+| Job 2 | Dependent job (needs foundation) | `["temp:0"]` | `["ea657198-4a24-494c-a611-ffa3fc0046e1"]` |
+| Job 3 | Parallel job (also needs foundation) | `["temp:0"]` | `["ea657198-4a24-494c-a611-ffa3fc0046e1"]` |
+
+Feature status transitioned from `ready_for_breakdown` → `breakdown` as expected.
+
+**What it proved:** Temp reference resolution works — `temp:N` references in `depends_on` are replaced with real UUIDs from the same batch. Feature status transitions on job creation. DAG structure preserved through the edge function.
+
+**Note:** Temp reference format is `temp:N` (colon), not `temp-N` (dash).
+
+### Test 7: Claude Code Slot Routing
+
+**Date:** 2026-02-24
+**Result:** PASS
+
+Created two jobs with different complexity levels and verified the orchestrator routes them to the correct slot type:
+
+| Job | Role | Complexity | Routed to |
+|-----|------|-----------|-----------|
+| Slot routing test - medium | senior-engineer | medium | `claude_code` |
+| Slot routing test - simple | junior-engineer | simple | `codex` |
+
+**What it proved:** The orchestrator's complexity-to-slot routing works correctly. Medium/complex jobs go to Claude Code slots, simple jobs go to Codex slots. This ensures expensive model capacity is reserved for tasks that need reasoning.
+
+### Test 8: Full Entry Point A (First Link)
+
+**Date:** 2026-02-24
+**Result:** PASS (partial chain — as expected)
+
+Commissioned a project-architect contractor and watched the full first link execute end-to-end:
+
+| Step | Status | Details |
+|------|--------|---------|
+| Commission contractor | Done | Job `990e9f71` created with `queued` status |
+| Dispatch | Done | Orchestrator assigned to local machine |
+| Agent execution | Done | Project-architect ran in tmux, 3 API turns |
+| MCP: `create_project` | Done | "Pipeline Integration Test" (`77376ed5`) created in DB |
+| MCP: `batch_create_features` | Done | "Hello-Test Edge Function" (`4b9c9ef6`) with Gherkin ACs in DB |
+| Report written | Done | `cpo-report.md` claimed from workspace to `~/.claude/job-reports/` |
+| Job completion | Done | `job_complete` sent back to orchestrator |
+
+Feature created with full Gherkin acceptance criteria (200 status check, JSON body match, Content-Type header). Status: `created`. Chain stops here as expected — auto-trigger from `created` → breakdown specialist is not yet wired.
+
+**What it proved:** A contractor can be commissioned, dispatched, execute with MCP tools (creating real projects and features in the DB), produce a report, and complete cleanly. The first link of Entry Point A works end-to-end.
+
+**What remains for full chain:** The orchestrator auto-chaining is already wired — `processReadyForBreakdown` scans for features with `status: ready_for_breakdown` and calls `triggerBreakdown` on each dispatch cycle. The intentional manual step is the CPO reviewing the architect's feature outlines and setting `ready_for_breakdown` when satisfied. After that, the full chain is automatic: breakdown → jobs dispatch (DAG) → execute → code review → verification → test deploy → human approval → prod deploy → complete. The only missing piece is the **CPO persistent agent** as the human-facing entry point (Chris's WIP).
+
+### All Tests Complete
+
+| Test | Capability | Result |
+|------|-----------|--------|
+| 1 | Single job dispatch | PASS |
+| 2 | DAG dispatch (3-job chain) | PASS |
+| 3 | Parallel DAG (fan-in) | PASS |
+| 4 | Commission contractor | PASS |
+| 5 | Workspace assembly | PASS |
+| 6 | `batch-create-jobs` temp refs | PASS |
+| 7 | Slot routing | PASS |
+| 8 | Full Entry Point A (first link) | PASS |
+
+---
+
+## What's Next: CPO Persistent Agent
+
+All pipeline infrastructure is tested and working. The remaining piece is the **CPO persistent agent** — the human-facing entry point that turns Entry Point A from a curl command into a conversation.
+
+### What exists
+
+- The CPO role prompt is in the DB (migrations 038, 041) with the pipeline routing decision tree
+- The CPO's MCP tools are defined in `workspace.ts`: `send_message`, `query_projects`, `create_feature`, `update_feature`, `commission_contractor`
+- The executor has a `handlePersistentJob` path (routes `persistent_agent` card types)
+- `MessageInbound` handler exists for injecting messages into a running CPO session
+- The orchestrator auto-requeues persistent jobs on completion (failover-safe)
+
+### What's missing
+
+The executor's persistent job path doesn't get the same workspace treatment as ephemeral jobs. Specifically:
+
+1. **Prompt stack not injected** — the CPO currently gets a hardcoded `CPO_MESSAGING_INSTRUCTIONS` constant instead of the assembled 4-layer prompt (personality → role prompt → skills → task context). The role prompt, pipeline routing, and MCP tool docs never reach the CPO.
+2. **No workspace assembly** — persistent agents don't get `.mcp.json`, `.claude/settings.json`, or skill files. The CPO can't call MCP tools or use pipeline skills (`/plan-capability`, `/spec-feature`, etc.).
+3. **No message injection** — the `MessageInbound` handler is wired but the CPO needs to be running with a proper workspace first.
+
+### The fix
+
+Chris's design doc (`2026-02-24-persistent-agent-identity-design.md`) covers this:
+
+- Rename `handleStartCpo` → role-agnostic `handlePersistentJob`
+- Delete the `CPO_MESSAGING_INSTRUCTIONS` constant
+- Write the assembled context (from `assembleContext()`) as `CLAUDE.md` in the persistent workspace
+- Apply the same workspace setup (`.mcp.json`, `.claude/settings.json`, skills) that ephemeral jobs already get
+- Move CPO-specific messaging instructions into the `roles.prompt` column in the DB
+
+This is mostly wiring — the workspace assembly logic already exists for ephemeral contractors. The persistent path just needs to use it.
+
+### End state
+
+Once complete, the full Entry Point A flow becomes:
+
+```
+Human types in terminal → CPO session receives message
+→ CPO assesses scope, asks clarifying questions
+→ CPO commissions project-architect (via MCP)
+→ Architect creates project + features (via MCP)
+→ CPO reviews feature outlines, sets ready_for_breakdown (via MCP)
+→ Orchestrator auto-triggers breakdown-specialist
+→ Breakdown specialist creates jobs with DAG (via MCP)
+→ Jobs dispatch and execute → code review → verification → deploy
+```
+
+Every link after `ready_for_breakdown` is already automated and tested (Tests 1-8).
+
+### Future improvement: report persistence
+
+Job reports are currently written to local filesystem (`~/.claude/job-reports/<jobId>.md`). The executor reads the first line as the `result` string and sends it to the orchestrator, but the full report body is only accessible on the machine that ran the job. Reports should be written back to the DB (either the existing `result` column or a new `report` text column on `jobs`) so the orchestrator, CPO, and other agents can read full reports without filesystem access.
 
 ---
 

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -131,5 +132,116 @@ export async function removeWorktree(repoDir: string, worktreePath: string): Pro
     await git(repoDir, "worktree", "remove", "--force", worktreePath);
   } catch {
     // Worktree may already be removed; ignore.
+  }
+}
+
+const REPOS_BASE = join(process.env.HOME ?? "~", ".zazigv2/repos");
+
+/**
+ * Manages bare repo clones, feature branches, job worktrees, pushing, and cleanup.
+ * Uses a per-repo promise lock to prevent concurrent git operation races.
+ */
+export class RepoManager {
+  private locks = new Map<string, Promise<void>>();
+
+  /** Serialise all git operations for a given repo dir. */
+  private async withLock<T>(repoDir: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.locks.get(repoDir) ?? Promise.resolve();
+    let resolve!: () => void;
+    const next = new Promise<void>((r) => { resolve = r; });
+    this.locks.set(repoDir, next);
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      resolve();
+      if (this.locks.get(repoDir) === next) {
+        this.locks.delete(repoDir);
+      }
+    }
+  }
+
+  /**
+   * Bare-clone repoUrl to ~/.zazigv2/repos/{name}/ if not exists, else fetch --prune.
+   * Returns the repo dir path.
+   */
+  async ensureRepo(repoUrl: string, projectName: string): Promise<string> {
+    const repoDir = join(REPOS_BASE, projectName);
+    return this.withLock(repoDir, async () => {
+      await mkdir(REPOS_BASE, { recursive: true });
+      if (!existsSync(repoDir)) {
+        await execFileAsync("git", ["clone", "--bare", repoUrl, repoDir], { encoding: "utf8" });
+      } else {
+        await git(repoDir, "fetch", "--prune", "origin");
+      }
+      return repoDir;
+    });
+  }
+
+  /**
+   * Create feature branch off default branch if not exists. Idempotent.
+   */
+  async ensureFeatureBranch(repoDir: string, featureBranch: string): Promise<void> {
+    return this.withLock(repoDir, async () => {
+      // Check if branch exists locally
+      try {
+        await git(repoDir, "rev-parse", "--verify", featureBranch);
+        return; // Already exists
+      } catch {
+        // Not found locally
+      }
+      // Check remote
+      try {
+        await git(repoDir, "rev-parse", "--verify", `origin/${featureBranch}`);
+        // Remote branch exists — create local tracking branch
+        await git(repoDir, "branch", featureBranch, `origin/${featureBranch}`);
+        return;
+      } catch {
+        // Not on remote either — create off HEAD
+      }
+      await git(repoDir, "branch", featureBranch, "HEAD");
+    });
+  }
+
+  /**
+   * Create job/{jobId} branch off feature branch, then git worktree add.
+   * Returns { worktreePath, jobBranch }.
+   */
+  async createJobWorktree(
+    repoDir: string,
+    featureBranch: string,
+    jobId: string
+  ): Promise<{ worktreePath: string; jobBranch: string }> {
+    return this.withLock(repoDir, async () => {
+      const jobBranch = `job/${jobId}`;
+      const worktreePath = join(WORKTREE_BASE, `job-${jobId}`);
+      await mkdir(WORKTREE_BASE, { recursive: true });
+      // Create branch off feature branch
+      await git(repoDir, "branch", jobBranch, featureBranch);
+      // Add worktree for the job branch
+      await git(repoDir, "worktree", "add", worktreePath, jobBranch);
+      return { worktreePath, jobBranch };
+    });
+  }
+
+  /**
+   * Push job branch to origin from within the worktree.
+   */
+  async pushJobBranch(worktreePath: string, jobBranch: string): Promise<void> {
+    await execFileAsync("git", ["-C", worktreePath, "push", "origin", jobBranch], {
+      encoding: "utf8",
+    });
+  }
+
+  /**
+   * Remove worktree (branch persists on remote). Uses --force since the worktree
+   * may have uncommitted changes from a failed agent.
+   */
+  async removeJobWorktree(repoDir: string, worktreePath: string): Promise<void> {
+    try {
+      await git(repoDir, "worktree", "remove", "--force", worktreePath);
+    } catch {
+      // Worktree may already be removed; ignore.
+    }
   }
 }

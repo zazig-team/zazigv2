@@ -67,11 +67,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
       auth: { persistSession: false },
     });
 
-    // Fetch persistent roles
+    // Fetch persistent roles that belong to this company (via company_roles)
     const { data: roles, error: rolesError } = await supabase
       .from("roles")
-      .select("name, prompt, skills, default_model, slot_type")
-      .eq("is_persistent", true);
+      .select("name, prompt, skills, default_model, slot_type, company_roles!inner(company_id)")
+      .eq("is_persistent", true)
+      .eq("company_roles.company_id", companyId);
 
     if (rolesError) {
       return jsonResponse({ error: `Failed to fetch roles: ${rolesError.message}` }, 500);

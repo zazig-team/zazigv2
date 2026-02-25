@@ -157,8 +157,9 @@ export function launchTui(options: ChatOptions): void {
 
   // --- All input handled at screen level (single keypress path) ---
 
-  screen.on("keypress", (ch: string | undefined, key: { full: string; name: string; ctrl: boolean; shift: boolean }) => {
-    if (!key) return;
+  screen.on("keypress", (ch: string | undefined, key: { sequence?: string; full: string; name: string; ctrl: boolean; shift: boolean }) => {
+    // Blessed emits two keypress events per keystroke — the duplicate lacks `sequence`
+    if (!key || !("sequence" in key)) return;
 
     // Ctrl+C: shutdown
     if (key.ctrl && key.name === "c") {

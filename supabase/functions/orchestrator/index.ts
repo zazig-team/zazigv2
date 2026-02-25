@@ -2086,13 +2086,16 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
     console.log(`[orchestrator] triggerBreakdown: auto-generated branch for feature ${featureId}: ${branch}`);
   }
 
-  // 2. Check no active breakdown job already exists (idempotency)
+  // 2. Check no active breakdown job already exists (idempotency).
+  // Only block if a breakdown is actively in progress (queued/dispatched/executing/blocked).
+  // Completed/failed/cancelled/done jobs do not block re-triggering, which allows
+  // features to be reset and re-broken-down after a failed or stale breakdown.
   const { data: existing } = await supabase
     .from("jobs")
     .select("id, status")
     .eq("feature_id", featureId)
     .eq("job_type", "breakdown")
-    .not("status", "in", '("done","failed","cancelled")')
+    .in("status", ["queued", "dispatched", "executing", "blocked"])
     .maybeSingle();
 
   if (existing) {

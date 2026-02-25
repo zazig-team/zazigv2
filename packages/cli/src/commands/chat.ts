@@ -86,14 +86,13 @@ export function launchTui(options: ChatOptions): void {
     style: { fg: "white", bg: "blue" },
   });
 
-  // --- Input line ---
-  const inputBox = blessed.textarea({
+  // --- Input line (plain box — we handle keystrokes manually to avoid blessed double-input bugs) ---
+  let inputBuffer = "";
+  const inputBox = blessed.box({
     bottom: 0,
     left: 0,
     width: "100%",
     height: 3,
-    keys: true,
-    inputOnFocus: true,
     border: { type: "line" },
     style: {
       fg: "white",
@@ -101,6 +100,11 @@ export function launchTui(options: ChatOptions): void {
       border: { fg: "gray" },
     },
   });
+
+  function renderInput(): void {
+    inputBox.setContent(inputBuffer + "\u2588"); // block cursor
+    screen.render();
+  }
 
   screen.append(outputBox);
   screen.append(statusBar);
@@ -151,39 +155,57 @@ export function launchTui(options: ChatOptions): void {
     }
   }
 
-  // --- Key bindings ---
+  // --- All input handled at screen level (single keypress path) ---
 
-  // Tab: cycle agents
-  screen.key(["tab"], () => {
-    if (agents.length > 1) {
-      activeIndex = (activeIndex + 1) % agents.length;
-      updateStatusBar();
-      capturePane();
+  screen.on("keypress", (ch: string | undefined, key: { full: string; name: string; ctrl: boolean; shift: boolean }) => {
+    if (!key) return;
+
+    // Ctrl+C: shutdown
+    if (key.ctrl && key.name === "c") {
+      if (captureInterval) clearInterval(captureInterval);
+      screen.destroy();
+      onShutdown();
+      return;
     }
-  });
 
-  // Ctrl+C: shutdown
-  screen.key(["C-c"], () => {
-    if (captureInterval) clearInterval(captureInterval);
-    screen.destroy();
-    onShutdown();
-  });
-
-  // Input handling — Enter sends message, clears input
-  inputBox.key("enter", () => {
-    const value = inputBox.getValue();
-    if (value.trim()) {
-      sendMessage(value.trim());
+    // Tab: cycle agents
+    if (key.name === "tab") {
+      if (agents.length > 1) {
+        activeIndex = (activeIndex + 1) % agents.length;
+        updateStatusBar();
+        capturePane();
+      }
+      return;
     }
-    inputBox.clearValue();
-    screen.render();
+
+    // Enter: send message
+    if (key.name === "enter" || key.name === "return") {
+      if (inputBuffer.trim()) {
+        sendMessage(inputBuffer.trim());
+      }
+      inputBuffer = "";
+      renderInput();
+      return;
+    }
+
+    // Backspace
+    if (key.name === "backspace") {
+      inputBuffer = inputBuffer.slice(0, -1);
+      renderInput();
+      return;
+    }
+
+    // Ignore other control/special keys
+    if (key.ctrl || key.name === "escape" || !ch) return;
+
+    // Regular character
+    inputBuffer += ch;
+    renderInput();
   });
 
-  // Focus input on start
-  inputBox.focus();
   updateStatusBar();
   startCapture();
-  screen.render();
+  renderInput();
 }
 
 export async function chat(): Promise<void> {

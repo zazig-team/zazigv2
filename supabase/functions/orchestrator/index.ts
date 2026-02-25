@@ -445,9 +445,12 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         console.error(`[orchestrator] Failed to create wrapper feature for job ${job.id}:`, wfErr?.message);
         continue;
       }
+      // Generate a branch name for the wrapper feature so the executor has a target branch.
+      const wrapperBranch = `feature/standalone-${job.id.substring(0, 8)}`;
+      await supabase.from("features").update({ branch: wrapperBranch }).eq("id", wrapperFeature.id);
       await supabase.from("jobs").update({ feature_id: wrapperFeature.id }).eq("id", job.id);
       job.feature_id = wrapperFeature.id;
-      console.log(`[orchestrator] Auto-created wrapper feature ${wrapperFeature.id} for standalone job ${job.id}`);
+      console.log(`[orchestrator] Auto-created wrapper feature ${wrapperFeature.id} (branch: ${wrapperBranch}) for standalone job ${job.id}`);
     }
 
     // DAG check: if this job has dependencies, verify they are all complete before dispatch.
@@ -471,11 +474,40 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       }
     }
 
-    // Load routing table (cached after first call within this invocation).
-    const routing = await loadRouting(supabase, job.company_id);
+    // Resolve model + slot type.
+    // Non-engineer roles use their role's default_model & slot_type from the DB.
+    // Engineer roles (senior-engineer, junior-engineer) use complexity routing.
+    const ENGINEER_ROLES = new Set(["senior-engineer", "junior-engineer"]);
+    let model: string;
+    let slotType: SlotType;
 
-    // Derive model + slot type from complexity (with optional model override).
-    let { model, slotType } = resolveModelAndSlot(routing, job.complexity, job.model, job.id);
+    if (job.role && !ENGINEER_ROLES.has(job.role)) {
+      // Role-based routing: look up the role's defaults from the roles table.
+      const { data: roleDefaults } = await supabase
+        .from("roles")
+        .select("default_model, slot_type")
+        .eq("name", job.role)
+        .single();
+
+      if (roleDefaults?.default_model && roleDefaults?.slot_type) {
+        model = roleDefaults.default_model as string;
+        slotType = roleDefaults.slot_type as SlotType;
+        console.log(
+          `[orchestrator] Job ${job.id} role=${job.role} → role-based routing: model=${model}, slot=${slotType}`,
+        );
+      } else {
+        // Role not found in DB — fall back to complexity routing.
+        console.warn(
+          `[orchestrator] Role '${job.role}' not found in roles table — falling back to complexity routing for job ${job.id}`,
+        );
+        const routing = await loadRouting(supabase, job.company_id);
+        ({ model, slotType } = resolveModelAndSlot(routing, job.complexity, job.model, job.id));
+      }
+    } else {
+      // Engineer roles or no role: use complexity routing.
+      const routing = await loadRouting(supabase, job.company_id);
+      ({ model, slotType } = resolveModelAndSlot(routing, job.complexity, job.model, job.id));
+    }
 
     // Fetch available machines for this company (with capacity for the slot type).
     let machines = machineCache.get(job.company_id);
@@ -524,6 +556,36 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     if (!candidate) {
       console.log(
         `[orchestrator] No machine with available ${slotType} slot for job ${job.id} — skipping.`,
+      );
+      continue;
+    }
+
+    // Look up git context (repo_url from projects, branch from features) required by executor.
+    // Must be resolved before slot decrement so we can skip without side effects.
+    let repoUrl: string | null = null;
+    let featureBranch: string | null = null;
+
+    if (job.project_id) {
+      const { data: projectRow } = await supabase
+        .from("projects")
+        .select("repo_url")
+        .eq("id", job.project_id)
+        .single();
+      repoUrl = (projectRow as { repo_url?: string } | null)?.repo_url ?? null;
+    }
+
+    if (job.feature_id) {
+      const { data: featureRow } = await supabase
+        .from("features")
+        .select("branch")
+        .eq("id", job.feature_id)
+        .single();
+      featureBranch = (featureRow as { branch?: string } | null)?.branch ?? null;
+    }
+
+    if (!job.project_id || !repoUrl || !featureBranch) {
+      console.warn(
+        `[orchestrator] Job ${job.id} missing git context (projectId=${job.project_id}, repoUrl=${repoUrl}, featureBranch=${featureBranch}) — skipping dispatch`,
       );
       continue;
     }
@@ -637,6 +699,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     }
 
     // Build the StartJob message.
+    // repoUrl, featureBranch, and job.project_id are verified non-null above.
     const startJobMsg: StartJob = {
       type: "start_job",
       protocolVersion: PROTOCOL_VERSION,
@@ -646,6 +709,9 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       complexity: (job.complexity as StartJob["complexity"]) ?? "medium",
       slotType,
       model,
+      projectId: job.project_id!,
+      repoUrl: repoUrl!,
+      featureBranch: featureBranch!,
       context: job.context ?? undefined,
       // Include role for role-based jobs (specialized reviewers, etc.)
       ...(job.role ? { role: job.role } : {}),
@@ -2109,6 +2175,24 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
 
       if (updated && updated.length > 0) {
         console.log(`[orchestrator] processFeatureLifecycle: feature ${feature.id} breakdown → building`);
+
+        // Auto-generate branch name if not already set.
+        const { data: featBranch } = await supabase
+          .from("features")
+          .select("title, branch")
+          .eq("id", feature.id)
+          .single();
+        if (featBranch && !(featBranch as { branch?: string }).branch) {
+          const title = (featBranch as { title?: string }).title ?? "";
+          const slug = title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .substring(0, 40);
+          const branch = `feature/${slug}-${feature.id.substring(0, 8)}`;
+          await supabase.from("features").update({ branch }).eq("id", feature.id);
+          console.log(`[orchestrator] Auto-generated branch for feature ${feature.id}: ${branch}`);
+        }
 
         // Notify CPO
         const { data: featureJobs } = await supabase

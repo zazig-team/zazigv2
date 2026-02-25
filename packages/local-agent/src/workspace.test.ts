@@ -11,6 +11,10 @@ vi.mock("node:fs", () => ({
   copyFileSync: vi.fn(),
   readFileSync: vi.fn(() => ""),
   appendFileSync: vi.fn(),
+  lstatSync: vi.fn(() => { throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); }),
+  symlinkSync: vi.fn(),
+  readlinkSync: vi.fn(() => ""),
+  unlinkSync: vi.fn(),
 }));
 
 import { generateAllowedTools, generateMcpConfig, setupJobWorkspace, ROLE_ALLOWED_TOOLS } from "./workspace.js";
@@ -98,6 +102,10 @@ describe("generateMcpConfig", () => {
 describe("setupJobWorkspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default lstatSync throws ENOENT (nothing exists at dest)
+    (fsModule.lstatSync as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
   });
 
   it("creates workspace directory, .mcp.json, CLAUDE.md, and settings.json", () => {
@@ -147,11 +155,12 @@ describe("setupJobWorkspace", () => {
     );
   });
 
-  it("copies skill files when skills and repoSkillsDir are provided", () => {
+  it("copies skill flat file ({name}.md) when directory format not found", () => {
     const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
     const copyFileSyncMock = fsModule.copyFileSync as unknown as ReturnType<typeof vi.fn>;
+    // Only the flat-file path exists (not the directory format)
     existsSyncMock.mockImplementation((p: string) =>
-      typeof p === "string" && p.endsWith(".md"),
+      typeof p === "string" && p === "/repo/projects/skills/jobify.md",
     );
 
     setupJobWorkspace({
@@ -213,5 +222,224 @@ describe("setupJobWorkspace", () => {
     });
 
     expect(copyFileSyncMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("setupJobWorkspace — skill source resolution", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (fsModule.lstatSync as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+  });
+
+  const baseConfig = {
+    workspaceDir: "/tmp/ws",
+    mcpServerPath: "/server.js",
+    supabaseUrl: "https://x.supabase.co",
+    supabaseAnonKey: "key",
+    jobId: "job-1",
+    role: "breakdown-specialist",
+    claudeMdContent: "# Test",
+  };
+
+  it("resolves directory format ({name}/SKILL.md) before flat file", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const copyFileSyncMock = fsModule.copyFileSync as unknown as ReturnType<typeof vi.fn>;
+    // Directory format exists
+    existsSyncMock.mockImplementation((p: string) =>
+      p === "/repo/skills/myjob/SKILL.md",
+    );
+
+    setupJobWorkspace({
+      ...baseConfig,
+      skills: ["myjob"],
+      repoSkillsDir: "/repo/skills",
+    });
+
+    expect(copyFileSyncMock).toHaveBeenCalledWith(
+      "/repo/skills/myjob/SKILL.md",
+      "/tmp/ws/.claude/skills/myjob/SKILL.md",
+    );
+  });
+
+  it("falls back to flat-file format when directory format not found", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const copyFileSyncMock = fsModule.copyFileSync as unknown as ReturnType<typeof vi.fn>;
+    // Only flat-file format exists
+    existsSyncMock.mockImplementation((p: string) =>
+      p === "/repo/skills/myjob.md",
+    );
+
+    setupJobWorkspace({
+      ...baseConfig,
+      skills: ["myjob"],
+      repoSkillsDir: "/repo/skills",
+    });
+
+    expect(copyFileSyncMock).toHaveBeenCalledWith(
+      "/repo/skills/myjob.md",
+      "/tmp/ws/.claude/skills/myjob/SKILL.md",
+    );
+  });
+
+  it("falls back to repoInteractiveSkillsDir when pipeline skill formats not found", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const copyFileSyncMock = fsModule.copyFileSync as unknown as ReturnType<typeof vi.fn>;
+    // Only interactive skill exists
+    existsSyncMock.mockImplementation((p: string) =>
+      p === "/repo/.claude/skills/myjob/SKILL.md",
+    );
+
+    setupJobWorkspace({
+      ...baseConfig,
+      skills: ["myjob"],
+      repoSkillsDir: "/repo/skills",
+      repoInteractiveSkillsDir: "/repo/.claude/skills",
+    });
+
+    expect(copyFileSyncMock).toHaveBeenCalledWith(
+      "/repo/.claude/skills/myjob/SKILL.md",
+      "/tmp/ws/.claude/skills/myjob/SKILL.md",
+    );
+  });
+
+  it("warns and skips when no source format found", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const copyFileSyncMock = fsModule.copyFileSync as unknown as ReturnType<typeof vi.fn>;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    existsSyncMock.mockReturnValue(false);
+
+    setupJobWorkspace({
+      ...baseConfig,
+      skills: ["missing"],
+      repoSkillsDir: "/repo/skills",
+      repoInteractiveSkillsDir: "/repo/.claude/skills",
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Skill file not found"));
+    expect(copyFileSyncMock).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
+describe("setupJobWorkspace — symlink mode (useSymlinks: true)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const baseConfig = {
+    workspaceDir: "/tmp/ws",
+    mcpServerPath: "/server.js",
+    supabaseUrl: "https://x.supabase.co",
+    supabaseAnonKey: "key",
+    jobId: "job-1",
+    role: "breakdown-specialist",
+    claudeMdContent: "# Test",
+    useSymlinks: true as const,
+    skills: ["myjob"],
+    repoSkillsDir: "/repo/skills",
+  };
+
+  it("creates symlink with absolute path when destination does not exist", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const symlinkSyncMock = fsModule.symlinkSync as unknown as ReturnType<typeof vi.fn>;
+    const copyFileSyncMock = fsModule.copyFileSync as unknown as ReturnType<typeof vi.fn>;
+    const lstatSyncMock = fsModule.lstatSync as unknown as ReturnType<typeof vi.fn>;
+
+    // Source exists (directory format)
+    existsSyncMock.mockImplementation((p: string) => p === "/repo/skills/myjob/SKILL.md");
+    // Dest doesn't exist (lstatSync throws ENOENT)
+    lstatSyncMock.mockImplementation(() => {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+
+    setupJobWorkspace(baseConfig);
+
+    expect(symlinkSyncMock).toHaveBeenCalledWith(
+      "/repo/skills/myjob/SKILL.md",
+      "/tmp/ws/.claude/skills/myjob/SKILL.md",
+    );
+    expect(copyFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("deletes existing regular file before creating symlink", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const symlinkSyncMock = fsModule.symlinkSync as unknown as ReturnType<typeof vi.fn>;
+    const unlinkSyncMock = fsModule.unlinkSync as unknown as ReturnType<typeof vi.fn>;
+    const lstatSyncMock = fsModule.lstatSync as unknown as ReturnType<typeof vi.fn>;
+
+    existsSyncMock.mockImplementation((p: string) => p === "/repo/skills/myjob/SKILL.md");
+    // Dest is a regular file
+    lstatSyncMock.mockReturnValue({ isSymbolicLink: () => false, isFile: () => true });
+
+    setupJobWorkspace(baseConfig);
+
+    expect(unlinkSyncMock).toHaveBeenCalledWith("/tmp/ws/.claude/skills/myjob/SKILL.md");
+    expect(symlinkSyncMock).toHaveBeenCalledWith(
+      "/repo/skills/myjob/SKILL.md",
+      "/tmp/ws/.claude/skills/myjob/SKILL.md",
+    );
+  });
+
+  it("skips symlink creation when destination already points to correct target (idempotent)", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const symlinkSyncMock = fsModule.symlinkSync as unknown as ReturnType<typeof vi.fn>;
+    const unlinkSyncMock = fsModule.unlinkSync as unknown as ReturnType<typeof vi.fn>;
+    const lstatSyncMock = fsModule.lstatSync as unknown as ReturnType<typeof vi.fn>;
+    const readlinkSyncMock = fsModule.readlinkSync as unknown as ReturnType<typeof vi.fn>;
+
+    existsSyncMock.mockImplementation((p: string) => p === "/repo/skills/myjob/SKILL.md");
+    // Dest is already a symlink
+    lstatSyncMock.mockReturnValue({ isSymbolicLink: () => true, isFile: () => false });
+    // Pointing to the correct absolute target
+    readlinkSyncMock.mockReturnValue("/repo/skills/myjob/SKILL.md");
+
+    setupJobWorkspace(baseConfig);
+
+    expect(unlinkSyncMock).not.toHaveBeenCalled();
+    expect(symlinkSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("replaces wrong-target symlink with correct symlink", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const symlinkSyncMock = fsModule.symlinkSync as unknown as ReturnType<typeof vi.fn>;
+    const unlinkSyncMock = fsModule.unlinkSync as unknown as ReturnType<typeof vi.fn>;
+    const lstatSyncMock = fsModule.lstatSync as unknown as ReturnType<typeof vi.fn>;
+    const readlinkSyncMock = fsModule.readlinkSync as unknown as ReturnType<typeof vi.fn>;
+
+    existsSyncMock.mockImplementation((p: string) => p === "/repo/skills/myjob/SKILL.md");
+    // Dest is a symlink but pointing to wrong path
+    lstatSyncMock.mockReturnValue({ isSymbolicLink: () => true, isFile: () => false });
+    readlinkSyncMock.mockReturnValue("/old/path/SKILL.md");
+
+    setupJobWorkspace(baseConfig);
+
+    expect(unlinkSyncMock).toHaveBeenCalledWith("/tmp/ws/.claude/skills/myjob/SKILL.md");
+    expect(symlinkSyncMock).toHaveBeenCalledWith(
+      "/repo/skills/myjob/SKILL.md",
+      "/tmp/ws/.claude/skills/myjob/SKILL.md",
+    );
+  });
+
+  it("repairs broken symlink by deleting and recreating", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const symlinkSyncMock = fsModule.symlinkSync as unknown as ReturnType<typeof vi.fn>;
+    const unlinkSyncMock = fsModule.unlinkSync as unknown as ReturnType<typeof vi.fn>;
+    const lstatSyncMock = fsModule.lstatSync as unknown as ReturnType<typeof vi.fn>;
+    const readlinkSyncMock = fsModule.readlinkSync as unknown as ReturnType<typeof vi.fn>;
+
+    existsSyncMock.mockImplementation((p: string) => p === "/repo/skills/myjob/SKILL.md");
+    // Dest is a broken symlink (lstatSync succeeds but readlink shows stale path)
+    lstatSyncMock.mockReturnValue({ isSymbolicLink: () => true, isFile: () => false });
+    readlinkSyncMock.mockReturnValue("/stale/path/SKILL.md");
+
+    setupJobWorkspace(baseConfig);
+
+    expect(unlinkSyncMock).toHaveBeenCalledWith("/tmp/ws/.claude/skills/myjob/SKILL.md");
+    expect(symlinkSyncMock).toHaveBeenCalledWith(
+      "/repo/skills/myjob/SKILL.md",
+      "/tmp/ws/.claude/skills/myjob/SKILL.md",
+    );
   });
 });

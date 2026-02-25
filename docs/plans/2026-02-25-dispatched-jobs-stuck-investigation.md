@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-25
 **Author:** CTO (automated investigation)
-**Reviewed by:** Codex (gpt-5.3-codex) — confirmed, with additional findings
+**Reviewed by:** Codex (gpt-5.3-codex) + Gemini (gemini-3.1-pro-preview)
 **Status:** Findings confirmed, remediation proposed
 
 ## One-Sentence Verdict
@@ -175,10 +175,14 @@ This makes dispatch reliable regardless of Realtime delivery. Realtime becomes a
 
 ## Recommendations (Ordered by Priority)
 
-1. **Now:** Reset the 11 stuck jobs to `queued` + restart the daemon to re-establish Realtime
-2. **This week:** Add `recoverStuckDispatched()` to the orchestrator polling loop
-3. **Next sprint:** Add daemon-side polling for assigned jobs (belt-and-suspenders with Realtime)
-4. **Consider:** `JobAck` protocol — daemon acknowledges within N seconds, orchestrator re-queues if no ack
+1. **Reset stuck jobs** + restart daemon to re-establish Realtime subscription
+2. **Fix CAS guard** — check affected row count at index.ts:629, don't broadcast if 0
+3. **Kill silent rejections** — daemon validator should write `status='failed'` back to DB instead of silently dropping
+4. **Daemon-side polling** — primary fix. Every 30s before heartbeat, daemon queries for jobs assigned to its machine_id with `status='dispatched'` and processes any it finds. Makes Realtime an optimisation, not the sole delivery path
+5. **Lightweight orchestrator poller** — safety net for when daemon is down/crashed/laptop sleeping but machine appears alive. `recoverStuckDispatched()` with a 10-minute threshold (not 5) to avoid yanking slow-but-running jobs. Solvable race condition, fixable N+1 — worth keeping as defence in depth because daemon-side polling only works if the daemon is running
+6. **Dynamic slot calculation** — replace increment/decrement with `max_slots - count(jobs WHERE machine_id = me AND status IN ('dispatched', 'running'))`. Eliminates drift
+7. **Consider Postgres Changes subscription** — replace fire-and-forget broadcast with daemon subscribing to `UPDATE on jobs WHERE machine_id = me`. Uses Supabase's replication stream which handles reconnects better
+8. **Drop JobAck retry** — incompatible with the 4-second listen window on a serverless function
 
 ## Codex Second Opinion (gpt-5.3-codex)
 
@@ -193,6 +197,54 @@ Codex independently verified the codebase and confirmed the core diagnosis. Key 
 4. **Agent DB writes are best-effort.** The executor's status update calls (executor.ts:1108, 1136, 1170) don't retry on failure. If the orchestrator's 4-second listen window misses the Realtime broadcast AND the DB write fails, the job is stranded with no record of completion.
 
 5. **Reset safety note.** When resetting stuck jobs, also clear `started_at` (not just `machine_id`) to match the daemon's startup recovery pattern at index.ts:239. CAS guard with `WHERE status='dispatched'` prevents race conditions with actively executing jobs.
+
+## Gemini Second Opinion (gemini-3.1-pro-preview)
+
+Gemini confirmed the root cause diagnosis but **disagreed with the fix prioritisation** and identified correctness issues in Fix 2 and Fix 4.
+
+### Corrections to Proposed Fixes
+
+1. **Fix 1 (reset stuck jobs) has a slot leak.** Resetting `machine_id = NULL` without refunding the slot to the machine table leaks capacity. The SQL must also increment `slots_claude_code` on the machine — or rely on the next heartbeat overwrite to correct it (which our evidence shows already happens). *CTO note: in our system the heartbeat already overwrites DB slots from in-memory state every 30s, so the slot leak is self-correcting. But Gemini's point stands for systems without this reconciliation.*
+
+2. **Fix 2 (orchestrator poller) has a race condition.** If a daemon received the job but is slow (>5 min to transition to `running`), the poller yanks it away and re-queues — causing duplicate execution. Also flagged: N+1 query pattern (machine heartbeat lookup inside a loop).
+
+3. **Fix 4 (JobAck retry) is architecturally unsound.** The orchestrator is an edge function with a 4-second listen window. Building an ACK-wait into a short-lived serverless function means hanging executions and false timeouts if the ACK arrives at second 5.
+
+### Gemini's Recommended Priority Order
+
+1. **Today:** Reset stuck jobs + fix the CAS guard (check affected row count at index.ts:629, don't broadcast if 0) + make daemon validator write `status='failed'` instead of silent rejection
+2. **This week:** Daemon-side polling (our Fix 3) — promotes this from "next sprint" to "this week". This replaces both Fix 2 and Fix 4. Every 30s before heartbeat, daemon queries `SELECT id FROM jobs WHERE machine_id = me AND status = 'dispatched'` and processes any it finds.
+3. **Drop:** Fix 2 (orchestrator poller) and Fix 4 (JobAck retry) — both are superseded by daemon-side polling.
+
+### Architectural Recommendations
+
+1. **Consider Postgres Changes over Realtime broadcast.** Instead of fire-and-forget broadcasts, have daemons subscribe to Postgres Changes (`UPDATE on jobs WHERE machine_id = me`). This uses Supabase's replication stream which handles reconnects and missed messages better than generic Realtime.
+
+2. **Calculate slots dynamically instead of increment/decrement.** A machine's capacity should be `max_slots - count(jobs WHERE machine_id = me AND status IN ('dispatched', 'running'))`. Eliminates slot drift entirely. If caching is needed for performance, periodically recalculate from the jobs table.
+
+## Synthesis: Where the Models Agree and Disagree
+
+Three models reviewed this investigation (Claude, Codex gpt-5.3, Gemini 3.1 Pro). All three confirmed the root cause diagnosis. The disagreements are on fix strategy.
+
+### Universal Agreement
+
+- Root cause is fire-and-forget Realtime dispatch with no recovery path
+- Daemon-side polling is the correct primary fix
+- Silent validator rejection must be replaced with explicit failure
+- CAS guard needs row-count checking
+- Dynamic slot calculation is the right long-term direction
+
+### Disagreement: Keep or Drop the Orchestrator Poller
+
+**Gemini says drop it** — race condition risk (yanking slow jobs), N+1 queries, superseded by daemon-side polling.
+
+**CTO verdict: keep it, but with a higher threshold.** Daemon-side polling only works when the daemon is running. If a laptop sleeps, daemon crashes without clean exit, or the process is killed, jobs assigned to that machine need server-side recovery. `reapDeadMachines()` covers truly dead machines, but there's a gap between "machine is heartbeating" and "daemon is actually processing jobs" — exactly the failure mode we observed. A 10-minute threshold (not 5) eliminates the race condition concern — no legitimate job takes 10 minutes to transition from `dispatched` to `executing`. The N+1 is trivially fixable with a batch query or JOIN.
+
+### Disagreement: Slot Leak on Reset
+
+**Gemini flags** that resetting `machine_id = NULL` without refunding slots leaks capacity.
+
+**CTO verdict: not a concern in our system.** The daemon's heartbeat overwrites DB slot counts from in-memory state every 30s. The in-memory `SlotTracker` was never decremented for these orphaned jobs (the daemon never received them), so the heartbeat naturally restores correct capacity. Evidence confirms this — the machine shows 1 available slot despite 11 orphaned jobs. The slot self-heals; the job doesn't. That's the bug.
 
 ## Related Issues
 

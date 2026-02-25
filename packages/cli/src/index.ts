@@ -45,6 +45,10 @@ switch (cmd) {
     await stop();
     break;
 
+  case "chat":
+    await chat();
+    break;
+
   case "status":
     await status();
     break;
@@ -69,6 +73,7 @@ switch (cmd) {
     console.log("  setup              Create a company, onboard a project, invite teammates");
     console.log("  start              Start the local agent daemon in the background");
     console.log("  stop               Stop the running daemon");
+    console.log("  chat               Reconnect TUI to a running daemon");
     console.log("  status             Show agent state and active jobs");
     console.log("  personality <role> Show or switch exec personality (--show, --archetype)");
     console.log("  chat               Open split-screen TUI to interact with agents");

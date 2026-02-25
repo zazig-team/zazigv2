@@ -9,8 +9,11 @@
 
 import blessed from "blessed";
 import { execSync } from "node:child_process";
-import { isDaemonRunning } from "../lib/daemon.js";
+import { fetchUserCompanies, pickCompany } from "../lib/company-picker.js";
+import { getValidCredentials } from "../lib/credentials.js";
+import { isDaemonRunningForCompany } from "../lib/daemon.js";
 import { loadConfig } from "../lib/config.js";
+import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 
 interface AgentSession {
   role: string;
@@ -21,6 +24,27 @@ interface ChatOptions {
   companyName: string;
   agents: AgentSession[];
   onShutdown: () => void;
+}
+
+export function discoverAgentSessions(
+  machineId: string
+): AgentSession[] {
+  try {
+    const output = execSync("tmux list-sessions -F '#{session_name}'", {
+      encoding: "utf-8",
+      timeout: 5000,
+    });
+    return output
+      .trim()
+      .split("\n")
+      .filter((s) => s.startsWith(`${machineId}-`))
+      .map((sessionName) => ({
+        role: sessionName.replace(`${machineId}-`, ""),
+        sessionName,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 export function launchTui(options: ChatOptions): void {
@@ -69,7 +93,7 @@ export function launchTui(options: ChatOptions): void {
     width: "100%",
     height: 3,
     inputOnFocus: true,
-    border: { type: "line" as const },
+    border: { type: "line" },
     style: {
       fg: "white",
       bg: "black",
@@ -161,23 +185,27 @@ export function launchTui(options: ChatOptions): void {
   screen.render();
 }
 
-// Standalone `zazig chat` command — reconnects to existing daemon
 export async function chat(): Promise<void> {
-  if (!isDaemonRunning()) {
-    console.error("Zazig is not running. Run 'zazig start' first.");
-    process.exitCode = 1;
-    return;
-  }
-
-  let config;
+  let creds;
   try {
-    config = loadConfig();
+    creds = await getValidCredentials();
   } catch {
-    console.error("No machine config found. Run 'zazig start' first.");
+    console.error("Not logged in. Run 'zazig login' first.");
     process.exitCode = 1;
     return;
   }
 
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
+  const company = await pickCompany(companies);
+
+  if (!isDaemonRunningForCompany(company.id)) {
+    console.error(`Zazig is not running for ${company.name}. Run 'zazig start' first.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const config = loadConfig();
   const machineId = config.name;
   const agentSessions = discoverAgentSessions(machineId);
 
@@ -188,32 +216,11 @@ export async function chat(): Promise<void> {
   }
 
   launchTui({
-    companyName: machineId,
+    companyName: company.name,
     agents: agentSessions,
     onShutdown: () => {
       console.log("\nDisconnected from agents (daemon still running).");
       process.exit(0);
     },
   });
-}
-
-export function discoverAgentSessions(
-  machineId: string
-): Array<{ role: string; sessionName: string }> {
-  try {
-    const output = execSync("tmux list-sessions -F '#{session_name}'", {
-      encoding: "utf-8",
-      timeout: 5000,
-    });
-    return output
-      .trim()
-      .split("\n")
-      .filter((s) => s.startsWith(`${machineId}-`))
-      .map((sessionName) => ({
-        role: sessionName.replace(`${machineId}-`, ""),
-        sessionName,
-      }));
-  } catch {
-    return [];
-  }
 }

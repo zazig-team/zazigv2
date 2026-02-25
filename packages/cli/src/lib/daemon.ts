@@ -100,22 +100,22 @@ export function removePidFile(): void {
   }
 }
 
-// --- Per-company daemon management ---
+/* ── Per-company PID management ────────────────────────────────── */
 
 export function pidPathForCompany(companyId: string): string {
   return join(ZAZIGV2_DIR, `${companyId}.pid`);
 }
 
 export function logPathForCompany(companyId: string): string {
-  const logDir = join(ZAZIGV2_DIR, "logs");
-  mkdirSync(logDir, { recursive: true });
-  return join(logDir, `${companyId}.log`);
+  mkdirSync(LOG_DIR, { recursive: true });
+  return join(LOG_DIR, `${companyId}.log`);
 }
 
 export function readPidForCompany(companyId: string): number | null {
-  const pidPath = pidPathForCompany(companyId);
   try {
-    return parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
+    const raw = readFileSync(pidPathForCompany(companyId), "utf-8").trim();
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? n : null;
   } catch {
     return null;
   }
@@ -127,20 +127,35 @@ export function isDaemonRunningForCompany(companyId: string): boolean {
 }
 
 export function removePidFileForCompany(companyId: string): void {
-  try { unlinkSync(pidPathForCompany(companyId)); } catch { /* */ }
+  try {
+    unlinkSync(pidPathForCompany(companyId));
+  } catch {
+    /* already gone */
+  }
 }
 
-export function startDaemonForCompany(env: NodeJS.ProcessEnv, companyId: string): number {
+export function startDaemonForCompany(
+  env: NodeJS.ProcessEnv,
+  companyId: string
+): number {
+  mkdirSync(LOG_DIR, { recursive: true });
+  mkdirSync(ZAZIGV2_DIR, { recursive: true });
+
   const agentEntry = resolveAgentEntry();
   const logPath = logPathForCompany(companyId);
   const logFd = openSync(logPath, "a");
+
   const child = spawn(process.execPath, [agentEntry], {
     detached: true,
     stdio: ["ignore", logFd, logFd],
     env,
   });
+
   child.unref();
-  const pid = child.pid!;
-  writeFileSync(pidPathForCompany(companyId), String(pid));
+
+  const pid = child.pid;
+  if (pid == null) throw new Error("Spawn succeeded but no PID was assigned");
+
+  writeFileSync(pidPathForCompany(companyId), String(pid) + "\n");
   return pid;
 }

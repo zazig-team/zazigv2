@@ -4,10 +4,10 @@
  * Starts the local-agent daemon in the background.
  *   1. Verifies credentials (auto-refreshes expired token).
  *   2. On first run: prompts for slot config and saves ~/.zazigv2/config.json.
- *   3. Checks if daemon is already running.
- *   4. Spawns the local-agent as a detached child process.
- *   5. Waits 1.5s, confirms the process is still alive.
- *   6. Exits — the daemon continues running independently.
+ *   3. Fetches user companies, picks one (or uses --company flag).
+ *   4. Checks if daemon is already running for that company.
+ *   5. Spawns the local-agent as a detached child process.
+ *   6. Waits 3s, discovers agent sessions, launches TUI (unless --no-tui).
  */
 
 import { hostname } from "node:os";
@@ -15,14 +15,16 @@ import { execSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { getValidCredentials } from "../lib/credentials.js";
 import { configExists, loadConfig, saveConfig } from "../lib/config.js";
+import { fetchUserCompanies, pickCompany } from "../lib/company-picker.js";
+import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 import {
-  isDaemonRunning,
-  startDaemon,
-  readPid,
-  isRunning,
-  removePidFile,
-  LOG_PATH,
+  isDaemonRunningForCompany,
+  readPidForCompany,
+  startDaemonForCompany,
+  logPathForCompany,
+  removePidFileForCompany,
 } from "../lib/daemon.js";
+import { launchTui, discoverAgentSessions } from "./chat.js";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -68,7 +70,21 @@ async function promptForConfig(codexInstalled: boolean): Promise<void> {
   }
 }
 
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function start(): Promise<void> {
+  // Parse flags
+  const noTui = process.argv.includes("--no-tui");
+  const companyFlagIdx = process.argv.indexOf("--company");
+  const companyFlagValue = companyFlagIdx !== -1 ? process.argv[companyFlagIdx + 1] : undefined;
+
   // Check prerequisites
   let claudeInstalled = false;
   try {
@@ -109,53 +125,76 @@ export async function start(): Promise<void> {
 
   const config = loadConfig();
 
-  // Already running — stop it first, then restart with fresh credentials
-  if (isDaemonRunning()) {
-    const oldPid = readPid();
-    process.stdout.write(`Restarting agent (PID ${oldPid})...`);
-    try {
-      process.kill(oldPid!, "SIGTERM");
-    } catch { /* already gone */ }
+  // Fetch companies and pick one
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
+  let company = await pickCompany(companies);
 
-    const deadline = Date.now() + 10_000;
-    while (Date.now() < deadline) {
-      await sleep(200);
-      if (!isRunning(oldPid!)) break;
-    }
-    if (isRunning(oldPid!)) {
-      try { process.kill(oldPid!, "SIGKILL"); } catch { /* */ }
-    }
-    removePidFile();
-    console.log(" stopped.");
+  // --company flag override
+  if (companyFlagValue) {
+    const found = companies.find((c) => c.id === companyFlagValue || c.name === companyFlagValue);
+    if (found) company = found;
+  }
+
+  console.log(`Starting zazig for ${company.name}...`);
+
+  // Already running check
+  if (isDaemonRunningForCompany(company.id)) {
+    const pid = readPidForCompany(company.id);
+    console.log(`Zazig is already running for ${company.name} (PID ${pid}).`);
+    console.log("Run 'zazig chat' to reconnect, or 'zazig stop' to stop it.");
+    return;
   }
 
   // Build env for the spawned process
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     SUPABASE_ACCESS_TOKEN: creds.accessToken,
-    SUPABASE_REFRESH_TOKEN: creds.refreshToken,
+    SUPABASE_REFRESH_TOKEN: creds.refreshToken ?? "",
     SUPABASE_URL: creds.supabaseUrl,
     ZAZIG_MACHINE_NAME: config.name,
-    ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots.claude_code),
-    ZAZIG_SLOTS_CODEX: String(config.slots.codex),
+    ZAZIG_COMPANY_ID: company.id,
+    ZAZIG_COMPANY_NAME: company.name,
+    ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
+    ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
   };
 
   let pid: number;
   try {
-    pid = startDaemon(env);
+    pid = startDaemonForCompany(env, company.id);
+    console.log(`Agent started (PID ${pid}). Logs: ${logPathForCompany(company.id)}`);
   } catch (err) {
     console.error(`Failed to start daemon: ${String(err)}`);
     process.exitCode = 1;
     return;
   }
 
-  await sleep(1500);
+  // Wait for agents to spawn
+  await sleep(3000);
 
-  if (isRunning(pid)) {
-    console.log("Zazig started successfully.");
-    console.log(`Logs: ${LOG_PATH}`);
-  } else {
-    console.error(`Agent failed to start. Check ${LOG_PATH}`);
+  if (!isProcessRunning(pid)) {
+    console.error(`Agent failed to start. Check logs: ${logPathForCompany(company.id)}`);
     process.exitCode = 1;
+    return;
+  }
+
+  const agentSessions = discoverAgentSessions(config.name);
+
+  if (noTui) {
+    console.log("Zazig started successfully (headless).");
+    console.log(`Logs: ${logPathForCompany(company.id)}`);
+  } else {
+    launchTui({
+      companyName: company.name,
+      agents: agentSessions,
+      onShutdown: () => {
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch { /* */ }
+        removePidFileForCompany(company.id);
+        console.log("\nZazig stopped.");
+        process.exit(0);
+      },
+    });
   }
 }

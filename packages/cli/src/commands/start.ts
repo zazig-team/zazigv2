@@ -16,6 +16,7 @@ import { createInterface } from "node:readline/promises";
 import { getValidCredentials } from "../lib/credentials.js";
 import { configExists, loadConfig, saveConfig } from "../lib/config.js";
 import { fetchUserCompanies, pickCompany } from "../lib/company-picker.js";
+import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 import {
   isDaemonRunningForCompany,
   readPidForCompany,
@@ -125,7 +126,7 @@ export async function start(): Promise<void> {
   const config = loadConfig();
 
   // Fetch companies and pick one
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
   const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
   let company = await pickCompany(companies);
 

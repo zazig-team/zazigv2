@@ -57,6 +57,10 @@ switch (cmd) {
     await personality(args);
     break;
 
+  case "chat":
+    await chat();
+    break;
+
   case undefined:
   case "--help":
   case "-h":
@@ -72,6 +76,7 @@ switch (cmd) {
     console.log("  chat               Reconnect TUI to a running daemon");
     console.log("  status             Show agent state and active jobs");
     console.log("  personality <role> Show or switch exec personality (--show, --archetype)");
+    console.log("  chat               Open split-screen TUI to interact with agents");
     break;
 
   default:

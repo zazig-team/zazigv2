@@ -13,6 +13,7 @@ import { fetchUserCompanies, pickCompany } from "../lib/company-picker.js";
 import { getValidCredentials } from "../lib/credentials.js";
 import { isDaemonRunningForCompany } from "../lib/daemon.js";
 import { loadConfig } from "../lib/config.js";
+import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 
 interface AgentSession {
   role: string;
@@ -194,7 +195,7 @@ export async function chat(): Promise<void> {
     return;
   }
 
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
   const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
   const company = await pickCompany(companies);
 

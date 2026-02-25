@@ -7,6 +7,7 @@
 
 import { fetchUserCompanies, pickCompany } from "../lib/company-picker.js";
 import { getValidCredentials } from "../lib/credentials.js";
+import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 import {
   readPidForCompany,
   removePidFileForCompany,
@@ -35,7 +36,7 @@ export async function stop(): Promise<void> {
     return;
   }
 
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
   const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
   const company = await pickCompany(companies);
 

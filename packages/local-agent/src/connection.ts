@@ -120,8 +120,19 @@ export class AgentConnection {
   /**
    * Query user_companies to get all companies the authenticated user belongs to.
    * Falls back to config.company_id if the query fails or returns nothing.
+   *
+   * IMPORTANT: Only queries when using an authenticated JWT (RLS filters by user).
+   * With service_role key, RLS is bypassed and the query would return ALL companies
+   * for ALL users — causing this machine to register under other users' companies.
    */
   async getCompanyIds(): Promise<string[]> {
+    // Service-role client bypasses RLS — cannot safely query user_companies.
+    // Fall back to config.company_id (caller handles the empty-array case).
+    if (!this.config.supabase.access_token) {
+      console.warn("[local-agent] No access token — skipping user_companies query (service_role would bypass RLS)");
+      return [];
+    }
+
     try {
       const { data } = await this.dbClient
         .from("user_companies")

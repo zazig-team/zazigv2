@@ -18,6 +18,7 @@ import { JobExecutor } from "./executor.js";
 import { JobVerifier } from "./verifier.js";
 import { FixAgentManager } from "./fix-agent.js";
 import { TestRunner } from "./test-runner.js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrchestratorMessage, MessageInbound } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
@@ -135,6 +136,10 @@ async function main(): Promise<void> {
   // Start the connection (connects + begins heartbeat loop)
   await conn.start();
 
+  // Recover any jobs that were dispatched/executing when we last went offline.
+  // These are stuck because the Realtime broadcast was missed or the daemon was killed.
+  await recoverStuckJobs(conn.dbClient, config.name);
+
   // Discover and spawn persistent agents if ZAZIG_COMPANY_ID is set
   const companyId = process.env["ZAZIG_COMPANY_ID"];
   if (companyId) {
@@ -162,6 +167,75 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
   console.log("[local-agent] Daemon running. Press Ctrl+C to stop.");
+}
+
+// ---------------------------------------------------------------------------
+// Startup recovery — re-queue jobs stuck from a previous run
+// ---------------------------------------------------------------------------
+
+/**
+ * On startup, find any jobs assigned to this machine that are stuck in
+ * `dispatched` or `executing` status (from a previous daemon run that crashed
+ * or was restarted). Reset them to `queued` so the orchestrator re-dispatches.
+ */
+async function recoverStuckJobs(
+  dbClient: SupabaseClient,
+  machineName: string,
+): Promise<void> {
+  try {
+    // Look up our machine row ID(s) by name
+    const { data: machines, error: machErr } = await dbClient
+      .from("machines")
+      .select("id")
+      .eq("name", machineName);
+
+    if (machErr || !machines || machines.length === 0) {
+      console.log("[local-agent] No machine rows found — skipping job recovery");
+      return;
+    }
+
+    const machineIds = machines.map((m: { id: string }) => m.id);
+
+    // Find stuck jobs: dispatched (broadcast missed) or executing (daemon killed mid-job)
+    const { data: stuckJobs, error: jobErr } = await dbClient
+      .from("jobs")
+      .select("id, status, job_type, role")
+      .in("machine_id", machineIds)
+      .in("status", ["dispatched", "executing"]);
+
+    if (jobErr) {
+      console.error("[local-agent] Error querying stuck jobs:", jobErr.message);
+      return;
+    }
+
+    if (!stuckJobs || stuckJobs.length === 0) {
+      console.log("[local-agent] No stuck jobs to recover");
+      return;
+    }
+
+    console.log(`[local-agent] Found ${stuckJobs.length} stuck job(s) — resetting to queued`);
+
+    for (const job of stuckJobs) {
+      const { error: updateErr } = await dbClient
+        .from("jobs")
+        .update({
+          status: "queued",
+          machine_id: null,
+          started_at: null,
+        })
+        .eq("id", job.id);
+
+      if (updateErr) {
+        console.error(`[local-agent] Failed to reset job ${job.id}: ${updateErr.message}`);
+      } else {
+        console.log(
+          `[local-agent] Reset job ${job.id} (${job.status} → queued, role=${job.role ?? "none"})`,
+        );
+      }
+    }
+  } catch (err) {
+    console.error("[local-agent] Job recovery failed:", err);
+  }
 }
 
 // ---------------------------------------------------------------------------

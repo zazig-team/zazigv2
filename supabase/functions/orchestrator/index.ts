@@ -480,6 +480,9 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     const ENGINEER_ROLES = new Set(["senior-engineer", "junior-engineer"]);
     let model: string;
     let slotType: SlotType;
+    // Loaded once per company per dispatch pass (cached inside loadRouting).
+    // Hoisted here so the codex→claude_code fallback below can always access it.
+    const routing = await loadRouting(supabase, job.company_id);
 
     if (job.role && !ENGINEER_ROLES.has(job.role)) {
       // Role-based routing: look up the role's defaults from the roles table.
@@ -500,12 +503,10 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         console.warn(
           `[orchestrator] Role '${job.role}' not found in roles table — falling back to complexity routing for job ${job.id}`,
         );
-        const routing = await loadRouting(supabase, job.company_id);
         ({ model, slotType } = resolveModelAndSlot(routing, job.complexity, job.model, job.id));
       }
     } else {
       // Engineer roles or no role: use complexity routing.
-      const routing = await loadRouting(supabase, job.company_id);
       ({ model, slotType } = resolveModelAndSlot(routing, job.complexity, job.model, job.id));
     }
 

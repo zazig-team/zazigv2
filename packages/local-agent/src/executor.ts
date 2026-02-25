@@ -135,6 +135,9 @@ export class JobExecutor {
   /** Heartbeat timer for updating persistent_agents.last_heartbeat. */
   private persistentHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** Cached machine UUID for persistent_agents DB writes. */
+  private machineUuid: string | null = null;
+
   /** Message queue for injecting into CPO tmux session when idle. */
   private readonly messageQueue: QueuedMessage[] = [];
   private processingQueue = false;
@@ -157,6 +160,23 @@ export class JobExecutor {
     this.supabaseUrl = supabaseUrl;
     this.supabaseAnonKey = supabaseAnonKey;
     this.afterJobComplete = afterJobComplete;
+  }
+
+  /** Resolve the machine UUID from the machines table (cached after first call). */
+  private async resolveMachineUuid(companyId: string): Promise<string | null> {
+    if (this.machineUuid) return this.machineUuid;
+    const { data, error } = await this.supabase
+      .from("machines")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("name", this.machineId)
+      .single();
+    if (error || !data) {
+      console.warn(`[executor] Could not resolve machine UUID for "${this.machineId}": ${error?.message ?? "not found"}`);
+      return null;
+    }
+    this.machineUuid = data.id;
+    return data.id;
   }
 
   // ---------------------------------------------------------------------------
@@ -478,22 +498,25 @@ export class JobExecutor {
 
       // Upsert into persistent_agents for observability
       if (resolvedCompanyId) {
-        this.supabase
-          .from("persistent_agents")
-          .upsert(
-            {
-              company_id: resolvedCompanyId,
-              role,
-              machine_id: this.machineId,
-              status: "running",
-              prompt_stack: msg.context ?? "",
-              last_heartbeat: new Date().toISOString(),
-            },
-            { onConflict: "company_id,role,machine_id" }
-          )
-          .then(({ error }) => {
-            if (error) console.warn(`[executor] Failed to upsert persistent_agents for ${role}: ${error.message}`);
-          });
+        const machineUuid = await this.resolveMachineUuid(resolvedCompanyId);
+        if (machineUuid) {
+          this.supabase
+            .from("persistent_agents")
+            .upsert(
+              {
+                company_id: resolvedCompanyId,
+                role,
+                machine_id: machineUuid,
+                status: "running",
+                prompt_stack: msg.context ?? "",
+                last_heartbeat: new Date().toISOString(),
+              },
+              { onConflict: "company_id,role,machine_id" }
+            )
+            .then(({ error }) => {
+              if (error) console.warn(`[executor] Failed to upsert persistent_agents for ${role}: ${error.message}`);
+            });
+        }
       }
     } catch (err) {
       console.error(`[executor] Persistent agent: failed to create workspace:`, err);
@@ -530,13 +553,14 @@ export class JobExecutor {
     this.persistentJobRole = role;
 
     // Start heartbeat timer for persistent_agents table
-    if (resolvedCompanyId) {
+    if (resolvedCompanyId && this.machineUuid) {
+      const uuid = this.machineUuid;
       this.persistentHeartbeatTimer = setInterval(() => {
         this.supabase
           .from("persistent_agents")
           .update({ last_heartbeat: new Date().toISOString() })
           .eq("company_id", resolvedCompanyId)
-          .eq("machine_id", this.machineId)
+          .eq("machine_id", uuid)
           .eq("status", "running")
           .then(({ error }) => {
             if (error) console.warn(`[executor] Heartbeat update failed for persistent_agents: ${error.message}`);
@@ -848,13 +872,13 @@ export class JobExecutor {
     }
 
     const companyId = process.env["ZAZIG_COMPANY_ID"] ?? "";
-    if (companyId && this.persistentJobRole) {
+    if (companyId && this.persistentJobRole && this.machineUuid) {
       this.supabase
         .from("persistent_agents")
         .update({ status: "stopped" })
         .eq("company_id", companyId)
         .eq("role", this.persistentJobRole)
-        .eq("machine_id", this.machineId)
+        .eq("machine_id", this.machineUuid)
         .then(({ error }) => {
           if (error) console.warn(`[executor] Failed to update persistent_agents status: ${error.message}`);
         });

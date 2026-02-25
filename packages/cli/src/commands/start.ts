@@ -181,16 +181,22 @@ export async function start(): Promise<void> {
     return;
   }
 
-  // Wait for agents to spawn
-  await sleep(3000);
-
-  if (!isProcessRunning(pid)) {
-    console.error(`Agent failed to start. Check logs: ${logPathForCompany(company.id)}`);
-    process.exitCode = 1;
-    return;
+  // Poll for agent sessions (up to 30s)
+  process.stdout.write("Waiting for agents to spawn...");
+  let agentSessions: ReturnType<typeof discoverAgentSessions> = [];
+  const spawnDeadline = Date.now() + 30_000;
+  while (Date.now() < spawnDeadline) {
+    await sleep(2000);
+    if (!isProcessRunning(pid)) {
+      console.error(`\nAgent failed to start. Check logs: ${logPathForCompany(company.id)}`);
+      process.exitCode = 1;
+      return;
+    }
+    agentSessions = discoverAgentSessions(config.name);
+    if (agentSessions.length > 0) break;
+    process.stdout.write(".");
   }
-
-  const agentSessions = discoverAgentSessions(config.name);
+  console.log(agentSessions.length > 0 ? ` found ${agentSessions.length} agent(s).` : "");
 
   if (noTui) {
     console.log("Zazig started successfully (headless).");

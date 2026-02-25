@@ -28,6 +28,12 @@ export interface WorkspaceConfig {
   claudeMdContent: string;
   skills?: string[];
   repoSkillsDir?: string;
+  /**
+   * Pre-compiled sub-agent personality prompt. When present, written to
+   * `.claude/subagent-personality.md` so the agent can forward team values
+   * to sub-agents spawned via the Task tool.
+   */
+  subAgentPrompt?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +156,15 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     ),
   );
 
-  // 6. Copy skill files if provided
+  // 6. Write .claude/subagent-personality.md if provided
+  if (config.subAgentPrompt) {
+    writeFileSync(
+      join(claudeDir, "subagent-personality.md"),
+      config.subAgentPrompt,
+    );
+  }
+
+  // 7. Copy skill files if provided
   if (config.skills && config.repoSkillsDir && config.skills.length > 0) {
     for (const skillName of config.skills) {
       const skillPath = join(config.repoSkillsDir, `${skillName}.md`);
@@ -164,7 +178,7 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     }
   }
 
-  // 7. If the workspace is inside a git worktree, update .gitignore to prevent
+  // 8. If the workspace is inside a git worktree, update .gitignore to prevent
   //    agents from accidentally committing overlay files.
   const gitMarker = join(config.workspaceDir, ".git");
   if (existsSync(gitMarker)) {

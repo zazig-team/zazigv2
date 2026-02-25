@@ -214,4 +214,48 @@ describe("setupJobWorkspace", () => {
 
     expect(copyFileSyncMock).not.toHaveBeenCalled();
   });
+
+  it("writes subagent-personality.md when subAgentPrompt is provided", () => {
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-subagent",
+      role: "cpo",
+      claudeMdContent: "# Test",
+      subAgentPrompt: "## Standards\n- Be excellent",
+    });
+
+    const personalityCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) =>
+        typeof call[0] === "string" &&
+        (call[0] as string).includes("subagent-personality.md"),
+    );
+    expect(personalityCall).toBeDefined();
+    expect(personalityCall![1]).toBe("## Standards\n- Be excellent");
+  });
+
+  it("does not write subagent-personality.md when subAgentPrompt is absent", () => {
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-no-subagent",
+      role: "cpo",
+      claudeMdContent: "# Test",
+    });
+
+    const personalityCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) =>
+        typeof call[0] === "string" &&
+        (call[0] as string).includes("subagent-personality.md"),
+    );
+    expect(personalityCall).toBeUndefined();
+  });
 });

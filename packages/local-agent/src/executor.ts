@@ -424,7 +424,7 @@ export class JobExecutor {
    * Builds a synthetic StartJob-like message and delegates to handlePersistentJob.
    */
   async spawnPersistentAgent(
-    job: { role: string; prompt_stack: string; skills: string[]; model: string; slot_type: string },
+    job: { role: string; prompt_stack: string; skills: string[]; model: string; slot_type: string; compiled_sub_agent_prompt?: string | null },
     companyId: string,
   ): Promise<void> {
     const syntheticMsg = {
@@ -439,6 +439,7 @@ export class JobExecutor {
       role: job.role,
       context: job.prompt_stack,
       roleSkills: job.skills?.length ? job.skills : undefined,
+      subAgentPrompt: job.compiled_sub_agent_prompt ?? undefined,
     };
 
     // Acquire slot before spawning
@@ -584,6 +585,7 @@ export class JobExecutor {
         claudeMdContent: msg.context ?? "",
         skills: msg.roleSkills,
         repoSkillsDir: join(process.cwd(), "projects", "skills"),
+        subAgentPrompt: msg.subAgentPrompt,
       });
 
       // Persist context to DB for observability (fire-and-forget).

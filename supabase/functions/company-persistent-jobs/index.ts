@@ -85,7 +85,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Fetch personalities for this company
     const { data: personalities, error: persError } = await supabase
       .from("exec_personalities")
-      .select("role_id, compiled_prompt, roles!inner(name)")
+      .select("role_id, compiled_prompt, compiled_sub_agent_prompt, roles!inner(name)")
       .eq("company_id", companyId);
 
     if (persError) {
@@ -115,6 +115,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         skills: role.skills ?? [],
         model: role.default_model ?? "claude-opus-4-6",
         slot_type: role.slot_type ?? "claude_code",
+        compiled_sub_agent_prompt: personality?.compiled_sub_agent_prompt ?? null,
       };
     });
 

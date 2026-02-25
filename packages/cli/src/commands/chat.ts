@@ -149,10 +149,18 @@ export function launchTui(options: ChatOptions): void {
   }
 
   // --- All keystrokes forwarded to tmux except Tab and Ctrl+C ---
+  // Blessed fires duplicate keypress events per keystroke (~2ms apart).
+  // Dedup by timestamp: ignore events within 10ms of the previous identical key.
+  let lastKeyTime = 0;
+  let lastKeyFull = "";
 
   screen.on("keypress", (_ch: string | undefined, key: { sequence?: string; full: string; name: string; ctrl: boolean; meta: boolean; shift: boolean }) => {
-    // Blessed emits duplicate keypress events — the duplicate has undefined sequence
-    if (!key?.sequence) return;
+    if (!key) return;
+    const now = Date.now();
+    const id = key.full ?? key.sequence ?? "";
+    if (id === lastKeyFull && now - lastKeyTime < 10) return;
+    lastKeyTime = now;
+    lastKeyFull = id;
 
     // Ctrl+C: shutdown TUI
     if (key.ctrl && key.name === "c") {

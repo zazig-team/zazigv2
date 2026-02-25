@@ -21,10 +21,16 @@ import { stop } from "./commands/stop.js";
 import { status } from "./commands/status.js";
 import { personality } from "./commands/personality.js";
 import { chat } from "./commands/chat.js";
+import { getVersion } from "./lib/version.js";
 
 const [, , cmd, ...args] = process.argv;
 
 switch (cmd) {
+  case "--version":
+  case "-v":
+    console.log(getVersion());
+    break;
+
   case "login":
     await login();
     break;
@@ -57,10 +63,6 @@ switch (cmd) {
     await personality(args);
     break;
 
-  case "chat":
-    await chat();
-    break;
-
   case undefined:
   case "--help":
   case "-h":
@@ -76,7 +78,6 @@ switch (cmd) {
     console.log("  chat               Reconnect TUI to a running daemon");
     console.log("  status             Show agent state and active jobs");
     console.log("  personality <role> Show or switch exec personality (--show, --archetype)");
-    console.log("  chat               Open split-screen TUI to interact with agents");
     break;
 
   default:

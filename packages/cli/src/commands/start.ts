@@ -25,6 +25,7 @@ import {
   removePidFileForCompany,
 } from "../lib/daemon.js";
 import { launchTui, discoverAgentSessions } from "./chat.js";
+import { getVersion } from "../lib/version.js";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -136,6 +137,7 @@ export async function start(): Promise<void> {
     if (found) company = found;
   }
 
+  console.log(`zazig ${getVersion()}`);
   console.log(`Starting zazig for ${company.name}...`);
 
   // Stop existing daemon before (re)starting

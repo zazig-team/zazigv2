@@ -12,6 +12,7 @@ import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { getVersion } from "../lib/version.js";
 
 type Row = Record<string, unknown>;
 
@@ -57,7 +58,7 @@ export async function status(): Promise<void> {
   }
 
   const { pid } = daemon;
-  console.log(`Agent is running (PID ${pid}).`);
+  console.log(`zazig ${getVersion()} — agent running (PID ${pid})`);
 
   // Best-effort live state from Supabase — never fatal if this fails
   let creds;

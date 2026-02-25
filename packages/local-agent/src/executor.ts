@@ -476,10 +476,14 @@ export class JobExecutor {
     this.clearPersistentAgent();
 
     // Kill all remaining active tmux sessions and release slots
-    for (const [jobId, job] of this.activeJobs) {
+    for (const [, job] of this.activeJobs) {
       this.clearJobTimers(job);
       await killTmuxSession(job.sessionName);
-      cleanupJobWorkspace(jobId);
+      if (job.worktreePath && job.repoDir) {
+        await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      } else {
+        cleanupJobWorkspace(job.jobId);
+      }
       this.slots.release(job.slotType);
     }
     this.activeJobs.clear();
@@ -663,9 +667,22 @@ export class JobExecutor {
       }
     }
 
-    // Clean up log file
+    // Best-effort push: capture work even when stopping early
+    if (job.worktreePath && job.jobBranch) {
+      try {
+        await this.repoManager.pushJobBranch(job.worktreePath, job.jobBranch);
+      } catch (pushErr) {
+        console.warn(`[executor] handleStopJob: push failed for jobId=${jobId} (best-effort): ${String(pushErr)}`);
+      }
+    }
+
+    // Clean up log file and worktree
     deleteLogFile(job.logPath);
-    cleanupJobWorkspace(jobId);
+    if (job.worktreePath && job.repoDir) {
+      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+    } else {
+      cleanupJobWorkspace(jobId);
+    }
 
     // Release the slot
     this.slots.release(job.slotType);
@@ -752,8 +769,21 @@ export class JobExecutor {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
       }
     }
+    // Best-effort push: capture partial work on timeout
+    if (job.worktreePath && job.jobBranch) {
+      try {
+        await this.repoManager.pushJobBranch(job.worktreePath, job.jobBranch);
+      } catch (pushErr) {
+        console.warn(`[executor] onJobTimeout: push failed for jobId=${jobId} (best-effort): ${String(pushErr)}`);
+      }
+    }
+
     deleteLogFile(job.logPath);
-    cleanupJobWorkspace(jobId);
+    if (job.worktreePath && job.repoDir) {
+      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+    } else {
+      cleanupJobWorkspace(jobId);
+    }
 
     this.slots.release(job.slotType);
     await this.sendJobFailed(jobId, "Job exceeded 60-minute timeout", "timeout");
@@ -784,9 +814,11 @@ export class JobExecutor {
     const archiveDir = `${homeDir}/${REPORT_ARCHIVE_DIR}`;
     const jobReportPath = `${archiveDir}/${jobId}.md`;
 
-    // Candidate paths in priority order: workspace dir first, then $HOME
+    // Candidate paths in priority order: worktree first, then legacy workspace dir, then $HOME
     const candidatePaths: string[] = [];
-    if (job.workspaceDir) {
+    if (job.worktreePath) {
+      candidatePaths.push(`${job.worktreePath}/${REPORT_RELATIVE_PATH}`);
+    } else if (job.workspaceDir) {
       candidatePaths.push(`${job.workspaceDir}/${REPORT_RELATIVE_PATH}`);
     }
     candidatePaths.push(`${homeDir}/${REPORT_RELATIVE_PATH}`);
@@ -822,7 +854,20 @@ export class JobExecutor {
       }
     }
     deleteLogFile(job.logPath);
-    cleanupJobWorkspace(jobId);
+
+    // Push job branch and record in DB before sending JobComplete
+    if (job.worktreePath && job.jobBranch) {
+      try {
+        await this.repoManager.pushJobBranch(job.worktreePath, job.jobBranch);
+        console.log(`[executor] Pushed branch ${job.jobBranch} for jobId=${jobId}`);
+      } catch (pushErr) {
+        console.warn(`[executor] onJobEnded: push failed for jobId=${jobId}: ${String(pushErr)}`);
+      }
+      await this.supabase.from("jobs").update({ branch: job.jobBranch }).eq("id", jobId);
+      await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
+    } else {
+      cleanupJobWorkspace(jobId);
+    }
 
     await this.sendJobComplete(jobId, result, report);
 

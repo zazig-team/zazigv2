@@ -277,7 +277,13 @@ export class JobExecutor {
     const reportPath = `${process.env["HOME"] ?? "/tmp"}/${REPORT_RELATIVE_PATH}`;
     try { unlinkSync(reportPath); } catch { /* no stale report — fine */ }
 
-    // --- 6. Spawn tmux session ---
+    // --- 6. Kill stale tmux session if it exists (from a previous dispatch) ---
+    if (await isTmuxSessionAlive(sessionName)) {
+      console.warn(`[executor] Stale tmux session ${sessionName} exists — killing before respawn`);
+      await killTmuxSession(sessionName);
+    }
+
+    // --- 6a. Spawn tmux session ---
     try {
       await spawnTmuxSession(sessionName, cmd, args, ephemeralWorkspaceDir, promptFilePath);
     } catch (err) {

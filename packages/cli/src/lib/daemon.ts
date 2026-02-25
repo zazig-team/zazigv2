@@ -30,7 +30,14 @@ export const LOG_PATH = join(LOG_DIR, "agent.log");
  */
 function resolveAgentEntry(): string {
   try {
-    return fileURLToPath(import.meta.resolve("@zazigv2/local-agent"));
+    const resolved = fileURLToPath(import.meta.resolve("@zazigv2/local-agent"));
+    // When CLI is run via tsx, import.meta.resolve returns the .ts source path.
+    // The daemon spawns with raw node, so we must always point to dist/index.js.
+    if (resolved.includes("/src/") || resolved.endsWith(".ts")) {
+      const pkgDir = resolved.replace(/\/src\/.*$/, "");
+      return resolve(pkgDir, "dist/index.js");
+    }
+    return resolved;
   } catch {
     // Dev fallback: CLI is at packages/cli/dist/index.js,
     // local-agent is at packages/local-agent/dist/index.js

@@ -438,6 +438,7 @@ export class JobExecutor {
       model: job.model,
       role: job.role,
       context: job.prompt_stack,
+      roleSkills: job.skills?.length ? job.skills : undefined,
     };
 
     // Acquire slot before spawning
@@ -581,6 +582,8 @@ export class JobExecutor {
         companyId: resolvedCompanyId,
         role,
         claudeMdContent: msg.context ?? "",
+        skills: msg.roleSkills,
+        repoSkillsDir: join(process.cwd(), "projects", "skills"),
       });
 
       // Persist context to DB for observability (fire-and-forget).

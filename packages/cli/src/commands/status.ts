@@ -86,8 +86,7 @@ export async function status(): Promise<void> {
         `${creds.supabaseUrl}/rest/v1/jobs` +
           `?select=id,status,context,slot_type,job_type` +
           `&machine_id=eq.${encodeURIComponent(machineId)}` +
-          `&status=in.(queued,dispatched,executing,reviewing)` +
-          `&job_type=neq.persistent_agent`,
+          `&status=in.(queued,dispatched,executing,reviewing)`,
         headers
       );
 
@@ -115,25 +114,23 @@ export async function status(): Promise<void> {
       .filter((id) => id.length > 0);
 
     if (companyIds.length > 0) {
-      const persistentJobs = await apiFetch(
-        `${creds.supabaseUrl}/rest/v1/jobs` +
-          `?select=id,status,role,machine_id,company_id` +
-          `&job_type=eq.persistent_agent` +
+      const persistentAgents = await apiFetch(
+        `${creds.supabaseUrl}/rest/v1/persistent_agents` +
+          `?select=id,role,status,machine_id,last_heartbeat` +
           `&company_id=in.(${companyIds.join(",")})`,
         headers
       );
 
-      if (persistentJobs.length > 0) {
+      if (Array.isArray(persistentAgents) && persistentAgents.length > 0) {
         console.log(`  Persistent agents:`);
-        for (const job of persistentJobs) {
-          const role = String(job.role ?? "unknown").toUpperCase();
-          const jobStatus = String(job.status ?? "unknown");
-          const assigned = job.machine_id ? ` on ${job.machine_id === machineId ? "this machine" : "other"}` : "";
-          const icon = jobStatus === "executing" ? "●" : jobStatus === "queued" ? "○" : "◌";
-          console.log(`    ${icon} ${role.padEnd(12)} ${jobStatus}${assigned}`);
+        for (const agent of persistentAgents) {
+          const role = String(agent.role ?? "unknown").toUpperCase();
+          const agentStatus = String(agent.status ?? "unknown");
+          const isLocal = agent.machine_id === machineId;
+          const localTag = isLocal ? " (this machine)" : "";
+          const icon = agentStatus === "running" ? "●" : "○";
+          console.log(`    ${icon} ${role.padEnd(12)} ${agentStatus}${localTag}`);
         }
-      } else {
-        console.log(`  Persistent agents: none`);
       }
     }
   } catch (err) {

@@ -99,3 +99,63 @@ export function removePidFile(): void {
     // File may already be gone — that's fine
   }
 }
+
+/* ── Per-company PID management ────────────────────────────────── */
+
+export function pidPathForCompany(companyId: string): string {
+  return join(ZAZIGV2_DIR, `${companyId}.pid`);
+}
+
+export function logPathForCompany(companyId: string): string {
+  mkdirSync(LOG_DIR, { recursive: true });
+  return join(LOG_DIR, `${companyId}.log`);
+}
+
+export function readPidForCompany(companyId: string): number | null {
+  try {
+    const raw = readFileSync(pidPathForCompany(companyId), "utf-8").trim();
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isDaemonRunningForCompany(companyId: string): boolean {
+  const pid = readPidForCompany(companyId);
+  return pid !== null && isRunning(pid);
+}
+
+export function removePidFileForCompany(companyId: string): void {
+  try {
+    unlinkSync(pidPathForCompany(companyId));
+  } catch {
+    /* already gone */
+  }
+}
+
+export function startDaemonForCompany(
+  env: NodeJS.ProcessEnv,
+  companyId: string
+): number {
+  mkdirSync(LOG_DIR, { recursive: true });
+  mkdirSync(ZAZIGV2_DIR, { recursive: true });
+
+  const agentEntry = resolveAgentEntry();
+  const logPath = logPathForCompany(companyId);
+  const logFd = openSync(logPath, "a");
+
+  const child = spawn(process.execPath, [agentEntry], {
+    detached: true,
+    stdio: ["ignore", logFd, logFd],
+    env,
+  });
+
+  child.unref();
+
+  const pid = child.pid;
+  if (pid == null) throw new Error("Spawn succeeded but no PID was assigned");
+
+  writeFileSync(pidPathForCompany(companyId), String(pid) + "\n");
+  return pid;
+}

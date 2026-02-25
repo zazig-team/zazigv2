@@ -1,52 +1,68 @@
 /**
  * stop.ts — zazig stop
  *
- * Sends SIGTERM to the running daemon, waits up to 10s for graceful
- * shutdown, then falls back to SIGKILL if the process is still alive.
+ * Sends SIGTERM to the running daemon for the selected company,
+ * waits up to 10s for graceful shutdown, then falls back to SIGKILL.
  */
 
-import { readPid, isRunning, removePidFile } from "../lib/daemon.js";
+import { fetchUserCompanies, pickCompany } from "../lib/company-picker.js";
+import { getValidCredentials } from "../lib/credentials.js";
+import {
+  readPidForCompany,
+  removePidFileForCompany,
+} from "../lib/daemon.js";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function stop(): Promise<void> {
-  const pid = readPid();
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-  if (pid === null || !isRunning(pid)) {
-    console.log("Agent is not running.");
-    removePidFile(); // Clean up stale PID file if present
+export async function stop(): Promise<void> {
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    console.error("Not logged in. Run 'zazig login' first.");
+    process.exitCode = 1;
     return;
   }
 
-  process.stdout.write(`Stopping agent (PID ${pid})...`);
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? "";
+  const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
+  const company = await pickCompany(companies);
+
+  const pid = readPidForCompany(company.id);
+  if (!pid || !isRunning(pid)) {
+    console.log(`Agent is not running for ${company.name}.`);
+    return;
+  }
+
+  process.stdout.write(`Stopping zazig for ${company.name} (PID ${pid})...`);
 
   try {
     process.kill(pid, "SIGTERM");
-  } catch {
-    console.log(" (failed to send SIGTERM — process may already be gone)");
-    removePidFile();
-    return;
-  }
+  } catch { /* */ }
 
-  // Wait up to 10s for graceful exit (local-agent handles SIGTERM)
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     await sleep(200);
-    if (!isRunning(pid)) {
-      console.log(" stopped.");
-      removePidFile();
-      return;
-    }
+    if (!isRunning(pid)) break;
   }
 
-  // Grace period exhausted — force kill
-  try {
-    process.kill(pid, "SIGKILL");
-    console.log(" killed (SIGKILL after 10s timeout).");
-  } catch {
-    console.log(" process already gone.");
+  if (isRunning(pid)) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch { /* */ }
   }
-  removePidFile();
+
+  removePidFileForCompany(company.id);
+  console.log(" stopped.");
 }

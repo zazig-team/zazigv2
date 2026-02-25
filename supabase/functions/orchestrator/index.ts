@@ -2060,6 +2060,102 @@ async function processReadyForBreakdown(supabase: SupabaseClient): Promise<void>
 }
 
 // ---------------------------------------------------------------------------
+// Feature lifecycle polling — catch transitions missed by Realtime
+// ---------------------------------------------------------------------------
+
+/**
+ * Polls for features whose lifecycle transitions were missed because the
+ * executor writes job status directly to the DB and the orchestrator's 4s
+ * Realtime window may not catch the job_complete broadcast.
+ *
+ * Handles two transitions:
+ *   breakdown → building: all breakdown jobs for the feature are complete
+ *   building → combining: all implementation jobs are complete
+ */
+async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> {
+  // --- 1. breakdown → building ---
+  // Features stuck in 'breakdown' where the breakdown job is complete
+  const { data: breakdownFeatures, error: bErr } = await supabase
+    .from("features")
+    .select("id, company_id")
+    .eq("status", "breakdown")
+    .limit(50);
+
+  if (bErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying breakdown features:", bErr.message);
+  }
+
+  for (const feature of breakdownFeatures ?? []) {
+    // Check if breakdown job(s) for this feature are all complete or failed
+    const { data: pendingBreakdown } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "breakdown")
+      .not("status", "in", '("complete","failed")')
+      .limit(1);
+
+    if (!pendingBreakdown || pendingBreakdown.length === 0) {
+      // All breakdown jobs done — transition to building
+      const { data: updated } = await supabase
+        .from("features")
+        .update({ status: "building" })
+        .eq("id", feature.id)
+        .eq("status", "breakdown")
+        .select("id");
+
+      if (updated && updated.length > 0) {
+        console.log(`[orchestrator] processFeatureLifecycle: feature ${feature.id} breakdown → building`);
+
+        // Notify CPO
+        const { data: featureJobs } = await supabase
+          .from("jobs")
+          .select("id, depends_on")
+          .eq("feature_id", feature.id)
+          .eq("status", "queued")
+          .neq("job_type", "breakdown");
+        const totalJobs = featureJobs?.length ?? 0;
+        const dispatchable = featureJobs?.filter(
+          (j: { depends_on: string[] | null }) => !j.depends_on || j.depends_on.length === 0,
+        ).length ?? 0;
+        const { data: feat } = await supabase
+          .from("features")
+          .select("title")
+          .eq("id", feature.id)
+          .single();
+        await notifyCPO(
+          supabase,
+          feature.company_id,
+          `Feature "${feat?.title ?? feature.id}" broken into ${totalJobs} jobs. ${dispatchable} immediately dispatchable.`,
+        );
+      }
+    }
+  }
+
+  // --- 2. building → combining ---
+  // Features stuck in 'building' where all implementation jobs are complete
+  const { data: buildingFeatures, error: buildErr } = await supabase
+    .from("features")
+    .select("id")
+    .eq("status", "building")
+    .limit(50);
+
+  if (buildErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying building features:", buildErr.message);
+  }
+
+  for (const feature of (buildingFeatures ?? []) as { id: string }[]) {
+    const { data: allDone } = await supabase
+      .rpc("all_feature_jobs_complete", { p_feature_id: feature.id });
+
+    if (allDone) {
+      console.log(`[orchestrator] processFeatureLifecycle: all jobs done for feature ${feature.id} — triggering combining`);
+      await triggerCombining(supabase, feature.id);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Deploy result handlers
 // ---------------------------------------------------------------------------
 
@@ -2460,7 +2556,12 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 3. Process ready_for_breakdown features → create breakdown jobs.
     await processReadyForBreakdown(supabase);
 
-    // 4. Dispatch queued jobs to available machines.
+    // 4. Catch missed feature lifecycle transitions (breakdown→building, building→combining).
+    //    The executor writes job status directly to DB — if the Realtime broadcast was
+    //    missed during the 4s listen window, these transitions would never fire.
+    await processFeatureLifecycle(supabase);
+
+    // 5. Dispatch queued jobs to available machines.
     await dispatchQueuedJobs(supabase);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

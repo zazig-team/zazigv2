@@ -49,23 +49,48 @@ Cloud orchestration platform that dispatches AI coding agents (Claude Code, Code
 # Install dependencies
 npm install
 
-# Build all packages
+# Build all packages (required after every git pull)
 npm run build
 
-# Configure local agent
-# Create ~/.zazigv2/machine.yaml:
-#   name: your-machine-name
-#   company_id: <your-company-uuid>
-#   slots:
-#     claude_code: 3
-#     codex: 2
-#   supabase:
-#     url: <your-supabase-url>
-
-# Start the local agent (secrets from Doppler)
-cd packages/local-agent
-doppler run --project zazig --config prd -- npm start
+# Start zazig (picks company, spawns daemon + persistent agents, opens TUI)
+npx tsx packages/cli/src/index.ts start
 ```
+
+## Running Zazig
+
+### Start
+```bash
+npx tsx packages/cli/src/index.ts start
+```
+This will:
+1. Prompt you to pick a company (if you belong to more than one)
+2. Spawn a background daemon (detached — you can close the terminal)
+3. Discover persistent agents (CPO, etc.) from the backend
+4. Launch them as tmux sessions
+5. Open a split-screen TUI showing the active agent
+
+### Reconnect to TUI
+If you close the terminal but the daemon is still running:
+```bash
+npx tsx packages/cli/src/index.ts chat
+```
+
+### Stop
+```bash
+npx tsx packages/cli/src/index.ts stop
+```
+
+### After pulling new code
+The daemon runs compiled JS, not TypeScript. After `git pull`:
+```bash
+npx tsx packages/cli/src/index.ts stop   # stop current daemon
+npm run build                             # rebuild dist/
+npx tsx packages/cli/src/index.ts start   # restart
+```
+
+### Logs
+- Per-company: `~/.zazigv2/logs/<company-id>.log`
+- Agent workspaces: `~/.zazigv2/<company-id>-<role>-workspace/`
 
 ## Project Structure
 

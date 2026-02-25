@@ -284,6 +284,13 @@ export interface MessageInbound {
   from: string;
   /** Message content. */
   text: string;
+  /**
+   * Target persistent agent role (e.g. "cpo", "cto").
+   * When present, the local agent routes the message to the matching persistent session.
+   * Omit for backward compatibility with single-role deployments — the agent falls back
+   * to the sole running persistent agent automatically.
+   */
+  role?: string;
 }
 
 /**

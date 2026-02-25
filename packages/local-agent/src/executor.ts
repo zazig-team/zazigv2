@@ -105,8 +105,23 @@ interface ActiveJob {
   jobBranch?: string;
 }
 
+interface ActivePersistentAgent {
+  role: string;
+  /** Tmux session name used for send-keys injection. */
+  tmuxSession: string;
+  jobId: string;
+  companyId: string;
+  heartbeatTimer: ReturnType<typeof setInterval> | null;
+  /** Timestamp (ms) when the session was spawned — used to gate startup delay. */
+  startedAt: number;
+}
+
 interface QueuedMessage {
   text: string;
+  /** Tmux session to inject into. */
+  sessionName: string;
+  /** Spawn timestamp — used for startup delay check. */
+  startedAt: number;
   resolve: () => void;
   reject: (err: unknown) => void;
 }
@@ -137,19 +152,13 @@ export class JobExecutor {
   /** Manages bare repo clones and job worktrees for all dispatched jobs. */
   private readonly repoManager = new RepoManager();
 
-  /** jobId of the active CPO persistent agent job, if any. */
-  private persistentJobId: string | null = null;
-
-  /** Role of the active persistent agent (for DB updates on shutdown). */
-  private persistentJobRole: string | null = null;
-
-  /** Heartbeat timer for updating persistent_agents.last_heartbeat. */
-  private persistentHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /** Map of role → active persistent agent state. Supports simultaneous CPO, CTO, etc. */
+  private readonly persistentAgents = new Map<string, ActivePersistentAgent>();
 
   /** Cached machine UUID for persistent_agents DB writes. */
   private machineUuid: string | null = null;
 
-  /** Message queue for injecting into CPO tmux session when idle. */
+  /** Message queue for injecting into persistent agent tmux sessions. */
   private readonly messageQueue: QueuedMessage[] = [];
   private processingQueue = false;
 
@@ -421,24 +430,36 @@ export class JobExecutor {
 
   /**
    * Handles an inbound message from an external platform (Slack, Discord, etc.)
-   * by formatting it and injecting into the CPO's tmux session.
-   * Messages are queued and injected one at a time, waiting for CPO idle state.
+   * by formatting it and injecting into the target persistent agent's tmux session.
+   * Messages are queued and injected one at a time.
+   *
+   * Routing: uses msg.role when present; falls back to the single running agent
+   * (backward-compatible with single-role deployments where role is omitted).
    */
   handleMessageInbound(msg: MessageInbound): void {
-    if (!this.persistentJobId) {
-      console.warn(`[executor] MessageInbound dropped — no CPO job running. from=${msg.from}, conversationId=${msg.conversationId}`);
+    if (this.persistentAgents.size === 0) {
+      console.warn(`[executor] MessageInbound dropped — no persistent agents running. from=${msg.from}, conversationId=${msg.conversationId}`);
       return;
     }
 
-    const job = this.activeJobs.get(this.persistentJobId);
-    if (!job) {
-      console.warn(`[executor] MessageInbound dropped — CPO job not in activeJobs. persistentJobId=${this.persistentJobId}`);
+    // Determine target role: explicit > sole running agent (backward compat) > warn
+    const targetRole = msg.role
+      ?? (this.persistentAgents.size === 1 ? this.persistentAgents.keys().next().value : undefined);
+
+    if (!targetRole) {
+      console.warn(`[executor] MessageInbound dropped — multiple persistent agents running but no role specified. from=${msg.from}, conversationId=${msg.conversationId}`);
+      return;
+    }
+
+    const agent = this.persistentAgents.get(targetRole);
+    if (!agent) {
+      console.warn(`[executor] MessageInbound dropped — no persistent agent for role=${targetRole}. from=${msg.from}, conversationId=${msg.conversationId}`);
       return;
     }
 
     const formatted = `[Message from ${msg.from}, conversation:${msg.conversationId}]\n${msg.text}`;
-    console.log(`[executor] Queuing inbound message from ${msg.from} for CPO session=${job.sessionName}`);
-    void this.enqueueMessage(formatted);
+    console.log(`[executor] Queuing inbound message from ${msg.from} for role=${targetRole} session=${agent.tmuxSession}`);
+    void this.enqueueMessage(formatted, agent.tmuxSession, agent.startedAt);
   }
 
   // ---------------------------------------------------------------------------
@@ -473,6 +494,7 @@ export class JobExecutor {
    * disconnecting from Supabase.
    */
   async stopAll(): Promise<void> {
+    // Clear all persistent agents (fires DB status updates + stops heartbeat timers)
     this.clearPersistentAgent();
 
     // Kill all remaining active tmux sessions and release slots
@@ -593,13 +615,23 @@ export class JobExecutor {
       return;
     }
 
-    this.persistentJobId = jobId;
-    this.persistentJobRole = role;
+    const spawnedAt = Date.now();
+
+    // Register persistent agent in map keyed by role
+    const persistentAgent: ActivePersistentAgent = {
+      role,
+      tmuxSession: sessionName,
+      jobId,
+      companyId: resolvedCompanyId,
+      heartbeatTimer: null,
+      startedAt: spawnedAt,
+    };
+    this.persistentAgents.set(role, persistentAgent);
 
     // Start heartbeat timer for persistent_agents table
     if (resolvedCompanyId && this.machineUuid) {
       const uuid = this.machineUuid;
-      this.persistentHeartbeatTimer = setInterval(() => {
+      persistentAgent.heartbeatTimer = setInterval(() => {
         this.supabase
           .from("persistent_agents")
           .update({ last_heartbeat: new Date().toISOString() })
@@ -620,7 +652,7 @@ export class JobExecutor {
       pollTimer: null,
       timeoutTimer: null,
       settled: false,
-      startedAt: Date.now(),
+      startedAt: spawnedAt,
       logPath: "",
       lastBytesSent: 0,
     });
@@ -647,9 +679,10 @@ export class JobExecutor {
     this.clearJobTimers(job);
     this.activeJobs.delete(jobId);
 
-    // Clear persistent agent state if this is the persistent job
-    if (jobId === this.persistentJobId) {
-      this.clearPersistentAgent();
+    // Clear persistent agent state if this is a persistent job
+    const stoppedPersistentRole = [...this.persistentAgents.values()].find(a => a.jobId === jobId)?.role;
+    if (stoppedPersistentRole) {
+      this.clearPersistentAgent(stoppedPersistentRole);
     }
 
     // Kill the tmux session (best-effort)
@@ -751,9 +784,10 @@ export class JobExecutor {
     this.clearJobTimers(job);
     this.activeJobs.delete(jobId);
 
-    // Clear persistent agent state if this is the persistent job (should not time out, but handle defensively)
-    if (jobId === this.persistentJobId) {
-      this.clearPersistentAgent();
+    // Clear persistent agent state if this is a persistent job (should not time out, but handle defensively)
+    const timedOutPersistentRole = [...this.persistentAgents.values()].find(a => a.jobId === jobId)?.role;
+    if (timedOutPersistentRole) {
+      this.clearPersistentAgent(timedOutPersistentRole);
     }
 
     await killTmuxSession(job.sessionName);
@@ -803,8 +837,9 @@ export class JobExecutor {
     this.slots.release(job.slotType);
 
     // Clear persistent agent state if the persistent session exited unexpectedly
-    if (jobId === this.persistentJobId) {
-      this.clearPersistentAgent();
+    const exitedPersistentRole = [...this.persistentAgents.values()].find(a => a.jobId === jobId)?.role;
+    if (exitedPersistentRole) {
+      this.clearPersistentAgent(exitedPersistentRole);
     }
 
     // Look for the report file. Agents write .claude/cpo-report.md relative to
@@ -887,9 +922,9 @@ export class JobExecutor {
   // Private: Message injection queue (ported from SlackChatRouter)
   // ---------------------------------------------------------------------------
 
-  private enqueueMessage(message: string): Promise<void> {
+  private enqueueMessage(message: string, sessionName: string, startedAt: number): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.messageQueue.push({ text: message, resolve, reject });
+      this.messageQueue.push({ text: message, sessionName, startedAt, resolve, reject });
       if (!this.processingQueue) {
         void this.processMessageQueue();
       }
@@ -901,7 +936,7 @@ export class JobExecutor {
     while (this.messageQueue.length > 0) {
       const item = this.messageQueue.shift()!;
       try {
-        await this.injectMessage(item.text);
+        await this.injectMessage(item.text, item.sessionName, item.startedAt);
         item.resolve();
       } catch (err) {
         console.error("[executor] Failed to inject message:", err);
@@ -912,22 +947,16 @@ export class JobExecutor {
   }
 
   /**
-   * Injects a message into the CPO tmux session immediately.
+   * Injects a message into a persistent agent's tmux session immediately.
    * Claude Code's interactive TUI auto-queues input — no idle detection needed.
    * If the session just started, waits for CPO_STARTUP_DELAY_MS to let Claude Code initialize.
    */
-  private async injectMessage(message: string): Promise<void> {
-    const cpoJob = this.persistentJobId ? this.activeJobs.get(this.persistentJobId) : null;
-    if (!cpoJob) {
-      console.warn("[executor] injectMessage: no CPO job — dropping message");
-      return;
-    }
-
+  private async injectMessage(message: string, sessionName: string, startedAt: number): Promise<void> {
     // Wait for Claude Code to finish initializing if the session just spawned
-    const elapsed = Date.now() - cpoJob.startedAt;
+    const elapsed = Date.now() - startedAt;
     if (elapsed < CPO_STARTUP_DELAY_MS) {
       const wait = CPO_STARTUP_DELAY_MS - elapsed;
-      console.log(`[executor] CPO session is ${Math.round(elapsed / 1000)}s old — waiting ${Math.round(wait / 1000)}s for startup`);
+      console.log(`[executor] Session ${sessionName} is ${Math.round(elapsed / 1000)}s old — waiting ${Math.round(wait / 1000)}s for startup`);
       await sleep(wait);
     }
 
@@ -936,10 +965,10 @@ export class JobExecutor {
 
     // Use -l (literal) flag so control sequences are not interpreted as keystrokes.
     // Send Enter as a separate keystroke.
-    await execFileAsync("tmux", ["send-keys", "-t", cpoJob.sessionName, "-l", singleLine]);
-    await execFileAsync("tmux", ["send-keys", "-t", cpoJob.sessionName, "Enter"]);
+    await execFileAsync("tmux", ["send-keys", "-t", sessionName, "-l", singleLine]);
+    await execFileAsync("tmux", ["send-keys", "-t", sessionName, "Enter"]);
 
-    console.log(`[executor] Injected message into CPO session=${cpoJob.sessionName}`);
+    console.log(`[executor] Injected message into session=${sessionName}`);
   }
 
   // ---------------------------------------------------------------------------
@@ -947,30 +976,36 @@ export class JobExecutor {
   // ---------------------------------------------------------------------------
 
   /**
-   * Marks the persistent agent as stopped in the DB and clears the heartbeat timer.
-   * Called before nulling persistentJobId on any shutdown path.
+   * Marks a persistent agent as stopped in the DB, clears its heartbeat timer,
+   * and removes it from the persistentAgents map.
+   *
+   * @param role - The role key to look up in persistentAgents. If omitted, clears ALL agents.
    */
-  private clearPersistentAgent(): void {
-    if (this.persistentHeartbeatTimer) {
-      clearInterval(this.persistentHeartbeatTimer);
-      this.persistentHeartbeatTimer = null;
-    }
+  private clearPersistentAgent(role?: string): void {
+    const agentsToClear = role
+      ? (this.persistentAgents.has(role) ? [this.persistentAgents.get(role)!] : [])
+      : [...this.persistentAgents.values()];
 
-    const companyId = process.env["ZAZIG_COMPANY_ID"] ?? "";
-    if (companyId && this.persistentJobRole && this.machineUuid) {
-      this.supabase
-        .from("persistent_agents")
-        .update({ status: "stopped" })
-        .eq("company_id", companyId)
-        .eq("role", this.persistentJobRole)
-        .eq("machine_id", this.machineUuid)
-        .then(({ error }) => {
-          if (error) console.warn(`[executor] Failed to update persistent_agents status: ${error.message}`);
-        });
-    }
+    for (const agent of agentsToClear) {
+      if (agent.heartbeatTimer) {
+        clearInterval(agent.heartbeatTimer);
+        agent.heartbeatTimer = null;
+      }
 
-    this.persistentJobId = null;
-    this.persistentJobRole = null;
+      if (agent.companyId && this.machineUuid) {
+        this.supabase
+          .from("persistent_agents")
+          .update({ status: "stopped" })
+          .eq("company_id", agent.companyId)
+          .eq("role", agent.role)
+          .eq("machine_id", this.machineUuid)
+          .then(({ error }) => {
+            if (error) console.warn(`[executor] Failed to update persistent_agents status for role=${agent.role}: ${error.message}`);
+          });
+      }
+
+      this.persistentAgents.delete(agent.role);
+    }
   }
 
   // ---------------------------------------------------------------------------

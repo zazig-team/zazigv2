@@ -474,11 +474,53 @@ server.tool(
 );
 
 server.tool(
+  "execute_sql",
+  "Execute a scoped SQL statement against the pipeline database. Restricted to jobs, features, agent_events, machines tables. Used by pipeline-technician for prescribed operations.",
+  {
+    sql: z.string().describe("The SQL statement to execute"),
+    expected_affected_rows: z.number().optional().describe("Expected number of affected rows — triggers warning on mismatch"),
+  },
+  async ({ sql, expected_affected_rows }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/execute-sql`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ sql, expected_affected_rows }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { rows: unknown[]; affected_rows: number; warning?: string };
+      let text = `Rows affected: ${data.affected_rows}\nResult: ${JSON.stringify(data.rows, null, 2)}`;
+      if (data.warning) text += `\n⚠️ WARNING: ${data.warning}`;
+      return { content: [{ type: "text" as const, text }] };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to execute SQL (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  },
+);
+
+server.tool(
   "commission_contractor",
   "Commission an ephemeral contractor to perform pipeline work. Used by the CPO to dispatch Project Architects (featurify), Monitoring Agents, or Verification Specialists.",
   {
     company_id: z.string().describe("Company UUID"),
-    role: z.enum(["project-architect", "monitoring-agent", "verification-specialist"]).describe("Contractor role to commission"),
+    role: z.enum(["project-architect", "monitoring-agent", "verification-specialist", "pipeline-technician"]).describe("Contractor role to commission"),
     project_id: z.string().describe("Target project UUID"),
     feature_id: z.string().optional().describe("Target feature UUID (required for verification-specialist)"),
     context: z.string().optional().describe("Additional instructions from the CPO"),

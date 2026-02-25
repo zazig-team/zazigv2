@@ -927,7 +927,7 @@
 
       function getCompanySlug() {
         var seg = window.location.pathname.replace(/^\/+/, '').replace(/\/+$/, '').split('/')[0];
-        return seg || null;
+        return seg ? decodeURIComponent(seg) : null;
       }
 
       async function resolveCompany(slug) {

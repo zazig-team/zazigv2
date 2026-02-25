@@ -6,10 +6,10 @@
  *   - .mcp.json           — MCP server config pointing at zazig-messaging
  *   - CLAUDE.md           — context / prompt stack for the agent
  *   - .claude/settings.json — role-scoped tool permissions
- *   - .claude/skills/     — optional skill files copied from the repo
+ *   - .claude/skills/     — optional skill files copied (or symlinked) from the repo
  */
 
-import { writeFileSync, mkdirSync, existsSync, copyFileSync, readFileSync, appendFileSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, copyFileSync, readFileSync, appendFileSync, lstatSync, symlinkSync, readlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -30,6 +30,8 @@ export interface WorkspaceConfig {
   repoSkillsDir?: string;
   /** MCP tool names this role may invoke. Forwarded as ZAZIG_ALLOWED_TOOLS env var. */
   mcpTools?: string[];
+  useSymlinks?: boolean;           // default: false (copies)
+  repoInteractiveSkillsDir?: string; // path to .claude/skills/ in repo root
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +115,64 @@ export function generateAllowedTools(role: string, mcpTools?: string[]): string[
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolves the source path for a named skill, trying in priority order:
+ *   1. {repoSkillsDir}/{name}/SKILL.md  (directory format — pipeline skills)
+ *   2. {repoSkillsDir}/{name}.md        (flat file format)
+ *   3. {repoInteractiveSkillsDir}/{name}/SKILL.md (interactive skills)
+ * Returns the resolved path or null if not found.
+ */
+function resolveSkillSource(
+  skillName: string,
+  repoSkillsDir: string,
+  repoInteractiveSkillsDir?: string,
+): string | null {
+  const dirFormat = join(repoSkillsDir, skillName, "SKILL.md");
+  if (existsSync(dirFormat)) return dirFormat;
+
+  const flatFormat = join(repoSkillsDir, `${skillName}.md`);
+  if (existsSync(flatFormat)) return flatFormat;
+
+  if (repoInteractiveSkillsDir) {
+    const interactiveFormat = join(repoInteractiveSkillsDir, skillName, "SKILL.md");
+    if (existsSync(interactiveFormat)) return interactiveFormat;
+  }
+
+  return null;
+}
+
+/**
+ * Installs a skill file at destPath, either as a copy or symlink depending
+ * on useSymlinks. Handles idempotency and broken-symlink repair.
+ */
+function installSkillFile(sourcePath: string, destPath: string, useSymlinks: boolean): void {
+  if (useSymlinks) {
+    let destStat: { isSymbolicLink(): boolean; isFile(): boolean } | null = null;
+    try {
+      destStat = lstatSync(destPath);
+    } catch {
+      // dest doesn't exist — create fresh symlink below
+    }
+
+    if (destStat !== null) {
+      if (destStat.isSymbolicLink()) {
+        const currentTarget = readlinkSync(destPath);
+        if (currentTarget === sourcePath) {
+          return; // already pointing at the right place — skip
+        }
+        unlinkSync(destPath);
+      } else {
+        // regular file copy — replace with symlink
+        unlinkSync(destPath);
+      }
+    }
+
+    symlinkSync(sourcePath, destPath);
+  } else {
+    copyFileSync(sourcePath, destPath);
+  }
+}
+
+/**
  * Creates (or overwrites) a complete workspace directory for a job or
  * persistent agent. The resulting directory contains everything Claude Code
  * needs to run with the correct MCP server, permissions, prompt, and skills.
@@ -154,17 +214,22 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     ),
   );
 
-  // 6. Copy skill files if provided
+  // 6. Copy or symlink skill files if provided
   if (config.skills && config.repoSkillsDir && config.skills.length > 0) {
+    const useSymlinks = config.useSymlinks ?? false;
     for (const skillName of config.skills) {
-      const skillPath = join(config.repoSkillsDir, `${skillName}.md`);
-      if (existsSync(skillPath)) {
-        const destDir = join(config.workspaceDir, ".claude", "skills", skillName);
-        mkdirSync(destDir, { recursive: true });
-        copyFileSync(skillPath, join(destDir, "SKILL.md"));
-      } else {
-        console.warn(`[workspace] Skill file not found: ${skillPath}`);
+      const sourcePath = resolveSkillSource(
+        skillName,
+        config.repoSkillsDir,
+        config.repoInteractiveSkillsDir,
+      );
+      if (sourcePath === null) {
+        console.warn(`[workspace] Skill file not found: ${skillName}`);
+        continue;
       }
+      const destDir = join(config.workspaceDir, ".claude", "skills", skillName);
+      mkdirSync(destDir, { recursive: true });
+      installSkillFile(sourcePath, join(destDir, "SKILL.md"), useSymlinks);
     }
   }
 

@@ -2,7 +2,8 @@
  * chat.ts — split-screen TUI for persistent agent interaction.
  *
  * Top: read-only stream of active agent tmux session (capture-pane polling).
- * Bottom: status bar + input line.
+ * Bottom: status bar.
+ * All keystrokes forwarded directly to the active tmux session.
  * Tab: switch between persistent agents.
  * Ctrl+C: graceful shutdown (stops daemon + agents).
  */
@@ -63,12 +64,12 @@ export function launchTui(options: ChatOptions): void {
     title: `zazig — ${companyName}`,
   });
 
-  // --- Top: agent output ---
+  // --- Agent output (full height minus status bar) ---
   const outputBox = blessed.box({
     top: 0,
     left: 0,
     width: "100%",
-    height: "100%-3",
+    height: "100%-1",
     scrollable: true,
     alwaysScroll: true,
     scrollbar: { ch: "│" },
@@ -78,7 +79,7 @@ export function launchTui(options: ChatOptions): void {
 
   // --- Status bar ---
   const statusBar = blessed.box({
-    bottom: 2,
+    bottom: 0,
     left: 0,
     width: "100%",
     height: 1,
@@ -86,29 +87,8 @@ export function launchTui(options: ChatOptions): void {
     style: { fg: "white", bg: "blue" },
   });
 
-  // --- Input line (plain box — we handle keystrokes manually to avoid blessed double-input bugs) ---
-  let inputBuffer = "";
-  const inputBox = blessed.box({
-    bottom: 0,
-    left: 0,
-    width: "100%",
-    height: 3,
-    border: { type: "line" },
-    style: {
-      fg: "white",
-      bg: "black",
-      border: { fg: "gray" },
-    },
-  });
-
-  function renderInput(): void {
-    inputBox.setContent(inputBuffer + "\u2588"); // block cursor
-    screen.render();
-  }
-
   screen.append(outputBox);
   screen.append(statusBar);
-  screen.append(inputBox);
 
   function updateStatusBar(): void {
     const tabs = agents
@@ -118,7 +98,7 @@ export function launchTui(options: ChatOptions): void {
           : ` ${a.role.toUpperCase()} `
       )
       .join("  ");
-    statusBar.setContent(`  ${companyName} · ${tabs}          Tab: switch`);
+    statusBar.setContent(`  ${companyName} · ${tabs}    Tab: switch  Ctrl+C: quit`);
     screen.render();
   }
 
@@ -143,25 +123,38 @@ export function launchTui(options: ChatOptions): void {
     captureInterval = setInterval(capturePane, 300);
   }
 
-  function sendMessage(text: string): void {
+  /** Forward a raw key sequence to the active tmux session. */
+  function forwardKey(sequence: string): void {
     const session = agents[activeIndex]!.sessionName;
-    const escaped = text.replace(/'/g, "'\\''");
     try {
-      execSync(`tmux send-keys -t ${session} '${escaped}' Enter`, {
-        timeout: 5000,
+      // Use -l for literal characters, avoids tmux interpreting key names
+      execSync(`tmux send-keys -t ${session} -l ${JSON.stringify(sequence)}`, {
+        timeout: 2000,
       });
     } catch {
       // Session may have died
     }
   }
 
-  // --- All input handled at screen level (single keypress path) ---
+  /** Forward a named tmux key (Enter, BSpace, Escape, etc.) */
+  function forwardNamedKey(tmuxKeyName: string): void {
+    const session = agents[activeIndex]!.sessionName;
+    try {
+      execSync(`tmux send-keys -t ${session} ${tmuxKeyName}`, {
+        timeout: 2000,
+      });
+    } catch {
+      // Session may have died
+    }
+  }
 
-  screen.on("keypress", (ch: string | undefined, key: { sequence?: string; full: string; name: string; ctrl: boolean; shift: boolean }) => {
-    // Blessed emits two keypress events per keystroke — the duplicate lacks `sequence`
+  // --- All keystrokes forwarded to tmux except Tab and Ctrl+C ---
+
+  screen.on("keypress", (_ch: string | undefined, key: { sequence?: string; full: string; name: string; ctrl: boolean; meta: boolean; shift: boolean }) => {
+    // Blessed emits duplicate keypress events — the duplicate lacks `sequence`
     if (!key || !("sequence" in key)) return;
 
-    // Ctrl+C: shutdown
+    // Ctrl+C: shutdown TUI
     if (key.ctrl && key.name === "c") {
       if (captureInterval) clearInterval(captureInterval);
       screen.destroy();
@@ -179,34 +172,44 @@ export function launchTui(options: ChatOptions): void {
       return;
     }
 
-    // Enter: send message
-    if (key.name === "enter" || key.name === "return") {
-      if (inputBuffer.trim()) {
-        sendMessage(inputBuffer.trim());
-      }
-      inputBuffer = "";
-      renderInput();
+    // Named keys that tmux needs as key names (not literal)
+    const namedKeyMap: Record<string, string> = {
+      enter: "Enter",
+      return: "Enter",
+      backspace: "BSpace",
+      escape: "Escape",
+      up: "Up",
+      down: "Down",
+      left: "Left",
+      right: "Right",
+      home: "Home",
+      end: "End",
+      pageup: "PageUp",
+      pagedown: "PageDown",
+      delete: "DC",
+    };
+
+    const tmuxKey = namedKeyMap[key.name];
+    if (tmuxKey) {
+      forwardNamedKey(tmuxKey);
       return;
     }
 
-    // Backspace
-    if (key.name === "backspace") {
-      inputBuffer = inputBuffer.slice(0, -1);
-      renderInput();
+    // Ctrl+key combos
+    if (key.ctrl && key.sequence) {
+      forwardKey(key.sequence);
       return;
     }
 
-    // Ignore other control/special keys
-    if (key.ctrl || key.name === "escape" || !ch) return;
-
-    // Regular character
-    inputBuffer += ch;
-    renderInput();
+    // Regular characters — forward the raw sequence
+    if (key.sequence) {
+      forwardKey(key.sequence);
+    }
   });
 
   updateStatusBar();
   startCapture();
-  renderInput();
+  screen.render();
 }
 
 export async function chat(): Promise<void> {

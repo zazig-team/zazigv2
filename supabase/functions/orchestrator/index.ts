@@ -994,6 +994,26 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
       .eq("status", "breakdown");
     console.log(`[orchestrator] Breakdown complete — feature ${jobRow.feature_id} → building`);
 
+    // Auto-generate branch name if not already set (matches processFeatureLifecycle logic).
+    // This prevents a race where this Realtime handler transitions the feature before the
+    // polling lifecycle handler gets a chance to generate the branch.
+    const { data: featBranch } = await supabase
+      .from("features")
+      .select("title, branch")
+      .eq("id", jobRow.feature_id)
+      .single();
+    if (featBranch && !featBranch.branch) {
+      const title = (featBranch as { title?: string }).title ?? "";
+      const slug = title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .substring(0, 40);
+      const branch = `feature/${slug}-${jobRow.feature_id.substring(0, 8)}`;
+      await supabase.from("features").update({ branch }).eq("id", jobRow.feature_id);
+      console.log(`[orchestrator] Auto-generated branch for feature ${jobRow.feature_id}: ${branch}`);
+    }
+
     // Notify CPO about breakdown completion with job stats
     const { data: featureJobs } = await supabase
       .from("jobs")
@@ -2043,13 +2063,27 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
   // 1. Fetch feature for company/project context
   const { data: feature, error } = await supabase
     .from("features")
-    .select("company_id, project_id, title, spec, acceptance_tests")
+    .select("company_id, project_id, title, spec, acceptance_tests, branch")
     .eq("id", featureId)
     .single();
 
   if (error || !feature) {
     console.error(`[orchestrator] triggerBreakdown: feature ${featureId} not found`);
     return;
+  }
+
+  // 1b. Auto-generate branch name if not already set.
+  // Must happen before breakdown job is created so dispatch has a featureBranch.
+  if (!feature.branch) {
+    const title = feature.title ?? "";
+    const slug = title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .substring(0, 40);
+    const branch = `feature/${slug}-${featureId.substring(0, 8)}`;
+    await supabase.from("features").update({ branch }).eq("id", featureId);
+    console.log(`[orchestrator] triggerBreakdown: auto-generated branch for feature ${featureId}: ${branch}`);
   }
 
   // 2. Check no active breakdown job already exists (idempotency)

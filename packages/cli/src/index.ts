@@ -20,6 +20,7 @@ import { start } from "./commands/start.js";
 import { stop } from "./commands/stop.js";
 import { status } from "./commands/status.js";
 import { personality } from "./commands/personality.js";
+import { chat } from "./commands/chat.js";
 
 const [, , cmd, ...args] = process.argv;
 
@@ -52,6 +53,10 @@ switch (cmd) {
     await personality(args);
     break;
 
+  case "chat":
+    await chat();
+    break;
+
   case undefined:
   case "--help":
   case "-h":
@@ -66,6 +71,7 @@ switch (cmd) {
     console.log("  stop               Stop the running daemon");
     console.log("  status             Show agent state and active jobs");
     console.log("  personality <role> Show or switch exec personality (--show, --archetype)");
+    console.log("  chat               Open split-screen TUI to interact with agents");
     break;
 
   default:

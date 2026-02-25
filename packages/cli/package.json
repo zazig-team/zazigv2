@@ -13,9 +13,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@zazigv2/local-agent": "*"
+    "@zazigv2/local-agent": "*",
+    "blessed": "^0.1.81"
   },
   "devDependencies": {
+    "@types/blessed": "^0.1.27",
     "@types/node": "^20.0.0",
     "typescript": "*"
   },

@@ -151,8 +151,8 @@ export function launchTui(options: ChatOptions): void {
   // --- All keystrokes forwarded to tmux except Tab and Ctrl+C ---
 
   screen.on("keypress", (_ch: string | undefined, key: { sequence?: string; full: string; name: string; ctrl: boolean; meta: boolean; shift: boolean }) => {
-    // Blessed emits duplicate keypress events — the duplicate lacks `sequence`
-    if (!key || !("sequence" in key)) return;
+    // Blessed emits duplicate keypress events — the duplicate has undefined sequence
+    if (!key?.sequence) return;
 
     // Ctrl+C: shutdown TUI
     if (key.ctrl && key.name === "c") {

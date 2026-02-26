@@ -661,37 +661,6 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     const slotUpdate = { [slotColumn]: currentSlots - 1 };
     Object.assign(candidate, slotUpdate);
 
-    // Check if this is a passive verification job — route to VerifyJob instead of StartJob.
-    // Active verification (verification-specialist) gets a normal StartJob with full workspace.
-    if (job.job_type === "verify" && job.role !== "verification-specialist") {
-      let ctx: { featureBranch?: string; acceptanceTests?: string } = {};
-      try { ctx = JSON.parse(job.context ?? "{}"); } catch { /* ignore */ }
-
-      const verifyJobMsg: VerifyJob = {
-        type: "verify_job",
-        protocolVersion: PROTOCOL_VERSION,
-        jobId: job.id,
-        featureBranch: ctx.featureBranch ?? "",
-        jobBranch: job.branch ?? ctx.featureBranch ?? "",
-        acceptanceTests: ctx.acceptanceTests ?? "",
-        repoPath: repoUrl!,
-      };
-
-      const channel = supabase.channel(`agent:${candidate.name}`);
-      await new Promise<void>((resolve) => {
-        channel.subscribe(async (status) => {
-          if (status === "SUBSCRIBED") {
-            await channel.send({ type: "broadcast", event: "verify_job", payload: verifyJobMsg });
-            await channel.unsubscribe();
-            resolve();
-          }
-        });
-      });
-
-      console.log(`[orchestrator] Dispatched VerifyJob ${job.id} to ${candidate.name}`);
-      continue;
-    }
-
     // Fetch role prompt + skills for non-codex jobs that have a named role.
     // These populate the 4-layer context stack: personality → role → skills → task.
     let rolePrompt: string | undefined;
@@ -1093,6 +1062,22 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
   if (jobRow?.job_type === "combine" && jobRow?.feature_id) {
     console.log(`[orchestrator] Combine complete — triggering feature verification for ${jobRow.feature_id}`);
     await triggerFeatureVerification(supabase, jobRow.feature_id);
+  }
+
+  // Handle reviewer verify job completion: check pass/fail and advance or notify CPO
+  if (jobRow?.job_type === "verify" && jobRow?.role === "reviewer" && jobRow?.feature_id) {
+    const passed = result?.toUpperCase().startsWith("PASSED");
+    if (passed) {
+      console.log(`[orchestrator] Verification PASSED for feature ${jobRow.feature_id}`);
+      await initiateTestDeploy(supabase, jobRow.feature_id);
+    } else {
+      console.log(`[orchestrator] Verification FAILED for feature ${jobRow.feature_id}`);
+      await notifyCPO(
+        supabase,
+        jobRow.company_id,
+        `Verification failed for feature ${jobRow.feature_id}: ${(result ?? "").slice(0, 200)}. Needs triage.`,
+      );
+    }
   }
 
   // Handle prod deploy job completion: feature transitions deploying_to_prod → complete

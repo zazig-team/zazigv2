@@ -38,7 +38,7 @@ export class AgentConnection {
   readonly dbClient: SupabaseClient;
   private readonly machineId: string;
   private readonly primaryCompanyId: string | undefined;
-  private companyIds: string[] = [];
+  public companyIds: string[] = [];
   private readonly config: MachineConfig;
   private readonly slots: SlotTracker;
   private readonly handlers: MessageHandler[] = [];

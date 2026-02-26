@@ -12,14 +12,16 @@
  * to ensure secrets are injected from Doppler.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { parse as parseYaml } from "yaml";
 import type { TestRecipe } from "@zazigv2/shared";
 import type { DeployToTest, AgentMessage } from "@zazigv2/shared";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
+import { WORKTREE_BASE } from "./branches.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -88,6 +90,12 @@ export class TestRunner {
     this.fetchUrl = fetchUrl ?? defaultFetch;
   }
 
+  private async exec(cmd: string, args: string[], opts: { cwd: string; timeout: number }): Promise<string> {
+    const execFileAsync = promisify(execFile);
+    const { stdout } = await execFileAsync(cmd, args, { cwd: opts.cwd, timeout: opts.timeout });
+    return stdout;
+  }
+
   /**
    * Handle a deploy_to_test message end-to-end:
    * read recipe → deploy → healthcheck → report result.
@@ -96,10 +104,8 @@ export class TestRunner {
     const repoPath = msg.repoPath ? resolveRepoPath(msg.repoPath) : process.cwd();
     const featureId = msg.featureId ?? "";
 
-    // 1. Read recipe
-    const recipe = readTestRecipe(repoPath);
-    if (!recipe) {
-      console.warn(`[test-runner] No ${RECIPE_FILENAME} found at ${repoPath}`);
+    if (!existsSync(repoPath)) {
+      console.error(`[test-runner] Repo directory not found: ${repoPath} — cannot deploy featureId=${featureId}`);
       await this.send({
         type: "deploy_needs_config",
         protocolVersion: PROTOCOL_VERSION,
@@ -109,77 +115,150 @@ export class TestRunner {
       return;
     }
 
-    console.log(`[test-runner] Recipe loaded: ${recipe.name} (${recipe.deploy.provider}, ${recipe.type})`);
-
-    // 2. Deploy
-    let deployUrl: string;
+    // The resolved repoPath is a bare clone — create a worktree to get a working tree.
+    const worktreePath = join(WORKTREE_BASE, `deploy-${featureId}`);
     try {
-      deployUrl = await this.runDeploy(recipe, repoPath);
+      await this.exec("git", ["-C", repoPath, "fetch", "origin"], { cwd: repoPath, timeout: 60_000 });
+      try {
+        await this.exec("git", ["-C", repoPath, "worktree", "remove", "--force", worktreePath], { cwd: repoPath, timeout: 10_000 });
+      } catch { /* doesn't exist — fine */ }
+      mkdirSync(WORKTREE_BASE, { recursive: true });
+      await this.exec("git", ["-C", repoPath, "worktree", "add", worktreePath, msg.featureBranch], { cwd: repoPath, timeout: 30_000 });
     } catch (err) {
-      console.error(`[test-runner] Deploy failed for feature ${featureId}:`, err);
+      console.error(`[test-runner] Failed to create deploy worktree for ${msg.featureBranch} in ${repoPath}: ${String(err)}`);
       await this.send({
-        type: "deploy_failed",
+        type: "deploy_needs_config",
         protocolVersion: PROTOCOL_VERSION,
         featureId,
         machineId: this.machineId,
-        error: String(err instanceof Error ? err.message : err),
       });
       return;
     }
 
-    console.log(`[test-runner] Deploy succeeded: ${deployUrl}`);
+    console.log(`[test-runner] Created deploy worktree at ${worktreePath} (branch: ${msg.featureBranch})`);
 
-    // 3. Healthcheck
-    if (recipe.healthcheck) {
+    try {
+      // 1. Read recipe
+      const recipe = readTestRecipe(worktreePath);
+      if (!recipe) {
+        console.warn(`[test-runner] No ${RECIPE_FILENAME} found at ${worktreePath}`);
+        await this.send({
+          type: "deploy_needs_config",
+          protocolVersion: PROTOCOL_VERSION,
+          featureId,
+          machineId: this.machineId,
+        });
+        return;
+      }
+
+      console.log(`[test-runner] Recipe loaded: ${recipe.name} (${recipe.deploy.provider}, ${recipe.type})`);
+
+      // 2. Deploy
+      let deployUrl: string;
       try {
-        await this.runHealthcheck(deployUrl, recipe);
+        deployUrl = await this.runDeploy(recipe, worktreePath);
       } catch (err) {
-        console.error(`[test-runner] Healthcheck failed for feature ${featureId}:`, err);
+        console.error(`[test-runner] Deploy failed for feature ${featureId}:`, err);
         await this.send({
           type: "deploy_failed",
           protocolVersion: PROTOCOL_VERSION,
           featureId,
           machineId: this.machineId,
-          error: `Healthcheck failed: ${String(err instanceof Error ? err.message : err)}`,
+          error: String(err instanceof Error ? err.message : err),
         });
         return;
       }
-      console.log(`[test-runner] Healthcheck passed for ${deployUrl}`);
-    }
 
-    // 4. Report success
-    await this.send({
-      type: "deploy_complete",
-      protocolVersion: PROTOCOL_VERSION,
-      featureId,
-      machineId: this.machineId,
-      testUrl: deployUrl,
-      ephemeral: recipe.type === "ephemeral",
-    });
+      console.log(`[test-runner] Deploy succeeded: ${deployUrl}`);
+
+      // 3. Healthcheck
+      if (recipe.healthcheck) {
+        try {
+          await this.runHealthcheck(deployUrl, recipe);
+        } catch (err) {
+          console.error(`[test-runner] Healthcheck failed for feature ${featureId}:`, err);
+          await this.send({
+            type: "deploy_failed",
+            protocolVersion: PROTOCOL_VERSION,
+            featureId,
+            machineId: this.machineId,
+            error: `Healthcheck failed: ${String(err instanceof Error ? err.message : err)}`,
+          });
+          return;
+        }
+        console.log(`[test-runner] Healthcheck passed for ${deployUrl}`);
+      }
+
+      // 4. Report success
+      await this.send({
+        type: "deploy_complete",
+        protocolVersion: PROTOCOL_VERSION,
+        featureId,
+        machineId: this.machineId,
+        testUrl: deployUrl,
+        ephemeral: recipe.type === "ephemeral",
+      });
+    } finally {
+      try {
+        await this.exec("git", ["-C", repoPath, "worktree", "remove", "--force", worktreePath], { cwd: repoPath, timeout: 10_000 });
+        console.log(`[test-runner] Cleaned up deploy worktree for featureId=${featureId}`);
+      } catch {
+        console.warn(`[test-runner] Failed to clean up deploy worktree at ${worktreePath}`);
+      }
+    }
   }
 
   /**
    * Run teardown for the test environment. Called after approve/reject.
    * No-op for persistent environments or missing teardown config.
    */
-  async runTeardown(repoPath: string): Promise<void> {
+  async runTeardown(repoPath: string, branch?: string): Promise<void> {
     const resolved = resolveRepoPath(repoPath);
-    const recipe = readTestRecipe(resolved);
-    if (!recipe) return;
-    if (recipe.type !== "ephemeral") return;
-    if (!recipe.teardown?.script) return;
 
-    console.log(`[test-runner] Running teardown: ${recipe.teardown.script}`);
-    const result = await this.spawnCmd(
-      "doppler",
-      ["run", "--project", recipe.name, "--config", "prd", "--", "bash", "-c", recipe.teardown.script],
-      { cwd: resolved, timeout: DEPLOY_TIMEOUT_MS },
-    );
+    if (!existsSync(resolved)) {
+      console.warn(`[test-runner] Repo directory not found for teardown: ${resolved}`);
+      return;
+    }
 
-    if (result.exitCode !== 0) {
-      console.warn(`[test-runner] Teardown exited with code ${result.exitCode}: ${result.stderr}`);
-    } else {
-      console.log("[test-runner] Teardown complete");
+    // Create a worktree to read the recipe and run teardown (resolved is a bare repo).
+    const teardownBranch = branch ?? "master";
+    const worktreePath = join(WORKTREE_BASE, `teardown-${Date.now()}`);
+    try {
+      await this.exec("git", ["-C", resolved, "fetch", "origin"], { cwd: resolved, timeout: 60_000 });
+      try {
+        await this.exec("git", ["-C", resolved, "worktree", "remove", "--force", worktreePath], { cwd: resolved, timeout: 10_000 });
+      } catch { /* doesn't exist — fine */ }
+      mkdirSync(WORKTREE_BASE, { recursive: true });
+      await this.exec("git", ["-C", resolved, "worktree", "add", worktreePath, teardownBranch], { cwd: resolved, timeout: 30_000 });
+    } catch (err) {
+      console.warn(`[test-runner] Failed to create teardown worktree: ${String(err)}`);
+      return;
+    }
+
+    try {
+      const recipe = readTestRecipe(worktreePath);
+      if (!recipe) return;
+      if (recipe.type !== "ephemeral") return;
+      if (!recipe.teardown?.script) return;
+
+      console.log(`[test-runner] Running teardown: ${recipe.teardown.script}`);
+      const result = await this.spawnCmd(
+        "doppler",
+        ["run", "--project", recipe.name, "--config", "prd", "--", "bash", "-c", recipe.teardown.script],
+        { cwd: worktreePath, timeout: DEPLOY_TIMEOUT_MS },
+      );
+
+      if (result.exitCode !== 0) {
+        console.warn(`[test-runner] Teardown exited with code ${result.exitCode}: ${result.stderr}`);
+      } else {
+        console.log("[test-runner] Teardown complete");
+      }
+    } finally {
+      try {
+        await this.exec("git", ["-C", resolved, "worktree", "remove", "--force", worktreePath], { cwd: resolved, timeout: 10_000 });
+      } catch {
+        console.warn(`[test-runner] Failed to clean up teardown worktree at ${worktreePath}`);
+      }
     }
   }
 

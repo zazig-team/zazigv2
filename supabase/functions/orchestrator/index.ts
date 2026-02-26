@@ -2226,6 +2226,9 @@ async function processReadyForBreakdown(supabase: SupabaseClient): Promise<void>
  *   1. breakdown → building: all breakdown jobs for the feature are complete
  *   2. building → combining: all implementation jobs are complete
  *   3. combining → verifying: the latest combine job is complete
+ *   4. verifying → deploying_to_test: the latest verify job is complete and passed
+ *   5. deploying_to_test: stuck recovery (5min timeout, max 3 retries/hour)
+ *   6. deploying_to_prod → complete: the latest prod deploy job is complete
  */
 async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> {
   // --- 0. Failed job catch-up (all stages) ---
@@ -2528,6 +2531,42 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
         );
       }
     }
+  }
+
+  // --- 6. deploying_to_prod → complete ---
+  // Features stuck in 'deploying_to_prod' where the latest prod deploy job is complete.
+  // Deploy jobs for test vs prod are distinguished by context.target.
+  // Failed deploy jobs are handled by Task 0's central catch-up.
+  const { data: prodDeployFeatures, error: prodErr } = await supabase
+    .from("features")
+    .select("id")
+    .eq("status", "deploying_to_prod")
+    .limit(50);
+
+  if (prodErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying deploying_to_prod features:", prodErr.message);
+  }
+
+  for (const feature of (prodDeployFeatures ?? []) as { id: string }[]) {
+    const { data: latestDeploy } = await supabase
+      .from("jobs")
+      .select("id, status, context")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "deploy")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (!latestDeploy || latestDeploy.length === 0) continue;
+    const job = latestDeploy[0] as { id: string; status: string; context: string };
+    if (job.status !== "complete") continue;
+
+    // Verify this is a prod deploy, not a test deploy
+    let ctx: { target?: string } = {};
+    try { ctx = JSON.parse(job.context); } catch { /* ignore */ }
+    if (ctx.target !== "prod") continue;
+
+    console.log(`[orchestrator] processFeatureLifecycle: prod deploy done for feature ${feature.id} — marking complete`);
+    await handleProdDeployComplete(supabase, feature.id);
   }
 }
 

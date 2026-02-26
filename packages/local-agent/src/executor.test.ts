@@ -308,6 +308,17 @@ describe("JobExecutor — progress integration", () => {
     // sendJobFailed should NOT set progress — it leaves it as-is
     expect(failCalls[0]!.data).not.toHaveProperty("progress");
   });
+
+  it("ignores duplicate start_job when the same job is already active", async () => {
+    const job = makeStartJob({ jobId: "job-dupe-001" });
+    await executor.handleStartJob(job);
+    const sendCallsAfterFirstStart = send.mock.calls.length;
+
+    await executor.handleStartJob(job);
+
+    // Duplicate should be ignored before ack/executing status or slot acquisition.
+    expect(send.mock.calls.length).toBe(sendCallsAfterFirstStart);
+  });
 });
 
 describe("JobExecutor - subAgentPrompt workspace", () => {

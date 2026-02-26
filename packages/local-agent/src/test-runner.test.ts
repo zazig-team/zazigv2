@@ -4,7 +4,8 @@ import type { SpawnResult, SpawnFn, FetchFn } from "./test-runner.js";
 import type { DeployToTest, AgentMessage } from "@zazigv2/shared";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
 // ---------------------------------------------------------------------------
@@ -23,7 +24,7 @@ function makeDeployMsg(overrides: Partial<DeployToTest> = {}): DeployToTest {
   };
 }
 
-function createTempRepo(recipe?: Record<string, unknown>): string {
+function createTempDir(recipe?: Record<string, unknown>): string {
   const dir = join(tmpdir(), `test-runner-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(dir, { recursive: true });
   if (recipe) {
@@ -44,9 +45,34 @@ function createTempRepo(recipe?: Record<string, unknown>): string {
   return dir;
 }
 
+function createBareRepo(recipeYaml?: string, defaultBranch = "main"): string {
+  const rootDir = createTempDir();
+  const sourceDir = join(rootDir, "source");
+  const bareRepoDir = join(rootDir, "repo.git");
+
+  mkdirSync(sourceDir, { recursive: true });
+  execFileSync("git", ["init", "-b", defaultBranch], { cwd: sourceDir });
+  writeFileSync(join(sourceDir, "README.md"), "# test-runner fixture\n");
+  if (recipeYaml) {
+    writeFileSync(join(sourceDir, "zazig.test.yaml"), recipeYaml);
+  }
+
+  execFileSync("git", ["add", "-A"], { cwd: sourceDir });
+  execFileSync(
+    "git",
+    ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"],
+    { cwd: sourceDir },
+  );
+  execFileSync("git", ["branch", "feat/my-feature"], { cwd: sourceDir });
+  execFileSync("git", ["clone", "--bare", sourceDir, bareRepoDir]);
+
+  return bareRepoDir;
+}
+
 function cleanTempRepo(dir: string): void {
   try {
-    rmSync(dir, { recursive: true, force: true });
+    const target = dir.endsWith(".git") ? dirname(dir) : dir;
+    rmSync(target, { recursive: true, force: true });
   } catch {
     // best-effort
   }
@@ -88,13 +114,13 @@ describe("readTestRecipe", () => {
   });
 
   it("returns null when file does not exist", () => {
-    tempDir = createTempRepo();
+    tempDir = createTempDir();
     expect(readTestRecipe(tempDir)).toBeNull();
     cleanTempRepo(tempDir);
   });
 
   it("parses a valid vercel recipe", () => {
-    tempDir = createTempRepo();
+    tempDir = createTempDir();
     writeFileSync(
       join(tempDir, "zazig.test.yaml"),
       [
@@ -121,7 +147,7 @@ describe("readTestRecipe", () => {
   });
 
   it("parses a valid custom recipe", () => {
-    tempDir = createTempRepo();
+    tempDir = createTempDir();
     writeFileSync(
       join(tempDir, "zazig.test.yaml"),
       [
@@ -144,7 +170,7 @@ describe("readTestRecipe", () => {
   });
 
   it("returns null for unsupported provider", () => {
-    tempDir = createTempRepo();
+    tempDir = createTempDir();
     writeFileSync(
       join(tempDir, "zazig.test.yaml"),
       ["name: bad", "type: ephemeral", "deploy:", "  provider: docker"].join("\n"),
@@ -182,20 +208,18 @@ describe("TestRunner", () => {
   });
 
   it("sends deploy_needs_config when no recipe file exists", async () => {
-    const tempDir = createTempRepo(); // no recipe file
-    const msg = makeDeployMsg({ repoPath: tempDir });
+    const repoPath = createBareRepo(); // no recipe file in committed branch
+    const msg = makeDeployMsg({ repoPath });
 
     await runner.handleDeployToTest(msg);
 
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0].type).toBe("deploy_needs_config");
-    cleanTempRepo(tempDir);
+    cleanTempRepo(repoPath);
   });
 
   it("deploys with vercel provider and sends deploy_complete", async () => {
-    const tempDir = createTempRepo();
-    writeFileSync(
-      join(tempDir, "zazig.test.yaml"),
+    const repoPath = createBareRepo(
       [
         "name: my-app",
         "type: ephemeral",
@@ -205,7 +229,7 @@ describe("TestRunner", () => {
       ].join("\n"),
     );
 
-    const msg = makeDeployMsg({ repoPath: tempDir });
+    const msg = makeDeployMsg({ repoPath });
     await runner.handleDeployToTest(msg);
 
     expect(mockSpawn).toHaveBeenCalledTimes(1);
@@ -219,13 +243,11 @@ describe("TestRunner", () => {
     const complete = sentMessages[0] as { testUrl: string; ephemeral: boolean };
     expect(complete.testUrl).toBe("https://preview.example.com");
     expect(complete.ephemeral).toBe(true);
-    cleanTempRepo(tempDir);
+    cleanTempRepo(repoPath);
   });
 
   it("deploys with custom provider and sends deploy_complete", async () => {
-    const tempDir = createTempRepo();
-    writeFileSync(
-      join(tempDir, "zazig.test.yaml"),
+    const repoPath = createBareRepo(
       [
         "name: custom-app",
         "type: persistent",
@@ -235,7 +257,7 @@ describe("TestRunner", () => {
       ].join("\n"),
     );
 
-    const msg = makeDeployMsg({ repoPath: tempDir });
+    const msg = makeDeployMsg({ repoPath });
     await runner.handleDeployToTest(msg);
 
     expect(mockSpawn).toHaveBeenCalledTimes(1);
@@ -247,15 +269,13 @@ describe("TestRunner", () => {
     expect(sentMessages[0].type).toBe("deploy_complete");
     const complete = sentMessages[0] as { ephemeral: boolean };
     expect(complete.ephemeral).toBe(false);
-    cleanTempRepo(tempDir);
+    cleanTempRepo(repoPath);
   });
 
   it("sends deploy_failed when deploy command fails", async () => {
     mockSpawn.mockResolvedValue({ stdout: "", stderr: "auth error", exitCode: 1 });
 
-    const tempDir = createTempRepo();
-    writeFileSync(
-      join(tempDir, "zazig.test.yaml"),
+    const repoPath = createBareRepo(
       [
         "name: fail-app",
         "type: ephemeral",
@@ -264,20 +284,18 @@ describe("TestRunner", () => {
       ].join("\n"),
     );
 
-    const msg = makeDeployMsg({ repoPath: tempDir });
+    const msg = makeDeployMsg({ repoPath });
     await runner.handleDeployToTest(msg);
 
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0].type).toBe("deploy_failed");
-    cleanTempRepo(tempDir);
+    cleanTempRepo(repoPath);
   });
 
   it("sends deploy_failed when healthcheck times out", async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 503 });
 
-    const tempDir = createTempRepo();
-    writeFileSync(
-      join(tempDir, "zazig.test.yaml"),
+    const repoPath = createBareRepo(
       [
         "name: health-app",
         "type: ephemeral",
@@ -289,20 +307,18 @@ describe("TestRunner", () => {
       ].join("\n"),
     );
 
-    const msg = makeDeployMsg({ repoPath: tempDir });
+    const msg = makeDeployMsg({ repoPath });
     await runner.handleDeployToTest(msg);
 
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0].type).toBe("deploy_failed");
     const failed = sentMessages[0] as { error: string };
     expect(failed.error).toContain("Healthcheck");
-    cleanTempRepo(tempDir);
+    cleanTempRepo(repoPath);
   });
 
   it("passes healthcheck when fetch returns 200", async () => {
-    const tempDir = createTempRepo();
-    writeFileSync(
-      join(tempDir, "zazig.test.yaml"),
+    const repoPath = createBareRepo(
       [
         "name: healthy-app",
         "type: ephemeral",
@@ -314,19 +330,17 @@ describe("TestRunner", () => {
       ].join("\n"),
     );
 
-    const msg = makeDeployMsg({ repoPath: tempDir });
+    const msg = makeDeployMsg({ repoPath });
     await runner.handleDeployToTest(msg);
 
     expect(mockFetch).toHaveBeenCalledWith("https://preview.example.com/api/health");
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0].type).toBe("deploy_complete");
-    cleanTempRepo(tempDir);
+    cleanTempRepo(repoPath);
   });
 
   it("runs teardown for ephemeral envs", async () => {
-    const tempDir = createTempRepo();
-    writeFileSync(
-      join(tempDir, "zazig.test.yaml"),
+    const repoPath = createBareRepo(
       [
         "name: teardown-app",
         "type: ephemeral",
@@ -338,19 +352,17 @@ describe("TestRunner", () => {
       ].join("\n"),
     );
 
-    await runner.runTeardown(tempDir);
+    await runner.runTeardown(repoPath);
 
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     const [cmd, args] = mockSpawn.mock.calls[0];
     expect(cmd).toBe("doppler");
     expect(args).toContain("./teardown.sh");
-    cleanTempRepo(tempDir);
+    cleanTempRepo(repoPath);
   });
 
   it("skips teardown for persistent envs", async () => {
-    const tempDir = createTempRepo();
-    writeFileSync(
-      join(tempDir, "zazig.test.yaml"),
+    const repoPath = createBareRepo(
       [
         "name: persist-app",
         "type: persistent",
@@ -361,8 +373,49 @@ describe("TestRunner", () => {
       ].join("\n"),
     );
 
-    await runner.runTeardown(tempDir);
+    await runner.runTeardown(repoPath);
     expect(mockSpawn).not.toHaveBeenCalled();
-    cleanTempRepo(tempDir);
+    cleanTempRepo(repoPath);
+  });
+
+  it("ignores duplicate deploy_to_test while a feature deploy is in-flight", async () => {
+    const repoPath = createBareRepo(
+      [
+        "name: dedupe-app",
+        "type: persistent",
+        "deploy:",
+        "  provider: custom",
+        "  script: ./deploy.sh",
+      ].join("\n"),
+    );
+
+    // Force the in-flight lock to simulate a duplicate delivery race.
+    (runner as unknown as { inFlightDeploys: Set<string> }).inFlightDeploys.add("feat-123");
+
+    await runner.handleDeployToTest(makeDeployMsg({ repoPath, featureId: "feat-123" }));
+
+    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(sentMessages).toHaveLength(0);
+    cleanTempRepo(repoPath);
+  });
+
+  it("resolves teardown branch from bare repo HEAD (main)", async () => {
+    const repoPath = createBareRepo(
+      [
+        "name: main-default-app",
+        "type: ephemeral",
+        "deploy:",
+        "  provider: custom",
+        "  script: ./deploy.sh",
+        "teardown:",
+        "  script: ./teardown.sh",
+      ].join("\n"),
+      "main",
+    );
+
+    await runner.runTeardown(repoPath);
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    cleanTempRepo(repoPath);
   });
 });

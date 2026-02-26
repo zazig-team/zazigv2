@@ -141,7 +141,7 @@ const APPROVE_PATTERNS = /^(approve|approved|lgtm|ship\s*it|merge|✅)\s*$/i;
 const REJECT_PATTERNS = /^(reject|rejected|fail|rollback|❌)/i;
 
 /**
- * Checks if a Slack message is in a testing thread for a feature in testing.
+ * Checks if a Slack message is in a testing thread for a feature in ready_to_test.
  * If it matches approve/reject keywords, sends the appropriate message to
  * the orchestrator and returns true. Otherwise returns false.
  */
@@ -153,14 +153,14 @@ async function handleTestingThreadMessage(
   text: string,
   user: string,
 ): Promise<boolean> {
-  // Look up features in testing that have this slack_channel + slack_thread_ts
+  // Look up features waiting for human testing approval for this thread
   const { data: feature, error: featureErr } = await supabase
     .from("features")
     .select("id, testing_machine_id")
     .eq("company_id", companyId)
     .eq("slack_channel", channel)
     .eq("slack_thread_ts", threadTs)
-    .eq("status", "testing")
+    .eq("status", "ready_to_test")
     .limit(1)
     .single();
 
@@ -393,7 +393,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   // --- Testing thread: check if this message is in a testing thread ---
-  // If the message is in a thread that matches a feature in testing, parse
+  // If the message is in a thread that matches a feature in ready_to_test, parse
   // for approve/reject keywords and route to the orchestrator.
   if (threadTs) {
     const handled = await handleTestingThreadMessage(

@@ -43,7 +43,10 @@ const POLL_INTERVAL_MS = 30_000;
 const JOB_TIMEOUT_MS = 60 * 60_000;
 
 /** Shared report file written by claude/codex agents. */
-const REPORT_RELATIVE_PATH = ".claude/cpo-report.md";
+function reportRelativePath(role?: string): string {
+  const reportFile = role ? `${role}-report.md` : "cpo-report.md";
+  return `.claude/${reportFile}`;
+}
 
 /** Per-job report directory to prevent concurrent-completion races. */
 const REPORT_ARCHIVE_DIR = ".claude/job-reports";
@@ -94,11 +97,26 @@ Requirements:
 After codex-delegate completes, review the diff output and decide whether to keep, modify, or discard changes.`;
 
 /** Completion instructions injected into context for all jobs. */
-const COMPLETION_INSTRUCTIONS = `## On Completion
+function completionInstructions(role?: string): string {
+  const reportFile = role ? `${role}-report.md` : "cpo-report.md";
+  return `## On Completion
 
 Commit all work to the current branch. Do NOT commit .mcp.json, .claude/, or CLAUDE.md.
-Write your results to .claude/cpo-report.md including what was done and any issues.
+Write your results to .claude/${reportFile} including what was done and any issues.
 Then exit.`;
+}
+
+/** Universal file-writing rules for all agents. */
+const FILE_WRITING_RULES = `## File Writing Rules
+
+Your workspace directory is ephemeral runtime state — do NOT write substantive documents here.
+
+- Session reports → \`.claude/{role}-report.md\` in your workspace (this is correct)
+- Design documents, proposals, plans, specs → ALWAYS write to the repo:
+  \`/Users/tomweaver/Documents/GitHub/zazigv2/docs/plans/YYYY-MM-DD-descriptive-slug.md\`
+- Never write docs, plans, or proposals to the workspace — they are invisible to
+  other agents, Obsidian, and git
+- When using skills like internal-proposal, override the output path to the repo docs/plans/ directory`;
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -126,6 +144,8 @@ interface ActiveJob {
   repoDir?: string;
   /** Job branch name (job/{jobId}) pushed to origin after completion. */
   jobBranch?: string;
+  /** Role of the agent that ran this job (used for role-specific report paths). */
+  role?: string;
 }
 
 interface ActivePersistentAgent {
@@ -261,6 +281,11 @@ export class JobExecutor {
         `complexity=${complexity}, model=${model}`
     );
 
+    if (this.activeJobs.has(jobId)) {
+      console.warn(`[executor] Duplicate start_job ignored for already-active jobId=${jobId}`);
+      return;
+    }
+
     // --- 1. Acquire slot (throws if none available) ---
     try {
       this.slots.acquire(slotType);
@@ -373,7 +398,7 @@ export class JobExecutor {
     writeFileSync(promptFilePath, assembledContext);
 
     // --- 5. Clear stale report before spawning (prevents reading a previous job's report) ---
-    const reportPath = `${process.env["HOME"] ?? "/tmp"}/${REPORT_RELATIVE_PATH}`;
+    const reportPath = `${process.env["HOME"] ?? "/tmp"}/${reportRelativePath(msg.role)}`;
     try { unlinkSync(reportPath); } catch { /* no stale report — fine */ }
 
     // --- 6. Kill stale tmux session if it exists (from a previous dispatch) ---
@@ -429,6 +454,7 @@ export class JobExecutor {
       worktreePath,
       repoDir,
       jobBranch,
+      role: msg.role,
     };
     this.activeJobs.set(jobId, activeJob);
 
@@ -610,7 +636,7 @@ export class JobExecutor {
         jobId,
         companyId: resolvedCompanyId,
         role,
-        claudeMdContent: msg.context ?? "",
+        claudeMdContent: (msg.context ?? "") + "\n\n---\n\n" + FILE_WRITING_RULES,
         skills: msg.roleSkills,
         repoSkillsDir: join(process.cwd(), "projects", "skills"),
         mcpTools: msg.roleMcpTools,
@@ -723,6 +749,7 @@ export class JobExecutor {
       startedAt: spawnedAt,
       logPath: "",
       lastBytesSent: 0,
+      role: msg.role,
     });
 
     await this.sendJobStatus(jobId, "executing");
@@ -918,13 +945,14 @@ export class JobExecutor {
     const jobReportPath = `${archiveDir}/${jobId}.md`;
 
     // Candidate paths in priority order: worktree first, then legacy workspace dir, then $HOME
+    const rpPath = reportRelativePath(job.role);
     const candidatePaths: string[] = [];
     if (job.worktreePath) {
-      candidatePaths.push(`${job.worktreePath}/${REPORT_RELATIVE_PATH}`);
+      candidatePaths.push(`${job.worktreePath}/${rpPath}`);
     } else if (job.workspaceDir) {
-      candidatePaths.push(`${job.workspaceDir}/${REPORT_RELATIVE_PATH}`);
+      candidatePaths.push(`${job.workspaceDir}/${rpPath}`);
     }
-    candidatePaths.push(`${homeDir}/${REPORT_RELATIVE_PATH}`);
+    candidatePaths.push(`${homeDir}/${rpPath}`);
 
     let result = "Job completed.";
     let report: string | undefined;
@@ -1319,8 +1347,9 @@ function assembleContext(msg: StartJob, taskContext: string): string {
 
   parts.push(taskContext);
 
-  // Completion instructions for all jobs (improves report quality)
-  parts.push(COMPLETION_INSTRUCTIONS);
+  // File writing rules + completion instructions (high-attention tail position)
+  parts.push(FILE_WRITING_RULES);
+  parts.push(completionInstructions(msg.role));
 
   return parts.join("\n\n---\n\n");
 }

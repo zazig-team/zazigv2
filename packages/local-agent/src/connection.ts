@@ -275,6 +275,21 @@ export class AgentConnection {
       this.handleIncomingPayload(payload.payload);
     });
 
+    this.channel.on("broadcast", { event: "job_unblocked" }, (payload) => {
+      console.log(`[local-agent][DEBUG] Matched event=job_unblocked`);
+      this.handleIncomingPayload(payload.payload);
+    });
+
+    this.channel.on("broadcast", { event: "message_inbound" }, (payload) => {
+      console.log(`[local-agent][DEBUG] Matched event=message_inbound`);
+      this.handleIncomingPayload(payload.payload);
+    });
+
+    this.channel.on("broadcast", { event: "teardown_test" }, (payload) => {
+      console.log(`[local-agent][DEBUG] Matched event=teardown_test`);
+      this.handleIncomingPayload(payload.payload);
+    });
+
     // Outbound channel: sends heartbeats/job updates to orchestrator
     this.outChannel = this.supabase.channel(outChannelName, {
       config: {

@@ -145,6 +145,8 @@ function incrementSlotPayload(machine: MachineRow, slotType: SlotType): Record<s
   return { slots_codex: machine.slots_codex + 1 };
 }
 
+const TEST_DEPLOY_MAX_ATTEMPTS = 3;
+
 // ---------------------------------------------------------------------------
 // Model + slot routing — DB-backed via complexity_routing + roles tables
 // ---------------------------------------------------------------------------
@@ -620,7 +622,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
 
     // Dispatch: update job status → dispatched, assign machine_id.
     // Record the resolved model and slot_type on the job for observability.
-    const { error: updateJobErr } = await supabase
+    const { data: claimedJobRows, error: updateJobErr } = await supabase
       .from("jobs")
       .update({
         status: "dispatched",
@@ -630,11 +632,28 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         started_at: new Date().toISOString(),
       })
       .eq("id", job.id)
-      .eq("status", "queued"); // optimistic lock
+      .eq("status", "queued") // optimistic lock
+      .select("id");
 
     if (updateJobErr) {
       console.error(`[orchestrator] Failed to dispatch job ${job.id}:`, updateJobErr.message);
       // The slot was already decremented above; it will self-correct on next heartbeat.
+      continue;
+    }
+    if (!claimedJobRows || claimedJobRows.length === 0) {
+      console.warn(
+        `[orchestrator] Duplicate dispatch claim ignored for job ${job.id} on machine ${candidate.id} (CAS matched zero rows)`,
+      );
+      const { error: releaseErr } = await supabase.rpc("release_machine_slot", {
+        p_machine_id: candidate.id,
+        p_slot_type: slotType,
+      });
+      if (releaseErr) {
+        console.error(
+          `[orchestrator] Failed to roll back slot claim on machine ${candidate.id} after duplicate dispatch for job ${job.id}:`,
+          releaseErr.message,
+        );
+      }
       continue;
     }
 
@@ -1368,88 +1387,92 @@ export async function notifyCPO(
 }
 
 export async function handleVerifyResult(supabase: SupabaseClient, msg: VerifyResult): Promise<void> {
-  const { jobId, passed, testOutput } = msg;
+  const { jobId, passed, testOutput, machineId } = msg;
 
-  if (!passed) {
-    // Job failed verification — re-queue for retry with verify context
-    const { error } = await supabase
-      .from("jobs")
-      .update({
-        status: "queued",
-        verify_context: testOutput,
-        machine_id: null,
-      })
-      .eq("id", jobId);
-    if (error) {
-      console.error(`[orchestrator] Failed to re-queue job ${jobId} after verify failure:`, error.message);
-    } else {
-      console.warn(`[orchestrator] Job ${jobId} failed verification — re-queued`);
+  try {
+    if (!passed) {
+      // Job failed verification — re-queue for retry with verify context
+      const { error } = await supabase
+        .from("jobs")
+        .update({
+          status: "queued",
+          verify_context: testOutput,
+          machine_id: null,
+        })
+        .eq("id", jobId);
+      if (error) {
+        console.error(`[orchestrator] Failed to re-queue job ${jobId} after verify failure:`, error.message);
+      } else {
+        console.warn(`[orchestrator] Job ${jobId} failed verification — re-queued`);
+      }
+
+      // Notify CPO about verification failure
+      const { data: failedJob } = await supabase
+        .from("jobs")
+        .select("feature_id, company_id")
+        .eq("id", jobId)
+        .single();
+      if (failedJob?.feature_id && failedJob?.company_id) {
+        const { data: feat } = await supabase
+          .from("features")
+          .select("title")
+          .eq("id", failedJob.feature_id)
+          .single();
+        const title = feat?.title ?? failedJob.feature_id;
+        await notifyCPO(
+          supabase,
+          failedJob.company_id,
+          `Feature "${title}" failed verification: ${(testOutput ?? "").slice(0, 200)}. Needs triage.`,
+        );
+      }
+
+      return;
     }
 
-    // Notify CPO about verification failure
-    const { data: failedJob } = await supabase
+    // Job passed — mark as complete
+    const { error: doneErr } = await supabase
       .from("jobs")
-      .select("feature_id, company_id")
+      .update({ status: "complete" })
+      .eq("id", jobId);
+    if (doneErr) {
+      console.error(`[orchestrator] Failed to mark job ${jobId} complete:`, doneErr.message);
+      return;
+    }
+    console.log(`[orchestrator] Job ${jobId} verified and complete`);
+
+    // Look up the feature_id, context, and company_id for this job
+    const { data: jobRow, error: jobErr } = await supabase
+      .from("jobs")
+      .select("feature_id, context, company_id")
       .eq("id", jobId)
       .single();
-    if (failedJob?.feature_id && failedJob?.company_id) {
-      const { data: feat } = await supabase
-        .from("features")
-        .select("title")
-        .eq("id", failedJob.feature_id)
-        .single();
-      const title = feat?.title ?? failedJob.feature_id;
-      await notifyCPO(
-        supabase,
-        failedJob.company_id,
-        `Feature "${title}" failed verification: ${(testOutput ?? "").slice(0, 200)}. Needs triage.`,
-      );
+    if (jobErr) {
+      console.error(`[orchestrator] Failed to fetch job ${jobId} after verify:`, jobErr.message);
+      return;
     }
 
-    return;
-  }
+    if (!jobRow?.feature_id) {
+      console.log(`[orchestrator] Job ${jobId} has no feature_id — skipping feature check`);
+      return;
+    }
 
-  // Job passed — mark as complete
-  const { error: doneErr } = await supabase
-    .from("jobs")
-    .update({ status: "complete" })
-    .eq("id", jobId);
-  if (doneErr) {
-    console.error(`[orchestrator] Failed to mark job ${jobId} complete:`, doneErr.message);
-    return;
-  }
-  console.log(`[orchestrator] Job ${jobId} verified and complete`);
+    // DAG: check if this verified completion unblocks other queued jobs.
+    await checkUnblockedJobs(supabase, jobRow.feature_id, jobId);
 
-  // Look up the feature_id, context, and company_id for this job
-  const { data: jobRow, error: jobErr } = await supabase
-    .from("jobs")
-    .select("feature_id, context, company_id")
-    .eq("id", jobId)
-    .single();
-  if (jobErr) {
-    console.error(`[orchestrator] Failed to fetch job ${jobId} after verify:`, jobErr.message);
-    return;
-  }
+    // Check if all jobs for this feature are now done
+    const { data: allDone, error: rpcErr } = await supabase
+      .rpc("all_feature_jobs_complete", { p_feature_id: jobRow.feature_id });
+    if (rpcErr) {
+      console.error(`[orchestrator] all_feature_jobs_complete RPC failed:`, rpcErr.message);
+      return;
+    }
 
-  if (!jobRow?.feature_id) {
-    console.log(`[orchestrator] Job ${jobId} has no feature_id — skipping feature check`);
-    return;
-  }
-
-  // DAG: check if this verified completion unblocks other queued jobs.
-  await checkUnblockedJobs(supabase, jobRow.feature_id, jobId);
-
-  // Check if all jobs for this feature are now done
-  const { data: allDone, error: rpcErr } = await supabase
-    .rpc("all_feature_jobs_complete", { p_feature_id: jobRow.feature_id });
-  if (rpcErr) {
-    console.error(`[orchestrator] all_feature_jobs_complete RPC failed:`, rpcErr.message);
-    return;
-  }
-
-  if (allDone) {
-    console.log(`[orchestrator] All jobs done for feature ${jobRow.feature_id} — triggering combining`);
-    await triggerCombining(supabase, jobRow.feature_id);
+    if (allDone) {
+      console.log(`[orchestrator] All jobs done for feature ${jobRow.feature_id} — triggering combining`);
+      await triggerCombining(supabase, jobRow.feature_id);
+    }
+  } finally {
+    await releaseSlot(supabase, jobId, machineId);
   }
 }
 
@@ -1491,24 +1514,7 @@ export async function triggerCombining(supabase: SupabaseClient, featureId: stri
     return;
   }
 
-  // 3. Transition feature to combining (CAS: from building)
-  const { data: updated, error: updateErr } = await supabase
-    .from("features")
-    .update({ status: "combining" })
-    .eq("id", featureId)
-    .eq("status", "building")
-    .select("id");
-
-  if (updateErr) {
-    console.error(`[orchestrator] triggerCombining: failed to set feature ${featureId} to combining:`, updateErr.message);
-    return;
-  }
-  if (!updated || updated.length === 0) {
-    console.log(`[orchestrator] triggerCombining: feature ${featureId} not in building — skipping`);
-    return;
-  }
-
-  // 4. Insert combine job — only merge leaf branches (jobs not superseded by a dependent).
+  // 3. Prepare combine context — only merge leaf branches (jobs not superseded by a dependent).
   // A job is a "leaf" if no other completed job in this feature lists it in depends_on.
   // Chain A→B→C: only C is a leaf (C already contains A+B). Fan-out A→[B,C]: both B and C are leaves.
   const allJobs = (jobs ?? []) as Array<{ id: string; branch: string | null; depends_on: string[] | null }>;
@@ -1529,6 +1535,7 @@ export async function triggerCombining(supabase: SupabaseClient, featureId: stri
     jobBranches,
   });
 
+  // 4. Insert combine job first. If this fails, feature remains in building and will retry.
   const { data: combineJob, error: insertErr } = await supabase
     .from("jobs")
     .insert({
@@ -1551,6 +1558,35 @@ export async function triggerCombining(supabase: SupabaseClient, featureId: stri
     return;
   }
 
+  // 5. Transition feature to combining (CAS: from building).
+  const { data: updated, error: updateErr } = await supabase
+    .from("features")
+    .update({ status: "combining" })
+    .eq("id", featureId)
+    .eq("status", "building")
+    .select("id");
+
+  if (updateErr || !updated || updated.length === 0) {
+    if (updateErr) {
+      console.error(`[orchestrator] triggerCombining: failed to set feature ${featureId} to combining:`, updateErr.message);
+    } else {
+      console.log(`[orchestrator] triggerCombining: feature ${featureId} not in building — rolling back queued combine job`);
+    }
+
+    const { error: rollbackErr } = await supabase
+      .from("jobs")
+      .update({ status: "cancelled", result: "combine_not_started_feature_not_building" })
+      .eq("id", combineJob.id)
+      .eq("status", "queued");
+    if (rollbackErr) {
+      console.error(
+        `[orchestrator] triggerCombining: failed to cancel queued combine job ${combineJob.id} after CAS miss:`,
+        rollbackErr.message,
+      );
+    }
+    return;
+  }
+
   console.log(`[orchestrator] Created combine job ${combineJob.id} for feature ${featureId} with ${jobBranches.length} branches`);
 
   // Generate title asynchronously
@@ -1562,33 +1598,28 @@ export async function triggerCombining(supabase: SupabaseClient, featureId: stri
 }
 
 export async function triggerFeatureVerification(supabase: SupabaseClient, featureId: string): Promise<void> {
-  // Mark feature as verifying — CAS guard: only if not already in a late-stage status.
-  // This prevents duplicate verification jobs from concurrent VerifyResult messages
-  // and blocks regression of features already past the verifying stage.
-  const { data: updated, error: featureErr } = await supabase
-    .from("features")
-    .update({ status: "verifying" })
-    .eq("id", featureId)
-    .not("status", "in", '("verifying","deploying_to_test","ready_to_test","deploying_to_prod","complete","cancelled")')
-    .select("id");
-
-  if (featureErr) {
-    console.error(`[orchestrator] Failed to set feature ${featureId} to verifying:`, featureErr.message);
-    return;
-  }
-  if (!updated || updated.length === 0) {
-    console.log(`[orchestrator] Feature ${featureId} already in late-stage status — skipping verification trigger`);
-    return;
-  }
-
-  // Fetch feature details for the verification job
+  // Fetch current feature state and details before creating a verify job.
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
-    .select("branch, project_id, company_id, acceptance_tests, verification_type")
+    .select("status, branch, project_id, company_id, acceptance_tests, verification_type")
     .eq("id", featureId)
     .single();
   if (fetchErr || !feature) {
     console.error(`[orchestrator] Failed to fetch feature ${featureId}:`, fetchErr?.message);
+    return;
+  }
+
+  const lateStageStatuses = new Set([
+    "verifying",
+    "deploying_to_test",
+    "ready_to_test",
+    "deploying_to_prod",
+    "complete",
+    "cancelled",
+  ]);
+
+  if (lateStageStatuses.has(feature.status as string)) {
+    console.log(`[orchestrator] Feature ${featureId} already in late-stage status (${feature.status}) — skipping verification trigger`);
     return;
   }
 
@@ -1598,80 +1629,96 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
   }
 
   const isActive = feature.verification_type === "active";
-
-  if (isActive) {
-    // Active verification: dispatch a verification-specialist contractor.
-    // Gets a normal StartJob (full workspace with MCP tools + verify-feature skill).
-    const verifyContext = JSON.stringify({
+  const verifyContext = isActive
+    ? JSON.stringify({
       type: "active_feature_verification",
       feature_id: featureId,
       acceptanceTests: feature.acceptance_tests ?? "",
-    });
-    const { data: insertedRows, error: insertErr } = await supabase
-      .from("jobs")
-      .insert({
-        company_id: feature.company_id,
-        project_id: feature.project_id,
-        feature_id: featureId,
-        role: "verification-specialist",
-        job_type: "verify",
-        complexity: "medium",
-        slot_type: "claude_code",
-        status: "queued",
-        context: verifyContext,
-      })
-      .select("id");
-
-    if (insertErr) {
-      console.error(`[orchestrator] Failed to insert active verification job for ${featureId}:`, insertErr.message);
-    } else {
-      console.log(`[orchestrator] Queued active verification (verification-specialist) for feature ${featureId}`);
-      const jobId = insertedRows?.[0]?.id;
-      if (jobId) {
-        generateTitle(verifyContext).then((title) => {
-          if (title) {
-            supabase.from("jobs").update({ title }).eq("id", jobId).then(() => {});
-          }
-        }).catch(() => {});
-      }
-    }
-  } else {
-    // Passive verification: existing VerifyJob path (code review + rebase + tests).
-    const verifyContext = JSON.stringify({
+    })
+    : JSON.stringify({
       type: "feature_verification",
       featureBranch: feature.branch,
       acceptanceTests: feature.acceptance_tests ?? "",
     });
-    const { data: insertedRows, error: insertErr } = await supabase
-      .from("jobs")
-      .insert({
-        company_id: feature.company_id,
-        project_id: feature.project_id,
-        feature_id: featureId,
-        role: "reviewer",
-        job_type: "verify",
-        complexity: "simple",
-        slot_type: "claude_code",
-        status: "queued",
-        context: verifyContext,
-        branch: feature.branch,
-      })
-      .select("id");
 
-    if (insertErr) {
-      console.error(`[orchestrator] Failed to insert feature verification job for ${featureId}:`, insertErr.message);
-    } else {
-      console.log(`[orchestrator] Queued passive verification (reviewer) for feature ${featureId} branch ${feature.branch}`);
-      const jobId = insertedRows?.[0]?.id;
-      if (jobId) {
-        generateTitle(verifyContext).then((title) => {
-          if (title) {
-            supabase.from("jobs").update({ title }).eq("id", jobId).then(() => {});
-          }
-        }).catch(() => {});
-      }
+  const insertPayload = isActive
+    ? {
+      company_id: feature.company_id,
+      project_id: feature.project_id,
+      feature_id: featureId,
+      role: "verification-specialist",
+      job_type: "verify",
+      complexity: "medium",
+      slot_type: "claude_code",
+      status: "queued",
+      context: verifyContext,
     }
+    : {
+      company_id: feature.company_id,
+      project_id: feature.project_id,
+      feature_id: featureId,
+      role: "reviewer",
+      job_type: "verify",
+      complexity: "simple",
+      slot_type: "claude_code",
+      status: "queued",
+      context: verifyContext,
+      branch: feature.branch,
+    };
+
+  // Insert verify job first so a failed insert never leaves the feature stuck in "verifying".
+  const { data: insertedRows, error: insertErr } = await supabase
+    .from("jobs")
+    .insert(insertPayload)
+    .select("id");
+
+  if (insertErr || !insertedRows || insertedRows.length === 0) {
+    console.error(`[orchestrator] Failed to insert verification job for ${featureId}:`, insertErr?.message);
+    return;
   }
+
+  const insertedJobId = insertedRows[0].id as string;
+
+  // CAS transition to verifying only after the verify job exists.
+  const { data: updated, error: featureErr } = await supabase
+    .from("features")
+    .update({ status: "verifying" })
+    .eq("id", featureId)
+    .eq("status", feature.status as string)
+    .select("id");
+
+  if (featureErr || !updated || updated.length === 0) {
+    if (featureErr) {
+      console.error(`[orchestrator] Failed to set feature ${featureId} to verifying:`, featureErr.message);
+    } else {
+      console.log(`[orchestrator] Feature ${featureId} status changed before verify transition — cancelling queued verify job ${insertedJobId}`);
+    }
+
+    const { error: rollbackErr } = await supabase
+      .from("jobs")
+      .update({ status: "cancelled", result: "verification_not_started_feature_status_changed" })
+      .eq("id", insertedJobId)
+      .eq("status", "queued");
+    if (rollbackErr) {
+      console.error(
+        `[orchestrator] Failed to cancel queued verify job ${insertedJobId} after status CAS miss:`,
+        rollbackErr.message,
+      );
+    }
+    return;
+  }
+
+  if (isActive) {
+    console.log(`[orchestrator] Queued active verification (verification-specialist) for feature ${featureId}`);
+  } else {
+    console.log(`[orchestrator] Queued passive verification (reviewer) for feature ${featureId} branch ${feature.branch}`);
+  }
+
+  generateTitle(verifyContext).then((title) => {
+    if (title) {
+      supabase.from("jobs").update({ title }).eq("id", insertedJobId).then(() => {});
+    }
+  }).catch(() => {});
 }
 
 /**
@@ -1682,10 +1729,37 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
  * for the same project, this feature stays in "verifying" and will be promoted
  * when the env is free.
  */
+async function cancelFeatureForTestDeployRetryCap(
+  supabase: SupabaseClient,
+  featureId: string,
+  expectedStatus: "verifying" | "deploying_to_test",
+  attempts: number,
+): Promise<void> {
+  const reason =
+    `Test deploy retry cap reached (${attempts}/${TEST_DEPLOY_MAX_ATTEMPTS}). ` +
+    "Cancelling feature to prevent infinite deploy retries.";
+  const { data: cancelled, error } = await supabase
+    .from("features")
+    .update({ status: "cancelled", error: reason })
+    .eq("id", featureId)
+    .eq("status", expectedStatus)
+    .select("id");
+
+  if (error) {
+    console.error(`[orchestrator] Failed to cancel feature ${featureId} after retry cap:`, error.message);
+    return;
+  }
+  if (!cancelled || cancelled.length === 0) {
+    console.log(`[orchestrator] Retry-cap cancellation skipped for feature ${featureId} (status changed)`);
+    return;
+  }
+  console.warn(`[orchestrator] Feature ${featureId} cancelled after test deploy retry cap (${attempts}/${TEST_DEPLOY_MAX_ATTEMPTS})`);
+}
+
 async function initiateTestDeploy(supabase: SupabaseClient, featureId: string): Promise<void> {
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
-    .select("project_id, company_id, branch, human_checklist")
+    .select("project_id, company_id, branch, test_deploy_attempts")
     .eq("id", featureId)
     .single();
   if (fetchErr || !feature) {
@@ -1700,48 +1774,75 @@ async function initiateTestDeploy(supabase: SupabaseClient, featureId: string): 
     return;
   }
 
-  // Check if another feature is already deploying or in test for this project
-  const { data: deploying, error: deployingErr } = await supabase
-    .from("features")
-    .select("id")
-    .eq("project_id", feature.project_id)
-    .in("status", ["deploying_to_test", "ready_to_test"])
-    .limit(1);
-
-  if (deployingErr) {
-    console.error(`[orchestrator] Failed to check deploy queue:`, deployingErr.message);
+  const priorAttempts = feature.test_deploy_attempts ?? 0;
+  if (priorAttempts >= TEST_DEPLOY_MAX_ATTEMPTS) {
+    await cancelFeatureForTestDeployRetryCap(supabase, featureId, "verifying", priorAttempts);
     return;
   }
 
-  if (deploying && deploying.length > 0) {
-    // Another feature occupies the test env — this feature waits in "verifying"
-    console.log(`[orchestrator] Test env busy — feature ${featureId} queued (stays in verifying)`);
+  const { data: claimRows, error: claimErr } = await supabase.rpc("claim_test_deploy_slot", {
+    p_feature_id: featureId,
+    p_max_attempts: TEST_DEPLOY_MAX_ATTEMPTS,
+  });
+  if (claimErr) {
+    console.error(`[orchestrator] Failed to claim test deploy slot for feature ${featureId}:`, claimErr.message);
     return;
   }
 
-  // Test env is free — set feature to deploying_to_test
-  const { error: updateErr } = await supabase
-    .from("features")
-    .update({ status: "deploying_to_test" })
-    .eq("id", featureId);
-
-  if (updateErr) {
-    console.error(`[orchestrator] Failed to set feature ${featureId} to deploying_to_test:`, updateErr.message);
+  const claim = Array.isArray(claimRows) ? claimRows[0] : claimRows;
+  const claimReason = claim?.reason as string | undefined;
+  if (!claim || !claim.claimed) {
+    if (claimReason === "env_busy") {
+      console.log(`[orchestrator] Test env busy — feature ${featureId} queued (stays in verifying)`);
+      return;
+    }
+    if (claimReason === "retry_cap_exceeded") {
+      const attempts = Number(claim?.test_deploy_attempts ?? priorAttempts);
+      await cancelFeatureForTestDeployRetryCap(supabase, featureId, "verifying", attempts);
+      return;
+    }
+    if (claimReason === "missing_branch") {
+      console.error(`[orchestrator] initiateTestDeploy: feature ${featureId} has no branch — cannot deploy`);
+      return;
+    }
+    console.log(
+      `[orchestrator] Test deploy claim skipped for feature ${featureId} (reason=${claimReason ?? "unknown"})`,
+    );
     return;
   }
 
-  console.log(`[orchestrator] Feature ${featureId} → deploying_to_test — sending DeployToTest`);
+  const companyId = (claim.company_id as string | undefined) ?? feature.company_id;
+  const projectId = (claim.project_id as string | undefined) ?? feature.project_id;
+  const featureBranch = (claim.feature_branch as string | undefined) ?? feature.branch;
+  if (!projectId) {
+    console.error(`[orchestrator] initiateTestDeploy: feature ${featureId} has no project_id — cannot deploy`);
+    await supabase
+      .from("features")
+      .update({ status: "verifying" })
+      .eq("id", featureId)
+      .eq("status", "deploying_to_test");
+    return;
+  }
+  const attemptCount = Number(claim.test_deploy_attempts ?? priorAttempts + 1);
+  console.log(
+    `[orchestrator] Feature ${featureId} → deploying_to_test (attempt ${attemptCount}/${TEST_DEPLOY_MAX_ATTEMPTS}) — sending DeployToTest`,
+  );
 
   // Pick an online machine to handle the deploy
   const { data: machines, error: machErr } = await supabase
     .from("machines")
     .select("id, name")
-    .eq("company_id", feature.company_id)
+    .eq("company_id", companyId)
     .eq("status", "online")
     .limit(1);
 
   if (machErr || !machines || machines.length === 0) {
     console.error(`[orchestrator] No online machine to handle DeployToTest for feature ${featureId}`);
+    await supabase
+      .from("features")
+      .update({ status: "verifying" })
+      .eq("id", featureId)
+      .eq("status", "deploying_to_test");
     return;
   }
 
@@ -1750,7 +1851,7 @@ async function initiateTestDeploy(supabase: SupabaseClient, featureId: string): 
   const { data: project } = await supabase
     .from("projects")
     .select("repo_url")
-    .eq("id", feature.project_id)
+    .eq("id", projectId)
     .single();
 
   const deployMsg: DeployToTest = {
@@ -1758,8 +1859,8 @@ async function initiateTestDeploy(supabase: SupabaseClient, featureId: string): 
     protocolVersion: PROTOCOL_VERSION,
     featureId,
     jobType: "feature",
-    featureBranch: feature.branch,
-    projectId: feature.project_id,
+    featureBranch,
+    projectId,
     repoPath: project?.repo_url ?? undefined,
   };
 
@@ -2444,7 +2545,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
   // Failed verify jobs are handled by Task 0's central catch-up.
   const { data: verifyingFeatures, error: verifyErr } = await supabase
     .from("features")
-    .select("id")
+    .select("id, company_id, test_deploy_attempts")
     .eq("status", "verifying")
     .limit(50);
 
@@ -2452,7 +2553,13 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     console.error("[orchestrator] processFeatureLifecycle: error querying verifying features:", verifyErr.message);
   }
 
-  for (const feature of (verifyingFeatures ?? []) as { id: string }[]) {
+  for (const feature of (verifyingFeatures ?? []) as { id: string; company_id: string; test_deploy_attempts: number | null }[]) {
+    const attempts = feature.test_deploy_attempts ?? 0;
+    if (attempts >= TEST_DEPLOY_MAX_ATTEMPTS) {
+      await cancelFeatureForTestDeployRetryCap(supabase, feature.id, "verifying", attempts);
+      continue;
+    }
+
     const { data: latestVerify } = await supabase
       .from("jobs")
       .select("id, status, context, result")
@@ -2491,19 +2598,16 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
   // --- 5. deploying_to_test — stuck recovery with retry cap ---
   // Features stuck in 'deploying_to_test' for too long. This can happen if:
   //   a) The DeployComplete broadcast was missed (4s window)
-  //   b) initiateTestDeploy set the status before confirming machine availability (bug at line 1704)
-  //   c) The deploy failed silently
+  //   b) The deploy failed silently
   // A stuck deploying_to_test blocks ALL other features via the env-busy gate.
-  // Recovery: roll back to 'verifying' after 5 minutes. After 3 attempts in an hour, fail the feature.
+  // Recovery: roll back to 'verifying' after 5 minutes. Once test_deploy_attempts
+  // reaches TEST_DEPLOY_MAX_ATTEMPTS, cancel the feature.
   const DEPLOY_STUCK_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
-  const DEPLOY_MAX_RETRIES = 3;
-  const DEPLOY_RETRY_WINDOW_MS = 60 * 60 * 1000; // 1 hour
   const deployStuckCutoff = new Date(Date.now() - DEPLOY_STUCK_THRESHOLD_MS).toISOString();
-  const deployRetryWindowStart = new Date(Date.now() - DEPLOY_RETRY_WINDOW_MS).toISOString();
 
   const { data: stuckDeploying, error: deployErr } = await supabase
     .from("features")
-    .select("id, company_id")
+    .select("id, company_id, test_deploy_attempts")
     .eq("status", "deploying_to_test")
     .lt("updated_at", deployStuckCutoff)
     .limit(50);
@@ -2512,28 +2616,15 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     console.error("[orchestrator] processFeatureLifecycle: error querying deploying_to_test features:", deployErr.message);
   }
 
-  for (const feature of (stuckDeploying ?? []) as { id: string; company_id: string }[]) {
-    // Count how many times we've already rolled back (approximated by deploy job count in the last hour)
-    const { data: recentDeploys } = await supabase
-      .from("jobs")
-      .select("id")
-      .eq("feature_id", feature.id)
-      .eq("job_type", "deploy")
-      .gte("created_at", deployRetryWindowStart);
-
-    const attempts = recentDeploys?.length ?? 0;
-
-    if (attempts >= DEPLOY_MAX_RETRIES) {
-      // Too many attempts — fail the feature
-      console.error(`[orchestrator] processFeatureLifecycle: feature ${feature.id} stuck in deploying_to_test after ${attempts} deploy attempts in the last hour — marking failed`);
-      await supabase
-        .from("features")
-        .update({ status: "failed", error: `Deploy to test failed after ${attempts} attempts in the last hour. Likely persistent issue (no machine available or deploy script failing).` })
-        .eq("id", feature.id)
-        .eq("status", "deploying_to_test"); // CAS guard
+  for (const feature of (stuckDeploying ?? []) as { id: string; company_id: string; test_deploy_attempts: number | null }[]) {
+    const attempts = feature.test_deploy_attempts ?? 0;
+    if (attempts >= TEST_DEPLOY_MAX_ATTEMPTS) {
+      await cancelFeatureForTestDeployRetryCap(supabase, feature.id, "deploying_to_test", attempts);
     } else {
       // Roll back to verifying for retry
-      console.warn(`[orchestrator] processFeatureLifecycle: feature ${feature.id} stuck in deploying_to_test for >5min — rolling back to verifying (attempt ${attempts + 1}/${DEPLOY_MAX_RETRIES})`);
+      console.warn(
+        `[orchestrator] processFeatureLifecycle: feature ${feature.id} stuck in deploying_to_test for >5min — rolling back to verifying (attempt ${attempts}/${TEST_DEPLOY_MAX_ATTEMPTS})`,
+      );
 
       const { error: rollbackErr } = await supabase
         .from("features")
@@ -2545,7 +2636,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
         await notifyCPO(
           supabase,
           feature.company_id,
-          `Feature ${feature.id} was stuck in deploying_to_test for >5 minutes. Rolled back to verifying for retry (attempt ${attempts + 1}/${DEPLOY_MAX_RETRIES}).`,
+          `Feature ${feature.id} was stuck in deploying_to_test for >5 minutes. Rolled back to verifying for retry (attempt ${attempts}/${TEST_DEPLOY_MAX_ATTEMPTS}).`,
         );
       }
     }
@@ -2615,7 +2706,7 @@ export async function handleDeployComplete(
   }
 
   // 2. Store test URL, timestamp, machine affinity, and transition to ready_to_test
-  const { error: updateErr } = await supabase
+  const { data: updatedRows, error: updateErr } = await supabase
     .from("features")
     .update({
       test_url: testUrl,
@@ -2624,10 +2715,16 @@ export async function handleDeployComplete(
       status: "ready_to_test",
     })
     .eq("id", featureId)
-    .eq("status", "deploying_to_test"); // CAS guard
+    .eq("status", "deploying_to_test") // CAS guard
+    .select("id");
 
   if (updateErr) {
     console.error(`[orchestrator] Failed to update feature ${featureId} with test URL:`, updateErr.message);
+    return;
+  }
+  if (!updatedRows || updatedRows.length === 0) {
+    console.warn(`[orchestrator] Ignoring stale/duplicate deploy_complete for feature ${featureId} (CAS matched zero rows)`);
+    return;
   }
 
   // 3. Send Slack notification with test URL
@@ -2849,6 +2946,11 @@ function parseChecklist(raw: string | null): string[] {
  * Fetches the current job record to determine slot_type, then increments the machine counter.
  */
 async function releaseSlot(supabase: SupabaseClient, jobId: string, machineId: string): Promise<void> {
+  if (!machineId) {
+    console.warn(`[orchestrator] releaseSlot called without machineId for job ${jobId} — skipping`);
+    return;
+  }
+
   // Look up the job's slot_type.
   const { data: jobRow, error: jobErr } = await supabase
     .from("jobs")
@@ -2862,39 +2964,13 @@ async function releaseSlot(supabase: SupabaseClient, jobId: string, machineId: s
   }
 
   const slotType: SlotType = (jobRow.slot_type as SlotType) ?? "claude_code";
-  const slotColumn = slotType === "claude_code" ? "slots_claude_code" : "slots_codex";
+  const { error: releaseErr } = await supabase.rpc("release_machine_slot", {
+    p_machine_id: machineId,
+    p_slot_type: slotType,
+  });
 
-  // TODO P0: This increment is a non-atomic read-modify-write. Under concurrent
-  // releases for the same machine (e.g. two jobs finishing simultaneously), both
-  // invocations read the same current value and each write N+1 instead of N+2.
-  // Fix with a stored procedure:
-  //   UPDATE machines SET slots_X = slots_X + 1 WHERE id = $1
-  // The correction path until then: the machine's next heartbeat overwrites the
-  // slot counts with ground-truth values (every ~30 s), bounding the error window.
-  //
-  // Fetch current counts so we can compute the absolute new value.
-  const { data: machine, error: machineErr } = await supabase
-    .from("machines")
-    .select("id, slots_claude_code, slots_codex")
-    .eq("id", machineId)
-    .single();
-
-  if (machineErr || !machine) {
-    console.error(`[orchestrator] Could not fetch machine ${machineId} to release slot:`, machineErr?.message);
-    return;
-  }
-
-  const currentSlots = slotType === "claude_code"
-    ? (machine as MachineRow).slots_claude_code
-    : (machine as MachineRow).slots_codex;
-
-  const { error: updateErr } = await supabase
-    .from("machines")
-    .update({ [slotColumn]: currentSlots + 1 })
-    .eq("id", machineId);
-
-  if (updateErr) {
-    console.error(`[orchestrator] Failed to release slot on machine ${machineId}:`, updateErr.message);
+  if (releaseErr) {
+    console.error(`[orchestrator] Failed to release slot on machine ${machineId}:`, releaseErr.message);
   } else {
     console.log(`[orchestrator] Released ${slotType} slot on machine ${machineId}`);
   }

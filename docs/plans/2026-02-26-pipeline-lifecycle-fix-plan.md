@@ -473,6 +473,7 @@ Total diff: ~150 lines of TypeScript, all in `processFeatureLifecycle`.
 5. **Fix `initiateTestDeploy` ordering bug:** Sets `deploying_to_test` before confirming machine availability (line 1704). Root cause of many Task 3 stuck states. *(Codex)*
 6. **Durable messaging:** Replace 4-second Realtime window with DB outbox or persistent worker. Root cause of all catch-up poller requirements. *(Both reviewers)*
 7. **Active verification "completed but not passed" handling:** Currently creates a silent stuck state in `verifying`. Needs a dedicated status or timeout. Deferred because it's a product decision (what should happen when verification fails?).
+8. **Local agent job-polling fallback:** The local agent relies 100% on Realtime to receive dispatched jobs. Supabase Realtime instability (Cloudflare 502s, channel drops every ~2s) means dispatched jobs are never picked up. Needs a catch-up poller that queries `jobs` table for `status='dispatched'` assigned to this machine — same pattern as the orchestrator lifecycle pollers. *(CTO smoke test finding, 2026-02-26 — 39k channel disconnects observed in local-agent.log)*
 
 ---
 
@@ -480,3 +481,4 @@ Total diff: ~150 lines of TypeScript, all in `processFeatureLifecycle`.
 
 - **Concurrent execution issue:** Needs diagnostic data from Chris's logs. Run a test feature first.
 - **Contractor dispatch routing:** Separate plan at `2026-02-26-contractor-dispatch-routing-plan.md`. Blocked on pipeline stability.
+- **Supabase Realtime infrastructure stability:** Cloudflare 502s causing channel drops are upstream. Monitor, but no code fix possible on our side.

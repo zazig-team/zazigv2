@@ -23,11 +23,11 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { rebaseOnBranch, mergeJobIntoFeature } from "./branches.js";
+import { rebaseOnBranch, mergeJobIntoFeature, WORKTREE_BASE } from "./branches.js";
 import type { VerifyJob } from "@zazigv2/shared";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import type { SendFn } from "./executor.js";
@@ -45,8 +45,6 @@ const REVIEWER_SESSION_TIMEOUT_MS = 10 * 60_000;
 
 /** Path to the verify report relative to repo root. */
 const VERIFY_REPORT_PATH = ".claude/verify-report.md";
-
-const WORKTREE_BASE = join(homedir(), "Documents/GitHub/.worktrees");
 
 /**
  * Resolves a repo path for verification. If the path is a URL,
@@ -104,6 +102,7 @@ export class JobVerifier {
       try {
         await this.exec("git", ["-C", repoDir, "worktree", "remove", "--force", verifyWorktreePath], { cwd: repoDir, timeout: 10_000 });
       } catch { /* doesn't exist — fine */ }
+      mkdirSync(WORKTREE_BASE, { recursive: true });
       await this.exec("git", ["-C", repoDir, "worktree", "add", verifyWorktreePath, jobBranch], { cwd: repoDir, timeout: 30_000 });
     } catch (err) {
       console.warn(`[verifier] Failed to create verify worktree for ${jobBranch} in ${repoDir}: ${getExecOutput(err)}`);

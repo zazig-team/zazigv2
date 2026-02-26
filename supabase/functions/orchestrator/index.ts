@@ -1486,6 +1486,11 @@ export async function triggerCombining(supabase: SupabaseClient, featureId: stri
     return;
   }
 
+  if (!feature.branch) {
+    console.error(`[orchestrator] triggerCombining: feature ${featureId} has no branch — cannot combine`);
+    return;
+  }
+
   // 3. Transition feature to combining (CAS: from building)
   const { data: updated, error: updateErr } = await supabase
     .from("features")
@@ -1691,7 +1696,7 @@ async function initiateTestDeploy(supabase: SupabaseClient, featureId: string): 
   // Guard: branch must exist before we can deploy.
   // If missing, something went wrong upstream — fail loudly rather than deploy an empty branch.
   if (!feature.branch) {
-    console.warn(`[orchestrator] initiateTestDeploy: feature ${featureId} has no branch — cannot deploy`);
+    console.error(`[orchestrator] initiateTestDeploy: feature ${featureId} has no branch — cannot deploy`);
     return;
   }
 

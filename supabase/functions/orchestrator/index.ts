@@ -19,6 +19,7 @@ import {
   PROTOCOL_VERSION,
   MACHINE_DEAD_THRESHOLD_MS,
   RECOVERY_COOLDOWN_MS,
+  isStartJob,
   isHeartbeat,
   isJobAck,
   isJobStatusMessage,
@@ -731,6 +732,20 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       ...(roleMcpTools !== undefined ? { roleMcpTools } : {}),
       ...(depBranches.length > 0 ? { dependencyBranches: depBranches } : {}),
     };
+
+    // Validate the StartJob message before broadcasting — catch issues at the source
+    // rather than silently failing at the local agent.
+    if (!isStartJob(startJobMsg)) {
+      console.error(
+        `[orchestrator] Built invalid StartJob for job ${job.id} — skipping dispatch. ` +
+        `Fields: context=${!!startJobMsg.context}, contextRef=${!!(startJobMsg as unknown as Record<string, unknown>).contextRef}`,
+      );
+      // Undo the slot decrement so the machine slot is not permanently consumed
+      await supabase.from("machines").update({ [slotColumn]: currentSlots }).eq("id", candidate.id);
+      // Mark job as failed so it does not retry forever
+      await supabase.from("jobs").update({ status: "failed", result: "Invalid StartJob message: missing required fields" }).eq("id", job.id);
+      continue;
+    }
 
     // Broadcast StartJob via Supabase Realtime on the machine's command channel.
     // Channel naming convention: `agent:{machine.name}`

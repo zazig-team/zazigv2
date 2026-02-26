@@ -197,7 +197,12 @@ export class RepoManager {
           await execFileAsync("rm", ["-rf", tmpDir]).catch(() => {});
         }
         // Fetch the new commit into our bare repo (refspec is now set)
-        await git(repoDir, "fetch", "origin");
+        // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
+      // That's expected — diverged branches are intentionally protected. The other
+      // branches are still updated, so we log and continue.
+      try { await git(repoDir, "fetch", "origin"); } catch (e) {
+        console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
+      }
       }
       return repoDir;
     });
@@ -238,7 +243,12 @@ export class RepoManager {
   async ensureFeatureBranch(repoDir: string, featureBranch: string): Promise<void> {
     return this.withLock(repoDir, async () => {
       // Fetch to ensure remote branches are available (ensureRepo no longer fetches)
-      await git(repoDir, "fetch", "origin");
+      // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
+      // That's expected — diverged branches are intentionally protected. The other
+      // branches are still updated, so we log and continue.
+      try { await git(repoDir, "fetch", "origin"); } catch (e) {
+        console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
+      }
 
       // Check if branch already exists (covers both local and fetched-from-remote)
       try {
@@ -263,7 +273,12 @@ export class RepoManager {
   ): Promise<{ worktreePath: string; jobBranch: string }> {
     return this.withLock(repoDir, async () => {
       // Fetch inside the lock so concurrent jobs can't clobber each other's branches
-      await git(repoDir, "fetch", "origin");
+      // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
+      // That's expected — diverged branches are intentionally protected. The other
+      // branches are still updated, so we log and continue.
+      try { await git(repoDir, "fetch", "origin"); } catch (e) {
+        console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
+      }
 
       const jobBranch = `job/${jobId}`;
       const worktreePath = join(WORKTREE_BASE, `job-${jobId}`);
@@ -295,7 +310,12 @@ export class RepoManager {
     return this.withLock(repoDir, async () => {
       // Fetch to ensure remote dep branches are available in the bare repo
       console.log(`[RepoManager] createDependentJobWorktree: jobId=${jobId}, depBranches=${JSON.stringify(depBranches)}`);
-      await git(repoDir, "fetch", "origin");
+      // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
+      // That's expected — diverged branches are intentionally protected. The other
+      // branches are still updated, so we log and continue.
+      try { await git(repoDir, "fetch", "origin"); } catch (e) {
+        console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
+      }
 
       // List all branches after fetch for debugging
       const { stdout: branchList } = await execFileAsync("git", ["-C", repoDir, "branch", "--list", "job/*"], { encoding: "utf8" });

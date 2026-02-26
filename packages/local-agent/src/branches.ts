@@ -290,13 +290,35 @@ export class RepoManager {
   ): Promise<{ worktreePath: string; jobBranch: string }> {
     return this.withLock(repoDir, async () => {
       // Fetch to ensure remote dep branches are available in the bare repo
+      console.log(`[RepoManager] createDependentJobWorktree: jobId=${jobId}, depBranches=${JSON.stringify(depBranches)}`);
       await git(repoDir, "fetch", "--prune", "origin");
+
+      // List all branches after fetch for debugging
+      const { stdout: branchList } = await execFileAsync("git", ["-C", repoDir, "branch", "--list", "job/*"], { encoding: "utf8" });
+      console.log(`[RepoManager] Branches after fetch: ${branchList.trim().split("\n").map(b => b.trim()).join(", ")}`);
 
       // Verify each dep branch exists; skip missing ones with a warning
       const validBranches: string[] = [];
       for (const branch of depBranches) {
         try {
-          await git(repoDir, "rev-parse", "--verify", `refs/heads/${branch}`);
+          const { stdout: sha } = await execFileAsync("git", ["-C", repoDir, "rev-parse", "--verify", `refs/heads/${branch}`], { encoding: "utf8" });
+          const { stdout: logLine } = await execFileAsync("git", ["-C", repoDir, "log", "--oneline", "-1", branch], { encoding: "utf8" });
+          // Check if this branch shares history with the repo root
+          let ancestry = "UNKNOWN";
+          try {
+            await execFileAsync("git", ["-C", repoDir, "merge-base", "--is-ancestor", "HEAD~100", branch], { encoding: "utf8" });
+            ancestry = "shares-history";
+          } catch {
+            // Try checking against a known good branch
+            try {
+              const { stdout: roots } = await execFileAsync("git", ["-C", repoDir, "rev-list", "--max-parents=0", branch], { encoding: "utf8" });
+              const { stdout: mainRoots } = await execFileAsync("git", ["-C", repoDir, "rev-list", "--max-parents=0", "master"], { encoding: "utf8" });
+              ancestry = roots.trim() === mainRoots.trim() ? "same-root" : `DIFFERENT-ROOT(branch=${roots.trim().slice(0,8)},master=${mainRoots.trim().slice(0,8)})`;
+            } catch {
+              ancestry = "root-check-failed";
+            }
+          }
+          console.log(`[RepoManager] Dep branch "${branch}": sha=${sha.trim().slice(0,8)}, log="${logLine.trim()}", ancestry=${ancestry}`);
           validBranches.push(branch);
         } catch {
           console.warn(`[RepoManager] createDependentJobWorktree: dep branch "${branch}" not found in ${repoDir} — skipping`);
@@ -309,6 +331,7 @@ export class RepoManager {
 
       // Determine base branch: first valid dep branch, or fall back to feature branch
       const baseBranch = validBranches.length > 0 ? validBranches[0] : featureBranch;
+      console.log(`[RepoManager] Creating jobBranch="${jobBranch}" from baseBranch="${baseBranch}", validBranches=${JSON.stringify(validBranches)}`);
 
       // Clean up stale branch from a previous failed run (if any)
       try { await git(repoDir, "branch", "-D", jobBranch); } catch { /* doesn't exist — fine */ }
@@ -318,8 +341,10 @@ export class RepoManager {
 
       // Fan-in: merge additional dep branches into the worktree
       for (const branch of validBranches.slice(1)) {
+        console.log(`[RepoManager] Fan-in merging "${branch}" into worktree at ${worktreePath}`);
         try {
           await execFileAsync("git", ["-C", worktreePath, "merge", "--no-ff", branch], { encoding: "utf8" });
+          console.log(`[RepoManager] Fan-in merge of "${branch}" succeeded`);
         } catch (mergeErr) {
           // Abort the merge, clean up worktree and branch, then re-throw
           try {

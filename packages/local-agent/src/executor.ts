@@ -299,6 +299,7 @@ export class JobExecutor {
       const projectName = msg.repoUrl.split("/").pop()?.replace(/\.git$/, "") ?? jobId;
       repoDir = await this.repoManager.ensureRepo(msg.repoUrl, projectName);
       await this.repoManager.ensureFeatureBranch(repoDir, msg.featureBranch);
+      console.log(`[executor] Branch routing for jobId=${jobId}: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${msg.dependencyBranches && msg.dependencyBranches.length > 0 ? "createDependentJobWorktree" : "createJobWorktree"}`);
       const worktreeResult = (msg.dependencyBranches && msg.dependencyBranches.length > 0)
         ? await this.repoManager.createDependentJobWorktree(repoDir, msg.featureBranch, jobId, msg.dependencyBranches)
         : await this.repoManager.createJobWorktree(repoDir, msg.featureBranch, jobId);

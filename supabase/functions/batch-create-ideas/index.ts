@@ -131,9 +131,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
           source_ref: idea.source_ref ?? null,
           tags: idea.tags ?? null,
           priority: idea.priority ?? "medium",
-          suggested_scope: idea.suggested_scope ?? null,
+          scope: idea.scope ?? null,
           suggested_exec: idea.suggested_exec ?? null,
-          complexity_estimate: idea.complexity_estimate ?? null,
+          complexity: idea.complexity ?? null,
           project_id: idea.project_id ?? null,
           status: "new",
         })

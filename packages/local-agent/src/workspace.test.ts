@@ -32,7 +32,6 @@ describe("generateAllowedTools", () => {
       "mcp__zazig-messaging__query_projects",
       "mcp__zazig-messaging__create_feature",
       "mcp__zazig-messaging__update_feature",
-      "mcp__zazig-messaging__commission_contractor",
     ]);
   });
 

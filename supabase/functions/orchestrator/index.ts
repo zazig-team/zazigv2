@@ -655,6 +655,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         featureBranch: ctx.featureBranch ?? "",
         jobBranch: job.branch ?? ctx.featureBranch ?? "",
         acceptanceTests: ctx.acceptanceTests ?? "",
+        repoPath: repoUrl!,
       };
 
       const channel = supabase.channel(`agent:${candidate.name}`);

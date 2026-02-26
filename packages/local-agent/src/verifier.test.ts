@@ -6,14 +6,27 @@ import { PROTOCOL_VERSION } from "@zazigv2/shared";
 vi.mock("./branches.js", () => ({
   rebaseOnBranch: vi.fn(),
   mergeJobIntoFeature: vi.fn(),
+  WORKTREE_BASE: "/tmp/worktrees",
 }));
 
+// Mock fs functions used in verify()
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    existsSync: vi.fn().mockReturnValue(true),
+    mkdirSync: vi.fn(),
+  };
+});
+
+import { existsSync } from "node:fs";
 import { rebaseOnBranch, mergeJobIntoFeature } from "./branches.js";
 import { JobVerifier, type ExecFn, parseVerifyReport } from "./verifier.js";
 import type { SendFn } from "./executor.js";
 
 const mockedRebase = vi.mocked(rebaseOnBranch);
 const mockedMerge = vi.mocked(mergeJobIntoFeature);
+const mockedExistsSync = vi.mocked(existsSync);
 
 function makeVerifyJob(overrides?: Partial<VerifyJob>): VerifyJob {
   return {
@@ -28,6 +41,21 @@ function makeVerifyJob(overrides?: Partial<VerifyJob>): VerifyJob {
   };
 }
 
+/**
+ * The verify flow now runs these exec calls before reaching the fallback
+ * verification logic (rebase/test/lint/typecheck/merge):
+ *   1. git worktree prune (best-effort, may fail)
+ *   2. git fetch origin <jobBranch>
+ *   3. git worktree remove --force (stale cleanup, may fail)
+ *   4. git worktree add
+ * After verification (in finally):
+ *   5. git worktree remove --force (cleanup)
+ *
+ * Tests that care about fallback exec calls (npm test/lint/typecheck) need
+ * to account for these 4 setup calls + 1 cleanup call.
+ */
+const SETUP_EXEC_CALLS = 4; // prune, fetch, stale-remove, add
+
 describe("JobVerifier", () => {
   let send: ReturnType<typeof vi.fn>;
   let exec: ReturnType<typeof vi.fn>;
@@ -35,6 +63,7 @@ describe("JobVerifier", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedExistsSync.mockReturnValue(true);
     send = vi.fn().mockResolvedValue(undefined);
     exec = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
     verifier = new JobVerifier("machine-1", send as unknown as SendFn, undefined, exec as unknown as ExecFn);
@@ -47,13 +76,14 @@ describe("JobVerifier", () => {
     await verifier.verify(makeVerifyJob());
 
     expect(mockedRebase).toHaveBeenCalledWith(
-      "/tmp/test-repo",
+      expect.stringContaining("verify-job-123"),
       "job/api-endpoint",
       "feature/auth",
     );
-    expect(exec).toHaveBeenCalledTimes(3); // test, lint, typecheck
+    // Setup calls + test + lint + typecheck + cleanup
+    expect(exec).toHaveBeenCalledTimes(SETUP_EXEC_CALLS + 3 + 1);
     expect(mockedMerge).toHaveBeenCalledWith(
-      "/tmp/test-repo",
+      expect.stringContaining("verify-job-123"),
       "job/api-endpoint",
       "feature/auth",
     );
@@ -82,12 +112,18 @@ describe("JobVerifier", () => {
         testOutput: expect.stringContaining("Rebase failed"),
       }),
     );
-    expect(exec).not.toHaveBeenCalled();
+    // Only setup + cleanup exec calls, no npm calls
+    expect(exec).toHaveBeenCalledTimes(SETUP_EXEC_CALLS + 1);
     expect(mockedMerge).not.toHaveBeenCalled();
   });
 
   it("sends failing VerifyResult when tests fail", async () => {
     mockedRebase.mockResolvedValue({ success: true });
+
+    // Setup calls succeed, then npm test fails
+    for (let i = 0; i < SETUP_EXEC_CALLS; i++) {
+      exec.mockResolvedValueOnce({ stdout: "", stderr: "" });
+    }
     exec.mockRejectedValueOnce({
       stdout: "FAIL test.ts",
       stderr: "Error: assertion",
@@ -106,6 +142,11 @@ describe("JobVerifier", () => {
 
   it("sends failing VerifyResult when lint fails", async () => {
     mockedRebase.mockResolvedValue({ success: true });
+
+    // Setup calls succeed, then npm test succeeds, then lint fails
+    for (let i = 0; i < SETUP_EXEC_CALLS; i++) {
+      exec.mockResolvedValueOnce({ stdout: "", stderr: "" });
+    }
     exec
       .mockResolvedValueOnce({ stdout: "all tests pass", stderr: "" })
       .mockRejectedValueOnce({ stdout: "lint error", stderr: "" });
@@ -123,6 +164,11 @@ describe("JobVerifier", () => {
 
   it("sends failing VerifyResult when typecheck fails", async () => {
     mockedRebase.mockResolvedValue({ success: true });
+
+    // Setup calls succeed, test succeeds, lint succeeds, typecheck fails
+    for (let i = 0; i < SETUP_EXEC_CALLS; i++) {
+      exec.mockResolvedValueOnce({ stdout: "", stderr: "" });
+    }
     exec
       .mockResolvedValueOnce({ stdout: "all tests pass", stderr: "" })
       .mockResolvedValueOnce({ stdout: "lint ok", stderr: "" })
@@ -163,14 +209,15 @@ describe("JobVerifier", () => {
     await verifier.verify(makeVerifyJob({ repoPath: "/custom/repo" }));
 
     expect(mockedRebase).toHaveBeenCalledWith(
-      "/custom/repo",
+      expect.stringContaining("verify-job-123"),
       "job/api-endpoint",
       "feature/auth",
     );
+    // Verify the fetch used /custom/repo
     expect(exec).toHaveBeenCalledWith(
-      "npm",
-      ["test"],
-      expect.objectContaining({ cwd: "/custom/repo" }),
+      "git",
+      ["-C", "/custom/repo", "fetch", "origin", "job/api-endpoint"],
+      expect.objectContaining({ cwd: "/custom/repo", timeout: 60_000 }),
     );
   });
 
@@ -180,23 +227,26 @@ describe("JobVerifier", () => {
 
     await verifier.verify(makeVerifyJob());
 
+    const worktreePath = expect.stringContaining("verify-job-123");
+
+    // After SETUP_EXEC_CALLS, the fallback runs npm test, lint, typecheck
     expect(exec).toHaveBeenNthCalledWith(
-      1,
+      SETUP_EXEC_CALLS + 1,
       "npm",
       ["test"],
-      expect.objectContaining({ cwd: "/tmp/test-repo", timeout: 300_000 }),
+      expect.objectContaining({ cwd: worktreePath, timeout: 300_000 }),
     );
     expect(exec).toHaveBeenNthCalledWith(
-      2,
+      SETUP_EXEC_CALLS + 2,
       "npm",
       ["run", "lint"],
-      expect.objectContaining({ cwd: "/tmp/test-repo", timeout: 60_000 }),
+      expect.objectContaining({ cwd: worktreePath, timeout: 60_000 }),
     );
     expect(exec).toHaveBeenNthCalledWith(
-      3,
+      SETUP_EXEC_CALLS + 3,
       "npm",
       ["run", "typecheck"],
-      expect.objectContaining({ cwd: "/tmp/test-repo", timeout: 60_000 }),
+      expect.objectContaining({ cwd: worktreePath, timeout: 60_000 }),
     );
   });
 
@@ -206,10 +256,52 @@ describe("JobVerifier", () => {
 
     await verifier.verify(makeVerifyJob({ repoPath: undefined }));
 
-    expect(mockedRebase).toHaveBeenCalledWith(
-      process.cwd(),
-      "job/api-endpoint",
-      "feature/auth",
+    // The fetch should use process.cwd() as repoDir
+    expect(exec).toHaveBeenCalledWith(
+      "git",
+      ["-C", process.cwd(), "fetch", "origin", "job/api-endpoint"],
+      expect.objectContaining({ cwd: process.cwd() }),
+    );
+  });
+
+  it("skips duplicate verify for the same jobId", async () => {
+    mockedRebase.mockResolvedValue({ success: true });
+    mockedMerge.mockResolvedValue({ success: true });
+
+    // Start two verifications concurrently for the same job
+    const p1 = verifier.verify(makeVerifyJob());
+    const p2 = verifier.verify(makeVerifyJob());
+    await Promise.all([p1, p2]);
+
+    // send should only be called once — the second was deduped
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns early when repo directory does not exist", async () => {
+    mockedExistsSync.mockReturnValue(false);
+
+    await verifier.verify(makeVerifyJob());
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        passed: false,
+        testOutput: expect.stringContaining("Repo directory not found"),
+      }),
+    );
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("fetches only the needed branch, not all refs", async () => {
+    mockedRebase.mockResolvedValue({ success: true });
+    mockedMerge.mockResolvedValue({ success: true });
+
+    await verifier.verify(makeVerifyJob({ jobBranch: "job/specific-branch" }));
+
+    // The fetch call should include the specific branch
+    expect(exec).toHaveBeenCalledWith(
+      "git",
+      ["-C", "/tmp/test-repo", "fetch", "origin", "job/specific-branch"],
+      expect.objectContaining({ timeout: 60_000 }),
     );
   });
 });

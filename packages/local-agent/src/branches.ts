@@ -266,6 +266,8 @@ export class RepoManager {
       const jobBranch = `job/${jobId}`;
       const worktreePath = join(WORKTREE_BASE, `job-${jobId}`);
       await mkdir(WORKTREE_BASE, { recursive: true });
+      // Clean up stale branch from a previous failed run (if any)
+      try { await git(repoDir, "branch", "-D", jobBranch); } catch { /* doesn't exist — fine */ }
       // Create branch off feature branch
       await git(repoDir, "branch", jobBranch, featureBranch);
       // Add worktree for the job branch
@@ -307,6 +309,10 @@ export class RepoManager {
 
       // Determine base branch: first valid dep branch, or fall back to feature branch
       const baseBranch = validBranches.length > 0 ? validBranches[0] : featureBranch;
+
+      // Clean up stale branch from a previous failed run (if any)
+      try { await git(repoDir, "branch", "-D", jobBranch); } catch { /* doesn't exist — fine */ }
+
       await git(repoDir, "branch", jobBranch, baseBranch);
       await git(repoDir, "worktree", "add", worktreePath, jobBranch);
 

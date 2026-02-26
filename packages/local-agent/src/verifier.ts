@@ -23,8 +23,9 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rebaseOnBranch, mergeJobIntoFeature } from "./branches.js";
 import type { VerifyJob } from "@zazigv2/shared";
@@ -44,6 +45,22 @@ const REVIEWER_SESSION_TIMEOUT_MS = 10 * 60_000;
 
 /** Path to the verify report relative to repo root. */
 const VERIFY_REPORT_PATH = ".claude/verify-report.md";
+
+const WORKTREE_BASE = join(homedir(), "Documents/GitHub/.worktrees");
+
+/**
+ * Resolves a repo path for verification. If the path is a URL,
+ * derives the local bare clone directory from ~/.zazigv2/repos/.
+ * If it's already a local path, returns it as-is.
+ */
+function resolveRepoPath(repoPathOrUrl: string): string {
+  if (repoPathOrUrl.startsWith("/")) return repoPathOrUrl;
+  const repoName = repoPathOrUrl
+    .replace(/\.git$/, "")
+    .split("/")
+    .pop() ?? "unknown";
+  return join(homedir(), ".zazigv2", "repos", repoName);
+}
 
 export type ExecFn = (
   cmd: string,
@@ -65,23 +82,57 @@ export class JobVerifier {
 
   async verify(msg: VerifyJob): Promise<void> {
     const { jobId, featureBranch, jobBranch } = msg;
-    const repoDir = msg.repoPath ?? process.cwd();
+    const repoDir = msg.repoPath ? resolveRepoPath(msg.repoPath) : process.cwd();
 
     console.log(
       `[verifier] Starting verification — jobId=${jobId}, ` +
         `jobBranch=${jobBranch}, featureBranch=${featureBranch}, repoDir=${repoDir}`,
     );
 
-    // 1. Try to load reviewer role prompt from DB
-    const reviewerPrompt = await this.loadReviewerPrompt();
+    if (!existsSync(repoDir)) {
+      console.error(`[verifier] Repo directory not found: ${repoDir} — cannot verify jobId=${jobId}`);
+      await this.sendResult(jobId, false, `Repo directory not found: ${repoDir}`);
+      return;
+    }
 
-    if (reviewerPrompt) {
-      // Role-driven verification: spawn a Claude session with the prompt
-      await this.runRoleDrivenVerification(reviewerPrompt, msg, repoDir);
-    } else {
-      // Fallback: hardcoded inline verification steps
-      console.log(`[verifier] Using fallback inline verification for jobId=${jobId}`);
-      await this.runFallbackVerification(msg, repoDir);
+    // Fetch latest refs and create a worktree for verification.
+    // The repo at repoDir is a bare clone — we need a worktree for a working tree.
+    const verifyWorktreePath = join(WORKTREE_BASE, `verify-${jobId}`);
+    try {
+      await this.exec("git", ["-C", repoDir, "fetch", "origin"], { cwd: repoDir, timeout: 60_000 });
+      // Clean up stale worktree from a previous failed run (if any)
+      try {
+        await this.exec("git", ["-C", repoDir, "worktree", "remove", "--force", verifyWorktreePath], { cwd: repoDir, timeout: 10_000 });
+      } catch { /* doesn't exist — fine */ }
+      await this.exec("git", ["-C", repoDir, "worktree", "add", verifyWorktreePath, jobBranch], { cwd: repoDir, timeout: 30_000 });
+    } catch (err) {
+      console.warn(`[verifier] Failed to create verify worktree for ${jobBranch} in ${repoDir}: ${getExecOutput(err)}`);
+      await this.sendResult(jobId, false, `Failed to checkout branch ${jobBranch}`);
+      return;
+    }
+
+    console.log(`[verifier] Created verify worktree at ${verifyWorktreePath} (branch: ${jobBranch})`);
+
+    try {
+      // 1. Try to load reviewer role prompt from DB
+      const reviewerPrompt = await this.loadReviewerPrompt();
+
+      if (reviewerPrompt) {
+        // Role-driven verification: spawn a Claude session with the prompt
+        await this.runRoleDrivenVerification(reviewerPrompt, msg, verifyWorktreePath);
+      } else {
+        // Fallback: hardcoded inline verification steps
+        console.log(`[verifier] Using fallback inline verification for jobId=${jobId}`);
+        await this.runFallbackVerification(msg, verifyWorktreePath);
+      }
+    } finally {
+      // Clean up the verify worktree
+      try {
+        await this.exec("git", ["-C", repoDir, "worktree", "remove", "--force", verifyWorktreePath], { cwd: repoDir, timeout: 10_000 });
+        console.log(`[verifier] Cleaned up verify worktree for jobId=${jobId}`);
+      } catch {
+        console.warn(`[verifier] Failed to clean up verify worktree at ${verifyWorktreePath}`);
+      }
     }
   }
 

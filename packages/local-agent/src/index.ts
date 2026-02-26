@@ -211,7 +211,10 @@ async function discoverAndSpawnPersistentAgents(
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      console.error(`[local-agent] Failed to fetch persistent jobs: HTTP ${res.status} — ${body}`);
+      console.error(
+        `[local-agent] Failed to fetch persistent jobs: HTTP ${res.status}`,
+        `— body: ${body.slice(0, 500)}`,
+      );
       return;
     }
 

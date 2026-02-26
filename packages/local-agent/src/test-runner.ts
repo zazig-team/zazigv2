@@ -163,7 +163,8 @@ export class TestRunner {
    * No-op for persistent environments or missing teardown config.
    */
   async runTeardown(repoPath: string): Promise<void> {
-    const recipe = readTestRecipe(repoPath);
+    const resolved = resolveRepoPath(repoPath);
+    const recipe = readTestRecipe(resolved);
     if (!recipe) return;
     if (recipe.type !== "ephemeral") return;
     if (!recipe.teardown?.script) return;
@@ -172,7 +173,7 @@ export class TestRunner {
     const result = await this.spawnCmd(
       "doppler",
       ["run", "--project", recipe.name, "--config", "prd", "--", "bash", "-c", recipe.teardown.script],
-      { cwd: repoPath, timeout: DEPLOY_TIMEOUT_MS },
+      { cwd: resolved, timeout: DEPLOY_TIMEOUT_MS },
     );
 
     if (result.exitCode !== 0) {

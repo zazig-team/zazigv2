@@ -2417,6 +2417,55 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     }
     // Failed combine jobs are handled by Task 0's central catch-up — no action needed here.
   }
+
+  // --- 4. verifying → deploying_to_test ---
+  // Features stuck in 'verifying' where the latest verify job is already complete and passed.
+  // Failed verify jobs are handled by Task 0's central catch-up.
+  const { data: verifyingFeatures, error: verifyErr } = await supabase
+    .from("features")
+    .select("id")
+    .eq("status", "verifying")
+    .limit(50);
+
+  if (verifyErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying verifying features:", verifyErr.message);
+  }
+
+  for (const feature of (verifyingFeatures ?? []) as { id: string }[]) {
+    const { data: latestVerify } = await supabase
+      .from("jobs")
+      .select("id, status, context, result")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "verify")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (!latestVerify || latestVerify.length === 0) continue;
+    const job = latestVerify[0] as { id: string; status: string; context: string; result: string | null };
+    if (job.status !== "complete") continue;
+    // Failed jobs are caught by Task 0. Non-terminal jobs are still running — skip.
+
+    let ctx: { type?: string } = {};
+    try { ctx = JSON.parse(job.context); } catch { /* ignore */ }
+
+    if (ctx.type === "active_feature_verification") {
+      const passed = job.result?.startsWith("PASSED");
+      if (passed) {
+        console.log(`[orchestrator] processFeatureLifecycle: active verify PASSED for feature ${feature.id} — initiating test deploy`);
+        await initiateTestDeploy(supabase, feature.id);
+      }
+      // If active verification completed but didn't pass, the feature stays in 'verifying'.
+      // Task 0 won't catch this because the job status is 'complete', not 'failed'.
+      // This is a legitimate stuck state that needs CPO attention — but we do NOT notify
+      // here because the poller runs every 60s and notifyCPO is non-idempotent.
+      // The live path (handleJobComplete line 985) handles notification. If that was missed,
+      // the feature will show up in the CPO's status dashboard as stuck in 'verifying'.
+    } else {
+      // Passive verification: always proceed to deploy
+      console.log(`[orchestrator] processFeatureLifecycle: passive verify done for feature ${feature.id} — initiating test deploy`);
+      await initiateTestDeploy(supabase, feature.id);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

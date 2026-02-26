@@ -194,10 +194,14 @@ export class JobVerifier {
     console.log(`[verifier] Spawning reviewer session — jobId=${jobId}, repoDir=${repoDir}`);
 
     try {
-      // Run claude -p with the assembled prompt, in the repo directory
+      // Run claude -p with the assembled prompt, in the repo directory.
+      // Unset CLAUDECODE so nested sessions aren't blocked by the
+      // "cannot launch inside another Claude Code session" detection.
+      // Use sh -c with positional arg ($1) to safely pass the prompt
+      // without shell injection risk.
       await this.exec(
-        "claude",
-        ["-p", sessionPrompt, "--model", "claude-sonnet-4-6"],
+        "sh",
+        ["-c", 'unset CLAUDECODE; exec claude -p "$1" --model claude-sonnet-4-6', "--", sessionPrompt],
         { cwd: repoDir, timeout: REVIEWER_SESSION_TIMEOUT_MS },
       );
     } catch (err) {

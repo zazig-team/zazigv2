@@ -21,6 +21,7 @@ import { HEARTBEAT_INTERVAL_MS, PROTOCOL_VERSION, isOrchestratorMessage } from "
 import type { OrchestratorMessage, Heartbeat, AgentMessage } from "@zazigv2/shared";
 import type { MachineConfig } from "./config.js";
 import type { SlotTracker } from "./slots.js";
+import { recoverDispatchedJobs } from "./job-recovery.js";
 
 const CREDENTIALS_PATH = join(homedir(), ".zazigv2", "credentials.json");
 
@@ -51,6 +52,7 @@ export class AgentConnection {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private stopped = false;
+  private isRecoveryRunning = false;
 
   constructor(config: MachineConfig, slots: SlotTracker) {
     this.config = config;
@@ -452,6 +454,28 @@ export class AgentConnection {
         `[local-agent] Heartbeat FAILED — machineId=${this.machineId}, ` +
           `slots=${JSON.stringify(slotsAvailable)}, db=FAIL`
       );
+    }
+
+    // --- Job recovery poll ---
+    // Check for dispatched jobs that were missed due to Realtime drops.
+    // Resets them to queued so the orchestrator re-dispatches on next tick.
+    // Skip if previous recovery poll is still in-flight (DB slow).
+    if (!this.isRecoveryRunning) {
+      this.isRecoveryRunning = true;
+      try {
+        const recovered = await recoverDispatchedJobs(
+          this.dbClient,
+          this.machineId,
+          { companyIds: this.companyIds },
+        );
+        if (recovered > 0) {
+          console.log(`[local-agent] Heartbeat recovered ${recovered} missed job(s)`);
+        }
+      } catch (err) {
+        console.warn(`[local-agent] Job recovery poll failed:`, err);
+      } finally {
+        this.isRecoveryRunning = false;
+      }
     }
   }
 

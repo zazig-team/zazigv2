@@ -119,13 +119,14 @@ export class JobVerifier {
       try {
         await this.exec("git", ["-C", repoDir, "worktree", "prune"], { cwd: repoDir, timeout: 10_000 });
       } catch { /* best effort */ }
-      // Fetch only the needed branch — fetching all refs breaks concurrent
-      // verify jobs because git refuses to update a checked-out branch's ref.
-      await this.exec("git", ["-C", repoDir, "fetch", "origin", jobBranch], { cwd: repoDir, timeout: 60_000 });
-      // Clean up stale worktree from a previous failed run (if any)
+      // Clean up stale worktree from a previous failed run BEFORE fetching —
+      // if the stale worktree has this branch checked out, fetch will fail.
       try {
         await this.exec("git", ["-C", repoDir, "worktree", "remove", "--force", verifyWorktreePath], { cwd: repoDir, timeout: 10_000 });
       } catch { /* doesn't exist — fine */ }
+      // Fetch only the needed branch — fetching all refs breaks concurrent
+      // verify jobs because git refuses to update a checked-out branch's ref.
+      await this.exec("git", ["-C", repoDir, "fetch", "origin", jobBranch], { cwd: repoDir, timeout: 60_000 });
       mkdirSync(WORKTREE_BASE, { recursive: true });
       await this.exec("git", ["-C", repoDir, "worktree", "add", verifyWorktreePath, jobBranch], { cwd: repoDir, timeout: 30_000 });
     } catch (err) {

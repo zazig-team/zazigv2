@@ -109,6 +109,11 @@ export function isStartJob(v: unknown): v is StartJob {
   if (v.personalityPrompt !== undefined && (!isString(v.personalityPrompt) || v.personalityPrompt.length === 0 || v.personalityPrompt.length > MAX_PERSONALITY_PROMPT_BYTES)) return false;
   // subAgentPrompt is optional; if present: non-empty, within size budget
   if (v.subAgentPrompt !== undefined && (!isString(v.subAgentPrompt) || v.subAgentPrompt.length === 0 || v.subAgentPrompt.length > MAX_PERSONALITY_PROMPT_BYTES)) return false;
+  // dependencyBranches is optional; if present must be a non-empty array of non-empty strings
+  if (v.dependencyBranches !== undefined) {
+    if (!Array.isArray(v.dependencyBranches) || v.dependencyBranches.length === 0) return false;
+    if (!v.dependencyBranches.every((b: unknown) => isString(b) && (b as string).length > 0)) return false;
+  }
   return true;
 }
 

@@ -152,6 +152,12 @@ export interface StartJob {
    * Optional; omit for codex slot_type jobs or roles with no skills.
    */
   roleSkills?: string[];
+  /**
+   * Branch names of completed dependency jobs. When present, the executor
+   * branches from depBranches[0] and merges additional branches (fan-in).
+   * Omitted for independent jobs or when all deps have null branches.
+   */
+  dependencyBranches?: string[];
 }
 
 /**

@@ -68,6 +68,7 @@ export type ExecFn = (
 
 export class JobVerifier {
   private readonly exec: ExecFn;
+  private readonly inFlightVerifies = new Set<string>();
 
   constructor(
     private readonly machineId: string,
@@ -79,6 +80,23 @@ export class JobVerifier {
   }
 
   async verify(msg: VerifyJob): Promise<void> {
+    const { jobId, featureBranch, jobBranch } = msg;
+
+    // Dedup: skip if this job is already being verified
+    if (this.inFlightVerifies.has(jobId)) {
+      console.log(`[verifier] Skipping duplicate verify for jobId=${jobId}`);
+      return;
+    }
+    this.inFlightVerifies.add(jobId);
+
+    try {
+      await this.verifyInner(msg);
+    } finally {
+      this.inFlightVerifies.delete(jobId);
+    }
+  }
+
+  private async verifyInner(msg: VerifyJob): Promise<void> {
     const { jobId, featureBranch, jobBranch } = msg;
     const repoDir = msg.repoPath ? resolveRepoPath(msg.repoPath) : process.cwd();
 
@@ -97,7 +115,13 @@ export class JobVerifier {
     // The repo at repoDir is a bare clone — we need a worktree for a working tree.
     const verifyWorktreePath = join(WORKTREE_BASE, `verify-${jobId}`);
     try {
-      await this.exec("git", ["-C", repoDir, "fetch", "origin"], { cwd: repoDir, timeout: 60_000 });
+      // Prune stale worktree bookkeeping before creating a new one
+      try {
+        await this.exec("git", ["-C", repoDir, "worktree", "prune"], { cwd: repoDir, timeout: 10_000 });
+      } catch { /* best effort */ }
+      // Fetch only the needed branch — fetching all refs breaks concurrent
+      // verify jobs because git refuses to update a checked-out branch's ref.
+      await this.exec("git", ["-C", repoDir, "fetch", "origin", jobBranch], { cwd: repoDir, timeout: 60_000 });
       // Clean up stale worktree from a previous failed run (if any)
       try {
         await this.exec("git", ["-C", repoDir, "worktree", "remove", "--force", verifyWorktreePath], { cwd: repoDir, timeout: 10_000 });

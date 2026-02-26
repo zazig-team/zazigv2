@@ -10,9 +10,10 @@ const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 export const sb = createClient(SUPABASE_URL, ANON_KEY);
 
 // ── Mock dataset ──────────────────────────────────────────────────────────────
-// PHASE 1 INTEGRATION POINT: Remove MOCK_IDEAS once real data is available.
-
-const MOCK_IDEAS = [
+// PHASE 1 INTEGRATION POINT: Remove mockIdeas once real data is available.
+// Mutable so that action stubs can update status in-place and refreshIdeas()
+// will reflect the change without a real DB round-trip.
+const mockIdeas = [
   {
     id: 'mock-001',
     raw_text: 'We should probably add keyboard shortcuts to the pipeline dashboard — at least J/K for navigation and Enter to open card detail.',
@@ -186,6 +187,12 @@ const MOCK_IDEAS = [
   },
 ];
 
+// ── Module state ──────────────────────────────────────────────────────────────
+// ideas and activeStatus are hoisted to module scope so refreshIdeas() and
+// the tab handler can share state without re-attaching event listeners.
+let ideas = [];
+let activeStatus = 'all';
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 export async function requireAuth() {
@@ -205,9 +212,9 @@ export async function fetchIdeas(status = null) {
   // migration (053_ideas_inbox.sql) and query-ideas edge function are deployed.
   if (USE_MOCK_DATA) {
     const data = (status && status !== 'all')
-      ? MOCK_IDEAS.filter(i => i.status === status)
-      : MOCK_IDEAS;
-    return [...data]; // return a copy
+      ? mockIdeas.filter(i => i.status === status)
+      : mockIdeas;
+    return [...data]; // return a copy so callers don't mutate mockIdeas directly
   }
 
   // Real Supabase query — RLS limits results to the authenticated user's company.
@@ -216,6 +223,151 @@ export async function fetchIdeas(status = null) {
   const { data, error } = await query;
   if (error) throw error;
   return data;
+}
+
+// ── Edge function calls ───────────────────────────────────────────────────────
+// PHASE 1 INTEGRATION POINT: The promote-idea and update-idea edge functions
+// are called below. When USE_MOCK_DATA is true, stubs simulate the call with a
+// 500ms delay and update the local mockIdeas array directly. Switch
+// USE_MOCK_DATA to false and the real edge function calls will be used instead.
+
+async function promoteIdea(ideaId, promoteTo) {
+  if (USE_MOCK_DATA) {
+    // STUB: simulates promote-idea edge function response.
+    // Real call (uncomment when Phase 1 is deployed):
+    // const { data, error } = await sb.functions.invoke('promote-idea', {
+    //   body: { idea_id: ideaId, promote_to: promoteTo }
+    // });
+    // if (error) { showToast('Promotion failed: ' + error.message, 'error'); return; }
+    await new Promise(r => setTimeout(r, 500));
+    const idea = mockIdeas.find(i => i.id === ideaId);
+    if (idea) {
+      idea.status = 'promoted';
+      idea.promoted_to_type = promoteTo;
+      idea.promoted_at = new Date().toISOString();
+      idea.promoted_by = 'human';
+    }
+    showToast(`Idea promoted to ${promoteTo}`, 'success');
+    await refreshIdeas();
+    return;
+  }
+
+  const { data, error } = await sb.functions.invoke('promote-idea', {
+    body: { idea_id: ideaId, promote_to: promoteTo }
+  });
+  if (error) { showToast('Promotion failed: ' + error.message, 'error'); return; }
+  showToast(`Idea promoted to ${promoteTo}`, 'success');
+  await refreshIdeas();
+}
+
+async function parkIdea(ideaId, reason) {
+  if (USE_MOCK_DATA) {
+    // STUB: simulates update-idea edge function response.
+    // Real call (uncomment when Phase 1 is deployed):
+    // const { error } = await sb.functions.invoke('update-idea', {
+    //   body: { idea_id: ideaId, status: 'parked', triage_notes: reason }
+    // });
+    // if (error) { showToast('Park failed: ' + error.message, 'error'); return; }
+    await new Promise(r => setTimeout(r, 500));
+    const idea = mockIdeas.find(i => i.id === ideaId);
+    if (idea) {
+      idea.status = 'parked';
+      if (reason) idea.triage_notes = reason;
+    }
+    showToast('Idea parked', 'success');
+    await refreshIdeas();
+    return;
+  }
+
+  const { error } = await sb.functions.invoke('update-idea', {
+    body: { idea_id: ideaId, status: 'parked', triage_notes: reason }
+  });
+  if (error) { showToast('Park failed: ' + error.message, 'error'); return; }
+  showToast('Idea parked', 'success');
+  await refreshIdeas();
+}
+
+async function rejectIdea(ideaId, reason) {
+  if (USE_MOCK_DATA) {
+    // STUB: simulates update-idea edge function response.
+    // Real call (uncomment when Phase 1 is deployed):
+    // const { error } = await sb.functions.invoke('update-idea', {
+    //   body: { idea_id: ideaId, status: 'rejected', triage_notes: reason }
+    // });
+    // if (error) { showToast('Rejection failed: ' + error.message, 'error'); return; }
+    await new Promise(r => setTimeout(r, 500));
+    const idea = mockIdeas.find(i => i.id === ideaId);
+    if (idea) {
+      idea.status = 'rejected';
+      if (reason) idea.triage_notes = reason;
+    }
+    showToast('Idea rejected', 'success');
+    await refreshIdeas();
+    return;
+  }
+
+  const { error } = await sb.functions.invoke('update-idea', {
+    body: { idea_id: ideaId, status: 'rejected', triage_notes: reason }
+  });
+  if (error) { showToast('Rejection failed: ' + error.message, 'error'); return; }
+  showToast('Idea rejected', 'success');
+  await refreshIdeas();
+}
+
+async function resurface(ideaId) {
+  if (USE_MOCK_DATA) {
+    // STUB: simulates update-idea edge function response.
+    // Real call (uncomment when Phase 1 is deployed):
+    // const { error } = await sb.functions.invoke('update-idea', {
+    //   body: { idea_id: ideaId, status: 'triaged' }
+    // });
+    // if (error) { showToast('Resurface failed: ' + error.message, 'error'); return; }
+    await new Promise(r => setTimeout(r, 500));
+    const idea = mockIdeas.find(i => i.id === ideaId);
+    if (idea) { idea.status = 'triaged'; }
+    showToast('Idea resurfaced for review', 'success');
+    await refreshIdeas();
+    return;
+  }
+
+  const { error } = await sb.functions.invoke('update-idea', {
+    body: { idea_id: ideaId, status: 'triaged' }
+  });
+  if (error) { showToast('Resurface failed: ' + error.message, 'error'); return; }
+  showToast('Idea resurfaced for review', 'success');
+  await refreshIdeas();
+}
+
+// ── Toast utility ─────────────────────────────────────────────────────────────
+
+function showToast(message, type = 'info') {
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+
+// ── CPO link utility ──────────────────────────────────────────────────────────
+
+function copyToCPO(title, status) {
+  const subject = status
+    ? `Re: idea "${title.slice(0, 50)}" — ${status}`
+    : `Re: ${title}`;
+  const text = `${subject}\n\nContext: I want to discuss this idea. [Your message here]`;
+  navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard', 'success'));
+}
+
+// ── Refresh ───────────────────────────────────────────────────────────────────
+
+async function refreshIdeas() {
+  try {
+    ideas = await fetchIdeas();
+    updateCounts(ideas);
+    renderIdeas(ideas, activeStatus);
+  } catch (err) {
+    showToast('Failed to refresh: ' + err.message, 'error');
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -292,6 +444,7 @@ function cardNew(idea) {
   const tags = Array.isArray(idea.tags) && idea.tags.length > 0
     ? `<div class="badge-row">${idea.tags.map(tagBadge).join('')}</div>`
     : '';
+  const rawTitle = idea.raw_text || '';
 
   return `
 <div class="idea-card idea-card--new">
@@ -300,8 +453,9 @@ function cardNew(idea) {
     <span class="originator">${escapeHtml(idea.originator)}</span>
     <span class="rel-time">${relativeTime(idea.created_at)}</span>
   </div>
-  <p class="card-raw-text">${escapeHtml(truncate(idea.raw_text, 120))}</p>
+  <p class="card-raw-text">${escapeHtml(truncate(rawTitle, 120))}</p>
   ${tags}
+  <button class="btn-cpo-link" data-title="${escapeHtml(rawTitle)}" data-status="${escapeHtml(idea.status)}">💬 Discuss with CPO</button>
 </div>`;
 }
 
@@ -313,6 +467,7 @@ function cardTriaged(idea) {
     complexityBadge(idea.complexity_estimate),
     execBadge(idea.suggested_exec),
   ].filter(Boolean).join('');
+  const escapedId = escapeHtml(idea.id);
 
   return `
 <div class="idea-card idea-card--triaged ${escapeHtml(priorityClass)}">
@@ -325,7 +480,16 @@ function cardTriaged(idea) {
     ? `<p class="card-desc">${escapeHtml(truncate(idea.triage_notes, 140))}</p>`
     : ''}
   ${badges ? `<div class="badge-row">${badges}</div>` : ''}
-  <div id="actions-${escapeHtml(idea.id)}" class="card-actions"></div>
+  <div id="actions-${escapedId}" class="card-actions">
+    <div class="actions">
+      <button class="btn-promote" data-id="${escapedId}" data-to="feature">Promote → Feature</button>
+      <button class="btn-promote" data-id="${escapedId}" data-to="job">Promote → Job</button>
+      <button class="btn-promote" data-id="${escapedId}" data-to="research">Promote → Research</button>
+      <button class="btn-park" data-id="${escapedId}">Park</button>
+      <button class="btn-reject" data-id="${escapedId}">Reject</button>
+    </div>
+    <button class="btn-cpo-link" data-title="${escapeHtml(title)}" data-status="${escapeHtml(idea.status)}">💬 Discuss with CPO</button>
+  </div>
 </div>`;
 }
 
@@ -340,6 +504,7 @@ function cardPromoted(idea) {
   </div>
   <h3 class="card-title">${escapeHtml(truncate(title, 80))}</h3>
   <p class="promoted-meta">promoted ${formatDate(idea.promoted_at)} by ${escapeHtml(idea.promoted_by ?? '—')}</p>
+  <button class="btn-cpo-link" data-title="${escapeHtml(title)}" data-status="${escapeHtml(idea.status)}">💬 Discuss with CPO</button>
 </div>`;
 }
 
@@ -353,6 +518,7 @@ function cardParked(idea) {
     ? `<p class="card-desc card-desc--muted">${escapeHtml(truncate(idea.triage_notes, 140))}</p>`
     : ''}
   <button class="resurface-btn" data-idea-id="${escapeHtml(idea.id)}">Resurface</button>
+  <button class="btn-cpo-link" data-title="${escapeHtml(title)}" data-status="${escapeHtml(idea.status)}">💬 Discuss with CPO</button>
 </div>`;
 }
 
@@ -365,6 +531,7 @@ function cardRejected(idea) {
   ${idea.triage_notes
     ? `<p class="card-desc card-desc--muted">${escapeHtml(truncate(idea.triage_notes, 140))}</p>`
     : ''}
+  <button class="btn-cpo-link" data-title="${escapeHtml(title)}" data-status="${escapeHtml(idea.status)}">💬 Discuss with CPO</button>
 </div>`;
 }
 
@@ -394,7 +561,7 @@ function updateCounts(allIdeas) {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
-function renderIdeas(ideas, status) {
+function renderIdeas(allIdeas, status) {
   const grid = document.getElementById('ideas-grid');
   const loading = document.getElementById('loading-state');
   const empty = document.getElementById('empty-state');
@@ -402,8 +569,8 @@ function renderIdeas(ideas, status) {
   loading.hidden = true;
 
   const filtered = (status && status !== 'all')
-    ? ideas.filter(i => i.status === status)
-    : ideas;
+    ? allIdeas.filter(i => i.status === status)
+    : allIdeas;
 
   if (filtered.length === 0) {
     grid.hidden = true;
@@ -416,6 +583,102 @@ function renderIdeas(ideas, status) {
   empty.hidden = true;
   grid.hidden = false;
   grid.innerHTML = filtered.map(cardForIdea).join('');
+}
+
+// ── Inline prompt ─────────────────────────────────────────────────────────────
+
+function showInlinePrompt(ideaId, action) {
+  // Remove any already-open prompt before showing a new one.
+  document.querySelectorAll('.inline-prompt').forEach(el => el.remove());
+
+  const actionsDiv = document.getElementById(`actions-${ideaId}`);
+  if (!actionsDiv) return;
+
+  const placeholder = action === 'park'
+    ? 'Why park this? (optional)'
+    : 'Why reject this? (optional)';
+  const confirmLabel = action === 'park' ? 'Confirm park' : 'Confirm rejection';
+
+  const prompt = document.createElement('div');
+  prompt.className = 'inline-prompt';
+  prompt.innerHTML = `
+    <textarea placeholder="${placeholder}" rows="2"></textarea>
+    <div class="inline-prompt-btns">
+      <button class="btn-confirm" data-idea-id="${escapeHtml(ideaId)}" data-action="${escapeHtml(action)}">${confirmLabel}</button>
+      <button class="btn-cancel">Cancel</button>
+    </div>`;
+  actionsDiv.appendChild(prompt);
+  prompt.querySelector('textarea').focus();
+}
+
+// ── Event delegation ──────────────────────────────────────────────────────────
+// A single listener on #ideas-grid handles all action button clicks.
+// This prevents orphaned handlers accumulating across re-renders.
+
+function attachGridDelegation() {
+  const grid = document.getElementById('ideas-grid');
+  grid.addEventListener('click', async (e) => {
+    // Promote → Feature / Job / Research
+    const promoteBtn = e.target.closest('.btn-promote');
+    if (promoteBtn) {
+      promoteBtn.disabled = true;
+      await promoteIdea(promoteBtn.dataset.id, promoteBtn.dataset.to);
+      // promoteBtn may be gone after re-render; no need to re-enable.
+      return;
+    }
+
+    // Park (show inline prompt)
+    const parkBtn = e.target.closest('.btn-park');
+    if (parkBtn) {
+      showInlinePrompt(parkBtn.dataset.id, 'park');
+      return;
+    }
+
+    // Reject (show inline prompt)
+    const rejectBtn = e.target.closest('.btn-reject');
+    if (rejectBtn) {
+      showInlinePrompt(rejectBtn.dataset.id, 'reject');
+      return;
+    }
+
+    // Confirm (park or reject)
+    const confirmBtn = e.target.closest('.btn-confirm');
+    if (confirmBtn) {
+      const id = confirmBtn.dataset.ideaId;
+      const action = confirmBtn.dataset.action;
+      const reason = confirmBtn.closest('.inline-prompt').querySelector('textarea').value.trim();
+      confirmBtn.disabled = true;
+      if (action === 'park') {
+        await parkIdea(id, reason);
+      } else {
+        await rejectIdea(id, reason);
+      }
+      // Grid will be re-rendered by the action handler; no further cleanup needed.
+      return;
+    }
+
+    // Cancel inline prompt
+    const cancelBtn = e.target.closest('.btn-cancel');
+    if (cancelBtn) {
+      cancelBtn.closest('.inline-prompt').remove();
+      return;
+    }
+
+    // Resurface (parked → triaged)
+    const resurfaceBtn = e.target.closest('.resurface-btn');
+    if (resurfaceBtn) {
+      resurfaceBtn.disabled = true;
+      await resurface(resurfaceBtn.dataset.ideaId);
+      return;
+    }
+
+    // 💬 Discuss with CPO (card-level button)
+    const cpoBtn = e.target.closest('.btn-cpo-link');
+    if (cpoBtn) {
+      copyToCPO(cpoBtn.dataset.title, cpoBtn.dataset.status);
+      return;
+    }
+  });
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -440,7 +703,6 @@ async function init() {
   // Show loading
   document.getElementById('loading-state').hidden = false;
 
-  let ideas = [];
   try {
     ideas = await fetchIdeas();
   } catch (err) {
@@ -454,6 +716,14 @@ async function init() {
   updateCounts(ideas);
   renderIdeas(ideas, 'all');
 
+  // Set up event delegation once — survives re-renders.
+  attachGridDelegation();
+
+  // Topbar "Discuss with CPO" button — page-level, not tied to a specific idea.
+  document.getElementById('topbar-cpo-btn')?.addEventListener('click', () => {
+    copyToCPO('Ideas Inbox', '');
+  });
+
   // Tab click handlers
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -463,7 +733,8 @@ async function init() {
       });
       tab.classList.add('active');
       tab.setAttribute('aria-selected', 'true');
-      renderIdeas(ideas, tab.dataset.status);
+      activeStatus = tab.dataset.status;
+      renderIdeas(ideas, activeStatus);
     });
   });
 }

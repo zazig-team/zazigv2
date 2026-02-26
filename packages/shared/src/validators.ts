@@ -114,6 +114,11 @@ export function isStartJob(v: unknown): v is StartJob {
     if (!Array.isArray(v.dependencyBranches) || v.dependencyBranches.length === 0) return false;
     if (!v.dependencyBranches.every((b: unknown) => isString(b) && (b as string).length > 0)) return false;
   }
+  // roleMcpTools is optional; if present must be an array of non-empty strings (empty array is valid)
+  if (v.roleMcpTools !== undefined) {
+    if (!Array.isArray(v.roleMcpTools)) return false;
+    if (!v.roleMcpTools.every((t: unknown) => isString(t) && (t as string).length > 0)) return false;
+  }
   return true;
 }
 

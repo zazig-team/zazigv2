@@ -158,6 +158,8 @@ export interface StartJob {
    * Omitted for independent jobs or when all deps have null branches.
    */
   dependencyBranches?: string[];
+  /** MCP tool names this role may invoke. Enforced server-side by agent-mcp-server. */
+  roleMcpTools?: string[];
 }
 
 /**

@@ -329,6 +329,7 @@ export class JobExecutor {
         claudeMdContent: assembledContext,
         skills: msg.roleSkills,
         repoSkillsDir: join(process.cwd(), "projects", "skills"),
+        mcpTools: msg.roleMcpTools,
       });
       console.log(`[executor] Workspace overlay written to ${worktreePath} for jobId=${jobId}`);
     } catch (err) {
@@ -426,7 +427,7 @@ export class JobExecutor {
    * Builds a synthetic StartJob-like message and delegates to handlePersistentJob.
    */
   async spawnPersistentAgent(
-    job: { role: string; prompt_stack: string; skills: string[]; model: string; slot_type: string },
+    job: { role: string; prompt_stack: string; skills: string[]; model: string; slot_type: string; mcp_tools?: string[] },
     companyId: string,
   ): Promise<void> {
     const syntheticMsg = {
@@ -441,6 +442,7 @@ export class JobExecutor {
       role: job.role,
       context: job.prompt_stack,
       roleSkills: job.skills?.length ? job.skills : undefined,
+      roleMcpTools: job.mcp_tools?.length ? job.mcp_tools : undefined,
     };
 
     // Acquire slot before spawning
@@ -586,6 +588,7 @@ export class JobExecutor {
         claudeMdContent: msg.context ?? "",
         skills: msg.roleSkills,
         repoSkillsDir: join(process.cwd(), "projects", "skills"),
+        mcpTools: msg.roleMcpTools,
       });
 
       // Persist context to DB for observability (fire-and-forget).

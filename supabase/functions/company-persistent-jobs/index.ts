@@ -70,7 +70,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Fetch persistent roles that belong to this company (via company_roles)
     const { data: roles, error: rolesError } = await supabase
       .from("roles")
-      .select("name, prompt, skills, default_model, slot_type, company_roles!inner(company_id)")
+      .select("name, prompt, skills, mcp_tools, default_model, slot_type, company_roles!inner(company_id)")
       .eq("is_persistent", true)
       .eq("company_roles.company_id", companyId);
 
@@ -113,6 +113,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         role: role.name,
         prompt_stack: parts.join("\n\n"),
         skills: role.skills ?? [],
+        mcp_tools: role.mcp_tools ?? [],
         model: role.default_model ?? "claude-opus-4-6",
         slot_type: role.slot_type ?? "claude_code",
       };

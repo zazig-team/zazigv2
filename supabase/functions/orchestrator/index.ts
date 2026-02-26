@@ -676,18 +676,20 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     // These populate the 4-layer context stack: personality → role → skills → task.
     let rolePrompt: string | undefined;
     let roleSkills: string[] | undefined;
+    let roleMcpTools: string[] | undefined;
     let personalityPrompt: string | undefined;
     let subAgentPrompt: string | undefined;
     if (job.role && slotType !== "codex") {
       const { data: roleRow } = await supabase
         .from("roles")
-        .select("id, prompt, skills")
+        .select("id, prompt, skills, mcp_tools")
         .eq("name", job.role)
         .single();
       if (roleRow) {
-        const typed = roleRow as { id: string; prompt: string | null; skills: string[] | null };
+        const typed = roleRow as { id: string; prompt: string | null; skills: string[] | null; mcp_tools: string[] | null };
         rolePrompt = typed.prompt ?? undefined;
         roleSkills = typed.skills ?? undefined;
+        roleMcpTools = typed.mcp_tools ?? undefined;
 
         // Fetch compiled personality prompt + sub-agent prompt for this company + role
         const { data: personality } = await supabase
@@ -726,6 +728,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       ...(subAgentPrompt ? { subAgentPrompt } : {}),
       ...(rolePrompt ? { rolePrompt } : {}),
       ...(roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),
+      ...(roleMcpTools !== undefined ? { roleMcpTools } : {}),
       ...(depBranches.length > 0 ? { dependencyBranches: depBranches } : {}),
     };
 

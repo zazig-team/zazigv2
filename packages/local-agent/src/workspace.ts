@@ -28,6 +28,8 @@ export interface WorkspaceConfig {
   claudeMdContent: string;
   skills?: string[];
   repoSkillsDir?: string;
+  /** MCP tool names this role may invoke. Forwarded as ZAZIG_ALLOWED_TOOLS env var. */
+  mcpTools?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -62,7 +64,7 @@ export const ROLE_ALLOWED_TOOLS: Record<string, string[]> = {
  */
 export function generateMcpConfig(
   mcpServerPath: string,
-  env: { supabaseUrl: string; supabaseAnonKey: string; jobId: string; companyId?: string },
+  env: { supabaseUrl: string; supabaseAnonKey: string; jobId: string; companyId?: string; allowedTools?: string[] },
 ): object {
   return {
     mcpServers: {
@@ -74,6 +76,7 @@ export function generateMcpConfig(
           SUPABASE_ANON_KEY: env.supabaseAnonKey,
           ZAZIG_JOB_ID: env.jobId,
           ...(env.companyId ? { ZAZIG_COMPANY_ID: env.companyId } : {}),
+          ...(env.allowedTools ? { ZAZIG_ALLOWED_TOOLS: env.allowedTools.join(",") } : {}),
         },
       },
     },
@@ -98,11 +101,11 @@ const STANDARD_TOOLS = [
  * invoke, plus the standard Claude Code tools every agent needs.
  * Unknown roles default to standard tools only (no MCP tools).
  */
-export function generateAllowedTools(role: string): string[] {
-  const mcpTools = (ROLE_ALLOWED_TOOLS[role] ?? []).map(
+export function generateAllowedTools(role: string, mcpTools?: string[]): string[] {
+  const toolList = (mcpTools ?? ROLE_ALLOWED_TOOLS[role] ?? []).map(
     (name) => `mcp__zazig-messaging__${name}`,
   );
-  return [...STANDARD_TOOLS, ...mcpTools];
+  return [...STANDARD_TOOLS, ...toolList];
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +127,7 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     supabaseAnonKey: config.supabaseAnonKey,
     jobId: config.jobId,
     companyId: config.companyId,
+    allowedTools: config.mcpTools ?? ROLE_ALLOWED_TOOLS[config.role],
   });
   writeFileSync(
     join(config.workspaceDir, ".mcp.json"),
@@ -144,7 +148,7 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
   writeFileSync(
     join(claudeDir, "settings.json"),
     JSON.stringify(
-      { permissions: { allow: generateAllowedTools(config.role) } },
+      { permissions: { allow: generateAllowedTools(config.role, config.mcpTools) } },
       null,
       2,
     ),

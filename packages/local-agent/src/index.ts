@@ -288,6 +288,7 @@ async function discoverAndSpawnPersistentAgents(
       skills: string[];
       model: string;
       slot_type: string;
+      mcp_tools?: string[];
     }>;
 
     console.log(`[local-agent] Discovered ${jobs.length} persistent agent(s) for company ${companyId}`);

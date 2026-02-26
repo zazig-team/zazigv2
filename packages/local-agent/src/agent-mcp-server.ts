@@ -21,6 +21,31 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
+// Server-side tool access control.
+// ZAZIG_ALLOWED_TOOLS unset → backward compat, all tools allowed (logs warning).
+// ZAZIG_ALLOWED_TOOLS="" → empty Set → all tools rejected (safe default for zero-tool roles).
+const ALLOWED_TOOLS_ENV = process.env.ZAZIG_ALLOWED_TOOLS;
+const allowedTools: Set<string> | null = ALLOWED_TOOLS_ENV !== undefined
+  ? new Set(ALLOWED_TOOLS_ENV.split(",").filter(Boolean))
+  : null;
+if (allowedTools === null) {
+  console.warn("[zazig-agent-mcp] ZAZIG_ALLOWED_TOOLS not set — all tools allowed (backward compat)");
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ToolHandler = (args: any) => Promise<any>;
+function guardedHandler(toolName: string, handler: ToolHandler): ToolHandler {
+  return async (args) => {
+    if (allowedTools !== null && !allowedTools.has(toolName)) {
+      return {
+        content: [{ type: "text", text: `Access denied: tool "${toolName}" is not allowed for this role.` }],
+        isError: true,
+      };
+    }
+    return handler(args);
+  };
+}
+
 server.tool(
   "send_message",
   "Send a reply to an external platform message (Slack, etc.) via the orchestrator",
@@ -28,7 +53,7 @@ server.tool(
     conversation_id: z.string().describe("The opaque conversation ID from the inbound message"),
     text: z.string().describe("The message text to send"),
   },
-  async ({ conversation_id, text }) => {
+  guardedHandler("send_message", async ({ conversation_id, text }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
@@ -70,7 +95,7 @@ server.tool(
       ],
       isError: true,
     };
-  },
+  }),
 );
 
 server.tool(
@@ -82,7 +107,7 @@ server.tool(
     project_id: z.string().optional().describe("Project ID to associate this feature with"),
     priority: z.enum(["low", "medium", "high"]).optional().describe("Feature priority (default: medium)"),
   },
-  async ({ title, description, project_id, priority }) => {
+  guardedHandler("create_feature", async ({ title, description, project_id, priority }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -116,7 +141,7 @@ server.tool(
       content: [{ type: "text" as const, text: `Failed to create feature (HTTP ${response.status}): ${errorBody}` }],
       isError: true,
     };
-  },
+  }),
 );
 
 server.tool(
@@ -132,7 +157,7 @@ server.tool(
     acceptance_tests: z.string().optional().describe("Feature-level acceptance criteria"),
     human_checklist: z.string().optional().describe("Manual verification steps for human on test server"),
   },
-  async ({ feature_id, title, description, priority, status, spec, acceptance_tests, human_checklist }) => {
+  guardedHandler("update_feature", async ({ feature_id, title, description, priority, status, spec, acceptance_tests, human_checklist }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -165,7 +190,7 @@ server.tool(
       content: [{ type: "text" as const, text: `Failed to update feature (HTTP ${response.status}): ${errorBody}` }],
       isError: true,
     };
-  },
+  }),
 );
 
 server.tool(
@@ -175,7 +200,7 @@ server.tool(
     company_id: z.string().optional().describe("Company ID to filter by (defaults to the current job's company)"),
     include_features: z.boolean().optional().describe("Whether to include features for each project (default: false)"),
   },
-  async ({ company_id, include_features }) => {
+  guardedHandler("query_projects", async ({ company_id, include_features }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -231,7 +256,7 @@ server.tool(
     return {
       content: [{ type: "text" as const, text: JSON.stringify(projects, null, 2) }],
     };
-  },
+  }),
 );
 
 server.tool(
@@ -242,7 +267,7 @@ server.tool(
     project_id: z.string().optional().describe("Project UUID — returns all features for this project"),
     status: z.string().optional().describe("Filter by status (e.g. 'ready_for_breakdown')"),
   },
-  async ({ feature_id, project_id, status }) => {
+  guardedHandler("query_features", async ({ feature_id, project_id, status }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
@@ -279,7 +304,7 @@ server.tool(
       content: [{ type: "text" as const, text: `Failed to query features (HTTP ${response.status}): ${errorBody}` }],
       isError: true,
     };
-  },
+  }),
 );
 
 server.tool(
@@ -291,7 +316,7 @@ server.tool(
     description: z.string().optional().describe("Project description"),
     status: z.enum(["active", "paused", "archived"]).optional().describe("Project status (default: active)"),
   },
-  async ({ company_id, name, description, status }) => {
+  guardedHandler("create_project", async ({ company_id, name, description, status }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
@@ -323,7 +348,7 @@ server.tool(
       content: [{ type: "text" as const, text: `Failed to create project (HTTP ${response.status}): ${errorBody}` }],
       isError: true,
     };
-  },
+  }),
 );
 
 server.tool(
@@ -338,7 +363,7 @@ server.tool(
       depends_on_index: z.array(z.number()).optional().describe("Indexes into this array for inter-feature dependencies (informational)"),
     })).describe("Array of feature outline objects to create"),
   },
-  async ({ project_id, features }) => {
+  guardedHandler("batch_create_features", async ({ project_id, features }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
@@ -371,7 +396,7 @@ server.tool(
       content: [{ type: "text" as const, text: `Failed to create features (HTTP ${response.status}): ${errorBody}` }],
       isError: true,
     };
-  },
+  }),
 );
 
 server.tool(
@@ -382,7 +407,7 @@ server.tool(
     feature_id: z.string().optional().describe("Feature UUID — returns all jobs for this feature"),
     status: z.string().optional().describe("Filter by status (e.g. 'queued', 'dispatched', 'complete')"),
   },
-  async ({ job_id, feature_id, status }) => {
+  guardedHandler("query_jobs", async ({ job_id, feature_id, status }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
@@ -419,7 +444,7 @@ server.tool(
       content: [{ type: "text" as const, text: `Failed to query jobs (HTTP ${response.status}): ${errorBody}` }],
       isError: true,
     };
-  },
+  }),
 );
 
 server.tool(
@@ -437,7 +462,7 @@ server.tool(
       depends_on: z.array(z.string()).optional().describe("Dependencies — use 'temp:N' for jobs in this batch (0-based index) or UUIDs for existing jobs"),
     })).describe("Array of job objects to create"),
   },
-  async ({ feature_id, jobs }) => {
+  guardedHandler("batch_create_jobs", async ({ feature_id, jobs }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
@@ -470,7 +495,7 @@ server.tool(
       content: [{ type: "text" as const, text: `Failed to create jobs (HTTP ${response.status}): ${errorBody}` }],
       isError: true,
     };
-  },
+  }),
 );
 
 server.tool(
@@ -480,7 +505,7 @@ server.tool(
     sql: z.string().describe("The SQL statement to execute"),
     expected_affected_rows: z.number().optional().describe("Expected number of affected rows — triggers warning on mismatch"),
   },
-  async ({ sql, expected_affected_rows }) => {
+  guardedHandler("execute_sql", async ({ sql, expected_affected_rows }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
@@ -512,7 +537,7 @@ server.tool(
       content: [{ type: "text" as const, text: `Failed to execute SQL (HTTP ${response.status}): ${errorBody}` }],
       isError: true,
     };
-  },
+  }),
 );
 
 // NOTE: commission_contractor disabled — re-enable when contractor pipeline is ready.

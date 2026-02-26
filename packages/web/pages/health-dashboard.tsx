@@ -36,7 +36,7 @@ export default function HealthDashboard({ features, error }: Props) {
   return (
     <main style={{ fontFamily: 'sans-serif', padding: '24px' }}>
       <h1>Health Dashboard</h1>
-      {features.length === 0 ? (
+      {features!.length === 0 ? (
         <p>No features found.</p>
       ) : (
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -49,7 +49,7 @@ export default function HealthDashboard({ features, error }: Props) {
             </tr>
           </thead>
           <tbody>
-            {features.map((feature) => (
+            {features!.map((feature) => (
               <tr key={feature.id}>
                 <td style={tdStyle}>
                   <code style={{ fontSize: '11px' }}>{feature.id}</code>

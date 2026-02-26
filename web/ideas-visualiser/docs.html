@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Documents — Idea Visualiser</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08090c;
+      --surface: #101216;
+      --surface-raised: #161a1f;
+      --border: #1e2328;
+      --border-subtle: #181c21;
+      --text: #e2e4e8;
+      --text-secondary: #8b919a;
+      --text-dim: #555d68;
+      --accent: #4d8fef;
+      --accent-hover: #5f9df5;
+      --accent-subtle: rgba(77, 143, 239, 0.08);
+
+      --type-proposal: #9b59b6;
+      --type-design: #28b5d4;
+      --type-general: #4d8fef;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ── App shell ────────────────────────────────── */
+
+    .app-header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .app-logo {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      letter-spacing: 0.05em;
+    }
+
+    .app-logo span {
+      color: var(--text);
+    }
+
+    .user-info {
+      font-size: 13px;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn-signout {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      padding: 5px 12px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .btn-signout:hover { color: var(--text); border-color: var(--text-secondary); }
+
+    /* ── Page layout ──────────────────────────────── */
+
+    .page {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 32px 80px;
+    }
+
+    .page-title {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .page-subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 32px;
+    }
+
+    /* ── Filter bar ───────────────────────────────── */
+
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .filter-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 7px 16px;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    .filter-btn:hover {
+      background: var(--surface-raised);
+      color: var(--text);
+    }
+
+    .filter-btn.active {
+      background: var(--accent-subtle);
+      border-color: rgba(77, 143, 239, 0.3);
+      color: var(--accent);
+    }
+
+    /* ── Document list ────────────────────────────── */
+
+    .doc-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-bottom: 12px;
+    }
+
+    .doc-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .doc-item {
+      background: var(--surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 16px 20px;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      transition: background 0.1s, border-color 0.1s;
+    }
+
+    .doc-item:hover {
+      background: var(--surface-raised);
+      border-color: var(--border);
+    }
+
+    .doc-item-left {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .doc-item-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .doc-item-date {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .type-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      padding: 2px 7px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+
+    .badge-proposal {
+      background: rgba(155, 89, 182, 0.12);
+      color: var(--type-proposal);
+    }
+
+    .badge-design {
+      background: rgba(40, 181, 212, 0.12);
+      color: var(--type-design);
+    }
+
+    .badge-general {
+      background: rgba(77, 143, 239, 0.12);
+      color: var(--type-general);
+    }
+
+    .doc-item-title {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .doc-item-arrow {
+      color: var(--text-dim);
+      font-size: 16px;
+      flex-shrink: 0;
+      transition: color 0.1s;
+    }
+
+    .doc-item:hover .doc-item-arrow {
+      color: var(--text-secondary);
+    }
+
+    /* ── Empty state ──────────────────────────────── */
+
+    .empty-state {
+      text-align: center;
+      padding: 64px 0;
+      color: var(--text-dim);
+    }
+
+    .empty-state-icon {
+      font-size: 40px;
+      margin-bottom: 12px;
+    }
+
+    .empty-state-text {
+      font-size: 14px;
+    }
+
+    /* ── Loading / error ──────────────────────────── */
+
+    .loading {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: var(--text-dim);
+      text-align: center;
+      padding: 64px 0;
+    }
+
+    /* ── Responsive ───────────────────────────────── */
+
+    @media (max-width: 600px) {
+      .page { padding: 24px 16px 64px; }
+      .app-header { padding: 12px 16px; }
+      .page-title { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="app-logo">zazig / <span>ideas-visualiser</span></div>
+    <div class="user-info">
+      <span id="user-email"></span>
+      <button class="btn-signout" id="btn-signout">Sign out</button>
+    </div>
+  </header>
+
+  <div class="page">
+    <h1 class="page-title">Documents</h1>
+    <p class="page-subtitle">Proposals, design docs, and plans from the zazig pipeline.</p>
+
+    <div class="filter-bar">
+      <button class="filter-btn active" data-filter="all">All</button>
+      <button class="filter-btn" data-filter="proposal">Proposals</button>
+      <button class="filter-btn" data-filter="design">Design Docs</button>
+      <button class="filter-btn" data-filter="general">Plans</button>
+    </div>
+
+    <div class="doc-count" id="doc-count"></div>
+    <div class="doc-list" id="doc-list">
+      <div class="loading">Loading documents…</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+    const SUPABASE_URL = window.__SUPABASE_URL__;
+    const SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY__;
+    const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ── Auth guard ────────────────────────────────────
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) {
+      location.href = 'auth.html?redirect=docs.html';
+    }
+
+    const userEmail = session?.user?.email || '';
+    document.getElementById('user-email').textContent = userEmail;
+
+    document.getElementById('btn-signout').addEventListener('click', async () => {
+      await sb.auth.signOut();
+      location.href = 'auth.html';
+    });
+
+    // ── Load documents ────────────────────────────────
+    let allDocs = [];
+    let activeFilter = 'all';
+
+    async function loadDocs() {
+      try {
+        const resp = await fetch('docs/index.json');
+        if (!resp.ok) throw new Error('Failed to load index');
+        allDocs = await resp.json();
+        // Sort by date descending
+        allDocs.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        render();
+      } catch (err) {
+        document.getElementById('doc-list').innerHTML =
+          `<div class="loading" style="color:var(--error)">Failed to load documents: ${err.message}</div>`;
+      }
+    }
+
+    // ── Filter ────────────────────────────────────────
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeFilter = btn.dataset.filter;
+        render();
+      });
+    });
+
+    // ── Render ────────────────────────────────────────
+    const typeLabels = {
+      proposal: 'Proposal',
+      design:   'Design Doc',
+      general:  'Plan',
+    };
+
+    const badgeClass = {
+      proposal: 'badge-proposal',
+      design:   'badge-design',
+      general:  'badge-general',
+    };
+
+    function render() {
+      const filtered = activeFilter === 'all'
+        ? allDocs
+        : allDocs.filter(d => d.type === activeFilter);
+
+      const countEl = document.getElementById('doc-count');
+      countEl.textContent = `${filtered.length} document${filtered.length === 1 ? '' : 's'}`;
+
+      const listEl = document.getElementById('doc-list');
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">📄</div>
+            <div class="empty-state-text">No documents in this category.</div>
+          </div>`;
+        return;
+      }
+
+      listEl.innerHTML = filtered.map(doc => {
+        const label = typeLabels[doc.type] || 'Document';
+        const badge = badgeClass[doc.type] || 'badge-general';
+        return `
+          <a class="doc-item" href="docs/${doc.filename}">
+            <div class="doc-item-left">
+              <div class="doc-item-meta">
+                <span class="doc-item-date">${doc.date || ''}</span>
+                <span class="type-badge ${badge}">${label}</span>
+              </div>
+              <div class="doc-item-title">${escapeHtml(doc.title)}</div>
+            </div>
+            <span class="doc-item-arrow">→</span>
+          </a>`;
+      }).join('');
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    loadDocs();
+  </script>
+</body>
+</html>

@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{TITLE}} — Idea Visualiser</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08090c;
+      --surface: #101216;
+      --surface-raised: #161a1f;
+      --border: #1e2328;
+      --border-subtle: #181c21;
+      --text: #e2e4e8;
+      --text-secondary: #8b919a;
+      --text-dim: #555d68;
+      --accent: #4d8fef;
+      --accent-hover: #5f9df5;
+      --accent-subtle: rgba(77, 143, 239, 0.08);
+      --success: #3cbf6e;
+      --success-subtle: rgba(60, 191, 110, 0.08);
+      --warning: #e8a838;
+      --error: #e05252;
+      --error-subtle: rgba(224, 82, 82, 0.08);
+
+      /* doc type accent colours */
+      --type-proposal: #9b59b6;
+      --type-design: #28b5d4;
+      --type-general: #4d8fef;
+
+      --sidebar-width: 280px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      line-height: 1.6;
+    }
+
+    /* ── Layout ───────────────────────────────────── */
+
+    .layout {
+      display: grid;
+      grid-template-columns: var(--sidebar-width) 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── Sidebar ──────────────────────────────────── */
+
+    #toc {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 24px 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .toc-header {
+      padding: 0 20px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 8px;
+    }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 500;
+      text-decoration: none;
+      margin-bottom: 12px;
+      transition: color 0.15s;
+    }
+
+    .back-link:hover { color: var(--text); }
+
+    .toc-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    #toc nav {
+      padding: 8px 12px;
+      flex: 1;
+    }
+
+    #toc nav a {
+      display: block;
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.4;
+      padding: 5px 8px;
+      border-radius: 6px;
+      text-decoration: none;
+      transition: background 0.1s, color 0.1s;
+      word-break: break-word;
+    }
+
+    #toc nav a:hover {
+      background: var(--accent-subtle);
+      color: var(--text);
+    }
+
+    #toc nav a.toc-h1 {
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    #toc nav a.toc-h2 {
+      padding-left: 16px;
+    }
+
+    #toc nav a.toc-h3 {
+      padding-left: 28px;
+      font-size: 12px;
+    }
+
+    #toc nav a.active {
+      background: var(--accent-subtle);
+      color: var(--accent);
+    }
+
+    /* Mobile TOC toggle */
+    .toc-toggle {
+      display: none;
+      position: fixed;
+      bottom: 80px;
+      right: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      width: 44px;
+      height: 44px;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 100;
+      font-size: 18px;
+    }
+
+    /* ── Main content ─────────────────────────────── */
+
+    .main-wrapper {
+      min-width: 0;
+    }
+
+    .doc-header {
+      padding: 32px 48px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .doc-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .doc-date {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .type-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      padding: 3px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+
+    .doc-type-proposal .type-badge {
+      background: rgba(155, 89, 182, 0.12);
+      color: var(--type-proposal);
+    }
+
+    .doc-type-design .type-badge {
+      background: rgba(40, 181, 212, 0.12);
+      color: var(--type-design);
+    }
+
+    .doc-type-general .type-badge {
+      background: rgba(77, 143, 239, 0.12);
+      color: var(--type-general);
+    }
+
+    .doc-title {
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1.25;
+      color: var(--text);
+    }
+
+    #doc-content {
+      max-width: 65ch;
+      padding: 40px 48px 64px;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    /* ── Prose styles ─────────────────────────────── */
+
+    #doc-content h1,
+    #doc-content h2,
+    #doc-content h3,
+    #doc-content h4 {
+      color: var(--text);
+      font-weight: 600;
+      line-height: 1.3;
+      margin-top: 2em;
+      margin-bottom: 0.6em;
+      scroll-margin-top: 24px;
+    }
+
+    #doc-content h1 { font-size: 24px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+    #doc-content h2 { font-size: 20px; }
+    #doc-content h3 { font-size: 16px; color: var(--text-secondary); }
+    #doc-content h4 { font-size: 14px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+
+    #doc-content p { margin-bottom: 1em; }
+
+    #doc-content a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    #doc-content a:hover { text-decoration: underline; }
+
+    #doc-content ul,
+    #doc-content ol {
+      padding-left: 1.5em;
+      margin-bottom: 1em;
+    }
+
+    #doc-content li { margin-bottom: 0.3em; }
+
+    #doc-content blockquote {
+      border-left: 3px solid var(--border);
+      color: var(--text-secondary);
+      margin: 1.5em 0;
+      padding: 0.5em 1em;
+    }
+
+    #doc-content code {
+      background: var(--surface-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.875em;
+      padding: 2px 6px;
+    }
+
+    #doc-content pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      margin: 1.5em 0;
+      overflow-x: auto;
+      padding: 20px 24px;
+    }
+
+    #doc-content pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: inherit;
+    }
+
+    #doc-content table {
+      border-collapse: collapse;
+      margin: 1.5em 0;
+      width: 100%;
+      font-size: 14px;
+    }
+
+    #doc-content th,
+    #doc-content td {
+      border: 1px solid var(--border);
+      padding: 10px 14px;
+      text-align: left;
+    }
+
+    #doc-content th {
+      background: var(--surface);
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    #doc-content tr:nth-child(even) td {
+      background: rgba(255,255,255,0.015);
+    }
+
+    #doc-content hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 2em 0;
+    }
+
+    /* ── Mermaid diagrams ─────────────────────────── */
+
+    pre.mermaid {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      overflow-x: auto;
+    }
+
+    pre.mermaid svg {
+      max-width: 100%;
+    }
+
+    /* ── Feedback bar ─────────────────────────────── */
+
+    #feedback-bar {
+      position: fixed;
+      bottom: 0;
+      left: var(--sidebar-width);
+      right: 0;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 50;
+      flex-wrap: wrap;
+    }
+
+    #feedback-bar button {
+      min-height: 44px;
+      padding: 0 18px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      white-space: nowrap;
+    }
+
+    #btn-approve {
+      background: var(--success-subtle);
+      border-color: rgba(60, 191, 110, 0.3);
+      color: var(--success);
+    }
+
+    #btn-approve:hover {
+      background: rgba(60, 191, 110, 0.15);
+    }
+
+    #btn-changes {
+      background: var(--error-subtle);
+      border-color: rgba(224, 82, 82, 0.3);
+      color: var(--error);
+    }
+
+    #btn-changes:hover {
+      background: rgba(224, 82, 82, 0.15);
+    }
+
+    .btn-cpo-link {
+      background: var(--surface-raised);
+      border-color: var(--border);
+      color: var(--text-secondary);
+    }
+
+    .btn-cpo-link:hover {
+      color: var(--text);
+      border-color: var(--accent);
+    }
+
+    #btn-comment {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    #btn-comment:hover { background: var(--accent-hover); }
+
+    #comment-section {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+    }
+
+    #comment-section.visible {
+      display: flex;
+    }
+
+    #comment-input {
+      flex: 1;
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      min-height: 44px;
+      padding: 10px 14px;
+      resize: none;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    #comment-input:focus { border-color: var(--accent); }
+
+    #changes-section {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+    }
+
+    #changes-section.visible {
+      display: flex;
+    }
+
+    #changes-input {
+      flex: 1;
+      background: var(--surface-raised);
+      border: 1px solid rgba(224, 82, 82, 0.4);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      min-height: 44px;
+      padding: 10px 14px;
+      resize: none;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    #changes-input:focus { border-color: var(--error); }
+
+    #btn-send-changes {
+      background: var(--error);
+      border-color: var(--error);
+      color: #fff;
+    }
+
+    #btn-send-changes:hover { opacity: 0.85; }
+
+    /* ── Toast ────────────────────────────────────── */
+
+    .toast {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%) translateY(8px);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 500;
+      padding: 10px 20px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s, transform 0.2s;
+      z-index: 200;
+      white-space: nowrap;
+    }
+
+    .toast.visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .toast.success { border-color: rgba(60, 191, 110, 0.4); color: var(--success); }
+    .toast.error   { border-color: rgba(224, 82, 82, 0.4);  color: var(--error); }
+
+    /* ── Responsive ───────────────────────────────── */
+
+    @media (max-width: 768px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      #toc {
+        position: fixed;
+        left: -100%;
+        top: 0;
+        width: 280px;
+        height: 100vh;
+        z-index: 150;
+        transition: left 0.25s ease;
+        box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+      }
+
+      #toc.open {
+        left: 0;
+      }
+
+      .toc-toggle {
+        display: flex;
+      }
+
+      .doc-header,
+      #doc-content {
+        padding-left: 20px;
+        padding-right: 20px;
+      }
+
+      .doc-title { font-size: 22px; }
+
+      #feedback-bar {
+        left: 0;
+      }
+
+      /* stack textarea above buttons on mobile */
+      #comment-section,
+      #changes-section {
+        width: 100%;
+        flex-wrap: wrap;
+      }
+
+      #comment-input,
+      #changes-input {
+        width: 100%;
+        flex: none;
+      }
+    }
+  </style>
+</head>
+<body class="{{DOC_TYPE_CLASS}}">
+
+  <div class="layout">
+    <!-- Sidebar TOC -->
+    <aside id="toc">
+      <div class="toc-header">
+        <a href="../docs.html" class="back-link">← All documents</a>
+        <div class="toc-label">Contents</div>
+      </div>
+      {{TOC}}
+    </aside>
+
+    <!-- Main content -->
+    <div class="main-wrapper">
+      <header class="doc-header">
+        <div class="doc-meta">
+          <span class="doc-date" id="doc-date"></span>
+          <span class="type-badge" id="type-badge"></span>
+        </div>
+        <h1 class="doc-title">{{TITLE}}</h1>
+      </header>
+
+      <main id="doc-content">
+        {{CONTENT}}
+      </main>
+    </div>
+  </div>
+
+  <!-- Mobile TOC toggle -->
+  <button class="toc-toggle" id="toc-toggle" aria-label="Toggle table of contents">☰</button>
+
+  <!-- Feedback bar -->
+  <section id="feedback-bar">
+    <button id="btn-approve">✓ Approve</button>
+
+    <div id="comment-section">
+      <textarea id="comment-input" placeholder="Add a comment…" rows="1"></textarea>
+      <button id="btn-comment">Send comment</button>
+    </div>
+
+    <div id="changes-section">
+      <textarea id="changes-input" placeholder="Describe the changes needed…" rows="1"></textarea>
+      <button id="btn-send-changes">Send</button>
+    </div>
+
+    <button id="btn-toggle-comment">💬 Comment</button>
+    <button id="btn-changes">⚑ Request changes</button>
+    <button class="btn-cpo-link" id="btn-cpo-link">💬 Discuss with CPO</button>
+  </section>
+
+  <!-- Toast notification -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Mermaid CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({ startOnLoad: true, theme: 'dark' });</script>
+
+  <script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+    const SUPABASE_URL = window.__SUPABASE_URL__;
+    const SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY__;
+    const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ── Auth guard ────────────────────────────────────
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) {
+      location.href = '../auth.html?redirect=' + encodeURIComponent(location.pathname);
+    }
+
+    // ── Doc metadata from filename ────────────────────
+    const filename = location.pathname.split('/').pop().replace('.html', '');
+    const dateMatch = filename.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (dateMatch) {
+      document.getElementById('doc-date').textContent = dateMatch[1];
+    }
+
+    const bodyClass = document.body.className;
+    const typeLabels = {
+      'doc-type-proposal': 'Proposal',
+      'doc-type-design':   'Design Doc',
+      'doc-type-general':  'Plan',
+    };
+    const badge = document.getElementById('type-badge');
+    badge.textContent = typeLabels[bodyClass] || 'Document';
+
+    // ── TOC active highlight on scroll ────────────────
+    const headings = document.querySelectorAll('#doc-content h1[id], #doc-content h2[id], #doc-content h3[id]');
+    const tocLinks = document.querySelectorAll('#toc nav a');
+
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          const id = entry.target.getAttribute('id');
+          tocLinks.forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+          });
+          break;
+        }
+      }
+    }, { rootMargin: '-10% 0px -80% 0px' });
+
+    headings.forEach(h => observer.observe(h));
+
+    // ── Mobile TOC toggle ─────────────────────────────
+    const tocEl = document.getElementById('toc');
+    const tocToggle = document.getElementById('toc-toggle');
+    tocToggle.addEventListener('click', () => tocEl.classList.toggle('open'));
+    document.addEventListener('click', (e) => {
+      if (!tocEl.contains(e.target) && e.target !== tocToggle) {
+        tocEl.classList.remove('open');
+      }
+    });
+
+    // ── Toast ─────────────────────────────────────────
+    const toastEl = document.getElementById('toast');
+    let toastTimer = null;
+
+    function showToast(msg, type = 'info') {
+      clearTimeout(toastTimer);
+      toastEl.textContent = msg;
+      toastEl.className = 'toast visible ' + type;
+      toastTimer = setTimeout(() => {
+        toastEl.className = 'toast';
+      }, 3000);
+    }
+
+    // ── Feedback handlers ─────────────────────────────
+    const docTitle = document.querySelector('.doc-title')?.textContent?.trim() || filename;
+
+    async function submitFeedback(type, text = '') {
+      const rawText = `FEEDBACK:${type}: ${docTitle}${text ? ' — ' + text : ''}`;
+      try {
+        const { error } = await sb.functions.invoke('create-idea', {
+          body: { raw_text: rawText, source: 'web', originator: 'human', tags: ['feedback', 'doc-review'] }
+        });
+        if (error) throw error;
+        showToast('Feedback captured', 'success');
+      } catch (err) {
+        // create-idea may not be deployed yet — log and show user-friendly message
+        console.warn('[feedback] create-idea not available:', err);
+        showToast('Feedback noted (not yet synced to pipeline)', 'info');
+      }
+    }
+
+    // Approve
+    document.getElementById('btn-approve').addEventListener('click', async () => {
+      await submitFeedback('APPROVE');
+    });
+
+    // Comment toggle
+    const commentSection = document.getElementById('comment-section');
+    document.getElementById('btn-toggle-comment').addEventListener('click', () => {
+      commentSection.classList.toggle('visible');
+      changesSection.classList.remove('visible');
+      if (commentSection.classList.contains('visible')) {
+        document.getElementById('comment-input').focus();
+      }
+    });
+
+    document.getElementById('btn-comment').addEventListener('click', async () => {
+      const text = document.getElementById('comment-input').value.trim();
+      if (!text) return;
+      await submitFeedback('COMMENT', text);
+      document.getElementById('comment-input').value = '';
+      commentSection.classList.remove('visible');
+    });
+
+    // Request changes toggle
+    const changesSection = document.getElementById('changes-section');
+    document.getElementById('btn-changes').addEventListener('click', () => {
+      changesSection.classList.toggle('visible');
+      commentSection.classList.remove('visible');
+      if (changesSection.classList.contains('visible')) {
+        document.getElementById('changes-input').focus();
+      }
+    });
+
+    document.getElementById('btn-send-changes').addEventListener('click', async () => {
+      const text = document.getElementById('changes-input').value.trim();
+      if (!text) return;
+      await submitFeedback('CHANGE-REQUEST', text);
+      document.getElementById('changes-input').value = '';
+      changesSection.classList.remove('visible');
+    });
+
+    // Discuss with CPO — placeholder action
+    document.getElementById('btn-cpo-link').addEventListener('click', () => {
+      showToast('CPO chat coming soon', 'info');
+    });
+
+    // ── Auto-resize textareas ─────────────────────────
+    ['comment-input', 'changes-input'].forEach(id => {
+      const el = document.getElementById(id);
+      el.addEventListener('input', () => {
+        el.style.height = 'auto';
+        el.style.height = el.scrollHeight + 'px';
+      });
+    });
+  </script>
+</body>
+</html>

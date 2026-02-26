@@ -690,4 +690,37 @@ This has privacy and marketplace implications. Per-company is safe for launch. C
 
 ---
 
+---
+
+## Reference Material: Archetype & Doctrine Sources
+
+Collected reference material for informing personality archetypes, doctrines, and engineering standards across roles. These are external sources to draw from during implementation — not zazig canon, but inputs that shape how we configure our workers.
+
+### "YC Engineer" (Garry Tan, Y Combinator CEO)
+
+Source: Garry Tan's engineering preferences for AI coding agents. Strong candidate for CTO personality dimensions and/or engineering doctrine layer.
+
+**Plan Review Mode:**
+- Review plans thoroughly before making code changes
+- For every issue or recommendation: explain concrete tradeoffs, give an opinionated recommendation, ask for input before assuming a direction
+
+**Priority Hierarchy (context compression):**
+- Step 0 > Test diagram > Opinionated recommendations > Everything else
+- Never skip Step 0 or the test diagram
+
+**Engineering Preferences:**
+- DRY is important — flag repetition aggressively
+- Well-tested code is non-negotiable; rather have too many tests than too few
+- Code should be "engineered enough" — not under-engineered (fragile, hacky) and not over-engineered (premature abstraction, unnecessary complexity)
+- Err on the side of handling more edge cases, not fewer; thoughtfulness > speed
+- Bias toward explicit over clever
+- Minimal diff: achieve the goal with the fewest new abstractions and files touched
+
+**Where this could land in the six layers:**
+- **Personality (Layer 1):** Influences CTO dimensions — high analysis_depth, moderate risk_tolerance, high quality_bar
+- **Doctrines (Layer 4):** Direct source for CTO engineering doctrines — each preference becomes a doctrine claim with reasoning
+- **Skills (Layer 3):** The "Plan Review Mode" pattern could become a skill or skill section for code review roles
+
+---
+
 *Executives lead. Employees specialize. Contractors execute. The six layers — personality, role prompt, skills, doctrines, canons, memory — compose differently for each tier, but the orchestrator assembles them all the same way: compile at dispatch, inject as prompt, agent never sees the config. Model routing sits alongside this as an orchestrator-level concern — the right model for the right task, enforced at dispatch, invisible to the worker. This is zazig's organizational model.*

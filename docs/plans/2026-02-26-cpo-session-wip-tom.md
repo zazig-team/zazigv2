@@ -1,4 +1,4 @@
-# CPO Session WIP — 2026-02-25
+# CPO Session WIP — 2026-02-26
 
 ## What we started with
 
@@ -28,26 +28,39 @@ The handover from the previous session identified 5 gaps in the persistent agent
 20. **query_idea_status commissioned** — CTO commissioned as standalone job (`3c6b11f8`). One edge function + one MCP tool wrapper, traces idea → feature → jobs. Now at `breakdown`.
 21. **CLI versioning prompt written** — `zazig --version`, version on start, version in status. Git hash-based (0.1.0+949cb4c). Not yet delivered to CTO.
 
+### Overnight CTO work (2026-02-26)
+22. **MCP tool access control** — migration 056 adds `mcp_tools TEXT[]` to roles table. Server-side enforcement via `ZAZIG_ALLOWED_TOOLS` env var. Each role gets only its allowed tools. Replaces hardcoded map.
+23. **Dependency branch chaining** — jobs that depend on other jobs now inherit predecessor code via branch chaining. Combiner only merges leaf branches. Full pipeline (cards 1-5).
+24. **Feature `failed` status** — migration 055 adds `failed` status + `error TEXT` column. Orchestrator can now mark features as failed instead of leaving them stuck.
+25. **Edge function auth fix** — persistent agent discovery was using ES256 JWT which gateway rejects. Switched to anon key.
+26. **`commission_contractor` removed** — MCP tool gone. Work goes through the pipeline now.
+27. **CLI versioning shipped** — commit `93fcbdf`. `zazig --version`, version on start, version in status.
+
 ## Feature status board
 
-*Updated: session 3 late (2026-02-25)*
+*Updated: 2026-02-26 morning*
 
 ### In the pipeline (active)
 
 | Feature | ID | Status | Notes |
 |---|---|---|---|
-| Ideas Inbox: Table, Edge Functions & MCP Tools | ea21ee02 | **combining** | Phase 1 Ideas Pipeline. All code jobs done, combining. Tag: ideas-pipeline |
-| Ideaify Skill & CPO Triage Integration | 38a1d16e | **combining** | Phase 2 Ideas Pipeline. Spec updated to include drive-pipeline registration + pipeline awareness. Tag: ideas-pipeline |
-| Telegram Ideas Bot | 59b8d9e5 | **building** | Phase 3 Ideas Pipeline. Tag: ideas-pipeline |
-| Idea Visualiser | 33f9e3c1 | **building** | Phase 4 Ideas Pipeline. Tag: ideas-pipeline |
-| Skills Distribution CLI | 84e5c68a | **combining** | Phases 2-3, all code jobs done, combining. |
-| Terminal-Mode Orchestrator Notifications | d78a3b06 | **combining** | All 5 code jobs complete. Combiner was stuck (null-context bug) — resolved, slot freed. Now combining again. |
-| Persistent Agent Bootstrap Parity | d1c730fb | **combining** | Breakdown + build completed, now combining. |
+| Ideas Inbox: Table, Edge Functions & MCP Tools | ea21ee02 | **combining** | STUCK — no combine job. Phase 1 Ideas Pipeline. |
+| Ideaify Skill & CPO Triage Integration | 38a1d16e | **combining** | STUCK — no combine job. Phase 2 Ideas Pipeline. |
+| Telegram Ideas Bot | 59b8d9e5 | **combining** | STUCK — no combine job. Phase 3 Ideas Pipeline. |
+| Idea Visualiser | 33f9e3c1 | **combining** | STUCK — no combine job. Phase 4 Ideas Pipeline. |
+| Skills Distribution CLI | 84e5c68a | **combining** | STUCK — no combine job. |
+| Persistent Agent Bootstrap Parity | d1c730fb | **combining** | STUCK — no combine job. |
+| query-idea-status edge function + MCP tool | 3c6b11f8 | **combining** | STUCK — no combine job. |
+| Lifecycle polling gaps | bc9e2a0f | **combining** | STUCK — no combine job. Ironic: this feature would fix the problem it's stuck on. |
+| One-off: df512cdb | acc74e42 | **combining** | STUCK — no combine job. Mystery one-off. |
+| Terminal-Mode Orchestrator Notifications | d78a3b06 | **verifying** | Made it through combining overnight. |
 | Pipeline Smoke Tests | 2e9f067c | **verifying** | Active verification. |
-| Fix: Null-context jobs silently rejected | 2e9a34a6 | **breakdown** | CTO specced (root cause chain, 3 fixes, 5 ACs). Breakdown in progress. |
-| query-idea-status edge function + MCP tool | 3c6b11f8 | **breakdown** | CTO commissioned as standalone job. Breakdown in progress. |
-| Lifecycle polling gaps | bc9e2a0f | **queued** | Missing transition fallbacks in orchestrator. |
-| Clean slate on re-breakdown | 33e0b29e | **queued** | Stale job idempotency bug — delete old breakdown/combine jobs on re-breakdown. |
+| Fix: Null-context jobs silently rejected | 2e9a34a6 | **building** | Progressed from breakdown overnight. |
+| Clean slate on re-breakdown | 33e0b29e | **building** | Progressed from breakdown overnight. |
+
+### Combiner blocker (9 features stuck)
+
+9 features in `combining` with zero combine-agent jobs. Orchestrator transitions status but never creates the combine job. Chris is working on the combiner fix. Once fixed, CPO to reset stuck features back to `building` so the orchestrator re-triggers combining properly.
 
 ### Not started (on board, not specced)
 
@@ -151,7 +164,10 @@ Root cause: 3 orchestrator commits not deployed to Supabase + `features.branch` 
 - [x] ~~Null-context validator fix~~ — **Specced** — feature `2e9a34a6` at `breakdown`
 - [x] ~~Drive-pipeline skill~~ — **Done** — written to repo, role prompt injected via migration 054
 - [x] ~~query_idea_status~~ — **In pipeline** — commissioned by CTO as standalone job `3c6b11f8`, at `breakdown`
-- [ ] CTO CLI versioning prompt — written but not yet delivered
+- [x] ~~CTO CLI versioning prompt~~ — **Shipped** (commit `93fcbdf`)
+- [ ] **BLOCKER: Combiner not creating jobs** — 9 features stuck in `combining` with no combine-agent jobs. Chris fixing. Once fixed, reset 9 features to `building` so orchestrator re-triggers.
+- [ ] Org model review + implementation planning (contingent on combiner fix)
+- [ ] Garry Tan "YC Engineer" archetype — added to org model as reference material, needs implementation as CTO doctrine/personality
 
 ## Design decisions made this session
 
@@ -202,11 +218,15 @@ With projects now meaning repo-level products, we lose mid-level grouping. Solut
 - [x] ~~Pipeline re-breakdown systemic fix~~ — **Queued** (`33e0b29e`)
 - [ ] Lifecycle polling gaps — feature `bc9e2a0f` queued
 - [ ] Update MCP tools — add `tags` parameter to `create_feature` and `batch_create_features`
-- [ ] CTO CLI versioning prompt — written, not delivered
+- [x] ~~CTO CLI versioning prompt~~ — **Shipped** (commit `93fcbdf`)
+- [ ] **BLOCKER: Combiner not creating jobs** — 9 features stuck. Chris fixing. Once fixed, reset to `building`.
+- [ ] Org model review + implementation planning
+- [ ] Garry Tan "YC Engineer" archetype — added to org model, needs doctrine/personality implementation
 
 ## Needs CPO action (next session)
 
 - [ ] Monitor 10 active features — 5 combining, 2 building, 2 breaking down, 1 verifying
+- [ ] Org model review + implementation planning (contingent on combinator fix) — Tom wants to walk through all 6 layers and plan implementation
 - [ ] Deep-dive brainstorms on each Ideas Pipeline layer (Tom requested)
 - [ ] Consider speccing the remaining high-priority features (Event Queue, Execution Gates)
 - [ ] Create a Pipeline Infrastructure feature for the re-breakdown bug if Tom prefers pipeline fix over quick patch
@@ -218,16 +238,67 @@ With projects now meaning repo-level products, we lose mid-level grouping. Solut
 - [x] ~~Investigate dispatch~~ — **Fixed**
 - [x] ~~Apply pipeline design doc edits~~ — Done (session 2)
 
+### Contractor dispatch routing plan (2026-02-26 afternoon)
+28. **Contractor dispatch routing plan v3.1** — deep dive into why `commission_contractor` was removed, root cause analysis, 4 rounds of review (v1 self → v2 Codex+Gemini → v3 CPO gap analysis → v3.1 Codex+Gemini). Final design: dedicated `request-work` edge function + Postgres function for atomic validation. Replaces `commission_contractor`. Plan at `2026-02-26-contractor-dispatch-routing-plan.md`. Ready for Chris review.
+29. **Key design decisions in routing plan:**
+    - Standalone dispatch restricted to operational roles only (pipeline-technician, monitoring-agent, verification-specialist, project-architect)
+    - Engineering quick fixes go through the pipeline as single-job features
+    - `request_standalone_work()` Postgres function does feature lock + role check + idempotency in one transaction
+    - `source` column on jobs table distinguishes standalone from pipeline jobs
+    - Orchestrator skips all pipeline behaviour (combine, verify, wrapper features) for standalone jobs
+    - Executor needs a NO_CODE_CONTEXT path for roles that don't need git worktrees
+30. **Autonomous execution plan unblocked** — contractor dispatch design resolved. Phase 2 complex-spec review can use `request_work(role: 'verification-specialist')` once implemented.
+
+## Today's plan (2026-02-26)
+
+Pipeline is blocked on combiner fix. Focusing on non-pipeline work:
+
+1. **CPO Autonomous Execution** — brainstormed and validated. Plan written at `2026-02-26-cpo-autonomous-execution-plan.md`. ~~Blocked on contractor dispatch design.~~ Unblocked — routing plan v3.1 resolves contractor dispatch.
+2. **Contractor Dispatch Routing Plan** — deep dive, 4 rounds of review, v3.1 ready for Chris. `2026-02-26-contractor-dispatch-routing-plan.md`.
+3. **Strategy Sim deep dive** — brainstorm the Civ-style decision interface. Not started yet.
+4. **Web UI / Founder Goals** — brainstorm what Tom wants to see as a founder. Not started yet.
+
+When combiner is fixed:
+5. Reset 9 stuck features to `building`
+6. Resume pipeline monitoring
+
 ## Current priority order
 
-1. **Monitor active features** — 5 combining, 2 building, 2 breaking down, 1 verifying. Watch for transitions and failures.
-2. **Update MCP tools** — add `tags` parameter to `create_feature` and `batch_create_features` edge functions
-3. **Pipeline re-breakdown systemic fix** — quick patch or feature through the pipeline?
-4. **Review d1c730fb vs 991a062c overlap** — are these redundant or complementary?
-5. **Deep-dive brainstorms** — individual Ideas Pipeline layer sessions with Tom
-6. **Review remaining proposals** — CPO Autonomous Execution, Zazig Terminal, Strategy Sim
-7. **CTO CLI versioning prompt** — deliver to CTO
-8. **Gemini API key** — set `GEMINI_API_KEY` for second-opinion workflow
+1. **BLOCKER: Combiner fix** — Chris working on it. 9 features stuck.
+2. **Contractor dispatch routing plan** — v3.1 ready for Chris review. `2026-02-26-contractor-dispatch-routing-plan.md`.
+3. **Model optimisation** — URGENT. Audit agent workloads and implement tiered model selection. See details below.
+4. **CPO Autonomous Execution implementation** — Phase 1 (role prompt) + Phase 2 (skill edits) are unblocked. Phase 2 complex-spec contractor path unblocked by routing plan.
+5. **Strategy Sim deep dive** — brainstorm → design doc
+6. **Web UI / Founder Goals** — brainstorm → prototype visual
+7. **Update MCP tools** — add `tags` parameter to `create_feature` and `batch_create_features`
+8. **Review d1c730fb vs 991a062c overlap** — are these redundant or complementary?
+9. **Deep-dive brainstorms** — individual Ideas Pipeline layer sessions with Tom
+10. **Gemini API key** — set `GEMINI_API_KEY` for second-opinion workflow
+
+### Model optimisation (urgent)
+
+Inspired by [Claude model optimisation article](https://thoughts.jock.pl/p/claude-model-optimization-opus-haiku-ai-agent-costs-2026). The author ran everything on Opus, hit 70-80% of weekly usage limits by Friday. After auditing and tiering, dropped to ~40% usage — 60% cost reduction.
+
+**The insight:** Most autonomous agent tasks are structured execution, not creative reasoning. Cheaper models execute without overthinking.
+
+**Three-tier strategy (from article):**
+- **Haiku (95% of tasks)** — execution, automation, file operations, scheduled tasks. "Doesn't overthink."
+- **Sonnet (4%)** — content creation, research synthesis, building new features
+- **Opus (1%)** — architecture decisions, debugging cascading failures, multi-agent coordination
+
+**How this maps to zazig:**
+- Pipeline-technician running SQL → Haiku
+- Breakdown specialist decomposing features → Sonnet
+- Monitoring agent investigating anomalies → Sonnet
+- Senior engineer implementing jobs → Sonnet (most), Opus (complex)
+- CPO speccing features and making strategy decisions → Opus
+- CTO architecture review → Opus
+- Verification specialist reviewing code → Sonnet
+- Code reviewer → Haiku or Sonnet
+
+**What we already have:** The `complexity` field on jobs (`simple`, `medium`, `complex`) maps to model tiers. The orchestrator dispatch already has slot types. The infrastructure for tiered dispatch exists — we need to audit the actual workloads and set the right defaults per role.
+
+**Needs:** Deep dive brainstorm to map every role to its default model tier, identify which tasks within each role warrant upgrading, and implement the routing. This is a cost and capacity multiplier — doing more with the same API limits.
 
 ---
 

@@ -962,14 +962,24 @@ export class JobExecutor {
       try {
         renameSync(candidatePath, jobReportPath);
         report = readFileSync(jobReportPath, "utf-8");
-        result = report.split("\n")[0] ?? "Job completed.";
         console.log(`[executor] Claimed report for jobId=${jobId} from ${candidatePath} → ${jobReportPath}`);
         break;
       } catch {
         // This candidate didn't have a report — try next
       }
     }
-    if (!report) {
+
+    if (report) {
+      // Check for verify-report format (status: pass/fail)
+      const passMatch = report.match(/^status:\s*(pass|fail)\s*$/m);
+      if (passMatch) {
+        const prefix = passMatch[1] === "pass" ? "PASSED" : "FAILED";
+        const reasonMatch = report.match(/^failure_reason:\s*(.+)$/m);
+        result = `${prefix}: ${reasonMatch?.[1]?.trim() ?? "see report"}`;
+      } else {
+        result = report.split("\n")[0] ?? "Job completed.";
+      }
+    } else {
       console.log(`[executor] No report file for jobId=${jobId}, using default result`);
     }
 

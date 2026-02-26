@@ -2175,9 +2175,10 @@ async function processReadyForBreakdown(supabase: SupabaseClient): Promise<void>
  * executor writes job status directly to the DB and the orchestrator's 4s
  * Realtime window may not catch the job_complete broadcast.
  *
- * Handles two transitions:
+ * Handles three transitions:
  *   breakdown → building: all breakdown jobs for the feature are complete
  *   building → combining: all implementation jobs are complete
+ *   combining → verifying: the combine job is complete
  */
 async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> {
   // --- 1. breakdown → building ---
@@ -2279,7 +2280,45 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     }
   }
 
-  // --- 3. verifying → deploying_to_test ---
+  // --- 3. combining → verifying ---
+  // Features stuck in 'combining' where the combine job is complete
+  const { data: combiningFeatures, error: combineErr } = await supabase
+    .from("features")
+    .select("id")
+    .eq("status", "combining")
+    .limit(50);
+
+  if (combineErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying combining features:", combineErr.message);
+  }
+
+  for (const feature of (combiningFeatures ?? []) as { id: string }[]) {
+    const { data: combineJobs } = await supabase
+      .from("jobs")
+      .select("id, status")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "combine")
+      .limit(1);
+
+    if (!combineJobs || combineJobs.length === 0) {
+      console.warn(`[orchestrator] processFeatureLifecycle: feature ${feature.id} stuck in combining with no combine job`);
+      continue;
+    }
+
+    const combineJob = (combineJobs as { id: string; status: string }[])[0];
+
+    if (combineJob.status === "failed" || combineJob.status === "cancelled") {
+      console.warn(`[orchestrator] processFeatureLifecycle: feature ${feature.id} combine job ${combineJob.id} is ${combineJob.status} — needs triage`);
+      continue;
+    }
+
+    if (combineJob.status === "complete") {
+      console.log(`[orchestrator] processFeatureLifecycle: feature ${feature.id} combine job complete — triggering verification`);
+      await triggerFeatureVerification(supabase, feature.id);
+    }
+  }
+
+  // --- 4. verifying → deploying_to_test ---
   // Features stuck in 'verifying' where the verify job is complete.
   const { data: verifyingFeatures, error: vErr } = await supabase
     .from("features")
@@ -2324,7 +2363,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     }
   }
 
-  // --- 4. deploying_to_test → ready_to_test ---
+  // --- 5. deploying_to_test → ready_to_test ---
   // Features stuck in 'deploying_to_test' where the test deploy is done.
   // Test deployments are driven by WebSocket (deploy_complete message), not a DB job.
   // The completion signal is test_url being non-null — set atomically with the status
@@ -2359,7 +2398,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     }
   }
 
-  // --- 5. deploying_to_prod → complete ---
+  // --- 6. deploying_to_prod → complete ---
   // Features stuck in 'deploying_to_prod' where the prod deploy job is complete.
   // Prod deploys go through the jobs table (job_type = "deploy", ctx.target = "prod").
   const { data: deployingProdFeatures, error: dpErr } = await supabase

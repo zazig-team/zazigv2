@@ -2388,6 +2388,35 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
       await triggerCombining(supabase, feature.id);
     }
   }
+
+  // --- 3. combining → verifying ---
+  // Features stuck in 'combining' where the latest combine job is already complete.
+  // Uses latest job by created_at to avoid advancing on stale jobs from prior rejection cycles.
+  const { data: combiningFeatures, error: combineErr } = await supabase
+    .from("features")
+    .select("id")
+    .eq("status", "combining")
+    .limit(50);
+
+  if (combineErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying combining features:", combineErr.message);
+  }
+
+  for (const feature of (combiningFeatures ?? []) as { id: string }[]) {
+    const { data: latestCombine } = await supabase
+      .from("jobs")
+      .select("id, status")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "combine")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (latestCombine && latestCombine.length > 0 && latestCombine[0].status === "complete") {
+      console.log(`[orchestrator] processFeatureLifecycle: combine done for feature ${feature.id} — triggering verification`);
+      await triggerFeatureVerification(supabase, feature.id);
+    }
+    // Failed combine jobs are handled by Task 0's central catch-up — no action needed here.
+  }
 }
 
 // ---------------------------------------------------------------------------

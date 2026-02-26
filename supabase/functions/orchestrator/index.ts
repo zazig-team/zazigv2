@@ -2466,6 +2466,69 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
       await initiateTestDeploy(supabase, feature.id);
     }
   }
+
+  // --- 5. deploying_to_test — stuck recovery with retry cap ---
+  // Features stuck in 'deploying_to_test' for too long. This can happen if:
+  //   a) The DeployComplete broadcast was missed (4s window)
+  //   b) initiateTestDeploy set the status before confirming machine availability (bug at line 1704)
+  //   c) The deploy failed silently
+  // A stuck deploying_to_test blocks ALL other features via the env-busy gate.
+  // Recovery: roll back to 'verifying' after 5 minutes. After 3 attempts in an hour, fail the feature.
+  const DEPLOY_STUCK_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+  const DEPLOY_MAX_RETRIES = 3;
+  const DEPLOY_RETRY_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+  const deployStuckCutoff = new Date(Date.now() - DEPLOY_STUCK_THRESHOLD_MS).toISOString();
+  const deployRetryWindowStart = new Date(Date.now() - DEPLOY_RETRY_WINDOW_MS).toISOString();
+
+  const { data: stuckDeploying, error: deployErr } = await supabase
+    .from("features")
+    .select("id, company_id")
+    .eq("status", "deploying_to_test")
+    .lt("updated_at", deployStuckCutoff)
+    .limit(50);
+
+  if (deployErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying deploying_to_test features:", deployErr.message);
+  }
+
+  for (const feature of (stuckDeploying ?? []) as { id: string; company_id: string }[]) {
+    // Count how many times we've already rolled back (approximated by deploy job count in the last hour)
+    const { data: recentDeploys } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "deploy")
+      .gte("created_at", deployRetryWindowStart);
+
+    const attempts = recentDeploys?.length ?? 0;
+
+    if (attempts >= DEPLOY_MAX_RETRIES) {
+      // Too many attempts — fail the feature
+      console.error(`[orchestrator] processFeatureLifecycle: feature ${feature.id} stuck in deploying_to_test after ${attempts} deploy attempts in the last hour — marking failed`);
+      await supabase
+        .from("features")
+        .update({ status: "failed", error: `Deploy to test failed after ${attempts} attempts in the last hour. Likely persistent issue (no machine available or deploy script failing).` })
+        .eq("id", feature.id)
+        .eq("status", "deploying_to_test"); // CAS guard
+    } else {
+      // Roll back to verifying for retry
+      console.warn(`[orchestrator] processFeatureLifecycle: feature ${feature.id} stuck in deploying_to_test for >5min — rolling back to verifying (attempt ${attempts + 1}/${DEPLOY_MAX_RETRIES})`);
+
+      const { error: rollbackErr } = await supabase
+        .from("features")
+        .update({ status: "verifying" })
+        .eq("id", feature.id)
+        .eq("status", "deploying_to_test"); // CAS guard
+
+      if (!rollbackErr) {
+        await notifyCPO(
+          supabase,
+          feature.company_id,
+          `Feature ${feature.id} was stuck in deploying_to_test for >5 minutes. Rolled back to verifying for retry (attempt ${attempts + 1}/${DEPLOY_MAX_RETRIES}).`,
+        );
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

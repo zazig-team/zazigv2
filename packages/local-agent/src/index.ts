@@ -161,7 +161,6 @@ async function main(): Promise<void> {
     await discoverAndSpawnPersistentAgents(
       config.supabase.url,
       config.supabase.anon_key,
-      config.supabase.access_token,
       companyId,
       executor,
     );
@@ -262,23 +261,25 @@ async function recoverStuckJobs(
 async function discoverAndSpawnPersistentAgents(
   supabaseUrl: string,
   anonKey: string,
-  accessToken: string | undefined,
   companyId: string,
   executor: JobExecutor,
 ): Promise<void> {
   try {
-    const res = await fetch(
-      `${supabaseUrl}/functions/v1/company-persistent-jobs?company_id=${encodeURIComponent(companyId)}`,
-      {
-        headers: {
-          apikey: anonKey,
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-        },
-      }
-    );
+    // Edge Functions gateway verifies JWTs using the project's HS256 secret.
+    // The Supabase Auth JWT (ES256) won't pass this check — use the anon key
+    // as the Bearer token instead (it IS an HS256 JWT the gateway accepts).
+    const url = `${supabaseUrl}/functions/v1/company-persistent-jobs?company_id=${encodeURIComponent(companyId)}`;
+
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${anonKey}`,
+        apikey: anonKey,
+      },
+    });
 
     if (!res.ok) {
-      console.error(`[local-agent] Failed to fetch persistent jobs: HTTP ${res.status}`);
+      const body = await res.text().catch(() => "");
+      console.error(`[local-agent] Failed to fetch persistent jobs: HTTP ${res.status} — ${body}`);
       return;
     }
 

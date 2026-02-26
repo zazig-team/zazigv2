@@ -180,10 +180,13 @@ export function isStartJob(v: unknown): v is _StartJob {
   if (!_hasValidVersion(v)) return false;
   if (!_isString(v.jobId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(v.jobId as string)) return false;
   if (!_isString(v.cardId) || v.cardId.length === 0) return false;
-  if (!["code", "infra", "design", "research", "docs", "persistent_agent"].includes(v.cardType as string)) return false;
+  if (!["code", "infra", "design", "research", "docs", "persistent_agent", "verify", "breakdown", "combine", "deploy", "review", "bug"].includes(v.cardType as string)) return false;
   if (!["simple", "medium", "complex"].includes(v.complexity as string)) return false;
   if (!["claude_code", "codex"].includes(v.slotType as string)) return false;
   if (!_isString(v.model) || !ALLOWED_MODELS.has(v.model)) return false;
+  if (!_isString(v.projectId) || (v.projectId as string).length === 0) return false;
+  if (!_isString(v.repoUrl) || (v.repoUrl as string).length === 0) return false;
+  if (!_isString(v.featureBranch) || (v.featureBranch as string).length === 0) return false;
   const hasContext = _isString(v.context);
   const hasContextRef = _isString(v.contextRef) && (v.contextRef as string).length > 0;
   if (!hasContext && !hasContextRef) return false;
@@ -191,6 +194,14 @@ export function isStartJob(v: unknown): v is _StartJob {
   if (v.role !== undefined && (!_isString(v.role) || (v.role as string).length === 0)) return false;
   if (v.personalityPrompt !== undefined && (!_isString(v.personalityPrompt) || (v.personalityPrompt as string).length === 0 || (v.personalityPrompt as string).length > MAX_PERSONALITY_PROMPT_BYTES)) return false;
   if (v.subAgentPrompt !== undefined && (!_isString(v.subAgentPrompt) || (v.subAgentPrompt as string).length === 0 || (v.subAgentPrompt as string).length > MAX_PERSONALITY_PROMPT_BYTES)) return false;
+  if (v.dependencyBranches !== undefined) {
+    if (!Array.isArray(v.dependencyBranches) || (v.dependencyBranches as unknown[]).length === 0) return false;
+    if (!(v.dependencyBranches as unknown[]).every((b: unknown) => _isString(b) && (b as string).length > 0)) return false;
+  }
+  if (v.roleMcpTools !== undefined) {
+    if (!Array.isArray(v.roleMcpTools)) return false;
+    if (!(v.roleMcpTools as unknown[]).every((t: unknown) => _isString(t) && (t as string).length > 0)) return false;
+  }
   return true;
 }
 

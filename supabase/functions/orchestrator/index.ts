@@ -1586,6 +1586,11 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
     return;
   }
 
+  if (!feature.branch) {
+    console.error(`[orchestrator] triggerFeatureVerification: feature ${featureId} has no branch — cannot verify`);
+    return;
+  }
+
   const isActive = feature.verification_type === "active";
 
   if (isActive) {
@@ -1679,6 +1684,13 @@ async function initiateTestDeploy(supabase: SupabaseClient, featureId: string): 
     .single();
   if (fetchErr || !feature) {
     console.error(`[orchestrator] Failed to fetch feature ${featureId}:`, fetchErr?.message);
+    return;
+  }
+
+  // Guard: branch must exist before we can deploy.
+  // If missing, something went wrong upstream — fail loudly rather than deploy an empty branch.
+  if (!feature.branch) {
+    console.warn(`[orchestrator] initiateTestDeploy: feature ${featureId} has no branch — cannot deploy`);
     return;
   }
 

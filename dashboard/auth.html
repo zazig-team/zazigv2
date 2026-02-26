@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in — Zazig</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08090c;
+      --surface: #101216;
+      --surface-raised: #161a1f;
+      --border: #1e2328;
+      --text: #e2e4e8;
+      --text-secondary: #8b919a;
+      --text-dim: #555d68;
+      --accent: #4d8fef;
+      --accent-hover: #3a7de0;
+      --error: #f87171;
+      --error-bg: rgba(239, 68, 68, 0.08);
+      --success: #3cbf6e;
+      --success-bg: rgba(60, 191, 110, 0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(circle, #1a1e24 1px, transparent 1px);
+      background-size: 24px 24px;
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .card {
+      position: relative;
+      width: 100%;
+      max-width: 400px;
+      margin: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px 36px;
+    }
+
+    .logo-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 32px;
+    }
+
+    .logo-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent), 0 0 20px rgba(77, 143, 239, 0.3);
+      animation: pulse-glow 3s ease-in-out infinite;
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 8px var(--accent), 0 0 20px rgba(77, 143, 239, 0.3); }
+      50% { box-shadow: 0 0 12px var(--accent), 0 0 30px rgba(77, 143, 239, 0.5); }
+    }
+
+    .logo-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      margin-bottom: 28px;
+      line-height: 1.5;
+    }
+
+    label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    input[type="email"] {
+      display: block;
+      width: 100%;
+      padding: 14px 16px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 1rem;
+      color: var(--text);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      margin-bottom: 16px;
+    }
+
+    input[type="email"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(77, 143, 239, 0.12);
+    }
+
+    input[type="email"]::placeholder {
+      color: var(--text-dim);
+    }
+
+    input[type="email"]:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button[type="submit"] {
+      display: block;
+      width: 100%;
+      padding: 14px 16px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #fff;
+      background: var(--accent);
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s ease, opacity 0.15s ease;
+    }
+
+    button[type="submit"]:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+
+    button[type="submit"]:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #status {
+      display: none;
+      margin-top: 20px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
+    #status.success {
+      display: block;
+      color: var(--success);
+      background: var(--success-bg);
+      border: 1px solid rgba(60, 191, 110, 0.2);
+    }
+
+    #status.error {
+      display: block;
+      color: var(--error);
+      background: var(--error-bg);
+      border: 1px solid rgba(248, 113, 113, 0.2);
+    }
+
+    .signout-link {
+      display: none;
+      margin-top: 16px;
+      text-align: center;
+      font-size: 0.82rem;
+      color: var(--text-dim);
+    }
+
+    .signout-link a {
+      color: var(--text-secondary);
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    .signout-link a:hover {
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo-row">
+      <div class="logo-dot"></div>
+      <span class="logo-name">Zazig</span>
+    </div>
+
+    <h1>Sign in</h1>
+    <p class="subtitle">Enter your email and we'll send you a magic link.</p>
+
+    <form id="form">
+      <label for="email">Email address</label>
+      <input
+        type="email"
+        id="email"
+        name="email"
+        placeholder="your@email.com"
+        autofocus
+        required
+        autocomplete="email"
+      />
+      <button type="submit" id="submit-btn">Send magic link</button>
+    </form>
+
+    <div id="status" role="status" aria-live="polite"></div>
+
+    <div class="signout-link" id="signout-row">
+      Already signed in? <a id="signout-link" href="#">Sign out</a>
+    </div>
+  </div>
+
+  <script type="module">
+    import { getSession, sendMagicLink, signOut, onAuthChange } from './app.js';
+
+    const form       = document.getElementById('form');
+    const emailInput = document.getElementById('email');
+    const submitBtn  = document.getElementById('submit-btn');
+    const statusEl   = document.getElementById('status');
+    const signoutRow = document.getElementById('signout-row');
+    const signoutLink = document.getElementById('signout-link');
+
+    function showStatus(msg, type) {
+      statusEl.textContent = msg;
+      statusEl.className = type; // 'success' or 'error'
+    }
+
+    function disableForm() {
+      emailInput.disabled = true;
+      submitBtn.disabled  = true;
+    }
+
+    // On page load: if already signed in, redirect to dashboard
+    const existing = await getSession();
+    if (existing) {
+      window.location.href = '/index.html';
+    }
+
+    // Listen for SIGNED_IN event (fires when magic link is clicked and token exchanged)
+    onAuthChange((event) => {
+      if (event === 'SIGNED_IN') {
+        window.location.href = '/index.html';
+      }
+    });
+
+    // Show sign-out option only if a session somehow exists (edge case)
+    signoutLink.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await signOut();
+    });
+
+    // Form submit: send magic link
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = emailInput.value.trim();
+      if (!email) return;
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending…';
+      statusEl.className = '';
+
+      const { error } = await sendMagicLink(email);
+
+      if (error) {
+        submitBtn.disabled  = false;
+        submitBtn.textContent = 'Send magic link';
+        showStatus(error.message || 'Something went wrong. Please try again.', 'error');
+        return;
+      }
+
+      disableForm();
+      showStatus('Check your email — we sent you a magic link', 'success');
+    });
+  </script>
+</body>
+</html>

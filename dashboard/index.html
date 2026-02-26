@@ -739,6 +739,12 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
 <body>
+  <script type="module">
+    import { requireAuth } from './app.js';
+    const session = await requireAuth();
+    if (session) { document.getElementById('app-content').style.display = ''; }
+  </script>
+  <div id="app-content" style="display:none">
   <div class="app">
     <header class="topbar">
       <div class="topbar-left">
@@ -1416,5 +1422,6 @@
       void init();
     })();
   </script>
+  </div><!-- /app-content -->
 </body>
 </html>

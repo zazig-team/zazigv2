@@ -2219,13 +2219,55 @@ async function processReadyForBreakdown(supabase: SupabaseClient): Promise<void>
 /**
  * Polls for features whose lifecycle transitions were missed because the
  * executor writes job status directly to the DB and the orchestrator's 4s
- * Realtime window may not catch the job_complete broadcast.
+ * Realtime window may not catch the broadcast.
  *
- * Handles two transitions:
- *   breakdown → building: all breakdown jobs for the feature are complete
- *   building → combining: all implementation jobs are complete
+ * Handles:
+ *   0. Failed job catch-up: marks features failed when JobFailed broadcast was missed
+ *   1. breakdown → building: all breakdown jobs for the feature are complete
+ *   2. building → combining: all implementation jobs are complete
+ *   3. combining → verifying: the latest combine job is complete
  */
 async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> {
+  // --- 0. Failed job catch-up (all stages) ---
+  // If the JobFailed broadcast was missed, the feature is stuck forever because
+  // handleJobFailed (line 1085) is the only path that marks features as failed.
+  // This catch-up finds features with failed jobs that weren't marked failed.
+  const { data: activeFeatures, error: activeErr } = await supabase
+    .from("features")
+    .select("id")
+    .not("status", "in", '("complete","failed","cancelled","created","ready_for_breakdown")')
+    .limit(100);
+
+  if (activeErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying active features for failed catch-up:", activeErr.message);
+  }
+
+  for (const feature of (activeFeatures ?? []) as { id: string }[]) {
+    const { data: failedJob } = await supabase
+      .from("jobs")
+      .select("id, role, job_type, result")
+      .eq("feature_id", feature.id)
+      .eq("status", "failed")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (failedJob && failedJob.length > 0) {
+      const job = failedJob[0] as { id: string; role: string | null; job_type: string; result: string | null };
+      const errorDetail = `${job.role ?? job.job_type} job failed (catch-up): ${(job.result ?? "unknown error").slice(0, 200)}`;
+
+      const { data: updated } = await supabase
+        .from("features")
+        .update({ status: "failed", error: errorDetail })
+        .eq("id", feature.id)
+        .not("status", "in", '("failed","complete","cancelled")') // CAS guard
+        .select("id");
+
+      if (updated && updated.length > 0) {
+        console.warn(`[orchestrator] processFeatureLifecycle: feature ${feature.id} has failed job ${job.id} — marked feature failed (catch-up)`);
+      }
+    }
+  }
+
   // --- 1. breakdown → building ---
   // Features stuck in 'breakdown' where the breakdown job is complete
   const { data: breakdownFeatures, error: bErr } = await supabase

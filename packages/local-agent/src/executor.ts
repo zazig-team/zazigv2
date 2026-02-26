@@ -16,7 +16,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync, appendFileSync, createWriteStream } from "node:fs";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -57,8 +57,26 @@ const CPO_STARTUP_DELAY_MS = 15_000;
  *  Human messages are never dropped. */
 export const MAX_QUEUE_SIZE = 20;
 
-/** Directory where per-job tmux pipe-pane log files are written. */
-const JOB_LOG_DIR = "/tmp/zazig-job-logs";
+/** Directory where all per-job log files are written. */
+const JOB_LOG_DIR = join(homedir(), ".zazigv2", "job-logs");
+
+/** Truncate both log files for a job so each run starts fresh. */
+function clearJobLogs(jobId: string): void {
+  try {
+    mkdirSync(JOB_LOG_DIR, { recursive: true });
+    writeFileSync(join(JOB_LOG_DIR, `${jobId}-pre-post.log`), "");
+    writeFileSync(join(JOB_LOG_DIR, `${jobId}-pipe-pane.log`), "");
+  } catch { /* best-effort */ }
+}
+
+/** Write a timestamped line to a per-job lifecycle log file ({jobId}-pre-post.log). */
+function jobLog(jobId: string, message: string): void {
+  try {
+    mkdirSync(JOB_LOG_DIR, { recursive: true });
+    const line = `${new Date().toISOString()} ${message}\n`;
+    appendFileSync(join(JOB_LOG_DIR, `${jobId}-pre-post.log`), line);
+  } catch { /* best-effort */ }
+}
 
 /** Codex delegation instructions injected into context for codex-slotType jobs.
  *  Matches v1's token-budget routing: Claude supervises, Codex does the heavy lifting. */
@@ -299,7 +317,11 @@ export class JobExecutor {
       const projectName = msg.repoUrl.split("/").pop()?.replace(/\.git$/, "") ?? jobId;
       repoDir = await this.repoManager.ensureRepo(msg.repoUrl, projectName);
       await this.repoManager.ensureFeatureBranch(repoDir, msg.featureBranch);
-      console.log(`[executor] Branch routing for jobId=${jobId}: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${msg.dependencyBranches && msg.dependencyBranches.length > 0 ? "createDependentJobWorktree" : "createJobWorktree"}`);
+      const routing = msg.dependencyBranches && msg.dependencyBranches.length > 0 ? "createDependentJobWorktree" : "createJobWorktree";
+      clearJobLogs(jobId);
+      jobLog(jobId, `Branch routing: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
+      jobLog(jobId, `featureBranch=${msg.featureBranch}, repoDir=${repoDir}`);
+      console.log(`[executor] Branch routing for jobId=${jobId}: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
       const worktreeResult = (msg.dependencyBranches && msg.dependencyBranches.length > 0)
         ? await this.repoManager.createDependentJobWorktree(repoDir, msg.featureBranch, jobId, msg.dependencyBranches)
         : await this.repoManager.createJobWorktree(repoDir, msg.featureBranch, jobId);
@@ -307,8 +329,10 @@ export class JobExecutor {
       jobBranch = worktreeResult.jobBranch;
       ephemeralWorkspaceDir = worktreePath;
 
+      jobLog(jobId, `Worktree created at ${worktreePath} (branch: ${jobBranch})`);
       console.log(`[executor] Git worktree created at ${worktreePath} (branch: ${jobBranch}) for jobId=${jobId}`);
     } catch (err) {
+      jobLog(jobId, `FAILED to create worktree: ${String(err)}`);
       console.error(`[executor] Failed to create git worktree for jobId=${jobId}:`, err);
       this.slots.release(slotType);
       await this.sendJobFailed(jobId, `Failed to create git worktree: ${String(err)}`, "agent_crash");
@@ -754,7 +778,7 @@ export class JobExecutor {
     }
 
     // Clean up log file and worktree
-    deleteLogFile(job.logPath);
+    // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
     if (job.worktreePath && job.repoDir) {
       await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
@@ -856,7 +880,7 @@ export class JobExecutor {
       }
     }
 
-    deleteLogFile(job.logPath);
+    // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
     if (job.worktreePath && job.repoDir) {
       await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
@@ -932,14 +956,17 @@ export class JobExecutor {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
       }
     }
-    deleteLogFile(job.logPath);
+    // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
 
     // Push job branch and record in DB before sending JobComplete
     if (job.worktreePath && job.jobBranch) {
+      jobLog(jobId, `Pushing branch ${job.jobBranch} from ${job.worktreePath}`);
       try {
         await this.repoManager.pushJobBranch(job.worktreePath, job.jobBranch);
+        jobLog(jobId, `Push succeeded for ${job.jobBranch}`);
         console.log(`[executor] Pushed branch ${job.jobBranch} for jobId=${jobId}`);
       } catch (pushErr) {
+        jobLog(jobId, `Push FAILED for ${job.jobBranch}: ${String(pushErr)}`);
         console.warn(`[executor] onJobEnded: push failed for jobId=${jobId}: ${String(pushErr)}`);
       }
       await this.supabase.from("jobs").update({ branch: job.jobBranch }).eq("id", jobId);
@@ -1318,7 +1345,7 @@ function buildCommand(
 
   return {
     cmd: "claude",
-    args: ["--model", resolvedModel, "-p"],
+    args: ["--model", resolvedModel, "-p", "--verbose", "--output-format", "stream-json"],
   };
 }
 
@@ -1400,7 +1427,7 @@ function sleep(ms: number): Promise<void> {
  * Returns the absolute path to the pipe-pane log file for a given job.
  */
 function jobLogPath(jobId: string): string {
-  return `${JOB_LOG_DIR}/${jobId}.log`;
+  return `${JOB_LOG_DIR}/${jobId}-pipe-pane.log`;
 }
 
 /**

@@ -174,16 +174,12 @@ export class RepoManager {
       await mkdir(REPOS_BASE, { recursive: true });
       if (!existsSync(repoDir)) {
         await execFileAsync("git", ["clone", "--bare", repoUrl, repoDir], { encoding: "utf8" });
-      } else {
-        await git(repoDir, "fetch", "--prune", "origin");
       }
-      // Bare clones of empty repos don't set a fetch refspec — fix it so
-      // future fetches actually populate refs/heads/*.
-      try {
-        await git(repoDir, "config", "--get", "remote.origin.fetch");
-      } catch {
-        await git(repoDir, "config", "remote.origin.fetch", "+refs/heads/*:refs/heads/*");
-      }
+      // Ensure refspec does NOT force-update (no leading "+"). Without "+",
+      // git fetch refuses to overwrite branches that have diverged from
+      // the remote, which protects job branches with active worktrees from
+      // being clobbered by a concurrent job's fetch.
+      await git(repoDir, "config", "remote.origin.fetch", "refs/heads/*:refs/heads/*");
       // Check if repo is empty. NOTE: rev-parse HEAD without --verify returns
       // the literal string "HEAD" with exit 0 in an empty repo, so --verify
       // is required to actually detect emptiness.
@@ -241,6 +237,9 @@ export class RepoManager {
    */
   async ensureFeatureBranch(repoDir: string, featureBranch: string): Promise<void> {
     return this.withLock(repoDir, async () => {
+      // Fetch to ensure remote branches are available (ensureRepo no longer fetches)
+      await git(repoDir, "fetch", "origin");
+
       // Check if branch already exists (covers both local and fetched-from-remote)
       try {
         await git(repoDir, "rev-parse", "--verify", `refs/heads/${featureBranch}`);
@@ -263,6 +262,9 @@ export class RepoManager {
     jobId: string
   ): Promise<{ worktreePath: string; jobBranch: string }> {
     return this.withLock(repoDir, async () => {
+      // Fetch inside the lock so concurrent jobs can't clobber each other's branches
+      await git(repoDir, "fetch", "origin");
+
       const jobBranch = `job/${jobId}`;
       const worktreePath = join(WORKTREE_BASE, `job-${jobId}`);
       await mkdir(WORKTREE_BASE, { recursive: true });
@@ -293,7 +295,7 @@ export class RepoManager {
     return this.withLock(repoDir, async () => {
       // Fetch to ensure remote dep branches are available in the bare repo
       console.log(`[RepoManager] createDependentJobWorktree: jobId=${jobId}, depBranches=${JSON.stringify(depBranches)}`);
-      await git(repoDir, "fetch", "--prune", "origin");
+      await git(repoDir, "fetch", "origin");
 
       // List all branches after fetch for debugging
       const { stdout: branchList } = await execFileAsync("git", ["-C", repoDir, "branch", "--list", "job/*"], { encoding: "utf8" });
@@ -370,7 +372,7 @@ export class RepoManager {
    * Push job branch to origin from within the worktree.
    */
   async pushJobBranch(worktreePath: string, jobBranch: string): Promise<void> {
-    await execFileAsync("git", ["-C", worktreePath, "push", "origin", jobBranch], {
+    await execFileAsync("git", ["-C", worktreePath, "push", "--force", "origin", jobBranch], {
       encoding: "utf8",
     });
   }

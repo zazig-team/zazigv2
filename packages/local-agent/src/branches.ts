@@ -163,6 +163,9 @@ export class RepoManager {
 
   /**
    * Bare-clone repoUrl to ~/.zazigv2/repos/{name}/ if not exists, else fetch --prune.
+   * Ensures the fetch refspec is set (bare clones of empty repos omit it).
+   * If the repo is empty (no commits), seeds it with an initial empty commit so
+   * branches can be created from it.
    * Returns the repo dir path.
    */
   async ensureRepo(repoUrl: string, projectName: string): Promise<string> {
@@ -174,32 +177,79 @@ export class RepoManager {
       } else {
         await git(repoDir, "fetch", "--prune", "origin");
       }
+      // Bare clones of empty repos don't set a fetch refspec — fix it so
+      // future fetches actually populate refs/heads/*.
+      try {
+        await git(repoDir, "config", "--get", "remote.origin.fetch");
+      } catch {
+        await git(repoDir, "config", "remote.origin.fetch", "+refs/heads/*:refs/heads/*");
+      }
+      // Check if repo is empty. NOTE: rev-parse HEAD without --verify returns
+      // the literal string "HEAD" with exit 0 in an empty repo, so --verify
+      // is required to actually detect emptiness.
+      try {
+        await git(repoDir, "rev-parse", "--verify", "HEAD");
+      } catch {
+        // Empty repo — clone from the remote URL, create an initial commit,
+        // push it to GitHub, then fetch into our bare repo.
+        const tmpDir = join(REPOS_BASE, `.tmp-init-${projectName}`);
+        try {
+          await execFileAsync("git", ["clone", repoUrl, tmpDir], { encoding: "utf8" });
+          await execFileAsync("git", ["-C", tmpDir, "commit", "--allow-empty", "-m", "Initial commit"], { encoding: "utf8" });
+          await execFileAsync("git", ["-C", tmpDir, "push", "origin", "HEAD"], { encoding: "utf8" });
+        } finally {
+          await execFileAsync("rm", ["-rf", tmpDir]).catch(() => {});
+        }
+        // Fetch the new commit into our bare repo (refspec is now set)
+        await git(repoDir, "fetch", "origin");
+      }
       return repoDir;
     });
   }
 
   /**
+   * Resolve the default branch in a bare repo.
+   * Tries symbolic-ref HEAD first, then falls back to common names.
+   */
+  private async resolveDefaultBranch(repoDir: string): Promise<string> {
+    // In a bare repo, HEAD is a symbolic ref like "refs/heads/main"
+    try {
+      const ref = await git(repoDir, "symbolic-ref", "HEAD");
+      const branchName = ref.replace(/^refs\/heads\//, "");
+      // Verify the branch actually has commits
+      await git(repoDir, "rev-parse", "--verify", `refs/heads/${branchName}`);
+      return branchName;
+    } catch {
+      // HEAD symbolic ref missing or points to nonexistent branch
+    }
+    // Fallback: try common default branch names
+    for (const name of ["main", "master"]) {
+      try {
+        await git(repoDir, "rev-parse", "--verify", `refs/heads/${name}`);
+        return name;
+      } catch {
+        continue;
+      }
+    }
+    throw new Error(`Cannot resolve default branch in ${repoDir} — repo may be empty`);
+  }
+
+  /**
    * Create feature branch off default branch if not exists. Idempotent.
+   * In a bare repo, branches fetched from origin live directly under refs/heads/,
+   * so there are no origin/* tracking refs.
    */
   async ensureFeatureBranch(repoDir: string, featureBranch: string): Promise<void> {
     return this.withLock(repoDir, async () => {
-      // Check if branch exists locally
+      // Check if branch already exists (covers both local and fetched-from-remote)
       try {
-        await git(repoDir, "rev-parse", "--verify", featureBranch);
+        await git(repoDir, "rev-parse", "--verify", `refs/heads/${featureBranch}`);
         return; // Already exists
       } catch {
-        // Not found locally
+        // Not found — create off default branch
       }
-      // Check remote
-      try {
-        await git(repoDir, "rev-parse", "--verify", `origin/${featureBranch}`);
-        // Remote branch exists — create local tracking branch
-        await git(repoDir, "branch", featureBranch, `origin/${featureBranch}`);
-        return;
-      } catch {
-        // Not on remote either — create off HEAD
-      }
-      await git(repoDir, "branch", featureBranch, "HEAD");
+      const defaultBranch = await this.resolveDefaultBranch(repoDir);
+      await git(repoDir, "branch", featureBranch, defaultBranch);
     });
   }
 
@@ -220,6 +270,63 @@ export class RepoManager {
       await git(repoDir, "branch", jobBranch, featureBranch);
       // Add worktree for the job branch
       await git(repoDir, "worktree", "add", worktreePath, jobBranch);
+      return { worktreePath, jobBranch };
+    });
+  }
+
+  /**
+   * Create a job worktree that inherits code from dependency branches.
+   * For single dep: branches from depBranches[0].
+   * For fan-in (multiple deps): branches from depBranches[0], merges remaining.
+   * Falls back to featureBranch if no dep branches are valid after verification.
+   */
+  async createDependentJobWorktree(
+    repoDir: string,
+    featureBranch: string,
+    jobId: string,
+    depBranches: string[],
+  ): Promise<{ worktreePath: string; jobBranch: string }> {
+    return this.withLock(repoDir, async () => {
+      // Fetch to ensure remote dep branches are available in the bare repo
+      await git(repoDir, "fetch", "--prune", "origin");
+
+      // Verify each dep branch exists; skip missing ones with a warning
+      const validBranches: string[] = [];
+      for (const branch of depBranches) {
+        try {
+          await git(repoDir, "rev-parse", "--verify", `refs/heads/${branch}`);
+          validBranches.push(branch);
+        } catch {
+          console.warn(`[RepoManager] createDependentJobWorktree: dep branch "${branch}" not found in ${repoDir} — skipping`);
+        }
+      }
+
+      const jobBranch = `job/${jobId}`;
+      const worktreePath = join(WORKTREE_BASE, `job-${jobId}`);
+      await mkdir(WORKTREE_BASE, { recursive: true });
+
+      // Determine base branch: first valid dep branch, or fall back to feature branch
+      const baseBranch = validBranches.length > 0 ? validBranches[0] : featureBranch;
+      await git(repoDir, "branch", jobBranch, baseBranch);
+      await git(repoDir, "worktree", "add", worktreePath, jobBranch);
+
+      // Fan-in: merge additional dep branches into the worktree
+      for (const branch of validBranches.slice(1)) {
+        try {
+          await execFileAsync("git", ["-C", worktreePath, "merge", "--no-ff", branch], { encoding: "utf8" });
+        } catch (mergeErr) {
+          // Abort the merge, clean up worktree and branch, then re-throw
+          try {
+            await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
+          } catch {
+            // ignore abort failure
+          }
+          await git(repoDir, "worktree", "remove", "--force", worktreePath);
+          try { await git(repoDir, "branch", "-D", jobBranch); } catch { /* ignore */ }
+          throw new Error(`Fan-in merge of "${branch}" into job/${jobId} failed: ${String(mergeErr)}`);
+        }
+      }
+
       return { worktreePath, jobBranch };
     });
   }

@@ -454,10 +454,11 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     }
 
     // DAG check: if this job has dependencies, verify they are all complete before dispatch.
+    let depBranches: string[] = [];
     if (job.depends_on && job.depends_on.length > 0) {
       const { data: depJobs, error: depErr } = await supabase
         .from("jobs")
-        .select("id, status")
+        .select("id, status, branch")
         .in("id", job.depends_on);
 
       if (depErr) {
@@ -472,6 +473,11 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         console.log(`[orchestrator] Job ${job.id} blocked by unfinished dependencies — skipping`);
         continue;
       }
+
+      // Extract non-null branches from completed dependencies for branch chaining
+      depBranches = (depJobs ?? [])
+        .map((d: { branch?: string | null }) => d.branch)
+        .filter((b): b is string => typeof b === "string" && b.length > 0);
     }
 
     // Resolve model + slot type.
@@ -720,6 +726,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       ...(subAgentPrompt ? { subAgentPrompt } : {}),
       ...(rolePrompt ? { rolePrompt } : {}),
       ...(roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),
+      ...(depBranches.length > 0 ? { dependencyBranches: depBranches } : {}),
     };
 
     // Broadcast StartJob via Supabase Realtime on the machine's command channel.
@@ -889,12 +896,12 @@ async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Pr
         .eq("id", originalJobId).eq("status", "reviewing");
       console.log(`[orchestrator] Job ${originalJobId} complete after clean review`);
 
-      // Check if all feature jobs are done → trigger feature verification
+      // Check if all feature jobs are done → trigger combining (next pipeline step)
       if (jobRow.feature_id) {
         const { data: allDone } = await supabase
           .rpc("all_feature_jobs_complete", { p_feature_id: jobRow.feature_id });
         if (allDone) {
-          await triggerFeatureVerification(supabase, jobRow.feature_id);
+          await triggerCombining(supabase, jobRow.feature_id);
         }
       }
     }
@@ -1107,6 +1114,29 @@ async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promis
 
   // Release the slot regardless of re-queue decision.
   await releaseSlot(supabase, jobId, machineId);
+
+  // If the job permanently failed (not re-queued), fail the parent feature.
+  if (newStatus === "failed") {
+    const { data: job } = await supabase
+      .from("jobs")
+      .select("feature_id, role, job_type")
+      .eq("id", jobId)
+      .single();
+
+    if (job?.feature_id) {
+      const errorDetail = `${job.role ?? job.job_type} job failed: ${errMsg ?? "unknown error"}`;
+      const { error: featErr } = await supabase
+        .from("features")
+        .update({ status: "failed", error: errorDetail })
+        .eq("id", job.feature_id);
+
+      if (featErr) {
+        console.error(`[orchestrator] Failed to mark feature ${job.feature_id} as failed:`, featErr.message);
+      } else {
+        console.warn(`[orchestrator] Feature ${job.feature_id} marked as failed: ${errorDetail}`);
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1428,7 +1458,7 @@ export async function triggerCombining(supabase: SupabaseClient, featureId: stri
   // 1. Fetch all completed job branches for this feature (exclude breakdown, combine, verify jobs)
   const { data: jobs, error: jobsErr } = await supabase
     .from("jobs")
-    .select("branch")
+    .select("id, branch, depends_on")
     .eq("feature_id", featureId)
     .eq("status", "complete")
     .neq("job_type", "breakdown")
@@ -1469,8 +1499,20 @@ export async function triggerCombining(supabase: SupabaseClient, featureId: stri
     return;
   }
 
-  // 4. Insert combine job
-  const jobBranches = (jobs ?? []).map((j: { branch: string | null }) => j.branch).filter(Boolean);
+  // 4. Insert combine job — only merge leaf branches (jobs not superseded by a dependent).
+  // A job is a "leaf" if no other completed job in this feature lists it in depends_on.
+  // Chain A→B→C: only C is a leaf (C already contains A+B). Fan-out A→[B,C]: both B and C are leaves.
+  const allJobs = (jobs ?? []) as Array<{ id: string; branch: string | null; depends_on: string[] | null }>;
+  const supersededIds = new Set<string>();
+  for (const j of allJobs) {
+    for (const depId of (j.depends_on ?? [])) {
+      supersededIds.add(depId);
+    }
+  }
+  const jobBranches = allJobs
+    .filter(j => !supersededIds.has(j.id))
+    .map(j => j.branch)
+    .filter((b): b is string => b !== null && b.length > 0);
   const combineContext = JSON.stringify({
     type: "combine",
     featureId,
@@ -2111,6 +2153,7 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
       company_id: feature.company_id,
       project_id: feature.project_id,
       feature_id: featureId,
+      title: "Breaking down feature",
       role: "breakdown-specialist",
       job_type: "breakdown",
       complexity: "simple",
@@ -2203,6 +2246,17 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
       .limit(1);
 
     if (!pendingBreakdown || pendingBreakdown.length === 0) {
+      // Check if any breakdown jobs failed — if so, don't advance
+      const { data: failedBreakdown } = await supabase
+        .from("jobs")
+        .select("id")
+        .eq("feature_id", feature.id)
+        .eq("job_type", "breakdown")
+        .eq("status", "failed")
+        .limit(1);
+      if (failedBreakdown && failedBreakdown.length > 0) {
+        continue; // handleJobFailed will mark the feature as failed
+      }
       // All breakdown jobs done — transition to building
       const { data: updated } = await supabase
         .from("features")
@@ -2270,6 +2324,17 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
   }
 
   for (const feature of (buildingFeatures ?? []) as { id: string }[]) {
+    // Don't advance if any implementation jobs failed
+    const { data: failedJobs } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("feature_id", feature.id)
+      .eq("status", "failed")
+      .limit(1);
+    if (failedJobs && failedJobs.length > 0) {
+      continue; // handleJobFailed will mark the feature as failed
+    }
+
     const { data: allDone } = await supabase
       .rpc("all_feature_jobs_complete", { p_feature_id: feature.id });
 

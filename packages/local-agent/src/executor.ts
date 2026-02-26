@@ -299,7 +299,9 @@ export class JobExecutor {
       const projectName = msg.repoUrl.split("/").pop()?.replace(/\.git$/, "") ?? jobId;
       repoDir = await this.repoManager.ensureRepo(msg.repoUrl, projectName);
       await this.repoManager.ensureFeatureBranch(repoDir, msg.featureBranch);
-      const worktreeResult = await this.repoManager.createJobWorktree(repoDir, msg.featureBranch, jobId);
+      const worktreeResult = (msg.dependencyBranches && msg.dependencyBranches.length > 0)
+        ? await this.repoManager.createDependentJobWorktree(repoDir, msg.featureBranch, jobId, msg.dependencyBranches)
+        : await this.repoManager.createJobWorktree(repoDir, msg.featureBranch, jobId);
       worktreePath = worktreeResult.worktreePath;
       jobBranch = worktreeResult.jobBranch;
       ephemeralWorkspaceDir = worktreePath;
@@ -635,7 +637,7 @@ export class JobExecutor {
       // Kill any stale session from a previous run
       await killTmuxSession(sessionName);
 
-      const shellCmd = `unset CLAUDECODE; claude --model claude-opus-4-6 --dangerously-skip-permissions`;
+      const shellCmd = `unset CLAUDECODE; claude --model claude-opus-4-6`;
       const tmuxArgs = [
         "new-session",
         "-d",

@@ -845,15 +845,15 @@ Deno.test.ignore("handleFeatureRejected — severity=big + queue exists → prom
   // deno-lint-ignore no-explicit-any
   await handleFeatureRejected(client as any, msg);
 
-  // Should promote next feature — look for update to "testing"
+  // Should promote next feature — look for update to "deploying_to_test"
   const featureChains = chainedCalls.filter((c) => c.table === "features");
   const promoteUpdate = featureChains.find((c) => {
     if (c.operations[0].method !== "update") return false;
     // deno-lint-ignore no-explicit-any
     const payload = c.operations[0].args[0] as any;
-    return payload.status === "testing";
+    return payload.status === "deploying_to_test";
   });
-  assertEquals(promoteUpdate !== undefined, true, "Should promote next feature to testing after big rejection");
+  assertEquals(promoteUpdate !== undefined, true, "Should promote next feature to deploying_to_test after big rejection");
 });
 
 // ---------------------------------------------------------------------------
@@ -1097,7 +1097,7 @@ Deno.test("checkUnblockedJobs — all deps complete → logs unblocked", async (
   setResponse("jobs:select.in", {
     data: [
       { id: "job-X", status: "complete" },
-      { id: "job-Y", status: "done" },
+      { id: "job-Y", status: "complete" },
     ],
     error: null,
   });

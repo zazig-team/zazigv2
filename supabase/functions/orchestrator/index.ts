@@ -469,7 +469,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       }
 
       const allComplete = depJobs && depJobs.length === job.depends_on.length &&
-        depJobs.every((d: { status: string }) => d.status === "complete" || d.status === "done");
+        depJobs.every((d: { status: string }) => d.status === "complete");
 
       if (!allComplete) {
         console.log(`[orchestrator] Job ${job.id} blocked by unfinished dependencies — skipping`);
@@ -1306,7 +1306,7 @@ export async function checkUnblockedJobs(
     }
 
     const allComplete = depJobs && depJobs.length === deps.length &&
-      depJobs.every((d: { status: string }) => d.status === "complete" || d.status === "done");
+      depJobs.every((d: { status: string }) => d.status === "complete");
 
     if (allComplete) {
       console.log(`[orchestrator] Job ${candidate.id} is now unblocked (all ${deps.length} dependencies complete)`);

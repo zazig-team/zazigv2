@@ -14,6 +14,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { parse as parseYaml } from "yaml";
 import type { TestRecipe } from "@zazigv2/shared";
@@ -28,6 +29,20 @@ const RECIPE_FILENAME = "zazig.test.yaml";
 const HEALTHCHECK_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_HEALTHCHECK_TIMEOUT_S = 120;
 const DEPLOY_TIMEOUT_MS = 5 * 60_000; // 5 minutes
+
+/**
+ * Resolves a repo path for the test runner. If the path is a URL,
+ * derives the local bare clone directory from ~/.zazigv2/repos/.
+ * If it's already a local path, returns it as-is.
+ */
+function resolveRepoPath(repoPathOrUrl: string): string {
+  if (repoPathOrUrl.startsWith("/")) return repoPathOrUrl;
+  const repoName = repoPathOrUrl
+    .replace(/\.git$/, "")
+    .split("/")
+    .pop() ?? "unknown";
+  return join(homedir(), ".zazigv2", "repos", repoName);
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -78,7 +93,7 @@ export class TestRunner {
    * read recipe → deploy → healthcheck → report result.
    */
   async handleDeployToTest(msg: DeployToTest): Promise<void> {
-    const repoPath = msg.repoPath ?? process.cwd();
+    const repoPath = msg.repoPath ? resolveRepoPath(msg.repoPath) : process.cwd();
     const featureId = msg.featureId ?? "";
 
     // 1. Read recipe

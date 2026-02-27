@@ -30,6 +30,8 @@ export interface WorkspaceConfig {
   repoSkillsDir?: string;
   /** MCP tool names this role may invoke. Forwarded as ZAZIG_ALLOWED_TOOLS env var. */
   mcpTools?: string[];
+  /** Tmux session name for this job/agent. Forwarded as ZAZIG_TMUX_SESSION for enable_remote. */
+  tmuxSession?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,7 +66,7 @@ export const ROLE_ALLOWED_TOOLS: Record<string, string[]> = {
  */
 export function generateMcpConfig(
   mcpServerPath: string,
-  env: { supabaseUrl: string; supabaseAnonKey: string; jobId: string; companyId?: string; allowedTools?: string[] },
+  env: { supabaseUrl: string; supabaseAnonKey: string; jobId: string; companyId?: string; allowedTools?: string[]; tmuxSession?: string },
 ): object {
   return {
     mcpServers: {
@@ -77,6 +79,7 @@ export function generateMcpConfig(
           ZAZIG_JOB_ID: env.jobId,
           ...(env.companyId ? { ZAZIG_COMPANY_ID: env.companyId } : {}),
           ...(env.allowedTools ? { ZAZIG_ALLOWED_TOOLS: env.allowedTools.join(",") } : {}),
+          ...(env.tmuxSession ? { ZAZIG_TMUX_SESSION: env.tmuxSession } : {}),
         },
       },
     },
@@ -128,6 +131,7 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     jobId: config.jobId,
     companyId: config.companyId,
     allowedTools: config.mcpTools ?? ROLE_ALLOWED_TOOLS[config.role],
+    tmuxSession: config.tmuxSession,
   });
   writeFileSync(
     join(config.workspaceDir, ".mcp.json"),

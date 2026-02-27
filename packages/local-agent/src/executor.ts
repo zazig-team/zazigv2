@@ -387,6 +387,7 @@ export class JobExecutor {
         skills: msg.roleSkills,
         repoSkillsDir: join(process.cwd(), "projects", "skills"),
         mcpTools: msg.roleMcpTools,
+        tmuxSession: `${this.machineId}-${jobId}`,
       });
       console.log(`[executor] Workspace overlay written to ${worktreePath} for jobId=${jobId}`);
     } catch (err) {
@@ -648,6 +649,7 @@ export class JobExecutor {
         skills: msg.roleSkills,
         repoSkillsDir: join(process.cwd(), "projects", "skills"),
         mcpTools: msg.roleMcpTools,
+        tmuxSession: `${this.machineId}-${role}`,
       });
 
       // Persist context to DB for observability (fire-and-forget).

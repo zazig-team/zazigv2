@@ -657,19 +657,21 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     let rolePrompt: string | undefined;
     let roleSkills: string[] | undefined;
     let roleMcpTools: string[] | undefined;
+    let isInteractive = false;
     let personalityPrompt: string | undefined;
     let subAgentPrompt: string | undefined;
     if (job.role && slotType !== "codex") {
       const { data: roleRow } = await supabase
         .from("roles")
-        .select("id, prompt, skills, mcp_tools")
+        .select("id, prompt, skills, mcp_tools, interactive")
         .eq("name", job.role)
         .single();
       if (roleRow) {
-        const typed = roleRow as { id: string; prompt: string | null; skills: string[] | null; mcp_tools: string[] | null };
+        const typed = roleRow as { id: string; prompt: string | null; skills: string[] | null; mcp_tools: string[] | null; interactive: boolean | null };
         rolePrompt = typed.prompt ?? undefined;
         roleSkills = typed.skills ?? undefined;
         roleMcpTools = typed.mcp_tools ?? undefined;
+        isInteractive = typed.interactive ?? false;
 
         // Fetch compiled personality prompt + sub-agent prompt for this company + role
         const { data: personality } = await supabase
@@ -710,6 +712,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       ...(roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),
       ...(roleMcpTools !== undefined ? { roleMcpTools } : {}),
       ...(depBranches.length > 0 ? { dependencyBranches: depBranches } : {}),
+      ...(isInteractive ? { interactive: true } : {}),
     };
 
     // Broadcast StartJob via Supabase Realtime on the machine's command channel.
@@ -2518,7 +2521,7 @@ export async function handleDeployComplete(
   // 1. Fetch feature details
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
-    .select("company_id, project_id, title, human_checklist, spec")
+    .select("company_id, project_id, title, human_checklist, spec, branch")
     .eq("id", featureId)
     .single();
 
@@ -2580,7 +2583,33 @@ export async function handleDeployComplete(
     }
   }
 
-  // 4. Log event
+  // 4. Queue interactive tester job for the feature
+  const { error: testerErr } = await supabase.from("jobs").insert({
+    company_id: feature.company_id,
+    project_id: feature.project_id,
+    feature_id: featureId,
+    role: "tester",
+    job_type: "feature_test",
+    complexity: "simple",
+    slot_type: "claude_code",
+    status: "queued",
+    context: JSON.stringify({
+      type: "feature_test",
+      featureId,
+      featureBranch: feature.branch ?? "",
+      projectId: feature.project_id,
+      testUrl,
+    }),
+    branch: feature.branch ?? null,
+  });
+
+  if (testerErr) {
+    console.error(`[orchestrator] Failed to create tester job for feature ${featureId}:`, testerErr.message);
+  } else {
+    console.log(`[orchestrator] Tester job queued for feature ${featureId}`);
+  }
+
+  // 5. Log event
   await supabase.from("events").insert({
     company_id: feature.company_id,
     event_type: "feature_status_changed",

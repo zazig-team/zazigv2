@@ -9,7 +9,7 @@
  *   - .claude/skills/     — optional skill files copied from the repo
  */
 
-import { writeFileSync, mkdirSync, existsSync, copyFileSync, readFileSync, appendFileSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, copyFileSync, readFileSync, appendFileSync, symlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -28,10 +28,32 @@ export interface WorkspaceConfig {
   claudeMdContent: string;
   skills?: string[];
   repoSkillsDir?: string;
+  repoInteractiveSkillsDir?: string;
+  useSymlinks?: boolean;
   /** MCP tool names this role may invoke. Forwarded as ZAZIG_ALLOWED_TOOLS env var. */
   mcpTools?: string[];
   /** Tmux session name for this job/agent. Forwarded as ZAZIG_TMUX_SESSION for enable_remote. */
   tmuxSession?: string;
+}
+
+function resolveSkillSourcePath(config: WorkspaceConfig, skillName: string): string | null {
+  if (config.repoSkillsDir) {
+    // Legacy pipeline format: projects/skills/{name}.md
+    const flatPath = join(config.repoSkillsDir, `${skillName}.md`);
+    if (existsSync(flatPath)) return flatPath;
+
+    // Preferred pipeline format: projects/skills/{name}/SKILL.md
+    const nestedPath = join(config.repoSkillsDir, skillName, "SKILL.md");
+    if (existsSync(nestedPath)) return nestedPath;
+  }
+
+  // Interactive skill format: .claude/skills/{name}/SKILL.md
+  if (config.repoInteractiveSkillsDir) {
+    const interactivePath = join(config.repoInteractiveSkillsDir, skillName, "SKILL.md");
+    if (existsSync(interactivePath)) return interactivePath;
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,13 +65,14 @@ export interface WorkspaceConfig {
  * The `mcp__zazig-messaging__` prefix is added by `generateAllowedTools`.
  */
 export const ROLE_ALLOWED_TOOLS: Record<string, string[]> = {
-  cpo: ["query_projects", "create_feature", "update_feature"],
+  cpo: ["query_projects", "create_feature", "update_feature", "request_work"],
+  cto: ["request_work"],
   "project-architect": ["create_project", "batch_create_features", "query_projects"],
   "breakdown-specialist": ["query_features", "batch_create_jobs"],
   "senior-engineer": ["query_features"],
   reviewer: ["query_features"],
   "monitoring-agent": ["send_message"],
-  "verification-specialist": ["query_features", "query_jobs", "batch_create_jobs"],
+  "verification-specialist": ["query_features", "query_jobs", "batch_create_jobs", "request_work"],
   "pipeline-technician": ["query_features", "query_jobs", "execute_sql"],
   "job-combiner": [],
   deployer: [],
@@ -66,7 +89,15 @@ export const ROLE_ALLOWED_TOOLS: Record<string, string[]> = {
  */
 export function generateMcpConfig(
   mcpServerPath: string,
-  env: { supabaseUrl: string; supabaseAnonKey: string; jobId: string; companyId?: string; allowedTools?: string[]; tmuxSession?: string },
+  env: {
+    supabaseUrl: string;
+    supabaseAnonKey: string;
+    jobId: string;
+    companyId?: string;
+    allowedTools?: string[];
+    tmuxSession?: string;
+    role?: string;
+  },
 ): object {
   return {
     mcpServers: {
@@ -80,6 +111,7 @@ export function generateMcpConfig(
           ...(env.companyId ? { ZAZIG_COMPANY_ID: env.companyId } : {}),
           ...(env.allowedTools ? { ZAZIG_ALLOWED_TOOLS: env.allowedTools.join(",") } : {}),
           ...(env.tmuxSession ? { ZAZIG_TMUX_SESSION: env.tmuxSession } : {}),
+          ...(env.role ? { ZAZIG_ROLE: env.role } : {}),
         },
       },
     },
@@ -132,6 +164,7 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     companyId: config.companyId,
     allowedTools: config.mcpTools ?? ROLE_ALLOWED_TOOLS[config.role],
     tmuxSession: config.tmuxSession,
+    role: config.role,
   });
   writeFileSync(
     join(config.workspaceDir, ".mcp.json"),
@@ -158,16 +191,30 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     ),
   );
 
-  // 6. Copy skill files if provided
-  if (config.skills && config.repoSkillsDir && config.skills.length > 0) {
+  // 6. Inject skill files if provided
+  if (config.skills && config.skills.length > 0) {
     for (const skillName of config.skills) {
-      const skillPath = join(config.repoSkillsDir, `${skillName}.md`);
-      if (existsSync(skillPath)) {
-        const destDir = join(config.workspaceDir, ".claude", "skills", skillName);
-        mkdirSync(destDir, { recursive: true });
-        copyFileSync(skillPath, join(destDir, "SKILL.md"));
+      const sourcePath = resolveSkillSourcePath(config, skillName);
+      if (!sourcePath) {
+        console.warn(`[workspace] Skill "${skillName}" not found in repo sources`);
+        continue;
+      }
+
+      const destDir = join(config.workspaceDir, ".claude", "skills", skillName);
+      const destPath = join(destDir, "SKILL.md");
+      mkdirSync(destDir, { recursive: true });
+
+      if (config.useSymlinks) {
+        // Idempotent replacement for existing file/symlink.
+        rmSync(destPath, { force: true, recursive: true });
+        try {
+          symlinkSync(sourcePath, destPath);
+        } catch (err) {
+          console.warn(`[workspace] Failed to symlink skill "${skillName}", falling back to copy: ${String(err)}`);
+          copyFileSync(sourcePath, destPath);
+        }
       } else {
-        console.warn(`[workspace] Skill file not found: ${skillPath}`);
+        copyFileSync(sourcePath, destPath);
       }
     }
   }

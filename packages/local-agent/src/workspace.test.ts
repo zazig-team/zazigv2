@@ -9,11 +9,13 @@ vi.mock("node:fs", () => ({
   mkdirSync: vi.fn(),
   existsSync: vi.fn(() => false),
   copyFileSync: vi.fn(),
+  symlinkSync: vi.fn(),
+  rmSync: vi.fn(),
   readFileSync: vi.fn(() => ""),
   appendFileSync: vi.fn(),
 }));
 
-import { generateAllowedTools, generateMcpConfig, setupJobWorkspace, ROLE_ALLOWED_TOOLS } from "./workspace.js";
+import { generateAllowedTools, generateMcpConfig, setupJobWorkspace } from "./workspace.js";
 import * as fsModule from "node:fs";
 
 // ---------------------------------------------------------------------------
@@ -32,7 +34,7 @@ describe("generateAllowedTools", () => {
       "mcp__zazig-messaging__query_projects",
       "mcp__zazig-messaging__create_feature",
       "mcp__zazig-messaging__update_feature",
-      "mcp__zazig-messaging__commission_contractor",
+      "mcp__zazig-messaging__request_work",
     ]);
   });
 
@@ -172,6 +174,65 @@ describe("setupJobWorkspace", () => {
     );
   });
 
+  it("loads skill from interactive skills directory when not present in pipeline dir", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const copyFileSyncMock = fsModule.copyFileSync as unknown as ReturnType<typeof vi.fn>;
+    existsSyncMock.mockImplementation((p: string) =>
+      typeof p === "string" && p === "/repo/.claude/skills/scrum/SKILL.md",
+    );
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-interactive",
+      role: "cpo",
+      claudeMdContent: "# Test",
+      skills: ["scrum"],
+      repoSkillsDir: "/repo/projects/skills",
+      repoInteractiveSkillsDir: "/repo/.claude/skills",
+    });
+
+    expect(copyFileSyncMock).toHaveBeenCalledWith(
+      "/repo/.claude/skills/scrum/SKILL.md",
+      "/tmp/test-workspace/.claude/skills/scrum/SKILL.md",
+    );
+  });
+
+  it("creates symlinked skill files when useSymlinks is enabled", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const symlinkSyncMock = fsModule.symlinkSync as unknown as ReturnType<typeof vi.fn>;
+    const rmSyncMock = fsModule.rmSync as unknown as ReturnType<typeof vi.fn>;
+    const copyFileSyncMock = fsModule.copyFileSync as unknown as ReturnType<typeof vi.fn>;
+    existsSyncMock.mockImplementation((p: string) =>
+      typeof p === "string" && p === "/repo/projects/skills/jobify.md",
+    );
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-symlink",
+      role: "breakdown-specialist",
+      claudeMdContent: "# Test",
+      skills: ["jobify"],
+      repoSkillsDir: "/repo/projects/skills",
+      useSymlinks: true,
+    });
+
+    expect(rmSyncMock).toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/skills/jobify/SKILL.md",
+      { force: true, recursive: true },
+    );
+    expect(symlinkSyncMock).toHaveBeenCalledWith(
+      "/repo/projects/skills/jobify.md",
+      "/tmp/test-workspace/.claude/skills/jobify/SKILL.md",
+    );
+    expect(copyFileSyncMock).not.toHaveBeenCalled();
+  });
+
   it("warns and skips missing skill files", () => {
     const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
     const copyFileSyncMock = fsModule.copyFileSync as unknown as ReturnType<typeof vi.fn>;
@@ -191,7 +252,7 @@ describe("setupJobWorkspace", () => {
     });
 
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Skill file not found"),
+      expect.stringContaining("Skill \"nonexistent\" not found"),
     );
     expect(copyFileSyncMock).not.toHaveBeenCalled();
 

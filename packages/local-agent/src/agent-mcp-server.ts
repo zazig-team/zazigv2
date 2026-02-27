@@ -51,6 +51,19 @@ function guardedHandler(toolName: string, handler: ToolHandler): ToolHandler {
   };
 }
 
+const STANDALONE_ELIGIBLE_ROLES = [
+  "pipeline-technician",
+  "monitoring-agent",
+  "verification-specialist",
+  "project-architect",
+] as const;
+
+const REQUEST_WORK_ROLE_ALLOWLIST: Record<string, Set<string>> = {
+  cpo: new Set(STANDALONE_ELIGIBLE_ROLES),
+  cto: new Set(STANDALONE_ELIGIBLE_ROLES),
+  "verification-specialist": new Set(["pipeline-technician"]),
+};
+
 server.tool(
   "send_message",
   "Send a reply to an external platform message (Slack, etc.) via the orchestrator",
@@ -859,11 +872,79 @@ server.tool(
   }),
 );
 
-// NOTE: commission_contractor disabled — re-enable when contractor pipeline is ready.
-// server.tool(
-//   "commission_contractor",
-//   ...
-// );
+server.tool(
+  "request_work",
+  "Request standalone operational work (pipeline-technician, monitoring-agent, verification-specialist, project-architect).",
+  {
+    role: z.enum(STANDALONE_ELIGIBLE_ROLES).describe("Which contractor role to request"),
+    project_id: z.string().describe("Project ID this work belongs to"),
+    feature_id: z.string().optional().describe("Optional target feature ID"),
+    context: z.string().describe("Task context/instructions for the requested job"),
+  },
+  guardedHandler("request_work", async ({ role, project_id, feature_id, context }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+    const callerRole = process.env.ZAZIG_ROLE ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    if (!companyId) {
+      return {
+        content: [{ type: "text" as const, text: "Error: ZAZIG_COMPANY_ID is required for request_work" }],
+        isError: true,
+      };
+    }
+
+    const allowedForCaller = REQUEST_WORK_ROLE_ALLOWLIST[callerRole];
+    if (!allowedForCaller) {
+      return {
+        content: [{ type: "text" as const, text: `Access denied: role '${callerRole || "unknown"}' cannot call request_work.` }],
+        isError: true,
+      };
+    }
+
+    if (!allowedForCaller.has(role)) {
+      return {
+        content: [{ type: "text" as const, text: `Access denied: role '${callerRole}' may not request '${role}'.` }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/request-work`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({
+        company_id: companyId,
+        project_id,
+        feature_id: feature_id ?? null,
+        role,
+        context,
+      }),
+    });
+
+    const payload = await response.text().catch(() => "");
+
+    if (!response.ok) {
+      return {
+        content: [{ type: "text" as const, text: `Failed to request work (HTTP ${response.status}): ${payload || "unknown error"}` }],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [{ type: "text" as const, text: payload }],
+    };
+  }),
+);
 
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();

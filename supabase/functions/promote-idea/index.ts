@@ -89,7 +89,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const { data: idea, error: ideaError } = await supabase
       .from("ideas")
-      .select("id, company_id, status, raw_text, refined_summary")
+      .select("id, company_id, status, raw_text, title")
       .eq("id", idea_id)
       .single();
 
@@ -106,7 +106,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     // --- Resolve title ---
 
-    const resolvedTitle = title || idea.refined_summary || idea.raw_text;
+    const resolvedTitle = title || idea.title || idea.raw_text;
 
     // --- Create target entity ---
 

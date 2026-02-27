@@ -194,6 +194,15 @@ interface ActivePersistentAgent {
   startedAt: number;
 }
 
+export interface PersistentAgentJobDefinition {
+  role: string;
+  prompt_stack: string;
+  skills: string[];
+  model: string;
+  slot_type: string;
+  mcp_tools?: string[];
+}
+
 export interface QueuedMessage {
   text: string;
   /** Tmux session to inject into. */
@@ -589,7 +598,7 @@ export class JobExecutor {
    * Builds a synthetic StartJob-like message and delegates to handlePersistentJob.
    */
   async spawnPersistentAgent(
-    job: { role: string; prompt_stack: string; skills: string[]; model: string; slot_type: string; mcp_tools?: string[] },
+    job: PersistentAgentJobDefinition,
     companyId: string,
   ): Promise<void> {
     const syntheticMsg = {
@@ -621,6 +630,40 @@ export class JobExecutor {
       syntheticMsg.slotType,
       companyId,
     );
+  }
+
+  hasPersistentAgent(role: string): boolean {
+    return this.persistentAgents.has(role);
+  }
+
+  /**
+   * Hot-reload a running persistent role.
+   * Reuses the normal spawn path so CLAUDE.md assembly and tmux startup stay consistent.
+   */
+  async reloadPersistentAgent(
+    job: PersistentAgentJobDefinition,
+    companyId: string,
+  ): Promise<void> {
+    const existing = this.persistentAgents.get(job.role);
+    if (!existing) {
+      console.log(`[executor] reloadPersistentAgent skipped — no active agent for role=${job.role}`);
+      return;
+    }
+
+    const activeJob = this.activeJobs.get(existing.jobId);
+    if (activeJob) {
+      activeJob.settled = true;
+      this.clearJobTimers(activeJob);
+      this.activeJobs.delete(existing.jobId);
+      this.slots.release(activeJob.slotType);
+    } else {
+      console.warn(
+        `[executor] reloadPersistentAgent: active job missing for role=${job.role}, jobId=${existing.jobId}`,
+      );
+    }
+
+    this.clearPersistentAgent(job.role);
+    await this.spawnPersistentAgent(job, companyId);
   }
 
   // ---------------------------------------------------------------------------

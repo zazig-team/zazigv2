@@ -3430,6 +3430,44 @@ async function listenForAgentMessages(
   });
 }
 
+/**
+ * Refreshes the pipeline snapshot cache for each company.
+ *
+ * Best-effort only: snapshot data is a cache for fast reads, not part of the
+ * critical dispatch/lifecycle path. Any errors are logged as warnings and do
+ * not fail the heartbeat invocation.
+ */
+async function refreshPipelineSnapshotCache(supabase: SupabaseClient): Promise<void> {
+  try {
+    const { data: companies, error: companiesErr } = await supabase
+      .from("companies")
+      .select("id");
+
+    if (companiesErr) {
+      console.warn(
+        "[orchestrator] Snapshot cache refresh skipped: failed to fetch companies:",
+        companiesErr.message,
+      );
+      return;
+    }
+
+    for (const { id: companyId } of (companies ?? []) as { id: string }[]) {
+      const { error: refreshErr } = await supabase.rpc("refresh_pipeline_snapshot", {
+        p_company_id: companyId,
+      });
+
+      if (refreshErr) {
+        console.warn(
+          `[orchestrator] Snapshot cache refresh failed for company ${companyId}: ${refreshErr.message}`,
+        );
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn("[orchestrator] Snapshot cache refresh failed:", message);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
@@ -3459,6 +3497,9 @@ Deno.serve(async (_req: Request): Promise<Response> => {
 
     // 5. Dispatch queued jobs to available machines.
     await dispatchQueuedJobs(supabase);
+
+    // 6. Refresh pipeline snapshot cache after all state mutations.
+    await refreshPipelineSnapshotCache(supabase);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[orchestrator] Unhandled error:", message);

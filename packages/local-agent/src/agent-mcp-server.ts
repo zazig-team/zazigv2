@@ -511,6 +511,54 @@ server.tool(
 );
 
 server.tool(
+  "get_pipeline_snapshot",
+  "Returns pre-computed pipeline state snapshot (features by status, capacity, stuck items, ideas inbox, active jobs). Updated every minute by orchestrator heartbeat. Use this instead of multiple query_features/query_jobs calls.",
+  {},
+  guardedHandler("get_pipeline_snapshot", async () => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    if (!companyId) {
+      return {
+        content: [{ type: "text" as const, text: "Error: ZAZIG_COMPANY_ID is required for get_pipeline_snapshot" }],
+        isError: true,
+      };
+    }
+
+    const endpoint = new URL(`${supabaseUrl}/functions/v1/get-pipeline-snapshot`);
+    endpoint.searchParams.set("company_id", companyId);
+
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { snapshot: unknown };
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(data.snapshot, null, 2) }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to get pipeline snapshot (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  }),
+);
+
+server.tool(
   "batch_create_jobs",
   "Atomically create multiple jobs for a feature. Used by the Breakdown Specialist after decomposing a feature via jobify. Supports temp:N references in depends_on for cross-job dependencies.",
   {

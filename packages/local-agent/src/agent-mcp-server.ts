@@ -7,14 +7,19 @@
  * Runs as a subprocess configured via .mcp.json in the agent workspace directory.
  *
  * Environment variables (provided by executor at spawn time):
- *   SUPABASE_URL      — Supabase project URL
- *   SUPABASE_ANON_KEY — Supabase anonymous API key
- *   ZAZIG_JOB_ID      — Current job ID (optional)
+ *   SUPABASE_URL        — Supabase project URL
+ *   SUPABASE_ANON_KEY   — Supabase anonymous API key
+ *   ZAZIG_JOB_ID        — Current job ID (optional)
+ *   ZAZIG_TMUX_SESSION  — Tmux session name (for enable_remote tool)
  */
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+
+const execFileAsync = promisify(execFile);
 
 const server = new McpServer({
   name: "zazig-agent-mcp",
@@ -95,6 +100,50 @@ server.tool(
       ],
       isError: true,
     };
+  }),
+);
+
+server.tool(
+  "enable_remote",
+  "Enable remote control for this Claude Code session. Returns a URL that a human can use to connect from any device.",
+  {},
+  guardedHandler("enable_remote", async () => {
+    const sessionName = process.env.ZAZIG_TMUX_SESSION;
+    if (!sessionName) {
+      return {
+        content: [{ type: "text", text: "Error: ZAZIG_TMUX_SESSION not set — cannot enable remote control." }],
+        isError: true,
+      };
+    }
+
+    try {
+      // Send /remote-control command to the tmux session
+      await execFileAsync("tmux", ["send-keys", "-t", sessionName, "/remote-control", "Enter"]);
+
+      // Wait for the command to produce output
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      // Capture the pane output to find the URL
+      const { stdout } = await execFileAsync("tmux", ["capture-pane", "-t", sessionName, "-p", "-S", "-30"]);
+
+      // Parse the URL from the output (looks for https:// URLs)
+      const urlMatch = stdout.match(/https:\/\/\S+/);
+      if (!urlMatch) {
+        return {
+          content: [{ type: "text", text: "Remote control enabled but could not capture the URL from output. Check the tmux session manually." }],
+        };
+      }
+
+      return {
+        content: [{ type: "text", text: `Remote control enabled. URL: ${urlMatch[0]}` }],
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{ type: "text", text: `Failed to enable remote control: ${msg}` }],
+        isError: true,
+      };
+    }
   }),
 );
 

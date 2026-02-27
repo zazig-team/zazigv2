@@ -71,7 +71,7 @@ interface JobRow {
   id: string;
   company_id: string;
   project_id: string | null;
-  feature_id: string;
+  feature_id: string | null;
   role: string;
   job_type: string;
   complexity: string | null;
@@ -86,6 +86,7 @@ interface JobRow {
   result: string | null;
   created_at: string;
   depends_on: string[] | null;
+  source: string | null;
 }
 
 interface MachineRow {
@@ -255,6 +256,12 @@ function resolveModelAndSlot(
  */
 const recoveryTimestamps = new Map<string, number>();
 
+const NO_CODE_CONTEXT_ROLES = new Set([
+  "pipeline-technician",
+  "monitoring-agent",
+  "project-architect",
+]);
+
 console.log(
   "[orchestrator] Cold start — in-memory recoveryTimestamps reset (anti-flap cooldown not durable across restarts)",
 );
@@ -403,7 +410,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
   const { data: queuedJobs, error: jobsErr } = await supabase
     .from("jobs")
     .select(
-      "id, company_id, project_id, feature_id, role, job_type, complexity, slot_type, model, machine_id, status, context, acceptance_tests, verify_context, branch, result, created_at, depends_on",
+      "id, company_id, project_id, feature_id, role, job_type, complexity, slot_type, model, machine_id, status, context, acceptance_tests, verify_context, branch, result, created_at, depends_on, source",
     )
     .in("status", ["queued", "verify_failed"])
     .order("created_at", { ascending: true });
@@ -427,8 +434,9 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
   routingCache = null;
 
   for (const job of queuedJobs as JobRow[]) {
-    // Auto-create a wrapper feature for jobs with no feature_id.
-    if (!job.feature_id) {
+    // Auto-create a wrapper feature for featureless pipeline jobs.
+    // Standalone jobs intentionally remain featureless.
+    if (!job.feature_id && job.source !== "standalone") {
       const { data: wrapperFeature, error: wfErr } = await supabase
         .from("features")
         .insert({
@@ -565,32 +573,35 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       continue;
     }
 
-    // Look up git context (repo_url from projects, branch from features) required by executor.
+    // Look up git context (repo_url from projects, branch from features) for code-context roles.
     // Must be resolved before slot decrement so we can skip without side effects.
     let repoUrl: string | null = null;
     let featureBranch: string | null = null;
+    const requiresCodeContext = !NO_CODE_CONTEXT_ROLES.has(job.role);
 
-    if (job.project_id) {
-      const { data: projectRow } = await supabase
-        .from("projects")
-        .select("repo_url")
-        .eq("id", job.project_id)
-        .single();
-      repoUrl = (projectRow as { repo_url?: string } | null)?.repo_url ?? null;
+    if (requiresCodeContext) {
+      if (job.project_id) {
+        const { data: projectRow } = await supabase
+          .from("projects")
+          .select("repo_url")
+          .eq("id", job.project_id)
+          .single();
+        repoUrl = (projectRow as { repo_url?: string } | null)?.repo_url ?? null;
+      }
+
+      if (job.feature_id) {
+        const { data: featureRow } = await supabase
+          .from("features")
+          .select("branch")
+          .eq("id", job.feature_id)
+          .single();
+        featureBranch = (featureRow as { branch?: string } | null)?.branch ?? null;
+      }
     }
 
-    if (job.feature_id) {
-      const { data: featureRow } = await supabase
-        .from("features")
-        .select("branch")
-        .eq("id", job.feature_id)
-        .single();
-      featureBranch = (featureRow as { branch?: string } | null)?.branch ?? null;
-    }
-
-    if (!job.project_id || !repoUrl || !featureBranch) {
+    if (!job.project_id || (requiresCodeContext && (!repoUrl || !featureBranch))) {
       console.warn(
-        `[orchestrator] Job ${job.id} missing git context (projectId=${job.project_id}, repoUrl=${repoUrl}, featureBranch=${featureBranch}) — skipping dispatch`,
+        `[orchestrator] Job ${job.id} missing dispatch context (projectId=${job.project_id}, repoUrl=${repoUrl}, featureBranch=${featureBranch}, requiresCodeContext=${requiresCodeContext}) — skipping dispatch`,
       );
       continue;
     }
@@ -738,7 +749,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     }
 
     // Build the StartJob message.
-    // repoUrl, featureBranch, and job.project_id are verified non-null above.
+    // project_id is always required; git fields are only required for code-context roles.
     const startJobMsg: StartJob = {
       type: "start_job",
       protocolVersion: PROTOCOL_VERSION,
@@ -749,8 +760,8 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       slotType,
       model,
       projectId: job.project_id!,
-      repoUrl: repoUrl!,
-      featureBranch: featureBranch!,
+      ...(repoUrl ? { repoUrl } : {}),
+      ...(featureBranch ? { featureBranch } : {}),
       context: dispatchContext ?? undefined,
       // Include role for role-based jobs (specialized reviewers, etc.)
       ...(job.role ? { role: job.role } : {}),
@@ -909,13 +920,35 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
   // Fetch the job to check type, feature_id, context, etc.
   const { data: jobRow, error: fetchErr } = await supabase
     .from("jobs")
-    .select("job_type, context, feature_id, company_id, project_id, branch, acceptance_tests, result, role")
+    .select("job_type, context, feature_id, company_id, project_id, branch, acceptance_tests, result, role, source")
     .eq("id", jobId)
     .single();
 
   if (fetchErr || !jobRow) {
     console.error(`[orchestrator] Could not fetch job ${jobId} for completion:`, fetchErr?.message);
     await releaseSlot(supabase, jobId, machineId);
+    return;
+  }
+
+  // Standalone jobs complete without triggering any feature-pipeline behavior.
+  if (jobRow.source === "standalone") {
+    const { error: standaloneErr } = await supabase
+      .from("jobs")
+      .update({
+        status: "complete",
+        result,
+        pr_url: pr ?? null,
+        completed_at: new Date().toISOString(),
+        machine_id: null,
+      })
+      .eq("id", jobId);
+
+    if (standaloneErr) {
+      console.error(`[orchestrator] Failed to mark standalone job ${jobId} complete:`, standaloneErr.message);
+    }
+
+    await releaseSlot(supabase, jobId, machineId);
+    console.log(`[orchestrator] Standalone job ${jobId} complete (pipeline lifecycle skipped)`);
     return;
   }
 
@@ -1250,6 +1283,14 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
 async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promise<void> {
   const { jobId, machineId, error: errMsg, failureReason } = msg;
 
+  const { data: failedJob } = await supabase
+    .from("jobs")
+    .select("source, feature_id, role, job_type")
+    .eq("id", jobId)
+    .single();
+
+  const isStandalone = failedJob?.source === "standalone";
+
   // Decide recovery strategy based on failure reason.
   //   agent_crash      → re-queue immediately on a healthy machine
   //   ci_failure       → failed (needs triage)
@@ -1283,13 +1324,18 @@ async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promis
   // Release the slot regardless of re-queue decision.
   await releaseSlot(supabase, jobId, machineId);
 
+  if (isStandalone) {
+    if (newStatus === "queued") {
+      console.log(`[orchestrator] Standalone job ${jobId} re-queued after agent_crash (source preserved).`);
+    } else {
+      console.warn(`[orchestrator] Standalone job ${jobId} failed permanently — feature cascade skipped.`);
+    }
+    return;
+  }
+
   // If the job permanently failed (not re-queued), fail the parent feature.
   if (newStatus === "failed") {
-    const { data: job } = await supabase
-      .from("jobs")
-      .select("feature_id, role, job_type")
-      .eq("id", jobId)
-      .single();
+    const job = failedJob ?? null;
 
     if (job?.feature_id) {
       // Test deploy failures roll back to verifying (retryable) instead of failing the feature
@@ -2538,6 +2584,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
       .select("id, role, job_type, result")
       .eq("feature_id", feature.id)
       .eq("status", "failed")
+      .or("source.is.null,source.eq.pipeline")
       .order("created_at", { ascending: false })
       .limit(1);
 

@@ -131,19 +131,17 @@ Assess each idea across all four dimensions. Every assessment must include brief
 | `needs-human-approval` | Significant scope, cost, or strategic impact — exec should propose, human approves |
 | `unknown` | Cannot determine without more context |
 
-### Step 5: Check for Duplicates and Overlaps
+### Step 5: Flag Potential Duplicates (Lightweight)
 
-Query existing ideas and features for surface-level overlaps before writing anything to the inbox:
+Before writing, note any obvious overlaps from your existing context:
+- If you already know about similar ideas or features from the current
+  session, flag them in `clarification_notes`
+- Add `potential-duplicate` to `flags` if you suspect overlap
 
-1. Call `query_ideas` with relevant keywords from the idea title
-2. Call `query_features` with relevant keywords to check if similar features exist in any project
-3. Call `query_projects` to check if the idea fits an existing project
-
-If overlaps are found:
-- Add the related idea IDs to `related_ideas`
-- Add the related feature IDs to `related_features`
-- Add `potential-duplicate` to `flags`
-- Add a specific note to `clarification_notes`: `"Similar to feature 'Dark Mode Support' (uuid) in project 'Dashboard'. May be a duplicate or an extension — human should confirm."`
+**Do NOT fire `query_ideas` or `query_features` for duplicate checking
+inline.** These are heavy reads that blow up context. The contractor
+that writes the ideas to the inbox (Step 7) performs the full duplicate
+check against the database.
 
 **Do NOT decide whether it is a duplicate.** Flag it and let the CPO decide.
 
@@ -160,7 +158,18 @@ Keep tags lowercase and hyphenated. Do not invent unusual tags — prefer common
 
 ### Step 7: Write to the Ideas Inbox
 
-Call `create_idea` for a single idea, or `batch_create_ideas` if the input produced multiple ideas. Batch write is strongly preferred for multi-idea inputs — it preserves the group relationship atomically.
+**Who runs this step depends on context:**
+
+- **If you have direct MCP access** (e.g. you ARE the contractor):
+  Call `create_idea` for a single idea, or `batch_create_ideas` for
+  multiple. Run full duplicate checks via `query_ideas` + `query_features`
+  before writing.
+
+- **If you are the CPO (exec context):** Dispatch a contractor via
+  `request_work` to write the structured ideas to the inbox. Pass the
+  contractor the structured idea records from Steps 1-6 as the job spec.
+  The contractor handles duplicate checking and DB writes, keeping your
+  context clean.
 
 Each idea record must include:
 
@@ -183,7 +192,7 @@ After creation, if the input was split: call `update_idea` on each record to add
 
 ### Step 8: Output Summary
 
-After all ideas are written, output a processing summary:
+After all ideas are written (or dispatched), output a processing summary:
 
 ```
 Processed N ideas from [source] by [originator]:
@@ -196,25 +205,34 @@ Processed N ideas from [source] by [originator]:
 
 ## Quality Checklist
 
-Before writing to the inbox, verify for each idea:
+Before writing (or dispatching) to the inbox, verify for each idea:
 
 - [ ] Title is under 80 characters and specific (not vague or a copy-paste fragment)
 - [ ] Description is clean prose — not raw copy-paste from the input
 - [ ] Scope assessment has reasoning (not a random pick)
 - [ ] If split from multi-idea input, the idea stands alone without context from siblings
 - [ ] Source input preserved verbatim in the `raw_text` field
-- [ ] Duplicate check performed via `query_ideas` and `query_features` (even if no duplicates found)
+- [ ] Potential duplicates flagged from session context (full DB check runs at write time)
 - [ ] Flags applied where uncertainty exists — do not pretend to be certain when you are not
 
 ---
 
 ## MCP Tools Used
 
+**By CPO (exec context):**
+
 | Tool | Purpose | When |
 |------|---------|------|
-| `query_ideas` | Check for duplicate/overlapping ideas | Step 5 |
-| `query_features` | Check if similar features exist | Step 5 |
-| `query_projects` | Check if the idea fits an existing project | Step 5 |
+| `request_work` | Dispatch contractor to write ideas to inbox | Step 7 |
+| `create_idea` | Quick one-off capture during conversation | Ad hoc |
+
+**By contractor (write context):**
+
+| Tool | Purpose | When |
+|------|---------|------|
+| `query_ideas` | Full duplicate check against existing ideas | Step 7 |
+| `query_features` | Check if similar features exist | Step 7 |
+| `query_projects` | Check if the idea fits an existing project | Step 7 |
 | `create_idea` | Write a single processed idea to the inbox | Step 7 |
 | `batch_create_ideas` | Write multiple ideas atomically | Step 7 |
 

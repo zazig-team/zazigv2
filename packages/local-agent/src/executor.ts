@@ -21,6 +21,7 @@ import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageInbound, JobUnblocked } from "@zazigv2/shared";
@@ -142,7 +143,7 @@ Then exit.`;
 }
 
 /** Universal file-writing rules for all agents. */
-const FILE_WRITING_RULES = `## File Writing Rules
+export const FILE_WRITING_RULES = `## File Writing Rules
 
 Your workspace directory is ephemeral runtime state — do NOT write substantive documents here.
 
@@ -875,6 +876,38 @@ export class JobExecutor {
         mcpTools: msg.roleMcpTools,
         tmuxSession: `${this.machineId}-${role}`,
       });
+
+      // --- Write prompt freshness metadata for SessionStart hook ---
+      // Fetch the raw role prompt to hash — msg.rolePrompt may not be set on
+      // persistent agents (synthetic StartJob messages only carry prompt_stack).
+      let rolePromptForHash = msg.rolePrompt ?? "";
+      if (!rolePromptForHash) {
+        const { data: roleRow } = await this.supabase
+          .from("roles")
+          .select("prompt")
+          .eq("name", role)
+          .single();
+        rolePromptForHash = roleRow?.prompt ?? "";
+      }
+      const promptHash = createHash("sha256").update(rolePromptForHash).digest("hex");
+      writeFileSync(join(workspaceDir, ".role"), role);
+      writeFileSync(join(workspaceDir, ".prompt-hash"), promptHash);
+      if (resolvedCompanyId) {
+        writeFileSync(join(workspaceDir, ".company-id"), resolvedCompanyId);
+      }
+      writeFileSync(join(workspaceDir, ".claude", ".file-writing-rules"), FILE_WRITING_RULES);
+
+      // Add SessionStart hook to settings.json for prompt freshness checks
+      const freshnessScript = join(repoRoot, "packages", "local-agent", "scripts", "check-prompt-freshness.sh");
+      const settingsPath = join(workspaceDir, ".claude", "settings.json");
+      const existingSettings = JSON.parse(readFileSync(settingsPath, "utf8"));
+      existingSettings.hooks = {
+        ...existingSettings.hooks,
+        SessionStart: [
+          { type: "command", command: `bash ${freshnessScript}` },
+        ],
+      };
+      writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2));
 
       // Persist context to DB for observability (fire-and-forget).
       // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).

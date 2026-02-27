@@ -1,5 +1,5 @@
 /**
- * Tests for handleVerifyResult and triggerFeatureVerification.
+ * Tests for handleJobComplete and triggerFeatureVerification.
  *
  * These tests use a mock Supabase client to verify orchestrator behavior
  * without hitting a real database.
@@ -25,7 +25,7 @@ const originalServe = (Deno as any).serve;
 
 // Now import the functions under test.
 import {
-  handleVerifyResult,
+  handleJobComplete,
   triggerFeatureVerification,
   handleFeatureApproved,
   handleFeatureRejected,
@@ -223,134 +223,148 @@ function createSmartMockSupabase() {
 // Tests
 // ---------------------------------------------------------------------------
 
-Deno.test("handleVerifyResult — failed verification re-queues job for retry", async () => {
+Deno.test("handleJobComplete — marks a completed job and releases its slot", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
-  // The update().eq() chain should return { error: null }
+  setResponse("jobs:select.eq.single", {
+    data: {
+      job_type: "verify",
+      context: "{}",
+      feature_id: null,
+      company_id: "co-1",
+      project_id: "proj-1",
+      branch: "feature/auth",
+      result: null,
+      role: "reviewer",
+      slot_type: "claude_code",
+    },
+    error: null,
+  });
   setResponse("jobs:update.eq", { error: null });
 
   const msg = {
-    type: "verify_result" as const,
+    type: "job_complete" as const,
     protocolVersion: 1,
     jobId: "job-1",
     machineId: "machine-1",
-    passed: false,
-    testOutput: "Test failed: assertion error in auth module",
+    result: "Test failed: assertion error in auth module",
   };
 
   // deno-lint-ignore no-explicit-any
-  await handleVerifyResult(client as any, msg);
+  await handleJobComplete(client as any, msg);
 
-  // Verify update was called on jobs table (re-queue + CPO notification lookup)
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length >= 1, true, "Should have at least the re-queue update");
-
-  const updateOps = jobsChains[0].operations;
-  // Should be: update({status: "queued", ...}).eq("id", "job-1")
-  assertEquals(updateOps[0].method, "update");
+  const updateChain = jobsChains.find((c) => c.operations[0].method === "update");
+  assertEquals(updateChain !== undefined, true, "Should update the job row");
   // deno-lint-ignore no-explicit-any
-  const updatePayload = updateOps[0].args[0] as any;
-  assertEquals(updatePayload.status, "queued");
-  assertEquals(updatePayload.verify_context, "Test failed: assertion error in auth module");
+  const updatePayload = updateChain!.operations[0].args[0] as any;
+  assertEquals(updatePayload.status, "complete");
+  assertEquals(updatePayload.result, "Test failed: assertion error in auth module");
   assertEquals(updatePayload.machine_id, null);
 
-  assertEquals(updateOps[1].method, "eq");
-  assertEquals(updateOps[1].args[0], "id");
-  assertEquals(updateOps[1].args[1], "job-1");
-});
-
-Deno.test("handleVerifyResult — passed verification, not all jobs done, no feature trigger", async () => {
-  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
-
-  // update done → success
-  setResponse("jobs:update.eq", { error: null });
-
-  // select feature_id → returns feature_id
-  setResponse("jobs:select.eq.single", {
-    data: { feature_id: "feature-1" },
-    error: null,
-  });
-
-  // RPC all_feature_jobs_complete → false (not all done)
-  setResponse("rpc:all_feature_jobs_complete", { data: false, error: null });
-
-  const msg = {
-    type: "verify_result" as const,
-    protocolVersion: 1,
-    jobId: "job-2",
-    machineId: "machine-1",
-    passed: true,
-    testOutput: "All tests passed",
-  };
-
-  // deno-lint-ignore no-explicit-any
-  await handleVerifyResult(client as any, msg);
-
-  // Should have: 1 update (mark done), 1 select (feature_id), 1 checkUnblockedJobs query, 1 rpc
-  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length >= 2, true, "Should have at least update + select jobs chains");
-
-  // First chain: update status to complete
-  assertEquals(jobsChains[0].operations[0].method, "update");
-  // deno-lint-ignore no-explicit-any
-  assertEquals((jobsChains[0].operations[0].args[0] as any).status, "complete");
-
-  // Second chain: select feature_id
-  assertEquals(jobsChains[1].operations[0].method, "select");
-
-  // RPC called
   const rpcCalls = chainedCalls.filter((c) => c.table === "_rpc");
-  assertEquals(rpcCalls.length, 1);
-  assertEquals(rpcCalls[0].operations[0].args[0], "all_feature_jobs_complete");
-
-  // No features table access (triggerFeatureVerification not called)
-  const featureChains = chainedCalls.filter((c) => c.table === "features");
-  assertEquals(featureChains.length, 0, "Should not trigger feature verification");
+  const releaseCall = rpcCalls.find((c) => c.operations[0].args[0] === "release_machine_slot");
+  assertEquals(releaseCall !== undefined, true, "release_machine_slot should be called");
 });
 
-Deno.test("handleVerifyResult — passed, all jobs done, triggers feature verification", async () => {
+Deno.test("handleJobComplete — feature-linked completion does not auto-deploy without verification context", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
-  // update done → success
   setResponse("jobs:update.eq", { error: null });
 
-  // select feature_id → returns feature_id
   setResponse("jobs:select.eq.single", {
-    data: { feature_id: "feature-99", slot_type: "claude_code" },
-    error: null,
-  });
-
-  // RPC all_feature_jobs_complete → true (all done!)
-  setResponse("rpc:all_feature_jobs_complete", { data: true, error: null });
-
-  // triggerFeatureVerification: select feature details
-  setResponse("features:select.eq.single", {
     data: {
-      status: "combining",
-      branch: "feature/auth-system",
+      job_type: "verify",
+      context: "{}",
+      feature_id: "feature-1",
+      company_id: "co-1",
       project_id: "proj-1",
-      company_id: "company-1",
-      acceptance_tests: "run npm test",
+      branch: "feature/one",
+      result: null,
+      role: "reviewer",
+      slot_type: "claude_code",
     },
     error: null,
   });
 
-  // triggerFeatureVerification: insert verification job
-  setResponse("jobs:insert.select", { data: [{ id: "verify-job-1" }], error: null });
-  setResponse("features:update.eq.eq.select", { data: [{ id: "feature-99" }], error: null });
-  setResponse("rpc:release_machine_slot", { data: null, error: null });
+  // checkUnblockedJobs candidate scan
+  setResponse("jobs:select.eq.eq.contains", { data: [], error: null });
 
   const msg = {
-    type: "verify_result" as const,
+    type: "job_complete" as const,
     protocolVersion: 1,
-    jobId: "job-3",
+    jobId: "job-2",
     machineId: "machine-1",
-    passed: true,
-    testOutput: "All tests passed",
+    result: "All tests passed",
   };
 
   // deno-lint-ignore no-explicit-any
-  await handleVerifyResult(client as any, msg);
+  await handleJobComplete(client as any, msg);
+
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  const updateChain = jobsChains.find((c) => c.operations[0].method === "update");
+  assertEquals(updateChain !== undefined, true, "Should mark job complete");
+
+  // deno-lint-ignore no-explicit-any
+  assertEquals((updateChain!.operations[0].args[0] as any).status, "complete");
+
+  // No legacy verify-result RPC path
+  const rpcCalls = chainedCalls.filter((c) => c.table === "_rpc");
+  const allDoneCall = rpcCalls.find((c) => c.operations[0].args[0] === "all_feature_jobs_complete");
+  assertEquals(allDoneCall === undefined, true);
+
+  // No feature deploy transition for non-verification context
+  const featureChains = chainedCalls.filter((c) => c.table === "features");
+  assertEquals(featureChains.length, 0, "Should not initiate test deploy");
+});
+
+Deno.test("handleJobComplete — passive verification completion initiates test deploy", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  setResponse("jobs:update.eq", { error: null });
+
+  setResponse("jobs:select.eq.single", {
+    data: {
+      job_type: "verify",
+      context: "{\"type\":\"feature_verification\"}",
+      feature_id: "feature-99",
+      company_id: "company-1",
+      project_id: "proj-1",
+      branch: "feature/auth-system",
+      result: null,
+      role: "reviewer",
+      slot_type: "claude_code",
+    },
+    error: null,
+  });
+
+  setResponse("jobs:select.eq.eq.contains", { data: [], error: null });
+
+  // initiateTestDeploy lookups + CAS transition
+  setResponse("features:select.eq.single", {
+    data: {
+      project_id: "proj-1",
+      company_id: "company-1",
+      branch: "feature/auth-system",
+      title: "Auth Feature",
+    },
+    error: null,
+  });
+  setResponse("features:update.eq.eq.select", { data: [{ id: "feature-99" }], error: null });
+  setResponse("projects:select.eq.single", { data: { repo_url: "" }, error: null });
+  setResponse("jobs:insert", { error: null });
+  setResponse("rpc:release_machine_slot", { data: null, error: null });
+
+  const msg = {
+    type: "job_complete" as const,
+    protocolVersion: 1,
+    jobId: "job-3",
+    machineId: "machine-1",
+    result: "All tests passed",
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await handleJobComplete(client as any, msg);
 
   // Feature table should be accessed (select details + update status)
   const featureChains = chainedCalls.filter((c) => c.table === "features");
@@ -361,26 +375,26 @@ Deno.test("handleVerifyResult — passed, all jobs done, triggers feature verifi
   // Second feature chain: CAS update status to verifying
   assertEquals(featureChains[1].operations[0].method, "update");
   // deno-lint-ignore no-explicit-any
-  assertEquals((featureChains[1].operations[0].args[0] as any).status, "verifying");
+  assertEquals((featureChains[1].operations[0].args[0] as any).status, "deploying_to_test");
 
-  // Jobs should have update + select + insert verification job
+  // Jobs should include completion update and deploy job insertion
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length >= 3, true, "Should have at least update + select + insert on jobs");
+  assertEquals(jobsChains.length >= 4, true, "Should include select, update, release-slot select, and deploy insert");
 
-  // The insert chain should have the verification job
+  // Deploy job should be queued
   const insertChain = jobsChains.find((c) => c.operations.some((o) => o.method === "insert"));
-  assertEquals(insertChain !== undefined, true, "Should insert a verification job");
+  assertEquals(insertChain !== undefined, true, "Should insert a deploy job");
   // deno-lint-ignore no-explicit-any
   const insertPayload = insertChain!.operations[0].args[0] as any;
   assertEquals(insertPayload.status, "queued");
-  assertEquals(insertPayload.role, "reviewer");
-  assertEquals(insertPayload.job_type, "verify");
+  assertEquals(insertPayload.role, "test-deployer");
+  assertEquals(insertPayload.job_type, "deploy_to_test");
   assertEquals(insertPayload.feature_id, "feature-99");
   assertEquals(insertPayload.branch, "feature/auth-system");
   const context = JSON.parse(insertPayload.context);
-  assertEquals(context.type, "feature_verification");
+  assertEquals(context.type, "deploy_to_test");
   assertEquals(context.featureBranch, "feature/auth-system");
-  assertEquals(context.acceptanceTests, "run npm test");
+  assertEquals(context.featureId, "feature-99");
 });
 
 Deno.test("triggerFeatureVerification — sets feature to verifying and inserts queued job", async () => {
@@ -467,7 +481,7 @@ Deno.test("triggerFeatureVerification — insert failure leaves feature status u
   assertEquals(featureUpdates.length, 0, "Feature must not be moved to verifying when insert fails");
 });
 
-Deno.test("handleVerifyResult — always releases slot via RPC", async () => {
+Deno.test("handleJobComplete — always releases slot via RPC", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
   setResponse("jobs:update.eq", { error: null });
@@ -478,13 +492,12 @@ Deno.test("handleVerifyResult — always releases slot via RPC", async () => {
   setResponse("rpc:release_machine_slot", { data: null, error: null });
 
   // deno-lint-ignore no-explicit-any
-  await handleVerifyResult(client as any, {
-    type: "verify_result",
+  await handleJobComplete(client as any, {
+    type: "job_complete",
     protocolVersion: 1,
     jobId: "verify-job-slot",
     machineId: "machine-1",
-    passed: false,
-    testOutput: "Lint errors found",
+    result: "Lint errors found",
   });
 
   const rpcCalls = chainedCalls.filter((c) => c.table === "_rpc");
@@ -860,7 +873,7 @@ Deno.test.ignore("handleFeatureRejected — severity=big + queue exists → prom
 // Standalone job tests (jobs with no feature_id)
 // ---------------------------------------------------------------------------
 
-Deno.test("handleVerifyResult — standalone job passed → marks complete, returns early (no feature_id)", async () => {
+Deno.test("handleJobComplete — standalone completion marks complete and skips feature logic", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
   // update complete → success
@@ -868,75 +881,87 @@ Deno.test("handleVerifyResult — standalone job passed → marks complete, retu
 
   // select feature_id, context, company_id → null feature_id (standalone)
   setResponse("jobs:select.eq.single", {
-    data: { feature_id: null, company_id: "co-1", context: "{}" },
+    data: {
+      job_type: "verify",
+      context: "{}",
+      feature_id: null,
+      company_id: "co-1",
+      project_id: "proj-1",
+      branch: "feature/standalone",
+      result: null,
+      role: "reviewer",
+      slot_type: "claude_code",
+    },
     error: null,
   });
 
   const msg = {
-    type: "verify_result" as const,
+    type: "job_complete" as const,
     protocolVersion: 1,
     jobId: "verify-job-1",
     machineId: "machine-1",
-    passed: true,
-    testOutput: "All tests passed",
+    result: "All tests passed",
   };
 
   // deno-lint-ignore no-explicit-any
-  await handleVerifyResult(client as any, msg);
+  await handleJobComplete(client as any, msg);
 
-  // Should have: 1 update (mark complete), 1 select (feature_id+context+company_id)
-  // No further processing — no feature_id means early return
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 2, "Should have update + select only (no feature processing)");
+  assertEquals(jobsChains.length, 3, "Should have fetch + update + release-slot lookup");
 
-  // First chain: update to complete
-  assertEquals(jobsChains[0].operations[0].method, "update");
+  const updateChain = jobsChains.find((c) => c.operations[0].method === "update");
+  assertEquals(updateChain !== undefined, true, "Should update job to complete");
   // deno-lint-ignore no-explicit-any
-  assertEquals((jobsChains[0].operations[0].args[0] as any).status, "complete");
-
-  // Second chain: select feature_id and context
-  assertEquals(jobsChains[1].operations[0].method, "select");
+  assertEquals((updateChain!.operations[0].args[0] as any).status, "complete");
 
   // No features table access — standalone job
   const featureChains = chainedCalls.filter((c) => c.table === "features");
   assertEquals(featureChains.length, 0, "Should not access features table");
 });
 
-Deno.test("handleVerifyResult — failed verification re-queues job and looks up CPO notification context", async () => {
+Deno.test("handleJobComplete — standalone completion writes result payload", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
-  // update to queued → success
+  // update to complete → success
   setResponse("jobs:update.eq", { error: null });
 
-  // CPO notification lookup — select feature_id, company_id
   setResponse("jobs:select.eq.single", {
-    data: { feature_id: null, company_id: "co-1" },
+    data: {
+      job_type: "verify",
+      context: "{}",
+      feature_id: null,
+      company_id: "co-1",
+      project_id: "proj-1",
+      branch: "feature/standalone-2",
+      result: null,
+      role: "reviewer",
+      slot_type: "claude_code",
+    },
     error: null,
   });
 
   const msg = {
-    type: "verify_result" as const,
+    type: "job_complete" as const,
     protocolVersion: 1,
     jobId: "verify-job-2",
     machineId: "machine-1",
-    passed: false,
-    testOutput: "Lint errors found",
+    result: "Lint errors found",
   };
 
   // deno-lint-ignore no-explicit-any
-  await handleVerifyResult(client as any, msg);
+  await handleJobComplete(client as any, msg);
 
-  // Should have: 1 update (re-queue) + 1 select (CPO notification lookup)
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length >= 1, true, "Should have at least the re-queue update chain");
+  const updateChain = jobsChains.find((c) => c.operations[0].method === "update");
+  assertEquals(updateChain !== undefined, true, "Should update job");
 
-  // Check it sets queued (re-queue for retry)
   // deno-lint-ignore no-explicit-any
-  const updatePayload = jobsChains[0].operations[0].args[0] as any;
-  assertEquals(updatePayload.status, "queued");
+  const updatePayload = updateChain!.operations[0].args[0] as any;
+  assertEquals(updatePayload.status, "complete");
+  assertEquals(updatePayload.result, "Lint errors found");
 });
 
-Deno.test("handleVerifyResult — job with no feature_id → marks complete and returns early", async () => {
+Deno.test("handleJobComplete — job with no feature_id → marks complete and returns early", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
   // update complete → success
@@ -944,25 +969,39 @@ Deno.test("handleVerifyResult — job with no feature_id → marks complete and 
 
   // select feature_id, context, company_id → null feature_id
   setResponse("jobs:select.eq.single", {
-    data: { feature_id: null, context: "{}", company_id: "co-1" },
+    data: {
+      job_type: "verify",
+      context: "{}",
+      feature_id: null,
+      company_id: "co-1",
+      project_id: "proj-1",
+      branch: "feature/standalone-3",
+      result: null,
+      role: "reviewer",
+      slot_type: "claude_code",
+    },
     error: null,
   });
 
   const msg = {
-    type: "verify_result" as const,
+    type: "job_complete" as const,
     protocolVersion: 1,
     jobId: "verify-job-3",
     machineId: "machine-1",
-    passed: true,
-    testOutput: "All tests passed",
+    result: "All tests passed",
   };
 
   // deno-lint-ignore no-explicit-any
-  await handleVerifyResult(client as any, msg);
+  await handleJobComplete(client as any, msg);
 
-  // Should have 2 jobs chains (update complete + select), then early return
+  // Should have 3 jobs chains: fetch row, update complete, release-slot lookup
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 2, "Should have update + select only");
+  assertEquals(jobsChains.length, 3, "Should have fetch + update + release-slot lookup");
+
+  const updateChain = jobsChains.find((c) => c.operations[0].method === "update");
+  assertEquals(updateChain !== undefined, true, "Should update job");
+  // deno-lint-ignore no-explicit-any
+  assertEquals((updateChain!.operations[0].args[0] as any).status, "complete");
 
   // No features table access — no feature_id means skip
   const featureChains = chainedCalls.filter((c) => c.table === "features");
@@ -1280,61 +1319,58 @@ Deno.test("triggerBreakdown — uses breakdown-specialist role", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleVerifyResult — failed verification notifies CPO
+// handleJobComplete — active verification failure notifies CPO
 // ---------------------------------------------------------------------------
 
-Deno.test("handleVerifyResult — failed verification fetches feature/company for CPO notification", async () => {
+Deno.test("handleJobComplete — active verification failure triggers CPO notification lookup", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
-  // 1. Re-queue the failed job (update status to queued)
+  // 1. Fetch completion context + slot type
+  setResponse("jobs:select.eq.single", {
+    data: {
+      job_type: "verify",
+      context: "{\"type\":\"active_feature_verification\"}",
+      feature_id: "feat-notify",
+      company_id: "co-notify",
+      project_id: "proj-1",
+      branch: "feature/notify",
+      result: null,
+      role: "verification-specialist",
+      slot_type: "claude_code",
+    },
+    error: null,
+  });
+
+  // 2. Mark complete
   setResponse("jobs:update.eq", { error: null });
 
-  // 2. Fetch job's feature_id and company_id for CPO notification
-  setResponse("jobs:select.eq.single", {
-    data: { feature_id: "feat-notify", company_id: "co-notify" },
-    error: null,
-  });
-
-  // 3. Fetch feature title for notification message
-  setResponse("features:select.eq.single", {
-    data: { title: "Auth Feature" },
-    error: null,
-  });
-
-  // 4. notifyCPO internals: find active CPO job
+  // 3. notifyCPO internals: find active CPO job
   setResponse("jobs:select.eq.in.eq.limit.maybeSingle", {
     data: null, // No CPO active — notification lost (but queries still happen)
     error: null,
   });
 
   const msg = {
-    type: "verify_result" as const,
+    type: "job_complete" as const,
     protocolVersion: 1,
     jobId: "job-fail-notify",
     machineId: "machine-1",
-    passed: false,
-    testOutput: "Tests failed: timeout in auth module",
+    result: "Tests failed: timeout in auth module",
   };
 
   // deno-lint-ignore no-explicit-any
-  await handleVerifyResult(client as any, msg);
+  await handleJobComplete(client as any, msg);
 
-  // Verify the re-queue update was made
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length >= 2, true, "Should have update (re-queue) + select (feature/company) + CPO lookup");
-
-  // First chain: update to re-queue
-  assertEquals(jobsChains[0].operations[0].method, "update");
+  const updateChain = jobsChains.find((c) => c.operations[0].method === "update");
+  assertEquals(updateChain !== undefined, true, "Should update completed job");
   // deno-lint-ignore no-explicit-any
-  const updatePayload = jobsChains[0].operations[0].args[0] as any;
-  assertEquals(updatePayload.status, "queued");
-  assertEquals(updatePayload.verify_context, "Tests failed: timeout in auth module");
+  const updatePayload = updateChain!.operations[0].args[0] as any;
+  assertEquals(updatePayload.status, "complete");
+  assertEquals(updatePayload.result, "Tests failed: timeout in auth module");
 
-  // Second chain: select feature_id and company_id for notification
-  assertEquals(jobsChains[1].operations[0].method, "select");
-
-  // Feature table should be accessed to get the title
-  const featureChains = chainedCalls.filter((c) => c.table === "features");
-  assertEquals(featureChains.length, 1, "Should fetch feature title for CPO notification");
-  assertEquals(featureChains[0].operations[0].method, "select");
+  const cpoLookup = jobsChains.find((c) =>
+    c.operations.some((o) => o.method === "in") && c.operations.some((o) => o.method === "maybeSingle")
+  );
+  assertEquals(cpoLookup !== undefined, true, "Should query for active CPO job");
 });

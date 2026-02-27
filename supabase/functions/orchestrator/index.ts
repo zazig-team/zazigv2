@@ -860,7 +860,7 @@ async function handleJobStatus(supabase: SupabaseClient, msg: JobStatusMessage):
   }
 }
 
-async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Promise<void> {
+export async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Promise<void> {
   const { jobId, machineId, result, pr } = msg;
 
   // Fetch the job to check type, feature_id, context, etc.

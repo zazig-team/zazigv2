@@ -1,10 +1,10 @@
 # Contractor Dispatch Routing Plan
 
 **Date:** 2026-02-26
-**Status:** Draft v3.2 — CTO reviewed, open questions answered, ready for implementation
+**Status:** Draft v3.4 — Updated 2026-02-27 with org model cross-check (Appendix E)
 **Authors:** Tom + CPO
 **Context:** `commission_contractor` was removed (commit `299a328`) because it created conflicting jobs alongside the pipeline. This plan proposes a safer routing design.
-**Reviewed by:** Codex (v2 + v3 code-level), Gemini (v2 + v3 architecture), CPO self-review (v3 gap analysis), CTO (v3.1 → v3.2 architecture review + open questions)
+**Reviewed by:** Codex (v2 + v3 code-level), Gemini (v2 + v3 architecture), CPO self-review (v3 gap analysis), CTO (v3.1 → v3.2 architecture review + open questions), Gap analysis (v3.2 → v3.3 post-overnight changes)
 **Affects:** This plan, `2026-02-24-idea-to-job-pipeline-design.md`, `2026-02-24-software-development-pipeline-design.md`, `2026-02-18-orchestration-server-design.md`
 
 ---
@@ -206,6 +206,8 @@ Only roles that don't require pipeline verification gates:
 - `reviewer` — auto-dispatched by `triggerFeatureVerification`
 - `code-reviewer` — auto-dispatched by `handleJobComplete`
 - `deployer` — auto-dispatched by `handleFeatureApproved`
+- `test-deployer` — auto-dispatched during `deploying_to_test` stage *(added v3.3)*
+- `tester` — runs feature tests, requires verification gates *(added v3.3)*
 
 ### Idempotency
 
@@ -417,6 +419,7 @@ This is the minimum required to safely restore the CPO's ability to commission o
    - Add code path for NO_CODE_CONTEXT jobs: skip repo clone, skip worktree, run agent in scratch workspace at `~/.zazigv2/{company_id}-{role}-{job_id}/` with MCP tools and prompt only
    - Handle `StartJob` messages where `repoUrl` / `featureBranch` are null/empty without crashing
    - Clean up scratch workspace directory after job completion (in both complete and failed paths)
+   - **Note (v3.3):** The executor now supports an `interactive` flag (migration 063) for TUI mode vs print mode. Scratch workspace jobs should wire through the `interactive` flag from the role — `pipeline-technician` doing interactive SQL would benefit from TUI mode.
 
 6. **MCP tool: `request_work`**
    - New tool in `agent-mcp-server.ts`
@@ -428,12 +431,12 @@ This is the minimum required to safely restore the CPO's ability to commission o
    - Orchestrator detects `COUNT(jobs) = 1` for a feature after breakdown completes and skips the combine step (nothing to combine)
    - Removes the main latency objection for engineering quick fixes going through the pipeline
 
-8. **Migration 057: New functionality**
+8. **Migration 066: New functionality** *(renumbered from 057 — migrations 057-065 were taken by overnight work)*
    - Add `source` column to jobs table
    - Create `request_standalone_work()` Postgres function
    - Update `all_feature_jobs_complete()` to filter by `source = 'pipeline'`
 
-9. **Migration 058: Cleanup**
+9. **Migration 067: Cleanup** *(renumbered from 058)*
    - Update `mcp_tools`: replace `commission_contractor` with `request_work` for CPO, CTO, verification-specialist
    - Remove stale `commission_contractor` from all roles' `mcp_tools`
    - Delete or disable the `commission-contractor` edge function
@@ -493,9 +496,18 @@ This plan revises elements of three existing design docs. Apply when this plan i
 
 ## DB inconsistency to fix immediately
 
-Migration 056 seeds `commission_contractor` in the `mcp_tools` for CPO and verification-specialist, but the MCP tool is removed from code. The `commission-contractor` edge function also still exists in `supabase/functions/` and is callable with the service role key.
+Migration 056 seeds `commission_contractor` in the `mcp_tools` for CPO and verification-specialist, but the MCP tool is commented out in `agent-mcp-server.ts` (lines 592-596). The `commission-contractor` edge function still exists in `supabase/functions/commission-contractor/` and is fully deployed and callable with the service role key. Current state:
 
-Cleanup is handled by **migration 058** (split from new functionality in 057 per CTO review — prevents a rollback of new features from also rolling back the cleanup):
+| Layer | `commission_contractor` status |
+|-------|-------------------------------|
+| DB `mcp_tools` (migration 056) | **Present** for CPO + verification-specialist |
+| `agent-mcp-server.ts` MCP tool | **Commented out** — not callable by agents |
+| `commission-contractor` edge function | **Fully deployed** — callable via HTTP with service role key |
+| `workspace.ts` hardcoded `ROLE_ALLOWED_TOOLS` | **Not present** for CPO (removed from hardcoded map) |
+
+Net effect: agents can't call it (MCP tool disabled), but the edge function is reachable. The DB advertises a tool that doesn't exist. Safe for now, but messy.
+
+Cleanup is handled by **migration 067** (split from new functionality in 066 per CTO review — prevents a rollback of new features from also rolling back the cleanup):
 - Remove `commission_contractor` from all roles' `mcp_tools`
 - Add `request_work` to CPO, CTO, verification-specialist `mcp_tools`
 - Delete or disable the `commission-contractor` edge function
@@ -558,7 +570,7 @@ All claims validated against the codebase:
 ### Revisions applied (v3.2)
 
 1. **Moved Phase 1.1 (single-job combine skip) from Deliverable 2 to Deliverable 1.** Removes the latency objection for engineering quick fixes at launch.
-2. **Split migrations.** 057 for new functionality (source column, `request_standalone_work()`, `all_feature_jobs_complete` update). 058 for cleanup (mcp_tools swap, edge function deletion). Prevents a rollback of new features from also rolling back cleanup.
+2. **Split migrations.** 057 for new functionality (source column, `request_standalone_work()`, `all_feature_jobs_complete` update). 058 for cleanup (mcp_tools swap, edge function deletion). Prevents a rollback of new features from also rolling back cleanup. *(v3.3 note: renumbered to 066/067 — see Appendix D)*
 3. **Specified scratch workspace path format:** `~/.zazigv2/{company_id}-{role}-{job_id}/` with cleanup on completion.
 4. **Added source preservation note on `agent_crash` re-queue.** `handleJobFailed` re-queues on `agent_crash` — the re-queue path only changes `status` so `source` survives, but this must be verified explicitly in implementation.
 
@@ -568,7 +580,7 @@ All claims validated against the codebase:
 |------|----------|------------|
 | `source` column missed in a future SELECT | Medium | Add to `JobRow` TypeScript interface — compiler catches missing references |
 | Scratch workspace cleanup fails (disk fills) | Low | Cleanup in both complete and failed paths. Cron fallback for orphaned dirs. |
-| CPO calls old `commission_contractor` via cached tools | Low | Migration 058 removes from `mcp_tools`. Edge function deletion prevents silent success. |
+| CPO calls old `commission_contractor` via cached tools | Low | Migration 067 removes from `mcp_tools`. Edge function deletion prevents silent success. |
 
 ### Security note
 
@@ -608,7 +620,7 @@ Findings from Codex + Gemini v3 reviews:
 | 9 | Feature lock + insert must be single transaction | MEDIUM | Postgres function with `SELECT ... FOR UPDATE` ensures atomicity |
 | 10 | Schema gate is application code, not DB constraint | MEDIUM | Corrected description — no schema gate changes needed |
 | 11 | commission-contractor edge function still exists | LOW | Added to cleanup migration |
-| 12 | Migration 056 inconsistency confirmed | LOW | Already in plan as migration 057 |
+| 12 | Migration 056 inconsistency confirmed | LOW | Already in plan as migration 066/067 |
 | G1 | Split into two deliverables | RECOMMENDED | Implementation section now has Deliverable 1 (safety) + Deliverable 2 (experience) |
 | G2 | Single-job feature fast-track | RECOMMENDED | Added as Phase 1.1 optimisation |
 | G3 | Rename "produces code" to "requires verification gates" | MINOR | Updated boundary criterion language |
@@ -631,3 +643,171 @@ Findings from Codex + Gemini v3 reviews:
 - Feature-level lock simpler than path-level guards
 - Guards don't compose well at scale — need routing policy, not more guards
 - Agreed inter-agent delegation is premature but is the right long-term direction
+
+---
+
+## Appendix D: Codebase gap analysis (v3.2 → v3.3, 2026-02-27)
+
+Post-overnight changes shipped migrations 057-065 and several features. This appendix documents the delta between the plan and the current codebase.
+
+### What landed overnight (after plan was written)
+
+| Migration | What it does | Impact on this plan |
+|-----------|-------------|---------------------|
+| 055 | Feature `failed` status + `error` column | None — plan already accounts for failed features |
+| 056 | `mcp_tools TEXT[]` on roles + seed values | **Positive** — MCP access control infrastructure the plan needs is already built |
+| 057 | Composite index on jobs for recovery polling | **Migration number collision** — plan's 057/058 renumbered to 066/067 |
+| 058 | Fix CTO report path in prompt | None |
+| 059 | `release_machine_slot()` + `claim_test_deploy_slot()` RPCs | None |
+| 060 | `test-deployer` role | **New role to classify** — see below |
+| 061 | Split `deploy` job_type → `deploy_to_test` / `deploy_to_prod` | None — pipeline-internal |
+| 062 | Drop `test_deploy_attempts` + `claim_test_deploy_slot` | None |
+| 063 | `interactive` boolean on roles + `tester` role | **New role to classify + new executor capability** — see below |
+| 064 | `feature_test` job_type | None — pipeline-internal |
+| 065 | Updated test-deployer prompt | None |
+
+### MCP access control — what's already built
+
+The plan assumed this infrastructure would need building alongside Deliverable 1. It's done:
+
+- **`mcp_tools` column on roles table** — migration 056
+- **Orchestrator passes `roleMcpTools` in StartJob message** — orchestrator/index.ts lines 666-673
+- **`workspace.ts` wires allowed tools into `.claude/settings.json`** — `generateAllowedTools()` at line 107-112
+- **`agent-mcp-server.ts` runtime enforcement** — `ZAZIG_ALLOWED_TOOLS` env var, returns access denied for unlisted tools
+
+Only action needed: migration 067 to swap `commission_contractor` → `request_work` in the DB seed values.
+
+### New roles to classify
+
+Two new roles landed that the plan doesn't mention:
+
+| Role | Standalone-eligible? | Reasoning |
+|------|---------------------|-----------|
+| `test-deployer` | **No** | Pipeline role — auto-dispatched during `deploying_to_test` stage, requires verification gates |
+| `tester` | **No** | Pipeline role — runs feature tests, requires verification gates |
+
+These roles should be added to the "NOT standalone-eligible" list alongside `breakdown-specialist`, `senior-engineer`, etc.
+
+### Interactive mode consideration
+
+Migration 063 adds `interactive BOOLEAN DEFAULT false` to roles. The executor now checks `msg.interactive` and spawns TUI mode (no `-p` flag) instead of print mode. This is relevant to standalone dispatch:
+
+- `pipeline-technician` running interactive SQL → benefits from TUI mode
+- Scratch workspace path (Deliverable 1, item 5) should wire through the `interactive` flag from the role record
+- No design change needed — the orchestrator already includes `interactive` in `StartJob` messages
+
+### Current state of commission_contractor across layers
+
+| Layer | Status |
+|-------|--------|
+| `agent-mcp-server.ts` tool registration | **Commented out** (lines 592-596) — agents cannot call it |
+| `commission-contractor/` edge function | **Fully deployed** — callable via HTTP with service role key |
+| DB `mcp_tools` (migration 056) | **Listed** for CPO + verification-specialist |
+| `workspace.ts` hardcoded fallback | **Not listed** for CPO |
+
+Net: functionally dead (MCP tool disabled) but structurally messy. Cleanup in migration 067.
+
+### Orchestrator git context gate — current behaviour
+
+The plan describes adding a `NO_CODE_CONTEXT` bypass. Current state (lines 586-591):
+
+```typescript
+if (!job.project_id || !repoUrl || !featureBranch) {
+  console.warn(`[orchestrator] Job ${job.id} missing git context — skipping dispatch`);
+  continue;
+}
+```
+
+All jobs without git context are **silently skipped forever** — they sit in `queued` indefinitely. This means standalone operational jobs for non-code roles would never dispatch today. The `NO_CODE_CONTEXT` bypass is a hard prerequisite for standalone dispatch to work.
+
+### Non-engineer role routing — already partially built
+
+The orchestrator already distinguishes engineer vs non-engineer roles for model/slot routing (lines 479-510):
+
+```typescript
+const ENGINEER_ROLES = new Set(["senior-engineer", "junior-engineer"]);
+if (job.role && !ENGINEER_ROLES.has(job.role)) {
+  // Look up role's default_model + slot_type from roles table
+}
+```
+
+This is separate from the `NO_CODE_CONTEXT` concept but is a good anchor point — the `NO_CODE_CONTEXT` list can follow the same pattern (a Set checked at dispatch time).
+
+### Summary: what still needs building
+
+**All of Deliverable 1 is unbuilt.** Nothing from the plan's implementation section has been started:
+
+| Item | Status |
+|------|--------|
+| `request_standalone_work()` Postgres function | Not started |
+| `request-work` edge function | Not started |
+| `source` column on jobs table | Not started |
+| Orchestrator standalone guards (6 code paths) | Not started |
+| `NO_CODE_CONTEXT` role list + git gate bypass | Not started |
+| Executor scratch workspace path | Not started |
+| `request_work` MCP tool | Not started |
+| Single-job combine skip | Not started |
+| Migration 066 (new functionality) | Not started |
+| Migration 067 (cleanup) | Not started |
+| Delete `commission-contractor` edge function | Not started |
+
+**The plan's core design remains sound.** The overnight changes are additive (new roles, interactive mode, access control infra) and don't conflict with anything proposed. The MCP access control landing early is a net positive — it means less work in Deliverable 1.
+
+---
+
+## Appendix E: Org Model cross-check (v3.4, 2026-02-27)
+
+Cross-referenced this plan against the [Zazig Org Model](../ORG%20MODEL.md) to verify that standalone contractor dispatch is compatible with all six prompt stack layers, three worker tiers, and the unbuilt systems designed but not yet implemented.
+
+### Tier classification — confirmed correct
+
+Standalone-eligible roles map to the org model's **contractor tier**: ephemeral, dispatched per job, no personality, no heartbeat, no gateway, no charter. Requesting roles (CPO, CTO) are **exec tier**: high autonomy, initiate work. verification-specialist requesting pipeline-technician is the employee→contractor dispatch pattern.
+
+### Prompt stack compatibility
+
+Standalone jobs share the same `dispatchQueuedJobs()` path as pipeline jobs. The orchestrator's existing compilation (personality → role prompt → skills → task context) runs identically for both. The `source = 'standalone'` guard only activates in `handleJobComplete()` and `handleJobFailed()` — not at dispatch compilation time.
+
+**Implication:** When future prompt stack layers ship, standalone contractor roles benefit automatically with zero additional changes:
+
+| Prompt Stack Layer | Status | Standalone Impact |
+|---|---|---|
+| **1. Personality** | Partial — exec compilation works; `compile_personality_prompt_sub_agent()` exists for values-only mode | Contractors get values-only mode when seeded with personality records. Orchestrator already handles missing personality gracefully (skips field). |
+| **2. Role prompt** | Built — `roles.prompt` column, injected via `rolePrompt` on StartJob | Works today. All standalone-eligible roles have prompts seeded (e.g. migration 053 for pipeline-technician). |
+| **3. Skills** | Built — `roles.skills[]` column, loaded from `~/.claude/skills/` | Works today. Standalone-eligible roles have skills seeded. |
+| **4. Doctrines** | Designed (knowledge architecture v5), zero code | When built, `knowledgeContext` field added to StartJob, `assembleContext()` gains a new section. Standalone jobs benefit via shared dispatch path — no additional changes needed. |
+| **5. Canons** | Designed (knowledge architecture v5), zero code | Same as doctrines — shared dispatch path, automatic benefit. |
+| **6. Memory** | Exec memory via workspace persistence; contractor memory unbuilt | See "Contractor memory" below. |
+
+**Critical constraint for implementers:** The executor's scratch workspace for `NO_CODE_CONTEXT` roles (Deliverable 1, item 5) must write the assembled context to `CLAUDE.md` the same way `setupJobWorkspace()` does for git worktree jobs. The `assembleContext()` output is the source of truth — do not hardcode any prompt content in the scratch workspace path.
+
+### Model routing — already compatible
+
+The orchestrator's `dispatchQueuedJobs()` has two routing paths:
+
+1. **Role-based** (non-engineer roles): reads `default_model` + `slot_type` from `roles` table
+2. **Complexity-based** (engineer roles): uses `complexity_routing` table
+
+Standalone-eligible roles are all non-engineer, so they use path 1. Every standalone-eligible role already has `default_model` and `slot_type` seeded (e.g. pipeline-technician in migration 053). Standalone jobs get the correct model automatically.
+
+**Future enrichment (not blocking):** The org model describes richer `model_config` per role (investigation model, review_by chain, fallback, local_eligible). This is a roles table schema change + orchestrator dispatch enhancement that will apply equally to pipeline and standalone jobs. No design decisions in this plan foreclose it.
+
+### Contractor memory — Supabase, not filesystem
+
+The org model defines two-tier contractor memory:
+
+1. **Job-scoped** — context within a single engagement (e.g. monitoring-agent Phase 1 → Phase 2)
+2. **Shared** — patterns accumulated across all jobs for the same contractor type (opt-in)
+
+The scratch workspace cleanup (Deliverable 1, item 5) is correct — filesystem is ephemeral. Memory persistence is a **Supabase concern**, not a filesystem concern. Agents can write learnings to Supabase during execution via MCP tools (e.g. `agent_events` table, or a future `worker_memory` table). This survives workspace cleanup.
+
+**No design changes needed.** The scratch workspace cleanup policy doesn't need per-role configuration. If a monitoring-agent needs to persist findings, it writes to Supabase, not to local files.
+
+### Charter enforcement — future, not blocking
+
+The org model specifies charter-based governance (mandates + interdictions). Contractors have no charter ("task-scoped by definition"). Exec callers do have charters, but charter enforcement is unbuilt across the entire system.
+
+For v1, MCP-layer restrictions (per-caller role validation, `mcp_tools` allow-list) are sufficient. When charter enforcement ships, `request_work` should additionally check the calling exec's interdictions before forwarding to the edge function.
+
+### Summary
+
+All six prompt stack layers, three worker tiers, model routing, memory, and charter enforcement are compatible with this plan. Five of six layers are either built or designed-but-unbuilt — in all cases, standalone jobs benefit automatically via the shared dispatch path. No design decisions in this plan foreclose any future org model capability.

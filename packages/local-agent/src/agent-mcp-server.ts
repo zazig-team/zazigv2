@@ -499,6 +499,292 @@ server.tool(
 );
 
 server.tool(
+  "create_focus_area",
+  "Create a new focus area, optionally linking to goals",
+  {
+    title: z.string().describe("Focus area title"),
+    description: z.string().optional().describe("Focus area description"),
+    domain_tags: z.array(z.string()).optional().describe("Domain tags"),
+    proposed_by: z.string().optional().describe("Who proposed this focus area"),
+    goal_ids: z.array(z.string()).optional().describe("Goal IDs to link this focus area to"),
+  },
+  guardedHandler("create_focus_area", async ({ title, description, domain_tags, proposed_by, goal_ids }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/create-focus-area`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ title, description, domain_tags, proposed_by, goal_ids, job_id: jobId, company_id: companyId }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { focus_area_id: string };
+      return {
+        content: [{ type: "text" as const, text: `Focus area created successfully. focus_area_id: ${data.focus_area_id}` }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to create focus area (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  }),
+);
+
+server.tool(
+  "create_goal",
+  "Create a new goal for the company",
+  {
+    title: z.string().describe("Goal title"),
+    description: z.string().optional().describe("Goal description"),
+    time_horizon: z.enum(["near", "medium", "long"]).optional().describe("Time horizon for this goal"),
+    metric: z.string().optional().describe("Metric to measure this goal"),
+    target: z.string().optional().describe("Target value for the metric"),
+    target_date: z.string().optional().describe("ISO date string for the target date"),
+  },
+  guardedHandler("create_goal", async ({ title, description, time_horizon, metric, target, target_date }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/create-goal`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ title, description, time_horizon, metric, target, target_date, job_id: jobId, company_id: companyId }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { goal_id: string };
+      return {
+        content: [{ type: "text" as const, text: `Goal created successfully. goal_id: ${data.goal_id}` }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to create goal (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  }),
+);
+
+server.tool(
+  "query_focus_areas",
+  "Query focus areas for the current company",
+  {
+    focus_area_id: z.string().optional().describe("Focus area UUID — returns a single focus area with full detail"),
+    status: z.enum(["active", "paused"]).optional().describe("Filter by status"),
+    include_goals: z.boolean().optional().describe("Whether to include linked goals"),
+  },
+  guardedHandler("query_focus_areas", async ({ focus_area_id, status, include_goals }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/query-focus-areas`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ focus_area_id, status, include_goals, job_id: jobId, company_id: companyId }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { focus_areas: unknown[] };
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(data.focus_areas, null, 2) }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to query focus areas (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  }),
+);
+
+server.tool(
+  "query_goals",
+  "Query goals for the current company",
+  {
+    goal_id: z.string().optional().describe("Goal UUID — returns a single goal with full detail"),
+    status: z.enum(["active", "achieved", "abandoned"]).optional().describe("Filter by status"),
+    time_horizon: z.enum(["near", "medium", "long"]).optional().describe("Filter by time horizon"),
+  },
+  guardedHandler("query_goals", async ({ goal_id, status, time_horizon }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/query-goals`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ goal_id, status, time_horizon, job_id: jobId, company_id: companyId }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { goals: unknown[] };
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(data.goals, null, 2) }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to query goals (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  }),
+);
+
+server.tool(
+  "update_focus_area",
+  "Update a focus area, including adding/removing goal and feature links",
+  {
+    focus_area_id: z.string().describe("ID of the focus area to update"),
+    title: z.string().optional().describe("New focus area title"),
+    description: z.string().optional().describe("New focus area description"),
+    status: z.enum(["active", "paused"]).optional().describe("New status"),
+    position: z.number().optional().describe("New position/order"),
+    domain_tags: z.array(z.string()).optional().describe("Updated domain tags"),
+    add_goal_ids: z.array(z.string()).optional().describe("Goal IDs to link"),
+    remove_goal_ids: z.array(z.string()).optional().describe("Goal IDs to unlink"),
+    add_feature_ids: z.array(z.string()).optional().describe("Feature IDs to link"),
+    remove_feature_ids: z.array(z.string()).optional().describe("Feature IDs to unlink"),
+  },
+  guardedHandler("update_focus_area", async ({ focus_area_id, title, description, status, position, domain_tags, add_goal_ids, remove_goal_ids, add_feature_ids, remove_feature_ids }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/update-focus-area`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ focus_area_id, title, description, status, position, domain_tags, add_goal_ids, remove_goal_ids, add_feature_ids, remove_feature_ids, job_id: jobId, company_id: companyId }),
+    });
+
+    if (response.ok) {
+      return {
+        content: [{ type: "text" as const, text: "Focus area updated successfully." }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to update focus area (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  }),
+);
+
+server.tool(
+  "update_goal",
+  "Update an existing goal",
+  {
+    goal_id: z.string().describe("ID of the goal to update"),
+    title: z.string().optional().describe("New goal title"),
+    description: z.string().optional().describe("New goal description"),
+    time_horizon: z.enum(["near", "medium", "long"]).optional().describe("New time horizon"),
+    metric: z.string().optional().describe("New metric"),
+    target: z.string().optional().describe("New target value"),
+    target_date: z.string().optional().describe("New ISO date string for the target date"),
+    status: z.enum(["active", "achieved", "abandoned"]).optional().describe("New status"),
+    position: z.number().optional().describe("New position/order"),
+  },
+  guardedHandler("update_goal", async ({ goal_id, title, description, time_horizon, metric, target, target_date, status, position }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/update-goal`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ goal_id, title, description, time_horizon, metric, target, target_date, status, position, job_id: jobId, company_id: companyId }),
+    });
+
+    if (response.ok) {
+      return {
+        content: [{ type: "text" as const, text: "Goal updated successfully." }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to update goal (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  }),
+);
+
+server.tool(
   "execute_sql",
   "Execute a scoped SQL statement against the pipeline database. Restricted to jobs, features, agent_events, machines tables. Used by pipeline-technician for prescribed operations.",
   {

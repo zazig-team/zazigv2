@@ -39,6 +39,9 @@ const execFileAsync = promisify(execFile);
 /** Poll the tmux session every 30 s to check for completion. */
 const POLL_INTERVAL_MS = 30_000;
 
+/** Reconcile active in-memory jobs against DB terminal states every 60 s. */
+const SLOT_RECONCILE_INTERVAL_MS = 60_000;
+
 /** Kill the job after 60 minutes regardless of status. */
 const JOB_TIMEOUT_MS = 60 * 60_000;
 
@@ -234,6 +237,7 @@ export class JobExecutor {
   /** Message queue for injecting into persistent agent tmux sessions. */
   private readonly messageQueue: QueuedMessage[] = [];
   private processingQueue = false;
+  private reconcileTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     machineId: string,
@@ -253,6 +257,10 @@ export class JobExecutor {
     this.supabaseUrl = supabaseUrl;
     this.supabaseAnonKey = supabaseAnonKey;
     this.afterJobComplete = afterJobComplete;
+
+    this.reconcileTimer = setInterval(() => {
+      void this.reconcileSlots();
+    }, SLOT_RECONCILE_INTERVAL_MS);
   }
 
   /** Resolve the machine UUID from the machines table (cached after first call). */
@@ -631,6 +639,11 @@ export class JobExecutor {
    * disconnecting from Supabase.
    */
   async stopAll(): Promise<void> {
+    if (this.reconcileTimer !== null) {
+      clearInterval(this.reconcileTimer);
+      this.reconcileTimer = null;
+    }
+
     // Clear all persistent agents (fires DB status updates + stops heartbeat timers)
     this.clearPersistentAgent();
 
@@ -646,6 +659,77 @@ export class JobExecutor {
       this.slots.release(job.slotType);
     }
     this.activeJobs.clear();
+  }
+
+  /**
+   * Reconciles in-memory active jobs with DB terminal status.
+   * This closes slot leaks when jobs are externally marked terminal in the DB
+   * without a matching StopJob reaching this daemon.
+   */
+  private async reconcileSlots(): Promise<void> {
+    try {
+      const activeJobIds = [...this.activeJobs.values()]
+        .filter((job) => !job.settled && !this.isPersistentJob(job.jobId))
+        .map((job) => job.jobId);
+
+      // No active non-persistent jobs means there is nothing to reconcile.
+      if (activeJobIds.length === 0) return;
+
+      const { data, error } = await this.supabase
+        .from("jobs")
+        .select("id,status")
+        .in("id", activeJobIds);
+
+      if (error) {
+        console.warn(`[executor] Slot reconciliation query failed: ${error.message}`);
+        return;
+      }
+
+      if (!data || data.length === 0) return;
+
+      const terminalStatuses = new Set(["failed", "complete", "cancelled"]);
+      for (const row of data as Array<{ id: string; status: string }>) {
+        if (!terminalStatuses.has(row.status)) continue;
+
+        const job = this.activeJobs.get(row.id);
+        if (!job || job.settled || this.isPersistentJob(job.jobId)) continue;
+
+        console.log(
+          `[executor] Slot reconciliation: job ${job.jobId} externally terminated ` +
+            `(DB status=${row.status}), releasing slot`
+        );
+        try {
+          await this.teardownReconciledJob(job);
+        } catch (teardownErr) {
+          console.warn(`[executor] Slot reconciliation teardown failed for job ${job.jobId}: ${String(teardownErr)}`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[executor] Slot reconciliation failed: ${String(err)}`);
+    }
+  }
+
+  private isPersistentJob(jobId: string): boolean {
+    return jobId.startsWith("persistent-");
+  }
+
+  private async teardownReconciledJob(job: ActiveJob): Promise<void> {
+    job.settled = true;
+    this.clearJobTimers(job);
+    this.activeJobs.delete(job.jobId);
+
+    const sessionAlive = await isTmuxSessionAlive(job.sessionName);
+    if (sessionAlive) {
+      await killTmuxSession(job.sessionName);
+    }
+
+    if (job.worktreePath && job.repoDir) {
+      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+    } else {
+      cleanupJobWorkspace(job.jobId);
+    }
+
+    this.slots.release(job.slotType);
   }
 
   // ---------------------------------------------------------------------------

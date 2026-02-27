@@ -89,8 +89,20 @@ interface UpdateCall {
   eqValue: string;
 }
 
+interface SelectInCall {
+  table: string;
+  columns: string;
+  inColumn: string;
+  inValues: string[];
+}
+
 function makeMockSupabase() {
   const calls: UpdateCall[] = [];
+  const selectInCalls: SelectInCall[] = [];
+  let inResult: { data: unknown; error: { message: string } | null } = {
+    data: [],
+    error: null,
+  };
 
   const makeChainable = (table: string) => {
     const chain = {
@@ -103,13 +115,18 @@ function makeMockSupabase() {
         });
         return { eq: eqFn };
       }),
-      select: vi.fn(() => ({
+      upsert: vi.fn(() => Promise.resolve({ error: null, data: null })),
+      select: vi.fn((columns: string) => ({
         eq: vi.fn(() => ({
           eq: vi.fn(() => ({
             single: vi.fn(() => Promise.resolve({ data: null, error: null })),
           })),
           single: vi.fn(() => Promise.resolve({ data: null, error: null })),
         })),
+        in: vi.fn((inColumn: string, inValues: string[]) => {
+          selectInCalls.push({ table, columns, inColumn, inValues: [...inValues] });
+          return Promise.resolve(inResult);
+        }),
       })),
     };
     return chain;
@@ -117,9 +134,17 @@ function makeMockSupabase() {
 
   const client = {
     from: vi.fn((table: string) => makeChainable(table)),
+    rpc: vi.fn(() => Promise.resolve({ error: null, data: null })),
   };
 
-  return { client: client as unknown, calls };
+  return {
+    client: client as unknown,
+    calls,
+    selectInCalls,
+    setInResult: (next: { data: unknown; error: { message: string } | null }) => {
+      inResult = next;
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -318,6 +343,84 @@ describe("JobExecutor — progress integration", () => {
 
     // Duplicate should be ignored before ack/executing status or slot acquisition.
     expect(send.mock.calls.length).toBe(sendCallsAfterFirstStart);
+  });
+});
+
+describe("JobExecutor — slot reconciliation", () => {
+  let send: ReturnType<typeof vi.fn>;
+  let slots: SlotTracker;
+  let supabase: ReturnType<typeof makeMockSupabase>;
+  let executor: JobExecutor;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    mockExecFileAsync = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
+    send = vi.fn().mockResolvedValue(undefined);
+    slots = new SlotTracker({ claude_code: 1, codex: 1 });
+    supabase = makeMockSupabase();
+    executor = new JobExecutor(
+      "machine-1",
+      "company-test",
+      slots,
+      send as unknown as SendFn,
+      supabase.client as any,
+      "https://test.supabase.co",
+      "test-anon-key",
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("releases slot and cleans up when DB marks active job as failed externally", async () => {
+    const jobId = "job-reconcile-001";
+    await executor.handleStartJob(makeStartJob({ jobId }));
+    expect(slots.getAvailable().claude_code).toBe(0);
+
+    supabase.setInResult({
+      data: [{ id: jobId, status: "failed" }],
+      error: null,
+    });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(slots.getAvailable().claude_code).toBe(1);
+    expect(lastRepoManagerInstance.removeJobWorktree).toHaveBeenCalled();
+  });
+
+  it("skips reconciliation query when only persistent jobs are active", async () => {
+    await executor.handleStartJob(makeStartJob({
+      jobId: "persistent-cpo-company-test",
+      role: "cpo",
+      cardType: "persistent_agent",
+    }));
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(supabase.selectInCalls.length).toBe(0);
+    expect(slots.getAvailable().claude_code).toBe(0);
+  });
+
+  it("handles reconciliation query failures without releasing slots", async () => {
+    await executor.handleStartJob(makeStartJob({ jobId: "job-reconcile-error" }));
+    expect(slots.getAvailable().claude_code).toBe(0);
+
+    supabase.setInResult({
+      data: null,
+      error: { message: "network down" },
+    });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(slots.getAvailable().claude_code).toBe(0);
+  });
+
+  it("does nothing when there are no active jobs", async () => {
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(supabase.selectInCalls.length).toBe(0);
   });
 });
 

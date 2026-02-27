@@ -1,132 +1,156 @@
 ---
 name: scrum
-description: Sprint planning ceremony — parallel squad reviews of Trello backlogs against roadmaps, CPO triage, present decisions to Tom. Use when Tom says "scrum", "sprint planning", or "what should we work on next".
+description: "Pipeline sprint planning — triage backlog and failed features, schedule work into the pipeline. Use when someone says 'scrum', 'sprint planning', 'what should we work on next', 'triage the backlog', or when standup recommends it."
 ---
 
-# Scrum — Sprint Planning Ceremony
+# /scrum
 
-Review all focus project backlogs against their roadmaps. Identify what moves to "Up Next" for VP-Eng to execute.
+**Role:** CPO
+**Type:** Ceremony — interactive decision-making with the human
+**Target:** < 5 minutes total
 
-## Phase 1: Parallel Squad Reviews
+Sprint planning for the pipeline. Reviews all unscheduled and failed work, triages into action buckets, gets human approval, then executes scheduling decisions.
 
-Read `~/.local/share/trw-projects/cpo-state.json` → `focusProjects` to get the active project list.
+---
 
-Launch **one Sonnet subagent per focus project** — all in parallel via the Task tool. Each subagent gets:
+## Phase 1: Pipeline Review
 
-**Prompt template:**
-```
-You are the squad lead for {PROJECT_NAME}.
+Gather the full picture (parallel tool calls):
 
-Read these files:
-1. {PROJECT_DIR}/docs/ROADMAP.md (or docs/plans/ if no ROADMAP)
-2. {PROJECT_DIR}/.project-status.md
+1. `query_features(project_id: '{project-id}')` — all features
+2. `query_jobs(status: 'queued')` — pending work
+3. `query_jobs(status: 'dispatched')` — active work (to gauge capacity)
 
-Then read the Trello board:
-3. Get all lists from board {BOARD_ID}
-4. Get cards from the "Backlog" list
-5. Get cards from "In Progress" list (to know what's already running)
-6. Get cards from "Up Next" list (to avoid duplicates)
+Classify features into working sets:
 
-Analyze:
-- What's the NEXT sequential phase per the roadmap that isn't already in progress or Up Next?
-- Are there quick wins (small, unblocked, no design needed) in the backlog?
-- Are any cards blocked or need human action?
-- Are any cards stale (already done, or superseded)?
+**Backlog** — status `created`. These are candidates for scheduling.
+For each: does it have a spec? Are its dependencies met? (Check description/spec field for content.)
 
-Return EXACTLY this format, max 5 items total:
+**Failed** — status `failed`. These need triage decisions.
+For each: how many times has it failed? What was the failure reason? (Check jobs for the feature.)
 
-## {Project Name}
-- RECOMMEND: {card title} — {10 words on why now}
-- RECOMMEND: {card title} — {10 words on why now}
-- BLOCKED: {card title} — {what blocks it}
-- DECISION: {card title} — {what Tom needs to decide}
-- STALE: {card title} — {why it should be archived}
+**Active** — statuses between `ready_for_breakdown` and `reviewing`. These are in-flight.
+Count them — this determines capacity.
 
-If backlog is empty or everything is blocked, say: "No dispatchable work."
-```
+**Complete** — status `complete` or `deployed`. Note recent completions.
 
-**Board ID mapping:**
-
-| Project | Directory | Board ID |
-|---------|-----------|----------|
-| ink | ~/Documents/GitHub/ink | 698da081c9e429bbfb793fef |
-| marginscape (Marginally) | ~/Documents/GitHub/marginscape | 698da08110a5b7143027f73a |
-| spine-platform | ~/Documents/GitHub/spine-platform | 698da08273c24f82e0ba2c1a |
-| tbx-ios | ~/Documents/GitHub/tbx-ios | 698da08291deb191e8a57ea8 |
-| athena | ~/Documents/GitHub/athena | 698da082c794c6412c8ae734 |
-| charms | ~/Documents/GitHub/charms-at-citygate | 698da0835375ce7392a036e1 |
-| pang | ~/Documents/GitHub/pang | 698da083d483990d53d82d47 |
-| aida | ~/Documents/GitHub/aida | 698da2b37498e43e1e9b6c7c |
-| quire | ~/Documents/GitHub/quire | 698e217ab215b5b171fadae4 |
-| colophon | ~/Documents/GitHub/colophon | 698e0821aed8cd77e87f5628 |
-| exec-team | ~/Documents/GitHub/trw-projects | 698f3d4dac52e8cd3a0de148 |
-
-Only launch subagents for projects in the `focusProjects` list from cpo-state.json.
+---
 
 ## Phase 2: CPO Triage
 
-As squad reports come back, sort every item into three buckets using your product judgment:
+Sort every backlog and failed feature into exactly one bucket:
 
-**Greenlight** — Obviously correct. Next in sequence, unblocked, has enough spec. CPO approves without Tom.
+### Greenlight
+Push to `ready_for_breakdown` without needing human approval. Criteria (ALL must be true):
+- Feature has a written spec (spec field is not empty/null)
+- No unmet dependencies (doesn't require another feature to ship first)
+- Pipeline has capacity (fewer than 3 features currently in active statuses)
+- Feature is high or medium priority
 
-**Decision needed** — Multiple valid options, priority call, or significant resource commitment. Tom decides.
+For failed features, greenlight a retry if:
+- Failed only once
+- Failure looks transient (agent died, timeout, infrastructure error)
+- Spec doesn't need changes
 
-**Blocked** — Can't move forward. Note the blocker so Tom knows.
+### Decision Needed
+Human must decide. Route here when:
+- Multiple features compete for limited pipeline capacity (pick order)
+- Failed feature has failed 2+ times (re-spec? deprioritise? architectural issue?)
+- Feature is high priority but has no spec (who writes it? now or later?)
+- Resource trade-off (scheduling this means delaying that)
 
-### Triage rules:
-- If a card is the next sequential phase in the roadmap AND the prior phase is done/merged → Greenlight
-- If a card is a quick win (< 1 day, no design, no human dependency) → Greenlight
-- If a card is a launch blocker (P0) but needs design decisions first → Decision
-- If a card has a `needs-human` label → Blocked (unless Tom is present and can unblock now)
-- If a card requires spending money (API keys, services, Apple Developer) → Decision
-- Research tasks → Greenlight (they're cheap Sonnet subagents, low risk)
+### Blocked
+Cannot move forward regardless of priority:
+- Depends on another feature that hasn't shipped yet
+- Needs human action (deploy, configure, approve something external)
+- Needs spec written and CPO doesn't have enough context
 
-## Phase 3: Present to Tom
+### Deprioritise
+Recommend removing from active consideration:
+- Failed 3+ times with no clear fix path
+- Superseded by other work
+- Low priority and pipeline is constrained
 
-Show a clean decision board. No card IDs, no JSON, no Trello links. Just this:
+---
+
+## Phase 3: Present
+
+Show a clean decision board. No UUIDs, no JSON.
 
 ```
-## Sprint Planning
+## Sprint Planning — {date}
 
-### Greenlighted (moving to Up Next)
-- **{Project}**: {card title} — {one line reason}
-- **{Project}**: {card title} — {one line reason}
+### Pipeline Capacity
+{N} features active | {M} slots available (target: 3 concurrent max)
+
+### Greenlight (pushing to pipeline)
+- **{feature title}** — {one line reason why now}
+- **{feature title}** — retry, transient failure
 
 ### Decisions for You
-1. **{Project}**: {card title} — {question or options}
-2. **{Project}**: {card title} — {question or options}
+1. **{feature title}** — {question: which to prioritise? retry or re-spec? schedule now or after X?}
+2. **{feature title}** — {question}
 
-### Blocked (FYI)
-- **{Project}**: {card title} — {blocker}
+### Blocked
+- **{feature title}** — depends on {other feature}
+- **{feature title}** — needs {human action}
 
-### Stale (archiving)
-- **{Project}**: {card title} — {reason}
+### Recommend Deprioritise
+- **{feature title}** — {reason: failed 3x, superseded, low value}
 
-**Total: X cards greenlighted, Y need your call, Z blocked.**
+---
+**Summary:** {X} to greenlight, {Y} need your call, {Z} blocked, {W} to deprioritise.
 ```
 
-Wait for Tom's response. He may approve all, reject some, or add context.
+Wait for human response. They may:
+- Approve all greenlights
+- Make decisions on the "your call" items
+- Override any categorisation
+- Add context that changes the triage
+
+---
 
 ## Phase 4: Execute Approvals
 
-After Tom approves, delegate a **single Sonnet subagent** to:
-1. Move all approved cards from Backlog to "Up Next" on their respective Trello boards
-2. Archive any cards marked as stale (if Tom approved)
-3. Add a comment to decision cards with Tom's answer (if he gave one)
+After the human approves:
 
-CPO does NOT:
-- Write task files
-- Launch tmux sessions
-- Dispatch implementation agents
-- Move cards directly (always via subagent)
+**For greenlighted features:**
+- `update_feature(feature_id: '{id}', status: 'ready_for_breakdown')` for each
+- Report: "Pushed {N} features to breakdown."
 
-VP-Eng sees cards land in "Up Next" and takes over from there.
+**For approved retries (failed features):**
+- Reset the feature status: `update_feature(feature_id: '{id}', status: 'ready_for_breakdown')`
+- Note: if stale breakdown jobs exist from previous attempt, they may need cleanup (flag to human if this is a known issue)
+
+**For deprioritised features:**
+- No status change needed — they stay in `created` or `failed`
+- Add a note to the feature description if the human gave a reason
+
+**For decisions made:**
+- Execute whatever the human decided (schedule, re-spec, park, etc.)
+- If re-spec needed, note it as a follow-up action
+
+---
+
+## Capacity Model
+
+The pipeline has natural throughput limits:
+- **Breakdown specialist** processes 1 feature at a time
+- **Builders** can run in parallel (multiple jobs across features)
+- **Bottleneck** is typically breakdown and verification, not building
+
+Rule of thumb: keep 2-3 features active in the pipeline at any time. More than that creates queuing. Fewer means idle capacity.
+
+If the human asks "why not schedule everything?": explain that features queue at breakdown, and a long queue means later features wait longer. Better to drip-feed at pipeline throughput rate.
+
+---
 
 ## Rules
 
-- CPO NEVER reads Trello directly in-thread — always via subagents
-- CPO NEVER writes to Trello directly — always via subagents
-- Squad subagents return MAX 5 lines per project — enforce this in the prompt
-- Total ceremony target: < 3 minutes
-- Skip projects not in focusProjects
-- If no subagent finds dispatchable work, say so and suggest Tom either unblock something or reprioritize
+- CPO triages. Human decides. CPO executes decisions.
+- Never push a feature to `ready_for_breakdown` without human approval (v1 trust boundary).
+- Never re-spec a feature during scrum — that's a separate task. Flag it as a follow-up.
+- Keep the presentation scannable. Tom reads on mobile.
+- If the pipeline is completely empty and the backlog has specced features, say so directly: "Pipeline is idle with work waiting. Recommend scheduling immediately."
+- If all backlog features lack specs, say so: "Nothing is ready to schedule. {N} features need specs written first."
+- After executing, suggest running /standup to confirm the pipeline state looks right.

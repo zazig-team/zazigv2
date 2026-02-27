@@ -1,10 +1,10 @@
 # Contractor Dispatch Routing Plan
 
 **Date:** 2026-02-26
-**Status:** Draft v3.4 — Updated 2026-02-27 with org model cross-check (Appendix E)
+**Status:** Draft v3.5 — Updated 2026-02-27 with fast-track pipeline mode + conditional constraint (Appendix F)
 **Authors:** Tom + CPO
 **Context:** `commission_contractor` was removed (commit `299a328`) because it created conflicting jobs alongside the pipeline. This plan proposes a safer routing design.
-**Reviewed by:** Codex (v2 + v3 code-level), Gemini (v2 + v3 architecture), CPO self-review (v3 gap analysis), CTO (v3.1 → v3.2 architecture review + open questions), Gap analysis (v3.2 → v3.3 post-overnight changes)
+**Reviewed by:** Codex (v2 + v3 code-level), Gemini (v2 + v3 architecture), CPO self-review (v3 gap analysis), CTO (v3.1 → v3.2 architecture review + open questions), Gap analysis (v3.2 → v3.3 post-overnight changes), Ideas Inbox smoke test + DB constraint discovery (v3.4 → v3.5)
 **Affects:** This plan, `2026-02-24-idea-to-job-pipeline-design.md`, `2026-02-24-software-development-pipeline-design.md`, `2026-02-18-orchestration-server-design.md`
 
 ---
@@ -61,6 +61,16 @@ Idea → Feature → Spec → ready_for_breakdown → Breakdown → Jobs → Bui
 - Orchestrator manages the entire lifecycle
 - Full quality gates (breakdown, combine, verify)
 
+### Path A-fast: Fast-track Pipeline (simple engineering fixes) *(v3.5)*
+```
+Idea → Feature (fast_track=true) → Spec → ready_for_breakdown → [orchestrator auto-creates 1 job] → Build → Verify
+```
+- For single-job engineering work where breakdown and combine are wasted steps
+- Orchestrator skips breakdown-specialist dispatch and creates one job directly from the feature spec
+- Single-job combine skip removes the other wasteful step (already in Deliverable 1)
+- **Verification still runs** — code quality gates preserved
+- Two agent dispatches instead of four. Same quality outcome.
+
 ### Path B: Standalone Jobs (operational tasks)
 ```
 Exec → request_work MCP call → Edge function validates atomically → Job queued → Execute → Complete
@@ -75,13 +85,13 @@ Exec → request_work MCP call → Edge function validates atomically → Job qu
 
 The pipeline design doc (Entry Point B, Example D) described standalone engineering jobs like "fix the favicon." This plan narrows Entry Point B to **roles that don't require pipeline verification gates** — operational roles where the work doesn't need tests, lint, or code review.
 
-Engineering quick fixes go through the pipeline as single-job features. The CPO creates a feature with a minimal spec, the breakdown specialist produces one job, the pipeline handles it. This is slower (minutes vs seconds) but preserves the verification gates that engineering work needs.
+Engineering quick fixes go through the pipeline via **fast-track mode** *(v3.5)*. The CPO creates a feature with `fast_track = true` and a minimal spec. The orchestrator skips breakdown (auto-creates one job directly) and skips combine (single-job). Verification still runs. Two agent dispatches instead of four — fast enough that there's no temptation to bypass quality gates.
 
-**Phase 1.1 optimisation:** The orchestrator can detect single-job features (breakdown produced 1 job) and skip the combine step (nothing to combine). This removes the most wasteful overhead without bypassing verification.
+**Phase 1.1 optimisation (unchanged):** The orchestrator detects single-job features and skips combine. This applies to both standard (breakdown produced 1 job) and fast-track (orchestrator created 1 job) features.
 
 **The `/standalone-job` skill in the pipeline design doc is revised:** it now only applies to operational roles. See "Changes to other plans" below.
 
-**The rule: one path per piece of work, never both. Operational work goes through Path B. Everything that requires verification gates goes through Path A.**
+**The rule: one path per piece of work, never both. Operational non-code work goes through Path B. Everything that produces code goes through the pipeline — fast-track for simple fixes, standard for complex features.**
 
 ---
 
@@ -400,13 +410,20 @@ This is the minimum required to safely restore the CPO's ability to commission o
    - Returns result to caller
    - Replaces the old `commission-contractor` edge function (which still exists in the codebase and should be deleted)
 
-3. **Jobs table: add `source` column**
+3. **Jobs table: add `source` column + conditional `feature_id` constraint** *(updated v3.5)*
    ```sql
    ALTER TABLE jobs ADD COLUMN source TEXT NOT NULL DEFAULT 'pipeline';
    -- Values: 'pipeline' (default for existing jobs), 'standalone'
+
+   -- Replace unconditional feature_id constraint with conditional one:
+   -- Pipeline jobs MUST have feature_id. Standalone jobs don't need one.
+   ALTER TABLE jobs DROP CONSTRAINT jobs_feature_id_required;
+   ALTER TABLE jobs ADD CONSTRAINT jobs_feature_id_required
+     CHECK (source = 'standalone' OR feature_id IS NOT NULL);
    ```
    - Add `source` to `JobRow` TypeScript interface
    - Add `source` to all relevant SELECT clauses in orchestrator
+   - **Note:** The existing `jobs_feature_id_required` constraint enforces `feature_id IS NOT NULL` for ALL jobs. This blocks standalone featureless dispatch. The conditional replacement preserves the safety guarantee for pipeline jobs (a bug creating a pipeline job without `feature_id` still fails loudly) while allowing standalone jobs to exist without a feature. Order matters: `source` column must be added before the constraint swap.
 
 4. **Orchestrator changes:**
    - `dispatchQueuedJobs()`: skip wrapper feature creation when `source = 'standalone'`
@@ -431,12 +448,19 @@ This is the minimum required to safely restore the CPO's ability to commission o
    - Orchestrator detects `COUNT(jobs) = 1` for a feature after breakdown completes and skips the combine step (nothing to combine)
    - Removes the main latency objection for engineering quick fixes going through the pipeline
 
-8. **Migration 066: New functionality** *(renumbered from 057 — migrations 057-065 were taken by overnight work)*
+8. **Fast-track pipeline mode** *(v3.5)*
+   - Add `fast_track BOOLEAN DEFAULT false` to features table (migration 066)
+   - `triggerBreakdown()`: if `fast_track = true`, skip breakdown-specialist dispatch. Instead, insert one job directly: title from feature title, spec from feature spec, role = `senior-engineer`, job_type = `code`, complexity = `simple`. Transition feature to `building`.
+   - `update_feature` edge function: accept `fast_track` parameter so CPO can set it via MCP
+
+9. **Migration 066: New functionality** *(renumbered from 057 — migrations 057-065 were taken by overnight work, updated v3.5)*
    - Add `source` column to jobs table
+   - Replace unconditional `jobs_feature_id_required` constraint with conditional version *(v3.5)*
+   - Add `fast_track` column to features table *(v3.5)*
    - Create `request_standalone_work()` Postgres function
    - Update `all_feature_jobs_complete()` to filter by `source = 'pipeline'`
 
-9. **Migration 067: Cleanup** *(renumbered from 058)*
+10. **Migration 067: Cleanup** *(renumbered from 058)*
    - Update `mcp_tools`: replace `commission_contractor` with `request_work` for CPO, CTO, verification-specialist
    - Remove stale `commission_contractor` from all roles' `mcp_tools`
    - Delete or disable the `commission-contractor` edge function
@@ -469,7 +493,7 @@ This plan revises elements of three existing design docs. Apply when this plan i
 
 **Example D revision:**
 - Current: CPO creates standalone engineering job for favicon fix
-- Revised: CPO creates a minimal feature with `/spec-feature`. Breakdown specialist produces one job. Pipeline handles verification. Single-job features skip combine (Phase 1.1 optimisation).
+- Revised: CPO creates a minimal feature with `fast_track = true` and `/spec-feature`. Orchestrator auto-creates one job (skips breakdown), pipeline handles verification, single-job skip removes combine. Two agent dispatches: build + verify. *(updated v3.5)*
 
 **`/standalone-job` skill revision:**
 - Current: creates any standalone job with spec + Gherkin AC
@@ -528,6 +552,8 @@ This plan prevents that through three layers:
 
 **Edge case: standalone job created before pipeline starts.** If the CPO requests standalone work on a feature in `created` state, then later pushes that same feature into the pipeline, both exist simultaneously. This is safe — the standalone job is operational (not engineering) and doesn't interact with the pipeline's code branches or verification gates.
 
+**Why fast-track doesn't replace standalone dispatch *(v3.5)*:** Fast-track solves the engineering quick fix problem by cutting pipeline overhead from 4 to 2 agent dispatches. But operational non-code work (pipeline-technician SQL, monitoring-agent investigations, project-architect planning) would still hit a verification step that has nothing to verify — no code was produced, no tests to run, no diff to review. For these roles, verification gates are semantically meaningless. Standalone dispatch remains the right model for non-code operational work. The boundary: produces code → pipeline (fast-track or standard). Doesn't produce code → standalone.
+
 ---
 
 ## Open questions for CTO — ANSWERED
@@ -566,6 +592,8 @@ All claims validated against the codebase:
 | `source` column on `jobs` table | ONE-WAY DOOR | Every future jobs query must consider source. Acceptable permanent complexity. |
 | Engineering work through pipeline only | HARD TO REVERSE | Once CPO skills learn this routing, changing it means retraining prompts + skills. Correct decision. |
 | Role eligibility list | REVERSIBLE | Can add roles to standalone-eligible later. |
+| `fast_track` column on features *(v3.5)* | REVERSIBLE | Boolean flag, default false. Existing features unaffected. Can revert to always dispatching breakdown-specialist. |
+| Conditional `jobs_feature_id_required` *(v3.5)* | ONE-WAY DOOR | Changes the constraint semantics. But strictly safer than the alternative (dropping it entirely). Pipeline jobs still protected. |
 
 ### Revisions applied (v3.2)
 
@@ -742,12 +770,16 @@ This is separate from the `NO_CODE_CONTEXT` concept but is a good anchor point �
 | `request_standalone_work()` Postgres function | Not started |
 | `request-work` edge function | Not started |
 | `source` column on jobs table | Not started |
+| Conditional `jobs_feature_id_required` constraint *(v3.5)* | Not started |
+| `fast_track` column on features table *(v3.5)* | Not started |
+| `triggerBreakdown()` fast-track path *(v3.5)* | Not started |
+| `update_feature` edge function `fast_track` param *(v3.5)* | Not started |
 | Orchestrator standalone guards (6 code paths) | Not started |
 | `NO_CODE_CONTEXT` role list + git gate bypass | Not started |
 | Executor scratch workspace path | Not started |
 | `request_work` MCP tool | Not started |
 | Single-job combine skip | Not started |
-| Migration 066 (new functionality) | Not started |
+| Migration 066 (new functionality, expanded v3.5) | Not started |
 | Migration 067 (cleanup) | Not started |
 | Delete `commission-contractor` edge function | Not started |
 
@@ -811,3 +843,154 @@ For v1, MCP-layer restrictions (per-caller role validation, `mcp_tools` allow-li
 ### Summary
 
 All six prompt stack layers, three worker tiers, model routing, memory, and charter enforcement are compatible with this plan. Five of six layers are either built or designed-but-unbuilt — in all cases, standalone jobs benefit automatically via the shared dispatch path. No design decisions in this plan foreclose any future org model capability.
+
+---
+
+## Appendix F: Fast-track pipeline mode + conditional constraint (v3.5, 2026-02-27)
+
+### Discovery: `jobs_feature_id_required` constraint
+
+During Ideas Inbox smoke testing, we discovered a `jobs_feature_id_required` CHECK constraint on the jobs table that enforces `feature_id IS NOT NULL` for all jobs. This constraint is not in any migration file — it was added directly in Supabase.
+
+This constraint **directly conflicts** with the standalone dispatch design in this plan. The plan designs for `feature_id = NULL` standalone jobs in multiple places:
+
+- Line 258: `dispatchQueuedJobs()` should "skip wrapper feature creation" — standalone jobs "stay featureless"
+- Line 143: `request_standalone_work()` accepts `feature_id?` as optional
+- Line 220: Idempotency check uses `IS NOT DISTINCT FROM` to handle `NULL = NULL` on feature_id
+- Lines 236-265: Standalone lifecycle designed to bypass feature-based pipeline logic entirely
+
+### Resolution: conditional constraint
+
+Dropping the constraint entirely would remove a safety net — it currently prevents pipeline jobs from being accidentally created without a feature, which would break the orchestrator's combine/verify logic.
+
+Instead, the constraint becomes conditional. Pipeline jobs must have a `feature_id`. Standalone jobs don't need one. This is enforced via the `source` column that Deliverable 1 already introduces:
+
+```sql
+-- In migration 066 (alongside source column addition):
+ALTER TABLE jobs DROP CONSTRAINT jobs_feature_id_required;
+ALTER TABLE jobs ADD CONSTRAINT jobs_feature_id_required
+  CHECK (source = 'standalone' OR feature_id IS NOT NULL);
+```
+
+This preserves the safety guarantee for pipeline jobs while enabling featureless standalone dispatch.
+
+### Fast-track pipeline mode
+
+Tom raised a separate concern: for simple engineering fixes (change a favicon, fix a typo), the full pipeline imposes two unnecessary agent dispatches — breakdown (to produce one job) and combine (to combine one file). The plan already addresses combine skip (Deliverable 1, item 7). Fast-track mode extends this by also skipping breakdown.
+
+**The problem with the current pipeline for simple fixes:**
+
+```
+spec → [wait] → breakdown agent dispatched → produces 1 job → [wait] → build → [wait] → combine (1 file) → [wait] → verify
+```
+
+Four agent dispatches. Two are pure waste: breakdown-specialist to decompose a single-job feature, and combine to merge a single-job result.
+
+**Fast-tracked pipeline:**
+
+```
+spec → orchestrator auto-creates 1 job → build → verify
+```
+
+Two agent dispatches. Same quality gates. Same verification. Same deploy process. The orchestrator does the obvious thing (one spec = one job) instead of paying for an agent to figure out the obvious thing.
+
+#### How it works
+
+1. **New column:** `features.fast_track BOOLEAN DEFAULT false`
+2. **At `ready_for_breakdown`:** the orchestrator checks `fast_track`. If true, instead of dispatching a breakdown-specialist:
+   - Creates one job directly: title from feature title, spec from feature spec, role = `senior-engineer`, complexity = `simple`, job_type = `code`
+   - Transitions feature to `building` (same as post-breakdown state)
+3. **At job completion:** single-job combine skip already handles this (Deliverable 1, item 7)
+4. **Verification runs normally** — feature goes through `ready_to_test` → verify → deploy as usual
+
+#### What fast-track does NOT change
+
+- Feature still exists with a spec — full traceability
+- Job has a `feature_id` — no constraint issues
+- Verification still catches bugs — quality gates preserved
+- Deploy gates still apply
+- CPO has full visibility via pipeline queries
+- `source` remains `'pipeline'` — this is pipeline work, just streamlined
+
+#### CPO workflow with fast-track
+
+```
+1. Create feature (title + one-paragraph spec)
+2. Set fast_track: true
+3. Push to ready_for_breakdown
+4. Orchestrator auto-creates job, dispatches engineer
+5. Engineer builds, orchestrator skips combine, runs verify
+6. Done — two agent hops instead of four
+```
+
+The `update_feature` MCP tool gains a `fast_track` boolean parameter. Or the CPO can set it at creation time.
+
+#### Impact on standalone dispatch
+
+Fast-track eliminates the main motivation for standalone engineering jobs. The plan (line 76) already routes engineering quick fixes through the pipeline as single-job features. Fast-track makes this fast enough that there's no temptation to bypass quality gates.
+
+**Standalone dispatch (Path B) narrows to truly non-code work only:**
+- `pipeline-technician` running SQL to unstick things
+- `monitoring-agent` investigating signals
+- `project-architect` structuring plans
+
+These don't need verification gates and don't produce code. The boundary becomes cleaner: if it produces code, it goes through the pipeline (fast-track or standard). If it's operational, it goes standalone.
+
+#### Implementation
+
+Fast-track adds minimal complexity to Deliverable 1:
+
+| Item | Change |
+|------|--------|
+| Migration 066 | Add `fast_track BOOLEAN DEFAULT false` to features table |
+| `update_feature` edge function | Accept `fast_track` parameter |
+| `triggerBreakdown()` in orchestrator | Check `fast_track` flag; if true, insert job directly instead of dispatching breakdown-specialist |
+| Deliverable 1, item 7 (single-job combine skip) | Already covers the downstream path |
+
+No changes needed to: executor, MCP tools, agent prompts, or the standalone dispatch path.
+
+#### One-way door assessment
+
+| Decision | Severity | Notes |
+|----------|----------|-------|
+| `fast_track` column on features | REVERSIBLE | Boolean flag, default false, existing features unaffected |
+| Orchestrator creates job directly | REVERSIBLE | Can revert to always dispatching breakdown-specialist |
+| Combine skip for single-job features | Already approved in v3.2 | Part of Deliverable 1 |
+
+Low risk. Default-off. Can be enabled per-feature as confidence grows.
+
+### Updated migration 066
+
+Combining the conditional constraint, source column, and fast-track into one migration:
+
+```sql
+-- Migration 066: Standalone dispatch + fast-track pipeline support
+
+-- 1. Source column for job origin tracking
+ALTER TABLE jobs ADD COLUMN source TEXT NOT NULL DEFAULT 'pipeline';
+
+-- 2. Conditional feature_id constraint — pipeline jobs must have feature_id, standalone jobs don't
+ALTER TABLE jobs DROP CONSTRAINT jobs_feature_id_required;
+ALTER TABLE jobs ADD CONSTRAINT jobs_feature_id_required
+  CHECK (source = 'standalone' OR feature_id IS NOT NULL);
+
+-- 3. Fast-track flag for simple single-job features
+ALTER TABLE features ADD COLUMN fast_track BOOLEAN NOT NULL DEFAULT false;
+
+-- 4. request_standalone_work() Postgres function
+-- [as defined in Deliverable 1, item 1]
+
+-- 5. Update all_feature_jobs_complete() to filter by source
+-- [as defined in Deliverable 1, item 8]
+```
+
+### Revised Deliverable 1 summary
+
+Items 1-7 from the original plan remain unchanged. Added:
+
+| # | Item | Notes |
+|---|------|-------|
+| 8 | Conditional `jobs_feature_id_required` constraint | Part of migration 066 |
+| 9 | `fast_track` column on features | Part of migration 066 |
+| 10 | `triggerBreakdown()` fast-track path | Auto-create single job when `fast_track = true` |
+| 11 | `update_feature` edge function accepts `fast_track` | Enables CPO to set the flag via MCP |

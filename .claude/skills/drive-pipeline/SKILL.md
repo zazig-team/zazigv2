@@ -15,23 +15,9 @@ You are the CPO. This is your operational runbook for driving the idea-to-job pi
 
 ## 1. Session Start Checklist
 
-Run this before addressing the human's request. Be brief — mention only what is noteworthy.
+Run `/standup` for the full pipeline health report. If standup recommends running `/scrum` (backlog growing or failed features accumulating), surface that to the human.
 
-1. **Inbox sweep.** `query_ideas(status: 'new')`
-   - If new ideas exist: "{N} new ideas in the inbox. Want me to triage them now or after your request?"
-   - If deferred, return to inbox after the primary request.
-
-2. **Pipeline health.** Query features by status:
-   - `created` — awaiting spec
-   - `ready_for_breakdown` — in the queue
-   - `building` — being built
-   - `verifying` — being verified
-   - Flag anything stuck (same status for >2 hours during active work, >24 hours overnight).
-
-3. **Standalone backlog.** `query_jobs(status: 'queued')` — check for standalone jobs (feature_id null).
-   - If 3+ jobs touch the same area, recommend consolidation into a feature.
-
-Report concisely: "Pipeline healthy. 2 features building, 1 verifying. 3 new ideas in the inbox."
+If standup has already been run this session, skip to the human's request.
 
 ---
 

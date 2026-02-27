@@ -920,7 +920,7 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
   // Fetch the job to check type, feature_id, context, etc.
   const { data: jobRow, error: fetchErr } = await supabase
     .from("jobs")
-    .select("job_type, context, feature_id, company_id, project_id, branch, acceptance_tests, result, role, source")
+    .select("job_type, context, feature_id, company_id, project_id, branch, acceptance_tests, result, role, source, machine_id")
     .eq("id", jobId)
     .single();
 

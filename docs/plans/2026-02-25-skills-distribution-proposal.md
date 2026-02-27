@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-25
 **Author:** CPO
-**Status:** Proposal
+**Status:** Proposal v3 — Updated 2026-02-27 with full redundancy audit, standup/scrum redesign, scrum-manager agent path
 **Companion docs:** [Persistent Agent Bootstrap Parity](2026-02-25-persistent-agent-bootstrap-parity-proposal.md)
 
 ---
@@ -251,15 +251,27 @@ Alternatively, if restructuring `projects/skills/` is disruptive, the symlink cr
 Not all agents get all skills. The database defines the mapping:
 
 ```sql
--- roles table
-cpo:                  '{standup,cardify,review-plan,cpo,scrum,brainstorming}'
-cto:                  '{cto,multi-agent-review}'
-senior-engineer:      '{commit-commands:commit}'
-project-architect:    '{featurify}'
-breakdown-specialist: '{jobify}'
-monitoring-agent:     '{internal-proposal,deep-research,x-scan,repo-recon}'
-verification-specialist: '{verify-feature}'
+-- roles table (current as of 2026-02-27)
+breakdown-specialist:     '{jobify,batch_create_jobs}'
+code-reviewer:            '{brainstorming}'
+cpo:                      '{brainstorming,ideaify,drive-pipeline}'
+cto:                      '{cto,multi-agent-review}'
+monitoring-agent:         '{internal-proposal,deep-research,x-scan,repo-recon}'
+product_manager:          '{deep-research,second-opinion,repo-recon,review-plan,brainstorming,cardify}'
+project-architect:        '{featurify}'
+reviewer:                 '{multi-agent-review}'
+senior-engineer:          '{commit-commands:commit}'
+verification-specialist:  '{verify-feature}'
+-- deployer, job-combiner, junior-engineer, pipeline-technician, test-deployer, tester: no skills
 ```
+
+**Note (v2):** This mapping has changed significantly since v1 of this proposal. CPO lost `standup`, `cardify`, `review-plan`, `cpo`, `scrum` and gained `ideaify`, `drive-pipeline`. `product_manager` role was added with `cardify`. `batch_create_jobs` was added for breakdown-specialist. The distribution system must read from the DB at sync time, not use a hardcoded list.
+
+**Pending DB changes (v3 — after redundancy audit):**
+- `cto`: remove `cto` from skills → becomes `'{multi-agent-review}'`
+- `product_manager`: remove `cardify` from skills → becomes `'{deep-research,second-opinion,repo-recon,review-plan,brainstorming}'`
+- CPO: add `scrum` once rewritten → becomes `'{brainstorming,ideaify,drive-pipeline,scrum}'`
+- `drive-pipeline` may be renamed to `standup` (merge decision) — update DB if so
 
 The distribution system uses these arrays to determine which skills to symlink into each workspace. The resolution logic:
 
@@ -476,6 +488,164 @@ The proposal does not change `assembleContext`'s behaviour for ephemeral jobs. F
 
 ---
 
+## Skill Lifecycle: Removal and Cleanup *(v2)*
+
+The original proposal covers distribution (getting skills to agents) but not the reverse: removing skills that are no longer needed. Without cleanup, workspaces accumulate stale skill symlinks/copies that waste context and confuse agents.
+
+### When a skill becomes redundant
+
+A skill is redundant when:
+- Its functionality is replaced by pipeline infrastructure (e.g. `cardify` — Trello card creation replaced by features/jobs pipeline)
+- The role it was assigned to no longer needs it (e.g. CPO no longer needs `standup` as a pipeline skill)
+- The skill was experimental and didn't work out
+
+### Redundant skills audit *(v3)*
+
+Full audit of skills that are dead, redundant, or need redesign. Covers both pipeline skills (`projects/skills/`) and Claude Code user skills (`~/.claude/skills/`).
+
+#### Delete — no longer needed
+
+| Skill | Location | Was assigned to | Why redundant | Action |
+|-------|----------|-----------------|---------------|--------|
+| `cardify` | `~/.claude/skills/cardify/` | product_manager | Pipeline handles work items as features/jobs. The `.cards.md` intermediate format is dead — nobody reads it. Trello is Tom's personal WIP board, not a pipeline input. cardify's core function (translating plans into work items with dependency graphs, implementation prompts, complexity estimates) is now handled by `featurify` + `jobify` in the pipeline. | Remove from product_manager `skills[]`. Delete from repo `.claude/skills/`. Tom can keep his global symlink if he wants it for personal use, but it should not be distributed. |
+| `standalone-job` | `projects/skills/` | (none currently) | Contractor dispatch plan v3.5 replaces this with `request_work` MCP tool. The skill's instructions about creating standalone jobs with Gherkin AC are architecturally wrong (jobs require `feature_id` at DB level). | Delete from `projects/skills/`. |
+| `cpo` | `~/.claude/skills/cpo/` | (was CPO, removed from DB) | Points entirely to retired system: `~/Documents/GitHub/trw-projects/CPO-CLAUDE.md`, `~/.chainmaker/agents/cpo/`. References `qmd query` for memory search, `VP-Eng` for delegation. None of these paths exist. In zazigv2, CPO identity comes from workspace `CLAUDE.md` + auto-memory. | Delete from repo `.claude/skills/`. Remove Tom's global symlink. |
+| `cto` | `~/.claude/skills/cto/` | cto (in DB) | Same issue as `cpo`. Points to `~/Documents/GitHub/trw-projects/CTO-CLAUDE.md`, `~/.chainmaker/agents/cto/`. References `VP-Eng`, `trello-lite`, old board IDs. CTO in zazigv2 has its own workspace CLAUDE.md. | Remove from cto `skills[]` in DB. Delete from repo `.claude/skills/`. **Note:** cto role currently has `'{cto,multi-agent-review}'` — after removing `cto`, it keeps `multi-agent-review`. |
+
+#### Redesign — structure is useful, content is wrong
+
+| Skill | Location | Status | What's wrong | What to keep | Redesign plan |
+|-------|----------|--------|-------------|-------------|---------------|
+| `standup` | `~/.claude/skills/standup/` | Not in any DB role | All data sources point to old system: `.project-status.md` across `~/Documents/GitHub/*`, 10+ Trello board IDs, `cpo-state.json`, Solomon Bridge. | The parallel-gather → synthesize → present structure is solid. Target of < 90 seconds and max 8 lines per section is good discipline. | **Merge into `drive-pipeline`** as the renamed skill. "Standup" is what humans say; `drive-pipeline` is what it does. Combined skill does: inbox sweep, pipeline health, stuck items, status presentation. See section below. |
+| `scrum` | `~/.claude/skills/scrum/` | Not in any DB role | All inputs/outputs wrong: scans 11 Trello boards, moves cards between lists, references `focusProjects`, `VP-Eng`, per-project roadmaps. | The ceremony structure (parallel review → CPO triage → present → execute) is excellent design. The three-bucket triage (greenlight / decision needed / blocked) is exactly right. | **Rewrite as pipeline scrum.** Inputs: `created` features backlog, `failed` features, active pipeline capacity. Outputs: what to push to `ready_for_breakdown`, what to retry/re-spec/deprioritise. See section below. |
+
+### Standup/drive-pipeline merge *(v3)*
+
+Rename `drive-pipeline` to `standup` (or keep both names as aliases). The combined skill runs on every CPO session start:
+
+**Data sources (all MCP tools):**
+1. `query_ideas(status: 'new')` — inbox count
+2. `query_features` by status — pipeline health breakdown
+3. `query_jobs(status: 'dispatched')` — active work
+4. `query_jobs(status: 'queued')` — pending work
+
+**Output format:**
+```
+## Standup — {date}
+
+**Inbox:** {N} new ideas awaiting triage
+**Pipeline:** {N} active (breakdown/building/testing) | {N} created (backlog) | {N} failed | {N} complete
+**Active work:** {list of features in flight with current status}
+**Stuck items:** {features that haven't changed status in >24h}
+**Failed (needs attention):** {failed features, sorted by priority}
+**Completed since last standup:** {recent completions}
+```
+
+**Trigger to scrum:** If `created` count > 5 or `failed` count > 3, append:
+```
+Backlog is growing — want to run scrum to prioritise?
+```
+
+### Scrum redesign *(v3)*
+
+Pipeline-native sprint planning ceremony. The three-phase structure stays, the data sources change completely.
+
+**Phase 1: Pipeline review**
+- Query all features by status
+- Group: `created` (backlog), `failed` (needs triage), `breakdown`/`building`/`testing` (active)
+- For failed features: check failure reason, attempt count, last failure timestamp
+- For created features: check if spec is written, if dependencies are met
+
+**Phase 2: CPO triage**
+Same three-bucket model, adapted:
+
+- **Greenlight** → specced, unblocked, and pipeline has capacity. Push to `ready_for_breakdown`.
+- **Decision needed** → multiple features competing for pipeline capacity, or feature needs re-spec after failure.
+- **Blocked** → dependency not met (another feature must ship first), or needs human action.
+
+Triage rules:
+- If a created feature has a spec AND no unmet dependencies AND pipeline has < 3 features in breakdown → Greenlight
+- If a failed feature failed once on a transient error → Greenlight retry
+- If a failed feature failed 2+ times → Decision needed (re-spec or deprioritise?)
+- If a created feature has no spec → Blocked (needs CPO to write spec)
+- If pipeline is at capacity (3+ features in breakdown) → park everything until slots open
+
+**Phase 3: Present and execute**
+Same format as the old scrum skill, adapted for pipeline:
+```
+## Sprint Planning
+
+### Greenlight (pushing to breakdown)
+- {feature title} — {one line reason}
+
+### Decisions for you
+1. {feature title} — {question: retry, re-spec, or deprioritise?}
+
+### Blocked
+- {feature title} — {blocker: needs spec / depends on X / needs human action}
+
+### Failed (recommending deprioritise)
+- {feature title} — {reason: failed 3x, architectural issue}
+
+Total: X features pushed, Y need your call, Z blocked.
+```
+
+After Tom approves, CPO executes: `update_feature(status: 'ready_for_breakdown')` for greenlighted features.
+
+### Scrum-manager agent path *(v3)*
+
+The scrum skill is designed so a persistent `scrum-manager` agent can run the same triage logic autonomously later. The escalation model:
+
+**Short term (now):** CPO runs scrum interactively. Human approves all scheduling decisions.
+
+**Medium term:** Scrum-manager persistent agent on a heartbeat (daily or every 6 hours):
+- Auto-retries transient failures
+- Auto-schedules unblocked, specced features in priority order
+- Escalates to CPO for: priority conflicts, repeated failures (2+), resource contention
+- Produces daily digest for CPO review
+
+**The boundary:** Produces code → pipeline (standard or fast-track). Non-code operational → standalone dispatch. Scheduling decisions within the pipeline → scrum-manager. Strategic priority calls → CPO.
+
+Idea captured in inbox: `59f207d9` — Scrum-Manager Persistent Agent.
+
+### Removal workflow
+
+When removing a skill from distribution:
+
+1. **Remove from DB:** `UPDATE roles SET skills = array_remove(skills, '{skill-name}') WHERE '{skill-name}' = ANY(skills);`
+2. **Clean up workspaces:** `zazig skills sync` detects skills in workspaces that are no longer in the role's `skills[]` array. It removes the symlink/copy and reports the removal.
+3. **Optionally delete skill file:** If the skill is truly dead, delete it from the repo. If it's still useful for personal/manual use, keep it.
+
+### `zazig skills sync` cleanup behaviour
+
+The sync command gains removal logic:
+
+```
+$ zazig skills sync
+
+Syncing skills for CPO workspace...
+  ✓ brainstorming      → already symlinked, target valid
+  ✓ ideaify            → already symlinked, target valid
+  ✓ drive-pipeline     → already symlinked, target valid
+  - cardify            → REMOVED (no longer in role skills)
+  - standup            → REMOVED (no longer in role skills)
+
+Done. 1 workspace synced, 2 skills removed, 0 skills added.
+```
+
+The removal is safe because:
+- Only removes skills that are NOT in the role's current `skills[]` array
+- Only removes from the `.claude/skills/{name}/` directory in the workspace — does not touch the repo source
+- Logs every removal for auditability
+
+### Global skills vs workspace skills
+
+Important distinction: removing a skill from a role's `skills[]` array removes it from **workspace distribution** (pipeline agents). It does NOT remove it from Tom's **global** `~/.claude/skills/` directory. Skills in the global dir are Tom's personal toolkit — available in all his Claude Code sessions regardless of role assignments.
+
+For example, `cardify` removed from product_manager's `skills[]` means pipeline agents don't get it. But Tom's global symlink `~/.claude/skills/cardify -> zazigv2/.claude/skills/cardify` still works for his personal sessions.
+
+---
+
 ## Implementation Plan
 
 ### Phase 1: Close the persistent agent gap (standalone, no CLI changes)
@@ -534,6 +704,7 @@ The proposal does not change `assembleContext`'s behaviour for ephemeral jobs. F
 - **Hot reload of running Claude Code sessions.** Even with symlinks, a Claude Code session that has already loaded a skill into its context will not re-read the file mid-conversation. The symlink ensures the next invocation of `/command` reads the latest version, but an in-flight conversation uses whatever was loaded at invocation time. This is a Claude Code limitation, not a distribution issue.
 - **Remote skill distribution.** This proposal covers single-machine deployments where the repo and workspaces are on the same filesystem. Multi-machine distribution (skills served from a CDN or Supabase) is a separate concern for when zazigv2 supports remote agents.
 - **Skill testing.** There is no mechanism to test a skill before distributing it. A broken skill pushed to `main` will be distributed to all agents. This is a gap but not in scope for distribution plumbing.
+- **Global skill management.** Tom's personal `~/.claude/skills/` directory is managed manually. This proposal only covers workspace distribution for pipeline agents. *(v2 clarification)*
 
 ---
 

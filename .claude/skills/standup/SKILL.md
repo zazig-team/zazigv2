@@ -1,101 +1,99 @@
 ---
 name: standup
-description: Use when starting a session, when Tom says "standup", "what's happening", "status", or "catch me up". Gathers wins, board state, PRs, blockers, and decisions across focus projects.
+description: "Pipeline standup — gather pipeline health, inbox state, active work, stuck/failed items. Use when starting a session, when someone says 'standup', 'status', 'what's happening', or 'catch me up'."
 ---
 
-# Standup
+# /standup
 
-Parallel data gather across all focus projects, synthesize into a concise status for Tom.
+**Role:** CPO
+**Type:** Operational — gathers state and presents status
+**Target:** < 60 seconds, < 30 lines output
 
-## Phase 1: Gather State (all in parallel)
+Run this at session start or when the human asks for status. This is the pipeline equivalent of a daily standup: what shipped, what's active, what's stuck, what needs attention.
 
-Launch these simultaneously:
+---
 
-1. **Focus projects** — grep `focus: true` across `~/Documents/GitHub/*/.project-status.md`
-2. **State files** — read `~/.local/share/trw-projects/cpo-standup.md` and `cpo-state.json` (skip if missing)
-3. **Solomon Bridge** — check for Tom's responses and new ideas:
-   - `trello-lite cards 698f61e6dee5f9a3a11df812` → "Tom Responded"
-   - `trello-lite cards 698f61e65141890fafb8bcb8` → "From Tom"
+## Phase 1: Parallel Data Gather
 
-## Phase 2: Parallel Project Scans
+Run all of these simultaneously (parallel tool calls):
 
-Launch **one Sonnet subagent per focus project** — all in parallel. Each gets:
+1. **Inbox sweep:** `query_ideas(status: 'new')` — count new ideas
+2. **Pipeline features:** `query_features(project_id: '{zazigv2-project-id}')` — all features, all statuses
+3. **Active jobs:** `query_jobs(status: 'dispatched')` — what's running right now
+4. **Queued jobs:** `query_jobs(status: 'queued')` — what's waiting
 
-```
-You are scanning {PROJECT_NAME} for standup.
+If you have the project ID cached, use it. Otherwise query projects first.
 
-1. Read {PROJECT_DIR}/.project-status.md
-2. Check open PRs: cd {PROJECT_DIR} && gh pr list --state open
-3. Check Trello board using trello-lite:
-   - trello-lite cards from "In Progress" list on board {BOARD_ID}
-   - trello-lite cards from "Review" list
-   - trello-lite cards from "Needs Human" list
-4. Check git log for recent merges: git log --oneline --since="24 hours ago" main
+---
 
-Return EXACTLY this format:
+## Phase 2: Classify and Count
 
-## {Project Name}
-- SHIPPED: {what merged in last 24h, if any}
-- IN PROGRESS: {card titles, one line each}
-- PRS: {open PR# — title — status (mergeable/conflicts/blocked)}
-- NEEDS HUMAN: {what Tom must do}
-- BLOCKED: {what's stuck and why}
-- DECISIONS: {what Tom needs to decide}
+Group features by status into these buckets:
 
-Omit empty sections. Max 8 lines total.
-```
+| Bucket | Statuses | Meaning |
+|--------|----------|---------|
+| **Backlog** | `created` | Awaiting spec or scheduling |
+| **Active** | `ready_for_breakdown`, `breakdown`, `building`, `deploying_to_test`, `testing`, `combining`, `reviewing` | In the pipeline, being worked on |
+| **Failed** | `failed` | Hit an error, needs triage |
+| **Complete** | `complete`, `deployed` | Shipped |
 
-**Board ID mapping** (same as scrum skill):
+For failed features, note:
+- Priority (high failures are more urgent)
+- How long they've been failed (> 24h is stale)
 
-| Project | Directory | Board ID |
-|---------|-----------|----------|
-| marginscape | ~/Documents/GitHub/marginscape | 698da08110a5b7143027f73a |
-| spine-platform | ~/Documents/GitHub/spine-platform | 698da08273c24f82e0ba2c1a |
-| ink | ~/Documents/GitHub/ink | 698da081c9e429bbfb793fef |
-| tbx-ios | ~/Documents/GitHub/tbx-ios | 698da08291deb191e8a57ea8 |
-| athena | ~/Documents/GitHub/athena | 698da082c794c6412c8ae734 |
-| charms | ~/Documents/GitHub/charms-at-citygate | 698da0835375ce7392a036e1 |
-| pang | ~/Documents/GitHub/pang | 698da083d483990d53d82d47 |
-| aida | ~/Documents/GitHub/aida | 698da2b37498e43e1e9b6c7c |
-| quire | ~/Documents/GitHub/quire | 698e217ab215b5b171fadae4 |
-| colophon | ~/Documents/GitHub/colophon | 698e0821aed8cd77e87f5628 |
+For active features, note:
+- Which stage they're in
+- Whether they appear stuck (same status for > 2 hours during work hours)
 
-Only scan projects from the focus list (Phase 1 result).
+---
 
-## Phase 3: Synthesize
+## Phase 3: Present
 
-Combine subagent reports + Solomon Bridge + state files into this format:
+Output this format. Omit empty sections entirely.
 
 ```
 ## Standup — {date}
 
-**Wins since last standup:**
-- {Project}: {what shipped/merged}
+**Inbox:** {N} new ideas awaiting triage
+**Pipeline:** {active} active | {backlog} backlog | {failed} failed | {complete} complete
 
-**Open PRs:**
-- {Project} #{N}: {title} — {mergeable | conflicts | needs review}
+**Active work:**
+- {feature title} — {status} ({time in status if notable})
 
-**In progress:**
-- {Project}: {card title}
+**Stuck (no progress > 24h):**
+- {feature title} — {status} since {date}
 
-**Decisions needed:**
-1. {Project}: {question}
+**Failed (needs attention):**
+- {feature title} — {priority} — failed {date}
 
-**Needs your attention:**
-- {Project}: {what needs human action}
-
-**Solomon Bridge:**
-- {any responses from Tom or new ideas from "From Tom"}
-
-**Focus projects:** {list}
+**Recently completed:**
+- {feature title} — completed {date}
 ```
 
-Omit empty sections entirely. Keep total output under 30 lines.
+Keep it scannable. No IDs, no UUIDs, no JSON. Human-readable titles only.
+
+---
+
+## Phase 4: Trigger Recommendations
+
+After presenting status, check these thresholds and append recommendations:
+
+| Condition | Recommendation |
+|-----------|---------------|
+| New ideas > 0 | "Want me to triage the inbox?" |
+| Failed features > 3 | "Failed features are accumulating — recommend running /scrum to triage." |
+| Backlog (`created`) > 5 AND active < 2 | "Pipeline has capacity. Want to run /scrum to schedule more work?" |
+| Active features > 5 | "Pipeline is at capacity. No scheduling recommendations." |
+| Stuck features > 0 | "These look stuck — want me to investigate?" |
+
+Only show the most relevant 1-2 recommendations. Don't overwhelm.
+
+---
 
 ## Rules
 
-- Subagents return max 8 lines per project — enforce in prompt
-- Use `trello-lite` for reads, never Trello MCP directly in thread
-- Target: < 90 seconds total (parallel subagents are the bottleneck)
-- If state files are fresh (< 2 hours), lean on them instead of full Trello scans
-- Present and WAIT — Tom drives what happens next
+- Total output under 30 lines
+- No tool calls shown to user — just the synthesised status
+- If pipeline is completely empty (no features at all), say so and suggest capturing work via the ideas inbox
+- If this is a session start, run silently and present as part of the greeting — don't announce "running standup"
+- After standup, yield to whatever the human wants to do. Standup is informational, not a workflow gate.

@@ -62,7 +62,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     const body = await req.json();
-    const { feature_id, title, description, priority, status, spec, acceptance_tests, human_checklist, job_id } = body;
+    const { feature_id, title, description, priority, status, spec, acceptance_tests, human_checklist, fast_track, job_id } = body;
 
     if (!feature_id) {
       return jsonResponse({ error: "feature_id is required" }, 400);
@@ -76,6 +76,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
+    if (fast_track !== undefined && typeof fast_track !== "boolean") {
+      return jsonResponse({ error: "fast_track must be a boolean when provided" }, 400);
+    }
+
     // Build update payload
     const updates: Record<string, unknown> = {};
     if (title !== undefined) updates.title = title;
@@ -85,6 +89,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (spec !== undefined) updates.spec = spec;
     if (acceptance_tests !== undefined) updates.acceptance_tests = acceptance_tests;
     if (human_checklist !== undefined) updates.human_checklist = human_checklist;
+    if (fast_track !== undefined) updates.fast_track = fast_track;
     // job_id and company_id are used for auth/resolution only — not stored on features
 
     if (Object.keys(updates).length === 0) {

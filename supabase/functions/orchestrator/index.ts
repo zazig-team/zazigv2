@@ -1658,20 +1658,39 @@ export async function notifyCPO(
  * Transitions feature from 'building' → 'combining' and creates a combine job.
  */
 export async function triggerCombining(supabase: SupabaseClient, featureId: string): Promise<void> {
-  // 1. Fetch all completed job branches for this feature (exclude breakdown, combine, verify jobs)
+  // 1. Fetch all completed pipeline jobs for this feature.
   const { data: jobs, error: jobsErr } = await supabase
     .from("jobs")
-    .select("id, branch, depends_on")
+    .select("id, branch, depends_on, job_type, source")
     .eq("feature_id", featureId)
-    .eq("status", "complete")
-    .neq("job_type", "breakdown")
-    .neq("job_type", "combine")
-    .neq("job_type", "verify");
+    .eq("status", "complete");
 
   if (jobsErr) {
     console.error(`[orchestrator] triggerCombining: failed to fetch job branches for feature ${featureId}:`, jobsErr.message);
     return;
   }
+
+  const completedPipelineJobs = ((jobs ?? []) as Array<{
+    id: string;
+    branch: string | null;
+    depends_on: string[] | null;
+    job_type: string;
+    source: string | null;
+  }>).filter((job) => !job.source || job.source === "pipeline");
+
+  const NON_IMPLEMENTATION_TYPES = new Set([
+    "breakdown",
+    "combine",
+    "verify",
+    "review",
+    "deploy_to_test",
+    "deploy_to_prod",
+    "feature_test",
+  ]);
+
+  const implementationJobs = completedPipelineJobs.filter(
+    (job) => !NON_IMPLEMENTATION_TYPES.has(job.job_type),
+  );
 
   // 2. Fetch feature details
   const { data: feature, error: fetchErr } = await supabase
@@ -1690,10 +1709,17 @@ export async function triggerCombining(supabase: SupabaseClient, featureId: stri
     return;
   }
 
+  // Single-job features have nothing to merge — go straight to verification.
+  if (implementationJobs.length <= 1) {
+    console.log(`[orchestrator] triggerCombining: feature ${featureId} has ${implementationJobs.length} implementation job(s), skipping combine`);
+    await triggerFeatureVerification(supabase, featureId);
+    return;
+  }
+
   // 3. Prepare combine context — only merge leaf branches (jobs not superseded by a dependent).
   // A job is a "leaf" if no other completed job in this feature lists it in depends_on.
   // Chain A→B→C: only C is a leaf (C already contains A+B). Fan-out A→[B,C]: both B and C are leaves.
-  const allJobs = (jobs ?? []) as Array<{ id: string; branch: string | null; depends_on: string[] | null }>;
+  const allJobs = implementationJobs;
   const supersededIds = new Set<string>();
   for (const j of allJobs) {
     for (const depId of (j.depends_on ?? [])) {
@@ -2414,7 +2440,7 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
   // 1. Fetch feature for company/project context
   const { data: feature, error } = await supabase
     .from("features")
-    .select("company_id, project_id, title, spec, acceptance_tests, branch")
+    .select("company_id, project_id, title, spec, acceptance_tests, branch, fast_track")
     .eq("id", featureId)
     .single();
 
@@ -2478,6 +2504,62 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
     } else {
       console.log(`[orchestrator] triggerBreakdown: cancelled ${staleIds.length} stale job(s) for feature ${featureId}`);
     }
+  }
+
+  // Fast-track: skip breakdown-specialist and create one direct engineering job.
+  if (feature.fast_track) {
+    const fastTrackSpec = (feature.spec ?? "").trim();
+    const fastTrackContext = fastTrackSpec.length > 0
+      ? fastTrackSpec
+      : `Implement feature "${feature.title ?? featureId}".`;
+
+    const { data: fastTrackJob, error: fastTrackErr } = await supabase
+      .from("jobs")
+      .insert({
+        company_id: feature.company_id,
+        project_id: feature.project_id,
+        feature_id: featureId,
+        title: feature.title ?? "Fast-track implementation",
+        role: "senior-engineer",
+        job_type: "code",
+        complexity: "simple",
+        slot_type: "claude_code",
+        status: "queued",
+        context: fastTrackContext,
+        acceptance_tests: feature.acceptance_tests ?? null,
+      })
+      .select("id")
+      .single();
+
+    if (fastTrackErr || !fastTrackJob) {
+      console.error(`[orchestrator] triggerBreakdown: failed to insert fast-track job for feature ${featureId}:`, fastTrackErr?.message);
+      return;
+    }
+
+    const { data: updated, error: updateErr } = await supabase
+      .from("features")
+      .update({ status: "building" })
+      .eq("id", featureId)
+      .eq("status", "ready_for_breakdown")
+      .select("id");
+
+    if (updateErr || !updated || updated.length === 0) {
+      if (updateErr) {
+        console.error(`[orchestrator] triggerBreakdown: failed to set fast-track feature ${featureId} to building:`, updateErr.message);
+      } else {
+        console.warn(`[orchestrator] triggerBreakdown: feature ${featureId} status changed before fast-track transition, cancelling job ${fastTrackJob.id}`);
+      }
+
+      await supabase
+        .from("jobs")
+        .update({ status: "cancelled", result: "fast_track_not_started_feature_status_changed" })
+        .eq("id", fastTrackJob.id)
+        .eq("status", "queued");
+      return;
+    }
+
+    console.log(`[orchestrator] triggerBreakdown: fast-track enabled for feature ${featureId} — queued job ${fastTrackJob.id}`);
+    return;
   }
 
   // 3. Insert breakdown job

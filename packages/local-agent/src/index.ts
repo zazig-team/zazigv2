@@ -30,9 +30,7 @@ import { loadConfig } from "./config.js";
 import { SlotTracker } from "./slots.js";
 import { AgentConnection } from "./connection.js";
 import { JobExecutor } from "./executor.js";
-import { JobVerifier } from "./verifier.js";
 import { FixAgentManager } from "./fix-agent.js";
-import { TestRunner } from "./test-runner.js";
 import { recoverDispatchedJobs } from "./job-recovery.js";
 import type { OrchestratorMessage, MessageInbound } from "@zazigv2/shared";
 
@@ -58,14 +56,6 @@ async function main(): Promise<void> {
   // and uses it for authenticated DB writes. No explicit authenticate() call needed.
   const conn = new AgentConnection(config, slots);
 
-  // Initialize job verifier — handles VerifyJob messages via role-driven Claude session
-  // conn.dbClient passed so the verifier can load the reviewer role prompt from the DB
-  const verifier = new JobVerifier(
-    config.name,
-    (msg) => conn.sendMessage(msg),
-    conn.dbClient,
-  );
-
   // Initialize job executor — passes messages back to orchestrator via conn.sendMessage
   // conn.dbClient (authenticated) is passed so the executor can write job status directly to the DB
   const executor = new JobExecutor(
@@ -76,12 +66,6 @@ async function main(): Promise<void> {
     conn.dbClient,
     config.supabase.url,
     config.supabase.anon_key,
-  );
-
-  // Initialize test runner — handles deploy_to_test messages (zazig.test.yaml recipes)
-  const testRunner = new TestRunner(
-    config.name,
-    (msg) => conn.sendMessage(msg),
   );
 
   // Initialize fix agent manager — spawns ephemeral Claude sessions during testing phase
@@ -109,34 +93,22 @@ async function main(): Promise<void> {
         console.log("[local-agent] Received health_check — heartbeat will be sent on next interval");
         break;
 
-      case "verify_job":
-        console.log(`[local-agent] Received verify_job — jobId=${msg.jobId}`);
-        void verifier.verify(msg);
-        break;
-
-      case "deploy_to_test":
-        console.log(
-          `[local-agent] Received deploy_to_test — featureId=${msg.featureId}, ` +
-            `branch=${msg.featureBranch}`
-        );
-        void testRunner.handleDeployToTest(msg);
-        break;
-
       case "message_inbound":
         console.log(`[local-agent] Received message_inbound — conversationId=${msg.conversationId}, from=${msg.from}`);
         executor.handleMessageInbound(msg as MessageInbound);
         break;
 
-      case "teardown_test":
-        console.log(
-          `[local-agent] Received teardown_test — featureId=${msg.featureId}`
-        );
-        void testRunner.runTeardown(msg.repoPath);
-        break;
-
       case "job_unblocked":
         console.log(`[local-agent] Job ${msg.jobId} unblocked — answer: ${msg.answer.slice(0, 80)}`);
         void executor.handleJobUnblocked(msg);
+        break;
+
+      // Legacy message types — orchestrator no longer sends these but they remain
+      // in the OrchestratorMessage union for backward compatibility during rollout.
+      case "verify_job":
+      case "deploy_to_test":
+      case "teardown_test":
+        console.warn(`[local-agent] Ignoring deprecated message type: ${msg.type}`);
         break;
 
       default: {

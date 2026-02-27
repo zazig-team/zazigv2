@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExecFn } from "./verifier.js";
+import type { ExecFn } from "./deployer.js";
 import {
   TestEnvDeployer,
   NetlifyAdapter,

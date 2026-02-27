@@ -10,7 +10,12 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { ExecFn } from "./verifier.js";
+/** Shell exec function signature used by deploy adapters (was in verifier.ts). */
+export type ExecFn = (
+  cmd: string,
+  args: string[],
+  opts: { cwd: string; timeout: number },
+) => Promise<{ stdout: string; stderr: string }>;
 
 const defaultExec = promisify(execFile);
 

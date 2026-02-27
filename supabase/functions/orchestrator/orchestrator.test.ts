@@ -580,7 +580,7 @@ Deno.test("handleFeatureApproved — feature in ready_to_test → marks deployin
   assertEquals((jobsChains[0].operations[0].args[0] as any).status, "complete");
   // deno-lint-ignore no-explicit-any
   const deployPayload = jobsChains[1].operations[0].args[0] as any;
-  assertEquals(deployPayload.job_type, "deploy");
+  assertEquals(deployPayload.job_type, "deploy_to_prod");
   assertEquals(deployPayload.role, "deployer");
   assertEquals(deployPayload.status, "queued");
   assertEquals(JSON.parse(deployPayload.context).target, "prod");
@@ -654,7 +654,7 @@ Deno.test("handleFeatureApproved — queues a prod deployer job after approval",
   assertEquals(deployInsert !== undefined, true);
   // deno-lint-ignore no-explicit-any
   const payload = deployInsert!.operations[0].args[0] as any;
-  assertEquals(payload.job_type, "deploy");
+  assertEquals(payload.job_type, "deploy_to_prod");
   assertEquals(payload.branch, "feat/prod");
   const context = JSON.parse(payload.context);
   assertEquals(context.target, "prod");

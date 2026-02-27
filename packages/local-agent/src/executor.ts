@@ -276,12 +276,15 @@ export class JobExecutor {
   async handleStartJob(msg: StartJob): Promise<void> {
     const { jobId, slotType, complexity, context, contextRef, model } = msg;
 
+    clearJobLogs(jobId);
+    jobLog(jobId, `START handleStartJob — slotType=${slotType}, complexity=${complexity}, model=${model}, role=${msg.role ?? "none"}, cardType=${msg.cardType}`);
     console.log(
       `[executor] handleStartJob — jobId=${jobId}, slotType=${slotType}, ` +
         `complexity=${complexity}, model=${model}`
     );
 
     if (this.activeJobs.has(jobId)) {
+      jobLog(jobId, `SKIP duplicate start_job — already active`);
       console.warn(`[executor] Duplicate start_job ignored for already-active jobId=${jobId}`);
       return;
     }
@@ -289,7 +292,9 @@ export class JobExecutor {
     // --- 1. Acquire slot (throws if none available) ---
     try {
       this.slots.acquire(slotType);
+      jobLog(jobId, `Slot acquired: ${slotType}`);
     } catch (err) {
+      jobLog(jobId, `FAILED no slot available: ${String(err)}`);
       console.error(`[executor] No slot available for jobId=${jobId}:`, err);
       await this.sendJobFailed(jobId, `No available slot: ${String(err)}`, "unknown");
       return;
@@ -308,7 +313,9 @@ export class JobExecutor {
     let taskContext: string;
     try {
       taskContext = await this.resolveContext(context, contextRef);
+      jobLog(jobId, `Context resolved (${taskContext.length} chars, ref=${contextRef ? "remote" : "inline"})`);
     } catch (err) {
+      jobLog(jobId, `FAILED to resolve context: ${String(err)}`);
       console.error(`[executor] Failed to resolve context for jobId=${jobId}:`, err);
       this.slots.release(slotType);
       await this.sendJobFailed(jobId, `Failed to resolve context: ${String(err)}`, "unknown");
@@ -417,6 +424,7 @@ export class JobExecutor {
       return;
     }
 
+    jobLog(jobId, `Tmux session started — session=${sessionName}, cmd=${cmd}, cwd=${ephemeralWorkspaceDir ?? "none"}`);
     console.log(`[executor] Tmux session started — session=${sessionName}, cmd=${cmd}`);
 
     // --- 6b. Start pipe-pane to stream session output to a log file ---
@@ -874,6 +882,7 @@ export class JobExecutor {
     const job = this.activeJobs.get(jobId);
     if (!job || job.settled) return;
 
+    jobLog(jobId, `TIMEOUT after ${JOB_TIMEOUT_MS / 60_000} min`);
     console.warn(`[executor] Job timed out after ${JOB_TIMEOUT_MS / 60_000} min — jobId=${jobId}`);
     job.settled = true;
     this.clearJobTimers(job);
@@ -926,6 +935,8 @@ export class JobExecutor {
     const job = this.activeJobs.get(jobId);
     if (!job || job.settled) return;
 
+    jobLog(jobId, `onJobEnded — role=${job.role ?? "none"}, worktree=${job.worktreePath ?? "none"}`);
+
     job.settled = true;
     this.clearJobTimers(job);
     this.activeJobs.delete(jobId);
@@ -954,18 +965,36 @@ export class JobExecutor {
     }
     candidatePaths.push(`${homeDir}/${rpPath}`);
 
+    // Fallback: some role prompts write reports under a different filename than
+    // the executor's convention ({role}-report.md).  Add known alternates so we
+    // find the report regardless of which name the agent used.
+    const REPORT_FALLBACKS: Record<string, string> = {
+      reviewer: ".claude/verify-report.md",
+      deployer: ".claude/deploy-report.md",
+      "test-deployer": ".claude/deploy-report.md",
+    };
+    const fallback = job.role ? REPORT_FALLBACKS[job.role] : undefined;
+    if (fallback && fallback !== rpPath) {
+      if (job.worktreePath) candidatePaths.push(`${job.worktreePath}/${fallback}`);
+      else if (job.workspaceDir) candidatePaths.push(`${job.workspaceDir}/${fallback}`);
+      candidatePaths.push(`${homeDir}/${fallback}`);
+    }
+
     let result = "Job completed.";
     let report: string | undefined;
+
+    jobLog(jobId, `Report search — rpPath=${rpPath}, fallback=${fallback ?? "none"}, candidates=${JSON.stringify(candidatePaths)}`);
 
     mkdirSync(archiveDir, { recursive: true });
     for (const candidatePath of candidatePaths) {
       try {
         renameSync(candidatePath, jobReportPath);
         report = readFileSync(jobReportPath, "utf-8");
+        jobLog(jobId, `Report FOUND at ${candidatePath} (${report.length} chars)`);
         console.log(`[executor] Claimed report for jobId=${jobId} from ${candidatePath} → ${jobReportPath}`);
         break;
       } catch {
-        // This candidate didn't have a report — try next
+        jobLog(jobId, `Report not at ${candidatePath}`);
       }
     }
 
@@ -979,7 +1008,9 @@ export class JobExecutor {
       } else {
         result = report.split("\n")[0] ?? "Job completed.";
       }
+      jobLog(jobId, `Report parsed — result="${result}"`);
     } else {
+      jobLog(jobId, `Report NOT FOUND — using default result "Job completed."`);
       console.log(`[executor] No report file for jobId=${jobId}, using default result`);
     }
 
@@ -1013,7 +1044,9 @@ export class JobExecutor {
       cleanupJobWorkspace(jobId);
     }
 
+    jobLog(jobId, `Sending JobComplete — result="${result}", hasReport=${!!report}`);
     await this.sendJobComplete(jobId, result, report);
+    jobLog(jobId, `JobComplete sent successfully`);
 
     // Trigger verification pipeline if a callback is registered.
     // The orchestrator may also send a VerifyJob in response to JobComplete,
@@ -1204,6 +1237,7 @@ export class JobExecutor {
     // Primary: write directly to DB.
     // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).
     if (!jobId.startsWith("persistent-")) {
+      jobLog(jobId, `DB write: status=complete, result="${result.slice(0, 100)}"`);
       const { error: dbErr } = await this.supabase
         .from("jobs")
         .update({
@@ -1215,7 +1249,10 @@ export class JobExecutor {
         .eq("id", jobId);
 
       if (dbErr) {
+        jobLog(jobId, `DB write FAILED: ${dbErr.message}`);
         console.warn(`[executor] sendJobComplete DB write failed for jobId=${jobId}: ${dbErr.message}`);
+      } else {
+        jobLog(jobId, `DB write succeeded`);
       }
     }
 
@@ -1235,6 +1272,7 @@ export class JobExecutor {
     error: string,
     failureReason: FailureReason
   ): Promise<void> {
+    jobLog(jobId, `FAILED — reason=${failureReason}, error="${error.slice(0, 200)}"`);
     // Primary: write directly to DB — persist error detail in result column.
     // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).
     if (!jobId.startsWith("persistent-")) {
@@ -1244,6 +1282,7 @@ export class JobExecutor {
         .eq("id", jobId);
 
       if (dbErr) {
+        jobLog(jobId, `DB write FAILED: ${dbErr.message}`);
         console.warn(`[executor] sendJobFailed DB write failed for jobId=${jobId}: ${dbErr.message}`);
       }
     }

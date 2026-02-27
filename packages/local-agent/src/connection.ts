@@ -265,16 +265,6 @@ export class AgentConnection {
       this.handleIncomingPayload(payload.payload);
     });
 
-    this.channel.on("broadcast", { event: "verify_job" }, (payload) => {
-      console.log(`[local-agent][DEBUG] Matched event=verify_job`);
-      this.handleIncomingPayload(payload.payload);
-    });
-
-    this.channel.on("broadcast", { event: "deploy_to_test" }, (payload) => {
-      console.log(`[local-agent][DEBUG] Matched event=deploy_to_test`);
-      this.handleIncomingPayload(payload.payload);
-    });
-
     this.channel.on("broadcast", { event: "job_unblocked" }, (payload) => {
       console.log(`[local-agent][DEBUG] Matched event=job_unblocked`);
       this.handleIncomingPayload(payload.payload);
@@ -282,11 +272,6 @@ export class AgentConnection {
 
     this.channel.on("broadcast", { event: "message_inbound" }, (payload) => {
       console.log(`[local-agent][DEBUG] Matched event=message_inbound`);
-      this.handleIncomingPayload(payload.payload);
-    });
-
-    this.channel.on("broadcast", { event: "teardown_test" }, (payload) => {
-      console.log(`[local-agent][DEBUG] Matched event=teardown_test`);
       this.handleIncomingPayload(payload.payload);
     });
 
@@ -341,7 +326,27 @@ export class AgentConnection {
 
   private handleIncomingPayload(payload: unknown): void {
     if (!isOrchestratorMessage(payload)) {
-      console.warn("[local-agent] Received invalid/unknown message, ignoring:", JSON.stringify(payload));
+      const obj = typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : {};
+      const jobId = typeof obj.jobId === "string" ? obj.jobId : undefined;
+      const msgType = typeof obj.type === "string" ? obj.type : "unknown";
+      const cardType = typeof obj.cardType === "string" ? obj.cardType : undefined;
+      console.warn(
+        `[local-agent] Rejected invalid message: type=${msgType}, jobId=${jobId ?? "none"}, cardType=${cardType ?? "none"}. ` +
+        `Full payload: ${JSON.stringify(payload)}`,
+      );
+      if (jobId) {
+        // Write to per-job log so it's findable
+        const { appendFileSync } = require("fs");
+        const { homedir } = require("os");
+        const logDir = `${homedir()}/.zazigv2/job-logs`;
+        try {
+          require("fs").mkdirSync(logDir, { recursive: true });
+          appendFileSync(
+            `${logDir}/${jobId}-pre-post.log`,
+            `${new Date().toISOString()} REJECTED by validator: type=${msgType}, cardType=${cardType ?? "none"}\n`,
+          );
+        } catch { /* best-effort */ }
+      }
       return;
     }
 

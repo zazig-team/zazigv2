@@ -590,6 +590,35 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       continue;
     }
 
+    // Validate context — the local agent's isStartJob validator requires either
+    // context (inline string) or contextRef. Jobs with null/empty context will be
+    // silently rejected by the agent, creating a zombie that consumes a slot forever.
+    // Fail these jobs immediately with a clear error instead of dispatching.
+    if (!job.context || (typeof job.context === "string" && job.context.trim().length === 0)) {
+      console.error(
+        `[orchestrator] Job ${job.id} has null/empty context — failing instead of dispatching (would be rejected by agent validator)`,
+      );
+      await supabase
+        .from("jobs")
+        .update({
+          status: "failed",
+          result: "null_context: job created without context/spec — cannot dispatch to agent",
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", job.id);
+
+      // Fail the parent feature if applicable (mirrors handleJobFailed logic).
+      if (job.feature_id) {
+        const errorDetail = `${job.role ?? job.job_type} job failed: null context — job was created without a context/spec`;
+        await supabase
+          .from("features")
+          .update({ status: "failed", error: errorDetail })
+          .eq("id", job.feature_id);
+        console.warn(`[orchestrator] Feature ${job.feature_id} marked as failed: ${errorDetail}`);
+      }
+      continue;
+    }
+
     // Atomically decrement the slot BEFORE marking the job dispatched.
     // Using .gt(slotColumn, 0) as a CAS guard: if two concurrent invocations both
     // see slots=2, only one will win the conditional UPDATE and get a rowCount > 0.
@@ -2206,6 +2235,32 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
     return;
   }
 
+  // 2b. Clean slate: cancel all stale jobs from previous breakdown attempts.
+  // When a feature is reset to ready_for_breakdown after a failed first attempt,
+  // old completed/failed breakdown, combine, verify, and implementation jobs linger.
+  // The combiner and all_feature_jobs_complete RPC will pick up these stale jobs,
+  // causing incorrect behaviour. Cancel them so downstream logic starts fresh.
+  const { data: staleJobs, error: staleErr } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("feature_id", featureId)
+    .in("status", ["complete", "failed", "cancelled"]);
+
+  if (!staleErr && staleJobs && staleJobs.length > 0) {
+    const staleIds = staleJobs.map((j: { id: string }) => j.id);
+    const { error: cancelErr } = await supabase
+      .from("jobs")
+      .update({ status: "cancelled", result: "superseded_by_re_breakdown" })
+      .eq("feature_id", featureId)
+      .in("id", staleIds);
+
+    if (cancelErr) {
+      console.error(`[orchestrator] triggerBreakdown: failed to cancel stale jobs for feature ${featureId}:`, cancelErr.message);
+    } else {
+      console.log(`[orchestrator] triggerBreakdown: cancelled ${staleIds.length} stale job(s) for feature ${featureId}`);
+    }
+  }
+
   // 3. Insert breakdown job
   const { data: job, error: insertErr } = await supabase
     .from("jobs")
@@ -2284,6 +2339,8 @@ async function processReadyForBreakdown(supabase: SupabaseClient): Promise<void>
  *   2. building → combining: all implementation jobs are complete
  *   3. combining → verifying: the latest combine job is complete
  *   4. verifying → deploying_to_test: the latest verify job is complete and passed
+ *   4b. deploying_to_test → ready_to_test: the latest deploy_to_test job is complete
+ *   4c. deploy_to_test zombie auto-fail: jobs stuck in executing/dispatched >15 min
  *   5. deploying_to_test: stuck recovery (5min timeout, max 3 retries/hour)
  *   6. deploying_to_prod → complete: the latest prod deploy job is complete
  */
@@ -2524,6 +2581,82 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
       // Passive verification: always proceed to deploy
       console.log(`[orchestrator] processFeatureLifecycle: passive verify done for feature ${feature.id} — initiating test deploy`);
       await initiateTestDeploy(supabase, feature.id);
+    }
+  }
+
+  // --- 4b. deploying_to_test → ready_to_test ---
+  // Features stuck in 'deploying_to_test' where the latest deploy_to_test job is
+  // already complete. The live path (handleDeployComplete) handles Slack notification
+  // and tester job creation — this fallback only does the status transition to
+  // prevent permanent stalls.
+  const { data: deployingTestFeatures, error: deployTestErr } = await supabase
+    .from("features")
+    .select("id")
+    .eq("status", "deploying_to_test")
+    .limit(50);
+
+  if (deployTestErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying deploying_to_test features for ready_to_test catch-up:", deployTestErr.message);
+  }
+
+  for (const feature of (deployingTestFeatures ?? []) as { id: string }[]) {
+    const { data: latestDeploy } = await supabase
+      .from("jobs")
+      .select("id, status")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "deploy_to_test")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (!latestDeploy || latestDeploy.length === 0) continue;
+    const job = latestDeploy[0] as { id: string; status: string };
+    if (job.status !== "complete") continue;
+
+    const { data: updated } = await supabase
+      .from("features")
+      .update({ status: "ready_to_test" })
+      .eq("id", feature.id)
+      .eq("status", "deploying_to_test") // CAS guard
+      .select("id");
+
+    if (updated && updated.length > 0) {
+      console.log(`[orchestrator] processFeatureLifecycle: deploy_to_test complete for feature ${feature.id} — advancing to ready_to_test (catch-up)`);
+    }
+    // Failed deploy jobs are handled by Task 0's central catch-up — no action needed here.
+  }
+
+  // --- 4c. deploy_to_test zombie job auto-fail ---
+  // deploy_to_test is not fully implemented yet. Jobs stuck in executing or
+  // dispatched for >15 minutes are always zombies. Auto-fail them so Task 0's
+  // failed job catch-up can mark the parent feature as failed.
+  const DEPLOY_ZOMBIE_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
+  const zombieCutoff = new Date(Date.now() - DEPLOY_ZOMBIE_THRESHOLD_MS).toISOString();
+
+  const { data: zombieDeployJobs, error: zombieErr } = await supabase
+    .from("jobs")
+    .select("id, feature_id")
+    .eq("job_type", "deploy_to_test")
+    .not("status", "in", '("complete","failed","queued")')
+    .lt("updated_at", zombieCutoff)
+    .limit(50);
+
+  if (zombieErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying zombie deploy_to_test jobs:", zombieErr.message);
+  }
+
+  for (const job of (zombieDeployJobs ?? []) as { id: string; feature_id: string }[]) {
+    const { data: updated } = await supabase
+      .from("jobs")
+      .update({
+        status: "failed",
+        result: "Auto-failed: deploy_to_test job stuck in executing/dispatched for >15 minutes (zombie)",
+      })
+      .eq("id", job.id)
+      .not("status", "in", '("complete","failed")') // CAS guard — don't overwrite terminal states
+      .select("id");
+
+    if (updated && updated.length > 0) {
+      console.warn(`[orchestrator] processFeatureLifecycle: auto-failed zombie deploy_to_test job ${job.id} for feature ${job.feature_id}`);
     }
   }
 

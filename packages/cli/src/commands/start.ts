@@ -25,6 +25,7 @@ import {
   removePidFileForCompany,
 } from "../lib/daemon.js";
 import { launchTui, discoverAgentSessions } from "./chat.js";
+import { syncSkillsForCompany } from "./skills.js";
 import { getVersion } from "../lib/version.js";
 
 function sleep(ms: number): Promise<void> {
@@ -199,6 +200,19 @@ export async function start(): Promise<void> {
     process.stdout.write(".");
   }
   console.log(agentSessions.length > 0 ? ` found ${agentSessions.length} agent(s).` : "");
+
+  // Best-effort skill link reconciliation for persistent workspaces.
+  try {
+    const sync = await syncSkillsForCompany(creds.supabaseUrl, anonKey, company.id);
+    console.log(
+      `Skills sync: added=${sync.added}, updated=${sync.updated}, removed=${sync.removed}, unchanged=${sync.unchanged}`,
+    );
+    for (const warning of sync.warnings) {
+      console.warn(warning);
+    }
+  } catch (err) {
+    console.warn(`Skills sync skipped: ${String(err)}`);
+  }
 
   if (noTui) {
     console.log("Zazig started successfully (headless).");

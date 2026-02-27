@@ -48,6 +48,7 @@ vi.mock("./branches.js", () => {
     removeJobWorktree = vi.fn().mockResolvedValue(undefined);
     pushJobBranch = vi.fn().mockResolvedValue(undefined);
     constructor() {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
       lastRepoManagerInstance = this;
     }
   }

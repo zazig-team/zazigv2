@@ -904,7 +904,7 @@ export class JobExecutor {
       existingSettings.hooks = {
         ...existingSettings.hooks,
         SessionStart: [
-          { type: "command", command: `bash ${freshnessScript}` },
+          { matcher: {}, hooks: [{ type: "command", command: `bash ${freshnessScript}` }] },
         ],
       };
       writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2));

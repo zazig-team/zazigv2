@@ -67,6 +67,17 @@ describe("createFeatureBranch", () => {
     const featureHead = git(repoDir, "rev-parse", branchName);
     expect(featureHead).toBe(mainHead);
   });
+
+  it("always branches from main even if HEAD is elsewhere", async () => {
+    git(repoDir, "checkout", "-b", "scratch");
+    commitFile("scratch.txt", "scratch branch\n", "scratch commit");
+
+    const mainHead = git(repoDir, "rev-parse", "main");
+    const featureBranch = await branches.createFeatureBranch(repoDir, "from-main");
+    const featureHead = git(repoDir, "rev-parse", featureBranch);
+
+    expect(featureHead).toBe(mainHead);
+  });
 });
 
 describe("createJobBranch", () => {
@@ -93,6 +104,19 @@ describe("rebaseOnBranch", () => {
     expect(result).toEqual({ success: true });
     expect(() => git(repoDir, "merge-base", "--is-ancestor", "main", featureBranch)).not.toThrow();
   });
+
+  it("returns failure and aborts rebase when conflicts occur", async () => {
+    const featureBranch = await branches.createFeatureBranch(repoDir, "rebase-conflict");
+    commitFile("conflict.txt", "feature version\n", "feature conflict");
+
+    git(repoDir, "checkout", "main");
+    commitFile("conflict.txt", "main version\n", "main conflict");
+
+    const result = await branches.rebaseOnBranch(repoDir, featureBranch, "main");
+    expect(result.success).toBe(false);
+    expect(result.error).toBeTruthy();
+    expect(() => git(repoDir, "rev-parse", "--verify", "REBASE_HEAD")).toThrow();
+  });
 });
 
 describe("mergeJobIntoFeature", () => {
@@ -104,6 +128,20 @@ describe("mergeJobIntoFeature", () => {
     const result = await branches.mergeJobIntoFeature(repoDir, jobBranch, featureBranch);
     expect(result).toEqual({ success: true });
     expect(() => git(repoDir, "merge-base", "--is-ancestor", jobCommit, featureBranch)).not.toThrow();
+  });
+
+  it("returns failure and aborts merge when conflicts occur", async () => {
+    const featureBranch = await branches.createFeatureBranch(repoDir, "merge-conflict");
+    const jobBranch = await branches.createJobBranch(repoDir, featureBranch, "merge-conflict-job");
+    commitFile("conflict.txt", "job version\n", "job conflict");
+
+    git(repoDir, "checkout", featureBranch);
+    commitFile("conflict.txt", "feature version\n", "feature conflict");
+
+    const result = await branches.mergeJobIntoFeature(repoDir, jobBranch, featureBranch);
+    expect(result.success).toBe(false);
+    expect(result.error).toBeTruthy();
+    expect(() => git(repoDir, "rev-parse", "--verify", "MERGE_HEAD")).toThrow();
   });
 });
 

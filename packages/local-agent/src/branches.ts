@@ -38,6 +38,7 @@ export const WORKTREE_BASE = join(process.env.HOME ?? "~", "Documents/GitHub/.wo
 
 export async function createFeatureBranch(repoDir: string, featureName: string): Promise<string> {
   const branchName = `feature/${featureName}`;
+  await git(repoDir, "checkout", "main");
   await git(repoDir, "checkout", "-b", branchName);
   return branchName;
 }

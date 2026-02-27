@@ -506,7 +506,7 @@ server.tool(
       spec: z.string().describe("Self-contained task description"),
       acceptance_tests: z.string().describe("Gherkin acceptance criteria with AC-{SEQ}-{NUM} IDs"),
       role: z.string().describe("Which worker type executes this (e.g. 'senior-engineer', 'junior-engineer')"),
-      job_type: z.enum(["code", "infra", "design", "research", "docs", "bug", "persistent_agent", "verify", "breakdown", "combine", "deploy_to_test", "deploy_to_prod", "review"]).describe("Category of work"),
+      job_type: z.enum(["code", "infra", "design", "research", "docs", "bug", "persistent_agent", "verify", "breakdown", "combine", "deploy_to_test", "deploy_to_prod", "review", "feature_test"]).describe("Category of work"),
       complexity: z.enum(["simple", "medium", "complex"]).describe("Estimated effort — routes to model"),
       depends_on: z.array(z.string()).optional().describe("Dependencies — use 'temp:N' for jobs in this batch (0-based index) or UUIDs for existing jobs"),
     })).describe("Array of job objects to create"),

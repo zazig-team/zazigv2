@@ -143,8 +143,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
           feature_id: null,
           title: resolvedTitle,
           context: idea.raw_text,
-          spec: idea.raw_text,
-          acceptance_tests: "Promoted from idea — define ACs",
           status: "queued",
           role: "senior-engineer",
           job_type: "code",

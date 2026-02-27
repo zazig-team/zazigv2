@@ -42,6 +42,9 @@ const POLL_INTERVAL_MS = 30_000;
 /** Kill the job after 60 minutes regardless of status. */
 const JOB_TIMEOUT_MS = 60 * 60_000;
 
+/** Kill interactive (human-in-loop) jobs after 30 minutes. */
+const INTERACTIVE_JOB_TIMEOUT_MS = 30 * 60_000;
+
 /** Shared report file written by claude/codex agents. */
 function reportRelativePath(role?: string): string {
   const reportFile = role ? `${role}-report.md` : "cpo-report.md";
@@ -309,6 +312,8 @@ export class JobExecutor {
       return;
     }
 
+    const isInteractive = msg.interactive === true;
+
     // --- 3. Resolve context (inline or remote ref) ---
     let taskContext: string;
     try {
@@ -396,7 +401,18 @@ export class JobExecutor {
     }
 
     // --- 4. Build command based on complexity/model ---
-    const { cmd, args } = buildCommand(slotType, complexity, model);
+    let cmd: string;
+    let cmdArgs: string[];
+    if (isInteractive) {
+      // Interactive TUI mode — no -p flag, agent can use /remote-control
+      const resolvedModel = msg.model && msg.model !== "codex" ? msg.model : "claude-sonnet-4-6";
+      cmd = "claude";
+      cmdArgs = ["--model", resolvedModel];
+    } else {
+      const built = buildCommand(slotType, complexity, model);
+      cmd = built.cmd;
+      cmdArgs = built.args;
+    }
     const sessionName = `${this.machineId}-${jobId}`;
 
     // --- 4b. Write prompt to file (piped via stdin to avoid CLI arg length limits) ---
@@ -417,7 +433,31 @@ export class JobExecutor {
 
     // --- 6a. Spawn tmux session ---
     try {
-      await spawnTmuxSession(sessionName, cmd, args, ephemeralWorkspaceDir, promptFilePath);
+      if (isInteractive) {
+        // Spawn TUI mode — prompt will be injected after startup delay
+        const claudeCmd = shellEscape([cmd, ...cmdArgs]);
+        const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
+        await execFileAsync("tmux", [
+          "new-session", "-d", "-s", sessionName,
+          ...(ephemeralWorkspaceDir ? ["-c", ephemeralWorkspaceDir] : []),
+          shellCmd,
+        ]);
+
+        // Inject the prompt after Claude Code initializes
+        setTimeout(async () => {
+          try {
+            const promptText = readFileSync(promptFilePath, "utf8");
+            await execFileAsync("tmux", ["send-keys", "-t", sessionName, "-l", promptText]);
+            await execFileAsync("tmux", ["send-keys", "-t", sessionName, "Enter"]);
+            jobLog(jobId, `Injected prompt into interactive session (${promptText.length} chars)`);
+          } catch (err) {
+            jobLog(jobId, `Failed to inject prompt: ${err}`);
+          }
+        }, CPO_STARTUP_DELAY_MS);
+      } else {
+        // Regular -p mode — pipe prompt via stdin
+        await spawnTmuxSession(sessionName, cmd, cmdArgs, ephemeralWorkspaceDir, promptFilePath);
+      }
     } catch (err) {
       console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
       this.slots.release(slotType);
@@ -467,10 +507,10 @@ export class JobExecutor {
     };
     this.activeJobs.set(jobId, activeJob);
 
-    // Timeout: kill after JOB_TIMEOUT_MS
+    // Timeout: kill after JOB_TIMEOUT_MS (or INTERACTIVE_JOB_TIMEOUT_MS for human-in-loop jobs)
     activeJob.timeoutTimer = setTimeout(() => {
       void this.onJobTimeout(jobId);
-    }, JOB_TIMEOUT_MS);
+    }, isInteractive ? INTERACTIVE_JOB_TIMEOUT_MS : JOB_TIMEOUT_MS);
 
     // Poll loop: check every POLL_INTERVAL_MS
     activeJob.pollTimer = setInterval(() => {
@@ -974,6 +1014,7 @@ export class JobExecutor {
       reviewer: ".claude/verify-report.md",
       deployer: ".claude/deploy-report.md",
       "test-deployer": ".claude/deploy-report.md",
+      tester: ".claude/tester-report.md",
     };
     const fallback = job.role ? REPORT_FALLBACKS[job.role] : undefined;
     if (fallback && fallback !== rpPath) {

@@ -142,8 +142,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
           company_id: idea.company_id,
           feature_id: null,
           title: resolvedTitle,
-          context: idea.refined_summary || idea.raw_text,
+          context: idea.raw_text,
+          spec: idea.raw_text,
+          acceptance_tests: "Promoted from idea — define ACs",
           status: "queued",
+          role: "senior-engineer",
+          job_type: "code",
+          complexity: "simple",
         })
         .select("id")
         .single();

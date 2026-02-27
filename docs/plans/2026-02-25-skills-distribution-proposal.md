@@ -2,8 +2,63 @@
 
 **Date:** 2026-02-25
 **Author:** CPO
-**Status:** Proposal v3 — Updated 2026-02-27 with full redundancy audit, standup/scrum redesign, scrum-manager agent path
+**Status:** Implemented v4 — Updated 2026-02-27 after PR1/PR2/PR3 merge to `master`
 **Companion docs:** [Persistent Agent Bootstrap Parity](2026-02-25-persistent-agent-bootstrap-parity-proposal.md)
+
+---
+
+## Implementation Update (2026-02-27)
+
+### What shipped
+
+1. **Phase 1 shipped (runtime skill distribution + persistent routing)**
+   - `packages/local-agent/src/workspace.ts`
+     - Added dual-registry skill resolution:
+       - `projects/skills/{name}.md`
+       - `projects/skills/{name}/SKILL.md`
+       - `.claude/skills/{name}/SKILL.md`
+     - Added `repoInteractiveSkillsDir` and `useSymlinks` support.
+     - Added symlink-first distribution with copy fallback.
+   - `packages/local-agent/src/executor.ts`
+     - Persistent routing now keys off `cardType === "persistent_agent"` (not hardcoded role name).
+     - Persistent synthetic messages use `cardType: "persistent_agent"`.
+     - Added repo root resolution helper and passed both skill registries into workspace setup.
+     - Persistent workspaces now use `useSymlinks: true`.
+
+2. **Phase 2 + Phase 3 shipped (CLI status/sync + startup reconciliation)**
+   - Added `zazig skills status` and `zazig skills sync`:
+     - `packages/cli/src/commands/skills.ts`
+     - `packages/cli/src/lib/skills.ts`
+   - Registered command in `packages/cli/src/index.ts`.
+   - Integrated best-effort sync into `zazig start` in `packages/cli/src/commands/start.ts`.
+
+3. **Phase 3 DB cleanup shipped (role skill arrays)**
+   - Added and applied migration:
+     - `supabase/migrations/066_role_skill_cleanup_v3.sql`
+   - Post-migration verification (remote DB):
+     - `cto`: `["multi-agent-review"]`
+     - `product_manager`: `["deep-research","second-opinion","repo-recon","review-plan","brainstorming"]`
+     - `cpo`: `["brainstorming","ideaify","drive-pipeline","scrum"]`
+
+### Validation run
+
+1. `packages/local-agent`: `npm run typecheck`, `npm run build` (pass)
+2. `packages/cli`: `npm run typecheck`, `npm run build` (pass)
+3. `local-agent` tests:
+   - `arch -x86_64 npm test -- workspace.test.ts executor.test.ts`
+   - Result: `30 passed (30)`
+4. Skills sync smoke checks:
+   - First sync added links and removed stale skills.
+   - Second sync was idempotent (no changes).
+   - Repo skill file edits reflected immediately through workspace symlinks.
+
+### Remaining optional work
+
+1. **Phase 4 not done**: pipeline skills directory-format migration (`projects/skills/*.md` -> `projects/skills/*/SKILL.md`) remains optional and unblocked.
+
+### Operational note
+
+During remote `supabase db push`, pending migrations `067_standalone_dispatch_fast_track.sql` and `068_request_work_tool_cleanup.sql` were also applied alongside `066`.
 
 ---
 
@@ -22,6 +77,8 @@ Tom's stated concern: "super worried about skills distribution and updating." Th
 ---
 
 ## Current State Analysis
+
+This section captures the **pre-implementation baseline** at proposal time (2026-02-25).
 
 ### Two skill registries
 

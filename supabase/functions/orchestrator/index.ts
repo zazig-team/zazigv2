@@ -27,6 +27,7 @@ import {
   isStopAck,
   isFeatureApproved,
   isFeatureRejected,
+  isVerifyResult,
   isDeployComplete,
   isJobBlocked,
 } from "@zazigv2/shared";
@@ -43,6 +44,8 @@ import type {
   TeardownTest,
   FeatureApproved,
   FeatureRejected,
+  VerifyJob,
+  VerifyResult,
   DeployComplete,
 } from "@zazigv2/shared";
 
@@ -77,6 +80,8 @@ interface JobRow {
   machine_id: string | null;
   status: string;
   context: string | null;
+  acceptance_tests: string | null;
+  verify_context: string | null;
   branch: string | null;
   result: string | null;
   created_at: string;
@@ -398,9 +403,9 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
   const { data: queuedJobs, error: jobsErr } = await supabase
     .from("jobs")
     .select(
-      "id, company_id, project_id, feature_id, role, job_type, complexity, slot_type, model, machine_id, status, context, branch, result, created_at, depends_on",
+      "id, company_id, project_id, feature_id, role, job_type, complexity, slot_type, model, machine_id, status, context, acceptance_tests, verify_context, branch, result, created_at, depends_on",
     )
-    .eq("status", "queued")
+    .in("status", ["queued", "verify_failed"])
     .order("created_at", { ascending: true });
 
   if (jobsErr) {
@@ -590,11 +595,25 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       continue;
     }
 
+    // Verify-failed jobs are retried with failure context attached.
+    let dispatchContext = job.context;
+    if (job.status === "verify_failed" && job.verify_context) {
+      try {
+        const parsed = JSON.parse(job.context ?? "{}") as Record<string, unknown>;
+        dispatchContext = JSON.stringify({
+          ...parsed,
+          verify_failure: job.verify_context,
+        });
+      } catch {
+        dispatchContext = `${job.context ?? ""}\n\nVerification failure context:\n${job.verify_context}`;
+      }
+    }
+
     // Validate context — the local agent's isStartJob validator requires either
     // context (inline string) or contextRef. Jobs with null/empty context will be
     // silently rejected by the agent, creating a zombie that consumes a slot forever.
     // Fail these jobs immediately with a clear error instead of dispatching.
-    if (!job.context || (typeof job.context === "string" && job.context.trim().length === 0)) {
+    if (!dispatchContext || dispatchContext.trim().length === 0) {
       console.error(
         `[orchestrator] Job ${job.id} has null/empty context — failing instead of dispatching (would be rejected by agent validator)`,
       );
@@ -652,7 +671,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         started_at: new Date().toISOString(),
       })
       .eq("id", job.id)
-      .eq("status", "queued") // optimistic lock
+      .in("status", ["queued", "verify_failed"]) // optimistic lock
       .select("id");
 
     if (updateJobErr) {
@@ -732,7 +751,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       projectId: job.project_id!,
       repoUrl: repoUrl!,
       featureBranch: featureBranch!,
-      context: job.context ?? undefined,
+      context: dispatchContext ?? undefined,
       // Include role for role-based jobs (specialized reviewers, etc.)
       ...(job.role ? { role: job.role } : {}),
       ...(personalityPrompt ? { personalityPrompt } : {}),
@@ -860,13 +879,37 @@ async function handleJobStatus(supabase: SupabaseClient, msg: JobStatusMessage):
   }
 }
 
+async function dispatchVerifyJobToMachine(
+  supabase: SupabaseClient,
+  machineId: string,
+  verifyMsg: VerifyJob,
+): Promise<boolean> {
+  const channel = supabase.channel(`agent:${machineId}`);
+
+  return await new Promise<boolean>((resolve) => {
+    channel.subscribe(async (status) => {
+      if (status !== "SUBSCRIBED") return;
+
+      const result = await channel.send({
+        type: "broadcast",
+        event: "verify_job",
+        payload: verifyMsg,
+      });
+
+      await new Promise((r) => setTimeout(r, 250));
+      await channel.unsubscribe();
+      resolve(result === "ok");
+    });
+  });
+}
+
 export async function handleJobComplete(supabase: SupabaseClient, msg: JobComplete): Promise<void> {
   const { jobId, machineId, result, pr } = msg;
 
   // Fetch the job to check type, feature_id, context, etc.
   const { data: jobRow, error: fetchErr } = await supabase
     .from("jobs")
-    .select("job_type, context, feature_id, company_id, project_id, branch, result, role")
+    .select("job_type, context, feature_id, company_id, project_id, branch, acceptance_tests, result, role")
     .eq("id", jobId)
     .single();
 
@@ -892,8 +935,13 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
 
     await releaseSlot(supabase, jobId, machineId);
 
-    const ctx = JSON.parse(jobRow?.context ?? "{}");
-    const originalJobId = ctx.originalJobId;
+    let ctx: Record<string, unknown> = {};
+    try {
+      ctx = JSON.parse(jobRow?.context ?? "{}");
+    } catch {
+      ctx = {};
+    }
+    const originalJobId = typeof ctx.originalJobId === "string" ? ctx.originalJobId : undefined;
     if (!originalJobId) return;
 
     const hasP0 = result?.includes("P0") || result?.includes("severity: p0") || result?.includes("p0_found");
@@ -905,19 +953,81 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
         .eq("id", originalJobId).eq("status", "reviewing");
       console.log(`[orchestrator] Job ${originalJobId} re-queued after P0 review finding`);
     } else {
-      // Clean — mark original job complete
-      await supabase.from("jobs")
-        .update({ status: "complete", completed_at: new Date().toISOString() })
-        .eq("id", originalJobId).eq("status", "reviewing");
-      console.log(`[orchestrator] Job ${originalJobId} complete after clean review`);
+      const { data: originalJob, error: originalJobErr } = await supabase
+        .from("jobs")
+        .select("id, feature_id, branch, acceptance_tests")
+        .eq("id", originalJobId)
+        .single();
 
-      // Check if all feature jobs are done → trigger combining (next pipeline step)
-      if (jobRow.feature_id) {
-        const { data: allDone } = await supabase
-          .rpc("all_feature_jobs_complete", { p_feature_id: jobRow.feature_id });
-        if (allDone) {
-          await triggerCombining(supabase, jobRow.feature_id);
-        }
+      if (originalJobErr || !originalJob) {
+        console.error(`[orchestrator] Could not fetch original job ${originalJobId} after review:`, originalJobErr?.message);
+        return;
+      }
+
+      if (!originalJob.feature_id || !originalJob.branch) {
+        await supabase.from("jobs")
+          .update({ status: "complete", completed_at: new Date().toISOString() })
+          .eq("id", originalJobId).eq("status", "reviewing");
+        console.log(`[orchestrator] Job ${originalJobId} complete after clean review (no feature branch context)`);
+        return;
+      }
+
+      const { data: feature } = await supabase
+        .from("features")
+        .select("branch")
+        .eq("id", originalJob.feature_id)
+        .single();
+
+      const featureBranch = (feature as { branch?: string } | null)?.branch ?? null;
+      if (!featureBranch) {
+        await supabase.from("jobs")
+          .update({ status: "complete", completed_at: new Date().toISOString() })
+          .eq("id", originalJobId).eq("status", "reviewing");
+        console.warn(`[orchestrator] Job ${originalJobId} complete after review but feature branch missing`);
+        return;
+      }
+
+      const { data: verifyingRows, error: verifyingErr } = await supabase
+        .from("jobs")
+        .update({
+          status: "verifying",
+          verify_context: null,
+          completed_at: null,
+        })
+        .eq("id", originalJobId)
+        .eq("status", "reviewing")
+        .select("id");
+
+      if (verifyingErr || !verifyingRows || verifyingRows.length === 0) {
+        console.error(
+          `[orchestrator] Failed to move job ${originalJobId} into verifying after clean review:`,
+          verifyingErr?.message ?? "status changed",
+        );
+        return;
+      }
+
+      const verifyMsg: VerifyJob = {
+        type: "verify_job",
+        protocolVersion: PROTOCOL_VERSION,
+        jobId: originalJobId,
+        featureBranch,
+        jobBranch: originalJob.branch,
+        acceptanceTests: originalJob.acceptance_tests ?? "",
+      };
+
+      const sent = await dispatchVerifyJobToMachine(supabase, machineId, verifyMsg);
+      if (!sent) {
+        await supabase
+          .from("jobs")
+          .update({
+            status: "verify_failed",
+            verify_context: "Failed to dispatch verify_job to local agent",
+            machine_id: null,
+          })
+          .eq("id", originalJobId);
+        console.error(`[orchestrator] Failed to dispatch verify_job for ${originalJobId}`);
+      } else {
+        console.log(`[orchestrator] Job ${originalJobId} moved to verifying and verify_job dispatched`);
       }
     }
     return;
@@ -1204,6 +1314,69 @@ async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promis
         }
       }
     }
+  }
+}
+
+export async function handleVerifyResult(supabase: SupabaseClient, msg: VerifyResult): Promise<void> {
+  const { jobId, passed, testOutput, reviewSummary } = msg;
+
+  const { data: job, error: fetchErr } = await supabase
+    .from("jobs")
+    .select("id, feature_id")
+    .eq("id", jobId)
+    .single();
+
+  if (fetchErr || !job) {
+    console.error(`[orchestrator] handleVerifyResult: failed to fetch job ${jobId}:`, fetchErr?.message);
+    return;
+  }
+
+  if (!passed) {
+    const { error: failErr } = await supabase
+      .from("jobs")
+      .update({
+        status: "verify_failed",
+        verify_context: [reviewSummary, testOutput].filter((part) => !!part).join("\n\n"),
+        machine_id: null,
+      })
+      .eq("id", jobId);
+
+    if (failErr) {
+      console.error(`[orchestrator] handleVerifyResult: failed to set verify_failed on ${jobId}:`, failErr.message);
+    } else {
+      console.warn(`[orchestrator] Job ${jobId} verification failed — moved to verify_failed for retry`);
+    }
+    return;
+  }
+
+  const { error: passErr } = await supabase
+    .from("jobs")
+    .update({
+      status: "complete",
+      verify_context: null,
+      completed_at: new Date().toISOString(),
+      machine_id: null,
+    })
+    .eq("id", jobId);
+
+  if (passErr) {
+    console.error(`[orchestrator] handleVerifyResult: failed to mark ${jobId} complete after verification:`, passErr.message);
+    return;
+  }
+
+  if (!job.feature_id) return;
+
+  const { data: allDone, error: allDoneErr } = await supabase
+    .rpc("all_feature_jobs_complete", { p_feature_id: job.feature_id });
+
+  if (allDoneErr) {
+    console.error(`[orchestrator] handleVerifyResult: all_feature_jobs_complete failed for ${job.feature_id}:`, allDoneErr.message);
+    return;
+  }
+
+  if (allDone) {
+    console.log(`[orchestrator] All jobs complete for feature ${job.feature_id} — triggering feature verification`);
+    await triggerFeatureVerification(supabase, job.feature_id);
   }
 }
 
@@ -2994,6 +3167,8 @@ async function listenForAgentMessages(
           await handleJobComplete(supabase, msg);
         } else if (isJobFailed(msg)) {
           await handleJobFailed(supabase, msg);
+        } else if (isVerifyResult(msg)) {
+          await handleVerifyResult(supabase, msg);
         } else if (isFeatureApproved(msg)) {
           await handleFeatureApproved(supabase, msg);
         } else if (isFeatureRejected(msg)) {

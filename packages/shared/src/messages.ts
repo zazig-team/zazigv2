@@ -27,7 +27,7 @@ export type Complexity = "simple" | "medium" | "complex";
  * Category of work described by a Trello card.
  * Determines which execution agent and reviewer the orchestrator selects.
  */
-export type CardType = "code" | "infra" | "design" | "research" | "docs" | "verify" | "breakdown" | "combine" | "deploy_to_test" | "deploy_to_prod" | "review" | "bug" | "persistent_agent";
+export type CardType = "code" | "infra" | "design" | "research" | "docs" | "verify" | "breakdown" | "combine" | "deploy_to_test" | "deploy_to_prod" | "review" | "bug" | "persistent_agent" | "feature_test";
 
 /**
  * Lifecycle status values for a job in the orchestrator's job queue (DB model).
@@ -160,6 +160,8 @@ export interface StartJob {
   dependencyBranches?: string[];
   /** MCP tool names this role may invoke. Enforced server-side by agent-mcp-server. */
   roleMcpTools?: string[];
+  /** When true, executor spawns in TUI mode (no -p) for human collaboration via /remote-control. */
+  interactive?: boolean;
 }
 
 /**

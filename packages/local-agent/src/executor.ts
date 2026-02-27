@@ -19,9 +19,8 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync, appendFileSync, createWriteStream } from "node:fs";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageInbound, JobUnblocked } from "@zazigv2/shared";
@@ -57,6 +56,13 @@ function reportRelativePath(role?: string): string {
 /** Per-job report directory to prevent concurrent-completion races. */
 const REPORT_ARCHIVE_DIR = ".claude/job-reports";
 
+/** Roles that run without repository/worktree git context. */
+const NO_CODE_CONTEXT_ROLES = new Set([
+  "pipeline-technician",
+  "monitoring-agent",
+  "project-architect",
+]);
+
 
 /** Delay after CPO session spawn before allowing message injection (Claude Code startup). */
 const CPO_STARTUP_DELAY_MS = 15_000;
@@ -69,6 +75,13 @@ export const MAX_QUEUE_SIZE = 20;
 /** Directory where all per-job log files are written. */
 const JOB_LOG_DIR = join(homedir(), ".zazigv2", "job-logs");
 
+function buildScratchWorkspaceDir(companyId: string | undefined, role: string, jobId: string): string {
+  const resolvedCompany = companyId && companyId.trim().length > 0
+    ? companyId
+    : "unknown-company";
+  return join(homedir(), ".zazigv2", `${resolvedCompany}-${role}-${jobId}`);
+}
+
 /** Truncate both log files for a job so each run starts fresh. */
 function clearJobLogs(jobId: string): void {
   try {
@@ -76,6 +89,22 @@ function clearJobLogs(jobId: string): void {
     writeFileSync(join(JOB_LOG_DIR, `${jobId}-pre-post.log`), "");
     writeFileSync(join(JOB_LOG_DIR, `${jobId}-pipe-pane.log`), "");
   } catch { /* best-effort */ }
+}
+
+/** Resolve repo root from the executor runtime location (dist/src) with a safe fallback. */
+function resolveRepoRoot(): string {
+  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    resolve(thisDir, "..", "..", ".."),
+    process.cwd(),
+  ];
+  for (const candidate of candidates) {
+    const hasPipelineSkills = existsSync(join(candidate, "projects", "skills"));
+    const hasInteractiveSkills = existsSync(join(candidate, ".claude", "skills"));
+    if (hasPipelineSkills && hasInteractiveSkills) return candidate;
+  }
+  console.warn(`[executor] Could not resolve repo root from runtime path; using process.cwd()=${process.cwd()}`);
+  return process.cwd();
 }
 
 /** Write a timestamped line to a per-job lifecycle log file ({jobId}-pre-post.log). */
@@ -315,7 +344,7 @@ export class JobExecutor {
     await this.sendJobAck(jobId);
 
     // --- 2b. Persistent agent — separate lifecycle from regular jobs ---
-    if (msg.role === "cpo") {
+    if (msg.cardType === "persistent_agent") {
       await this.handlePersistentJob(jobId, msg, slotType);
       return;
     }
@@ -351,58 +380,83 @@ export class JobExecutor {
         if (error) console.warn(`[executor] Failed to save assembled_context for jobId=${jobId}: ${error.message}`);
       });
 
-    // --- 3d. Create git worktree and set up workspace inside it ---
-    // Every job now runs inside a real git worktree (no scratch-dir fallback).
+    // --- 3d. Prepare execution workspace ---
+    // Code-context roles run in git worktrees. NO_CODE_CONTEXT roles run in scratch workspaces.
     let ephemeralWorkspaceDir: string | undefined;
     let worktreePath: string | undefined;
     let repoDir: string | undefined;
     let jobBranch: string | undefined;
+    const roleName = msg.role ?? "senior-engineer";
+    const requiresCodeContext = !NO_CODE_CONTEXT_ROLES.has(roleName);
+
+    const cleanupPreparedWorkspace = async (): Promise<void> => {
+      if (worktreePath && repoDir) {
+        await this.repoManager.removeJobWorktree(repoDir, worktreePath);
+      } else if (ephemeralWorkspaceDir) {
+        cleanupJobWorkspace(jobId, ephemeralWorkspaceDir);
+      }
+    };
 
     try {
-      const projectName = msg.repoUrl.split("/").pop()?.replace(/\.git$/, "") ?? jobId;
-      repoDir = await this.repoManager.ensureRepo(msg.repoUrl, projectName);
-      await this.repoManager.ensureFeatureBranch(repoDir, msg.featureBranch);
-      const routing = msg.dependencyBranches && msg.dependencyBranches.length > 0 ? "createDependentJobWorktree" : "createJobWorktree";
-      clearJobLogs(jobId);
-      jobLog(jobId, `Branch routing: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
-      jobLog(jobId, `featureBranch=${msg.featureBranch}, repoDir=${repoDir}`);
-      console.log(`[executor] Branch routing for jobId=${jobId}: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
-      const worktreeResult = (msg.dependencyBranches && msg.dependencyBranches.length > 0)
-        ? await this.repoManager.createDependentJobWorktree(repoDir, msg.featureBranch, jobId, msg.dependencyBranches)
-        : await this.repoManager.createJobWorktree(repoDir, msg.featureBranch, jobId);
-      worktreePath = worktreeResult.worktreePath;
-      jobBranch = worktreeResult.jobBranch;
-      ephemeralWorkspaceDir = worktreePath;
+      if (requiresCodeContext) {
+        if (!msg.repoUrl || !msg.featureBranch) {
+          throw new Error("Missing repoUrl/featureBranch for code-context role");
+        }
 
-      jobLog(jobId, `Worktree created at ${worktreePath} (branch: ${jobBranch})`);
-      console.log(`[executor] Git worktree created at ${worktreePath} (branch: ${jobBranch}) for jobId=${jobId}`);
+        const projectName = msg.repoUrl.split("/").pop()?.replace(/\.git$/, "") ?? jobId;
+        repoDir = await this.repoManager.ensureRepo(msg.repoUrl, projectName);
+        await this.repoManager.ensureFeatureBranch(repoDir, msg.featureBranch);
+        const routing = msg.dependencyBranches && msg.dependencyBranches.length > 0
+          ? "createDependentJobWorktree"
+          : "createJobWorktree";
+        clearJobLogs(jobId);
+        jobLog(jobId, `Branch routing: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
+        jobLog(jobId, `featureBranch=${msg.featureBranch}, repoDir=${repoDir}`);
+        console.log(`[executor] Branch routing for jobId=${jobId}: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
+        const worktreeResult = (msg.dependencyBranches && msg.dependencyBranches.length > 0)
+          ? await this.repoManager.createDependentJobWorktree(repoDir, msg.featureBranch, jobId, msg.dependencyBranches)
+          : await this.repoManager.createJobWorktree(repoDir, msg.featureBranch, jobId);
+        worktreePath = worktreeResult.worktreePath;
+        jobBranch = worktreeResult.jobBranch;
+        ephemeralWorkspaceDir = worktreePath;
+
+        jobLog(jobId, `Worktree created at ${worktreePath} (branch: ${jobBranch})`);
+        console.log(`[executor] Git worktree created at ${worktreePath} (branch: ${jobBranch}) for jobId=${jobId}`);
+      } else {
+        ephemeralWorkspaceDir = buildScratchWorkspaceDir(this.companyId, roleName, jobId);
+        mkdirSync(ephemeralWorkspaceDir, { recursive: true });
+        jobLog(jobId, `Scratch workspace created at ${ephemeralWorkspaceDir} (no git context role=${roleName})`);
+        console.log(`[executor] Scratch workspace created at ${ephemeralWorkspaceDir} for no-code role ${roleName} jobId=${jobId}`);
+      }
     } catch (err) {
-      jobLog(jobId, `FAILED to create worktree: ${String(err)}`);
-      console.error(`[executor] Failed to create git worktree for jobId=${jobId}:`, err);
+      jobLog(jobId, `FAILED to prepare workspace: ${String(err)}`);
+      console.error(`[executor] Failed to prepare workspace for jobId=${jobId}:`, err);
       this.slots.release(slotType);
-      await this.sendJobFailed(jobId, `Failed to create git worktree: ${String(err)}`, "agent_crash");
+      await this.sendJobFailed(jobId, `Failed to prepare workspace: ${String(err)}`, "agent_crash");
       return;
     }
 
-    // Set up workspace overlay (CLAUDE.md, .mcp.json, .claude/) inside the worktree.
+    // Set up workspace overlay (CLAUDE.md, .mcp.json, .claude/).
     const thisDir = dirname(fileURLToPath(import.meta.url));
+    const repoRoot = resolveRepoRoot();
     const mcpServerPath = join(thisDir, "agent-mcp-server.js");
     try {
       setupJobWorkspace({
-        workspaceDir: worktreePath,
+        workspaceDir: ephemeralWorkspaceDir!,
         mcpServerPath,
         supabaseUrl: this.supabaseUrl,
         supabaseAnonKey: this.supabaseAnonKey,
         jobId,
         companyId: this.companyId,
-        role: msg.role ?? "senior-engineer",
+        role: roleName,
         claudeMdContent: assembledContext,
         skills: msg.roleSkills,
-        repoSkillsDir: join(process.cwd(), "projects", "skills"),
+        repoSkillsDir: join(repoRoot, "projects", "skills"),
+        repoInteractiveSkillsDir: join(repoRoot, ".claude", "skills"),
         mcpTools: msg.roleMcpTools,
         tmuxSession: `${this.machineId}-${jobId}`,
       });
-      console.log(`[executor] Workspace overlay written to ${worktreePath} for jobId=${jobId}`);
+      console.log(`[executor] Workspace overlay written to ${ephemeralWorkspaceDir} for jobId=${jobId}`);
     } catch (err) {
       console.warn(`[executor] Failed to write workspace overlay for jobId=${jobId}: ${String(err)}`);
       // Non-fatal — job can still run without workspace overlay
@@ -424,9 +478,8 @@ export class JobExecutor {
     const sessionName = `${this.machineId}-${jobId}`;
 
     // --- 4b. Write prompt to file (piped via stdin to avoid CLI arg length limits) ---
-    // Write to the worktree dir — the agent's CWD is the worktree.
-    mkdirSync(worktreePath, { recursive: true });
-    const promptFilePath = join(worktreePath, ".zazig-prompt.txt");
+    mkdirSync(ephemeralWorkspaceDir!, { recursive: true });
+    const promptFilePath = join(ephemeralWorkspaceDir!, ".zazig-prompt.txt");
     writeFileSync(promptFilePath, assembledContext);
 
     // --- 5. Clear stale report before spawning (prevents reading a previous job's report) ---
@@ -468,6 +521,7 @@ export class JobExecutor {
       }
     } catch (err) {
       console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
+      await cleanupPreparedWorkspace();
       this.slots.release(slotType);
       await this.sendJobFailed(jobId, `Failed to start tmux session: ${String(err)}`, "agent_crash");
       return;
@@ -543,7 +597,7 @@ export class JobExecutor {
       protocolVersion: 1,
       jobId: `persistent-${job.role}-${companyId}`,
       cardId: `persistent-${job.role}`,
-      cardType: "code" as const,
+      cardType: "persistent_agent" as const,
       complexity: "medium" as const,
       slotType: job.slot_type as SlotType,
       model: job.model,
@@ -654,7 +708,7 @@ export class JobExecutor {
       if (job.worktreePath && job.repoDir) {
         await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
       } else {
-        cleanupJobWorkspace(job.jobId);
+        cleanupJobWorkspace(job.jobId, job.workspaceDir);
       }
       this.slots.release(job.slotType);
     }
@@ -726,7 +780,7 @@ export class JobExecutor {
     if (job.worktreePath && job.repoDir) {
       await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
-      cleanupJobWorkspace(job.jobId);
+      cleanupJobWorkspace(job.jobId, job.workspaceDir);
     }
 
     this.slots.release(job.slotType);
@@ -759,6 +813,7 @@ export class JobExecutor {
     try {
       // Resolve path to the compiled agent-mcp-server.js relative to this file's dist/ location
       const thisDir = dirname(fileURLToPath(import.meta.url));
+      const repoRoot = resolveRepoRoot();
       const mcpServerPath = join(thisDir, "agent-mcp-server.js");
 
       setupJobWorkspace({
@@ -771,7 +826,9 @@ export class JobExecutor {
         role,
         claudeMdContent: (msg.context ?? "") + "\n\n---\n\n" + FILE_WRITING_RULES,
         skills: msg.roleSkills,
-        repoSkillsDir: join(process.cwd(), "projects", "skills"),
+        repoSkillsDir: join(repoRoot, "projects", "skills"),
+        repoInteractiveSkillsDir: join(repoRoot, ".claude", "skills"),
+        useSymlinks: true,
         mcpTools: msg.roleMcpTools,
         tmuxSession: `${this.machineId}-${role}`,
       });
@@ -943,7 +1000,7 @@ export class JobExecutor {
     if (job.worktreePath && job.repoDir) {
       await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
-      cleanupJobWorkspace(jobId);
+      cleanupJobWorkspace(jobId, job.workspaceDir);
     }
 
     // Release the slot
@@ -1046,7 +1103,7 @@ export class JobExecutor {
     if (job.worktreePath && job.repoDir) {
       await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
-      cleanupJobWorkspace(jobId);
+      cleanupJobWorkspace(jobId, job.workspaceDir);
     }
 
     this.slots.release(job.slotType);
@@ -1168,7 +1225,7 @@ export class JobExecutor {
       await this.supabase.from("jobs").update({ branch: job.jobBranch }).eq("id", jobId);
       await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
     } else {
-      cleanupJobWorkspace(jobId);
+      cleanupJobWorkspace(jobId, job.workspaceDir);
     }
 
     jobLog(jobId, `Sending JobComplete — result="${result}", hasReport=${!!report}`);
@@ -1682,9 +1739,12 @@ function deleteLogFile(logPath: string): void {
   }
 }
 
-function cleanupJobWorkspace(jobId: string): void {
+function cleanupJobWorkspace(jobId: string, workspaceDir?: string): void {
   try {
-    rmSync(join(homedir(), ".zazigv2", `job-${jobId}`), { recursive: true });
+    const target = workspaceDir && workspaceDir.trim().length > 0
+      ? workspaceDir
+      : join(homedir(), ".zazigv2", `job-${jobId}`);
+    rmSync(target, { recursive: true });
   } catch {
     // workspace may not exist (no subAgentPrompt was written) -- fine
   }

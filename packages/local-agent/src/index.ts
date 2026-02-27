@@ -32,6 +32,7 @@ import { AgentConnection } from "./connection.js";
 import { JobExecutor } from "./executor.js";
 import { FixAgentManager } from "./fix-agent.js";
 import { recoverDispatchedJobs } from "./job-recovery.js";
+import { JobVerifier } from "./verifier.js";
 import type { OrchestratorMessage, MessageInbound } from "@zazigv2/shared";
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,12 @@ async function main(): Promise<void> {
     config.supabase.anon_key,
   );
 
+  const verifier = new JobVerifier({
+    repoDir: process.cwd(),
+    machineId: config.name,
+    send: (msg) => conn.sendMessage(msg),
+  });
+
   // Initialize fix agent manager — spawns ephemeral Claude sessions during testing phase
   const _fixAgentManager = new FixAgentManager(process.cwd());
 
@@ -103,9 +110,15 @@ async function main(): Promise<void> {
         void executor.handleJobUnblocked(msg);
         break;
 
+      case "verify_job":
+        console.log(
+          `[local-agent] Received verify_job — jobId=${msg.jobId}, featureBranch=${msg.featureBranch}, jobBranch=${msg.jobBranch}`,
+        );
+        void verifier.verify(msg);
+        break;
+
       // Legacy message types — orchestrator no longer sends these but they remain
       // in the OrchestratorMessage union for backward compatibility during rollout.
-      case "verify_job":
       case "deploy_to_test":
       case "teardown_test":
         console.warn(`[local-agent] Ignoring deprecated message type: ${msg.type}`);

@@ -262,6 +262,12 @@ const NO_CODE_CONTEXT_ROLES = new Set([
   "project-architect",
 ]);
 
+const TERMINAL_FEATURE_STATUSES_FOR_DEPLOY = new Set([
+  "failed",
+  "complete",
+  "cancelled",
+]);
+
 console.log(
   "[orchestrator] Cold start — in-memory recoveryTimestamps reset (anti-flap cooldown not durable across restarts)",
 );
@@ -457,6 +463,49 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       await supabase.from("jobs").update({ feature_id: wrapperFeature.id }).eq("id", job.id);
       job.feature_id = wrapperFeature.id;
       console.log(`[orchestrator] Auto-created wrapper feature ${wrapperFeature.id} (branch: ${wrapperBranch}) for standalone job ${job.id}`);
+    }
+
+    // Never dispatch deploy_to_test jobs for terminal features.
+    if (job.job_type === "deploy_to_test" && job.feature_id) {
+      const { data: deployFeature, error: deployFeatureErr } = await supabase
+        .from("features")
+        .select("status")
+        .eq("id", job.feature_id)
+        .single();
+
+      if (deployFeatureErr || !deployFeature) {
+        console.error(
+          `[orchestrator] Job ${job.id} deploy_to_test guard: failed to fetch feature ${job.feature_id}:`,
+          deployFeatureErr?.message,
+        );
+        continue;
+      }
+
+      const featureStatus = deployFeature.status as string;
+      if (TERMINAL_FEATURE_STATUSES_FOR_DEPLOY.has(featureStatus)) {
+        const { data: failedRows, error: failErr } = await supabase
+          .from("jobs")
+          .update({
+            status: "failed",
+            result: `Auto-failed: deploy_to_test job not allowed because parent feature is ${featureStatus}`,
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", job.id)
+          .in("status", ["queued", "verify_failed", "dispatched", "executing"])
+          .select("id");
+
+        if (failErr) {
+          console.error(
+            `[orchestrator] Job ${job.id} deploy_to_test guard: failed to mark job failed for terminal feature ${job.feature_id}:`,
+            failErr.message,
+          );
+        } else if (failedRows && failedRows.length > 0) {
+          console.warn(
+            `[orchestrator] Job ${job.id} auto-failed: deploy_to_test not allowed for feature ${job.feature_id} in ${featureStatus}`,
+          );
+        }
+        continue;
+      }
     }
 
     // DAG check: if this job has dependencies, verify they are all complete before dispatch.
@@ -2006,11 +2055,18 @@ async function createGitHubPR(
 async function initiateTestDeploy(supabase: SupabaseClient, featureId: string): Promise<void> {
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
-    .select("project_id, company_id, branch, title")
+    .select("status, project_id, company_id, branch, title")
     .eq("id", featureId)
     .single();
   if (fetchErr || !feature) {
     console.error(`[orchestrator] Failed to fetch feature ${featureId}:`, fetchErr?.message);
+    return;
+  }
+
+  if (TERMINAL_FEATURE_STATUSES_FOR_DEPLOY.has(feature.status as string)) {
+    console.log(
+      `[orchestrator] initiateTestDeploy: feature ${featureId} is terminal (${feature.status}) — skipping deploy_to_test job creation`,
+    );
     return;
   }
 
@@ -2636,6 +2692,7 @@ async function processReadyForBreakdown(supabase: SupabaseClient): Promise<void>
  *
  * Handles:
  *   0. Failed job catch-up: marks features failed when JobFailed broadcast was missed
+ *   0b. deploy_to_test guard: fails queued/dispatched/executing deploy jobs for terminal features
  *   1. breakdown → building: all breakdown jobs for the feature are complete
  *   2. building → combining: all implementation jobs are complete
  *   3. combining → verifying: the latest combine job is complete
@@ -2683,6 +2740,56 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
 
       if (updated && updated.length > 0) {
         console.warn(`[orchestrator] processFeatureLifecycle: feature ${feature.id} has failed job ${job.id} — marked feature failed (catch-up)`);
+      }
+    }
+  }
+
+  // --- 0b. deploy_to_test cleanup for terminal features ---
+  // If a feature is terminal, deploy_to_test must never be queued/dispatched/executing.
+  const { data: terminalFeatures, error: terminalErr } = await supabase
+    .from("features")
+    .select("id, status")
+    .in("status", ["failed", "complete", "cancelled"])
+    .limit(100);
+
+  if (terminalErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying terminal features for deploy_to_test cleanup:", terminalErr.message);
+  }
+
+  if (terminalFeatures && terminalFeatures.length > 0) {
+    const terminalStatusByFeatureId = new Map(
+      terminalFeatures.map((f) => [f.id as string, f.status as string]),
+    );
+
+    const { data: invalidDeployJobs, error: invalidDeployErr } = await supabase
+      .from("jobs")
+      .select("id, feature_id")
+      .eq("job_type", "deploy_to_test")
+      .in("feature_id", [...terminalStatusByFeatureId.keys()])
+      .in("status", ["queued", "dispatched", "executing"])
+      .limit(100);
+
+    if (invalidDeployErr) {
+      console.error("[orchestrator] processFeatureLifecycle: error querying deploy_to_test jobs for terminal features:", invalidDeployErr.message);
+    }
+
+    for (const job of (invalidDeployJobs ?? []) as { id: string; feature_id: string }[]) {
+      const terminalStatus = terminalStatusByFeatureId.get(job.feature_id) ?? "terminal";
+      const { data: updated } = await supabase
+        .from("jobs")
+        .update({
+          status: "failed",
+          result: `Auto-failed: deploy_to_test job not allowed because parent feature is ${terminalStatus}`,
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", job.id)
+        .in("status", ["queued", "dispatched", "executing"])
+        .select("id");
+
+      if (updated && updated.length > 0) {
+        console.warn(
+          `[orchestrator] processFeatureLifecycle: auto-failed deploy_to_test job ${job.id} for terminal feature ${job.feature_id} (${terminalStatus})`,
+        );
       }
     }
   }
@@ -2931,6 +3038,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
   // deploy_to_test is not fully implemented yet. Jobs stuck in executing or
   // dispatched for >15 minutes are always zombies. Auto-fail them so Task 0's
   // failed job catch-up can mark the parent feature as failed.
+  // Use created_at for age so re-dispatches cannot reset the timer.
   const DEPLOY_ZOMBIE_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
   const zombieCutoff = new Date(Date.now() - DEPLOY_ZOMBIE_THRESHOLD_MS).toISOString();
 
@@ -2939,7 +3047,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     .select("id, feature_id")
     .eq("job_type", "deploy_to_test")
     .not("status", "in", '("complete","failed","queued")')
-    .lt("updated_at", zombieCutoff)
+    .lt("created_at", zombieCutoff)
     .limit(50);
 
   if (zombieErr) {

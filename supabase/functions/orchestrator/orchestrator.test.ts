@@ -23,8 +23,8 @@ const originalServe = (Deno as any).serve;
   return { finished: Promise.resolve(), ref: () => {}, unref: () => {}, addr: { hostname: "localhost", port: 0, transport: "tcp" as const } };
 };
 
-// Now import the functions under test.
-import {
+// Now import the functions under test after stubbing Deno.serve.
+const {
   handleJobComplete,
   triggerFeatureVerification,
   handleFeatureApproved,
@@ -33,7 +33,7 @@ import {
   checkUnblockedJobs,
   notifyCPO,
   handleDeployComplete,
-} from "./index.ts";
+} = await import("./index.ts");
 
 // Restore Deno.serve after import.
 // deno-lint-ignore no-explicit-any
@@ -740,7 +740,7 @@ Deno.test("handleFeatureRejected — severity=big + in ready_to_test → resets 
   setResponse("events:insert", { error: null });
 
   // Insert fix job
-  setResponse("jobs:insert", { error: null });
+  setResponse("jobs:insert.select", { data: [{ id: "fix-job-1" }], error: null });
 
   // Queue check → empty
   setResponse("features:select.eq.eq.order.limit", { data: [], error: null });
@@ -1023,15 +1023,17 @@ Deno.test("triggerBreakdown — creates queued breakdown job with correct contex
       title: "Add user auth",
       spec: "Implement OAuth2 login flow",
       acceptance_tests: "Users can log in via Google",
+      branch: "feature/add-user-auth",
     },
     error: null,
   });
 
   // 2. Idempotency check — no existing breakdown job
-  setResponse("jobs:select.eq.eq.not.maybeSingle", {
+  setResponse("jobs:select.eq.eq.in.maybeSingle", {
     data: null,
     error: null,
   });
+  setResponse("jobs:select.eq.in", { data: [], error: null });
 
   // 3. Insert breakdown job
   setResponse("jobs:insert.select.single", {
@@ -1059,15 +1061,16 @@ Deno.test("triggerBreakdown — creates queued breakdown job with correct contex
 
   // Verify breakdown job was inserted
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 2, "Should have idempotency check + insert on jobs");
+  assertEquals(jobsChains.length, 3, "Should have idempotency check + stale scan + insert on jobs");
 
   // First jobs chain: idempotency check (select)
   assertEquals(jobsChains[0].operations[0].method, "select");
 
-  // Second jobs chain: insert breakdown job
-  assertEquals(jobsChains[1].operations[0].method, "insert");
+  // Insert chain: breakdown job
+  const insertChain = jobsChains.find((c) => c.operations[0].method === "insert");
+  assertEquals(insertChain !== undefined, true, "Should insert a breakdown job");
   // deno-lint-ignore no-explicit-any
-  const payload = jobsChains[1].operations[0].args[0] as any;
+  const payload = insertChain!.operations[0].args[0] as any;
   assertEquals(payload.company_id, "co-1");
   assertEquals(payload.project_id, "proj-1");
   assertEquals(payload.feature_id, "feat-10");
@@ -1094,12 +1097,13 @@ Deno.test("triggerBreakdown — idempotent: skips if active breakdown job exists
       title: "Add payments",
       spec: "Stripe integration",
       acceptance_tests: "Can charge a card",
+      branch: "feature/add-payments",
     },
     error: null,
   });
 
   // 2. Idempotency check — existing active breakdown job found
-  setResponse("jobs:select.eq.eq.not.maybeSingle", {
+  setResponse("jobs:select.eq.eq.in.maybeSingle", {
     data: { id: "existing-breakdown-99", status: "queued" },
     error: null,
   });
@@ -1291,7 +1295,7 @@ Deno.test("triggerBreakdown — uses breakdown-specialist role", async () => {
   });
 
   // Idempotency check — no existing breakdown job
-  setResponse("jobs:select.eq.eq.not.maybeSingle", {
+  setResponse("jobs:select.eq.eq.in.maybeSingle", {
     data: null,
     error: null,
   });

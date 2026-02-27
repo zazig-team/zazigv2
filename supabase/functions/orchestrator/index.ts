@@ -1650,6 +1650,78 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
 }
 
 /**
+ * Creates a GitHub Pull Request from the feature branch to master.
+ * Fire-and-forget — callers should not await the result.
+ * If the token is missing, the branch is missing, or the PR already exists,
+ * the function logs and returns without throwing.
+ */
+async function createGitHubPR(
+  repoUrl: string,
+  featureBranch: string,
+  featureTitle: string,
+  featureId: string,
+): Promise<void> {
+  const githubToken = Deno.env.get("GITHUB_TOKEN");
+  if (!githubToken) {
+    console.warn(`[orchestrator] GITHUB_TOKEN not set — skipping PR creation for feature ${featureId}`);
+    return;
+  }
+
+  // Parse owner/repo from the repo URL.
+  // Handles: https://github.com/owner/repo, https://github.com/owner/repo.git, git@github.com:owner/repo.git
+  const match = repoUrl.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/);
+  if (!match) {
+    console.warn(`[orchestrator] Cannot parse GitHub owner/repo from URL "${repoUrl}" — skipping PR creation for feature ${featureId}`);
+    return;
+  }
+  const [, owner, repo] = match;
+
+  const prTitle = `feat: ${featureTitle}`;
+  const prBody = [
+    "## Auto-generated PR",
+    "",
+    `Feature: ${featureTitle}`,
+    `Feature ID: ${featureId}`,
+    "Status: Verified ✓",
+    "",
+    "This PR was automatically created by the zazig pipeline after verification passed.",
+  ].join("\n");
+
+  try {
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${githubToken}`,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: prTitle,
+        head: featureBranch,
+        base: "master",
+        body: prBody,
+      }),
+    });
+
+    if (response.status === 201) {
+      const pr = await response.json() as { html_url?: string };
+      console.log(`[orchestrator] GitHub PR created for feature ${featureId}: ${pr.html_url ?? "(no URL)"}`);
+    } else if (response.status === 422) {
+      // PR already exists for this branch — not an error
+      const body = await response.json() as { errors?: Array<{ message?: string }> };
+      const msg = body.errors?.[0]?.message ?? "unprocessable entity";
+      console.log(`[orchestrator] GitHub PR already exists for feature ${featureId} branch ${featureBranch}: ${msg}`);
+    } else {
+      const text = await response.text();
+      console.error(`[orchestrator] GitHub PR creation failed for feature ${featureId} (HTTP ${response.status}): ${text}`);
+    }
+  } catch (err) {
+    console.error(`[orchestrator] GitHub PR creation threw for feature ${featureId}:`, err);
+  }
+}
+
+/**
  * Initiates test deployment for a verified feature.
  *
  * Queue logic: only one feature at a time can occupy the test env per project.
@@ -1660,7 +1732,7 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
 async function initiateTestDeploy(supabase: SupabaseClient, featureId: string): Promise<void> {
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
-    .select("project_id, company_id, branch")
+    .select("project_id, company_id, branch, title")
     .eq("id", featureId)
     .single();
   if (fetchErr || !feature) {
@@ -1692,6 +1764,28 @@ async function initiateTestDeploy(supabase: SupabaseClient, featureId: string): 
   if (!updated || updated.length === 0) {
     console.log(`[orchestrator] initiateTestDeploy: feature ${featureId} no longer in verifying — skipping`);
     return;
+  }
+
+  // Create a GitHub PR from the feature branch to master.
+  // This is informational — fire-and-forget, never blocks the deploy flow.
+  const { data: project } = await supabase
+    .from("projects")
+    .select("repo_url")
+    .eq("id", feature.project_id)
+    .single();
+
+  const repoUrl = (project as { repo_url?: string } | null)?.repo_url ?? "";
+  if (repoUrl) {
+    createGitHubPR(
+      repoUrl,
+      feature.branch,
+      (feature as { title?: string }).title ?? featureId,
+      featureId,
+    ).catch((err) => {
+      console.error(`[orchestrator] Unexpected error in createGitHubPR for feature ${featureId}:`, err);
+    });
+  } else {
+    console.warn(`[orchestrator] Project for feature ${featureId} has no repo_url — skipping PR creation`);
   }
 
   // Queue a test-deployer job — the dispatcher will pick a machine with capacity.

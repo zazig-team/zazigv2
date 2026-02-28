@@ -1799,13 +1799,6 @@ export async function triggerCombining(supabase: SupabaseClient, featureId: stri
     return;
   }
 
-  // Single-job features have nothing to merge — go straight to verification.
-  if (implementationJobs.length <= 1) {
-    console.log(`[orchestrator] triggerCombining: feature ${featureId} has ${implementationJobs.length} implementation job(s), skipping combine`);
-    await triggerFeatureVerification(supabase, featureId);
-    return;
-  }
-
   // 3. Prepare combine context — only merge leaf branches (jobs not superseded by a dependent).
   // A job is a "leaf" if no other completed job in this feature lists it in depends_on.
   // Chain A→B→C: only C is a leaf (C already contains A+B). Fan-out A→[B,C]: both B and C are leaves.

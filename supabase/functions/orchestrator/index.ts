@@ -2867,7 +2867,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
       .select("id")
       .eq("feature_id", feature.id)
       .eq("job_type", "breakdown")
-      .not("status", "in", '("complete","failed")')
+      .not("status", "in", '("complete","failed","cancelled")')
       .limit(1);
 
     if (!pendingBreakdown || pendingBreakdown.length === 0) {

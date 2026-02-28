@@ -440,8 +440,8 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
   routingCache = null;
 
   for (const job of queuedJobs as JobRow[]) {
-    // Auto-create a wrapper feature for featureless pipeline jobs.
-    // Standalone jobs intentionally remain featureless.
+    // Auto-create a wrapper feature for featureless jobs (legacy safety net;
+    // standalone jobs now get features from request_standalone_work).
     if (!job.feature_id && job.source !== "standalone") {
       const { data: wrapperFeature, error: wfErr } = await supabase
         .from("features")
@@ -1002,28 +1002,6 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
     return;
   }
 
-  // Standalone jobs complete without triggering any feature-pipeline behavior.
-  if (jobRow.source === "standalone") {
-    const { error: standaloneErr } = await supabase
-      .from("jobs")
-      .update({
-        status: "complete",
-        result,
-        pr_url: pr ?? null,
-        completed_at: new Date().toISOString(),
-        machine_id: null,
-      })
-      .eq("id", jobId);
-
-    if (standaloneErr) {
-      console.error(`[orchestrator] Failed to mark standalone job ${jobId} complete:`, standaloneErr.message);
-    }
-
-    await releaseSlot(supabase, jobId, machineId);
-    console.log(`[orchestrator] Standalone job ${jobId} complete (pipeline lifecycle skipped)`);
-    return;
-  }
-
   // --- Handle review job completion (code-review results) ---
   if (jobRow.job_type === "review") {
     // Mark this review job as complete first
@@ -1412,8 +1390,6 @@ async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promis
     .eq("id", jobId)
     .single();
 
-  const isStandalone = failedJob?.source === "standalone";
-
   // Decide recovery strategy based on failure reason.
   //   agent_crash      → re-queue immediately on a healthy machine
   //   ci_failure       → failed (needs triage)
@@ -1446,15 +1422,6 @@ async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promis
 
   // Release the slot regardless of re-queue decision.
   await releaseSlot(supabase, jobId, machineId);
-
-  if (isStandalone) {
-    if (newStatus === "queued") {
-      console.log(`[orchestrator] Standalone job ${jobId} re-queued after agent_crash (source preserved).`);
-    } else {
-      console.warn(`[orchestrator] Standalone job ${jobId} failed permanently — feature cascade skipped.`);
-    }
-    return;
-  }
 
   // If the job permanently failed (not re-queued), fail the parent feature.
   if (newStatus === "failed") {
@@ -1793,13 +1760,13 @@ export async function triggerCombining(supabase: SupabaseClient, featureId: stri
     return;
   }
 
-  const completedPipelineJobs = ((jobs ?? []) as Array<{
+  const completedJobs = (jobs ?? []) as Array<{
     id: string;
     branch: string | null;
     depends_on: string[] | null;
     job_type: string;
     source: string | null;
-  }>).filter((job) => !job.source || job.source === "pipeline");
+  }>;
 
   const NON_IMPLEMENTATION_TYPES = new Set([
     "breakdown",
@@ -1811,7 +1778,7 @@ export async function triggerCombining(supabase: SupabaseClient, featureId: stri
     "feature_test",
   ]);
 
-  const implementationJobs = completedPipelineJobs.filter(
+  const implementationJobs = completedJobs.filter(
     (job) => !NON_IMPLEMENTATION_TYPES.has(job.job_type),
   );
 
@@ -2811,7 +2778,6 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
       .select("id, role, job_type, result")
       .eq("feature_id", feature.id)
       .eq("status", "failed")
-      .or("source.is.null,source.eq.pipeline")
       .order("created_at", { ascending: false })
       .limit(1);
 

@@ -779,7 +779,7 @@
       const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0';
 
       const FEATURES_BASE =
-        SUPABASE_URL + '/rest/v1/features?select=id,title,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,jobs(id,title,status,progress,model,job_type,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
+        SUPABASE_URL + '/rest/v1/features?select=id,title,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,jobs(id,title,status,progress,model,job_type,role,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
       const COMPANIES_BASE =
         SUPABASE_URL + '/rest/v1/companies?select=id,name&limit=1&name=eq.';
       const ALL_COMPANIES_URL =
@@ -1115,6 +1115,7 @@
           metaDiv.appendChild(row);
         }
 
+        addMeta('ID', feature.id);
         if (feature.branch) addMeta('Branch', feature.branch);
         addMeta('Created', formatDate(feature.created_at));
         if (feature.updated_at) addMeta('Updated', formatDate(feature.updated_at));
@@ -1145,6 +1146,10 @@
               row.appendChild(dot);
               row.appendChild(el('span', 'detail-job-name', getJobTitle(job)));
               row.appendChild(el('span', 'detail-job-status', jStatus));
+
+              if (job.role) {
+                row.appendChild(el('span', 'detail-job-model', job.role));
+              }
 
               if (job.model) {
                 row.appendChild(el('span', 'detail-job-model',

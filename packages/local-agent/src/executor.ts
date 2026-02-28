@@ -514,7 +514,17 @@ export class JobExecutor {
           shellCmd,
         ]);
 
-        // Inject the prompt after Claude Code initializes
+        // Dismiss the "trust this folder" prompt after it appears (~3s)
+        setTimeout(async () => {
+          try {
+            await execFileAsync("tmux", ["send-keys", "-t", sessionName, "Enter"]);
+            jobLog(jobId, "Sent Enter to dismiss trust prompt");
+          } catch (err) {
+            jobLog(jobId, `Failed to dismiss trust prompt: ${err}`);
+          }
+        }, 3_000);
+
+        // Inject the prompt after Claude Code fully initializes
         setTimeout(async () => {
           try {
             const promptText = readFileSync(promptFilePath, "utf8");

@@ -60,25 +60,9 @@ function resolveSkillSourcePath(config: WorkspaceConfig, skillName: string): str
 // Constants
 // ---------------------------------------------------------------------------
 
-/**
- * Maps role names to the raw MCP tool names they are allowed to invoke.
- * The `mcp__zazig-messaging__` prefix is added by `generateAllowedTools`.
- */
-export const ROLE_ALLOWED_TOOLS: Record<string, string[]> = {
-  cpo: ["query_projects", "create_feature", "update_feature", "request_work"],
-  cto: ["request_work"],
-  "project-architect": ["create_project", "batch_create_features", "query_projects"],
-  "breakdown-specialist": ["query_features", "batch_create_jobs"],
-  "senior-engineer": ["query_features"],
-  reviewer: ["query_features"],
-  "monitoring-agent": ["send_message"],
-  "verification-specialist": ["query_features", "query_jobs", "batch_create_jobs", "request_work"],
-  "pipeline-technician": ["query_features", "query_jobs", "execute_sql"],
-  "job-combiner": [],
-  deployer: [],
-  "test-deployer": ["enable_remote", "send_message"],
-  tester: ["enable_remote", "send_message"],
-};
+// MCP tool permissions are stored in the `roles.mcp_tools` column in the DB.
+// The orchestrator reads them and sends them in the dispatch message.
+// If no tools are provided, the agent gets standard Claude Code tools only.
 
 // ---------------------------------------------------------------------------
 // Public helpers
@@ -139,7 +123,7 @@ const STANDARD_TOOLS = [
  * Unknown roles default to standard tools only (no MCP tools).
  */
 export function generateAllowedTools(role: string, mcpTools?: string[]): string[] {
-  const toolList = (mcpTools ?? ROLE_ALLOWED_TOOLS[role] ?? []).map(
+  const toolList = (mcpTools ?? []).map(
     (name) => `mcp__zazig-messaging__${name}`,
   );
   return [...STANDARD_TOOLS, ...toolList];
@@ -164,7 +148,7 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     supabaseAnonKey: config.supabaseAnonKey,
     jobId: config.jobId,
     companyId: config.companyId,
-    allowedTools: config.mcpTools ?? ROLE_ALLOWED_TOOLS[config.role],
+    allowedTools: config.mcpTools,
     tmuxSession: config.tmuxSession,
     role: config.role,
   });

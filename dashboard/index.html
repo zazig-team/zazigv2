@@ -960,7 +960,10 @@
 
         // Meta line
         var meta = el('div', 'card-meta');
-        var jobs = Array.isArray(feature?.jobs) ? feature.jobs : [];
+        var allJobs = Array.isArray(feature?.jobs) ? feature.jobs : [];
+        var jobs = allJobs.filter(function(j) {
+          return normalizeStatus(j?.status) !== 'cancelled';
+        });
 
         if (jobs.length > 0) {
           var doneCount = jobs.filter(function(j) {
@@ -1119,8 +1122,10 @@
 
         detailContentEl.appendChild(metaDiv);
 
-        // Jobs section
-        var jobs = Array.isArray(feature.jobs) ? sortJobs(feature.jobs) : [];
+        // Jobs section (exclude cancelled)
+        var jobs = (Array.isArray(feature.jobs) ? sortJobs(feature.jobs) : []).filter(function(j) {
+          return normalizeStatus(j?.status) !== 'cancelled';
+        });
         if (jobs.length > 0) {
           detailContentEl.appendChild(el('div', 'detail-section-title',
             'Jobs (' + jobs.length + ')'));

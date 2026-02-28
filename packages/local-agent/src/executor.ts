@@ -145,14 +145,12 @@ Then exit.`;
 /** Universal file-writing rules for all agents. */
 export const FILE_WRITING_RULES = `## File Writing Rules
 
-Your workspace directory is ephemeral runtime state — do NOT write substantive documents here.
+ALL file operations (reads, writes, edits) MUST stay within your working directory.
+Do NOT use absolute paths to other repositories or user home directories.
 
-- Session reports → \`.claude/{role}-report.md\` in your workspace (this is correct)
-- Design documents, proposals, plans, specs → ALWAYS write to the repo:
-  \`/Users/tomweaver/Documents/GitHub/zazigv2/docs/plans/YYYY-MM-DD-descriptive-slug.md\`
-- Never write docs, plans, or proposals to the workspace — they are invisible to
-  other agents, Obsidian, and git
-- When using skills like internal-proposal, override the output path to the repo docs/plans/ directory`;
+- Session reports → \`.claude/{role}-report.md\` in your working directory
+- Design documents, proposals, plans, specs → \`docs/plans/YYYY-MM-DD-descriptive-slug.md\` (relative to your working directory)
+- Never reference paths outside your working directory — they belong to other projects`;
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -415,7 +413,8 @@ export class JobExecutor {
 
     const cleanupPreparedWorkspace = async (): Promise<void> => {
       if (worktreePath && repoDir) {
-        await this.repoManager.removeJobWorktree(repoDir, worktreePath);
+        // TEMP: disabled worktree cleanup for debugging
+        // await this.repoManager.removeJobWorktree(repoDir, worktreePath);
       } else if (ephemeralWorkspaceDir) {
         cleanupJobWorkspace(jobId, ephemeralWorkspaceDir);
       }
@@ -780,7 +779,8 @@ export class JobExecutor {
       this.clearJobTimers(job);
       await killTmuxSession(job.sessionName);
       if (job.worktreePath && job.repoDir) {
-        await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+        // TEMP: disabled worktree cleanup for debugging
+        // await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
       } else {
         cleanupJobWorkspace(job.jobId, job.workspaceDir);
       }
@@ -852,7 +852,8 @@ export class JobExecutor {
     }
 
     if (job.worktreePath && job.repoDir) {
-      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      // TEMP: disabled worktree cleanup for debugging
+      // await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
       cleanupJobWorkspace(job.jobId, job.workspaceDir);
     }
@@ -1114,7 +1115,8 @@ export class JobExecutor {
     // Clean up log file and worktree
     // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
     if (job.worktreePath && job.repoDir) {
-      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      // TEMP: disabled worktree cleanup for debugging
+      // await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
@@ -1224,7 +1226,8 @@ export class JobExecutor {
 
     // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
     if (job.worktreePath && job.repoDir) {
-      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      // TEMP: disabled worktree cleanup for debugging
+      // await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
@@ -1349,12 +1352,13 @@ export class JobExecutor {
         console.warn(`[executor] onJobEnded: push failed for jobId=${jobId}: ${String(pushErr)}`);
       }
       await this.supabase.from("jobs").update({ branch: job.jobBranch }).eq("id", jobId);
-      try {
-        await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
-      } catch (worktreeErr) {
-        jobLog(jobId, `Worktree cleanup failed (non-fatal): ${String(worktreeErr)}`);
-        console.warn(`[executor] Worktree cleanup failed for jobId=${jobId}: ${String(worktreeErr)}`);
-      }
+      // TEMP: disabled worktree cleanup for debugging
+      // try {
+      //   await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
+      // } catch (worktreeErr) {
+      //   jobLog(jobId, `Worktree cleanup failed (non-fatal): ${String(worktreeErr)}`);
+      //   console.warn(`[executor] Worktree cleanup failed for jobId=${jobId}: ${String(worktreeErr)}`);
+      // }
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }

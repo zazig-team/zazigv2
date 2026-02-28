@@ -92,6 +92,37 @@ Deno.serve(async (req: Request): Promise<Response> => {
       console.warn(`Failed to fetch personalities: ${persError.message}`);
     }
 
+    // Fetch company name and projects for context grounding
+    const { data: companyRow } = await supabase
+      .from("companies")
+      .select("name")
+      .eq("id", companyId)
+      .single();
+    const companyName = (companyRow as { name?: string } | null)?.name ?? "Unknown";
+
+    const { data: projects } = await supabase
+      .from("projects")
+      .select("name, repo_url, status")
+      .eq("company_id", companyId)
+      .eq("status", "active");
+
+    // Build company/project context block
+    const projectLines = (projects ?? []).map(
+      (p: { name: string; repo_url: string | null }) =>
+        `- **${p.name}**${p.repo_url ? ` — ${p.repo_url}` : ""}`
+    );
+    const companyContext = [
+      `## Company Context`,
+      ``,
+      `You are working for **${companyName}** (company_id: ${companyId}).`,
+      ``,
+      ...(projectLines.length > 0
+        ? [`### Projects`, ``, ...projectLines]
+        : [`No projects configured yet.`]),
+      ``,
+      `When referencing project repos, use relative paths within the repo — never absolute paths to other users' machines.`,
+    ].join("\n");
+
     // Assemble prompt stack for each role
     const result = roles.map((role) => {
       const personality = personalities?.find(
@@ -101,6 +132,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
       const parts: string[] = [];
       parts.push(`# ${role.name.toUpperCase()}`);
+      parts.push(companyContext);
       if (personality?.compiled_prompt) {
         parts.push(String(personality.compiled_prompt));
         parts.push("---");

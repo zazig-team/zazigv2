@@ -628,14 +628,17 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     let featureBranch: string | null = null;
     const requiresCodeContext = !NO_CODE_CONTEXT_ROLES.has(job.role);
 
+    let projectName: string | null = null;
+
     if (requiresCodeContext) {
       if (job.project_id) {
         const { data: projectRow } = await supabase
           .from("projects")
-          .select("repo_url")
+          .select("name, repo_url")
           .eq("id", job.project_id)
           .single();
         repoUrl = (projectRow as { repo_url?: string } | null)?.repo_url ?? null;
+        projectName = (projectRow as { name?: string } | null)?.name ?? null;
       }
 
       if (job.feature_id) {
@@ -667,6 +670,24 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       } catch {
         dispatchContext = `${job.context ?? ""}\n\nVerification failure context:\n${job.verify_context}`;
       }
+    }
+
+    // Prepend repo grounding so the agent knows which repo it's working on.
+    // This is the single source of truth for agent workspace identity.
+    if (repoUrl) {
+      const repoShortName = projectName ?? repoUrl.split("/").pop()?.replace(/\.git$/, "") ?? "unknown";
+      const grounding = [
+        `## Repository Context (CRITICAL)`,
+        ``,
+        `You are working on the **${repoShortName}** repository.`,
+        `- Remote: ${repoUrl}`,
+        ...(featureBranch ? [`- Feature branch: ${featureBranch}`] : []),
+        ``,
+        `**ALL file reads, writes, and edits MUST be within your working directory.**`,
+        `Do NOT use absolute paths to other repositories or user home directories.`,
+        `If a file doesn't exist in your working directory, CREATE it — do not look for it elsewhere.`,
+      ].join("\n");
+      dispatchContext = grounding + "\n\n---\n\n" + (dispatchContext ?? "");
     }
 
     // Validate context — the local agent's isStartJob validator requires either
@@ -721,6 +742,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
 
     // Dispatch: update job status → dispatched, assign machine_id.
     // Record the resolved model and slot_type on the job for observability.
+    // Store grounded dispatchContext as prompt_stack so we can see exactly what the agent received.
     const { data: claimedJobRows, error: updateJobErr } = await supabase
       .from("jobs")
       .update({
@@ -729,6 +751,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         model,
         slot_type: slotType,
         started_at: new Date().toISOString(),
+        prompt_stack: dispatchContext ?? null,
       })
       .eq("id", job.id)
       .in("status", ["queued", "verify_failed"]) // optimistic lock

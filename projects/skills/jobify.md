@@ -112,11 +112,12 @@ For each job, assign complexity and model:
 
 Assign a role:
 
+**Only these two roles are allowed.** Do NOT use any other role (no `test-deployer`, `verification-specialist`, `reviewer`, etc. — those are orchestrator-managed).
+
 | Role | When to use |
 |------|-------------|
 | `senior-engineer` | Most implementation work |
 | `junior-engineer` | Simple, well-defined tasks with clear specs |
-| `reviewer` | Review-only jobs (rare in breakdown) |
 
 Assign a job type:
 

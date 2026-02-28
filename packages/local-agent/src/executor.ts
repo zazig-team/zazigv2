@@ -529,6 +529,8 @@ export class JobExecutor {
           try {
             const promptText = readFileSync(promptFilePath, "utf8");
             await execFileAsync("tmux", ["send-keys", "-t", sessionName, "-l", promptText]);
+            // Wait for the TUI to process the pasted text before submitting
+            await new Promise((resolve) => setTimeout(resolve, 2_000));
             await execFileAsync("tmux", ["send-keys", "-t", sessionName, "Enter"]);
             jobLog(jobId, `Injected prompt into interactive session (${promptText.length} chars)`);
           } catch (err) {

@@ -76,6 +76,8 @@ export const ROLE_ALLOWED_TOOLS: Record<string, string[]> = {
   "pipeline-technician": ["query_features", "query_jobs", "execute_sql"],
   "job-combiner": [],
   deployer: [],
+  "test-deployer": ["enable_remote", "send_message"],
+  tester: ["enable_remote", "send_message"],
 };
 
 // ---------------------------------------------------------------------------

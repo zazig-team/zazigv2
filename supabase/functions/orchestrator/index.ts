@@ -2118,6 +2118,19 @@ async function initiateTestDeploy(supabase: SupabaseClient, featureId: string): 
     console.warn(`[orchestrator] Project for feature ${featureId} has no repo_url — skipping PR creation`);
   }
 
+  // Guard: skip if there's already an active deploy_to_test job for this feature
+  const { data: existingJobs } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("feature_id", featureId)
+    .eq("job_type", "deploy_to_test")
+    .in("status", ["queued", "dispatched", "executing"])
+    .limit(1);
+  if (existingJobs && existingJobs.length > 0) {
+    console.log(`[orchestrator] initiateTestDeploy: active deploy_to_test job already exists for feature ${featureId} — skipping`);
+    return;
+  }
+
   // Queue a test-deployer job — the dispatcher will pick a machine with capacity.
   const { error: insertErr } = await supabase.from("jobs").insert({
     company_id: feature.company_id,

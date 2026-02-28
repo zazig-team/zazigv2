@@ -3084,27 +3084,41 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
   }
 
   // --- 5. deploying_to_test — stuck recovery ---
-  // Features stuck in 'deploying_to_test' for too long. This can happen if:
-  //   a) The deploy job completed but the completion handler was missed
-  //   b) The deploy failed silently
-  // Recovery: roll back to 'verifying' after 5 minutes so the poller can retry.
+  // Features stuck in 'deploying_to_test' where no deploy job has heartbeated
+  // in the last 5 minutes. The executor updates job.updated_at every 30s while
+  // the tmux session is alive, so a stale updated_at means the job is dead.
+  // Recovery: roll back to 'verifying' so the poller can retry.
   const DEPLOY_STUCK_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
   const deployStuckCutoff = new Date(Date.now() - DEPLOY_STUCK_THRESHOLD_MS).toISOString();
 
-  const { data: stuckDeploying, error: deployErr } = await supabase
+  const { data: deployingFeatures, error: deployErr } = await supabase
     .from("features")
     .select("id, company_id")
     .eq("status", "deploying_to_test")
-    .lt("updated_at", deployStuckCutoff)
     .limit(50);
 
   if (deployErr) {
     console.error("[orchestrator] processFeatureLifecycle: error querying deploying_to_test features:", deployErr.message);
   }
 
-  for (const feature of (stuckDeploying ?? []) as { id: string; company_id: string }[]) {
+  for (const feature of (deployingFeatures ?? []) as { id: string; company_id: string }[]) {
+    // Check the latest deploy_to_test job's heartbeat (updated_at)
+    const { data: latestJob } = await supabase
+      .from("jobs")
+      .select("id, updated_at, status")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "deploy_to_test")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    // Skip if the job has heartbeated recently (still alive)
+    if (latestJob?.updated_at && latestJob.updated_at > deployStuckCutoff) {
+      continue;
+    }
+
     console.warn(
-      `[orchestrator] processFeatureLifecycle: feature ${feature.id} stuck in deploying_to_test for >5min — rolling back to verifying`,
+      `[orchestrator] processFeatureLifecycle: feature ${feature.id} stuck in deploying_to_test — last job heartbeat stale (${latestJob?.updated_at ?? "no job"}) — rolling back to verifying`,
     );
 
     const { error: rollbackErr } = await supabase
@@ -3117,7 +3131,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
       await notifyCPO(
         supabase,
         feature.company_id,
-        `Feature ${feature.id} was stuck in deploying_to_test for >5 minutes. Rolled back to verifying for retry.`,
+        `Feature ${feature.id} was stuck in deploying_to_test (no job heartbeat for >5min). Rolled back to verifying for retry.`,
       );
     }
   }

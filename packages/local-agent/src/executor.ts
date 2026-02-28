@@ -1110,10 +1110,10 @@ export class JobExecutor {
       const elapsedMs = Date.now() - job.startedAt;
       const progress = Math.min(95, Math.floor((elapsedMs / JOB_TIMEOUT_MS) * 100));
 
-      // Update progress estimate
+      // Update progress estimate + heartbeat
       const { error: progressErr } = await this.supabase
         .from("jobs")
-        .update({ progress })
+        .update({ progress, updated_at: new Date().toISOString() })
         .eq("id", jobId);
       if (progressErr) {
         console.warn(`[executor] Progress write failed for jobId=${jobId}: ${progressErr.message}`);

@@ -52,6 +52,8 @@ const ALLOWED_MODELS = new Set([
   "claude-sonnet-4-6",
   "claude-haiku-4-5",
   "codex",
+  "gpt-5.3-codex xhigh",
+  "gpt-5.3-codex-spark",
 ]);
 
 // ---------------------------------------------------------------------------

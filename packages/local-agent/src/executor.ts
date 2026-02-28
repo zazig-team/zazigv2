@@ -339,6 +339,20 @@ export class JobExecutor {
       return;
     }
 
+    try {
+      await this._handleStartJobInner(msg);
+    } catch (err) {
+      jobLog(jobId, `FATAL handleStartJob crashed: ${String(err)}`);
+      console.error(`[executor] FATAL handleStartJob crashed for jobId=${jobId}:`, err);
+      // Best-effort: release slot and notify orchestrator
+      try { this.slots.release(slotType); } catch { /* already released or never acquired */ }
+      try { await this.sendJobFailed(jobId, `Agent crash: ${String(err)}`, "agent_crash"); } catch { /* best-effort */ }
+    }
+  }
+
+  private async _handleStartJobInner(msg: StartJob): Promise<void> {
+    const { jobId, slotType, complexity, context, contextRef, model } = msg;
+
     // --- 1. Acquire slot (throws if none available) ---
     try {
       this.slots.acquire(slotType);
@@ -598,8 +612,12 @@ export class JobExecutor {
 
     // Poll loop: check every POLL_INTERVAL_MS
     activeJob.pollTimer = setInterval(() => {
-      void this.pollJob(jobId);
+      this.pollJob(jobId).catch((err) => {
+        jobLog(jobId, `pollJob CRASHED: ${String(err)}`);
+        console.error(`[executor] pollJob crashed for jobId=${jobId}:`, err);
+      });
     }, POLL_INTERVAL_MS);
+    jobLog(jobId, `Poll timer started (interval=${POLL_INTERVAL_MS}ms)`);
   }
 
   // ---------------------------------------------------------------------------
@@ -1040,6 +1058,16 @@ export class JobExecutor {
   async handleStopJob(msg: StopJob): Promise<void> {
     const { jobId, reason } = msg;
     console.log(`[executor] handleStopJob — jobId=${jobId}, reason=${reason}`);
+    try {
+      await this._handleStopJobInner(msg);
+    } catch (err) {
+      jobLog(jobId, `FATAL handleStopJob crashed: ${String(err)}`);
+      console.error(`[executor] FATAL handleStopJob crashed for jobId=${jobId}:`, err);
+    }
+  }
+
+  private async _handleStopJobInner(msg: StopJob): Promise<void> {
+    const { jobId, reason } = msg;
 
     const job = this.activeJobs.get(jobId);
     if (!job) {
@@ -1104,9 +1132,13 @@ export class JobExecutor {
 
   private async pollJob(jobId: string): Promise<void> {
     const job = this.activeJobs.get(jobId);
-    if (!job || job.settled) return;
+    if (!job || job.settled) {
+      jobLog(jobId, `pollJob skipped — job=${job ? "exists" : "missing"}, settled=${job?.settled}`);
+      return;
+    }
 
     const alive = await isTmuxSessionAlive(job.sessionName);
+    jobLog(jobId, `pollJob — session=${job.sessionName}, alive=${alive}`);
     if (alive) {
       // Write time-based progress estimate (linear over JOB_TIMEOUT_MS, capped at 95)
       const elapsedMs = Date.now() - job.startedAt;
@@ -1118,6 +1150,7 @@ export class JobExecutor {
         .update({ progress, updated_at: new Date().toISOString() })
         .eq("id", jobId);
       if (progressErr) {
+        jobLog(jobId, `Progress write failed: ${progressErr.message}`);
         console.warn(`[executor] Progress write failed for jobId=${jobId}: ${progressErr.message}`);
       }
 
@@ -1134,6 +1167,7 @@ export class JobExecutor {
           job.lastBytesSent = logChunk.newOffset;
         }
       }
+      jobLog(jobId, `Still running — progress=${progress}`);
       console.log(`[executor] Job still running — jobId=${jobId}, session=${job.sessionName}, progress=${progress}`);
       return;
     }
@@ -1141,6 +1175,7 @@ export class JobExecutor {
     // Session is gone — check exit code via tmux last-exit-status if available,
     // but since the session already ended we use presence of output file as a
     // success signal; absence or error output means failure.
+    jobLog(jobId, `Tmux session ended — triggering onJobEnded`);
     console.log(`[executor] Tmux session ended — jobId=${jobId}, session=${job.sessionName}`);
     await this.onJobEnded(jobId, false /* not a forced timeout */);
   }
@@ -1204,9 +1239,12 @@ export class JobExecutor {
 
   private async onJobEnded(jobId: string, _timedOut: boolean): Promise<void> {
     const job = this.activeJobs.get(jobId);
-    if (!job || job.settled) return;
+    if (!job || job.settled) {
+      jobLog(jobId, `onJobEnded SKIPPED — job=${job ? "exists" : "missing"}, settled=${job?.settled}`);
+      return;
+    }
 
-    jobLog(jobId, `onJobEnded — role=${job.role ?? "none"}, worktree=${job.worktreePath ?? "none"}`);
+    jobLog(jobId, `onJobEnded START — role=${job.role ?? "none"}, worktree=${job.worktreePath ?? "none"}`);
 
     job.settled = true;
     this.clearJobTimers(job);
@@ -1311,14 +1349,24 @@ export class JobExecutor {
         console.warn(`[executor] onJobEnded: push failed for jobId=${jobId}: ${String(pushErr)}`);
       }
       await this.supabase.from("jobs").update({ branch: job.jobBranch }).eq("id", jobId);
-      await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
+      try {
+        await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
+      } catch (worktreeErr) {
+        jobLog(jobId, `Worktree cleanup failed (non-fatal): ${String(worktreeErr)}`);
+        console.warn(`[executor] Worktree cleanup failed for jobId=${jobId}: ${String(worktreeErr)}`);
+      }
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
 
     jobLog(jobId, `Sending JobComplete — result="${result}", hasReport=${!!report}`);
-    await this.sendJobComplete(jobId, result, report);
-    jobLog(jobId, `JobComplete sent successfully`);
+    try {
+      await this.sendJobComplete(jobId, result, report);
+      jobLog(jobId, `JobComplete sent successfully`);
+    } catch (sendErr) {
+      jobLog(jobId, `sendJobComplete FAILED: ${String(sendErr)}`);
+      console.error(`[executor] sendJobComplete failed for jobId=${jobId}:`, sendErr);
+    }
 
     // Trigger verification pipeline if a callback is registered.
     // The orchestrator may also send a VerifyJob in response to JobComplete,

@@ -14,7 +14,7 @@
 
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
 import WebSocket from "ws";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { HEARTBEAT_INTERVAL_MS, PROTOCOL_VERSION, isOrchestratorMessage } from "@zazigv2/shared";
@@ -254,25 +254,42 @@ export class AgentConnection {
     });
 
     // Listen for broadcast messages from the orchestrator
+    // Each handler is wrapped in try/catch to prevent a bad message from crashing the process
     this.channel.on("broadcast", { event: "message" }, (payload) => {
-      console.log(`[local-agent][DEBUG] Matched event=message`);
-      this.handleIncomingPayload(payload.payload);
+      try {
+        console.log(`[local-agent][DEBUG] Matched event=message`);
+        this.handleIncomingPayload(payload.payload);
+      } catch (err) {
+        console.error(`[local-agent] Broadcast handler crashed (event=message):`, err);
+      }
     });
 
     // Also listen for named events (orchestrator sends with event matching the message type)
     this.channel.on("broadcast", { event: "start_job" }, (payload) => {
-      console.log(`[local-agent][DEBUG] Matched event=start_job`);
-      this.handleIncomingPayload(payload.payload);
+      try {
+        console.log(`[local-agent][DEBUG] Matched event=start_job`);
+        this.handleIncomingPayload(payload.payload);
+      } catch (err) {
+        console.error(`[local-agent] Broadcast handler crashed (event=start_job):`, err);
+      }
     });
 
     this.channel.on("broadcast", { event: "job_unblocked" }, (payload) => {
-      console.log(`[local-agent][DEBUG] Matched event=job_unblocked`);
-      this.handleIncomingPayload(payload.payload);
+      try {
+        console.log(`[local-agent][DEBUG] Matched event=job_unblocked`);
+        this.handleIncomingPayload(payload.payload);
+      } catch (err) {
+        console.error(`[local-agent] Broadcast handler crashed (event=job_unblocked):`, err);
+      }
     });
 
     this.channel.on("broadcast", { event: "message_inbound" }, (payload) => {
-      console.log(`[local-agent][DEBUG] Matched event=message_inbound`);
-      this.handleIncomingPayload(payload.payload);
+      try {
+        console.log(`[local-agent][DEBUG] Matched event=message_inbound`);
+        this.handleIncomingPayload(payload.payload);
+      } catch (err) {
+        console.error(`[local-agent] Broadcast handler crashed (event=message_inbound):`, err);
+      }
     });
 
     // Outbound channel: sends heartbeats/job updates to orchestrator
@@ -336,13 +353,11 @@ export class AgentConnection {
       );
       if (jobId) {
         // Write to per-job log so it's findable
-        const { appendFileSync } = require("fs");
-        const { homedir } = require("os");
-        const logDir = `${homedir()}/.zazigv2/job-logs`;
         try {
-          require("fs").mkdirSync(logDir, { recursive: true });
+          const logDir = join(homedir(), ".zazigv2", "job-logs");
+          mkdirSync(logDir, { recursive: true });
           appendFileSync(
-            `${logDir}/${jobId}-pre-post.log`,
+            join(logDir, `${jobId}-pre-post.log`),
             `${new Date().toISOString()} REJECTED by validator: type=${msgType}, cardType=${cardType ?? "none"}\n`,
           );
         } catch { /* best-effort */ }

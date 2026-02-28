@@ -109,6 +109,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     // If status changed to ready_for_breakdown, insert event so orchestrator picks it up
     if (status === "ready_for_breakdown") {
+      // Cancel all existing jobs from previous pipeline runs so the catch-up loop
+      // doesn't re-fail the feature before the new breakdown can finish.
+      await supabase
+        .from("jobs")
+        .update({ status: "cancelled", completed_at: new Date().toISOString() })
+        .eq("feature_id", feature_id)
+        .neq("status", "cancelled");
+
       await supabase.from("events").insert({
         company_id: updated.company_id,
         feature_id,

@@ -3100,7 +3100,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     .from("jobs")
     .select("id, feature_id")
     .eq("job_type", "deploy_to_test")
-    .not("status", "in", '("complete","failed","queued")')
+    .not("status", "in", '("complete","failed","queued","cancelled")')
     .lt("created_at", zombieCutoff)
     .limit(50);
 
@@ -3116,7 +3116,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
         result: "Auto-failed: deploy_to_test job stuck in executing/dispatched for >15 minutes (zombie)",
       })
       .eq("id", job.id)
-      .not("status", "in", '("complete","failed")') // CAS guard — don't overwrite terminal states
+      .not("status", "in", '("complete","failed","cancelled")') // CAS guard — don't overwrite terminal states
       .select("id");
 
     if (updated && updated.length > 0) {

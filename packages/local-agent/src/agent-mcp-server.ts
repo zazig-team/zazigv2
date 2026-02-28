@@ -134,8 +134,11 @@ server.tool(
     }
 
     try {
-      // Send /remote-control command to the tmux session
-      await execFileAsync("tmux", ["send-keys", "-t", sessionName, "/remote-control", "Enter"]);
+      // Send /remote-control command to the tmux session.
+      // Split text and Enter with a delay so the TUI autocomplete processes first.
+      await execFileAsync("tmux", ["send-keys", "-t", sessionName, "/remote-control"]);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await execFileAsync("tmux", ["send-keys", "-t", sessionName, "Enter"]);
 
       // Wait for the command to produce output
       await new Promise((resolve) => setTimeout(resolve, 5000));

@@ -1001,6 +1001,47 @@ server.tool(
   }),
 );
 
+server.tool(
+  "merge_pr",
+  "Merge a feature's PR into master and mark the feature complete. Only works when feature is in pr_ready status.",
+  {
+    feature_id: z.string().describe("The feature ID whose PR to merge"),
+  },
+  guardedHandler("merge_pr", async ({ feature_id }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/merge-pr`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ featureId: feature_id }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { message?: string; sha?: string };
+      return {
+        content: [{ type: "text" as const, text: data.message ?? "PR merged and feature marked complete." }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to merge PR (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  }),
+);
+
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);

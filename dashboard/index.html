@@ -24,9 +24,7 @@
       --col-building: #e8a838;
       --col-combining: #e67e22;
       --col-verifying: #28b5d4;
-      --col-deploying_to_test: #2980b9;
-      --col-ready_to_test: #4d8fef;
-      --col-deploying_to_prod: #27ae60;
+      --col-pr_ready: #2980b9;
       --col-complete: #3cbf6e;
 
       --col-ready_for_breakdown-bg: rgba(155, 89, 182, 0.06);
@@ -34,9 +32,7 @@
       --col-building-bg: rgba(232, 168, 56, 0.06);
       --col-combining-bg: rgba(230, 126, 34, 0.06);
       --col-verifying-bg: rgba(40, 181, 212, 0.06);
-      --col-deploying_to_test-bg: rgba(41, 128, 185, 0.06);
-      --col-ready_to_test-bg: rgba(77, 143, 239, 0.06);
-      --col-deploying_to_prod-bg: rgba(39, 174, 96, 0.06);
+      --col-pr_ready-bg: rgba(41, 128, 185, 0.06);
       --col-complete-bg: rgba(60, 191, 110, 0.06);
     }
 
@@ -94,14 +90,14 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: var(--col-ready_to_test);
-      box-shadow: 0 0 8px var(--col-ready_to_test), 0 0 20px rgba(77, 143, 239, 0.3);
+      background: var(--col-pr_ready);
+      box-shadow: 0 0 8px var(--col-pr_ready), 0 0 20px rgba(77, 143, 239, 0.3);
       animation: pulse-glow 3s ease-in-out infinite;
     }
 
     @keyframes pulse-glow {
-      0%, 100% { box-shadow: 0 0 8px var(--col-ready_to_test), 0 0 20px rgba(77, 143, 239, 0.3); }
-      50% { box-shadow: 0 0 12px var(--col-ready_to_test), 0 0 30px rgba(77, 143, 239, 0.5); }
+      0%, 100% { box-shadow: 0 0 8px var(--col-pr_ready), 0 0 20px rgba(77, 143, 239, 0.3); }
+      50% { box-shadow: 0 0 12px var(--col-pr_ready), 0 0 30px rgba(77, 143, 239, 0.5); }
     }
 
     h1 {
@@ -114,7 +110,7 @@
     }
 
     .company-tag {
-      color: var(--col-ready_to_test);
+      color: var(--col-pr_ready);
       margin-left: 4px;
     }
 
@@ -302,7 +298,7 @@
     }
 
     .card:focus-visible {
-      outline: 2px solid var(--col-ready_to_test);
+      outline: 2px solid var(--col-pr_ready);
       outline-offset: 1px;
     }
 
@@ -601,7 +597,7 @@
     }
 
     .detail-job-row:focus-visible {
-      outline: 2px solid var(--col-ready_to_test);
+      outline: 2px solid var(--col-pr_ready);
       outline-offset: 1px;
     }
 
@@ -800,9 +796,7 @@
         { key: 'building',            label: 'Building',  color: '#e8a838' },
         { key: 'combining',           label: 'Combining', color: '#e67e22' },
         { key: 'verifying',           label: 'Verifying', color: '#28b5d4' },
-        { key: 'deploying_to_test',   label: 'Deploying', color: '#2980b9' },
-        { key: 'ready_to_test',       label: 'Testing',   color: '#4d8fef' },
-        { key: 'deploying_to_prod',   label: 'To Prod',   color: '#27ae60' },
+        { key: 'pr_ready',            label: 'PR Ready',  color: '#2980b9' },
         { key: 'complete',            label: 'Complete',  color: '#3cbf6e' },
       ];
 

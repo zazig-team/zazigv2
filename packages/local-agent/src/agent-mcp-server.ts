@@ -66,12 +66,12 @@ const REQUEST_WORK_ROLE_ALLOWLIST: Record<string, Set<string>> = {
 
 server.tool(
   "send_message",
-  "Send a reply to an external platform message (Slack, etc.) via the orchestrator",
+  "Send a message to the company's Slack channel. If conversation_id is omitted, the message goes to the default channel.",
   {
-    conversation_id: z.string().describe("The opaque conversation ID from the inbound message"),
     text: z.string().describe("The message text to send"),
+    conversation_id: z.string().optional().describe("Optional conversation ID. If omitted, sends to the company's default Slack channel."),
   },
-  guardedHandler("send_message", async ({ conversation_id, text }) => {
+  guardedHandler("send_message", async ({ text, conversation_id }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
@@ -94,7 +94,11 @@ server.tool(
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ conversationId: conversation_id, text, jobId }),
+      body: JSON.stringify({
+        ...(conversation_id ? { conversationId: conversation_id } : {}),
+        text,
+        jobId,
+      }),
     });
 
     if (response.ok) {

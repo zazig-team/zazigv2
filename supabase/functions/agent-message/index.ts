@@ -124,16 +124,59 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse({ ok: false, error: "Invalid JSON body" }, 400);
   }
 
-  const { conversationId, text, jobId } = body;
+  const { conversationId: rawConversationId, text, jobId } = body;
 
-  if (!conversationId || typeof conversationId !== "string") {
-    return jsonResponse({ ok: false, error: "Missing or invalid conversationId" }, 400);
-  }
   if (!text || typeof text !== "string") {
     return jsonResponse({ ok: false, error: "Missing or invalid text" }, 400);
   }
   if (!jobId || typeof jobId !== "string") {
     return jsonResponse({ ok: false, error: "Missing or invalid jobId" }, 400);
+  }
+
+  // Auto-resolve conversationId from the job's company when not provided.
+  let conversationId = rawConversationId;
+  if (!conversationId) {
+    const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
+      auth: { persistSession: false },
+    });
+
+    // Look up company_id from the job
+    const { data: job } = await supabase
+      .from("jobs")
+      .select("company_id")
+      .eq("id", jobId)
+      .single();
+
+    if (!job?.company_id) {
+      return jsonResponse({ ok: false, error: `Could not resolve company for job ${jobId}` }, 400);
+    }
+
+    // Get default Slack channel from company
+    const { data: company } = await supabase
+      .from("companies")
+      .select("slack_channels")
+      .eq("id", job.company_id)
+      .single();
+
+    const channels = (company?.slack_channels ?? []) as string[];
+    if (channels.length === 0) {
+      return jsonResponse({ ok: false, error: "No Slack channel configured for this company" }, 400);
+    }
+
+    // Get team_id from slack_installations
+    const { data: installation } = await supabase
+      .from("slack_installations")
+      .select("team_id")
+      .eq("company_id", job.company_id)
+      .limit(1)
+      .single();
+
+    if (!installation?.team_id) {
+      return jsonResponse({ ok: false, error: "No Slack installation found for this company" }, 400);
+    }
+
+    conversationId = `slack:${installation.team_id}:${channels[0]}`;
+    console.log(`[agent-message] Auto-resolved conversationId: ${conversationId}`);
   }
 
   console.log(

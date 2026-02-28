@@ -1264,6 +1264,7 @@
           metaDiv.appendChild(row);
         }
 
+        addMeta('Job ID', job.id);
         if (job.model) addMeta('Model', job.model);
         if (job.progress != null) addMeta('Progress', clampProgress(job.progress) + '%');
         addMeta('Created', formatDate(job.created_at));

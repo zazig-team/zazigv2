@@ -120,13 +120,11 @@ Assign a role:
 
 Assign a job type:
 
+**All jobs MUST use `job_type: "code"`.** The breakdown specialist only creates implementation jobs. Verification, deployment, and review are handled automatically by the orchestrator — never create those job types.
+
 | Type | Description |
 |------|-------------|
-| `code` | Implementation — new features, bug fixes, refactoring |
-| `infra` | Infrastructure — CI/CD, deployment, environment setup |
-| `design` | Design work — output is a document, not code |
-| `research` | Investigation — explore options, produce recommendation |
-| `docs` | Documentation — README, API docs, guides |
+| `code` | Implementation — the only type you create |
 
 ### Step 6: Build the Dependency Graph
 

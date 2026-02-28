@@ -42,10 +42,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 }
 
 const VALID_COMPLEXITIES = ["simple", "medium", "complex"] as const;
-const VALID_JOB_TYPES = [
-  "code", "infra", "design", "research", "docs", "bug",
-  "persistent_agent", "verify", "breakdown", "combine", "deploy", "review",
-] as const;
+const VALID_JOB_TYPES = ["code"] as const;
 
 // ---------------------------------------------------------------------------
 // Handler

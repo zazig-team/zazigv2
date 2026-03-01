@@ -195,7 +195,7 @@ export async function start(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    agentSessions = discoverAgentSessions(config.name);
+    agentSessions = discoverAgentSessions(config.name, company.id);
     if (agentSessions.length > 0) break;
     process.stdout.write(".");
   }

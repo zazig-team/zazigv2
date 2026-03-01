@@ -80,8 +80,11 @@ export function loadConfig(): MachineConfig {
   const accessToken    = process.env["SUPABASE_ACCESS_TOKEN"];
   const refreshToken   = process.env["SUPABASE_REFRESH_TOKEN"];
 
+  const companyId = process.env["ZAZIG_COMPANY_ID"];
+
   return {
     name,
+    ...(companyId ? { company_id: companyId } : {}),
     slots,
     supabase: {
       url: supabaseUrl,

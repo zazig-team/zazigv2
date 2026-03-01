@@ -970,7 +970,7 @@ export class JobExecutor {
         repoInteractiveSkillsDir: join(repoRoot, ".claude", "skills"),
         useSymlinks: true,
         mcpTools: msg.roleMcpTools,
-        tmuxSession: `${this.machineId}-${role}`,
+        tmuxSession: `${this.machineId}-${this.companyId ? this.companyId.slice(0, 8) + "-" : ""}${role}`,
       });
 
       // --- Write prompt freshness metadata for SessionStart hook ---
@@ -1049,7 +1049,8 @@ export class JobExecutor {
     }
 
     // --- Spawn the persistent tmux session in the workspace directory ---
-    const sessionName = `${this.machineId}-${role}`;
+    const companyPrefix = this.companyId ? this.companyId.slice(0, 8) + "-" : "";
+    const sessionName = `${this.machineId}-${companyPrefix}${role}`;
     try {
       // Kill any stale session from a previous run
       await killTmuxSession(sessionName);

@@ -21,19 +21,22 @@ interface AgentSession {
 }
 
 export function discoverAgentSessions(
-  machineId: string
+  machineId: string,
+  companyId?: string,
 ): AgentSession[] {
   try {
     const output = execSync("tmux list-sessions -F '#{session_name}'", {
       encoding: "utf-8",
       timeout: 5000,
     });
+    const companyPrefix = companyId ? companyId.slice(0, 8) + "-" : "";
+    const prefix = `${machineId}-${companyPrefix}`;
     return output
       .trim()
       .split("\n")
-      .filter((s) => s.startsWith(`${machineId}-`))
+      .filter((s) => s.startsWith(prefix))
       .map((sessionName) => ({
-        role: sessionName.replace(`${machineId}-`, ""),
+        role: sessionName.replace(prefix, ""),
         sessionName,
       }));
   } catch {
@@ -168,7 +171,7 @@ export async function chat(): Promise<void> {
 
   const config = loadConfig();
   const machineId = config.name;
-  const agentSessions = discoverAgentSessions(machineId);
+  const agentSessions = discoverAgentSessions(machineId, company.id);
 
   if (agentSessions.length === 0) {
     console.error("No agent sessions found. Daemon may still be starting up.");

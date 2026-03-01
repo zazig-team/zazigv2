@@ -1,8 +1,10 @@
 # Strategy Sim: A Civilisation-Style Decision Interface for AI Executives
 
 **Date:** 2026-02-25
-**Status:** Proposal (initial design)
+**Status:** Proposal (initial design) — parked
 **Author:** CPO
+**Pipeline:** idea:4aa07b29
+**Focus Area:** Visibility
 **Related docs:** `2026-02-25-cpo-autonomous-execution-proposal.md` (autonomy levels), `2026-02-25-spec-visualiser-proposal.md` (approval UI patterns), `2026-02-25-ideas-inbox-proposal.md` (pre-pipeline capture), `2026-02-24-idea-to-job-pipeline-design.md` (pipeline reference), `ORG MODEL.md` (tier/layer model)
 **Origin:** Founder (Tom) -- "What if we gamify it like a sim? Like Civ where you get multiple choice decisions plus a recommendation... You can stick it on autopilot and it will just decide for you or you can get it to wait on you."
 

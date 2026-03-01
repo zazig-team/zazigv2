@@ -2,7 +2,9 @@
 
 **Date:** 2026-02-27
 **Author:** CPO
-**Status:** Research complete, awaiting human decision
+**Status:** Research complete — parked (spike in 2-4 weeks)
+**Pipeline:** idea:8ce640fc
+**Focus Area:** Pipeline Reliability
 **Supporting research:**
 - `docs/plans/2026-02-27-pi-mono-technical-recon.md` (pi-mono architecture deep dive)
 - `docs/research/2026-02-27-can1357-oh-my-pi.md` (oh-my-pi fork analysis)

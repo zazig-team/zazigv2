@@ -1,8 +1,8 @@
 /**
- * zazigv2 — query-ideas Edge Function
+ * zazigv2 — create-focus-area Edge Function
  *
- * POST endpoint for querying ideas with optional filters.
- * Supports single-idea lookup, field-based filters, and full-text search.
+ * Creates a new focus area and optionally links it to goals.
+ * Resolves company_id from the provided job_id.
  *
  * Runtime: Deno / Supabase Edge Functions
  */
@@ -59,79 +59,68 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const body = await req.json();
     const {
-      idea_id,
-      status,
-      statuses,
-      domain,
-      source,
-      priority,
-      project_id,
-      search,
-      company_id,
-      limit = 50,
+      title,
+      description,
+      domain_tags,
+      proposed_by,
+      goal_ids,
+      company_id: explicit_company_id,
+      job_id,
     } = body;
 
-    // Single idea by ID — return all columns
-    if (idea_id) {
-      let singleQuery = supabase
-        .from("ideas")
-        .select("*")
-        .eq("id", idea_id);
-
-      if (company_id) {
-        singleQuery = singleQuery.eq("company_id", company_id);
-      }
-
-      const { data, error } = await singleQuery.single();
-
-      if (error) {
-        return jsonResponse({ error: error.message }, 404);
-      }
-
-      return jsonResponse({ ideas: [data] });
+    if (!title) {
+      return jsonResponse({ error: "title is required" }, 400);
     }
 
-    // Filtered query
-    let query = supabase.from("ideas").select("*");
-
-    if (Array.isArray(statuses) && statuses.length > 0) {
-      query = query.in("status", statuses);
-    } else if (status) {
-      query = query.eq("status", status);
-    }
-    if (domain) {
-      query = query.eq("domain", domain);
-    }
-    if (source) {
-      query = query.eq("source", source);
-    }
-    if (priority) {
-      query = query.eq("priority", priority);
-    }
-    if (project_id) {
-      query = query.eq("project_id", project_id);
+    // Resolve company_id: explicit param > job lookup
+    let company_id: string | null = explicit_company_id ?? null;
+    if (!company_id && job_id) {
+      const { data: job } = await supabase
+        .from("jobs")
+        .select("company_id")
+        .eq("id", job_id)
+        .single();
+      company_id = job?.company_id ?? null;
     }
 
-    // Full-text search over title + description via the `fts` generated column
-    if (search) {
-      query = query.textSearch("fts", search, { config: "english" });
+    if (!company_id) {
+      return jsonResponse({ error: "Cannot resolve company_id — provide company_id or valid job_id" }, 400);
     }
 
-    if (company_id) {
-      query = query.eq("company_id", company_id);
-    }
-
-    query = query
-      .order("created_at", { ascending: false })
-      .limit(limit);
-
-    const { data, error } = await query;
+    // Insert focus area
+    const { data: focusArea, error } = await supabase
+      .from("focus_areas")
+      .insert({
+        company_id,
+        title,
+        description: description ?? null,
+        domain_tags: domain_tags ?? [],
+        proposed_by: proposed_by ?? null,
+      })
+      .select("id")
+      .single();
 
     if (error) {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    return jsonResponse({ ideas: data ?? [] });
+    // Link to goals if provided
+    if (goal_ids && Array.isArray(goal_ids) && goal_ids.length > 0) {
+      const rows = goal_ids.map((goal_id: string) => ({
+        focus_area_id: focusArea.id,
+        goal_id,
+      }));
+
+      const { error: linkError } = await supabase
+        .from("focus_area_goals")
+        .insert(rows);
+
+      if (linkError) {
+        return jsonResponse({ error: `Focus area created but goal linking failed: ${linkError.message}` }, 500);
+      }
+    }
+
+    return jsonResponse({ focus_area_id: focusArea.id });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

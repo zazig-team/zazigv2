@@ -1,8 +1,8 @@
 /**
- * zazigv2 — query-ideas Edge Function
+ * zazigv2 — query-goals Edge Function
  *
- * POST endpoint for querying ideas with optional filters.
- * Supports single-idea lookup, field-based filters, and full-text search.
+ * Reads goals scoped to a company. Supports single lookup by
+ * goal_id or filtered list by status/time_horizon.
  *
  * Runtime: Deno / Supabase Edge Functions
  */
@@ -38,6 +38,9 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
+const GOAL_SELECT =
+  "id, company_id, title, description, time_horizon, metric, target, target_date, status, achieved_at, position, created_at, updated_at";
+
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
@@ -59,71 +62,58 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const body = await req.json();
     const {
-      idea_id,
+      goal_id,
       status,
-      statuses,
-      domain,
-      source,
-      priority,
-      project_id,
-      search,
-      company_id,
-      limit = 50,
+      time_horizon,
+      company_id: explicit_company_id,
+      job_id,
     } = body;
 
-    // Single idea by ID — return all columns
-    if (idea_id) {
-      let singleQuery = supabase
-        .from("ideas")
-        .select("*")
-        .eq("id", idea_id);
-
-      if (company_id) {
-        singleQuery = singleQuery.eq("company_id", company_id);
-      }
-
-      const { data, error } = await singleQuery.single();
+    // Single lookup by goal_id — no company_id resolution needed
+    if (goal_id) {
+      const { data, error } = await supabase
+        .from("goals")
+        .select(GOAL_SELECT)
+        .eq("id", goal_id)
+        .single();
 
       if (error) {
         return jsonResponse({ error: error.message }, 404);
       }
 
-      return jsonResponse({ ideas: [data] });
+      return jsonResponse({ goals: [data] });
     }
 
-    // Filtered query
-    let query = supabase.from("ideas").select("*");
+    // List query — resolve company_id: explicit param > job lookup
+    let company_id: string | null = explicit_company_id ?? null;
+    if (!company_id && job_id) {
+      const { data: job } = await supabase
+        .from("jobs")
+        .select("company_id")
+        .eq("id", job_id)
+        .single();
+      company_id = job?.company_id ?? null;
+    }
 
-    if (Array.isArray(statuses) && statuses.length > 0) {
-      query = query.in("status", statuses);
-    } else if (status) {
+    if (!company_id) {
+      return jsonResponse(
+        { error: "Cannot resolve company_id — provide goal_id, company_id, or valid job_id" },
+        400,
+      );
+    }
+
+    let query = supabase
+      .from("goals")
+      .select(GOAL_SELECT)
+      .eq("company_id", company_id);
+
+    if (status) {
       query = query.eq("status", status);
     }
-    if (domain) {
-      query = query.eq("domain", domain);
-    }
-    if (source) {
-      query = query.eq("source", source);
-    }
-    if (priority) {
-      query = query.eq("priority", priority);
-    }
-    if (project_id) {
-      query = query.eq("project_id", project_id);
-    }
 
-    // Full-text search over title + description via the `fts` generated column
-    if (search) {
-      query = query.textSearch("fts", search, { config: "english" });
+    if (time_horizon) {
+      query = query.eq("time_horizon", time_horizon);
     }
-
-    if (company_id) {
-      query = query.eq("company_id", company_id);
-    }
-
-    query = query
-      .order("created_at", { ascending: false })
-      .limit(limit);
 
     const { data, error } = await query;
 
@@ -131,7 +121,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    return jsonResponse({ ideas: data ?? [] });
+    return jsonResponse({ goals: data ?? [] });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

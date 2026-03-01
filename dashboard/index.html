@@ -19,6 +19,9 @@
       --text-secondary: #8b919a;
       --text-dim: #555d68;
 
+      --col-new: #64748b;
+      --col-triaged: #f59e0b;
+      --col-created: #a855f7;
       --col-ready_for_breakdown: #9b59b6;
       --col-breakdown: #8e44ad;
       --col-building: #e8a838;
@@ -26,7 +29,11 @@
       --col-verifying: #28b5d4;
       --col-pr_ready: #2980b9;
       --col-complete: #3cbf6e;
+      --col-failed: #e74c3c;
 
+      --col-new-bg: rgba(100, 116, 139, 0.08);
+      --col-triaged-bg: rgba(245, 158, 11, 0.09);
+      --col-created-bg: rgba(168, 85, 247, 0.08);
       --col-ready_for_breakdown-bg: rgba(155, 89, 182, 0.06);
       --col-breakdown-bg: rgba(142, 68, 173, 0.06);
       --col-building-bg: rgba(232, 168, 56, 0.06);
@@ -191,12 +198,39 @@
 
     /* ── Kanban Board ──────────────────────────── */
 
+    .dashboard {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      background: var(--bg);
+    }
+
     .board {
       display: flex;
       gap: 1px;
       flex: 1;
       min-height: 0;
       background: var(--border-subtle);
+    }
+
+    .intake-divider {
+      width: 2px;
+      margin: 0 4px;
+      background: var(--border);
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .intake-divider::after {
+      content: '\203A';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: var(--text-dim);
+      font-size: 1.2rem;
+      line-height: 1;
     }
 
     .column {
@@ -338,6 +372,187 @@
       font-weight: 500;
     }
 
+    .priority-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      padding: 1px 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.58rem;
+      letter-spacing: 0.02em;
+      color: var(--text-secondary);
+      text-transform: lowercase;
+      width: fit-content;
+    }
+
+    .priority-badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #facc15;
+      flex-shrink: 0;
+    }
+
+    .priority-badge.urgent .priority-badge-dot { background: #ef4444; }
+    .priority-badge.high .priority-badge-dot { background: #f97316; }
+    .priority-badge.medium .priority-badge-dot { background: #facc15; }
+    .priority-badge.low .priority-badge-dot { background: #9ca3af; }
+
+    .feature-description {
+      margin-top: 8px;
+      font-size: 0.68rem;
+      line-height: 1.45;
+      color: var(--text-secondary);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      word-break: break-word;
+    }
+
+    .feature-description.muted {
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    .card-speccing-label {
+      color: #c9b5f8;
+      border: 1px solid rgba(168, 85, 247, 0.35);
+      border-radius: 4px;
+      padding: 1px 6px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-size: 0.58rem;
+      font-weight: 600;
+    }
+
+    .idea-card .card-body {
+      padding: 10px 12px 9px;
+    }
+
+    .idea-card .card-title {
+      font-size: 0.78rem;
+      line-height: 1.3;
+    }
+
+    .idea-card.stale {
+      border-color: rgba(245, 158, 11, 0.45);
+      box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.15) inset;
+    }
+
+    .idea-card.deep-stale {
+      border-left: 3px solid #ef4444;
+    }
+
+    .idea-meta {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.63rem;
+      color: var(--text-dim);
+      text-transform: lowercase;
+    }
+
+    .idea-priority {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--text-secondary);
+    }
+
+    .idea-priority-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #facc15;
+      flex-shrink: 0;
+    }
+
+    .idea-priority.urgent .idea-priority-dot { background: #ef4444; }
+    .idea-priority.high .idea-priority-dot { background: #f97316; }
+    .idea-priority.medium .idea-priority-dot { background: #facc15; }
+    .idea-priority.low .idea-priority-dot { background: #9ca3af; }
+
+    .idea-age {
+      color: var(--text-dim);
+    }
+
+    .idea-footer {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .idea-originator {
+      margin-top: 7px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.02);
+      padding: 1px 7px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.58rem;
+      color: var(--text-secondary);
+      letter-spacing: 0.02em;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .idea-originator.muted {
+      color: var(--text-dim);
+    }
+
+    .idea-footer .idea-originator {
+      margin-top: 0;
+      margin-left: auto;
+      max-width: 72%;
+    }
+
+    .idea-recommendation {
+      margin-top: 8px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.58rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      border: 1px solid transparent;
+      width: fit-content;
+    }
+
+    .idea-footer .idea-recommendation {
+      margin-top: 0;
+    }
+
+    .idea-recommendation.promote {
+      color: #8be3ae;
+      border-color: rgba(60, 191, 110, 0.45);
+      background: rgba(60, 191, 110, 0.1);
+    }
+
+    .idea-recommendation.park {
+      color: #a4acb8;
+      border-color: rgba(107, 114, 128, 0.45);
+      background: rgba(107, 114, 128, 0.1);
+    }
+
+    .idea-recommendation.reject {
+      color: #fca5a5;
+      border-color: rgba(239, 68, 68, 0.45);
+      background: rgba(239, 68, 68, 0.1);
+    }
+
     /* Progress bar at bottom of card — only for actively-working items */
     .card-progress {
       height: 3px;
@@ -372,6 +587,65 @@
       font-size: 0.8rem;
       color: var(--text-dim);
       padding: 40px;
+    }
+
+    .parked-section {
+      border-top: 1px solid var(--border);
+      background: rgba(13, 15, 20, 0.9);
+      padding: 10px 12px 14px;
+      flex-shrink: 0;
+    }
+
+    .parked-toggle {
+      width: 100%;
+      text-align: left;
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.04em;
+      padding: 8px 10px;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .parked-toggle:hover {
+      color: var(--text);
+      border-color: #2e343b;
+      background: #1c2127;
+    }
+
+    .parked-content {
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .parked-group-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .parked-group-title.stale {
+      color: #fca5a5;
+    }
+
+    .parked-cards {
+      margin-top: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .parked-cards .idea-card {
+      width: 220px;
+      flex: 0 1 220px;
     }
 
     /* ── Detail Panel (side sheet) ─────────────── */
@@ -681,6 +955,45 @@
       overflow-y: auto;
     }
 
+    .detail-context-text.muted {
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    .detail-sub-label {
+      margin-top: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.58rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .detail-tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .detail-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.58rem;
+      color: var(--text-secondary);
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-subtle);
+      border-radius: 999px;
+      padding: 2px 7px;
+      line-height: 1.3;
+    }
+
+    .detail-flag {
+      border-radius: 4px;
+      background: rgba(239, 68, 68, 0.08);
+      border-color: rgba(239, 68, 68, 0.35);
+      color: #fecaca;
+    }
+
     /* Log area */
     .detail-log-area {
       padding: 14px 20px;
@@ -717,6 +1030,16 @@
         gap: 0;
       }
 
+      .intake-divider {
+        width: auto;
+        height: 2px;
+        margin: 6px 0;
+      }
+
+      .intake-divider::after {
+        content: '\2304';
+      }
+
       .column {
         min-width: 0;
         border-bottom: 1px solid var(--border);
@@ -724,6 +1047,11 @@
 
       .column-body {
         max-height: 50vh;
+      }
+
+      .parked-cards .idea-card {
+        width: 100%;
+        flex: 1 1 100%;
       }
 
       .detail-panel {
@@ -749,7 +1077,7 @@
     </header>
 
     <div id="message" aria-live="polite" role="status"></div>
-    <main id="dashboard" class="board" aria-live="polite"></main>
+    <main id="dashboard" class="dashboard" aria-live="polite"></main>
   </div>
 
   <!-- Detail side panel -->
@@ -779,7 +1107,9 @@
       const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0';
 
       const FEATURES_BASE =
-        SUPABASE_URL + '/rest/v1/features?select=id,title,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,error,jobs(id,title,status,progress,model,job_type,role,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
+        SUPABASE_URL + '/rest/v1/features?select=id,title,description,priority,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,error,jobs(id,title,status,progress,model,job_type,role,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
+      const QUERY_IDEAS_URL =
+        SUPABASE_URL + '/functions/v1/query-ideas';
       const COMPANIES_BASE =
         SUPABASE_URL + '/rest/v1/companies?select=id,name&limit=1&name=eq.';
       const ALL_COMPANIES_URL =
@@ -789,8 +1119,15 @@
 
       const AUTH_HEADERS = { apikey: ANON_KEY, Authorization: 'Bearer ' + ANON_KEY };
 
-      // Pipeline stage order: left -> right
-      const COLUMNS = [
+      // Intake funnel: ideas -> triage -> proposal (pre-pipeline)
+      const INTAKE_COLUMNS = [
+        { key: 'new',     label: 'Ideas',    color: '#64748b', source: 'ideas' },
+        { key: 'triaged', label: 'Triage',   color: '#f59e0b', source: 'ideas' },
+        { key: 'created', label: 'Proposal', color: '#a855f7', source: 'features' },
+      ];
+
+      // Build pipeline: ready -> complete
+      const PIPELINE_COLUMNS = [
         { key: 'ready_for_breakdown', label: 'Ready',     color: '#9b59b6' },
         { key: 'breakdown',           label: 'Breakdown', color: '#8e44ad' },
         { key: 'building',            label: 'Building',  color: '#e8a838' },
@@ -828,11 +1165,13 @@
       let activeCompanyId = null;
       let companyBlocked  = false;
       let detailPollTimer = null;
-      let openDetailId    = null; // currently open feature or job ID
+      let openDetailId    = null; // currently open idea, feature, or job ID
       let detailViewStack = []; // navigation stack for feature -> job
 
-      // Cache last fetched features for detail views
+      // Cache last fetched records for board and detail views
       let lastFeatures = [];
+      let lastIdeas = [];
+      let parkedExpanded = false;
 
       // ── Helpers ──────────────────────────────
 
@@ -850,6 +1189,17 @@
         });
       }
 
+      function apiPost(url, payload) {
+        return fetch(url, {
+          method: 'POST',
+          headers: Object.assign({ 'Content-Type': 'application/json' }, AUTH_HEADERS),
+          body: JSON.stringify(payload || {}),
+        }).then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        });
+      }
+
       function formatTime(d) {
         var p = function(v) { return String(v).padStart(2, '0'); };
         return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
@@ -862,6 +1212,23 @@
         return months[d.getMonth()] + ' ' + d.getDate() + ', ' + formatTime(d);
       }
 
+      function formatRelativeTime(isoStr) {
+        if (!isoStr) return '\u2014';
+        var ts = new Date(isoStr).getTime();
+        if (!Number.isFinite(ts)) return '\u2014';
+        var diff = Math.max(0, Date.now() - ts);
+        var minutes = Math.floor(diff / 60000);
+        if (minutes < 60) return Math.max(1, minutes) + 'm ago';
+        var hours = Math.floor(minutes / 60);
+        if (hours < 24) return hours + 'h ago';
+        var days = Math.floor(hours / 24);
+        if (days < 14) return days + 'd ago';
+        var weeks = Math.floor(days / 7);
+        if (weeks < 6) return weeks + 'w ago';
+        var months = Math.floor(days / 30);
+        return Math.max(1, months) + 'mo ago';
+      }
+
       function setMessage(text, isError) {
         messageEl.textContent = text;
         messageEl.className = isError ? 'error' : '';
@@ -869,6 +1236,79 @@
 
       function normalizeStatus(s) {
         return String(s || '').trim().toLowerCase();
+      }
+
+      function normalizePriority(p) {
+        var n = normalizeStatus(p);
+        if (n === 'urgent' || n === 'high' || n === 'medium' || n === 'low') return n;
+        return 'medium';
+      }
+
+      function getPriorityDisplay(priority) {
+        var p = normalizePriority(priority);
+        return { level: p, label: p };
+      }
+
+      function buildPriorityBadge(priority, className) {
+        var p = getPriorityDisplay(priority);
+        var badge = el('span', (className || 'priority-badge') + ' ' + p.level);
+        badge.appendChild(el('span', 'priority-badge-dot'));
+        badge.appendChild(el('span', '', p.label));
+        return badge;
+      }
+
+      function parseText(value) {
+        if (value == null) return '';
+        if (typeof value === 'string') return value.trim();
+        try {
+          return JSON.stringify(value, null, 2);
+        } catch (_) {
+          return String(value);
+        }
+      }
+
+      function parseStringList(value) {
+        if (Array.isArray(value)) {
+          return value
+            .map(function(v) { return String(v || '').trim(); })
+            .filter(Boolean);
+        }
+        if (typeof value === 'string') {
+          var trimmed = value.trim();
+          if (!trimmed) return [];
+          if ((trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+              (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
+            try {
+              return parseStringList(JSON.parse(trimmed));
+            } catch (_) {
+              // Fall back to delimiter parsing
+            }
+          }
+          return trimmed
+            .split(/[,\n]/)
+            .map(function(v) { return v.trim(); })
+            .filter(Boolean);
+        }
+        if (value && typeof value === 'object') {
+          var list = [];
+          var keys = Object.keys(value);
+          for (var i = 0; i < keys.length; i++) {
+            if (value[keys[i]]) list.push(keys[i]);
+          }
+          return list;
+        }
+        return [];
+      }
+
+      function getAgeDays(isoStr) {
+        if (!isoStr) return 0;
+        var ts = new Date(isoStr).getTime();
+        if (!Number.isFinite(ts)) return 0;
+        return Math.floor(Math.max(0, Date.now() - ts) / 86400000);
+      }
+
+      function getIdeaTimestamp(idea) {
+        return idea?.updated_at || idea?.created_at || null;
       }
 
       function getFeatureTitle(f) {
@@ -880,6 +1320,32 @@
           if (line) return line;
         }
         return 'Untitled feature';
+      }
+
+      function getIdeaTitle(idea) {
+        if (typeof idea?.title === 'string' && idea.title.trim()) return idea.title.trim();
+        var fallbackText = idea?.description ?? idea?.raw_text ?? idea?.text ?? null;
+        if (fallbackText != null) {
+          var t = typeof fallbackText === 'string'
+            ? fallbackText : JSON.stringify(fallbackText);
+          var line = t.split(/\r?\n/, 1)[0].trim();
+          if (line.length > 60) line = line.slice(0, 57) + '\u2026';
+          if (line) return line;
+        }
+        return 'Untitled idea';
+      }
+
+      function getIdeaRecommendation(idea) {
+        var notes = idea?.triage_notes;
+        if (notes && typeof notes === 'object') {
+          var rec = normalizeStatus(notes.recommendation || notes.action || notes.next_step);
+          if (rec === 'promote' || rec === 'park' || rec === 'reject') return rec;
+        }
+        var text = parseText(notes).toLowerCase();
+        if (/\bpromote\b/.test(text)) return 'promote';
+        if (/\breject\b/.test(text)) return 'reject';
+        if (/\bpark\b/.test(text)) return 'park';
+        return '';
       }
 
       function getJobTitle(job) {
@@ -942,9 +1408,9 @@
         }
       }
 
-      // ── Card Rendering (compact Trello-style) ─
+      // ── Card Rendering ──────────────────────
 
-      function renderCard(feature, colDef, delay) {
+      function renderFeatureCard(feature, colDef, delay) {
         var card = el('div', 'card');
         card.style.animationDelay = delay + 'ms';
         card.setAttribute('role', 'button');
@@ -959,14 +1425,29 @@
         // Title
         body.appendChild(el('div', 'card-title', getFeatureTitle(feature)));
 
+        var priorityMeta = el('div', 'card-meta');
+        priorityMeta.appendChild(buildPriorityBadge(feature.priority, 'priority-badge'));
+        body.appendChild(priorityMeta);
+
+        var description = parseText(feature.description);
+        var hasDescription = Boolean(description);
+        body.appendChild(el(
+          'div',
+          hasDescription ? 'feature-description' : 'feature-description muted',
+          hasDescription ? description : 'No description'
+        ));
+
         // Meta line
         var meta = el('div', 'card-meta');
+        var isProposal = colDef.key === 'created';
         var allJobs = Array.isArray(feature?.jobs) ? feature.jobs : [];
         var jobs = allJobs.filter(function(j) {
           return normalizeStatus(j?.status) !== 'cancelled';
         });
 
-        if (jobs.length > 0) {
+        if (isProposal) {
+          meta.appendChild(el('span', 'card-speccing-label', 'speccing'));
+        } else if (jobs.length > 0) {
           var doneCount = jobs.filter(function(j) {
             var s = normalizeStatus(j?.status);
             return s === 'complete';
@@ -983,7 +1464,7 @@
           }
         }
 
-        body.appendChild(meta);
+        if (meta.childNodes.length > 0) body.appendChild(meta);
 
         // Error subtitle for failed features
         if (normalizeStatus(feature.status) === 'failed' && feature.error) {
@@ -1006,7 +1487,7 @@
           return WORKING_JOB_STATUSES.has(normalizeStatus(j?.status));
         });
 
-        if (activeJob) {
+        if (activeJob && !isProposal) {
           var progress = clampProgress(activeJob.progress);
           var track = el('div', 'card-progress');
           var fill = el('div', 'card-progress-fill active');
@@ -1026,8 +1507,63 @@
         return card;
       }
 
-      function renderColumn(colDef, features) {
+      function renderIdeaCard(idea, colDef, delay, opts) {
+        var card = el('div', 'card idea-card');
+        card.style.animationDelay = delay + 'ms';
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+
+        if (opts?.warnStale) card.classList.add('stale');
+        if (opts?.deepStale) card.classList.add('deep-stale');
+
+        var accent = el('div', 'card-accent');
+        accent.style.background = colDef.color;
+        card.appendChild(accent);
+
+        var body = el('div', 'card-body');
+        body.appendChild(el('div', 'card-title', getIdeaTitle(idea)));
+
+        var meta = el('div', 'idea-meta');
+        var priority = getPriorityDisplay(idea.priority);
+        var pr = el('span', 'idea-priority ' + priority.level);
+        pr.appendChild(el('span', 'idea-priority-dot'));
+        pr.appendChild(el('span', '', priority.label));
+        meta.appendChild(pr);
+        meta.appendChild(el('span', 'card-meta-sep', '\u00b7'));
+        meta.appendChild(el('span', 'idea-age', formatRelativeTime(idea.created_at)));
+        body.appendChild(meta);
+
+        var footer = el('div', 'idea-footer');
+        if (colDef.key === 'triaged') {
+          var rec = getIdeaRecommendation(idea);
+          if (rec) footer.appendChild(el('span', 'idea-recommendation ' + rec, rec));
+        }
+
+        var originator = (typeof idea?.originator === 'string' && idea.originator.trim())
+          ? idea.originator.trim()
+          : '';
+        footer.appendChild(el(
+          'span',
+          originator ? 'idea-originator' : 'idea-originator muted',
+          originator || 'unknown'
+        ));
+        body.appendChild(footer);
+
+        card.appendChild(body);
+
+        card.addEventListener('click', function() { openIdeaDetail(idea); });
+        card.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openIdeaDetail(idea); }
+        });
+
+        return card;
+      }
+
+      function renderColumn(colDef, items) {
         var col = el('div', 'column');
+        col.style.background = normalizeStatus(colDef.key) === 'new' ? 'var(--col-new-bg)' :
+          normalizeStatus(colDef.key) === 'triaged' ? 'var(--col-triaged-bg)' :
+          normalizeStatus(colDef.key) === 'created' ? 'var(--col-created-bg)' : 'var(--bg)';
 
         var hdr = el('div', 'column-header');
         var titleGroup = el('div', 'column-title');
@@ -1036,44 +1572,144 @@
         titleGroup.appendChild(dot);
         titleGroup.appendChild(el('span', 'column-name', colDef.label));
         hdr.appendChild(titleGroup);
-        hdr.appendChild(el('span', 'column-count', String(features.length)));
+        hdr.appendChild(el('span', 'column-count', String(items.length)));
         col.appendChild(hdr);
 
         var body = el('div', 'column-body');
-        if (features.length === 0) {
+        if (items.length === 0) {
           body.appendChild(el('div', 'column-empty', 'No items'));
         } else {
-          for (var i = 0; i < features.length; i++) {
-            body.appendChild(renderCard(features[i], colDef, i * 50));
+          for (var i = 0; i < items.length; i++) {
+            if (colDef.source === 'ideas') {
+              var ageDays = getAgeDays(items[i]?.created_at);
+              body.appendChild(renderIdeaCard(items[i], colDef, i * 50, {
+                warnStale: colDef.key === 'new' && ageDays > 7
+              }));
+            } else {
+              body.appendChild(renderFeatureCard(items[i], colDef, i * 50));
+            }
           }
         }
         col.appendChild(body);
         return col;
       }
 
-      function renderBoard(features) {
-        // Group features by status
-        var featuresByCol = {};
-        for (var c = 0; c < COLUMNS.length; c++) {
-          featuresByCol[COLUMNS[c].key] = [];
+      function buildParkedGroups(parkedIdeas) {
+        var week = [];
+        var month = [];
+        var older = [];
+        var stale = [];
+
+        for (var i = 0; i < parkedIdeas.length; i++) {
+          var idea = parkedIdeas[i];
+          var age = getAgeDays(getIdeaTimestamp(idea));
+          if (age <= 7) {
+            week.push(idea);
+          } else if (age <= 30) {
+            month.push(idea);
+          } else if (age > 90) {
+            stale.push(idea);
+          } else {
+            older.push(idea);
+          }
         }
+
+        return [
+          { label: 'This week', items: week },
+          { label: 'This month', items: month },
+          { label: 'Older', items: older },
+          { label: '\u26a0 Stale \u2014 over 90 days', items: stale, stale: true },
+        ];
+      }
+
+      function renderParkedSection(parkedIdeas) {
+        var section = el('section', 'parked-section');
+        var toggle = el('button', 'parked-toggle');
+        toggle.type = 'button';
+        toggle.setAttribute('aria-expanded', parkedExpanded ? 'true' : 'false');
+        toggle.textContent = (parkedExpanded ? '\u25be' : '\u25b8') + ' Parked (' + parkedIdeas.length + ')';
+        toggle.addEventListener('click', function() {
+          parkedExpanded = !parkedExpanded;
+          renderBoard(lastFeatures, lastIdeas);
+        });
+        section.appendChild(toggle);
+
+        if (!parkedExpanded || parkedIdeas.length === 0) return section;
+
+        var groups = buildParkedGroups(parkedIdeas);
+        var content = el('div', 'parked-content');
+        var renderIdx = 0;
+        for (var g = 0; g < groups.length; g++) {
+          if (groups[g].items.length === 0) continue;
+
+          var groupWrap = document.createElement('div');
+          var heading = el(
+            'div',
+            groups[g].stale ? 'parked-group-title stale' : 'parked-group-title',
+            groups[g].label + ' (' + groups[g].items.length + ')'
+          );
+          groupWrap.appendChild(heading);
+
+          var cards = el('div', 'parked-cards');
+          for (var i = 0; i < groups[g].items.length; i++) {
+            var idea = groups[g].items[i];
+            var age = getAgeDays(getIdeaTimestamp(idea));
+            cards.appendChild(renderIdeaCard(idea, INTAKE_COLUMNS[0], renderIdx * 35, {
+              deepStale: age > 90
+            }));
+            renderIdx++;
+          }
+          groupWrap.appendChild(cards);
+          content.appendChild(groupWrap);
+        }
+        section.appendChild(content);
+        return section;
+      }
+
+      function renderBoard(features, ideas) {
+        var featuresByCol = {};
+        for (var p = 0; p < PIPELINE_COLUMNS.length; p++) {
+          featuresByCol[PIPELINE_COLUMNS[p].key] = [];
+        }
+        featuresByCol.created = [];
 
         for (var i = 0; i < features.length; i++) {
-          var s = normalizeStatus(features[i]?.status);
-          if (s !== 'cancelled' && featuresByCol[s]) featuresByCol[s].push(features[i]);
+          var fs = normalizeStatus(features[i]?.status);
+          if (fs === 'cancelled') continue;
+          if (fs === 'created') {
+            featuresByCol.created.push(features[i]);
+          } else if (featuresByCol[fs]) {
+            featuresByCol[fs].push(features[i]);
+          }
         }
 
-        var total = 0;
+        var ideasByStatus = { new: [], triaged: [], parked: [] };
+        for (var j = 0; j < ideas.length; j++) {
+          var is = normalizeStatus(ideas[j]?.status);
+          if (ideasByStatus[is]) ideasByStatus[is].push(ideas[j]);
+        }
+
+        var board = el('div', 'board');
         var frag = document.createDocumentFragment();
-        for (var c = 0; c < COLUMNS.length; c++) {
-          var key = COLUMNS[c].key;
-          var colFeatures = featuresByCol[key] || [];
-          total += colFeatures.length;
-          frag.appendChild(renderColumn(COLUMNS[c], colFeatures));
+
+        for (var c = 0; c < INTAKE_COLUMNS.length; c++) {
+          var intakeCol = INTAKE_COLUMNS[c];
+          var intakeItems = intakeCol.source === 'ideas'
+            ? (ideasByStatus[intakeCol.key] || [])
+            : (featuresByCol[intakeCol.key] || []);
+          board.appendChild(renderColumn(intakeCol, intakeItems));
         }
 
+        board.appendChild(el('div', 'intake-divider'));
+
+        for (var k = 0; k < PIPELINE_COLUMNS.length; k++) {
+          var pipeCol = PIPELINE_COLUMNS[k];
+          board.appendChild(renderColumn(pipeCol, featuresByCol[pipeCol.key] || []));
+        }
+
+        frag.appendChild(board);
+        frag.appendChild(renderParkedSection(ideasByStatus.parked || []));
         dashboardEl.replaceChildren(frag);
-        if (total === 0) dashboardEl.replaceChildren(el('div', 'empty-board', 'No active features'));
       }
 
       // ── Data Fetch ─────────────────────────
@@ -1085,13 +1721,66 @@
         return Array.isArray(payload) ? payload : [];
       }
 
+      function priorityScore(priority) {
+        var p = normalizePriority(priority);
+        if (p === 'urgent') return 4;
+        if (p === 'high') return 3;
+        if (p === 'medium') return 2;
+        return 1;
+      }
+
+      function sortIdeas(ideas) {
+        return [...ideas].sort(function(a, b) {
+          var pa = priorityScore(a?.priority);
+          var pb = priorityScore(b?.priority);
+          if (pa !== pb) return pb - pa;
+          var ta = new Date(a?.created_at || 0).getTime();
+          var tb = new Date(b?.created_at || 0).getTime();
+          return tb - ta;
+        });
+      }
+
+      async function fetchIdeas() {
+        var statuses = ['new', 'triaged', 'parked'];
+        var calls = statuses.map(function(status) {
+          return apiPost(QUERY_IDEAS_URL, {
+            status: status,
+            company_id: activeCompanyId || null,
+            limit: 200,
+          });
+        });
+        var responses = await Promise.all(calls);
+        var combined = [];
+        for (var i = 0; i < responses.length; i++) {
+          var ideas = Array.isArray(responses[i]?.ideas) ? responses[i].ideas : [];
+          for (var j = 0; j < ideas.length; j++) {
+            combined.push(ideas[j]);
+          }
+        }
+
+        var dedupedMap = new Map();
+        for (var k = 0; k < combined.length; k++) {
+          if (combined[k]?.id) dedupedMap.set(String(combined[k].id), combined[k]);
+        }
+
+        var deduped = Array.from(dedupedMap.values());
+        if (activeCompanyId) {
+          deduped = deduped.filter(function(idea) {
+            return String(idea?.company_id || '') === String(activeCompanyId);
+          });
+        }
+        return sortIdeas(deduped);
+      }
+
       async function refreshDashboard() {
         if (isFetching || companyBlocked) return;
         isFetching = true;
         refreshButton.disabled = true;
         try {
-          lastFeatures = await fetchFeatures();
-          renderBoard(lastFeatures);
+          var payload = await Promise.all([fetchFeatures(), fetchIdeas()]);
+          lastFeatures = payload[0];
+          lastIdeas = payload[1];
+          renderBoard(lastFeatures, lastIdeas);
           setMessage('');
           lastUpdatedEl.textContent = formatTime(new Date());
         } catch (_) {
@@ -1102,7 +1791,100 @@
         }
       }
 
-      // ── Detail Panel: Feature View ─────────
+      // ── Detail Panel: Idea & Feature Views ─
+
+      function openIdeaDetail(idea) {
+        stopDetailPoll();
+        detailViewStack = [];
+        openDetailId = idea.id;
+
+        var status = normalizeStatus(idea.status) || 'idea';
+
+        detailBackBtn.style.display = 'none';
+        detailLiveDot.className = 'detail-live-dot waiting';
+        detailTitleEl.textContent = getIdeaTitle(idea);
+        detailStatusEl.textContent = status;
+        detailFooterEl.textContent = 'Idea detail is read-only in this view';
+
+        detailContentEl.textContent = '';
+
+        var metaDiv = el('div', 'detail-meta');
+
+        function addMeta(label, value) {
+          var row = el('div', 'detail-meta-row');
+          row.appendChild(el('span', 'detail-meta-label', label));
+          if (value instanceof Node) {
+            row.appendChild(value);
+          } else {
+            row.appendChild(el('span', 'detail-meta-value', value));
+          }
+          metaDiv.appendChild(row);
+        }
+
+        addMeta('ID', String(idea.id || '\u2014'));
+        if (idea.originator) addMeta('Originator', String(idea.originator));
+        addMeta('Priority', getPriorityDisplay(idea.priority).label);
+        if (idea.suggested_exec) addMeta('Suggested exec', String(idea.suggested_exec));
+        addMeta('Created', formatDate(idea.created_at));
+        if (idea.updated_at) addMeta('Updated', formatDate(idea.updated_at));
+
+        var tags = parseStringList(idea.tags);
+        if (tags.length > 0) {
+          var tagsWrap = el('span', 'detail-meta-value detail-tag-list');
+          for (var t = 0; t < tags.length; t++) {
+            tagsWrap.appendChild(el('span', 'detail-tag', tags[t]));
+          }
+          addMeta('Tags', tagsWrap);
+        }
+
+        detailContentEl.appendChild(metaDiv);
+
+        var description = parseText(idea.description ?? idea.raw_text ?? idea.text);
+        if (description) {
+          detailContentEl.appendChild(el('div', 'detail-section-title', 'Description'));
+          var descBlock = el('div', 'detail-context-block');
+          var descText = el('div', 'detail-context-text');
+          descText.textContent = description;
+          descBlock.appendChild(descText);
+          detailContentEl.appendChild(descBlock);
+        }
+
+        if (status === 'triaged') {
+          var triageNotes = parseText(idea.triage_notes);
+          var clarification = parseText(idea.clarification_notes);
+          if (triageNotes || clarification) {
+            detailContentEl.appendChild(el('div', 'detail-section-title', 'Triage'));
+            var triageBlock = el('div', 'detail-context-block');
+            if (triageNotes) {
+              triageBlock.appendChild(el('div', 'detail-sub-label', 'Triage notes'));
+              var triageText = el('div', 'detail-context-text');
+              triageText.textContent = triageNotes;
+              triageBlock.appendChild(triageText);
+            }
+            if (clarification) {
+              triageBlock.appendChild(el('div', 'detail-sub-label', 'Clarification notes'));
+              var clarText = el('div', 'detail-context-text');
+              clarText.textContent = clarification;
+              triageBlock.appendChild(clarText);
+            }
+            detailContentEl.appendChild(triageBlock);
+          }
+        }
+
+        var flags = parseStringList(idea.flags);
+        if (flags.length > 0) {
+          detailContentEl.appendChild(el('div', 'detail-section-title', 'Flags'));
+          var flagsBlock = el('div', 'detail-context-block');
+          var list = el('div', 'detail-tag-list');
+          for (var f = 0; f < flags.length; f++) {
+            list.appendChild(el('span', 'detail-tag detail-flag', flags[f]));
+          }
+          flagsBlock.appendChild(list);
+          detailContentEl.appendChild(flagsBlock);
+        }
+
+        detailOverlay.classList.add('open');
+      }
 
       function openFeatureDetail(feature) {
         stopDetailPoll();
@@ -1127,17 +1909,35 @@
         function addMeta(label, value) {
           var row = el('div', 'detail-meta-row');
           row.appendChild(el('span', 'detail-meta-label', label));
-          row.appendChild(el('span', 'detail-meta-value', value));
+          if (value instanceof Node) {
+            row.appendChild(value);
+          } else {
+            row.appendChild(el('span', 'detail-meta-value', value));
+          }
           metaDiv.appendChild(row);
         }
 
         addMeta('ID', feature.id);
+        addMeta('Priority', buildPriorityBadge(feature.priority, 'priority-badge'));
         if (feature.branch) addMeta('Branch', feature.branch);
         addMeta('Created', formatDate(feature.created_at));
         if (feature.updated_at) addMeta('Updated', formatDate(feature.updated_at));
         if (feature.created_by) addMeta('By', feature.created_by);
 
         detailContentEl.appendChild(metaDiv);
+
+        detailContentEl.appendChild(el('div', 'detail-section-title', 'Description'));
+        var descBlock = el('div', 'detail-context-block');
+        var descText = el('div', 'detail-context-text');
+        var description = parseText(feature.description);
+        if (description) {
+          descText.textContent = description;
+        } else {
+          descText.classList.add('muted');
+          descText.textContent = 'No description';
+        }
+        descBlock.appendChild(descText);
+        detailContentEl.appendChild(descBlock);
 
         // Jobs section (exclude cancelled)
         var jobs = (Array.isArray(feature.jobs) ? sortJobs(feature.jobs) : []).filter(function(j) {

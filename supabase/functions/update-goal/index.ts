@@ -1,8 +1,8 @@
 /**
- * zazigv2 — query-ideas Edge Function
+ * zazigv2 — update-goal Edge Function
  *
- * POST endpoint for querying ideas with optional filters.
- * Supports single-idea lookup, field-based filters, and full-text search.
+ * Updates an existing goal. Auto-sets achieved_at when
+ * status transitions to 'achieved' without an explicit timestamp.
  *
  * Runtime: Deno / Supabase Edge Functions
  */
@@ -59,79 +59,53 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const body = await req.json();
     const {
-      idea_id,
+      goal_id,
+      title,
+      description,
+      time_horizon,
+      metric,
+      target,
+      target_date,
       status,
-      statuses,
-      domain,
-      source,
-      priority,
-      project_id,
-      search,
-      company_id,
-      limit = 50,
+      achieved_at,
+      position,
     } = body;
 
-    // Single idea by ID — return all columns
-    if (idea_id) {
-      let singleQuery = supabase
-        .from("ideas")
-        .select("*")
-        .eq("id", idea_id);
-
-      if (company_id) {
-        singleQuery = singleQuery.eq("company_id", company_id);
-      }
-
-      const { data, error } = await singleQuery.single();
-
-      if (error) {
-        return jsonResponse({ error: error.message }, 404);
-      }
-
-      return jsonResponse({ ideas: [data] });
+    if (!goal_id) {
+      return jsonResponse({ error: "goal_id is required" }, 400);
     }
 
-    // Filtered query
-    let query = supabase.from("ideas").select("*");
+    // Build update payload with only provided fields
+    const updates: Record<string, unknown> = {};
+    if (title !== undefined) updates.title = title;
+    if (description !== undefined) updates.description = description;
+    if (time_horizon !== undefined) updates.time_horizon = time_horizon;
+    if (metric !== undefined) updates.metric = metric;
+    if (target !== undefined) updates.target = target;
+    if (target_date !== undefined) updates.target_date = target_date;
+    if (status !== undefined) updates.status = status;
+    if (achieved_at !== undefined) updates.achieved_at = achieved_at;
+    if (position !== undefined) updates.position = position;
 
-    if (Array.isArray(statuses) && statuses.length > 0) {
-      query = query.in("status", statuses);
-    } else if (status) {
-      query = query.eq("status", status);
-    }
-    if (domain) {
-      query = query.eq("domain", domain);
-    }
-    if (source) {
-      query = query.eq("source", source);
-    }
-    if (priority) {
-      query = query.eq("priority", priority);
-    }
-    if (project_id) {
-      query = query.eq("project_id", project_id);
+    // Auto-set achieved_at when transitioning to 'achieved'
+    if (status === "achieved" && achieved_at === undefined) {
+      updates.achieved_at = new Date().toISOString();
     }
 
-    // Full-text search over title + description via the `fts` generated column
-    if (search) {
-      query = query.textSearch("fts", search, { config: "english" });
+    if (Object.keys(updates).length === 0) {
+      return jsonResponse({ updated: true, note: "nothing to update" });
     }
 
-    if (company_id) {
-      query = query.eq("company_id", company_id);
-    }
-
-    query = query
-      .order("created_at", { ascending: false })
-      .limit(limit);
-
-    const { data, error } = await query;
+    const { error } = await supabase
+      .from("goals")
+      .update(updates)
+      .eq("id", goal_id);
 
     if (error) {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    return jsonResponse({ ideas: data ?? [] });
+    return jsonResponse({ updated: true });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

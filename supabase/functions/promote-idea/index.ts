@@ -121,6 +121,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           project_id,
           title: resolvedTitle,
           status: "created",
+          source_idea_id: idea.id,
         })
         .select("id")
         .single();

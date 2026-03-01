@@ -1,8 +1,10 @@
 # Product Intelligence Pipeline — Design Document
 
 **Date:** 2026-02-20
-**Status:** revised (post-review, second opinions applied)
+**Status:** revised (post-review, second opinions applied) — partially built, parked
 **Authors:** Tom (owner), CPO (agent)
+**Pipeline:** idea:c73e2bae
+**Focus Area:** Autonomous Organisation
 **Review:** `docs/plans/2026-02-20-product-intelligence-pipeline-review.md`
 
 ---

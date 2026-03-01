@@ -3,6 +3,8 @@
 **Date:** 2026-02-22
 **Status:** approved — implementation-ready
 **Authors:** Tom (owner), CPO (agent)
+**Pipeline:** idea:52e47cb3
+**Focus Area:** Autonomous Organisation
 **Part of:** [Zazig Org Model](ORG%20MODEL.md) — covers Layers 4 (Doctrines) and 5 (Canons)
 **Supersedes:** v4, v3, v2, v1, sketch (all dated 2026-02-21 or 2026-02-20)
 **Reviewed by:** CPO (Opus) interactive walkthrough, Codex (gpt-5.3-codex, xhigh reasoning), Gemini (gemini-3.1-pro-preview) — independent second opinions on all findings; adversarial review by Codex + Gemini (v3 review); second opinions on v4 revisions from both models; CPO review-plan walkthrough (v4 review)

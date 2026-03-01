@@ -1,8 +1,10 @@
 # Triggers and Events System Design
 
 **Date:** 2026-02-22
-**Status:** Draft (V2.2)
+**Status:** Draft (V2.2) — partially built
 **Authors:** Tom Weaver, Claude
+**Pipeline:** idea:ccf3b50e
+**Focus Area:** Autonomous Organisation, Pipeline Reliability
 **Informed by:**
 - OpenClaw gateway deep-dive (`docs/research/2026-02-19-openclaw-openclaw.md`)
 - Gateway + trigger architecture research — Gemini (`docs/research/2026-02-22-agent-gateway-trigger-architecture-(gemini).md`)

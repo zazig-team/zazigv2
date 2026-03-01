@@ -1,7 +1,9 @@
 # Interactive Jobs & Remote Control Design
 
 **Date:** 2026-02-27
-**Status:** Approved
+**Status:** Approved — partially built, parked
+**Pipeline:** idea:8fcb1501
+**Focus Area:** Visibility, The Full Loop
 
 ## Problem
 

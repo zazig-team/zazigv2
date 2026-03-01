@@ -41,6 +41,9 @@
       --col-verifying-bg: rgba(6, 182, 212, 0.06);
       --col-pr_ready-bg: rgba(59, 130, 246, 0.06);
       --col-complete-bg: rgba(34, 197, 94, 0.06);
+      --col-failed-bg: rgba(239, 68, 68, 0.06);
+      --col-done: #10b981;
+      --col-done-bg: rgba(16, 185, 129, 0.08);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1131,11 +1134,12 @@
 
       const AUTH_HEADERS = { apikey: ANON_KEY, Authorization: 'Bearer ' + ANON_KEY };
 
-      // Intake funnel: ideas -> triage -> proposal (pre-pipeline)
+      // Intake funnel: ideas -> triage -> proposal -> shipped (pre-pipeline)
       const INTAKE_COLUMNS = [
         { key: 'new',     label: 'Ideas',    color: '#64748b', source: 'ideas' },
         { key: 'triaged', label: 'Triage',   color: '#f59e0b', source: 'ideas' },
         { key: 'created', label: 'Proposal', color: '#a855f7', source: 'features' },
+        { key: 'done',    label: 'Shipped',  color: '#10b981', source: 'ideas' },
       ];
 
       // Build pipeline: ready -> complete
@@ -1576,9 +1580,8 @@
 
       function renderColumn(colDef, items) {
         var col = el('div', 'column');
-        col.style.background = normalizeStatus(colDef.key) === 'new' ? 'var(--col-new-bg)' :
-          normalizeStatus(colDef.key) === 'triaged' ? 'var(--col-triaged-bg)' :
-          normalizeStatus(colDef.key) === 'created' ? 'var(--col-created-bg)' : 'var(--bg)';
+        var bgVar = 'var(--col-' + colDef.key + '-bg, var(--bg))';
+        col.style.background = bgVar;
 
         var hdr = el('div', 'column-header');
         var titleGroup = el('div', 'column-title');
@@ -1698,7 +1701,7 @@
           }
         }
 
-        var ideasByStatus = { new: [], triaged: [], parked: [] };
+        var ideasByStatus = { new: [], triaged: [], parked: [], done: [] };
         for (var j = 0; j < ideas.length; j++) {
           var is = normalizeStatus(ideas[j]?.status);
           if (ideasByStatus[is]) ideasByStatus[is].push(ideas[j]);
@@ -1756,7 +1759,7 @@
       }
 
       async function fetchIdeas() {
-        var statuses = ['new', 'triaged', 'parked'];
+        var statuses = ['new', 'triaged', 'parked', 'done'];
         var calls = statuses.map(function(status) {
           return apiPost(QUERY_IDEAS_URL, {
             status: status,
@@ -1938,6 +1941,30 @@
         addMeta('Created', formatDate(feature.created_at));
         if (feature.updated_at) addMeta('Updated', formatDate(feature.updated_at));
         if (feature.created_by) addMeta('By', feature.created_by);
+
+        // Source idea link
+        if (feature.source_idea_id) {
+          var sourceIdea = lastIdeas.find(function(idea) {
+            return String(idea.id) === String(feature.source_idea_id);
+          });
+          var sourceLink = el('span', 'detail-meta-value');
+          sourceLink.style.cursor = 'pointer';
+          sourceLink.style.color = 'var(--col-done)';
+          sourceLink.style.textDecoration = 'underline';
+          sourceLink.style.textUnderlineOffset = '3px';
+          sourceLink.textContent = sourceIdea
+            ? (sourceIdea.title || sourceIdea.raw_text || '').slice(0, 60)
+            : String(feature.source_idea_id).slice(0, 8) + '\u2026';
+          sourceLink.title = 'View source idea';
+          sourceLink.addEventListener('click', function() {
+            if (sourceIdea) {
+              detailViewStack.push({ type: 'feature', data: feature });
+              openIdeaDetail(sourceIdea);
+              detailBackBtn.style.display = '';
+            }
+          });
+          addMeta('Source', sourceLink);
+        }
 
         detailContentEl.appendChild(metaDiv);
 

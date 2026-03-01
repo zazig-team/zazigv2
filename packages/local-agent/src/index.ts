@@ -26,6 +26,14 @@ console.log = (...args: unknown[]) => { const line = `${ts()} ${args.join(" ")}\
 console.error = (...args: unknown[]) => { const line = `${ts()} ERROR ${args.join(" ")}\n`; logStream.write(line); origErr(...args); };
 console.warn = (...args: unknown[]) => { const line = `${ts()} WARN ${args.join(" ")}\n`; logStream.write(line); origWarn(...args); };
 
+// Prevent unhandled errors from crashing the process and killing all running jobs
+process.on("unhandledRejection", (reason) => {
+  console.error("[local-agent] Unhandled rejection (process NOT exiting):", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[local-agent] Uncaught exception (process NOT exiting):", err);
+});
+
 import { loadConfig } from "./config.js";
 import { SlotTracker } from "./slots.js";
 import { AgentConnection } from "./connection.js";
@@ -87,14 +95,18 @@ async function main(): Promise<void> {
           `[local-agent] Received start_job — jobId=${msg.jobId}, cardId=${msg.cardId}, ` +
             `slotType=${msg.slotType}, complexity=${msg.complexity}, model=${msg.model}`
         );
-        void executor.handleStartJob(msg);
+        executor.handleStartJob(msg).catch((err) => {
+          console.error(`[local-agent] FATAL: handleStartJob crashed for jobId=${msg.jobId}:`, err);
+        });
         break;
 
       case "stop_job":
         console.log(
           `[local-agent] Received stop_job — jobId=${msg.jobId}, reason=${msg.reason}`
         );
-        void executor.handleStopJob(msg);
+        executor.handleStopJob(msg).catch((err) => {
+          console.error(`[local-agent] FATAL: handleStopJob crashed for jobId=${msg.jobId}:`, err);
+        });
         break;
 
       case "health_check":

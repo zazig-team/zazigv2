@@ -112,21 +112,20 @@ For each job, assign complexity and model:
 
 Assign a role:
 
+**Only these two roles are allowed.** Do NOT use any other role (no `test-deployer`, `verification-specialist`, `reviewer`, etc. — those are orchestrator-managed).
+
 | Role | When to use |
 |------|-------------|
 | `senior-engineer` | Most implementation work |
 | `junior-engineer` | Simple, well-defined tasks with clear specs |
-| `reviewer` | Review-only jobs (rare in breakdown) |
 
 Assign a job type:
 
+**All jobs MUST use `job_type: "code"`.** The breakdown specialist only creates implementation jobs. Verification, deployment, and review are handled automatically by the orchestrator — never create those job types.
+
 | Type | Description |
 |------|-------------|
-| `code` | Implementation — new features, bug fixes, refactoring |
-| `infra` | Infrastructure — CI/CD, deployment, environment setup |
-| `design` | Design work — output is a document, not code |
-| `research` | Investigation — explore options, produce recommendation |
-| `docs` | Documentation — README, API docs, guides |
+| `code` | Implementation — the only type you create |
 
 ### Step 6: Build the Dependency Graph
 

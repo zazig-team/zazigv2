@@ -42,6 +42,9 @@ const POLL_INTERVAL_MS = 30_000;
 /** Reconcile active in-memory jobs against DB terminal states every 60 s. */
 const SLOT_RECONCILE_INTERVAL_MS = 60_000;
 
+/** Poll for merged PRs on pr_ready features every 60 s. */
+const PR_MONITOR_INTERVAL_MS = 60_000;
+
 /** Kill the job after 60 minutes regardless of status. */
 const JOB_TIMEOUT_MS = 60 * 60_000;
 
@@ -145,14 +148,12 @@ Then exit.`;
 /** Universal file-writing rules for all agents. */
 export const FILE_WRITING_RULES = `## File Writing Rules
 
-Your workspace directory is ephemeral runtime state — do NOT write substantive documents here.
+ALL file operations (reads, writes, edits) MUST stay within your working directory.
+Do NOT use absolute paths to other repositories or user home directories.
 
-- Session reports → \`.claude/{role}-report.md\` in your workspace (this is correct)
-- Design documents, proposals, plans, specs → ALWAYS write to the repo:
-  \`/Users/tomweaver/Documents/GitHub/zazigv2/docs/plans/YYYY-MM-DD-descriptive-slug.md\`
-- Never write docs, plans, or proposals to the workspace — they are invisible to
-  other agents, Obsidian, and git
-- When using skills like internal-proposal, override the output path to the repo docs/plans/ directory`;
+- Session reports → \`.claude/{role}-report.md\` in your working directory
+- Design documents, proposals, plans, specs → \`docs/plans/YYYY-MM-DD-descriptive-slug.md\` (relative to your working directory)
+- Never reference paths outside your working directory — they belong to other projects`;
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -182,6 +183,12 @@ interface ActiveJob {
   jobBranch?: string;
   /** Role of the agent that ran this job (used for role-specific report paths). */
   role?: string;
+  /** Card type from the StartJob message — used to identify combine jobs for PR creation. */
+  cardType?: string;
+  /** GitHub repo URL (e.g. https://github.com/owner/repo) — used for PR creation. */
+  repoUrl?: string;
+  /** Feature branch name — used as PR head branch. */
+  featureBranch?: string;
 }
 
 interface ActivePersistentAgent {
@@ -277,6 +284,7 @@ export class JobExecutor {
   private readonly messageQueue: QueuedMessage[] = [];
   private processingQueue = false;
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
+  private prMonitorTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     machineId: string,
@@ -300,6 +308,10 @@ export class JobExecutor {
     this.reconcileTimer = setInterval(() => {
       void this.reconcileSlots();
     }, SLOT_RECONCILE_INTERVAL_MS);
+
+    this.prMonitorTimer = setInterval(() => {
+      void this.monitorMergedPRs();
+    }, PR_MONITOR_INTERVAL_MS);
   }
 
   /** Resolve the machine UUID from the machines table (cached after first call). */
@@ -338,6 +350,20 @@ export class JobExecutor {
       console.warn(`[executor] Duplicate start_job ignored for already-active jobId=${jobId}`);
       return;
     }
+
+    try {
+      await this._handleStartJobInner(msg);
+    } catch (err) {
+      jobLog(jobId, `FATAL handleStartJob crashed: ${String(err)}`);
+      console.error(`[executor] FATAL handleStartJob crashed for jobId=${jobId}:`, err);
+      // Best-effort: release slot and notify orchestrator
+      try { this.slots.release(slotType); } catch { /* already released or never acquired */ }
+      try { await this.sendJobFailed(jobId, `Agent crash: ${String(err)}`, "agent_crash"); } catch { /* best-effort */ }
+    }
+  }
+
+  private async _handleStartJobInner(msg: StartJob): Promise<void> {
+    const { jobId, slotType, complexity, context, contextRef, model } = msg;
 
     // --- 1. Acquire slot (throws if none available) ---
     try {
@@ -401,7 +427,8 @@ export class JobExecutor {
 
     const cleanupPreparedWorkspace = async (): Promise<void> => {
       if (worktreePath && repoDir) {
-        await this.repoManager.removeJobWorktree(repoDir, worktreePath);
+        // TEMP: disabled worktree cleanup for debugging
+        // await this.repoManager.removeJobWorktree(repoDir, worktreePath);
       } else if (ephemeralWorkspaceDir) {
         cleanupJobWorkspace(jobId, ephemeralWorkspaceDir);
       }
@@ -588,6 +615,9 @@ export class JobExecutor {
       repoDir,
       jobBranch,
       role: msg.role,
+      cardType: msg.cardType,
+      repoUrl: msg.repoUrl ?? undefined,
+      featureBranch: msg.featureBranch ?? undefined,
     };
     this.activeJobs.set(jobId, activeJob);
 
@@ -598,8 +628,12 @@ export class JobExecutor {
 
     // Poll loop: check every POLL_INTERVAL_MS
     activeJob.pollTimer = setInterval(() => {
-      void this.pollJob(jobId);
+      this.pollJob(jobId).catch((err) => {
+        jobLog(jobId, `pollJob CRASHED: ${String(err)}`);
+        console.error(`[executor] pollJob crashed for jobId=${jobId}:`, err);
+      });
     }, POLL_INTERVAL_MS);
+    jobLog(jobId, `Poll timer started (interval=${POLL_INTERVAL_MS}ms)`);
   }
 
   // ---------------------------------------------------------------------------
@@ -753,6 +787,10 @@ export class JobExecutor {
       clearInterval(this.reconcileTimer);
       this.reconcileTimer = null;
     }
+    if (this.prMonitorTimer !== null) {
+      clearInterval(this.prMonitorTimer);
+      this.prMonitorTimer = null;
+    }
 
     // Clear all persistent agents (fires DB status updates + stops heartbeat timers)
     this.clearPersistentAgent();
@@ -762,13 +800,58 @@ export class JobExecutor {
       this.clearJobTimers(job);
       await killTmuxSession(job.sessionName);
       if (job.worktreePath && job.repoDir) {
-        await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+        // TEMP: disabled worktree cleanup for debugging
+        // await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
       } else {
         cleanupJobWorkspace(job.jobId, job.workspaceDir);
       }
       this.slots.release(job.slotType);
     }
     this.activeJobs.clear();
+  }
+
+  /**
+   * Monitors features in pr_ready status for merged PRs.
+   * When a PR is detected as merged via `gh` CLI, advances the feature to complete.
+   */
+  private async monitorMergedPRs(): Promise<void> {
+    const { data: features } = await this.supabase
+      .from("features")
+      .select("id, pr_url, company_id")
+      .eq("status", "pr_ready")
+      .not("pr_url", "is", null)
+      .limit(50);
+
+    if (!features || features.length === 0) return;
+
+    for (const feature of features) {
+      try {
+        const { stdout } = await execFileAsync("gh", [
+          "pr", "view", feature.pr_url!, "--json", "state",
+        ], { encoding: "utf8" });
+        const { state } = JSON.parse(stdout);
+
+        if (state === "MERGED") {
+          const { data: updated } = await this.supabase
+            .from("features")
+            .update({ status: "complete", completed_at: new Date().toISOString() })
+            .eq("id", feature.id)
+            .eq("status", "pr_ready") // CAS guard
+            .select("id");
+
+          if (updated?.length) {
+            await this.supabase.from("events").insert({
+              company_id: feature.company_id,
+              event_type: "feature_status_changed",
+              detail: { featureId: feature.id, from: "pr_ready", to: "complete", reason: "pr_merged" },
+            });
+            console.log(`[executor] PR merged — feature ${feature.id} → complete`);
+          }
+        }
+      } catch {
+        // gh CLI failed — skip, will retry next cycle
+      }
+    }
   }
 
   /**
@@ -834,7 +917,8 @@ export class JobExecutor {
     }
 
     if (job.worktreePath && job.repoDir) {
-      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      // TEMP: disabled worktree cleanup for debugging
+      // await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
       cleanupJobWorkspace(job.jobId, job.workspaceDir);
     }
@@ -1040,6 +1124,16 @@ export class JobExecutor {
   async handleStopJob(msg: StopJob): Promise<void> {
     const { jobId, reason } = msg;
     console.log(`[executor] handleStopJob — jobId=${jobId}, reason=${reason}`);
+    try {
+      await this._handleStopJobInner(msg);
+    } catch (err) {
+      jobLog(jobId, `FATAL handleStopJob crashed: ${String(err)}`);
+      console.error(`[executor] FATAL handleStopJob crashed for jobId=${jobId}:`, err);
+    }
+  }
+
+  private async _handleStopJobInner(msg: StopJob): Promise<void> {
+    const { jobId, reason } = msg;
 
     const job = this.activeJobs.get(jobId);
     if (!job) {
@@ -1086,7 +1180,8 @@ export class JobExecutor {
     // Clean up log file and worktree
     // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
     if (job.worktreePath && job.repoDir) {
-      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      // TEMP: disabled worktree cleanup for debugging
+      // await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
@@ -1104,9 +1199,13 @@ export class JobExecutor {
 
   private async pollJob(jobId: string): Promise<void> {
     const job = this.activeJobs.get(jobId);
-    if (!job || job.settled) return;
+    if (!job || job.settled) {
+      jobLog(jobId, `pollJob skipped — job=${job ? "exists" : "missing"}, settled=${job?.settled}`);
+      return;
+    }
 
     const alive = await isTmuxSessionAlive(job.sessionName);
+    jobLog(jobId, `pollJob — session=${job.sessionName}, alive=${alive}`);
     if (alive) {
       // Write time-based progress estimate (linear over JOB_TIMEOUT_MS, capped at 95)
       const elapsedMs = Date.now() - job.startedAt;
@@ -1118,6 +1217,7 @@ export class JobExecutor {
         .update({ progress, updated_at: new Date().toISOString() })
         .eq("id", jobId);
       if (progressErr) {
+        jobLog(jobId, `Progress write failed: ${progressErr.message}`);
         console.warn(`[executor] Progress write failed for jobId=${jobId}: ${progressErr.message}`);
       }
 
@@ -1134,6 +1234,7 @@ export class JobExecutor {
           job.lastBytesSent = logChunk.newOffset;
         }
       }
+      jobLog(jobId, `Still running — progress=${progress}`);
       console.log(`[executor] Job still running — jobId=${jobId}, session=${job.sessionName}, progress=${progress}`);
       return;
     }
@@ -1141,6 +1242,7 @@ export class JobExecutor {
     // Session is gone — check exit code via tmux last-exit-status if available,
     // but since the session already ended we use presence of output file as a
     // success signal; absence or error output means failure.
+    jobLog(jobId, `Tmux session ended — triggering onJobEnded`);
     console.log(`[executor] Tmux session ended — jobId=${jobId}, session=${job.sessionName}`);
     await this.onJobEnded(jobId, false /* not a forced timeout */);
   }
@@ -1189,7 +1291,8 @@ export class JobExecutor {
 
     // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
     if (job.worktreePath && job.repoDir) {
-      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      // TEMP: disabled worktree cleanup for debugging
+      // await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
@@ -1204,9 +1307,12 @@ export class JobExecutor {
 
   private async onJobEnded(jobId: string, _timedOut: boolean): Promise<void> {
     const job = this.activeJobs.get(jobId);
-    if (!job || job.settled) return;
+    if (!job || job.settled) {
+      jobLog(jobId, `onJobEnded SKIPPED — job=${job ? "exists" : "missing"}, settled=${job?.settled}`);
+      return;
+    }
 
-    jobLog(jobId, `onJobEnded — role=${job.role ?? "none"}, worktree=${job.worktreePath ?? "none"}`);
+    jobLog(jobId, `onJobEnded START — role=${job.role ?? "none"}, worktree=${job.worktreePath ?? "none"}`);
 
     job.settled = true;
     this.clearJobTimers(job);
@@ -1271,14 +1377,25 @@ export class JobExecutor {
     }
 
     if (report) {
-      // Check for verify-report format (status: pass/fail)
-      const passMatch = report.match(/^status:\s*(pass|fail)\s*$/m);
+      // Check for structured report format (status: pass/success/fail)
+      const passMatch = report.match(/^status:\s*(pass|success|fail)\s*$/m);
       if (passMatch) {
-        const prefix = passMatch[1] === "pass" ? "PASSED" : "FAILED";
+        const prefix = passMatch[1] === "fail" ? "FAILED" : "PASSED";
         const reasonMatch = report.match(/^failure_reason:\s*(.+)$/m);
         result = `${prefix}: ${reasonMatch?.[1]?.trim() ?? "see report"}`;
       } else {
-        result = report.split("\n")[0] ?? "Job completed.";
+        // Scan for PASSED/FAILED anywhere in the report (agents sometimes bury it in markdown)
+        const passedAnywhere = report.match(/\*?\*?PASSED\*?\*?/);
+        const failedAnywhere = report.match(/\*?\*?FAILED\*?\*?/);
+        if (passedAnywhere && !failedAnywhere) {
+          result = "PASSED: see report";
+        } else if (failedAnywhere) {
+          result = "FAILED: see report";
+        } else {
+          // No verdict found in any format — mark as job failure so the pipeline
+          // doesn't silently advance on an agent that couldn't complete its work.
+          result = "VERDICT_MISSING: report did not contain a status verdict";
+        }
       }
       jobLog(jobId, `Report parsed — result="${result}"`);
     } else {
@@ -1311,14 +1428,42 @@ export class JobExecutor {
         console.warn(`[executor] onJobEnded: push failed for jobId=${jobId}: ${String(pushErr)}`);
       }
       await this.supabase.from("jobs").update({ branch: job.jobBranch }).eq("id", jobId);
-      await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
+      // TEMP: disabled worktree cleanup for debugging
+      // try {
+      //   await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
+      // } catch (worktreeErr) {
+      //   jobLog(jobId, `Worktree cleanup failed (non-fatal): ${String(worktreeErr)}`);
+      //   console.warn(`[executor] Worktree cleanup failed for jobId=${jobId}: ${String(worktreeErr)}`);
+      // }
+
+      // Create GitHub PR for combine jobs (after branch push succeeds)
+      if (job.cardType === "combine" && job.repoUrl && job.featureBranch) {
+        await this.createPRForCombineJob(jobId, job);
+      }
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
 
-    jobLog(jobId, `Sending JobComplete — result="${result}", hasReport=${!!report}`);
-    await this.sendJobComplete(jobId, result, report);
-    jobLog(jobId, `JobComplete sent successfully`);
+    // If the verify report had no verdict, treat as a job failure (not completion)
+    if (result.startsWith("VERDICT_MISSING:")) {
+      jobLog(jobId, `Sending JobFailed (no verdict) — result="${result}"`);
+      try {
+        await this.sendJobFailed(jobId, result, "unknown");
+        jobLog(jobId, `JobFailed sent successfully`);
+      } catch (sendErr) {
+        jobLog(jobId, `sendJobFailed FAILED: ${String(sendErr)}`);
+        console.error(`[executor] sendJobFailed failed for jobId=${jobId}:`, sendErr);
+      }
+    } else {
+      jobLog(jobId, `Sending JobComplete — result="${result}", hasReport=${!!report}`);
+      try {
+        await this.sendJobComplete(jobId, result, report);
+        jobLog(jobId, `JobComplete sent successfully`);
+      } catch (sendErr) {
+        jobLog(jobId, `sendJobComplete FAILED: ${String(sendErr)}`);
+        console.error(`[executor] sendJobComplete failed for jobId=${jobId}:`, sendErr);
+      }
+    }
 
     // Trigger verification pipeline if a callback is registered.
     // The orchestrator may also send a VerifyJob in response to JobComplete,
@@ -1329,6 +1474,96 @@ export class JobExecutor {
       } catch (err) {
         console.error(`[executor] afterJobComplete failed for jobId=${jobId}:`, err);
       }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: PR creation for combine jobs
+  // ---------------------------------------------------------------------------
+
+  private async createPRForCombineJob(jobId: string, job: ActiveJob): Promise<void> {
+    const repoUrl = job.repoUrl!;
+    const featureBranch = job.featureBranch!;
+
+    // Look up feature_id and title from the job's DB row
+    const { data: jobRow } = await this.supabase
+      .from("jobs")
+      .select("feature_id")
+      .eq("id", jobId)
+      .single();
+
+    const featureId = jobRow?.feature_id as string | undefined;
+    let featureTitle: string | undefined;
+
+    if (featureId) {
+      const { data: feature } = await this.supabase
+        .from("features")
+        .select("title")
+        .eq("id", featureId)
+        .single();
+      featureTitle = (feature as { title?: string } | null)?.title ?? undefined;
+    }
+
+    const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (!match) {
+      jobLog(jobId, `PR skipped — cannot parse owner/repo from "${repoUrl}"`);
+      return;
+    }
+    const ownerRepo = match[1];
+    const prTitle = `feat: ${featureTitle ?? featureId ?? jobId}`;
+    const prBody = [
+      "## Auto-generated PR",
+      "",
+      `Feature: ${featureTitle ?? "N/A"}`,
+      `Feature ID: ${featureId ?? "N/A"}`,
+      "",
+      "This PR was automatically created by the zazig pipeline.",
+    ].join("\n");
+
+    try {
+      const { stdout } = await execFileAsync("gh", [
+        "pr", "create",
+        "--repo", ownerRepo,
+        "--base", "master",
+        "--head", featureBranch,
+        "--title", prTitle,
+        "--body", prBody,
+      ], { encoding: "utf8" });
+      const prUrl = stdout.trim();
+      if (prUrl && featureId) {
+        const { error: prWriteErr } = await this.supabase.from("features")
+          .update({ pr_url: prUrl })
+          .eq("id", featureId);
+        if (prWriteErr) {
+          jobLog(jobId, `PR URL DB write FAILED for feature ${featureId}: ${prWriteErr.message}`);
+          console.error(`[executor] PR URL DB write failed for feature ${featureId}:`, prWriteErr.message);
+        } else {
+          jobLog(jobId, `PR URL persisted for feature ${featureId}: ${prUrl}`);
+        }
+      }
+      jobLog(jobId, `PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);
+      console.log(`[executor] PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);
+    } catch (prErr: unknown) {
+      jobLog(jobId, `PR creation failed: ${String(prErr)} — checking for existing PR`);
+      console.warn(`[executor] PR creation failed for jobId=${jobId}: ${String(prErr)}`);
+      // PR may already exist — try to find it
+      try {
+        const { stdout } = await execFileAsync("gh", [
+          "pr", "list",
+          "--repo", ownerRepo,
+          "--head", featureBranch,
+          "--json", "url",
+          "--limit", "1",
+        ], { encoding: "utf8" });
+        const prs = JSON.parse(stdout) as Array<{ url?: string }>;
+        if (prs.length > 0 && prs[0].url && featureId) {
+          await this.supabase.from("features")
+            .update({ pr_url: prs[0].url })
+            .eq("id", featureId);
+          jobLog(jobId, `Found existing PR for feature ${featureId}: ${prs[0].url}`);
+          console.log(`[executor] Found existing PR for feature ${featureId}: ${prs[0].url}`);
+        }
+      } catch { /* best-effort */ }
     }
   }
 

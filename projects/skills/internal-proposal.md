@@ -53,7 +53,7 @@ If you don't have enough context to answer the early questions well, consider ru
 
 ### Step 1: Write the document
 
-Save to: `/Users/tomweaver/Documents/GitHub/zazigv2/docs/plans/YYYY-MM-DD-{topic}-proposal.md`
+Save to: `docs/plans/YYYY-MM-DD-{topic}-proposal.md` (relative to your working directory)
 
 ### Step 2: Track in ideas inbox
 

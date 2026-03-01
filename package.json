@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "workspaces": [
+    "packages/shared",
     "packages/orchestrator",
     "packages/local-agent",
-    "packages/shared",
     "packages/cli"
   ],
   "scripts": {

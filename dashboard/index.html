@@ -46,14 +46,14 @@
       overflow-x: auto;
     }
 
-    /* Subtle dot grid background */
+    /* Geometric mosaic background */
     body::before {
       content: '';
       position: fixed;
       inset: 0;
-      background-image: radial-gradient(circle, #1a1e24 1px, transparent 1px);
-      background-size: 24px 24px;
-      opacity: 0.4;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Cpolygon points='0,0 48,0 24,24' fill='%23171a22'/%3E%3Cpolygon points='48,0 48,48 24,24' fill='%230f1218'/%3E%3Cpolygon points='48,48 0,48 24,24' fill='%230c0d10'/%3E%3Cpolygon points='0,48 0,0 24,24' fill='%23121417'/%3E%3C/svg%3E");
+      background-size: 48px 48px;
+      opacity: 0.85;
       pointer-events: none;
       z-index: 0;
     }
@@ -779,13 +779,13 @@
       const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0';
 
       const FEATURES_BASE =
-        SUPABASE_URL + '/rest/v1/features?select=id,title,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,jobs(id,title,status,progress,model,job_type,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
+        SUPABASE_URL + '/rest/v1/features?select=id,title,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,error,jobs(id,title,status,progress,model,job_type,role,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
       const COMPANIES_BASE =
         SUPABASE_URL + '/rest/v1/companies?select=id,name&limit=1&name=eq.';
       const ALL_COMPANIES_URL =
         SUPABASE_URL + '/rest/v1/companies?select=id,name&order=name';
       const JOB_DETAIL_BASE =
-        SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,raw_log,model,progress,created_at,started_at,completed_at&limit=1&id=eq.';
+        SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,raw_log,model,role,progress,created_at,started_at,completed_at&limit=1&id=eq.';
 
       const AUTH_HEADERS = { apikey: ANON_KEY, Authorization: 'Bearer ' + ANON_KEY };
 
@@ -798,6 +798,7 @@
         { key: 'verifying',           label: 'Verifying', color: '#28b5d4' },
         { key: 'pr_ready',            label: 'PR Ready',  color: '#2980b9' },
         { key: 'complete',            label: 'Complete',  color: '#3cbf6e' },
+        { key: 'failed',              label: 'Failed',    color: '#e74c3c' },
       ];
 
       // Only these job statuses indicate actively-working (show progress bar)
@@ -960,7 +961,10 @@
 
         // Meta line
         var meta = el('div', 'card-meta');
-        var jobs = Array.isArray(feature?.jobs) ? feature.jobs : [];
+        var allJobs = Array.isArray(feature?.jobs) ? feature.jobs : [];
+        var jobs = allJobs.filter(function(j) {
+          return normalizeStatus(j?.status) !== 'cancelled';
+        });
 
         if (jobs.length > 0) {
           var doneCount = jobs.filter(function(j) {
@@ -980,6 +984,21 @@
         }
 
         body.appendChild(meta);
+
+        // Error subtitle for failed features
+        if (normalizeStatus(feature.status) === 'failed' && feature.error) {
+          var errEl = el('div', 'card-meta', '');
+          errEl.textContent = feature.error;
+          errEl.style.color = '#e74c3c';
+          errEl.style.fontSize = '11px';
+          errEl.style.marginTop = '4px';
+          errEl.style.overflow = 'hidden';
+          errEl.style.textOverflow = 'ellipsis';
+          errEl.style.whiteSpace = 'nowrap';
+          errEl.title = feature.error;
+          body.appendChild(errEl);
+        }
+
         card.appendChild(body);
 
         // Progress bar — ONLY if there's an actively-working job
@@ -1112,6 +1131,7 @@
           metaDiv.appendChild(row);
         }
 
+        addMeta('ID', feature.id);
         if (feature.branch) addMeta('Branch', feature.branch);
         addMeta('Created', formatDate(feature.created_at));
         if (feature.updated_at) addMeta('Updated', formatDate(feature.updated_at));
@@ -1119,8 +1139,10 @@
 
         detailContentEl.appendChild(metaDiv);
 
-        // Jobs section
-        var jobs = Array.isArray(feature.jobs) ? sortJobs(feature.jobs) : [];
+        // Jobs section (exclude cancelled)
+        var jobs = (Array.isArray(feature.jobs) ? sortJobs(feature.jobs) : []).filter(function(j) {
+          return normalizeStatus(j?.status) !== 'cancelled';
+        });
         if (jobs.length > 0) {
           detailContentEl.appendChild(el('div', 'detail-section-title',
             'Jobs (' + jobs.length + ')'));
@@ -1140,6 +1162,10 @@
               row.appendChild(dot);
               row.appendChild(el('span', 'detail-job-name', getJobTitle(job)));
               row.appendChild(el('span', 'detail-job-status', jStatus));
+
+              if (job.role) {
+                row.appendChild(el('span', 'detail-job-model', job.role));
+              }
 
               if (job.model) {
                 row.appendChild(el('span', 'detail-job-model',
@@ -1265,6 +1291,7 @@
         }
 
         addMeta('Job ID', job.id);
+        if (job.role) addMeta('Role', job.role);
         if (job.model) addMeta('Model', job.model);
         if (job.progress != null) addMeta('Progress', clampProgress(job.progress) + '%');
         addMeta('Created', formatDate(job.created_at));

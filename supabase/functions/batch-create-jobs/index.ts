@@ -42,10 +42,8 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 }
 
 const VALID_COMPLEXITIES = ["simple", "medium", "complex"] as const;
-const VALID_JOB_TYPES = [
-  "code", "infra", "design", "research", "docs", "bug",
-  "persistent_agent", "verify", "breakdown", "combine", "deploy", "review",
-] as const;
+const VALID_JOB_TYPES = ["code"] as const;
+const VALID_ROLES = ["senior-engineer", "junior-engineer"] as const;
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -117,6 +115,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
       if (!job.role || typeof job.role !== "string") {
         return jsonResponse({ error: `${prefix}.role is required` }, 400);
+      }
+      if (!(VALID_ROLES as readonly string[]).includes(job.role)) {
+        return jsonResponse(
+          { error: `${prefix}.role must be one of: ${VALID_ROLES.join(", ")}` },
+          400,
+        );
       }
       if (!job.job_type || !(VALID_JOB_TYPES as readonly string[]).includes(job.job_type)) {
         return jsonResponse(

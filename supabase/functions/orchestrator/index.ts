@@ -1294,18 +1294,30 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
         .eq("status", "verifying")
         .select("id, pr_url, title");
       if (prReadyUpdated?.length) {
-        const prUrl = (prReadyUpdated[0] as { pr_url?: string }).pr_url ?? "no PR URL";
+        const prUrl = (prReadyUpdated[0] as { pr_url?: string }).pr_url ?? null;
         const featureTitle = (prReadyUpdated[0] as { title?: string }).title ?? jobRow.feature_id;
         await notifyCPO(
           supabase,
           jobRow.company_id,
-          `Feature "${featureTitle}" verified — PR ready for review: ${prUrl}`,
+          prUrl
+            ? `Feature "${featureTitle}" verified — PR ready for review: ${prUrl}`
+            : `Feature "${featureTitle}" verified and ready for review (PR URL not yet available).`,
         );
-        await notifyPRReady(supabase, jobRow.company_id, featureTitle, prUrl);
+        if (prUrl) {
+          await notifyPRReady(supabase, jobRow.company_id, featureTitle, prUrl);
+        }
       }
-    } else {
+    } else if (resultUpper.startsWith("FAILED")) {
       console.log(`[orchestrator] Verification FAILED for feature ${jobRow.feature_id} — triggering retry`);
       await handleVerificationFailed(supabase, jobRow.feature_id, jobRow.company_id, result ?? "");
+    } else {
+      // INCONCLUSIVE or unexpected result — notify CPO for manual triage
+      console.log(`[orchestrator] Verification INCONCLUSIVE for feature ${jobRow.feature_id}: ${(result ?? "").slice(0, 200)}`);
+      await notifyCPO(
+        supabase,
+        jobRow.company_id,
+        `Verification inconclusive for feature ${jobRow.feature_id}: ${(result ?? "").slice(0, 200)}. Needs manual triage.`,
+      );
     }
   }
 
@@ -3120,18 +3132,30 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
         .select("id, pr_url, title");
 
       if (updated?.length) {
-        const prUrl = (updated[0] as { pr_url?: string }).pr_url ?? "no PR URL";
+        const prUrl = (updated[0] as { pr_url?: string }).pr_url ?? null;
         const featureTitle = (updated[0] as { title?: string }).title ?? feature.id;
         await notifyCPO(
           supabase,
           feature.company_id,
-          `Feature "${featureTitle}" verified — PR ready for review: ${prUrl}`,
+          prUrl
+            ? `Feature "${featureTitle}" verified — PR ready for review: ${prUrl}`
+            : `Feature "${featureTitle}" verified and ready for review (PR URL not yet available).`,
         );
-        await notifyPRReady(supabase, feature.company_id, featureTitle, prUrl);
+        if (prUrl) {
+          await notifyPRReady(supabase, feature.company_id, featureTitle, prUrl);
+        }
       }
-    } else {
+    } else if (jobResultUpper.startsWith("FAILED")) {
       console.log(`[orchestrator] processFeatureLifecycle: verify FAILED for feature ${feature.id} — triggering retry (catch-up)`);
       await handleVerificationFailed(supabase, feature.id, feature.company_id, job.result ?? "");
+    } else {
+      // INCONCLUSIVE — notify CPO but don't retry (catch-up)
+      console.log(`[orchestrator] processFeatureLifecycle: verify INCONCLUSIVE for feature ${feature.id} (catch-up): ${(job.result ?? "").slice(0, 200)}`);
+      await notifyCPO(
+        supabase,
+        feature.company_id,
+        `Verification inconclusive for feature ${feature.id}: ${(job.result ?? "").slice(0, 200)}. Needs manual triage.`,
+      );
     }
   }
 

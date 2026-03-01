@@ -1321,10 +1321,10 @@ export class JobExecutor {
     }
 
     if (report) {
-      // Check for verify-report format (status: pass/fail)
-      const passMatch = report.match(/^status:\s*(pass|fail)\s*$/m);
+      // Check for structured report format (status: pass/success/fail)
+      const passMatch = report.match(/^status:\s*(pass|success|fail)\s*$/m);
       if (passMatch) {
-        const prefix = passMatch[1] === "pass" ? "PASSED" : "FAILED";
+        const prefix = passMatch[1] === "fail" ? "FAILED" : "PASSED";
         const reasonMatch = report.match(/^failure_reason:\s*(.+)$/m);
         result = `${prefix}: ${reasonMatch?.[1]?.trim() ?? "see report"}`;
       } else {
@@ -1335,11 +1335,10 @@ export class JobExecutor {
           result = "PASSED: see report";
         } else if (failedAnywhere) {
           result = "FAILED: see report";
-        } else if (job.role === "reviewer" || job.role === "verification-specialist") {
-          // Verify jobs MUST contain a PASSED/FAILED verdict — surface clear failure
-          result = "FAILED: report did not contain PASSED or FAILED verdict";
         } else {
-          result = report.split("\n")[0] ?? "Job completed.";
+          // No verdict found in any format — mark as job failure so the pipeline
+          // doesn't silently advance on an agent that couldn't complete its work.
+          result = "VERDICT_MISSING: report did not contain a status verdict";
         }
       }
       jobLog(jobId, `Report parsed — result="${result}"`);
@@ -1389,13 +1388,25 @@ export class JobExecutor {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
 
-    jobLog(jobId, `Sending JobComplete — result="${result}", hasReport=${!!report}`);
-    try {
-      await this.sendJobComplete(jobId, result, report);
-      jobLog(jobId, `JobComplete sent successfully`);
-    } catch (sendErr) {
-      jobLog(jobId, `sendJobComplete FAILED: ${String(sendErr)}`);
-      console.error(`[executor] sendJobComplete failed for jobId=${jobId}:`, sendErr);
+    // If the verify report had no verdict, treat as a job failure (not completion)
+    if (result.startsWith("VERDICT_MISSING:")) {
+      jobLog(jobId, `Sending JobFailed (no verdict) — result="${result}"`);
+      try {
+        await this.sendJobFailed(jobId, result, "unknown");
+        jobLog(jobId, `JobFailed sent successfully`);
+      } catch (sendErr) {
+        jobLog(jobId, `sendJobFailed FAILED: ${String(sendErr)}`);
+        console.error(`[executor] sendJobFailed failed for jobId=${jobId}:`, sendErr);
+      }
+    } else {
+      jobLog(jobId, `Sending JobComplete — result="${result}", hasReport=${!!report}`);
+      try {
+        await this.sendJobComplete(jobId, result, report);
+        jobLog(jobId, `JobComplete sent successfully`);
+      } catch (sendErr) {
+        jobLog(jobId, `sendJobComplete FAILED: ${String(sendErr)}`);
+        console.error(`[executor] sendJobComplete failed for jobId=${jobId}:`, sendErr);
+      }
     }
 
     // Trigger verification pipeline if a callback is registered.
@@ -1464,9 +1475,15 @@ export class JobExecutor {
       ], { encoding: "utf8" });
       const prUrl = stdout.trim();
       if (prUrl && featureId) {
-        await this.supabase.from("features")
+        const { error: prWriteErr } = await this.supabase.from("features")
           .update({ pr_url: prUrl })
           .eq("id", featureId);
+        if (prWriteErr) {
+          jobLog(jobId, `PR URL DB write FAILED for feature ${featureId}: ${prWriteErr.message}`);
+          console.error(`[executor] PR URL DB write failed for feature ${featureId}:`, prWriteErr.message);
+        } else {
+          jobLog(jobId, `PR URL persisted for feature ${featureId}: ${prUrl}`);
+        }
       }
       jobLog(jobId, `PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);
       console.log(`[executor] PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);

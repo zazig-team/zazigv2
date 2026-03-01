@@ -726,6 +726,47 @@ server.tool(
 );
 
 server.tool(
+  "query_idea_status",
+  "Query the full pipeline status of an idea — traces through to feature/jobs if promoted",
+  {
+    idea_id: z.string().describe("UUID of the idea to trace"),
+  },
+  guardedHandler("query_idea_status", async ({ idea_id }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/query-idea-status`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ idea_id }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as unknown;
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to query idea status (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  }),
+);
+
+server.tool(
   "update_idea",
   "Update triage metadata on an existing idea",
   {

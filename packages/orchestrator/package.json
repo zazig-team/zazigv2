@@ -13,6 +13,6 @@
     "@zazigv2/shared": "*"
   },
   "devDependencies": {
-    "typescript": "*"
+    "typescript": "5.8"
   }
 }

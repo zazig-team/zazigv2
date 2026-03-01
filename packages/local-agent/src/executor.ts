@@ -180,6 +180,12 @@ interface ActiveJob {
   jobBranch?: string;
   /** Role of the agent that ran this job (used for role-specific report paths). */
   role?: string;
+  /** Card type from the StartJob message — used to identify combine jobs for PR creation. */
+  cardType?: string;
+  /** GitHub repo URL (e.g. https://github.com/owner/repo) — used for PR creation. */
+  repoUrl?: string;
+  /** Feature branch name — used as PR head branch. */
+  featureBranch?: string;
 }
 
 interface ActivePersistentAgent {
@@ -601,6 +607,9 @@ export class JobExecutor {
       repoDir,
       jobBranch,
       role: msg.role,
+      cardType: msg.cardType,
+      repoUrl: msg.repoUrl ?? undefined,
+      featureBranch: msg.featureBranch ?? undefined,
     };
     this.activeJobs.set(jobId, activeJob);
 
@@ -1319,7 +1328,19 @@ export class JobExecutor {
         const reasonMatch = report.match(/^failure_reason:\s*(.+)$/m);
         result = `${prefix}: ${reasonMatch?.[1]?.trim() ?? "see report"}`;
       } else {
-        result = report.split("\n")[0] ?? "Job completed.";
+        // Scan for PASSED/FAILED anywhere in the report (agents sometimes bury it in markdown)
+        const passedAnywhere = report.match(/\*?\*?PASSED\*?\*?/);
+        const failedAnywhere = report.match(/\*?\*?FAILED\*?\*?/);
+        if (passedAnywhere && !failedAnywhere) {
+          result = "PASSED: see report";
+        } else if (failedAnywhere) {
+          result = "FAILED: see report";
+        } else if (job.role === "reviewer" || job.role === "verification-specialist") {
+          // Verify jobs MUST contain a PASSED/FAILED verdict — surface clear failure
+          result = "FAILED: report did not contain PASSED or FAILED verdict";
+        } else {
+          result = report.split("\n")[0] ?? "Job completed.";
+        }
       }
       jobLog(jobId, `Report parsed — result="${result}"`);
     } else {
@@ -1359,6 +1380,11 @@ export class JobExecutor {
       //   jobLog(jobId, `Worktree cleanup failed (non-fatal): ${String(worktreeErr)}`);
       //   console.warn(`[executor] Worktree cleanup failed for jobId=${jobId}: ${String(worktreeErr)}`);
       // }
+
+      // Create GitHub PR for combine jobs (after branch push succeeds)
+      if (job.cardType === "combine" && job.repoUrl && job.featureBranch) {
+        await this.createPRForCombineJob(jobId, job);
+      }
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
@@ -1381,6 +1407,90 @@ export class JobExecutor {
       } catch (err) {
         console.error(`[executor] afterJobComplete failed for jobId=${jobId}:`, err);
       }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: PR creation for combine jobs
+  // ---------------------------------------------------------------------------
+
+  private async createPRForCombineJob(jobId: string, job: ActiveJob): Promise<void> {
+    const repoUrl = job.repoUrl!;
+    const featureBranch = job.featureBranch!;
+
+    // Look up feature_id and title from the job's DB row
+    const { data: jobRow } = await this.supabase
+      .from("jobs")
+      .select("feature_id")
+      .eq("id", jobId)
+      .single();
+
+    const featureId = jobRow?.feature_id as string | undefined;
+    let featureTitle: string | undefined;
+
+    if (featureId) {
+      const { data: feature } = await this.supabase
+        .from("features")
+        .select("title")
+        .eq("id", featureId)
+        .single();
+      featureTitle = (feature as { title?: string } | null)?.title ?? undefined;
+    }
+
+    const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (!match) {
+      jobLog(jobId, `PR skipped — cannot parse owner/repo from "${repoUrl}"`);
+      return;
+    }
+    const ownerRepo = match[1];
+    const prTitle = `feat: ${featureTitle ?? featureId ?? jobId}`;
+    const prBody = [
+      "## Auto-generated PR",
+      "",
+      `Feature: ${featureTitle ?? "N/A"}`,
+      `Feature ID: ${featureId ?? "N/A"}`,
+      "",
+      "This PR was automatically created by the zazig pipeline.",
+    ].join("\n");
+
+    try {
+      const { stdout } = await execFileAsync("gh", [
+        "pr", "create",
+        "--repo", ownerRepo,
+        "--base", "master",
+        "--head", featureBranch,
+        "--title", prTitle,
+        "--body", prBody,
+      ], { encoding: "utf8" });
+      const prUrl = stdout.trim();
+      if (prUrl && featureId) {
+        await this.supabase.from("features")
+          .update({ pr_url: prUrl })
+          .eq("id", featureId);
+      }
+      jobLog(jobId, `PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);
+      console.log(`[executor] PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);
+    } catch (prErr: unknown) {
+      jobLog(jobId, `PR creation failed: ${String(prErr)} — checking for existing PR`);
+      console.warn(`[executor] PR creation failed for jobId=${jobId}: ${String(prErr)}`);
+      // PR may already exist — try to find it
+      try {
+        const { stdout } = await execFileAsync("gh", [
+          "pr", "list",
+          "--repo", ownerRepo,
+          "--head", featureBranch,
+          "--json", "url",
+          "--limit", "1",
+        ], { encoding: "utf8" });
+        const prs = JSON.parse(stdout) as Array<{ url?: string }>;
+        if (prs.length > 0 && prs[0].url && featureId) {
+          await this.supabase.from("features")
+            .update({ pr_url: prs[0].url })
+            .eq("id", featureId);
+          jobLog(jobId, `Found existing PR for feature ${featureId}: ${prs[0].url}`);
+          console.log(`[executor] Found existing PR for feature ${featureId}: ${prs[0].url}`);
+        }
+      } catch { /* best-effort */ }
     }
   }
 

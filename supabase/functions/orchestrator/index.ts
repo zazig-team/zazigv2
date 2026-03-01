@@ -1274,52 +1274,17 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
     }
   }
 
-  // Handle combine job completion: create PR, store URL, then trigger verification
+  // Handle combine job completion: trigger verification
+  // (PR creation is now handled by the local agent in executor.ts after branch push)
   if (jobRow?.job_type === "combine" && jobRow?.feature_id) {
-    console.log(`[orchestrator] Combine complete — creating PR and triggering verification for ${jobRow.feature_id}`);
-
-    // Create GitHub PR at combine time (before verification)
-    const { data: combineFeature } = await supabase
-      .from("features")
-      .select("branch, title, project_id")
-      .eq("id", jobRow.feature_id)
-      .single();
-
-    if (combineFeature?.branch && combineFeature?.project_id) {
-      const { data: combineProject } = await supabase
-        .from("projects")
-        .select("repo_url")
-        .eq("id", combineFeature.project_id)
-        .single();
-
-      const combineRepoUrl = (combineProject as { repo_url?: string } | null)?.repo_url ?? "";
-      if (combineRepoUrl) {
-        try {
-          const prUrl = await createGitHubPR(
-            combineRepoUrl,
-            combineFeature.branch,
-            (combineFeature as { title?: string }).title ?? jobRow.feature_id,
-            jobRow.feature_id,
-          );
-          if (prUrl) {
-            await supabase
-              .from("features")
-              .update({ pr_url: prUrl })
-              .eq("id", jobRow.feature_id);
-            console.log(`[orchestrator] Stored PR URL for feature ${jobRow.feature_id}: ${prUrl}`);
-          }
-        } catch (err) {
-          console.error(`[orchestrator] PR creation failed for feature ${jobRow.feature_id}:`, err);
-        }
-      }
-    }
-
+    console.log(`[orchestrator] Combine complete — triggering verification for ${jobRow.feature_id}`);
     await triggerFeatureVerification(supabase, jobRow.feature_id);
   }
 
   // Handle reviewer verify job completion: check pass/fail and advance or notify CPO
   if (jobRow?.job_type === "verify" && jobRow?.role === "reviewer" && jobRow?.feature_id) {
-    const passed = result?.toUpperCase().startsWith("PASSED");
+    const resultUpper = result?.toUpperCase() ?? "";
+    const passed = resultUpper.startsWith("PASSED");
     if (passed) {
       console.log(`[orchestrator] Verification PASSED for feature ${jobRow.feature_id} — advancing to pr_ready`);
       const { data: prReadyUpdated } = await supabase
@@ -1336,14 +1301,11 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
           jobRow.company_id,
           `Feature "${featureTitle}" verified — PR ready for review: ${prUrl}`,
         );
+        await notifyPRReady(supabase, jobRow.company_id, featureTitle, prUrl);
       }
     } else {
-      console.log(`[orchestrator] Verification FAILED for feature ${jobRow.feature_id}`);
-      await notifyCPO(
-        supabase,
-        jobRow.company_id,
-        `Verification failed for feature ${jobRow.feature_id}: ${(result ?? "").slice(0, 200)}. Needs triage.`,
-      );
+      console.log(`[orchestrator] Verification FAILED for feature ${jobRow.feature_id} — triggering retry`);
+      await handleVerificationFailed(supabase, jobRow.feature_id, jobRow.company_id, result ?? "");
     }
   }
 
@@ -1896,6 +1858,7 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
 
   const lateStageStatuses = new Set([
     "verifying",
+    "pr_ready",
     "deploying_to_test",
     "ready_to_test",
     "deploying_to_prod",
@@ -2527,6 +2490,131 @@ export async function handleFeatureRejected(
   });
 }
 
+/**
+ * Handles a verification failure: cancels stale jobs, moves feature back to
+ * building, and queues a fix job assigned to senior-engineer.
+ *
+ * Follows the same pattern as handleFeatureRejected (big severity).
+ */
+async function handleVerificationFailed(
+  supabase: SupabaseClient,
+  featureId: string,
+  companyId: string,
+  failureResult: string,
+): Promise<void> {
+  // 1. Fetch feature details
+  const { data: feature, error: fetchErr } = await supabase
+    .from("features")
+    .select("company_id, project_id, branch, spec, title")
+    .eq("id", featureId)
+    .single();
+
+  if (fetchErr || !feature) {
+    console.error(`[orchestrator] handleVerificationFailed: failed to fetch feature ${featureId}:`, fetchErr?.message);
+    return;
+  }
+
+  // 2. Cancel all combine + verify jobs for this feature that are queued/dispatched/executing
+  const cancelStatuses = ["queued", "dispatched", "executing"];
+  const { error: cancelErr } = await supabase
+    .from("jobs")
+    .update({ status: "cancelled" })
+    .eq("feature_id", featureId)
+    .in("job_type", ["combine", "verify"])
+    .in("status", cancelStatuses);
+
+  if (cancelErr) {
+    console.error(`[orchestrator] handleVerificationFailed: failed to cancel jobs for ${featureId}:`, cancelErr.message);
+  }
+
+  // 3. Move feature back to building (CAS: only from verifying)
+  const { data: updated, error: updateErr } = await supabase
+    .from("features")
+    .update({ status: "building", updated_at: new Date().toISOString() })
+    .eq("id", featureId)
+    .eq("status", "verifying")
+    .select("id");
+
+  if (updateErr) {
+    console.error(`[orchestrator] handleVerificationFailed: failed to reset feature ${featureId} to building:`, updateErr.message);
+    return;
+  }
+  if (!updated || updated.length === 0) {
+    console.log(`[orchestrator] handleVerificationFailed: feature ${featureId} not in verifying — skipping`);
+    return;
+  }
+
+  // 4. Log event
+  await supabase.from("events").insert({
+    company_id: feature.company_id,
+    event_type: "feature_status_changed",
+    detail: {
+      featureId,
+      from: "verifying",
+      to: "building",
+      reason: "verification_failed",
+      failure: failureResult.slice(0, 500),
+    },
+  });
+
+  // 5. Create a new code job with the failure details
+  const fixContext = JSON.stringify({
+    type: "verification_fix",
+    failureDetails: failureResult,
+    featureBranch: feature.branch,
+    originalSpec: feature.spec ?? "",
+  });
+  const { data: insertedRows, error: insertErr } = await supabase.from("jobs").insert({
+    company_id: feature.company_id,
+    project_id: feature.project_id,
+    feature_id: featureId,
+    role: "senior-engineer",
+    job_type: "code",
+    complexity: "medium",
+    slot_type: "claude_code",
+    status: "queued",
+    context: fixContext,
+    branch: feature.branch,
+  }).select("id");
+
+  if (insertErr) {
+    console.error(`[orchestrator] handleVerificationFailed: failed to queue fix job for ${featureId}:`, insertErr.message);
+  } else {
+    console.log(`[orchestrator] handleVerificationFailed: queued fix job for feature ${featureId}`);
+    const jobId = insertedRows?.[0]?.id;
+    if (jobId) {
+      generateTitle(fixContext).then((title) => {
+        if (title) {
+          supabase.from("jobs").update({ title }).eq("id", jobId).then(() => {});
+        }
+      }).catch(() => {});
+    }
+  }
+
+  // 6. Notify CPO about the retry
+  const featureTitle = feature.title ?? featureId;
+  await notifyCPO(
+    supabase,
+    companyId,
+    `Verification failed for "${featureTitle}": ${failureResult.slice(0, 200)}. Returning to building with a fix job.`,
+  );
+
+  // 7. Notify user via Slack (feature thread)
+  const { data: featureSlack } = await supabase
+    .from("features")
+    .select("slack_channel, slack_thread_ts")
+    .eq("id", featureId)
+    .single();
+
+  if (featureSlack?.slack_channel && featureSlack?.slack_thread_ts) {
+    const botToken = await getSlackBotToken(supabase, companyId);
+    if (botToken) {
+      const text = `:warning: *Verification failed for "${featureTitle}"*\n\n${failureResult.slice(0, 300)}\n\nReturning to building — a fix job has been queued.`;
+      await postSlackMessage(botToken, featureSlack.slack_channel, text, featureSlack.slack_thread_ts);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Feature → Breakdown pipeline (Tech Lead)
 // ---------------------------------------------------------------------------
@@ -2991,9 +3079,11 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     // Failed combine jobs are handled by Task 0's central catch-up — no action needed here.
   }
 
-  // --- 4. verifying → deploying_to_test ---
+  // --- 4. verifying → pr_ready (catch-up) ---
   // Features stuck in 'verifying' where the latest verify job is already complete and passed.
-  // Failed verify jobs are handled by Task 0's central catch-up.
+  // The live path (handleJobComplete) advances verifying → pr_ready on receipt of the
+  // job_complete message. This catch-up handles cases where that message was missed.
+  // deploy_to_test is out of the pipeline for now — features stop at pr_ready for CPO review.
   const { data: verifyingFeatures, error: verifyErr } = await supabase
     .from("features")
     .select("id, company_id")
@@ -3016,27 +3106,32 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     if (!latestVerify || latestVerify.length === 0) continue;
     const job = latestVerify[0] as { id: string; status: string; context: string; result: string | null };
     if (job.status !== "complete") continue;
-    // Failed jobs are caught by Task 0. Non-terminal jobs are still running — skip.
 
-    let ctx: { type?: string } = {};
-    try { ctx = JSON.parse(job.context); } catch { /* ignore */ }
+    const jobResultUpper = job.result?.toUpperCase() ?? "";
+    const passed = jobResultUpper.startsWith("PASSED");
 
-    if (ctx.type === "active_feature_verification") {
-      const passed = job.result?.startsWith("PASSED");
-      if (passed) {
-        console.log(`[orchestrator] processFeatureLifecycle: active verify PASSED for feature ${feature.id} — initiating test deploy`);
-        await initiateTestDeploy(supabase, feature.id);
+    if (passed) {
+      console.log(`[orchestrator] processFeatureLifecycle: verify PASSED for feature ${feature.id} — advancing to pr_ready (catch-up)`);
+      const { data: updated } = await supabase
+        .from("features")
+        .update({ status: "pr_ready", updated_at: new Date().toISOString() })
+        .eq("id", feature.id)
+        .eq("status", "verifying")
+        .select("id, pr_url, title");
+
+      if (updated?.length) {
+        const prUrl = (updated[0] as { pr_url?: string }).pr_url ?? "no PR URL";
+        const featureTitle = (updated[0] as { title?: string }).title ?? feature.id;
+        await notifyCPO(
+          supabase,
+          feature.company_id,
+          `Feature "${featureTitle}" verified — PR ready for review: ${prUrl}`,
+        );
+        await notifyPRReady(supabase, feature.company_id, featureTitle, prUrl);
       }
-      // If active verification completed but didn't pass, the feature stays in 'verifying'.
-      // Task 0 won't catch this because the job status is 'complete', not 'failed'.
-      // This is a legitimate stuck state that needs CPO attention — but we do NOT notify
-      // here because the poller runs every 60s and notifyCPO is non-idempotent.
-      // The live path (handleJobComplete line 985) handles notification. If that was missed,
-      // the feature will show up in the CPO's status dashboard as stuck in 'verifying'.
     } else {
-      // Passive verification: always proceed to deploy
-      console.log(`[orchestrator] processFeatureLifecycle: passive verify done for feature ${feature.id} — initiating test deploy`);
-      await initiateTestDeploy(supabase, feature.id);
+      console.log(`[orchestrator] processFeatureLifecycle: verify FAILED for feature ${feature.id} — triggering retry (catch-up)`);
+      await handleVerificationFailed(supabase, feature.id, feature.company_id, job.result ?? "");
     }
   }
 
@@ -3321,6 +3416,31 @@ export async function handleDeployComplete(
 // ---------------------------------------------------------------------------
 // Slack helpers (orchestrator-side)
 // ---------------------------------------------------------------------------
+
+/**
+ * Posts a Slack message to the company's default channel when a PR is ready for review.
+ */
+async function notifyPRReady(
+  supabase: SupabaseClient,
+  companyId: string,
+  featureTitle: string,
+  prUrl: string,
+): Promise<void> {
+  const slackChannel = await getDefaultSlackChannel(supabase, companyId);
+  if (!slackChannel) return;
+  const botToken = await getSlackBotToken(supabase, companyId);
+  if (!botToken) return;
+
+  const text = [
+    `:rocket: *PR ready for review: "${featureTitle}"*`,
+    "",
+    `${prUrl}`,
+    "",
+    "Please review this PR with the CPO before merging.",
+  ].join("\n");
+
+  await postSlackMessage(botToken, slackChannel, text);
+}
 
 async function getDefaultSlackChannel(
   supabase: SupabaseClient,

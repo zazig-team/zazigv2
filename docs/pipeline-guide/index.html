@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How the Idea Pipeline Works — zazig</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── Design System ─────────────────────────────────────── */
+:root {
+  --bg-deep: #0c0e12;
+  --bg: #10131a;
+  --bg-elevated: #161a24;
+  --bg-card: #1a1f2b;
+  --bg-card-hover: #1f2535;
+  --text: #e4e8f0;
+  --text-secondary: #9ba3b5;
+  --text-muted: #5c6478;
+  --border: rgba(200, 180, 140, 0.10);
+  --border-hover: rgba(200, 180, 140, 0.22);
+  --accent: #e8a838;
+  --accent-dim: rgba(232, 168, 56, 0.12);
+  --accent-glow: rgba(232, 168, 56, 0.30);
+  --accent-text: #f0c060;
+  --green: #3cbf6e;
+  --green-dim: rgba(60, 191, 110, 0.12);
+  --blue: #4a9eff;
+  --blue-dim: rgba(74, 158, 255, 0.12);
+  --purple: #a855f7;
+  --purple-dim: rgba(168, 85, 247, 0.12);
+  --red: #e74c3c;
+  --red-dim: rgba(231, 76, 60, 0.10);
+  --slate: #64748b;
+  --slate-dim: rgba(100, 116, 139, 0.12);
+  --amber: #f59e0b;
+  --amber-dim: rgba(245, 158, 11, 0.12);
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg-deep);
+  color: var(--text);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ── Typography ────────────────────────────────────────── */
+h1, h2, h3 {
+  font-family: 'Fraunces', serif;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); }
+h2 { font-size: clamp(1.5rem, 3vw, 2rem); margin-bottom: 1rem; }
+h3 { font-size: 1.1rem; font-weight: 600; }
+
+p { color: var(--text-secondary); max-width: 640px; }
+
+/* ── Navigation ────────────────────────────────────────── */
+nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(12, 14, 18, 0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 2rem;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nav-brand {
+  font-family: 'Fraunces', serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent-text);
+}
+
+.nav-links {
+  display: flex;
+  gap: 1.5rem;
+  list-style: none;
+}
+
+.nav-links a {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.nav-links a:hover { color: var(--text); }
+
+/* ── Sections ──────────────────────────────────────────── */
+section {
+  padding: 5rem 2rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.section-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.75rem;
+  display: block;
+}
+
+.section-intro {
+  font-size: 1.05rem;
+  color: var(--text-secondary);
+  max-width: 600px;
+  margin-bottom: 2.5rem;
+  line-height: 1.7;
+}
+
+/* ── Hero ──────────────────────────────────────────────── */
+.hero {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  padding-top: 56px;
+}
+
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.hero-glow {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  width: 600px;
+  height: 600px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, var(--accent-dim) 0%, transparent 70%);
+  animation: breathe 8s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.7; }
+  50% { transform: translate(-50%, -50%) scale(1.15); opacity: 0.4; }
+}
+
+.hero-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(200, 180, 140, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(200, 180, 140, 0.04) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(ellipse 50% 50% at 50% 45%, black 10%, transparent 70%);
+}
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+}
+
+.hero-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid rgba(232, 168, 56, 0.2);
+  padding: 6px 16px;
+  border-radius: 100px;
+  margin-bottom: 1.5rem;
+}
+
+.hero h1 {
+  margin-bottom: 1.25rem;
+  max-width: 700px;
+}
+
+.hero h1 em {
+  font-style: italic;
+  color: var(--accent-text);
+}
+
+.hero-subtitle {
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+  max-width: 520px;
+  margin: 0 auto 3rem;
+  line-height: 1.7;
+}
+
+/* ── Pipeline Flow (Hero) ──────────────────────────────── */
+.pipeline-flow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 0 auto;
+  max-width: 840px;
+  overflow-x: auto;
+  padding: 1rem 0;
+}
+
+.flow-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 80px;
+  opacity: 0;
+  animation: fade-in 0.4s ease-out forwards;
+}
+
+.flow-step:nth-child(1) { animation-delay: 0.2s; }
+.flow-step:nth-child(3) { animation-delay: 0.4s; }
+.flow-step:nth-child(5) { animation-delay: 0.6s; }
+.flow-step:nth-child(7) { animation-delay: 0.8s; }
+.flow-step:nth-child(9) { animation-delay: 1.0s; }
+.flow-step:nth-child(11) { animation-delay: 1.2s; }
+.flow-step:nth-child(13) { animation-delay: 1.4s; }
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.flow-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  border: 1px solid var(--border);
+}
+
+.flow-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.flow-arrow {
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  opacity: 0;
+  animation: fade-in 0.3s ease-out forwards;
+  padding: 0 0.3rem;
+}
+
+.flow-arrow:nth-child(2) { animation-delay: 0.3s; }
+.flow-arrow:nth-child(4) { animation-delay: 0.5s; }
+.flow-arrow:nth-child(6) { animation-delay: 0.7s; }
+.flow-arrow:nth-child(8) { animation-delay: 0.9s; }
+.flow-arrow:nth-child(10) { animation-delay: 1.1s; }
+.flow-arrow:nth-child(12) { animation-delay: 1.3s; }
+
+.flow-step.intake .flow-icon { background: var(--amber-dim); }
+.flow-step.build .flow-icon { background: var(--blue-dim); }
+.flow-step.ship .flow-icon { background: var(--green-dim); }
+
+/* ── Cards ─────────────────────────────────────────────── */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.card:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-card-hover);
+}
+
+.card-icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.card h3 { margin-bottom: 0.5rem; }
+
+.card p {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* ── Channel Cards ─────────────────────────────────────── */
+.channel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 1rem;
+}
+
+.channel-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  transition: border-color 0.2s;
+}
+
+.channel-card:hover { border-color: var(--border-hover); }
+
+.channel-emoji { font-size: 1.6rem; flex-shrink: 0; margin-top: 2px; }
+.channel-name { font-weight: 600; font-size: 0.92rem; margin-bottom: 4px; }
+.channel-desc { font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; }
+
+/* ── Stage Detail ──────────────────────────────────────── */
+.stage-block {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 2rem;
+  padding: 2.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.stage-block:last-child { border-bottom: none; }
+
+.stage-number {
+  font-family: 'Fraunces', serif;
+  font-size: 3.5rem;
+  font-weight: 300;
+  color: var(--accent-dim);
+  line-height: 1;
+}
+
+.stage-name {
+  font-family: 'Fraunces', serif;
+  font-size: 1.15rem;
+  font-weight: 500;
+  color: var(--accent-text);
+  margin-top: 0.25rem;
+}
+
+.stage-content h3 {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+
+.stage-content p {
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.stage-detail-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 1.25rem;
+}
+
+.stage-detail-list li {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  padding-left: 1.25rem;
+  position: relative;
+}
+
+.stage-detail-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+/* ── Lifecycle Diagram ─────────────────────────────────── */
+.lifecycle {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2rem;
+  margin-top: 1.5rem;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.lifecycle-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.lifecycle-row:last-child { margin-bottom: 0; }
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 100px;
+  white-space: nowrap;
+}
+
+.status-pill.new { background: var(--slate-dim); color: var(--slate); }
+.status-pill.triaged { background: var(--amber-dim); color: var(--amber); }
+.status-pill.promoted { background: var(--green-dim); color: var(--green); }
+.status-pill.parked { background: var(--blue-dim); color: var(--blue); }
+.status-pill.rejected { background: var(--red-dim); color: var(--red); }
+
+.lifecycle-arrow {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.lifecycle-note {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Dashboard Preview ─────────────────────────────────── */
+.dashboard-preview {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin-top: 2rem;
+  overflow-x: auto;
+}
+
+.dashboard-columns {
+  display: flex;
+  gap: 0.75rem;
+  min-width: 700px;
+}
+
+.dash-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.dash-col-header {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.dash-col.intake .dash-col-header { background: var(--amber-dim); color: var(--amber); }
+.dash-col.build .dash-col-header { background: var(--blue-dim); color: var(--blue); }
+.dash-col.done .dash-col-header { background: var(--green-dim); color: var(--green); }
+.dash-col.fail .dash-col-header { background: var(--red-dim); color: var(--red); }
+
+.dash-card-mini {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-divider {
+  width: 2px;
+  background: var(--border);
+  position: relative;
+  flex-shrink: 0;
+  align-self: stretch;
+  border-radius: 1px;
+}
+
+.dash-divider::after {
+  content: '\203A';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--text-muted);
+  font-size: 1rem;
+  background: var(--bg-elevated);
+  padding: 2px;
+}
+
+.dash-section-label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 4px 0 8px;
+}
+
+.dash-intake-group { display: flex; gap: 0.75rem; flex: 3; }
+.dash-build-group { display: flex; gap: 0.75rem; flex: 5; }
+.dash-end-group { display: flex; gap: 0.75rem; flex: 2; }
+
+/* ── Skills Table ──────────────────────────────────────── */
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 0.75rem;
+}
+
+.skill-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.9rem 1.1rem;
+  transition: border-color 0.2s;
+}
+
+.skill-row:hover { border-color: var(--border-hover); }
+
+.skill-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent-text);
+  white-space: nowrap;
+  min-width: 120px;
+}
+
+.skill-trigger {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* ── Example Walkthrough ───────────────────────────────── */
+.example-flow {
+  position: relative;
+  padding-left: 2rem;
+}
+
+.example-flow::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, var(--accent), var(--green));
+  border-radius: 1px;
+}
+
+.example-step {
+  position: relative;
+  margin-bottom: 1.5rem;
+  padding-left: 1rem;
+}
+
+.example-step::before {
+  content: '';
+  position: absolute;
+  left: -2rem;
+  top: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  background: var(--bg-deep);
+}
+
+.example-step.done::before {
+  background: var(--green);
+  border-color: var(--green);
+}
+
+.example-step-num {
+  font-family: 'Fraunces', serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
+.example-step-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.example-step-desc {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.example-step-dashboard {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin-top: 6px;
+  color: var(--text-secondary);
+}
+
+/* ── Quick Reference ───────────────────────────────────── */
+.ref-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 0.75rem;
+}
+
+.ref-item {
+  display: flex;
+  gap: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1rem 1.25rem;
+  transition: border-color 0.2s;
+}
+
+.ref-item:hover { border-color: var(--border-hover); }
+
+.ref-want {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.ref-do {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* ── Footer ────────────────────────────────────────────── */
+footer {
+  text-align: center;
+  padding: 3rem 2rem;
+  border-top: 1px solid var(--border);
+  margin-top: 2rem;
+}
+
+footer p {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0 auto;
+}
+
+/* ── Alternating Sections ──────────────────────────────── */
+.alt-bg {
+  background: var(--bg);
+  max-width: 100%;
+  padding-left: 2rem;
+  padding-right: 2rem;
+}
+
+.alt-bg > .section-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* ── Responsive ────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .nav-links { display: none; }
+  section { padding: 3rem 1.25rem; }
+
+  .stage-block {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .stage-number { font-size: 2.5rem; }
+
+  .pipeline-flow {
+    justify-content: flex-start;
+    padding: 1rem;
+  }
+
+  .skills-grid { grid-template-columns: 1fr; }
+  .ref-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ Navigation ═══ -->
+<nav>
+  <div class="nav-brand">zazig</div>
+  <ul class="nav-links">
+    <li><a href="#capture">Capture</a></li>
+    <li><a href="#pipeline">Pipeline</a></li>
+    <li><a href="#dashboard">Dashboard</a></li>
+    <li><a href="#skills">Skills</a></li>
+    <li><a href="#example">Example</a></li>
+    <li><a href="#reference">Reference</a></li>
+  </ul>
+</nav>
+
+<!-- ═══ Hero ═══ -->
+<section class="hero">
+  <div class="hero-bg">
+    <div class="hero-glow"></div>
+    <div class="hero-grid"></div>
+  </div>
+  <div class="hero-content">
+    <div class="hero-badge">Founder Reference</div>
+    <h1>How the <em>Idea Pipeline</em> Works</h1>
+    <p class="hero-subtitle">From a thought in your head to shipped code. Every step visible. Nothing disappears into a black box.</p>
+
+    <div class="pipeline-flow">
+      <div class="flow-step intake">
+        <div class="flow-icon">💬</div>
+        <div class="flow-label">You</div>
+      </div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-step intake">
+        <div class="flow-icon">📥</div>
+        <div class="flow-label">Capture</div>
+      </div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-step intake">
+        <div class="flow-icon">🔍</div>
+        <div class="flow-label">Triage</div>
+      </div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-step build">
+        <div class="flow-icon">📋</div>
+        <div class="flow-label">Spec</div>
+      </div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-step build">
+        <div class="flow-icon">🔨</div>
+        <div class="flow-label">Breakdown</div>
+      </div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-step build">
+        <div class="flow-icon">🏗️</div>
+        <div class="flow-label">Build</div>
+      </div>
+      <div class="flow-arrow">›</div>
+      <div class="flow-step ship">
+        <div class="flow-icon">🚀</div>
+        <div class="flow-label">Ship</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ Capture ═══ -->
+<section id="capture" class="alt-bg">
+  <div class="section-inner">
+    <span class="section-label">Step 1</span>
+    <h2>Capture: Getting Ideas In</h2>
+    <p class="section-intro">Record ideas through any channel. Your CPO captures them instantly. Voice notes, text messages, terminal conversations — all end up in the same inbox.</p>
+
+    <div class="channel-grid">
+      <div class="channel-card">
+        <div class="channel-emoji">💻</div>
+        <div>
+          <div class="channel-name">Terminal</div>
+          <div class="channel-desc">Talk to your CPO directly. It captures ideas mid-conversation without breaking flow.</div>
+        </div>
+      </div>
+      <div class="channel-card">
+        <div class="channel-emoji">✈️</div>
+        <div>
+          <div class="channel-name">Telegram</div>
+          <div class="channel-desc">Send text or voice notes on the go. Voice gets transcribed automatically. Multi-idea messages get split.</div>
+        </div>
+      </div>
+      <div class="channel-card">
+        <div class="channel-emoji">💬</div>
+        <div>
+          <div class="channel-name">Slack</div>
+          <div class="channel-desc">Messages route into the ideas inbox. Your team's existing communication channel feeds the pipeline.</div>
+        </div>
+      </div>
+      <div class="channel-card">
+        <div class="channel-emoji">🤖</div>
+        <div>
+          <div class="channel-name">Agent-discovered</div>
+          <div class="channel-desc">Monitoring agents spot opportunities, research viability, and submit structured ideas automatically.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top: 2rem; padding: 1.25rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm);">
+      <h3 style="font-family: 'DM Sans'; font-size: 0.88rem; margin-bottom: 0.5rem;">What gets recorded</h3>
+      <p style="font-size: 0.84rem; color: var(--text-muted); line-height: 1.6; max-width: none;">
+        Every idea captures: <strong style="color: var(--text-secondary);">raw_text</strong> (your exact words, never modified), <strong style="color: var(--text-secondary);">originator</strong> (who said it), <strong style="color: var(--text-secondary);">source</strong> (which channel), and a <strong style="color: var(--text-secondary);">title + description</strong> added by processing.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ Processing + Triage ═══ -->
+<section id="triage">
+  <span class="section-label">Steps 2 & 3</span>
+  <h2>Processing & Triage</h2>
+  <p class="section-intro">Raw input gets cleaned automatically. Then your CPO reviews every idea and recommends what to do with it. You make the final call.</p>
+
+  <div class="card-grid" style="margin-bottom: 2.5rem;">
+    <div class="card">
+      <div class="card-icon">⚙️</div>
+      <h3>Ideaify processes automatically</h3>
+      <ul class="stage-detail-list">
+        <li>Splits multi-idea inputs into individual records</li>
+        <li>Cleans each into a clear title + description</li>
+        <li>Categorises by scope, complexity, and domain</li>
+        <li>Flags anything ambiguous for clarification</li>
+      </ul>
+      <p>Ideaify does NOT decide if an idea is good or bad. That's the CPO's job.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔍</div>
+      <h3>CPO triages every sweep</h3>
+      <ul class="stage-detail-list">
+        <li>Reviews title, description, flags, and notes</li>
+        <li>Refines description and adds tags</li>
+        <li>Sets priority: low / medium / high / urgent</li>
+        <li>Recommends: <strong style="color: var(--green);">promote</strong>, <strong style="color: var(--blue);">park</strong>, or <strong style="color: var(--red);">reject</strong></li>
+      </ul>
+      <p>Your CPO never promotes without your explicit approval.</p>
+    </div>
+  </div>
+
+  <h3 style="margin-bottom: 1rem;">Idea Lifecycle</h3>
+  <div class="lifecycle">
+    <div class="lifecycle-row">
+      <span class="status-pill new">new</span>
+      <span class="lifecycle-arrow">→</span>
+      <span class="status-pill triaged">triaged</span>
+      <span class="lifecycle-arrow">→</span>
+      <span class="status-pill promoted">promoted</span>
+      <span class="lifecycle-note">→ becomes a feature, job, or research task</span>
+    </div>
+    <div class="lifecycle-row" style="padding-left: 7.5rem;">
+      <span class="lifecycle-arrow">→</span>
+      <span class="status-pill parked">parked</span>
+      <span class="lifecycle-note">not now, maybe later — reviewed periodically</span>
+    </div>
+    <div class="lifecycle-row" style="padding-left: 7.5rem;">
+      <span class="lifecycle-arrow">→</span>
+      <span class="status-pill rejected">rejected</span>
+      <span class="lifecycle-note">not doing this — preserved for context</span>
+    </div>
+  </div>
+
+  <div style="margin-top: 2rem;">
+    <h3 style="font-family: 'DM Sans'; font-size: 0.92rem; margin-bottom: 1rem;">Promotion paths</h3>
+    <div class="card-grid" style="grid-template-columns: repeat(3, 1fr);">
+      <div class="card" style="border-left: 3px solid var(--green);">
+        <h3 style="color: var(--green);">→ Feature</h3>
+        <p>Worth building. Creates a feature record, enters the spec pipeline. Most ideas go here.</p>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--blue);">
+        <h3 style="color: var(--blue);">→ Job</h3>
+        <p>Small standalone task. Goes straight to the build queue. Quick fixes, one-off changes.</p>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--purple);">
+        <h3 style="color: var(--purple);">→ Research</h3>
+        <p>Interesting but needs investigation. A research contractor digs deeper, may produce a proposal.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ The Build Pipeline ═══ -->
+<section id="pipeline" class="alt-bg">
+  <div class="section-inner">
+    <span class="section-label">Steps 4–7</span>
+    <h2>The Build Pipeline</h2>
+    <p class="section-intro">Once an idea is promoted to a feature, it moves through four automated stages. You stay involved for spec review and final verification.</p>
+
+    <div class="stage-block">
+      <div>
+        <div class="stage-number">04</div>
+        <div class="stage-name">Spec</div>
+      </div>
+      <div class="stage-content">
+        <h3>CPO writes the feature spec</h3>
+        <p>Using the <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px; font-size: 0.85em;">/spec-feature</code> skill, your CPO drafts:</p>
+        <ul class="stage-detail-list">
+          <li>Description — what the feature does, in plain language</li>
+          <li>Acceptance criteria — how you'll know it works</li>
+          <li>Human checklist — what you verify manually on the test server</li>
+        </ul>
+        <p>You review and iterate until the spec is right. Then it's marked <strong>ready for breakdown</strong>.</p>
+      </div>
+    </div>
+
+    <div class="stage-block">
+      <div>
+        <div class="stage-number">05</div>
+        <div class="stage-name">Breakdown</div>
+      </div>
+      <div class="stage-content">
+        <h3>Feature gets decomposed into jobs</h3>
+        <p>The Breakdown Specialist (an ephemeral contractor) runs <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px; font-size: 0.85em;">jobify</code> to produce 3–8 executable jobs with dependency graphs.</p>
+        <ul class="stage-detail-list">
+          <li>Each job gets a self-contained spec</li>
+          <li>Gherkin acceptance tests (machine-verifiable)</li>
+          <li>Complexity rating and dependency ordering</li>
+        </ul>
+        <p>Fully automated. You don't need to do anything here.</p>
+      </div>
+    </div>
+
+    <div class="stage-block">
+      <div>
+        <div class="stage-number">06</div>
+        <div class="stage-name">Build</div>
+      </div>
+      <div class="stage-content">
+        <h3>Workers execute jobs</h3>
+        <p>The orchestrator dispatches jobs to available worker slots. Each job runs in an isolated git worktree:</p>
+        <ul class="stage-detail-list">
+          <li>Clone repo into isolated workspace</li>
+          <li>Read spec and acceptance tests</li>
+          <li>Write code, run tests, push to feature branch</li>
+          <li>Jobs execute in dependency order, parallel where possible</li>
+        </ul>
+        <p>When all jobs complete, results combine into a single branch.</p>
+      </div>
+    </div>
+
+    <div class="stage-block">
+      <div>
+        <div class="stage-number">07</div>
+        <div class="stage-name">Ship</div>
+      </div>
+      <div class="stage-content">
+        <h3>Verify and merge</h3>
+        <p>Two verification gates before shipping:</p>
+        <ul class="stage-detail-list">
+          <li><strong style="color: var(--text);">Code review</strong> — multi-agent review (security, performance, architecture, simplicity)</li>
+          <li><strong style="color: var(--text);">Feature verification</strong> — your human checklist tested on staging</li>
+        </ul>
+        <p>When verification passes, a PR is created. You or your CPO merge it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ Dashboard ═══ -->
+<section id="dashboard">
+  <span class="section-label">Visibility</span>
+  <h2>The Dashboard</h2>
+  <p class="section-intro">See every idea, every feature, and every job across 11 columns. The full lifecycle on one screen.</p>
+
+  <div class="dashboard-preview">
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+      <div style="flex: 3; text-align: center;"><span class="dash-section-label">Intake</span></div>
+      <div style="width: 2px;"></div>
+      <div style="flex: 5; text-align: center;"><span class="dash-section-label">Build Pipeline</span></div>
+      <div style="flex: 2; text-align: center;"><span class="dash-section-label">Done</span></div>
+    </div>
+    <div class="dashboard-columns">
+      <div class="dash-intake-group">
+        <div class="dash-col intake">
+          <div class="dash-col-header">Ideas</div>
+          <div class="dash-card-mini">Cache-TTL for agents</div>
+          <div class="dash-card-mini">Better error messages</div>
+        </div>
+        <div class="dash-col intake">
+          <div class="dash-col-header">Triage</div>
+          <div class="dash-card-mini">Multi-heartbeat</div>
+        </div>
+        <div class="dash-col intake">
+          <div class="dash-col-header">Proposal</div>
+          <div class="dash-card-mini">Event Queue</div>
+          <div class="dash-card-mini">Persistent Identity</div>
+        </div>
+      </div>
+      <div class="dash-divider"></div>
+      <div class="dash-build-group">
+        <div class="dash-col build">
+          <div class="dash-col-header">Ready</div>
+          <div class="dash-card-mini">Auth timeout fix</div>
+        </div>
+        <div class="dash-col build">
+          <div class="dash-col-header">Breakdown</div>
+        </div>
+        <div class="dash-col build">
+          <div class="dash-col-header">Building</div>
+          <div class="dash-card-mini">Rate limiting</div>
+        </div>
+        <div class="dash-col build">
+          <div class="dash-col-header">Combining</div>
+        </div>
+        <div class="dash-col build">
+          <div class="dash-col-header">Verifying</div>
+        </div>
+      </div>
+      <div class="dash-end-group">
+        <div class="dash-col done">
+          <div class="dash-col-header">Shipped</div>
+          <div class="dash-card-mini">Ideas Inbox</div>
+          <div class="dash-card-mini">Telegram Bot</div>
+        </div>
+        <div class="dash-col fail">
+          <div class="dash-col-header">Failed</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card-grid" style="margin-top: 2rem; grid-template-columns: repeat(3, 1fr);">
+    <div class="card">
+      <h3 style="color: var(--amber);">Intake columns</h3>
+      <p><strong>Ideas</strong> — raw, unreviewed<br><strong>Triage</strong> — CPO reviewed, has recommendation<br><strong>Proposal</strong> — promoted, being specced</p>
+    </div>
+    <div class="card">
+      <h3 style="color: var(--blue);">Build columns</h3>
+      <p><strong>Ready → Breakdown → Building → Combining → Verifying</strong><br>The automated pipeline. Watch jobs execute in real time.</p>
+    </div>
+    <div class="card">
+      <h3>Click any card</h3>
+      <p>Opens a detail panel with full metadata, description, triage notes, job list, and logs.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ Skills ═══ -->
+<section id="skills" class="alt-bg">
+  <div class="section-inner">
+    <span class="section-label">Automation</span>
+    <h2>What Your CPO Already Knows</h2>
+    <p class="section-intro">12 skills loaded. Every ceremony and process runs without being asked. Here's what triggers each one.</p>
+
+    <div class="skills-grid">
+      <div class="skill-row">
+        <div class="skill-name">standup</div>
+        <div class="skill-trigger">Every conversation start — sweeps inbox, checks pipeline health</div>
+      </div>
+      <div class="skill-row">
+        <div class="skill-name">scrum</div>
+        <div class="skill-trigger">"Let's plan the sprint" — triage features, prioritise, schedule</div>
+      </div>
+      <div class="skill-row">
+        <div class="skill-name">ideaify</div>
+        <div class="skill-trigger">Messy multi-idea input — splits, cleans, categorises</div>
+      </div>
+      <div class="skill-row">
+        <div class="skill-name">internal-proposal</div>
+        <div class="skill-trigger">Single idea worth a deep-dive — problem → solution RFC</div>
+      </div>
+      <div class="skill-row">
+        <div class="skill-name">spec-feature</div>
+        <div class="skill-trigger">Feature needs a spec — writes AC + human checklist</div>
+      </div>
+      <div class="skill-row">
+        <div class="skill-name">review-plan</div>
+        <div class="skill-trigger">Reviewing a plan — structured critique with recommendations</div>
+      </div>
+      <div class="skill-row">
+        <div class="skill-name">second-opinion</div>
+        <div class="skill-trigger">Unsure about a decision — asks a different AI to check</div>
+      </div>
+      <div class="skill-row">
+        <div class="skill-name">repo-recon</div>
+        <div class="skill-trigger">Analysing an external repo — deep technical analysis</div>
+      </div>
+      <div class="skill-row">
+        <div class="skill-name">brainstorming</div>
+        <div class="skill-trigger">New design work — structured exploration before building</div>
+      </div>
+      <div class="skill-row">
+        <div class="skill-name">slack-headsup</div>
+        <div class="skill-trigger">After producing an artifact — notifies the team on Slack</div>
+      </div>
+      <div class="skill-row">
+        <div class="skill-name">compound-docs</div>
+        <div class="skill-trigger">Solved a hard problem — captures knowledge for future reference</div>
+      </div>
+      <div class="skill-row">
+        <div class="skill-name">napkin</div>
+        <div class="skill-trigger">Every session — tracks corrections and patterns for next time</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ End-to-End Example ═══ -->
+<section id="example">
+  <span class="section-label">Walkthrough</span>
+  <h2>End-to-End Example</h2>
+  <p class="section-intro">What happens when you say "We need better error messages for API failures."</p>
+
+  <div class="example-flow">
+    <div class="example-step">
+      <div class="example-step-num">01</div>
+      <div class="example-step-title">You tell your CPO</div>
+      <div class="example-step-desc">"We need better error messages for API failures"</div>
+    </div>
+
+    <div class="example-step">
+      <div class="example-step-num">02</div>
+      <div class="example-step-title">CPO captures it</div>
+      <div class="example-step-desc">Creates an idea record with your exact words, sets originator and source.</div>
+      <div class="example-step-dashboard">Dashboard: card appears in IDEAS</div>
+    </div>
+
+    <div class="example-step">
+      <div class="example-step-num">03</div>
+      <div class="example-step-title">CPO triages</div>
+      <div class="example-step-desc">"This looks like a single feature — medium priority. Recommend promote to feature. Want me to go ahead?"</div>
+      <div class="example-step-dashboard">Dashboard: card moves to TRIAGE with recommendation badge</div>
+    </div>
+
+    <div class="example-step">
+      <div class="example-step-num">04</div>
+      <div class="example-step-title">You approve</div>
+      <div class="example-step-desc">Feature record created, enters spec pipeline.</div>
+      <div class="example-step-dashboard">Dashboard: card moves to PROPOSAL</div>
+    </div>
+
+    <div class="example-step">
+      <div class="example-step-num">05</div>
+      <div class="example-step-title">CPO writes the spec</div>
+      <div class="example-step-desc">Description, acceptance criteria, and human checklist. You review and iterate.</div>
+    </div>
+
+    <div class="example-step">
+      <div class="example-step-num">06</div>
+      <div class="example-step-title">Spec approved → breakdown</div>
+      <div class="example-step-desc">Breakdown Specialist decomposes into 4 jobs with dependencies.</div>
+      <div class="example-step-dashboard">Dashboard: card moves through READY → BREAKDOWN</div>
+    </div>
+
+    <div class="example-step">
+      <div class="example-step-num">07</div>
+      <div class="example-step-title">Jobs execute</div>
+      <div class="example-step-desc">Workers build in parallel, push to feature branches, results combine.</div>
+      <div class="example-step-dashboard">Dashboard: card moves through BUILDING → COMBINING</div>
+    </div>
+
+    <div class="example-step">
+      <div class="example-step-num">08</div>
+      <div class="example-step-title">Verification</div>
+      <div class="example-step-desc">Code review passes. You check the human checklist items on staging.</div>
+      <div class="example-step-dashboard">Dashboard: card in VERIFYING</div>
+    </div>
+
+    <div class="example-step done">
+      <div class="example-step-num">09</div>
+      <div class="example-step-title">Shipped ✓</div>
+      <div class="example-step-desc">PR merged. Better error messages are live.</div>
+      <div class="example-step-dashboard">Dashboard: card moves to SHIPPED</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ Quick Reference ═══ -->
+<section id="reference" class="alt-bg">
+  <div class="section-inner">
+    <span class="section-label">Cheat Sheet</span>
+    <h2>Quick Reference</h2>
+    <p class="section-intro">Common actions and how to do them.</p>
+
+    <div class="ref-grid">
+      <div class="ref-item">
+        <div>
+          <div class="ref-want">Record an idea</div>
+          <div class="ref-do">Tell your CPO, or send a Telegram message</div>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div>
+          <div class="ref-want">See all my ideas</div>
+          <div class="ref-do">Dashboard → IDEAS + TRIAGE columns</div>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div>
+          <div class="ref-want">Check what's being built</div>
+          <div class="ref-do">Dashboard → BUILDING column</div>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div>
+          <div class="ref-want">See parked ideas</div>
+          <div class="ref-do">Dashboard → expand Parked section below the board</div>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div>
+          <div class="ref-want">Track a specific idea</div>
+          <div class="ref-do">Ask CPO to query_idea_status with the idea ID</div>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div>
+          <div class="ref-want">Prioritise work</div>
+          <div class="ref-do">Ask for a scrum / sprint planning session</div>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div>
+          <div class="ref-want">Get a status update</div>
+          <div class="ref-do">Just start a conversation — standup runs automatically</div>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div>
+          <div class="ref-want">Deep-dive an idea</div>
+          <div class="ref-do">Ask CPO to write an internal proposal</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ Footer ═══ -->
+<footer>
+  <p>zazig — the idea pipeline · Built for founders who ship with AI teams</p>
+</footer>
+
+</body>
+</html>

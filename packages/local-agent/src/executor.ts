@@ -42,6 +42,9 @@ const POLL_INTERVAL_MS = 30_000;
 /** Reconcile active in-memory jobs against DB terminal states every 60 s. */
 const SLOT_RECONCILE_INTERVAL_MS = 60_000;
 
+/** Poll for merged PRs on pr_ready features every 60 s. */
+const PR_MONITOR_INTERVAL_MS = 60_000;
+
 /** Kill the job after 60 minutes regardless of status. */
 const JOB_TIMEOUT_MS = 60 * 60_000;
 
@@ -281,6 +284,7 @@ export class JobExecutor {
   private readonly messageQueue: QueuedMessage[] = [];
   private processingQueue = false;
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
+  private prMonitorTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     machineId: string,
@@ -304,6 +308,10 @@ export class JobExecutor {
     this.reconcileTimer = setInterval(() => {
       void this.reconcileSlots();
     }, SLOT_RECONCILE_INTERVAL_MS);
+
+    this.prMonitorTimer = setInterval(() => {
+      void this.monitorMergedPRs();
+    }, PR_MONITOR_INTERVAL_MS);
   }
 
   /** Resolve the machine UUID from the machines table (cached after first call). */
@@ -779,6 +787,10 @@ export class JobExecutor {
       clearInterval(this.reconcileTimer);
       this.reconcileTimer = null;
     }
+    if (this.prMonitorTimer !== null) {
+      clearInterval(this.prMonitorTimer);
+      this.prMonitorTimer = null;
+    }
 
     // Clear all persistent agents (fires DB status updates + stops heartbeat timers)
     this.clearPersistentAgent();
@@ -796,6 +808,50 @@ export class JobExecutor {
       this.slots.release(job.slotType);
     }
     this.activeJobs.clear();
+  }
+
+  /**
+   * Monitors features in pr_ready status for merged PRs.
+   * When a PR is detected as merged via `gh` CLI, advances the feature to complete.
+   */
+  private async monitorMergedPRs(): Promise<void> {
+    const { data: features } = await this.supabase
+      .from("features")
+      .select("id, pr_url, company_id")
+      .eq("status", "pr_ready")
+      .not("pr_url", "is", null)
+      .limit(50);
+
+    if (!features || features.length === 0) return;
+
+    for (const feature of features) {
+      try {
+        const { stdout } = await execFileAsync("gh", [
+          "pr", "view", feature.pr_url!, "--json", "state",
+        ], { encoding: "utf8" });
+        const { state } = JSON.parse(stdout);
+
+        if (state === "MERGED") {
+          const { data: updated } = await this.supabase
+            .from("features")
+            .update({ status: "complete", completed_at: new Date().toISOString() })
+            .eq("id", feature.id)
+            .eq("status", "pr_ready") // CAS guard
+            .select("id");
+
+          if (updated?.length) {
+            await this.supabase.from("events").insert({
+              company_id: feature.company_id,
+              event_type: "feature_status_changed",
+              detail: { featureId: feature.id, from: "pr_ready", to: "complete", reason: "pr_merged" },
+            });
+            console.log(`[executor] PR merged — feature ${feature.id} → complete`);
+          }
+        }
+      } catch {
+        // gh CLI failed — skip, will retry next cycle
+      }
+    }
   }
 
   /**

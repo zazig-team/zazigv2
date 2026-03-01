@@ -65,6 +65,9 @@ Cannot move forward regardless of priority:
 - Needs human action (deploy, configure, approve something external)
 - Needs spec written and CPO doesn't have enough context
 
+### Workshop (not schedulable)
+Features tagged `needs-workshop`. Cannot be greenlit or scheduled — these are in active collaborative design with the human and will enter the pipeline when the tag is removed and spec-feature completes. Present separately: "These {N} features are in workshop — not candidates for scheduling until design iteration completes."
+
 ### Deprioritise
 Recommend removing from active consideration:
 - Failed 3+ times with no clear fix path
@@ -94,6 +97,9 @@ Show a clean decision board. No UUIDs, no JSON.
 ### Blocked
 - **{feature title}** — depends on {other feature}
 - **{feature title}** — needs {human action}
+
+### Workshop (in design)
+- **{feature title}** — iterating with human, not schedulable
 
 ### Recommend Deprioritise
 - **{feature title}** — {reason: failed 3x, superseded, low value}

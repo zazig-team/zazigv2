@@ -22,25 +22,25 @@
       --col-new: #64748b;
       --col-triaged: #f59e0b;
       --col-created: #a855f7;
-      --col-ready_for_breakdown: #9b59b6;
-      --col-breakdown: #8e44ad;
-      --col-building: #e8a838;
-      --col-combining: #e67e22;
-      --col-verifying: #28b5d4;
-      --col-pr_ready: #2980b9;
-      --col-complete: #3cbf6e;
-      --col-failed: #e74c3c;
+      --col-ready_for_breakdown: #6366f1;
+      --col-breakdown: #ec4899;
+      --col-building: #f97316;
+      --col-combining: #eab308;
+      --col-verifying: #06b6d4;
+      --col-pr_ready: #3b82f6;
+      --col-complete: #22c55e;
+      --col-failed: #ef4444;
 
       --col-new-bg: rgba(100, 116, 139, 0.08);
       --col-triaged-bg: rgba(245, 158, 11, 0.09);
       --col-created-bg: rgba(168, 85, 247, 0.08);
-      --col-ready_for_breakdown-bg: rgba(155, 89, 182, 0.06);
-      --col-breakdown-bg: rgba(142, 68, 173, 0.06);
-      --col-building-bg: rgba(232, 168, 56, 0.06);
-      --col-combining-bg: rgba(230, 126, 34, 0.06);
-      --col-verifying-bg: rgba(40, 181, 212, 0.06);
-      --col-pr_ready-bg: rgba(41, 128, 185, 0.06);
-      --col-complete-bg: rgba(60, 191, 110, 0.06);
+      --col-ready_for_breakdown-bg: rgba(99, 102, 241, 0.06);
+      --col-breakdown-bg: rgba(236, 72, 153, 0.06);
+      --col-building-bg: rgba(249, 115, 22, 0.06);
+      --col-combining-bg: rgba(234, 179, 8, 0.06);
+      --col-verifying-bg: rgba(6, 182, 212, 0.06);
+      --col-pr_ready-bg: rgba(59, 130, 246, 0.06);
+      --col-complete-bg: rgba(34, 197, 94, 0.06);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -415,6 +415,18 @@
     .feature-description.muted {
       color: var(--text-dim);
       font-style: italic;
+    }
+
+    .card-workshop-label {
+      color: #fdba74;
+      border: 1px solid rgba(249, 115, 22, 0.35);
+      border-radius: 4px;
+      padding: 1px 6px;
+      letter-spacing: 0.04em;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
     }
 
     .card-speccing-label {
@@ -1107,7 +1119,7 @@
       const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0';
 
       const FEATURES_BASE =
-        SUPABASE_URL + '/rest/v1/features?select=id,title,description,priority,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,error,jobs(id,title,status,progress,model,job_type,role,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
+        SUPABASE_URL + '/rest/v1/features?select=id,title,description,priority,status,spec,acceptance_tests,branch,project_id,tags,source_idea_id,created_at,updated_at,error,jobs(id,title,status,progress,model,job_type,role,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
       const QUERY_IDEAS_URL =
         SUPABASE_URL + '/functions/v1/query-ideas';
       const COMPANIES_BASE =
@@ -1128,14 +1140,14 @@
 
       // Build pipeline: ready -> complete
       const PIPELINE_COLUMNS = [
-        { key: 'ready_for_breakdown', label: 'Ready',     color: '#9b59b6' },
-        { key: 'breakdown',           label: 'Breakdown', color: '#8e44ad' },
-        { key: 'building',            label: 'Building',  color: '#e8a838' },
-        { key: 'combining',           label: 'Combining', color: '#e67e22' },
-        { key: 'verifying',           label: 'Verifying', color: '#28b5d4' },
-        { key: 'pr_ready',            label: 'PR Ready',  color: '#2980b9' },
-        { key: 'complete',            label: 'Complete',  color: '#3cbf6e' },
-        { key: 'failed',              label: 'Failed',    color: '#e74c3c' },
+        { key: 'ready_for_breakdown', label: 'Ready',     color: '#6366f1' },
+        { key: 'breakdown',           label: 'Breakdown', color: '#ec4899' },
+        { key: 'building',            label: 'Building',  color: '#f97316' },
+        { key: 'combining',           label: 'Combining', color: '#eab308' },
+        { key: 'verifying',           label: 'Verifying', color: '#06b6d4' },
+        { key: 'pr_ready',            label: 'PR Ready',  color: '#3b82f6' },
+        { key: 'complete',            label: 'Complete',  color: '#22c55e' },
+        { key: 'failed',              label: 'Failed',    color: '#ef4444' },
       ];
 
       // Only these job statuses indicate actively-working (show progress bar)
@@ -1446,7 +1458,10 @@
         });
 
         if (isProposal) {
-          meta.appendChild(el('span', 'card-speccing-label', 'speccing'));
+          var isWorkshop = Array.isArray(feature.tags) && feature.tags.indexOf('needs-workshop') !== -1;
+          var badgeClass = isWorkshop ? 'card-workshop-label' : 'card-speccing-label';
+          var badgeText = isWorkshop ? 'workshop' : 'speccing';
+          meta.appendChild(el('span', badgeClass, badgeText));
         } else if (jobs.length > 0) {
           var doneCount = jobs.filter(function(j) {
             var s = normalizeStatus(j?.status);

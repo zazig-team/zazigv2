@@ -39,7 +39,8 @@ The snapshot pre-classifies features by status. Map to these buckets:
 
 | Bucket | Snapshot field | Meaning |
 |--------|---------------|---------|
-| **Backlog** | `features_by_status.created` | Awaiting spec or scheduling |
+| **Backlog (spec-ready)** | `created` WITHOUT `needs-workshop` tag | Ready for spec-feature |
+| **Backlog (workshop)** | `created` WITH `needs-workshop` tag | In iterative design with human |
 | **Active** | All other `features_by_status` keys | In the pipeline |
 | **Failed** | `failed_features` | Hit an error, needs triage |
 | **Stuck** | `stuck_items` | No progress > 2 hours |
@@ -64,6 +65,9 @@ Output this format. Omit empty sections entirely.
 
 **Inbox:** {N} new ideas awaiting triage
 **Pipeline:** {active} active | {backlog} backlog | {failed} failed | {complete} complete
+
+**Workshop (iterating with human):**
+- {feature title} — design doc at {path if known}
 
 **Active work:**
 - {feature title} — {status} ({time in status if notable})

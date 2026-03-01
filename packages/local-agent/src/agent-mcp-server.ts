@@ -732,7 +732,7 @@ server.tool(
     idea_id: z.string().describe("ID of the idea to update"),
     title: z.string().optional().describe("New title"),
     description: z.string().optional().describe("New description"),
-    status: z.enum(["new", "triaged", "parked", "rejected"]).optional().describe("New status"),
+    status: z.enum(["new", "triaged", "parked", "rejected", "done"]).optional().describe("New status"),
     priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("New priority"),
     suggested_exec: z.string().optional().describe("Suggested executor"),
     tags: z.array(z.string()).optional().describe("Updated tags"),

@@ -45,6 +45,7 @@ const STATUS_EVENT_MAP: Record<string, string> = {
   triaged: "idea_triaged",
   parked: "idea_parked",
   rejected: "idea_rejected",
+  done: "idea_done",
 };
 
 // ---------------------------------------------------------------------------

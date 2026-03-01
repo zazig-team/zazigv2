@@ -41,6 +41,18 @@ If the feature doesn't exist yet (e.g., human brought a single-feature idea), cr
 
 ## Procedure
 
+### Step 0: Workshop Check
+
+Before presenting the feature outline, read the feature and check its `tags` array.
+
+If `needs-workshop` is present:
+- **Stop.** Do not proceed with speccing.
+- Tell the human: "This feature is tagged as needing workshop iteration. Want to continue iterating on the design, or do you think it's ready to spec? If ready, I'll remove the tag and we can proceed."
+- If human says ready → call `update_feature` to remove `needs-workshop` from the tags array, then proceed to Step 1.
+- If human says iterate → switch to design conversation mode. Read any existing design doc, discuss changes, update the doc. Do NOT write spec/AC/checklist until the tag is removed.
+
+If `needs-workshop` is NOT present, proceed to Step 1 normally.
+
 ### Step 1: Present the Feature Outline
 
 Read the feature via your available tools. Present to the human:

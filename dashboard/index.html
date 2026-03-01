@@ -49,28 +49,16 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      background: var(--bg);
+      background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Cpolygon points='0,0 48,0 24,24' fill='%2315171f'/%3E%3Cpolygon points='48,0 48,48 24,24' fill='%230e1116'/%3E%3Cpolygon points='48,48 0,48 24,24' fill='%230b0c0f'/%3E%3Cpolygon points='0,48 0,0 24,24' fill='%23111215'/%3E%3C/svg%3E") repeat;
+      background-size: 48px 48px;
       color: var(--text);
       font-family: 'DM Sans', sans-serif;
       min-height: 100vh;
       overflow-x: auto;
     }
 
-    /* Geometric mosaic background */
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Cpolygon points='0,0 48,0 24,24' fill='%23171a22'/%3E%3Cpolygon points='48,0 48,48 24,24' fill='%230f1218'/%3E%3Cpolygon points='48,48 0,48 24,24' fill='%230c0d10'/%3E%3Cpolygon points='0,48 0,0 24,24' fill='%23121417'/%3E%3C/svg%3E");
-      background-size: 48px 48px;
-      opacity: 0.85;
-      pointer-events: none;
-      z-index: 0;
-    }
-
     .app {
       position: relative;
-      z-index: 1;
       display: flex;
       flex-direction: column;
       min-height: 100vh;
@@ -84,9 +72,9 @@
       justify-content: space-between;
       padding: 16px 24px;
       border-bottom: 1px solid var(--border);
-      background: rgba(8, 9, 12, 0.85);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
+      background: rgba(8, 9, 12, 0.92);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
       flex-shrink: 0;
     }
 
@@ -1134,12 +1122,11 @@
 
       const AUTH_HEADERS = { apikey: ANON_KEY, Authorization: 'Bearer ' + ANON_KEY };
 
-      // Intake funnel: ideas -> triage -> proposal -> shipped (pre-pipeline)
+      // Intake funnel: ideas -> triage -> proposal (pre-pipeline)
       const INTAKE_COLUMNS = [
         { key: 'new',     label: 'Ideas',    color: '#64748b', source: 'ideas' },
         { key: 'triaged', label: 'Triage',   color: '#f59e0b', source: 'ideas' },
         { key: 'created', label: 'Proposal', color: '#a855f7', source: 'features' },
-        { key: 'done',    label: 'Shipped',  color: '#10b981', source: 'ideas' },
       ];
 
       // Build pipeline: ready -> complete
@@ -1153,6 +1140,9 @@
         { key: 'complete',            label: 'Complete',  color: '#22c55e' },
         { key: 'failed',              label: 'Failed',    color: '#ef4444' },
       ];
+
+      // Outcome: shipped ideas (after pipeline)
+      const SHIPPED_COLUMN = { key: 'done', label: 'Shipped', color: '#10b981', source: 'ideas' };
 
       // Only these job statuses indicate actively-working (show progress bar)
       const WORKING_JOB_STATUSES = new Set(['executing', 'blocked', 'reviewing']);
@@ -1724,6 +1714,10 @@
           var pipeCol = PIPELINE_COLUMNS[k];
           board.appendChild(renderColumn(pipeCol, featuresByCol[pipeCol.key] || []));
         }
+
+        // Shipped column (done ideas) after pipeline
+        board.appendChild(el('div', 'intake-divider'));
+        board.appendChild(renderColumn(SHIPPED_COLUMN, ideasByStatus.done || []));
 
         frag.appendChild(board);
         frag.appendChild(renderParkedSection(ideasByStatus.parked || []));

@@ -586,10 +586,9 @@
     }
 
     .parked-section {
-      border-top: 1px solid var(--border);
-      background: rgba(13, 15, 20, 0.9);
-      padding: 10px 12px 14px;
-      flex-shrink: 0;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border-subtle);
     }
 
     .parked-toggle {
@@ -598,10 +597,10 @@
       background: var(--surface-raised);
       border: 1px solid var(--border);
       color: var(--text-secondary);
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.7rem;
-      letter-spacing: 0.04em;
-      padding: 8px 10px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.72rem;
+      font-weight: 500;
+      padding: 7px 10px;
       border-radius: 7px;
       cursor: pointer;
       transition: all 0.15s ease;
@@ -614,34 +613,24 @@
     }
 
     .parked-content {
-      margin-top: 10px;
+      margin-top: 8px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
     }
 
     .parked-group-title {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.62rem;
-      letter-spacing: 0.08em;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
       color: var(--text-dim);
+      margin-bottom: 4px;
     }
 
     .parked-group-title.stale {
       color: #fca5a5;
-    }
-
-    .parked-cards {
-      margin-top: 6px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .parked-cards .idea-card {
-      width: 220px;
-      flex: 0 1 220px;
     }
 
     /* ── Detail Panel (side sheet) ─────────────── */
@@ -1055,11 +1044,6 @@
 
       .column-body {
         max-height: 50vh;
-      }
-
-      .parked-cards .idea-card {
-        width: 100%;
-        flex: 1 1 100%;
       }
 
       .detail-panel {
@@ -1573,7 +1557,7 @@
         return card;
       }
 
-      function renderColumn(colDef, items) {
+      function renderColumn(colDef, items, parkedIdeas) {
         var col = el('div', 'column');
         col.style.background = 'var(--col-' + colDef.key + '-bg, var(--bg))';
 
@@ -1588,7 +1572,7 @@
         col.appendChild(hdr);
 
         var body = el('div', 'column-body');
-        if (items.length === 0) {
+        if (items.length === 0 && (!parkedIdeas || parkedIdeas.length === 0)) {
           body.appendChild(el('div', 'column-empty', 'No items'));
         } else {
           for (var i = 0; i < items.length; i++) {
@@ -1602,6 +1586,49 @@
             }
           }
         }
+
+        // Collapsible parked section inside the column
+        if (parkedIdeas && parkedIdeas.length > 0) {
+          var parkedWrap = el('div', 'parked-section');
+          var toggle = el('button', 'parked-toggle');
+          toggle.type = 'button';
+          toggle.setAttribute('aria-expanded', parkedExpanded ? 'true' : 'false');
+          toggle.textContent = (parkedExpanded ? '\u25be' : '\u25b8') + ' Parked (' + parkedIdeas.length + ')';
+          toggle.addEventListener('click', function() {
+            parkedExpanded = !parkedExpanded;
+            renderBoard(lastFeatures, lastIdeas);
+          });
+          parkedWrap.appendChild(toggle);
+
+          if (parkedExpanded) {
+            var groups = buildParkedGroups(parkedIdeas);
+            var content = el('div', 'parked-content');
+            var renderIdx = 0;
+            for (var g = 0; g < groups.length; g++) {
+              if (groups[g].items.length === 0) continue;
+              var groupWrap = document.createElement('div');
+              var heading = el(
+                'div',
+                groups[g].stale ? 'parked-group-title stale' : 'parked-group-title',
+                groups[g].label + ' (' + groups[g].items.length + ')'
+              );
+              groupWrap.appendChild(heading);
+              for (var pi = 0; pi < groups[g].items.length; pi++) {
+                var idea = groups[g].items[pi];
+                var age = getAgeDays(getIdeaTimestamp(idea));
+                groupWrap.appendChild(renderIdeaCard(idea, colDef, renderIdx * 35, {
+                  deepStale: age > 90
+                }));
+                renderIdx++;
+              }
+              content.appendChild(groupWrap);
+            }
+            parkedWrap.appendChild(content);
+          }
+
+          body.appendChild(parkedWrap);
+        }
+
         col.appendChild(body);
         return col;
       }
@@ -1634,49 +1661,7 @@
         ];
       }
 
-      function renderParkedSection(parkedIdeas) {
-        var section = el('section', 'parked-section');
-        var toggle = el('button', 'parked-toggle');
-        toggle.type = 'button';
-        toggle.setAttribute('aria-expanded', parkedExpanded ? 'true' : 'false');
-        toggle.textContent = (parkedExpanded ? '\u25be' : '\u25b8') + ' Parked (' + parkedIdeas.length + ')';
-        toggle.addEventListener('click', function() {
-          parkedExpanded = !parkedExpanded;
-          renderBoard(lastFeatures, lastIdeas);
-        });
-        section.appendChild(toggle);
-
-        if (!parkedExpanded || parkedIdeas.length === 0) return section;
-
-        var groups = buildParkedGroups(parkedIdeas);
-        var content = el('div', 'parked-content');
-        var renderIdx = 0;
-        for (var g = 0; g < groups.length; g++) {
-          if (groups[g].items.length === 0) continue;
-
-          var groupWrap = document.createElement('div');
-          var heading = el(
-            'div',
-            groups[g].stale ? 'parked-group-title stale' : 'parked-group-title',
-            groups[g].label + ' (' + groups[g].items.length + ')'
-          );
-          groupWrap.appendChild(heading);
-
-          var cards = el('div', 'parked-cards');
-          for (var i = 0; i < groups[g].items.length; i++) {
-            var idea = groups[g].items[i];
-            var age = getAgeDays(getIdeaTimestamp(idea));
-            cards.appendChild(renderIdeaCard(idea, INTAKE_COLUMNS[0], renderIdx * 35, {
-              deepStale: age > 90
-            }));
-            renderIdx++;
-          }
-          groupWrap.appendChild(cards);
-          content.appendChild(groupWrap);
-        }
-        section.appendChild(content);
-        return section;
-      }
+      // renderParkedSection removed — parked now renders inline in Ideas column
 
       function renderBoard(features, ideas) {
         var featuresByCol = {};
@@ -1702,14 +1687,15 @@
         }
 
         var board = el('div', 'board');
-        var frag = document.createDocumentFragment();
 
         for (var c = 0; c < INTAKE_COLUMNS.length; c++) {
           var intakeCol = INTAKE_COLUMNS[c];
           var intakeItems = intakeCol.source === 'ideas'
             ? (ideasByStatus[intakeCol.key] || [])
             : (featuresByCol[intakeCol.key] || []);
-          board.appendChild(renderColumn(intakeCol, intakeItems));
+          // Nest parked ideas inside the Ideas (new) column
+          var parked = intakeCol.key === 'new' ? (ideasByStatus.parked || []) : undefined;
+          board.appendChild(renderColumn(intakeCol, intakeItems, parked));
         }
 
         board.appendChild(el('div', 'intake-divider'));
@@ -1723,9 +1709,7 @@
         board.appendChild(el('div', 'intake-divider'));
         board.appendChild(renderColumn(SHIPPED_COLUMN, ideasByStatus.done || []));
 
-        frag.appendChild(board);
-        frag.appendChild(renderParkedSection(ideasByStatus.parked || []));
-        dashboardEl.replaceChildren(frag);
+        dashboardEl.replaceChildren(board);
       }
 
       // ── Data Fetch ─────────────────────────

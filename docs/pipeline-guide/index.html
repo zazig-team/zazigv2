@@ -345,6 +345,37 @@ section {
 .channel-name { font-weight: 600; font-size: 0.92rem; margin-bottom: 4px; }
 .channel-desc { font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; }
 
+.channel-live {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--green-dim);
+  color: var(--green);
+  padding: 2px 8px;
+  border-radius: 100px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.channel-coming {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--slate-dim);
+  color: var(--slate);
+  padding: 2px 8px;
+  border-radius: 100px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.channel-card-future {
+  opacity: 0.6;
+  border-style: dashed;
+}
+
 /* ── Stage Detail ──────────────────────────────────────── */
 .stage-block {
   display: grid;
@@ -543,7 +574,7 @@ section {
 
 .dash-intake-group { display: flex; gap: 0.75rem; flex: 3; }
 .dash-build-group { display: flex; gap: 0.75rem; flex: 5; }
-.dash-end-group { display: flex; gap: 0.75rem; flex: 2; }
+.dash-end-group { display: flex; gap: 0.75rem; flex: 3; }
 
 /* ── Skills Table ──────────────────────────────────────── */
 .skills-grid {
@@ -683,6 +714,204 @@ section {
   line-height: 1.5;
 }
 
+/* ── Autonomy Levels ──────────────────────────────────── */
+.autonomy-track {
+  display: flex;
+  gap: 0;
+  margin: 1.5rem 0;
+}
+
+.autonomy-level {
+  flex: 1;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--border);
+  position: relative;
+}
+
+.autonomy-level:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.autonomy-level:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+.autonomy-level:not(:first-child) { border-left: none; }
+
+.autonomy-level.current {
+  background: var(--accent-dim);
+  border-color: rgba(232, 168, 56, 0.3);
+}
+
+.autonomy-level-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.autonomy-level.current .autonomy-level-label { color: var(--accent); }
+.autonomy-level:not(.current) .autonomy-level-label { color: var(--text-muted); }
+
+.autonomy-level-title {
+  font-family: 'Fraunces', serif;
+  font-size: 1rem;
+  font-weight: 500;
+  margin-bottom: 0.35rem;
+}
+
+.autonomy-level.current .autonomy-level-title { color: var(--accent-text); }
+
+.autonomy-level-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.autonomy-current-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 100px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* ── Traceability Chain ──────────────────────────────── */
+.trace-chain {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 1.5rem 0;
+}
+
+.trace-node {
+  flex: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 1.25rem;
+  text-align: center;
+  position: relative;
+}
+
+.trace-node:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.trace-node:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+.trace-node:not(:first-child) { border-left: none; }
+
+.trace-node-icon { font-size: 1.5rem; margin-bottom: 0.5rem; }
+
+.trace-node-title {
+  font-family: 'Fraunces', serif;
+  font-size: 0.95rem;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.trace-node-table { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+
+.trace-node-fields {
+  list-style: none;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-align: left;
+  padding: 0;
+}
+
+.trace-node-fields li {
+  padding: 2px 0;
+}
+
+.trace-node-fields code {
+  background: var(--bg-elevated);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.7rem;
+}
+
+.trace-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+  font-size: 1.2rem;
+  padding: 0 0.25rem;
+  flex-shrink: 0;
+}
+
+/* ── Filing System ───────────────────────────────────── */
+.filing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+
+.filing-folder {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1rem 1.25rem;
+  transition: border-color 0.2s;
+}
+
+.filing-folder:hover { border-color: var(--border-hover); }
+
+.filing-folder-name {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filing-folder-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.doc-type-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1.5rem 0;
+}
+
+.doc-type-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1rem 1.25rem;
+}
+
+.doc-type-stage {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  white-space: nowrap;
+  min-width: 90px;
+  padding-top: 2px;
+}
+
+.doc-type-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.doc-type-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
 /* ── Footer ────────────────────────────────────────────── */
 footer {
   text-align: center;
@@ -729,6 +958,33 @@ footer p {
 
   .skills-grid { grid-template-columns: 1fr; }
   .ref-grid { grid-template-columns: 1fr; }
+
+  .autonomy-track {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .autonomy-level { border-radius: var(--radius-sm) !important; border-left: 1px solid var(--border) !important; }
+
+  .trace-chain {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .trace-node { border-radius: var(--radius-sm) !important; border-left: 1px solid var(--border) !important; }
+  .trace-arrow { justify-content: center; padding: 0.25rem 0; }
+
+  .filing-grid { grid-template-columns: 1fr; }
+
+  #data-model .section-inner > div:first-of-type {
+    grid-template-columns: 1fr !important;
+    gap: 0.75rem !important;
+  }
+
+  #data-model .section-inner > div:first-of-type > div:nth-child(2) {
+    transform: rotate(90deg);
+    padding: 0.5rem 0 !important;
+  }
 }
 </style>
 </head>
@@ -741,9 +997,10 @@ footer p {
     <li><a href="#capture">Capture</a></li>
     <li><a href="#pipeline">Pipeline</a></li>
     <li><a href="#dashboard">Dashboard</a></li>
+    <li><a href="#traceability">Tracing</a></li>
+    <li><a href="#data-model">Data</a></li>
     <li><a href="#skills">Skills</a></li>
     <li><a href="#example">Example</a></li>
-    <li><a href="#reference">Reference</a></li>
   </ul>
 </nav>
 
@@ -808,28 +1065,28 @@ footer p {
       <div class="channel-card">
         <div class="channel-emoji">💻</div>
         <div>
-          <div class="channel-name">Terminal</div>
-          <div class="channel-desc">Talk to your CPO directly. It captures ideas mid-conversation without breaking flow.</div>
+          <div class="channel-name">Terminal <span class="channel-live">Live</span></div>
+          <div class="channel-desc">Talk to your CPO directly. Mention something worth building and it captures it as an idea mid-conversation. The CPO cleans up your phrasing into a structured title + description before storing it.</div>
         </div>
       </div>
-      <div class="channel-card">
+      <div class="channel-card channel-card-future">
         <div class="channel-emoji">✈️</div>
         <div>
-          <div class="channel-name">Telegram</div>
-          <div class="channel-desc">Send text or voice notes on the go. Voice gets transcribed automatically. Multi-idea messages get split.</div>
+          <div class="channel-name">Telegram <span class="channel-coming">Coming Soon</span></div>
+          <div class="channel-desc">Send text or voice notes on the go. Voice gets transcribed automatically. This is the only channel where true raw text is preserved verbatim — your exact words, no CPO processing.</div>
         </div>
       </div>
-      <div class="channel-card">
+      <div class="channel-card channel-card-future">
         <div class="channel-emoji">💬</div>
         <div>
-          <div class="channel-name">Slack</div>
-          <div class="channel-desc">Messages route into the ideas inbox. Your team's existing communication channel feeds the pipeline.</div>
+          <div class="channel-name">Slack <span class="channel-coming">Coming Soon</span></div>
+          <div class="channel-desc">Messages route into the ideas inbox. Your team's existing communication channel feeds the pipeline directly.</div>
         </div>
       </div>
-      <div class="channel-card">
+      <div class="channel-card channel-card-future">
         <div class="channel-emoji">🤖</div>
         <div>
-          <div class="channel-name">Agent-discovered</div>
+          <div class="channel-name">Agent-discovered <span class="channel-coming">Coming Soon</span></div>
           <div class="channel-desc">Monitoring agents spot opportunities, research viability, and submit structured ideas automatically.</div>
         </div>
       </div>
@@ -838,7 +1095,7 @@ footer p {
     <div style="margin-top: 2rem; padding: 1.25rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm);">
       <h3 style="font-family: 'DM Sans'; font-size: 0.88rem; margin-bottom: 0.5rem;">What gets recorded</h3>
       <p style="font-size: 0.84rem; color: var(--text-muted); line-height: 1.6; max-width: none;">
-        Every idea captures: <strong style="color: var(--text-secondary);">raw_text</strong> (your exact words, never modified), <strong style="color: var(--text-secondary);">originator</strong> (who said it), <strong style="color: var(--text-secondary);">source</strong> (which channel), and a <strong style="color: var(--text-secondary);">title + description</strong> added by processing.
+        Every idea captures: <strong style="color: var(--text-secondary);">title + description</strong> (your CPO cleans up your phrasing into a structured record), <strong style="color: var(--text-secondary);">originator</strong> (who said it — you, or your CPO if it generated the idea), <strong style="color: var(--text-secondary);">source</strong> (which channel), <strong style="color: var(--text-secondary);">priority</strong>, and <strong style="color: var(--text-secondary);">tags</strong>. For async channels like Telegram, the original voice/text is preserved as raw_text before any processing.
       </p>
     </div>
   </div>
@@ -848,12 +1105,13 @@ footer p {
 <section id="triage">
   <span class="section-label">Steps 2 & 3</span>
   <h2>Processing & Triage</h2>
-  <p class="section-intro">Raw input gets cleaned automatically. Then your CPO reviews every idea and recommends what to do with it. You make the final call.</p>
+  <p class="section-intro">Raw input gets cleaned automatically. Then your CPO reviews every idea and recommends what to do with it. You make the final call — for now.</p>
 
   <div class="card-grid" style="margin-bottom: 2.5rem;">
     <div class="card">
       <div class="card-icon">⚙️</div>
-      <h3>Ideaify processes automatically</h3>
+      <h3>Ideaify <span style="font-size: 0.72rem; font-weight: 500; color: var(--text-muted); font-family: 'DM Sans';">(CPO skill)</span></h3>
+      <p style="margin-bottom: 0.75rem; font-size: 0.82rem;">When you give your CPO messy multi-idea input, it invokes the <code style="background: var(--bg-elevated); padding: 2px 6px; border-radius: 4px; font-size: 0.85em;">ideaify</code> skill — not a separate service, but a built-in capability your CPO runs inline.</p>
       <ul class="stage-detail-list">
         <li>Splits multi-idea inputs into individual records</li>
         <li>Cleans each into a clear title + description</li>
@@ -871,7 +1129,7 @@ footer p {
         <li>Sets priority: low / medium / high / urgent</li>
         <li>Recommends: <strong style="color: var(--green);">promote</strong>, <strong style="color: var(--blue);">park</strong>, or <strong style="color: var(--red);">reject</strong></li>
       </ul>
-      <p>Your CPO never promotes without your explicit approval.</p>
+      <p>Currently your CPO always asks before promoting. See <a href="#autonomy" style="color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px;">Autonomy Levels</a> below for how this evolves.</p>
     </div>
   </div>
 
@@ -910,7 +1168,7 @@ footer p {
       </div>
       <div class="card" style="border-left: 3px solid var(--purple);">
         <h3 style="color: var(--purple);">→ Research</h3>
-        <p>Interesting but needs investigation. A research contractor digs deeper, may produce a proposal.</p>
+        <p>Interesting but needs investigation. A research contractor digs deeper, may produce a proposal. In future autonomy levels, your CPO may auto-promote complex items to research without asking first.</p>
       </div>
     </div>
   </div>
@@ -1004,7 +1262,7 @@ footer p {
       <div style="flex: 3; text-align: center;"><span class="dash-section-label">Intake</span></div>
       <div style="width: 2px;"></div>
       <div style="flex: 5; text-align: center;"><span class="dash-section-label">Build Pipeline</span></div>
-      <div style="flex: 2; text-align: center;"><span class="dash-section-label">Done</span></div>
+      <div style="flex: 3; text-align: center;"><span class="dash-section-label">Done</span></div>
     </div>
     <div class="dashboard-columns">
       <div class="dash-intake-group">
@@ -1045,7 +1303,10 @@ footer p {
       </div>
       <div class="dash-end-group">
         <div class="dash-col done">
-          <div class="dash-col-header">Shipped</div>
+          <div class="dash-col-header">PR Ready</div>
+        </div>
+        <div class="dash-col done">
+          <div class="dash-col-header">Complete</div>
           <div class="dash-card-mini">Ideas Inbox</div>
           <div class="dash-card-mini">Telegram Bot</div>
         </div>
@@ -1063,7 +1324,7 @@ footer p {
     </div>
     <div class="card">
       <h3 style="color: var(--blue);">Build columns</h3>
-      <p><strong>Ready → Breakdown → Building → Combining → Verifying</strong><br>The automated pipeline. Watch jobs execute in real time.</p>
+      <p><strong>Ready → Breakdown → Building → Combining → Verifying</strong><br>The automated pipeline. Watch jobs execute in real time. Then <strong style="color: var(--green);">PR Ready → Complete</strong> or <strong style="color: var(--red);">Failed</strong>.</p>
     </div>
     <div class="card">
       <h3>Click any card</h3>
@@ -1132,6 +1393,238 @@ footer p {
   </div>
 </section>
 
+<!-- ═══ Autonomy Levels ═══ -->
+<section id="autonomy" class="alt-bg">
+  <div class="section-inner">
+    <span class="section-label">Trust</span>
+    <h2>CPO Autonomy Levels</h2>
+    <p class="section-intro">How much can your CPO do without asking? The system is designed to grow from cautious to autonomous as trust is established.</p>
+
+    <div class="autonomy-track">
+      <div class="autonomy-level current">
+        <div class="autonomy-level-label">Current <span class="autonomy-current-badge">Active</span></div>
+        <div class="autonomy-level-title">Always Ask</div>
+        <div class="autonomy-level-desc">CPO reviews, recommends, and waits for your explicit "yes" before promoting any idea. Nothing moves forward without approval. This is where every new founder starts.</div>
+      </div>
+      <div class="autonomy-level">
+        <div class="autonomy-level-label">Next</div>
+        <div class="autonomy-level-title">Trust But Verify</div>
+        <div class="autonomy-level-desc">CPO promotes low-risk items autonomously (research tasks, small jobs) and batches them into a daily digest you review. High-impact features still need explicit approval.</div>
+      </div>
+      <div class="autonomy-level">
+        <div class="autonomy-level-label">Future</div>
+        <div class="autonomy-level-title">Full Autonomy</div>
+        <div class="autonomy-level-desc">CPO runs the full pipeline independently — triaging, promoting, speccing, and shipping within guardrails you set. You review outcomes, not decisions.</div>
+      </div>
+    </div>
+
+    <div style="margin-top: 1.5rem; padding: 1rem 1.25rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm);">
+      <p style="font-size: 0.84rem; color: var(--text-muted); line-height: 1.6; max-width: none;">
+        <strong style="color: var(--text-secondary);">What changes between levels:</strong> The promotion gate. At "Always Ask", every <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">promote_idea</code> call requires human approval. At "Trust But Verify", the CPO can auto-promote to research when something needs investigation, and auto-promote small standalone jobs. At "Full Autonomy", the CPO manages the entire intake funnel with configurable guardrails.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ Traceability ═══ -->
+<section id="traceability">
+  <span class="section-label">Linking</span>
+  <h2>Traceability: Following the Thread</h2>
+  <p class="section-intro">Every idea maintains a traceable chain to the code that ships. Nothing gets lost between steps.</p>
+
+  <div class="trace-chain">
+    <div class="trace-node">
+      <div class="trace-node-icon">💡</div>
+      <div class="trace-node-title">Idea</div>
+      <div class="trace-node-table">ideas table</div>
+      <ul class="trace-node-fields">
+        <li><code>id</code></li>
+        <li><code>promoted_to_type</code></li>
+        <li><code>promoted_to_id</code></li>
+        <li><code>promoted_at</code></li>
+      </ul>
+    </div>
+    <div class="trace-arrow">→</div>
+    <div class="trace-node">
+      <div class="trace-node-icon">📋</div>
+      <div class="trace-node-title">Feature</div>
+      <div class="trace-node-table">features table</div>
+      <ul class="trace-node-fields">
+        <li><code>id</code></li>
+        <li><code>spec</code></li>
+        <li><code>status</code></li>
+        <li><code>branch</code></li>
+      </ul>
+    </div>
+    <div class="trace-arrow">→</div>
+    <div class="trace-node">
+      <div class="trace-node-icon">🔧</div>
+      <div class="trace-node-title">Jobs</div>
+      <div class="trace-node-table">jobs table</div>
+      <ul class="trace-node-fields">
+        <li><code>feature_id</code></li>
+        <li><code>status</code></li>
+        <li><code>complexity</code></li>
+        <li><code>acceptance_tests</code></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card-grid" style="margin-top: 2rem;">
+    <div class="card">
+      <h3>Idea → Feature link</h3>
+      <p style="font-size: 0.84rem;">When your CPO promotes an idea, the idea record stores <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">promoted_to_type</code> (feature/job/research), <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">promoted_to_id</code> (the feature's UUID), and <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">promoted_at</code> (timestamp). The original idea is always preserved — you can trace back from any feature to the exact moment you first mentioned it.</p>
+    </div>
+    <div class="card">
+      <h3>Feature → Jobs link</h3>
+      <p style="font-size: 0.84rem;">Every job has a <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">feature_id</code> linking it to its parent feature. When breakdown runs, it produces 3–8 jobs arranged in a dependency graph. The dashboard shows these as nested cards inside the feature detail panel.</p>
+    </div>
+    <div class="card">
+      <h3>Full chain query</h3>
+      <p style="font-size: 0.84rem;">Ask your CPO to run <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">query_idea_status</code> with any idea ID. It traces the full chain: original idea → promoted feature → all jobs with their statuses. One command to see the entire history of a thought from inception to shipped code.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ Data Model ═══ -->
+<section id="data-model" class="alt-bg">
+  <div class="section-inner">
+    <span class="section-label">Under the Hood</span>
+    <h2>The Data Model</h2>
+    <p class="section-intro">Two core tables in Supabase track the pipeline. Ideas are messy — they start as raw input. Features are structured — they represent committed work. The promotion step is the bridge.</p>
+
+    <div style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 0; align-items: stretch; margin: 1.5rem 0;">
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius) 0 0 var(--radius); padding: 1.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+          <span style="font-size: 1.2rem;">💡</span>
+          <span style="font-family: 'Fraunces', serif; font-size: 1.1rem; font-weight: 500; color: var(--amber);">ideas</span>
+        </div>
+        <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 1rem;">Messy intake. Everything enters here first — cleaned or raw. Multiple statuses, triage metadata, flags. Not everything becomes work.</p>
+        <div style="font-size: 0.75rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 4px;">
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">id</code> <span style="color: var(--text-muted);">uuid, PK</span></div>
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">title</code>, <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">description</code></div>
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">status</code> <span style="color: var(--text-muted);">new → triaged → promoted/parked/rejected</span></div>
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">priority</code> <span style="color: var(--text-muted);">low/medium/high/urgent</span></div>
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">originator</code> <span style="color: var(--text-muted);">who said it</span></div>
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">source</code> <span style="color: var(--text-muted);">terminal/telegram/slack/agent</span></div>
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">tags</code>, <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">flags</code>, <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">triage_notes</code></div>
+          <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border);">
+            <code style="background: var(--accent-dim); color: var(--accent); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">promoted_to_type</code> <span style="color: var(--text-muted);">feature/job/research</span>
+          </div>
+          <div><code style="background: var(--accent-dim); color: var(--accent); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">promoted_to_id</code> <span style="color: var(--text-muted);">→ FK to features or jobs</span></div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: center; padding: 0 1rem; position: relative;">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem;">
+          <div style="font-size: 0.65rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); writing-mode: vertical-lr; text-orientation: mixed; transform: rotate(180deg);">promote_idea</div>
+          <div style="font-size: 1.5rem; color: var(--accent);">→</div>
+        </div>
+      </div>
+
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 0 var(--radius) var(--radius) 0; padding: 1.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+          <span style="font-size: 1.2rem;">📋</span>
+          <span style="font-family: 'Fraunces', serif; font-size: 1.1rem; font-weight: 500; color: var(--purple);">features</span>
+        </div>
+        <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 1rem;">Structured work. Every feature has a spec, acceptance criteria, and a deterministic lifecycle through the build pipeline.</p>
+        <div style="font-size: 0.75rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 4px;">
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">id</code> <span style="color: var(--text-muted);">uuid, PK</span></div>
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">title</code>, <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">description</code></div>
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">spec</code> <span style="color: var(--text-muted);">full feature specification</span></div>
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">acceptance_tests</code> <span style="color: var(--text-muted);">user-facing criteria</span></div>
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">status</code> <span style="color: var(--text-muted);">created → ready → building → ... → complete</span></div>
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">branch</code> <span style="color: var(--text-muted);">git branch name</span></div>
+          <div><code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">tags</code> <span style="color: var(--text-muted);">TEXT[] with GIN index</span></div>
+          <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border);">
+            <span style="color: var(--text-muted); font-size: 0.72rem;">→ has many</span> <code style="background: var(--blue-dim); color: var(--blue); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;">jobs</code> <span style="color: var(--text-muted);">via feature_id FK</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding: 1rem 1.25rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-top: 1rem;">
+      <p style="font-size: 0.84rem; color: var(--text-muted); line-height: 1.6; max-width: none;">
+        <strong style="color: var(--text-secondary);">Why two tables?</strong> Ideas are inherently messy — voice notes, half-formed thoughts, duplicate submissions, things that get rejected. Features represent committed engineering work with specs, branches, and jobs. Keeping them separate means the ideas table can be loose and high-volume without polluting the build pipeline. The <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">promote_idea</code> call is the quality gate that bridges the two.
+      </p>
+    </div>
+
+    <div style="margin-top: 1.5rem; padding: 1rem 1.25rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm);">
+      <h3 style="font-family: 'DM Sans'; font-size: 0.88rem; margin-bottom: 0.5rem;">Jobs table (third layer)</h3>
+      <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.6; max-width: none;">
+        Each feature decomposes into jobs via breakdown. Jobs have <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">feature_id</code>, a self-contained <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">spec</code>, Gherkin <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">acceptance_tests</code>, <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">complexity</code> (simple/medium/complex), and <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">depends_on</code> for the DAG. The orchestrator dispatches jobs in dependency order to available worker slots.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ Documents ═══ -->
+<section id="documents" class="alt-bg">
+  <div class="section-inner">
+    <span class="section-label">Artifacts</span>
+    <h2>Documents Created Along the Way</h2>
+    <p class="section-intro">The pipeline produces design documents at key stages. They live in the repo under <code style="background: var(--bg-card); padding: 2px 6px; border-radius: 4px; font-size: 0.9em;">docs/plans/</code> and follow a filing system.</p>
+
+    <h3 style="font-family: 'DM Sans'; font-size: 0.92rem; margin-bottom: 1rem;">Filing system</h3>
+    <div class="filing-grid">
+      <div class="filing-folder">
+        <div class="filing-folder-name"><span style="color: var(--accent);">📂</span> active/</div>
+        <div class="filing-folder-desc">Work in progress. Specs being written, proposals under review, plans being implemented.</div>
+      </div>
+      <div class="filing-folder">
+        <div class="filing-folder-name"><span style="color: var(--green);">📂</span> shipped/</div>
+        <div class="filing-folder-desc">Complete. Feature shipped, proposal implemented. Moved here after the work is done.</div>
+      </div>
+      <div class="filing-folder">
+        <div class="filing-folder-name"><span style="color: var(--blue);">📂</span> parked/</div>
+        <div class="filing-folder-desc">On hold. Good ideas that aren't being pursued right now. May be resumed later.</div>
+      </div>
+      <div class="filing-folder">
+        <div class="filing-folder-name"><span style="color: var(--slate);">📂</span> archive/</div>
+        <div class="filing-folder-desc">Historical reference. Superseded plans, rejected proposals. Preserved for context.</div>
+      </div>
+    </div>
+
+    <h3 style="font-family: 'DM Sans'; font-size: 0.92rem; margin: 2rem 0 1rem;">What gets created at each stage</h3>
+    <div class="doc-type-list">
+      <div class="doc-type-item">
+        <div class="doc-type-stage">Triage</div>
+        <div>
+          <div class="doc-type-name">Internal Proposal</div>
+          <div class="doc-type-desc">When an idea needs deeper thinking before committing. Problem statement, hypothesis, proposed solution. Your CPO writes these using the <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">internal-proposal</code> skill.</div>
+        </div>
+      </div>
+      <div class="doc-type-item">
+        <div class="doc-type-stage">Spec</div>
+        <div>
+          <div class="doc-type-name">Feature Spec</div>
+          <div class="doc-type-desc">Written when a feature is being designed. Description, acceptance criteria, and human checklist. Stored in the feature record in the database, not as a file — but large features may get a companion design doc.</div>
+        </div>
+      </div>
+      <div class="doc-type-item">
+        <div class="doc-type-stage">Research</div>
+        <div>
+          <div class="doc-type-name">Research Reports</div>
+          <div class="doc-type-desc">When an idea is promoted to research, contractors investigate and produce findings. Repo recons, competitive analysis, technical feasibility studies.</div>
+        </div>
+      </div>
+      <div class="doc-type-item">
+        <div class="doc-type-stage">Post-ship</div>
+        <div>
+          <div class="doc-type-name">Compound Docs</div>
+          <div class="doc-type-desc">When a non-trivial problem gets solved, the CPO captures the problem-solution pair using <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">compound-docs</code>. Future reference so the team doesn't re-solve the same problem.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding: 1rem 1.25rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm);">
+      <p style="font-size: 0.84rem; color: var(--text-muted); line-height: 1.6; max-width: none;">
+        <strong style="color: var(--text-secondary);">Naming convention:</strong> All docs follow <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">YYYY-MM-DD-descriptive-slug.md</code>. When a feature ships, its design doc moves from <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">active/</code> to <code style="background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px; font-size: 0.82em;">shipped/</code>. The date prefix means chronological ordering is automatic.
+      </p>
+    </div>
+  </div>
+</section>
+
 <!-- ═══ End-to-End Example ═══ -->
 <section id="example">
   <span class="section-label">Walkthrough</span>
@@ -1195,9 +1688,9 @@ footer p {
 
     <div class="example-step done">
       <div class="example-step-num">09</div>
-      <div class="example-step-title">Shipped ✓</div>
+      <div class="example-step-title">Complete ✓</div>
       <div class="example-step-desc">PR merged. Better error messages are live.</div>
-      <div class="example-step-dashboard">Dashboard: card moves to SHIPPED</div>
+      <div class="example-step-dashboard">Dashboard: card moves to COMPLETE</div>
     </div>
   </div>
 </section>

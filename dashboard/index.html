@@ -2216,6 +2216,15 @@
             companySelect.appendChild(opt);
           }
 
+          // If no company was set via URL slug, default to zazig-dev or first company
+          if (!activeCompanyId) {
+            var defaultCompany = companies.find(function(c) { return c.name === 'zazig-dev'; }) || companies[0];
+            activeCompanyId = defaultCompany.id;
+            companySelect.value = defaultCompany.id;
+            setBoardTitle(defaultCompany.name);
+            void refreshDashboard();
+          }
+
           companySelect.addEventListener('change', function() {
             var selectedId = companySelect.value;
             var selectedName = companySelect.options[companySelect.selectedIndex].textContent;

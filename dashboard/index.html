@@ -779,7 +779,7 @@
       const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0';
 
       const FEATURES_BASE =
-        SUPABASE_URL + '/rest/v1/features?select=id,title,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,jobs(id,title,status,progress,model,job_type,role,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
+        SUPABASE_URL + '/rest/v1/features?select=id,title,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,error,jobs(id,title,status,progress,model,job_type,role,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
       const COMPANIES_BASE =
         SUPABASE_URL + '/rest/v1/companies?select=id,name&limit=1&name=eq.';
       const ALL_COMPANIES_URL =
@@ -798,6 +798,7 @@
         { key: 'verifying',           label: 'Verifying', color: '#28b5d4' },
         { key: 'pr_ready',            label: 'PR Ready',  color: '#2980b9' },
         { key: 'complete',            label: 'Complete',  color: '#3cbf6e' },
+        { key: 'failed',              label: 'Failed',    color: '#e74c3c' },
       ];
 
       // Only these job statuses indicate actively-working (show progress bar)
@@ -983,6 +984,21 @@
         }
 
         body.appendChild(meta);
+
+        // Error subtitle for failed features
+        if (normalizeStatus(feature.status) === 'failed' && feature.error) {
+          var errEl = el('div', 'card-meta', '');
+          errEl.textContent = feature.error;
+          errEl.style.color = '#e74c3c';
+          errEl.style.fontSize = '11px';
+          errEl.style.marginTop = '4px';
+          errEl.style.overflow = 'hidden';
+          errEl.style.textOverflow = 'ellipsis';
+          errEl.style.whiteSpace = 'nowrap';
+          errEl.title = feature.error;
+          body.appendChild(errEl);
+        }
+
         card.appendChild(body);
 
         // Progress bar — ONLY if there's an actively-working job

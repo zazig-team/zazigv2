@@ -2,7 +2,7 @@
 
 Authoritative registry of all zazigv2 skills. Updated whenever skills are added, removed, or reassigned.
 
-Last updated: 2026-02-28
+Last updated: 2026-03-02
 
 ---
 
@@ -29,6 +29,7 @@ These are distributed to persistent agent workspaces via `zazig skills sync`.
 | standup | projects/skills/ | Pipeline standup ceremony |
 | scrum | projects/skills/ | Sprint planning ceremony |
 | ideaify | projects/skills/ | Bulk idea processing (Steps 1-6 inline, Step 7 via contractor) |
+| triage | projects/skills/ | Inbox triage ceremony — sweep new ideas, apply originator filtering, present promote/park/reject recommendations |
 | internal-proposal | .claude/skills/ | Single-idea deep-dive into RFC doc |
 | spec-feature | projects/skills/ | Write feature specs with AC |
 | review-plan | .claude/skills/ | Review proposals before execution |

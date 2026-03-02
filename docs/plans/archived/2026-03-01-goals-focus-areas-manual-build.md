@@ -1,11 +1,11 @@
 # Goals & Focus Areas: Manual Build Plan
 
 **Date:** 2026-03-01
-**Status:** COMPLETE (2026-03-01)
-**Context:** Feature `2a4f892c` failed 3x at test-deploy stage. All engineering jobs completed. Code exists on branch `feature/goals-focus-areas-data-model-mcp-tools-2a4f892c`. This plan extracts that work and applies it manually. All 8 steps done. Feature marked complete. First goals brainstorm session completed — 3 goals, 5 focus areas created.
+**Status:** ARCHIVED - COMPLETE (2026-03-02 follow-up synced)
+**Context:** Feature `2a4f892c` failed 3x at test-deploy stage. All engineering jobs completed. Code exists on branch `feature/goals-focus-areas-data-model-mcp-tools-2a4f892c`. This plan extracted that work and applied it manually. Original 8 steps were completed on 2026-03-01. Follow-up on 2026-03-02 added migration backfill + remote verification so new environments are reproducible.
 
 **Source branch:** `origin/feature/goals-focus-areas-data-model-mcp-tools-2a4f892c`
-**Design spec:** `docs/plans/2026-02-27-goals-and-focus-areas-design.md`
+**Design spec:** `docs/plans/shipped/2026-02-27-goals-and-focus-areas-design.md`
 
 ---
 
@@ -34,6 +34,14 @@
 | 6 | Update CPO role mcp_tools | **DONE** | First attempt failed (no `company_id` on roles table). Corrected SQL: `WHERE name = 'cpo'` only |
 | 7 | Rebuild local agent + restart session | **DONE** | Rebuilt and restarted |
 | 8 | Verify tools work | **DONE** | All 6 tools pass: create_goal, query_goals, update_goal, create_focus_area, query_focus_areas, update_focus_area |
+
+## Post-implementation follow-up (2026-03-02)
+
+| Step | Component | Status | Notes |
+|------|-----------|--------|-------|
+| 9 | Backfill manual role SQL into migration history | **DONE** | Added `supabase/migrations/091_cpo_goals_focus_area_tools.sql` (idempotent update for CPO tools) |
+| 10 | Apply pending migration to linked remote project | **DONE** | Ran `supabase db push`; remote migrated from `090` to `091` |
+| 11 | Re-verify six goals/focus-area edge functions | **DONE** | Confirmed local source folders exist and remote `supabase functions list` shows all 6 as `ACTIVE` |
 
 ## What's deferred (vs the design spec)
 

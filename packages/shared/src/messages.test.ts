@@ -14,15 +14,15 @@ import {
 
 describe("Pipeline statuses", () => {
   it("FEATURE_STATUSES contains all expected values", () => {
-    expect(FEATURE_STATUSES).toEqual(["design", "building", "verifying", "testing", "done", "cancelled"]);
+    expect(FEATURE_STATUSES).toEqual(["created", "ready_for_breakdown", "breakdown", "building", "combining", "verifying", "deploying_to_test", "ready_to_test", "deploying_to_prod", "complete", "cancelled"]);
   });
 
   it("JOB_STATUSES contains key pipeline states", () => {
-    expect(JOB_STATUSES).toContain("verifying");
-    expect(JOB_STATUSES).toContain("verify_failed");
-    expect(JOB_STATUSES).toContain("testing");
-    expect(JOB_STATUSES).toContain("approved");
-    expect(JOB_STATUSES).toContain("rejected");
+    expect(JOB_STATUSES).toContain("queued");
+    expect(JOB_STATUSES).toContain("dispatched");
+    expect(JOB_STATUSES).toContain("complete");
+    expect(JOB_STATUSES).toContain("failed");
+    expect(JOB_STATUSES).toContain("cancelled");
   });
 });
 
@@ -54,6 +54,7 @@ describe("isDeployToTest", () => {
   const validDeployToTest = {
     type: "deploy_to_test",
     protocolVersion: 1,
+    jobType: "feature",
     featureId: "feature-1",
     featureBranch: "feature/test-branch",
     projectId: "project-1",
@@ -248,6 +249,7 @@ describe("union validators", () => {
       isOrchestratorMessage({
         type: "deploy_to_test",
         protocolVersion: 1,
+        jobType: "feature",
         featureId: "feature-1",
         featureBranch: "feature/my-branch",
         projectId: "project-1",

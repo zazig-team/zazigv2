@@ -27,7 +27,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageInbound, JobUnblocked } from "@zazigv2/shared";
 import { PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
-import { setupJobWorkspace } from "./workspace.js";
+import { setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
 import { RepoManager } from "./branches.js";
 
 const execFileAsync = promisify(execFile);
@@ -951,6 +951,10 @@ export class JobExecutor {
         mcpTools: msg.roleMcpTools,
         tmuxSession: `${this.machineId}-${this.companyId ? this.companyId.slice(0, 8) + "-" : ""}${role}`,
       });
+
+      if (role === "cpo") {
+        await writeSubagentsConfig(workspaceDir);
+      }
 
       // --- Write prompt freshness metadata for SessionStart hook ---
       // Fetch the raw role prompt to hash — msg.rolePrompt may not be set on

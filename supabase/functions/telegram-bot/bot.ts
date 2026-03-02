@@ -241,7 +241,7 @@ export async function handleCommand(
 ): Promise<void> {
   const chatId = message.chat.id;
   const text = message.text ?? "";
-  const command = text.split(" ")[0].toLowerCase();
+  const command = text.trim().split(/\s+/)[0].toLowerCase().split("@")[0];
 
   console.log(`[telegram-bot] Command "${command}" from chat ${chatId}`);
 

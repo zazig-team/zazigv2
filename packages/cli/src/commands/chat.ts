@@ -9,6 +9,7 @@
  */
 
 import { execSync, spawnSync } from "node:child_process";
+import { writeFileSync, chmodSync } from "node:fs";
 import { fetchUserCompanies, pickCompany } from "../lib/company-picker.js";
 import { getValidCredentials } from "../lib/credentials.js";
 import { isDaemonRunningForCompany } from "../lib/daemon.js";
@@ -159,13 +160,23 @@ export function launchTui(options: {
   };
   const defaultColor = "bg=colour240,fg=white";
 
-  // Build a shell case statement for the hook
-  const caseBranches = Object.entries(roleColors)
-    .map(([role, style]) => `${role}) tmux set -t ${viewerSession} status-style '${style}' ;;`)
-    .join(" ");
-  const hookCmd = `W=$(tmux display-message -p '#W'); case $W in ${caseBranches} *) tmux set -t ${viewerSession} status-style '${defaultColor}' ;; esac`;
+  // Build a shell script for the hook — writes to a temp file so tmux
+  // doesn't need to parse a complex inline case statement.
+  const scriptLines = [
+    "#!/bin/sh",
+    `W=$(tmux display-message -p '#W')`,
+    ...Object.entries(roleColors).map(
+      ([role, style]) =>
+        `[ "$W" = "${role}" ] && exec tmux set -t ${viewerSession} status-style '${style}'`
+    ),
+    `exec tmux set -t ${viewerSession} status-style '${defaultColor}'`,
+  ];
+  const scriptPath = `/tmp/zazig-color-${viewerSession}.sh`;
 
   try {
+    writeFileSync(scriptPath, scriptLines.join("\n") + "\n");
+    chmodSync(scriptPath, 0o755);
+
     // Set initial color based on first agent
     const firstRole = agents[0]!.role.toUpperCase();
     const initialColor = roleColors[firstRole] ?? defaultColor;
@@ -181,9 +192,9 @@ export function launchTui(options: {
       `tmux set -t ${viewerSession} status-right " Ctrl+B n: next | Ctrl+B d: detach "`,
       { stdio: "pipe" }
     );
-    // Hook: change status bar color when switching windows
+    // Hook: run the script silently on window switch
     execSync(
-      `tmux set-hook -t ${viewerSession} after-select-window "run-shell '${hookCmd}'"`,
+      `tmux set-hook -t ${viewerSession} after-select-window "run-shell -b '${scriptPath}'"`,
       { stdio: "pipe" }
     );
   } catch { /* best-effort */ }

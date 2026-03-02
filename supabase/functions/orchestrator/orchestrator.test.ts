@@ -5,7 +5,7 @@
  * without hitting a real database.
  */
 
-import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
 
 // ---------------------------------------------------------------------------
 // Set required env vars BEFORE importing index.ts (which reads them at top level)
@@ -395,6 +395,60 @@ Deno.test("handleJobComplete — passive verification completion initiates test 
   assertEquals(context.type, "deploy_to_test");
   assertEquals(context.featureBranch, "feature/auth-system");
   assertEquals(context.featureId, "feature-99");
+});
+
+Deno.test("handleJobComplete — reviewer NO_REPORT triggers request-feature-fix", async () => {
+  const { client, setResponse } = createSmartMockSupabase();
+
+  const originalFetch = globalThis.fetch;
+  const fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    fetchCalls.push({ input, init });
+    return Promise.resolve(new Response("ok", { status: 200 }));
+  }) as typeof fetch;
+
+  try {
+    setResponse("jobs:update.eq", { error: null });
+    setResponse("jobs:select.eq.single", {
+      data: {
+        job_type: "verify",
+        context: "{}",
+        feature_id: "feature-no-report",
+        company_id: "company-1",
+        project_id: "proj-1",
+        branch: "feature/no-report",
+        acceptance_tests: null,
+        result: null,
+        role: "reviewer",
+        source: "pipeline",
+        machine_id: "machine-1",
+        slot_type: "claude_code",
+      },
+      error: null,
+    });
+    setResponse("jobs:select.eq.eq.contains", { data: [], error: null });
+    setResponse("rpc:release_machine_slot", { data: null, error: null });
+
+    const msg = {
+      type: "job_complete" as const,
+      protocolVersion: 1,
+      jobId: "verify-job-no-report",
+      machineId: "machine-1",
+      result: "NO_REPORT",
+    };
+
+    // deno-lint-ignore no-explicit-any
+    await handleJobComplete(client as any, msg);
+
+    assertEquals(fetchCalls.length, 1, "Should delegate NO_REPORT to request-feature-fix");
+    const fetchUrl = String(fetchCalls[0].input);
+    assertStringIncludes(fetchUrl, "/functions/v1/request-feature-fix");
+    const fetchBody = String(fetchCalls[0].init?.body ?? "");
+    assertStringIncludes(fetchBody, "\"feature_id\":\"feature-no-report\"");
+    assertStringIncludes(fetchBody, "NO_REPORT");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 Deno.test("triggerFeatureVerification — sets feature to verifying and inserts queued job", async () => {

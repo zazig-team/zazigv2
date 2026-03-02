@@ -175,6 +175,12 @@ export interface StartJob {
   roleMcpTools?: string[];
   /** When true, executor spawns in TUI mode (no -p) for human collaboration via /remote-control. */
   interactive?: boolean;
+  /** Human-readable job title — used in codex commit messages after Haiku review passes. */
+  title?: string;
+  /** Full job spec text — forwarded to Haiku for post-execution code review of codex jobs. */
+  spec?: string;
+  /** Acceptance criteria text — forwarded to Haiku for post-execution code review of codex jobs. */
+  acceptanceCriteria?: string;
 }
 
 /**

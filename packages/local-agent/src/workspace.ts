@@ -12,6 +12,14 @@
 import { writeFileSync, mkdirSync, existsSync, copyFileSync, readFileSync, appendFileSync, symlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
+const SUBAGENT_CONFIGS: Record<string, { subagent_type: string; model: string; tools: string[] }> = {
+  "code-investigator": {
+    subagent_type: "Explore",
+    model: "claude-sonnet-4-6",
+    tools: ["Read", "Grep", "Glob", "Bash"],
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -136,7 +144,13 @@ export function generateAllowedTools(role: string, mcpTools?: string[]): string[
   const extra = mcpTools ?? [];
   const allMcp = [...new Set([...roleDefaults, ...extra])];
   const toolList = allMcp.map((name) => `mcp__zazig-messaging__${name}`);
-  return [...STANDARD_TOOLS, ...toolList];
+  const extraClaudeTools = role === "cpo" ? ["Agent"] : [];
+  return [...STANDARD_TOOLS, ...extraClaudeTools, ...toolList];
+}
+
+export async function writeSubagentsConfig(workspaceDir: string): Promise<void> {
+  const subagentsPath = join(workspaceDir, ".claude", "subagents.json");
+  writeFileSync(subagentsPath, JSON.stringify(SUBAGENT_CONFIGS, null, 2));
 }
 
 // ---------------------------------------------------------------------------

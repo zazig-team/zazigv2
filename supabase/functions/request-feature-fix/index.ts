@@ -147,6 +147,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       company_id: feature.company_id,
       project_id: feature.project_id,
       feature_id: feature_id,
+      title: feature.title ? `Fix: ${feature.title}` : "Feature fix",
       role: "senior-engineer",
       job_type: "code",
       complexity: "medium",

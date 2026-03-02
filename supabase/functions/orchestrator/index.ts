@@ -64,6 +64,14 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 // ---------------------------------------------------------------------------
+// Channel naming — scoped by company to support multiple instances per machine
+// ---------------------------------------------------------------------------
+
+function agentChannelName(machineName: string, companyId: string): string {
+  return `agent:${machineName}:${companyId}`;
+}
+
+// ---------------------------------------------------------------------------
 // Prompt assembly constants (shared with local-agent)
 // ---------------------------------------------------------------------------
 
@@ -884,8 +892,8 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     };
 
     // Broadcast StartJob via Supabase Realtime on the machine's command channel.
-    // Channel naming convention: `agent:{machine.name}`
-    const channel = supabase.channel(`agent:${candidate.name}`);
+    // Channel naming convention: `agent:{machine.name}:{company_id}`
+    const channel = supabase.channel(agentChannelName(candidate.name, job.company_id));
 
     // Supabase Realtime broadcast is fire-and-forget; errors are surfaced via the
     // subscribe callback but not awaited in polling loops (the agent will re-ack or fail).
@@ -1002,9 +1010,10 @@ async function handleJobStatus(supabase: SupabaseClient, msg: JobStatusMessage):
 async function dispatchVerifyJobToMachine(
   supabase: SupabaseClient,
   machineId: string,
+  companyId: string,
   verifyMsg: VerifyJob,
 ): Promise<boolean> {
-  const channel = supabase.channel(`agent:${machineId}`);
+  const channel = supabase.channel(agentChannelName(machineId, companyId));
 
   return await new Promise<boolean>((resolve) => {
     channel.subscribe(async (status) => {
@@ -1135,7 +1144,7 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
         acceptanceTests: originalJob.acceptance_tests ?? "",
       };
 
-      const sent = await dispatchVerifyJobToMachine(supabase, machineId, verifyMsg);
+      const sent = await dispatchVerifyJobToMachine(supabase, machineId, jobRow.company_id, verifyMsg);
       if (!sent) {
         await supabase
           .from("jobs")
@@ -1593,7 +1602,7 @@ async function handleJobUnblocked(supabase: SupabaseClient, jobId: string, answe
 
   // Send JobUnblocked message to the machine running this job
   const { data: jobRow } = await supabase.from("jobs")
-    .select("machine_id, machines(name)").eq("id", jobId).single();
+    .select("machine_id, company_id, machines(name)").eq("id", jobId).single();
 
   if (jobRow?.machine_id) {
     const machineName = (jobRow.machines as unknown as { name: string })?.name;
@@ -1604,7 +1613,7 @@ async function handleJobUnblocked(supabase: SupabaseClient, jobId: string, answe
         jobId,
         answer,
       };
-      const replyChannel = supabase.channel(`agent:${machineName}`);
+      const replyChannel = supabase.channel(agentChannelName(machineName, jobRow.company_id));
       await new Promise<void>((resolve) => {
         replyChannel.subscribe(async (status) => {
           if (status === "SUBSCRIBED") {
@@ -1730,7 +1739,7 @@ export async function notifyCPO(
     text,
   };
 
-  const channel = supabase.channel(`agent:${machine.name}`);
+  const channel = supabase.channel(agentChannelName(machine.name, companyId));
   await new Promise<void>((resolve) => {
     channel.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
@@ -2211,6 +2220,7 @@ async function runTeardown(
   supabase: SupabaseClient,
   featureId: string,
   machineId: string,
+  companyId: string,
 ): Promise<void> {
   if (!machineId) {
     console.warn(`[orchestrator] No machineId for feature ${featureId} — skipping teardown`);
@@ -2247,7 +2257,7 @@ async function runTeardown(
     featureId,
     repoPath,
   };
-  const channel = supabase.channel(`agent:${machineId}`);
+  const channel = supabase.channel(agentChannelName(machineId, companyId));
   await new Promise<void>((resolve) => {
     channel.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
@@ -2408,7 +2418,7 @@ async function handleProdDeployComplete(supabase: SupabaseClient, featureId: str
 
   // 5. Fire-and-forget teardown of the test environment
   if (feature.testing_machine_id) {
-    runTeardown(supabase, featureId, feature.testing_machine_id).catch(err => {
+    runTeardown(supabase, featureId, feature.testing_machine_id, feature.company_id).catch(err => {
       console.error(`[orchestrator] teardown failed after prod deploy, feature ${featureId}:`, err);
     });
   }
@@ -2531,7 +2541,7 @@ export async function handleFeatureRejected(
   }
 
   // 6. Fire-and-forget teardown of the test environment
-  runTeardown(supabase, featureId, machineId).catch(err => {
+  runTeardown(supabase, featureId, machineId, feature.company_id).catch(err => {
     console.error(`[orchestrator] teardown failed after rejection, feature ${featureId}:`, err);
   });
 }

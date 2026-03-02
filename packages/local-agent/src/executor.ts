@@ -362,6 +362,13 @@ export class JobExecutor {
   private async _handleStartJobInner(msg: StartJob): Promise<void> {
     const { jobId, slotType, complexity, model } = msg;
 
+    // --- 1b. Persistent agent — separate lifecycle, does NOT consume a slot ---
+    if (msg.cardType === "persistent_agent") {
+      await this.sendJobAck(jobId);
+      await this.handlePersistentJob(jobId, msg, slotType);
+      return;
+    }
+
     // --- 1. Acquire slot (throws if none available) ---
     try {
       this.slots.acquire(slotType);
@@ -375,12 +382,6 @@ export class JobExecutor {
 
     // --- 2. Send JobAck immediately to confirm delivery ---
     await this.sendJobAck(jobId);
-
-    // --- 2b. Persistent agent — separate lifecycle from regular jobs ---
-    if (msg.cardType === "persistent_agent") {
-      await this.handlePersistentJob(jobId, msg, slotType);
-      return;
-    }
 
     const isInteractive = msg.interactive === true;
 
@@ -638,14 +639,7 @@ export class JobExecutor {
       roleMcpTools: job.mcp_tools?.length ? job.mcp_tools : undefined,
     };
 
-    // Acquire slot before spawning
-    try {
-      this.slots.acquire(syntheticMsg.slotType);
-    } catch (err) {
-      console.error(`[executor] No slot available for persistent agent role=${job.role}:`, err);
-      return;
-    }
-
+    // Persistent agents don't consume slots — they run alongside dispatched jobs.
     await this.handlePersistentJob(
       `persistent-${job.role}`,
       syntheticMsg as StartJob,
@@ -677,7 +671,7 @@ export class JobExecutor {
       activeJob.settled = true;
       this.clearJobTimers(activeJob);
       this.activeJobs.delete(existing.jobId);
-      this.slots.release(activeJob.slotType);
+      // No slots.release — persistent agents don't consume slots
     } else {
       console.warn(
         `[executor] reloadPersistentAgent: active job missing for role=${job.role}, jobId=${existing.jobId}`,
@@ -1006,7 +1000,6 @@ export class JobExecutor {
       }
     } catch (err) {
       console.error(`[executor] Persistent agent: failed to create workspace:`, err);
-      this.slots.release(slotType);
       await this.sendJobFailed(jobId, `Failed to create agent workspace: ${String(err)}`, "agent_crash");
       return;
     }
@@ -1031,7 +1024,6 @@ export class JobExecutor {
       console.log(`[executor] Spawned persistent ${role} session: ${sessionName} (cwd=${workspaceDir})`);
     } catch (err) {
       console.error(`[executor] Persistent agent: failed to spawn tmux session:`, err);
-      this.slots.release(slotType);
       await this.sendJobFailed(jobId, `Failed to start agent session: ${String(err)}`, "agent_crash");
       return;
     }
@@ -1150,8 +1142,10 @@ export class JobExecutor {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
 
-    // Release the slot
-    this.slots.release(job.slotType);
+    // Release the slot (persistent agents don't consume slots)
+    if (!stoppedPersistentRole) {
+      this.slots.release(job.slotType);
+    }
 
     // Confirm to orchestrator
     await this.sendStopAck(jobId);
@@ -1261,7 +1255,10 @@ export class JobExecutor {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
 
-    this.slots.release(job.slotType);
+    // Only release slot for non-persistent jobs
+    if (!timedOutPersistentRole) {
+      this.slots.release(job.slotType);
+    }
     await this.sendJobFailed(jobId, "Job exceeded 60-minute timeout", "timeout");
   }
 
@@ -1281,12 +1278,14 @@ export class JobExecutor {
     job.settled = true;
     this.clearJobTimers(job);
     this.activeJobs.delete(jobId);
-    this.slots.release(job.slotType);
 
     // Clear persistent agent state if the persistent session exited unexpectedly
     const exitedPersistentRole = [...this.persistentAgents.values()].find(a => a.jobId === jobId)?.role;
     if (exitedPersistentRole) {
       this.clearPersistentAgent(exitedPersistentRole);
+    } else {
+      // Only release slot for non-persistent jobs
+      this.slots.release(job.slotType);
     }
 
     // Look for the report file. Agents write .claude/cpo-report.md relative to

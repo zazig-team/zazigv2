@@ -2,7 +2,7 @@
  * connection.ts — Supabase Realtime connection manager
  *
  * Manages two Realtime channels for bidirectional orchestrator communication:
- *   - Inbound:  `agent:${machineId}`     — receives StartJob/StopJob/HealthCheck from orchestrator
+ *   - Inbound:  `agent:${machineId}:${companyId}` — receives StartJob/StopJob/HealthCheck from orchestrator
  *   - Outbound: `orchestrator:commands`   — sends Heartbeat/JobAck/JobComplete/JobFailed to orchestrator
  *
  * Handles:
@@ -44,7 +44,7 @@ export class AgentConnection {
   private readonly slots: SlotTracker;
   private readonly handlers: MessageHandler[] = [];
 
-  /** Inbound channel: `agent:{machineId}` — receives commands from orchestrator. */
+  /** Inbound channel: `agent:{machineId}:{companyId}` — receives commands from orchestrator. */
   private channel: RealtimeChannel | null = null;
   /** Outbound channel: `orchestrator:commands` — sends messages to orchestrator. */
   private outChannel: RealtimeChannel | null = null;
@@ -237,7 +237,10 @@ export class AgentConnection {
   private async connect(): Promise<void> {
     if (this.stopped) return;
 
-    const channelName = `agent:${this.machineId}`;
+    if (!this.primaryCompanyId) {
+      throw new Error("Cannot connect without company_id — set ZAZIG_COMPANY_ID");
+    }
+    const channelName = `agent:${this.machineId}:${this.primaryCompanyId}`;
     const outChannelName = "orchestrator:commands";
     console.log(`[local-agent] Connecting to channels: ${channelName} (in), ${outChannelName} (out)`);
 
@@ -518,6 +521,35 @@ export class AgentConnection {
   // Reconnection with exponential backoff
   // ---------------------------------------------------------------------------
 
+  /**
+   * Safely remove old channels before reconnecting.
+   *
+   * `removeChannel()` calls `WebSocket.close()` internally. If the WebSocket
+   * is still in CONNECTING state, `ws` emits an 'error' event via
+   * `process.nextTick`. Without a listener this is an unhandled error that
+   * crashes the process. We attach a temporary listener to swallow it.
+   */
+  private async cleanupChannels(): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const conn = (this.supabase as any).realtime?.conn;
+    const swallowErr = (err: Error): void => {
+      console.warn(`[local-agent] Swallowed WebSocket error during channel cleanup: ${err.message}`);
+    };
+    if (conn && typeof conn.on === "function") {
+      conn.on("error", swallowErr);
+    }
+
+    if (this.outChannel) {
+      try { await this.supabase.removeChannel(this.outChannel); } catch { /* best-effort */ }
+      this.outChannel = null;
+    }
+    if (this.channel) {
+      try { await this.supabase.removeChannel(this.channel); } catch { /* best-effort */ }
+      this.channel = null;
+    }
+    // Old conn is destroyed now — listener will be GC'd with it.
+  }
+
   private scheduleReconnect(): void {
     if (this.stopped) return;
     this.clearReconnectTimer();
@@ -534,14 +566,7 @@ export class AgentConnection {
 
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
-      if (this.outChannel) {
-        try { await this.supabase.removeChannel(this.outChannel); } catch { /* best-effort */ }
-        this.outChannel = null;
-      }
-      if (this.channel) {
-        try { await this.supabase.removeChannel(this.channel); } catch { /* best-effort */ }
-        this.channel = null;
-      }
+      await this.cleanupChannels();
       await this.connect();
     }, delay);
   }

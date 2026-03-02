@@ -437,8 +437,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       text,
     };
 
-    // Broadcast via Realtime to agent:{machineName} channel
-    const realtimeChannel = supabase.channel(`agent:${machineName}`);
+    // Broadcast via Realtime to agent:{machineName}:{companyId} channel
+    const realtimeChannel = supabase.channel(`agent:${machineName}:${installation.company_id}`);
     await new Promise<void>((resolve) => {
       realtimeChannel.subscribe(async (status) => {
         if (status === "SUBSCRIBED") {

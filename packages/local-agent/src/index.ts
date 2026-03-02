@@ -15,8 +15,9 @@ import { createWriteStream } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// Tee all console output to a log file for debugging
-const logPath = join(homedir(), ".zazigv2", "local-agent.log");
+// Tee all console output to a per-company log file for debugging
+const companySlug = process.env["ZAZIG_COMPANY_ID"]?.slice(0, 8) ?? "default";
+const logPath = join(homedir(), ".zazigv2", `local-agent-${companySlug}.log`);
 const logStream = createWriteStream(logPath, { flags: "a" });
 const origLog = console.log;
 const origErr = console.error;
@@ -266,7 +267,7 @@ function subscribeToRolePromptHotReload(
   executor: JobExecutor,
 ): RealtimeChannel {
   const inFlightRoles = new Set<string>();
-  const channelName = `agent:${machineId}:role-prompt-hot-reload`;
+  const channelName = `agent:${machineId}:${companyId}:role-prompt-hot-reload`;
   const channel = conn.supabase
     .channel(channelName)
     .on(

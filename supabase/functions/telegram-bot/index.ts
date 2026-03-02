@@ -13,6 +13,7 @@
 import { createClient } from "@supabase/supabase-js";
 import {
   type BotContext,
+  type TelegramMessage,
   type TelegramUpdate,
   handleCommand,
   handleText,
@@ -74,12 +75,31 @@ function errorResponse(message: string, status: number): Response {
   });
 }
 
+async function sendUnhandledErrorMessage(chatId: number): Promise<void> {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: "Sorry, I hit an internal error processing that message. Please try again.",
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(`[telegram-bot] sendUnhandledErrorMessage failed (${res.status}): ${err}`);
+    }
+  } catch (err) {
+    console.error("[telegram-bot] sendUnhandledErrorMessage threw:", err);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Update processing (async, runs after 200 is returned)
 // ---------------------------------------------------------------------------
 
 async function processUpdate(update: TelegramUpdate): Promise<void> {
-  const message = update.message;
+  const message = update.message ?? update.edited_message;
 
   // Ignore non-message updates (edited_message, channel_post, etc.)
   if (!message) {
@@ -118,6 +138,10 @@ async function processUpdate(update: TelegramUpdate): Promise<void> {
   }
 }
 
+function messageFromUpdate(update: TelegramUpdate): TelegramMessage | undefined {
+  return update.message ?? update.edited_message;
+}
+
 // ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
@@ -151,16 +175,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
       `[telegram-bot] Unhandled error processing update ${update.update_id}:`,
       err,
     );
+    const chatId = messageFromUpdate(update)?.chat?.id;
+    if (chatId) {
+      return sendUnhandledErrorMessage(chatId);
+    }
   });
 
   // Use EdgeRuntime.waitUntil if available (Supabase edge functions support this).
-  // This ensures the background work completes even after the response is sent.
+  // If it's unavailable, await processing to avoid silently dropping updates.
   try {
     // deno-lint-ignore no-explicit-any
-    (globalThis as any).EdgeRuntime?.waitUntil(processingPromise);
+    const edgeRuntime = (globalThis as any).EdgeRuntime;
+    if (typeof edgeRuntime?.waitUntil === "function") {
+      edgeRuntime.waitUntil(processingPromise);
+      return okResponse();
+    }
   } catch {
-    // EdgeRuntime not available — promise runs detached
+    // Fallback to synchronous processing below.
   }
 
+  await processingPromise;
   return okResponse();
 });

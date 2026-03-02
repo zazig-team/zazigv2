@@ -118,14 +118,24 @@ const STANDARD_TOOLS = [
 ];
 
 /**
+ * Default MCP tools granted to specific roles when no explicit mcpTools list
+ * is provided. These match the roles' expected DB-level permissions.
+ */
+const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
+  "cpo": ["query_projects", "create_feature", "update_feature", "request_work"],
+  "breakdown-specialist": ["query_features", "batch_create_jobs"],
+};
+
+/**
  * Returns the fully-prefixed MCP tool names that a given role is allowed to
  * invoke, plus the standard Claude Code tools every agent needs.
  * Unknown roles default to standard tools only (no MCP tools).
  */
 export function generateAllowedTools(role: string, mcpTools?: string[]): string[] {
-  const toolList = (mcpTools ?? []).map(
-    (name) => `mcp__zazig-messaging__${name}`,
-  );
+  const roleDefaults = ROLE_DEFAULT_MCP_TOOLS[role] ?? [];
+  const extra = mcpTools ?? [];
+  const allMcp = [...new Set([...roleDefaults, ...extra])];
+  const toolList = allMcp.map((name) => `mcp__zazig-messaging__${name}`);
   return [...STANDARD_TOOLS, ...toolList];
 }
 

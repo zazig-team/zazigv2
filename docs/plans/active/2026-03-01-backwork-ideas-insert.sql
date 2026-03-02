@@ -170,7 +170,7 @@ VALUES
 ('00000000-0000-0000-0000-000000000001', '3c405cbc-dbb0-44c5-a27d-de48fb573b13',
  'Terminal-Mode Orchestrator Notifications',
  'Terminal notification system for orchestrator events. Already fully built on master.',
- 'Manual build doc: docs/plans/active/2026-03-01-terminal-notifications-manual-build.md. Pipeline feature d78a3b06 failed 53x, already on master. Backworked idea for source traceability.',
+ 'Manual build doc: docs/plans/archived/2026-03-01-terminal-notifications-manual-build.md. Pipeline feature d78a3b06 failed 53x, already on master. Backworked idea for source traceability.',
  'tom', 'agent', 'done', 'low', ARRAY['backworked', 'failed-but-built'], now()),
 
 ('00000000-0000-0000-0000-000000000001', '3c405cbc-dbb0-44c5-a27d-de48fb573b13',

@@ -886,8 +886,7 @@ export class JobExecutor {
     }
 
     if (job.worktreePath && job.repoDir) {
-      // TEMP: disabled worktree cleanup for debugging
-      // await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
       cleanupJobWorkspace(job.jobId, job.workspaceDir);
     }
@@ -1391,13 +1390,12 @@ export class JobExecutor {
         console.warn(`[executor] onJobEnded: push failed for jobId=${jobId}: ${String(pushErr)}`);
       }
       await this.supabase.from("jobs").update({ branch: job.jobBranch }).eq("id", jobId);
-      // TEMP: disabled worktree cleanup for debugging
-      // try {
-      //   await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
-      // } catch (worktreeErr) {
-      //   jobLog(jobId, `Worktree cleanup failed (non-fatal): ${String(worktreeErr)}`);
-      //   console.warn(`[executor] Worktree cleanup failed for jobId=${jobId}: ${String(worktreeErr)}`);
-      // }
+      try {
+        await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
+      } catch (worktreeErr) {
+        jobLog(jobId, `Worktree cleanup failed (non-fatal): ${String(worktreeErr)}`);
+        console.warn(`[executor] Worktree cleanup failed for jobId=${jobId}: ${String(worktreeErr)}`);
+      }
 
       // Create GitHub PR for combine jobs (after branch push succeeds)
       if (job.cardType === "combine" && job.repoUrl && job.featureBranch) {
@@ -1829,7 +1827,7 @@ function skillFilePath(name: string): string {
  * Missing skill files are warned and skipped — they do not fail the job.
  */
 function assembleContext(msg: StartJob): string {
-  let assembled = msg.promptStackMinusSkills!;
+  let assembled = msg.promptStackMinusSkills ?? msg.context ?? "";
 
   // Insert skill content at the marker position
   if (msg.roleSkills && msg.roleSkills.length > 0) {

@@ -1316,7 +1316,7 @@ export class JobExecutor {
         // Flush log before failing
         const failLogChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
         if (failLogChunk !== null) {
-          await this.supabase.rpc("append_raw_log", { job_id: jobId, chunk: failLogChunk.chunk }).catch(() => {});
+          try { await this.supabase.rpc("append_raw_log", { job_id: jobId, chunk: failLogChunk.chunk }); } catch { /* ignore */ }
         }
         await this.sendJobFailed(jobId, reviewResult.reason, "unknown");
         return;

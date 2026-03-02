@@ -67,7 +67,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // 1. Fetch feature details
     const { data: feature, error: fetchErr } = await supabase
       .from("features")
-      .select("company_id, project_id, branch, spec, title, status")
+      .select("company_id, project_id, branch, spec, status")
       .eq("id", feature_id)
       .eq("company_id", company_id)
       .single();
@@ -148,6 +148,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       company_id: feature.company_id,
       project_id: feature.project_id,
       feature_id: feature_id,
+      title: "Feature fix",
       role: "senior-engineer",
       job_type: "code",
       complexity: "medium",

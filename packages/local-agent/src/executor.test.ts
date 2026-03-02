@@ -20,7 +20,12 @@ vi.mock("node:child_process", () => ({
 
 vi.mock("node:fs", () => ({
   existsSync: vi.fn(() => false),
-  readFileSync: vi.fn(() => "Job completed."),
+  readFileSync: vi.fn((path: unknown) => {
+    if (typeof path === "string" && path.endsWith(".json")) {
+      return JSON.stringify({ permissions: { allow: [] } });
+    }
+    return "status: pass\nsummary: Job completed.";
+  }),
   renameSync: vi.fn(),
   unlinkSync: vi.fn(),
   mkdirSync: vi.fn(),
@@ -48,6 +53,7 @@ vi.mock("./branches.js", () => {
     removeJobWorktree = vi.fn().mockResolvedValue(undefined);
     pushJobBranch = vi.fn().mockResolvedValue(undefined);
     constructor() {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
       lastRepoManagerInstance = this;
     }
   }
@@ -122,6 +128,9 @@ function makeMockSupabase() {
             single: vi.fn(() => Promise.resolve({ data: null, error: null })),
           })),
           single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+          not: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
+          })),
         })),
         in: vi.fn((inColumn: string, inValues: string[]) => {
           selectInCalls.push({ table, columns, inColumn, inValues: [...inValues] });
@@ -401,7 +410,7 @@ describe("JobExecutor — slot reconciliation", () => {
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect(supabase.selectInCalls.length).toBe(0);
-    expect(slots.getAvailable().claude_code).toBe(0);
+    expect(slots.getAvailable().claude_code).toBe(1); // persistent agents don't consume slots
   });
 
   it("handles reconciliation query failures without releasing slots", async () => {

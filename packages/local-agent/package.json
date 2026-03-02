@@ -15,9 +15,9 @@
     }
   },
   "scripts": {
-    "build": "tsc -b tsconfig.build.json",
+    "build": "tsc -b tsconfig.build.json && chmod +x dist/agent-mcp-server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "start": "node dist/index.js"

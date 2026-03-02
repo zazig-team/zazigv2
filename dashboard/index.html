@@ -1605,7 +1605,7 @@
         if (isProposal) {
           var isWorkshop = Array.isArray(feature.tags) && feature.tags.indexOf('needs-workshop') !== -1;
           var badgeClass = isWorkshop ? 'card-workshop-label' : 'card-speccing-label';
-          var badgeText = isWorkshop ? 'workshop' : 'speccing';
+          var badgeText = isWorkshop ? 'workshop' : 'needs spec';
           meta.appendChild(el('span', badgeClass, badgeText));
         } else if (jobs.length > 0) {
           doneCount = jobs.filter(function(j) {

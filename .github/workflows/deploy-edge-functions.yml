@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - uses: supabase/setup-cli@v1
         with:
@@ -19,8 +19,22 @@ jobs:
 
       - name: Detect and deploy changed functions
         run: |
+          BEFORE_SHA="${{ github.event.before }}"
+          ZERO_HASH="0000000000000000000000000000000000000000"
+
+          if [ "$BEFORE_SHA" = "$ZERO_HASH" ]; then
+            echo "First push to branch — deploying ALL functions"
+            for fn_dir in supabase/functions/*/; do
+              fn=$(basename "$fn_dir")
+              [ "$fn" = "_shared" ] && continue
+              echo "Deploying: $fn"
+              supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"
+            done
+            exit 0
+          fi
+
           # Check if _shared changed — if so, deploy everything
-          shared_changed=$(git diff --name-only HEAD~1 HEAD -- supabase/functions/_shared/ || true)
+          shared_changed=$(git diff --name-only "$BEFORE_SHA" HEAD -- supabase/functions/_shared/ || true)
 
           if [ -n "$shared_changed" ]; then
             echo "_shared changed — deploying ALL functions"
@@ -32,7 +46,7 @@ jobs:
             done
           else
             # Deploy only changed functions
-            changed=$(git diff --name-only HEAD~1 HEAD -- supabase/functions/ \
+            changed=$(git diff --name-only "$BEFORE_SHA" HEAD -- supabase/functions/ \
               | cut -d/ -f3 \
               | sort -u \
               | grep -v _shared \
@@ -43,6 +57,7 @@ jobs:
               exit 0
             fi
 
+            echo "Functions to deploy: $changed"
             for fn in $changed; do
               echo "Deploying: $fn"
               supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"

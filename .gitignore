@@ -13,3 +13,5 @@ coverage/
 .obsidian/
 projects/personality/.claude/napkin.md
 .claude/handover.yml
+.mcp.json
+.zazig-prompt.txt

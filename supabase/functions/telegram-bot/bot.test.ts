@@ -196,6 +196,34 @@ Deno.test("handleCommand /status returns today's count", async () => {
   assertStringIncludes(sentTexts[0], "4 Telegram ideas captured today");
 });
 
+Deno.test("handleCommand /status@botname returns today's count", async () => {
+  const sentTexts: string[] = [];
+  const restoreFetch = installFetchMock(async (input, init) => {
+    const url = String(input);
+    if (url.includes("/sendMessage")) {
+      sentTexts.push(extractMessageText(init));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  });
+
+  try {
+    const { supabase } = createMockSupabase({ ideasCountToday: 7 });
+    await handleCommand(
+      makeMessage({ text: "/status@zazig_ideas_bot" }),
+      makeContext(supabase),
+    );
+  } finally {
+    restoreFetch();
+  }
+
+  assertEquals(sentTexts.length, 1);
+  assertStringIncludes(sentTexts[0], "7 Telegram ideas captured today");
+});
+
 Deno.test("handleCommand /recent formats recent ideas list", async () => {
   const sentTexts: string[] = [];
   const restoreFetch = installFetchMock(async (input, init) => {

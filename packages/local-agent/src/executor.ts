@@ -120,6 +120,9 @@ function jobLog(jobId: string, message: string): void {
   } catch { /* best-effort */ }
 }
 
+/** Marker in promptStackMinusSkills where skill content is inserted by the local agent. */
+const SKILLS_MARKER = "<!-- SKILLS -->";
+
 /** Codex delegation instructions injected into context for codex-slotType jobs.
  *  Matches v1's token-budget routing: Claude supervises, Codex does the heavy lifting. */
 const CODEX_ROUTING_INSTRUCTIONS = `## Codex Delegation (REQUIRED)
@@ -135,17 +138,7 @@ Requirements:
 
 After codex-delegate completes, review the diff output and decide whether to keep, modify, or discard changes.`;
 
-/** Completion instructions injected into context for all jobs. */
-function completionInstructions(role?: string): string {
-  const reportFile = role ? `${role}-report.md` : "cpo-report.md";
-  return `## On Completion
-
-Commit all work to the current branch. Do NOT commit .mcp.json, .claude/, or CLAUDE.md.
-Write your results to .claude/${reportFile} including what was done and any issues.
-Then exit.`;
-}
-
-/** Universal file-writing rules for all agents. */
+/** Universal file-writing rules for all agents. Used locally for workspace setup. */
 export const FILE_WRITING_RULES = `## File Writing Rules
 
 ALL file operations (reads, writes, edits) MUST stay within your working directory.
@@ -204,7 +197,7 @@ interface ActivePersistentAgent {
 
 export interface PersistentAgentJobDefinition {
   role: string;
-  prompt_stack: string;
+  prompt_stack_minus_skills: string;
   skills: string[];
   model: string;
   slot_type: string;
@@ -271,6 +264,9 @@ export class JobExecutor {
   /** Map of jobId → active job state. */
   private readonly activeJobs = new Map<string, ActiveJob>();
 
+  /** Jobs that have been attempted (including failures) — prevents duplicate dispatch. */
+  private readonly attemptedJobs = new Set<string>();
+
   /** Manages bare repo clones and job worktrees for all dispatched jobs. */
   private readonly repoManager = new RepoManager();
 
@@ -336,7 +332,7 @@ export class JobExecutor {
   // ---------------------------------------------------------------------------
 
   async handleStartJob(msg: StartJob): Promise<void> {
-    const { jobId, slotType, complexity, context, contextRef, model } = msg;
+    const { jobId, slotType, complexity, model } = msg;
 
     clearJobLogs(jobId);
     jobLog(jobId, `START handleStartJob — slotType=${slotType}, complexity=${complexity}, model=${model}, role=${msg.role ?? "none"}, cardType=${msg.cardType}`);
@@ -345,11 +341,12 @@ export class JobExecutor {
         `complexity=${complexity}, model=${model}`
     );
 
-    if (this.activeJobs.has(jobId)) {
-      jobLog(jobId, `SKIP duplicate start_job — already active`);
-      console.warn(`[executor] Duplicate start_job ignored for already-active jobId=${jobId}`);
+    if (this.activeJobs.has(jobId) || this.attemptedJobs.has(jobId)) {
+      jobLog(jobId, `SKIP duplicate start_job — already attempted`);
+      console.warn(`[executor] Duplicate start_job ignored for jobId=${jobId}`);
       return;
     }
+    this.attemptedJobs.add(jobId);
 
     try {
       await this._handleStartJobInner(msg);
@@ -363,7 +360,7 @@ export class JobExecutor {
   }
 
   private async _handleStartJobInner(msg: StartJob): Promise<void> {
-    const { jobId, slotType, complexity, context, contextRef, model } = msg;
+    const { jobId, slotType, complexity, model } = msg;
 
     // --- 1. Acquire slot (throws if none available) ---
     try {
@@ -387,36 +384,14 @@ export class JobExecutor {
 
     const isInteractive = msg.interactive === true;
 
-    // --- 3. Resolve context (inline or remote ref) ---
-    let taskContext: string;
-    try {
-      taskContext = await this.resolveContext(context, contextRef);
-      jobLog(jobId, `Context resolved (${taskContext.length} chars, ref=${contextRef ? "remote" : "inline"})`);
-    } catch (err) {
-      jobLog(jobId, `FAILED to resolve context: ${String(err)}`);
-      console.error(`[executor] Failed to resolve context for jobId=${jobId}:`, err);
-      this.slots.release(slotType);
-      await this.sendJobFailed(jobId, `Failed to resolve context: ${String(err)}`, "unknown");
-      return;
-    }
-
-    // --- 3b. Assemble 4-layer context: personality → role → skills → task ---
-    // Order follows U-shaped LLM attention (Tolibear): highest-priority content first and last.
-    // Backward compat: if no personalityPrompt/rolePrompt/roleSkills, taskContext passes through unchanged.
-    const assembledContext = assembleContext(msg, taskContext);
+    // --- 3. Assemble context from pre-built promptStackMinusSkills ---
+    // The orchestrator builds the full prompt stack with a <!-- SKILLS --> marker.
+    // We insert skill file content at the marker position.
+    const assembledContext = assembleContext(msg);
 
     console.log(`[executor] Assembled context for jobId=${jobId}:\n${assembledContext}`);
 
-    // --- 3c. Persist assembled context to DB for debugging ---
-    this.supabase
-      .from("jobs")
-      .update({ assembled_context: assembledContext })
-      .eq("id", jobId)
-      .then(({ error }) => {
-        if (error) console.warn(`[executor] Failed to save assembled_context for jobId=${jobId}: ${error.message}`);
-      });
-
-    // --- 3d. Prepare execution workspace ---
+    // --- 3c. Prepare execution workspace ---
     // Code-context roles run in git worktrees. NO_CODE_CONTEXT roles run in scratch workspaces.
     let ephemeralWorkspaceDir: string | undefined;
     let worktreePath: string | undefined;
@@ -658,7 +633,7 @@ export class JobExecutor {
       slotType: job.slot_type as SlotType,
       model: job.model,
       role: job.role,
-      context: job.prompt_stack,
+      promptStackMinusSkills: job.prompt_stack_minus_skills,
       roleSkills: job.skills?.length ? job.skills : undefined,
       roleMcpTools: job.mcp_tools?.length ? job.mcp_tools : undefined,
     };
@@ -940,7 +915,7 @@ export class JobExecutor {
    *
    * Before spawning, creates an agent workspace at ~/.zazigv2/{role}-workspace/
    * with a .mcp.json that gives the agent access to the zazig-messaging MCP server.
-   * CLAUDE.md content comes from msg.context (pre-assembled by orchestrator).
+   * CLAUDE.md content comes from assembleContext(msg) (promptStackMinusSkills with skills inserted).
    */
   private async handlePersistentJob(jobId: string, msg: StartJob, slotType: SlotType, companyId?: string): Promise<void> {
     const role = msg.role ?? "agent";
@@ -964,7 +939,7 @@ export class JobExecutor {
         jobId,
         companyId: resolvedCompanyId,
         role,
-        claudeMdContent: (msg.context ?? "") + "\n\n---\n\n" + FILE_WRITING_RULES,
+        claudeMdContent: assembleContext(msg),
         skills: msg.roleSkills,
         repoSkillsDir: join(repoRoot, "projects", "skills"),
         repoInteractiveSkillsDir: join(repoRoot, ".claude", "skills"),
@@ -975,7 +950,7 @@ export class JobExecutor {
 
       // --- Write prompt freshness metadata for SessionStart hook ---
       // Fetch the raw role prompt to hash — msg.rolePrompt may not be set on
-      // persistent agents (synthetic StartJob messages only carry prompt_stack).
+      // persistent agents (synthetic StartJob messages carry promptStackMinusSkills).
       let rolePromptForHash = msg.rolePrompt ?? "";
       if (!rolePromptForHash) {
         const { data: roleRow } = await this.supabase
@@ -1005,18 +980,6 @@ export class JobExecutor {
       };
       writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2));
 
-      // Persist context to DB for observability (fire-and-forget).
-      // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).
-      if (!jobId.startsWith("persistent-")) {
-        this.supabase
-          .from("jobs")
-          .update({ prompt_stack: msg.context ?? "" })
-          .eq("id", jobId)
-          .then(({ error }) => {
-            if (error) console.warn(`[executor] Failed to save prompt_stack for jobId=${jobId}: ${error.message}`);
-          });
-      }
-
       console.log(`[executor] Persistent agent workspace created at ${workspaceDir}`);
 
       // Upsert into persistent_agents for observability
@@ -1031,7 +994,7 @@ export class JobExecutor {
                 role,
                 machine_id: machineUuid,
                 status: "running",
-                prompt_stack: msg.context ?? "",
+                prompt_stack: msg.promptStackMinusSkills ?? "",
                 last_heartbeat: new Date().toISOString(),
               },
               { onConflict: "company_id,role,machine_id" }
@@ -1359,7 +1322,7 @@ export class JobExecutor {
       candidatePaths.push(`${homeDir}/${fallback}`);
     }
 
-    let result = "Job completed.";
+    let result = "NO_REPORT";
     let report: string | undefined;
 
     jobLog(jobId, `Report search — rpPath=${rpPath}, fallback=${fallback ?? "none"}, candidates=${JSON.stringify(candidatePaths)}`);
@@ -1383,25 +1346,25 @@ export class JobExecutor {
       if (passMatch) {
         const prefix = passMatch[1] === "fail" ? "FAILED" : "PASSED";
         const reasonMatch = report.match(/^failure_reason:\s*(.+)$/m);
-        result = `${prefix}: ${reasonMatch?.[1]?.trim() ?? "see report"}`;
+        result = reasonMatch?.[1]?.trim() ? `${prefix}: ${reasonMatch[1].trim()}` : prefix;
       } else {
         // Scan for PASSED/FAILED anywhere in the report (agents sometimes bury it in markdown)
         const passedAnywhere = report.match(/\*?\*?PASSED\*?\*?/);
         const failedAnywhere = report.match(/\*?\*?FAILED\*?\*?/);
         if (passedAnywhere && !failedAnywhere) {
-          result = "PASSED: see report";
+          result = "PASSED";
         } else if (failedAnywhere) {
-          result = "FAILED: see report";
+          result = "FAILED";
         } else {
           // No verdict found in any format — mark as job failure so the pipeline
           // doesn't silently advance on an agent that couldn't complete its work.
-          result = "VERDICT_MISSING: report did not contain a status verdict";
+          result = "VERDICT_MISSING";
         }
       }
       jobLog(jobId, `Report parsed — result="${result}"`);
     } else {
-      jobLog(jobId, `Report NOT FOUND — using default result "Job completed."`);
-      console.log(`[executor] No report file for jobId=${jobId}, using default result`);
+      jobLog(jobId, `Report NOT FOUND — result="NO_REPORT"`);
+      console.log(`[executor] No report file for jobId=${jobId}, result=NO_REPORT`);
     }
 
     // Final log flush — capture anything written after the last poll tick
@@ -1446,7 +1409,7 @@ export class JobExecutor {
     }
 
     // If the verify report had no verdict, treat as a job failure (not completion)
-    if (result.startsWith("VERDICT_MISSING:")) {
+    if (result === "VERDICT_MISSING") {
       jobLog(jobId, `Sending JobFailed (no verdict) — result="${result}"`);
       try {
         await this.sendJobFailed(jobId, result, "unknown");
@@ -1532,12 +1495,16 @@ export class JobExecutor {
       ], { encoding: "utf8" });
       const prUrl = stdout.trim();
       if (prUrl && featureId) {
-        const { error: prWriteErr } = await this.supabase.from("features")
+        const { data: prWriteData, error: prWriteErr } = await this.supabase.from("features")
           .update({ pr_url: prUrl })
-          .eq("id", featureId);
+          .eq("id", featureId)
+          .select("id");
         if (prWriteErr) {
           jobLog(jobId, `PR URL DB write FAILED for feature ${featureId}: ${prWriteErr.message}`);
           console.error(`[executor] PR URL DB write failed for feature ${featureId}:`, prWriteErr.message);
+        } else if (!prWriteData?.length) {
+          jobLog(jobId, `PR URL DB write matched 0 rows for feature ${featureId} — possible RLS block`);
+          console.warn(`[executor] PR URL DB write matched 0 rows for feature ${featureId} — possible RLS block`);
         } else {
           jobLog(jobId, `PR URL persisted for feature ${featureId}: ${prUrl}`);
         }
@@ -1558,10 +1525,15 @@ export class JobExecutor {
         ], { encoding: "utf8" });
         const prs = JSON.parse(stdout) as Array<{ url?: string }>;
         if (prs.length > 0 && prs[0].url && featureId) {
-          await this.supabase.from("features")
+          const { data: fallbackData } = await this.supabase.from("features")
             .update({ pr_url: prs[0].url })
-            .eq("id", featureId);
-          jobLog(jobId, `Found existing PR for feature ${featureId}: ${prs[0].url}`);
+            .eq("id", featureId)
+            .select("id");
+          if (!fallbackData?.length) {
+            jobLog(jobId, `PR URL fallback write matched 0 rows for feature ${featureId} — possible RLS block`);
+          } else {
+            jobLog(jobId, `Found existing PR for feature ${featureId}: ${prs[0].url}`);
+          }
           console.log(`[executor] Found existing PR for feature ${featureId}: ${prs[0].url}`);
         }
       } catch { /* best-effort */ }
@@ -1786,7 +1758,7 @@ export class JobExecutor {
     if (!jobId.startsWith("persistent-")) {
       const { error: dbErr } = await this.supabase
         .from("jobs")
-        .update({ status: "failed", result: `FAILED: ${error}` })
+        .update({ status: "failed", result: "FAILED" })
         .eq("id", jobId);
 
       if (dbErr) {
@@ -1847,68 +1819,51 @@ function skillFilePath(name: string): string {
 }
 
 /**
- * Assembles the 4-layer context stack from a StartJob message and the resolved task context.
+ * Assembles the final agent context from a pre-built promptStackMinusSkills.
  *
- * Layer order (U-shaped LLM attention — highest priority first and last):
- *   1. personalityPrompt — who the agent is (Layer 1)
- *   2. rolePrompt        — what the agent is operationally responsible for (Layer 2)
- *   3. skill content     — tools and skills the agent has (Layer 3)
- *   4. taskContext       — the actual task (Layer 4)
+ * The orchestrator builds the full prompt stack with a <!-- SKILLS --> marker
+ * where skill content belongs. This function:
+ *   1. Inserts skill file content at the marker position
+ *   2. Appends sub-agent personality instructions (writes to local disk)
+ *   3. Appends codex routing instructions if applicable
  *
- * Backward compatible: if no layers are present, returns taskContext unchanged.
  * Missing skill files are warned and skipped — they do not fail the job.
  */
-function assembleContext(msg: StartJob, taskContext: string): string {
-  const { personalityPrompt, rolePrompt, roleSkills, subAgentPrompt, jobId } = msg;
+function assembleContext(msg: StartJob): string {
+  let assembled = msg.promptStackMinusSkills!;
 
-  // Fast path: no enrichment needed
-  if (!personalityPrompt && !rolePrompt && (!roleSkills || roleSkills.length === 0) && !subAgentPrompt) {
-    return taskContext;
-  }
-
-  const parts: string[] = [];
-
-  if (personalityPrompt) {
-    parts.push(personalityPrompt);
-  }
-
-  if (rolePrompt) {
-    parts.push(rolePrompt);
-  }
-
-  if (roleSkills && roleSkills.length > 0) {
-    for (const name of roleSkills) {
-      const filePath = skillFilePath(name);
+  // Insert skill content at the marker position
+  if (msg.roleSkills && msg.roleSkills.length > 0) {
+    const skillParts: string[] = [];
+    for (const name of msg.roleSkills) {
       try {
-        const content = readFileSync(filePath, "utf8");
-        parts.push(content);
+        skillParts.push(readFileSync(skillFilePath(name), "utf8"));
       } catch {
-        console.warn(`[executor] Skill file not found, skipping: ${filePath}`);
+        console.warn(`[executor] Skill file not found, skipping: ${skillFilePath(name)}`);
       }
     }
+    const skillContent = skillParts.join("\n\n---\n\n");
+    assembled = assembled.replace(SKILLS_MARKER, skillContent);
+  } else {
+    // No skills — remove the marker and its surrounding separators
+    assembled = assembled.replace(`\n\n---\n\n${SKILLS_MARKER}\n\n---\n\n`, "\n\n---\n\n");
   }
 
-  // Sub-agent personality: write to disk and inject forward instruction
-  if (subAgentPrompt) {
-    const workspaceDir = join(homedir(), ".zazigv2", `job-${jobId}`);
+  // Sub-agent personality (writes to local disk — must stay local)
+  if (msg.subAgentPrompt) {
+    const workspaceDir = join(homedir(), ".zazigv2", `job-${msg.jobId}`);
     mkdirSync(workspaceDir, { recursive: true, mode: 0o700 });
     const personalityFile = join(workspaceDir, "subagent-personality.md");
-    writeFileSync(personalityFile, subAgentPrompt, { encoding: "utf8", mode: 0o600 });
-    parts.push(`# Sub-Agent Instructions\nWhen spawning sub-agents, begin their prompt with the content of:\n${personalityFile}`);
+    writeFileSync(personalityFile, msg.subAgentPrompt, { encoding: "utf8", mode: 0o600 });
+    assembled += `\n\n---\n\n# Sub-Agent Instructions\nWhen spawning sub-agents, begin their prompt with the content of:\n${personalityFile}`;
   }
 
-  // Codex routing: Claude supervises, Codex does the heavy lifting (matches v1 pattern)
+  // Codex routing (static string, could move server-side later)
   if (msg.slotType === "codex") {
-    parts.push(CODEX_ROUTING_INSTRUCTIONS);
+    assembled += `\n\n---\n\n${CODEX_ROUTING_INSTRUCTIONS}`;
   }
 
-  parts.push(taskContext);
-
-  // File writing rules + completion instructions (high-attention tail position)
-  parts.push(FILE_WRITING_RULES);
-  parts.push(completionInstructions(msg.role));
-
-  return parts.join("\n\n---\n\n");
+  return assembled;
 }
 
 function buildCommand(

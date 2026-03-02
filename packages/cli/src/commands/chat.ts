@@ -67,17 +67,27 @@ export function launchTui(options: {
     execSync(`tmux kill-session -t ${viewerSession}`, { stdio: "pipe" });
   } catch { /* didn't exist */ }
 
-  // Create viewer session (detached, with first agent linked)
+  // Create a standalone viewer session and link all agent windows into it.
+  // Using `new-session -d` (without -t) avoids session grouping, which would
+  // prevent Ctrl+B n/p from cycling across all agents.
   const firstAgent = agents[0]!;
   try {
-    // Create session by linking to the first agent's window
     execSync(
-      `tmux new-session -d -s ${viewerSession} -t ${firstAgent.sessionName}`,
+      `tmux new-session -d -s ${viewerSession}`,
       { stdio: "pipe" }
     );
-    // Rename the window to the role
+    // Link the first agent's window and remove the empty default window
     execSync(
-      `tmux rename-window -t ${viewerSession} ${firstAgent.role.toUpperCase()}`,
+      `tmux link-window -s ${firstAgent.sessionName}:0 -t ${viewerSession}:1`,
+      { stdio: "pipe" }
+    );
+    execSync(
+      `tmux kill-window -t ${viewerSession}:0`,
+      { stdio: "pipe" }
+    );
+    // Rename to role
+    execSync(
+      `tmux rename-window -t ${viewerSession}:1 ${firstAgent.role.toUpperCase()}`,
       { stdio: "pipe" }
     );
   } catch (err) {
@@ -94,10 +104,9 @@ export function launchTui(options: {
         { stdio: "pipe" }
       );
       // Rename the linked window
-      const winIndex = i + 1; // window 0 is first agent, but link-window adds at next index
       try {
         execSync(
-          `tmux rename-window -t ${viewerSession}:${winIndex} ${agent.role.toUpperCase()}`,
+          `tmux rename-window -t ${viewerSession}:${i + 1} ${agent.role.toUpperCase()}`,
           { stdio: "pipe" }
         );
       } catch { /* rename is best-effort */ }

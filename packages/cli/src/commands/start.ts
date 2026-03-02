@@ -184,9 +184,13 @@ export async function start(): Promise<void> {
     return;
   }
 
-  // Poll for agent sessions (up to 30s)
+  // Poll for agent sessions (up to 30s).
+  // Wait until the count stabilizes (same count for 2 consecutive polls)
+  // so we don't miss agents that spawn slightly after the first one.
   process.stdout.write("Waiting for agents to spawn...");
   let agentSessions: ReturnType<typeof discoverAgentSessions> = [];
+  let lastCount = 0;
+  let stablePolls = 0;
   const spawnDeadline = Date.now() + 30_000;
   while (Date.now() < spawnDeadline) {
     await sleep(2000);
@@ -196,7 +200,13 @@ export async function start(): Promise<void> {
       return;
     }
     agentSessions = discoverAgentSessions(config.name, company.id);
-    if (agentSessions.length > 0) break;
+    if (agentSessions.length > 0 && agentSessions.length === lastCount) {
+      stablePolls++;
+      if (stablePolls >= 2) break;
+    } else {
+      stablePolls = 0;
+    }
+    lastCount = agentSessions.length;
     process.stdout.write(".");
   }
   console.log(agentSessions.length > 0 ? ` found ${agentSessions.length} agent(s).` : "");

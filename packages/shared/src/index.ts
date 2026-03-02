@@ -27,6 +27,7 @@ export type {
   Heartbeat,
   JobStatusMessage,
   JobComplete,
+  JobResultPrefix,
   JobFailed,
   JobAck,
   StopAck,

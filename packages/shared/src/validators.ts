@@ -97,10 +97,11 @@ export function isStartJob(v: unknown): v is StartJob {
   if (!isString(v.projectId) || v.projectId.length === 0) return false;
   if (v.repoUrl !== undefined && v.repoUrl !== null && (!isString(v.repoUrl) || v.repoUrl.length === 0)) return false;
   if (v.featureBranch !== undefined && v.featureBranch !== null && (!isString(v.featureBranch) || v.featureBranch.length === 0)) return false;
-  // Either context (inline) or contextRef (URL) must be present — not both undefined.
+  // Either promptStackMinusSkills (new path) or context/contextRef (legacy) must be present.
+  const hasPromptStack = isString(v.promptStackMinusSkills) && (v.promptStackMinusSkills as string).length > 0;
   const hasContext = isString(v.context);
   const hasContextRef = isString(v.contextRef) && v.contextRef.length > 0;
-  if (!hasContext && !hasContextRef) return false;
+  if (!hasPromptStack && !hasContext && !hasContextRef) return false;
   // Guard against oversized inline context payloads (Supabase Realtime limit).
   // Using character count as a conservative proxy: worst-case UTF-16 encoding
   // means 1 char ≤ 4 bytes, so length > MAX_CONTEXT_BYTES already exceeds the limit.

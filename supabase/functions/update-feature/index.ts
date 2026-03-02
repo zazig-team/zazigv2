@@ -40,7 +40,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 }
 
 // CPO can only set these statuses — all others are orchestrator-managed
-const ALLOWED_CPO_STATUSES = ["created", "ready_for_breakdown"] as const;
+const ALLOWED_CPO_STATUSES = ["created", "ready_for_breakdown", "complete"] as const;
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -85,7 +85,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
     if (priority !== undefined) updates.priority = priority;
-    if (status !== undefined) updates.status = status;
+    if (status !== undefined) {
+      updates.status = status;
+      if (status === "complete") updates.completed_at = new Date().toISOString();
+    }
     if (spec !== undefined) updates.spec = spec;
     if (acceptance_tests !== undefined) updates.acceptance_tests = acceptance_tests;
     if (human_checklist !== undefined) updates.human_checklist = human_checklist;
@@ -122,6 +125,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
         feature_id,
         event_type: "feature_status_changed",
         detail: { from: null, to: "ready_for_breakdown" },
+      });
+    }
+
+    if (status === "complete") {
+      await supabase.from("events").insert({
+        company_id: updated.company_id,
+        feature_id,
+        event_type: "feature_status_changed",
+        detail: { from: null, to: "complete", reason: "cpo_manual" },
       });
     }
 

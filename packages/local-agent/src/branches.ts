@@ -284,9 +284,13 @@ export class RepoManager {
       const jobBranch = `job/${jobId}`;
       const worktreePath = join(WORKTREE_BASE, `job-${jobId}`);
       await mkdir(WORKTREE_BASE, { recursive: true });
-      // Clean up stale worktree and branch from a previous failed run (if any)
+      // Clean up stale worktree and branch from a previous failed run (if any).
+      // Sequence: remove worktree dir → prune stale git refs → delete branch.
+      // Without prune, git refuses to delete a branch it thinks is still checked
+      // out in a worktree that no longer exists on disk.
       try { await git(repoDir, "worktree", "remove", "--force", worktreePath); } catch { /* git doesn't track it */ }
       try { await rm(worktreePath, { recursive: true, force: true }); } catch { /* directory doesn't exist */ }
+      try { await git(repoDir, "worktree", "prune"); } catch { /* best-effort */ }
       try { await git(repoDir, "branch", "-D", jobBranch); } catch { /* doesn't exist — fine */ }
       // Create branch off feature branch
       await git(repoDir, "branch", jobBranch, featureBranch);
@@ -358,9 +362,13 @@ export class RepoManager {
       const baseBranch = validBranches.length > 0 ? validBranches[0] : featureBranch;
       console.log(`[RepoManager] Creating jobBranch="${jobBranch}" from baseBranch="${baseBranch}", validBranches=${JSON.stringify(validBranches)}`);
 
-      // Clean up stale worktree and branch from a previous failed run (if any)
+      // Clean up stale worktree and branch from a previous failed run (if any).
+      // Sequence: remove worktree dir → prune stale git refs → delete branch.
+      // Without prune, git refuses to delete a branch it thinks is still checked
+      // out in a worktree that no longer exists on disk.
       try { await git(repoDir, "worktree", "remove", "--force", worktreePath); } catch { /* git doesn't track it */ }
       try { await rm(worktreePath, { recursive: true, force: true }); } catch { /* directory doesn't exist */ }
+      try { await git(repoDir, "worktree", "prune"); } catch { /* best-effort */ }
       try { await git(repoDir, "branch", "-D", jobBranch); } catch { /* doesn't exist — fine */ }
 
       await git(repoDir, "branch", jobBranch, baseBranch);

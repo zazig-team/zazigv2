@@ -64,6 +64,30 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 // ---------------------------------------------------------------------------
+// Prompt assembly constants (shared with local-agent)
+// ---------------------------------------------------------------------------
+
+const SKILLS_MARKER = "<!-- SKILLS -->";
+
+const FILE_WRITING_RULES = `## File Writing Rules
+
+ALL file operations (reads, writes, edits) MUST stay within your working directory.
+Do NOT use absolute paths to other repositories or user home directories.
+
+- Session reports → \`.claude/{role}-report.md\` in your working directory
+- Design documents, proposals, plans, specs → \`docs/plans/YYYY-MM-DD-descriptive-slug.md\` (relative to your working directory)
+- Never reference paths outside your working directory — they belong to other projects`;
+
+function completionInstructions(role?: string): string {
+  const reportFile = role ? `${role}-report.md` : "cpo-report.md";
+  return `## On Completion
+
+Commit all work to the current branch. Do NOT commit .mcp.json, .claude/, or CLAUDE.md.
+Write your results to .claude/${reportFile} including what was done and any issues.
+Then exit.`;
+}
+
+// ---------------------------------------------------------------------------
 // Supabase DB row shapes (subset of columns we actually read/write)
 // ---------------------------------------------------------------------------
 
@@ -328,8 +352,9 @@ async function generateTitle(context: string): Promise<string> {
 // ---------------------------------------------------------------------------
 
 /**
- * Step 1: Mark machines whose last_heartbeat is older than MACHINE_DEAD_THRESHOLD_MS
- * as 'offline', and re-queue any dispatched/executing jobs assigned to them.
+ * Step 1a: Mark machines whose last_heartbeat is older than MACHINE_DEAD_THRESHOLD_MS
+ * as 'offline'. This prevents the dispatcher from sending new jobs to dead machines.
+ * Job requeuing is handled separately by reapStaleJobs.
  */
 async function reapDeadMachines(supabase: SupabaseClient): Promise<void> {
   const deadCutoff = new Date(Date.now() - MACHINE_DEAD_THRESHOLD_MS).toISOString();
@@ -351,7 +376,6 @@ async function reapDeadMachines(supabase: SupabaseClient): Promise<void> {
   for (const machine of deadMachines) {
     console.warn(`[orchestrator] Machine ${machine.name} (${machine.id}) is dead — marking offline`);
 
-    // Mark machine offline.
     const { error: offlineErr } = await supabase
       .from("machines")
       .update({ status: "offline" })
@@ -362,49 +386,52 @@ async function reapDeadMachines(supabase: SupabaseClient): Promise<void> {
       continue;
     }
 
-    // Re-queue dispatched or executing jobs on the dead machine.
-    const { data: stuckJobs, error: jobsErr } = await supabase
-      .from("jobs")
-      .select("id, status")
-      .eq("machine_id", machine.id)
-      .in("status", ["dispatched", "executing", "blocked"]);
-
-    if (jobsErr) {
-      console.error(`[orchestrator] Failed to query jobs for dead machine ${machine.id}:`, jobsErr.message);
-      continue;
-    }
-
-    let requeuedCount = 0;
-
-    if (stuckJobs && stuckJobs.length > 0) {
-      const stuckIds = stuckJobs.map((j: { id: string }) => j.id);
-      console.log(`[orchestrator] Re-queuing ${stuckIds.length} job(s) from dead machine ${machine.name}`);
-
-      const { error: requeueErr } = await supabase
-        .from("jobs")
-        .update({ status: "queued", machine_id: null })
-        .in("id", stuckIds);
-
-      if (requeueErr) {
-        console.error(`[orchestrator] Failed to re-queue jobs from dead machine ${machine.id}:`, requeueErr.message);
-      } else {
-        requeuedCount = stuckIds.length;
-      }
-    }
-
-    // Log machine-offline event.
     const { error: eventErr } = await supabase
       .from("events")
       .insert({
         company_id: machine.company_id,
         machine_id: machine.id,
         event_type: "machine_offline",
-        detail: { jobs_requeued: requeuedCount },
       });
 
     if (eventErr) {
       console.error(`[orchestrator] Failed to log machine_offline event for ${machine.id}:`, eventErr.message);
     }
+  }
+}
+
+/**
+ * Step 1b: Re-queue jobs stuck in dispatched/executing whose updated_at is stale.
+ * The local agent updates updated_at every 30s for active jobs, so >2 min stale
+ * means the agent is no longer working on it (crashed, restarted, lost connection).
+ * This is machine-agnostic — works whether the machine died or just restarted.
+ */
+async function reapStaleJobs(supabase: SupabaseClient): Promise<void> {
+  const staleCutoff = new Date(Date.now() - MACHINE_DEAD_THRESHOLD_MS).toISOString();
+
+  const { data: staleJobs, error } = await supabase
+    .from("jobs")
+    .select("id, machine_id, status")
+    .in("status", ["dispatched", "executing"])
+    .lt("updated_at", staleCutoff);
+
+  if (error) {
+    console.error("[orchestrator] Error querying stale jobs:", error.message);
+    return;
+  }
+
+  if (!staleJobs || staleJobs.length === 0) return;
+
+  const staleIds = staleJobs.map((j: { id: string }) => j.id);
+  console.log(`[orchestrator] Re-queuing ${staleIds.length} stale job(s): ${staleIds.join(", ")}`);
+
+  const { error: requeueErr } = await supabase
+    .from("jobs")
+    .update({ status: "queued", machine_id: null })
+    .in("id", staleIds);
+
+  if (requeueErr) {
+    console.error(`[orchestrator] Failed to re-queue stale jobs:`, requeueErr.message);
   }
 }
 
@@ -740,9 +767,58 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       continue;
     }
 
+    // Fetch role prompt + skills for non-codex jobs that have a named role.
+    // These populate the 4-layer context stack: personality → role → skills → task.
+    // Fetched BEFORE dispatch so we can assemble the full prompt_stack for observability.
+    let rolePrompt: string | undefined;
+    let roleSkills: string[] | undefined;
+    let roleMcpTools: string[] | undefined;
+    let isInteractive = false;
+    let personalityPrompt: string | undefined;
+    let subAgentPrompt: string | undefined;
+    if (job.role) {
+      const { data: roleRow } = await supabase
+        .from("roles")
+        .select("id, prompt, skills, mcp_tools, interactive")
+        .eq("name", job.role)
+        .single();
+      if (roleRow) {
+        const typed = roleRow as { id: string; prompt: string | null; skills: string[] | null; mcp_tools: string[] | null; interactive: boolean | null };
+        rolePrompt = typed.prompt ?? undefined;
+        roleSkills = typed.skills ?? undefined;
+        roleMcpTools = typed.mcp_tools ?? undefined;
+        isInteractive = typed.interactive ?? false;
+
+        // Fetch compiled personality prompt + sub-agent prompt for this company + role
+        const { data: personality } = await supabase
+          .from("exec_personalities")
+          .select("compiled_prompt, compiled_sub_agent_prompt")
+          .eq("company_id", job.company_id)
+          .eq("role_id", typed.id)
+          .single();
+        if (personality?.compiled_prompt) {
+          personalityPrompt = personality.compiled_prompt as string;
+        }
+        if ((personality as Record<string, unknown>)?.compiled_sub_agent_prompt) {
+          subAgentPrompt = (personality as Record<string, unknown>).compiled_sub_agent_prompt as string;
+        }
+      }
+    }
+
+    // Assemble the full prompt stack minus skills for observability and dispatch.
+    // Order: personality → role → SKILLS_MARKER → task context → file-writing rules → completion.
+    // The local agent inserts skill file content at the SKILLS_MARKER position.
+    const promptParts: string[] = [];
+    if (personalityPrompt) promptParts.push(personalityPrompt);
+    if (rolePrompt) promptParts.push(rolePrompt);
+    promptParts.push(SKILLS_MARKER);
+    if (dispatchContext) promptParts.push(dispatchContext);
+    promptParts.push(FILE_WRITING_RULES);
+    promptParts.push(completionInstructions(job.role));
+    const promptStackMinusSkills = promptParts.join("\n\n---\n\n");
+
     // Dispatch: update job status → dispatched, assign machine_id.
     // Record the resolved model and slot_type on the job for observability.
-    // Store grounded dispatchContext as prompt_stack so we can see exactly what the agent received.
     const { data: claimedJobRows, error: updateJobErr } = await supabase
       .from("jobs")
       .update({
@@ -751,7 +827,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         model,
         slot_type: slotType,
         started_at: new Date().toISOString(),
-        prompt_stack: dispatchContext ?? null,
+        prompt_stack: promptStackMinusSkills || null,
       })
       .eq("id", job.id)
       .in("status", ["queued", "verify_failed"]) // optimistic lock
@@ -783,43 +859,6 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     const slotUpdate = { [slotColumn]: currentSlots - 1 };
     Object.assign(candidate, slotUpdate);
 
-    // Fetch role prompt + skills for non-codex jobs that have a named role.
-    // These populate the 4-layer context stack: personality → role → skills → task.
-    let rolePrompt: string | undefined;
-    let roleSkills: string[] | undefined;
-    let roleMcpTools: string[] | undefined;
-    let isInteractive = false;
-    let personalityPrompt: string | undefined;
-    let subAgentPrompt: string | undefined;
-    if (job.role && slotType !== "codex") {
-      const { data: roleRow } = await supabase
-        .from("roles")
-        .select("id, prompt, skills, mcp_tools, interactive")
-        .eq("name", job.role)
-        .single();
-      if (roleRow) {
-        const typed = roleRow as { id: string; prompt: string | null; skills: string[] | null; mcp_tools: string[] | null; interactive: boolean | null };
-        rolePrompt = typed.prompt ?? undefined;
-        roleSkills = typed.skills ?? undefined;
-        roleMcpTools = typed.mcp_tools ?? undefined;
-        isInteractive = typed.interactive ?? false;
-
-        // Fetch compiled personality prompt + sub-agent prompt for this company + role
-        const { data: personality } = await supabase
-          .from("exec_personalities")
-          .select("compiled_prompt, compiled_sub_agent_prompt")
-          .eq("company_id", job.company_id)
-          .eq("role_id", typed.id)
-          .single();
-        if (personality?.compiled_prompt) {
-          personalityPrompt = personality.compiled_prompt as string;
-        }
-        if ((personality as Record<string, unknown>)?.compiled_sub_agent_prompt) {
-          subAgentPrompt = (personality as Record<string, unknown>).compiled_sub_agent_prompt as string;
-        }
-      }
-    }
-
     // Build the StartJob message.
     // project_id is always required; git fields are only required for code-context roles.
     const startJobMsg: StartJob = {
@@ -834,12 +873,10 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       projectId: job.project_id!,
       ...(repoUrl ? { repoUrl } : {}),
       ...(featureBranch ? { featureBranch } : {}),
-      context: dispatchContext ?? undefined,
+      promptStackMinusSkills,
       // Include role for role-based jobs (specialized reviewers, etc.)
       ...(job.role ? { role: job.role } : {}),
-      ...(personalityPrompt ? { personalityPrompt } : {}),
       ...(subAgentPrompt ? { subAgentPrompt } : {}),
-      ...(rolePrompt ? { rolePrompt } : {}),
       ...(roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),
       ...(roleMcpTools !== undefined ? { roleMcpTools } : {}),
       ...(depBranches.length > 0 ? { dependencyBranches: depBranches } : {}),
@@ -1182,7 +1219,7 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
 
   // Active verification (verification-specialist): check result for pass/fail
   if (ctx.type === "active_feature_verification" && jobRow?.feature_id) {
-    const passed = result?.startsWith("PASSED");
+    const passed = result?.toUpperCase().startsWith("PASSED");
     if (passed) {
       console.log(`[orchestrator] Active verification PASSED for feature ${jobRow.feature_id} — initiating test deploy`);
       await initiateTestDeploy(supabase, jobRow.feature_id);
@@ -1191,7 +1228,7 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
       await notifyCPO(
         supabase,
         jobRow.company_id,
-        `Active verification failed for feature ${jobRow.feature_id}: ${(result ?? "").slice(0, 200)}. Needs triage.`,
+        `Active verification failed for feature ${jobRow.feature_id}: result=${result ?? "unknown"}. Needs triage.`,
       );
     }
   }
@@ -1283,8 +1320,7 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
 
   // Handle reviewer verify job completion: check pass/fail and advance or notify CPO
   if (jobRow?.job_type === "verify" && jobRow?.role === "reviewer" && jobRow?.feature_id) {
-    const resultUpper = result?.toUpperCase() ?? "";
-    const passed = resultUpper.startsWith("PASSED");
+    const passed = result?.toUpperCase().startsWith("PASSED");
     if (passed) {
       console.log(`[orchestrator] Verification PASSED for feature ${jobRow.feature_id} — advancing to pr_ready`);
       const { data: prReadyUpdated } = await supabase
@@ -1303,20 +1339,18 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
             ? `Feature "${featureTitle}" verified — PR ready for review: ${prUrl}`
             : `Feature "${featureTitle}" verified and ready for review (PR URL not yet available).`,
         );
-        if (prUrl) {
-          await notifyPRReady(supabase, jobRow.company_id, featureTitle, prUrl);
-        }
+        await notifyPRReady(supabase, jobRow.company_id, featureTitle, prUrl);
       }
-    } else if (resultUpper.startsWith("FAILED")) {
+    } else if (result?.toUpperCase().startsWith("FAILED")) {
       console.log(`[orchestrator] Verification FAILED for feature ${jobRow.feature_id} — triggering retry`);
       await handleVerificationFailed(supabase, jobRow.feature_id, jobRow.company_id, result ?? "");
     } else {
       // INCONCLUSIVE or unexpected result — notify CPO for manual triage
-      console.log(`[orchestrator] Verification INCONCLUSIVE for feature ${jobRow.feature_id}: ${(result ?? "").slice(0, 200)}`);
+      console.log(`[orchestrator] Verification INCONCLUSIVE for feature ${jobRow.feature_id}: result=${result ?? "unknown"}`);
       await notifyCPO(
         supabase,
         jobRow.company_id,
-        `Verification inconclusive for feature ${jobRow.feature_id}: ${(result ?? "").slice(0, 200)}. Needs manual triage.`,
+        `Verification inconclusive for feature ${jobRow.feature_id}: result=${result ?? "unknown"}. Needs manual triage.`,
       );
     }
   }
@@ -2503,10 +2537,8 @@ export async function handleFeatureRejected(
 }
 
 /**
- * Handles a verification failure: cancels stale jobs, moves feature back to
- * building, and queues a fix job assigned to senior-engineer.
- *
- * Follows the same pattern as handleFeatureRejected (big severity).
+ * Handles a verification failure by delegating to the request-feature-fix
+ * edge function (single source of truth for cancel → reset → re-queue logic).
  */
 async function handleVerificationFailed(
   supabase: SupabaseClient,
@@ -2514,116 +2546,22 @@ async function handleVerificationFailed(
   companyId: string,
   failureResult: string,
 ): Promise<void> {
-  // 1. Fetch feature details
-  const { data: feature, error: fetchErr } = await supabase
-    .from("features")
-    .select("company_id, project_id, branch, spec, title")
-    .eq("id", featureId)
-    .single();
-
-  if (fetchErr || !feature) {
-    console.error(`[orchestrator] handleVerificationFailed: failed to fetch feature ${featureId}:`, fetchErr?.message);
-    return;
-  }
-
-  // 2. Cancel all combine + verify jobs for this feature that are queued/dispatched/executing
-  const cancelStatuses = ["queued", "dispatched", "executing"];
-  const { error: cancelErr } = await supabase
-    .from("jobs")
-    .update({ status: "cancelled" })
-    .eq("feature_id", featureId)
-    .in("job_type", ["combine", "verify"])
-    .in("status", cancelStatuses);
-
-  if (cancelErr) {
-    console.error(`[orchestrator] handleVerificationFailed: failed to cancel jobs for ${featureId}:`, cancelErr.message);
-  }
-
-  // 3. Move feature back to building (CAS: only from verifying)
-  const { data: updated, error: updateErr } = await supabase
-    .from("features")
-    .update({ status: "building", updated_at: new Date().toISOString() })
-    .eq("id", featureId)
-    .eq("status", "verifying")
-    .select("id");
-
-  if (updateErr) {
-    console.error(`[orchestrator] handleVerificationFailed: failed to reset feature ${featureId} to building:`, updateErr.message);
-    return;
-  }
-  if (!updated || updated.length === 0) {
-    console.log(`[orchestrator] handleVerificationFailed: feature ${featureId} not in verifying — skipping`);
-    return;
-  }
-
-  // 4. Log event
-  await supabase.from("events").insert({
-    company_id: feature.company_id,
-    event_type: "feature_status_changed",
-    detail: {
-      featureId,
-      from: "verifying",
-      to: "building",
-      reason: "verification_failed",
-      failure: failureResult.slice(0, 500),
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const res = await fetch(`${url}/functions/v1/request-feature-fix`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
     },
+    body: JSON.stringify({
+      company_id: companyId,
+      feature_id: featureId,
+      reason: failureResult,
+    }),
   });
-
-  // 5. Create a new code job with the failure details
-  const fixContext = JSON.stringify({
-    type: "verification_fix",
-    failureDetails: failureResult,
-    featureBranch: feature.branch,
-    originalSpec: feature.spec ?? "",
-  });
-  const { data: insertedRows, error: insertErr } = await supabase.from("jobs").insert({
-    company_id: feature.company_id,
-    project_id: feature.project_id,
-    feature_id: featureId,
-    role: "senior-engineer",
-    job_type: "code",
-    complexity: "medium",
-    slot_type: "claude_code",
-    status: "queued",
-    context: fixContext,
-    branch: feature.branch,
-  }).select("id");
-
-  if (insertErr) {
-    console.error(`[orchestrator] handleVerificationFailed: failed to queue fix job for ${featureId}:`, insertErr.message);
-  } else {
-    console.log(`[orchestrator] handleVerificationFailed: queued fix job for feature ${featureId}`);
-    const jobId = insertedRows?.[0]?.id;
-    if (jobId) {
-      generateTitle(fixContext).then((title) => {
-        if (title) {
-          supabase.from("jobs").update({ title }).eq("id", jobId).then(() => {});
-        }
-      }).catch(() => {});
-    }
-  }
-
-  // 6. Notify CPO about the retry
-  const featureTitle = feature.title ?? featureId;
-  await notifyCPO(
-    supabase,
-    companyId,
-    `Verification failed for "${featureTitle}": ${failureResult.slice(0, 200)}. Returning to building with a fix job.`,
-  );
-
-  // 7. Notify user via Slack (feature thread)
-  const { data: featureSlack } = await supabase
-    .from("features")
-    .select("slack_channel, slack_thread_ts")
-    .eq("id", featureId)
-    .single();
-
-  if (featureSlack?.slack_channel && featureSlack?.slack_thread_ts) {
-    const botToken = await getSlackBotToken(supabase, companyId);
-    if (botToken) {
-      const text = `:warning: *Verification failed for "${featureTitle}"*\n\n${failureResult.slice(0, 300)}\n\nReturning to building — a fix job has been queued.`;
-      await postSlackMessage(botToken, featureSlack.slack_channel, text, featureSlack.slack_thread_ts);
-    }
+  if (!res.ok) {
+    console.error(`[orchestrator] handleVerificationFailed: edge function returned ${res.status}: ${await res.text()}`);
   }
 }
 
@@ -3119,8 +3057,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     const job = latestVerify[0] as { id: string; status: string; context: string; result: string | null };
     if (job.status !== "complete") continue;
 
-    const jobResultUpper = job.result?.toUpperCase() ?? "";
-    const passed = jobResultUpper.startsWith("PASSED");
+    const passed = job.result?.toUpperCase().startsWith("PASSED");
 
     if (passed) {
       console.log(`[orchestrator] processFeatureLifecycle: verify PASSED for feature ${feature.id} — advancing to pr_ready (catch-up)`);
@@ -3141,20 +3078,18 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
             ? `Feature "${featureTitle}" verified — PR ready for review: ${prUrl}`
             : `Feature "${featureTitle}" verified and ready for review (PR URL not yet available).`,
         );
-        if (prUrl) {
-          await notifyPRReady(supabase, feature.company_id, featureTitle, prUrl);
-        }
+        await notifyPRReady(supabase, feature.company_id, featureTitle, prUrl);
       }
-    } else if (jobResultUpper.startsWith("FAILED")) {
+    } else if (job.result?.toUpperCase().startsWith("FAILED")) {
       console.log(`[orchestrator] processFeatureLifecycle: verify FAILED for feature ${feature.id} — triggering retry (catch-up)`);
       await handleVerificationFailed(supabase, feature.id, feature.company_id, job.result ?? "");
     } else {
       // INCONCLUSIVE — notify CPO but don't retry (catch-up)
-      console.log(`[orchestrator] processFeatureLifecycle: verify INCONCLUSIVE for feature ${feature.id} (catch-up): ${(job.result ?? "").slice(0, 200)}`);
+      console.log(`[orchestrator] processFeatureLifecycle: verify INCONCLUSIVE for feature ${feature.id} (catch-up): result=${job.result ?? "unknown"}`);
       await notifyCPO(
         supabase,
         feature.company_id,
-        `Verification inconclusive for feature ${feature.id}: ${(job.result ?? "").slice(0, 200)}. Needs manual triage.`,
+        `Verification inconclusive for feature ${feature.id}: result=${job.result ?? "unknown"}. Needs manual triage.`,
       );
     }
   }
@@ -3448,20 +3383,26 @@ async function notifyPRReady(
   supabase: SupabaseClient,
   companyId: string,
   featureTitle: string,
-  prUrl: string,
+  prUrl: string | null,
 ): Promise<void> {
   const slackChannel = await getDefaultSlackChannel(supabase, companyId);
   if (!slackChannel) return;
   const botToken = await getSlackBotToken(supabase, companyId);
   if (!botToken) return;
 
-  const text = [
-    `:rocket: *PR ready for review: "${featureTitle}"*`,
-    "",
-    `${prUrl}`,
-    "",
-    "Please review this PR with the CPO before merging.",
-  ].join("\n");
+  const text = prUrl
+    ? [
+        `:rocket: *PR ready for review: "${featureTitle}"*`,
+        "",
+        `${prUrl}`,
+        "",
+        "Please review this PR with the CPO before merging.",
+      ].join("\n")
+    : [
+        `:rocket: *Feature ready for review: "${featureTitle}"*`,
+        "",
+        "PR URL is not yet available — check with the CPO.",
+      ].join("\n");
 
   await postSlackMessage(botToken, slackChannel, text);
 }
@@ -3689,8 +3630,11 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     //    machines from being incorrectly marked dead.
     await listenForAgentMessages(supabase, 4_000);
 
-    // 2. Reap dead machines and re-queue their jobs.
+    // 2a. Mark dead machines offline (prevents dispatch to them).
     await reapDeadMachines(supabase);
+
+    // 2b. Re-queue jobs stuck in dispatched/executing with stale updated_at.
+    await reapStaleJobs(supabase);
 
     // 3. Process ready_for_breakdown features → create breakdown jobs.
     await processReadyForBreakdown(supabase);

@@ -153,8 +153,15 @@ export interface StartJob {
    */
   rolePrompt?: string;
   /**
+   * Pre-assembled prompt stack with a <!-- SKILLS --> marker where skill content
+   * should be inserted by the local agent. Contains personality → role → marker →
+   * task context → file-writing rules → completion instructions. When present,
+   * the agent ignores personalityPrompt, rolePrompt, and context fields.
+   */
+  promptStackMinusSkills?: string;
+  /**
    * Skill names from roles.skills — executor loads ~/.claude/skills/{name}/SKILL.md for each.
-   * Injected after rolePrompt and before task context in the 4-layer context stack.
+   * Injected at the <!-- SKILLS --> marker position in promptStackMinusSkills.
    * Optional; omit for codex slot_type jobs or roles with no skills.
    */
   roleSkills?: string[];
@@ -374,6 +381,12 @@ export interface JobStatusMessage {
  * Sent when a job finishes successfully.
  * The orchestrator will move the Trello card to Review and release the slot.
  */
+/**
+ * Job result prefix. Always starts with one of these values.
+ * May include a reason suffix after a colon, e.g. "FAILED: reason here".
+ */
+export type JobResultPrefix = "PASSED" | "FAILED" | "VERDICT_MISSING" | "NO_REPORT";
+
 export interface JobComplete {
   type: "job_complete";
   /** Protocol version — must equal PROTOCOL_VERSION. */
@@ -384,7 +397,7 @@ export interface JobComplete {
    * Allows the orchestrator to release the slot without a DB lookup.
    */
   machineId: string;
-  /** Summary of what was produced (e.g. commit message, diff stats). */
+  /** Result verdict — starts with a JobResultPrefix, may include ": reason" suffix. */
   result: string;
   /** Pull request URL if the job opened a PR. */
   pr?: string;

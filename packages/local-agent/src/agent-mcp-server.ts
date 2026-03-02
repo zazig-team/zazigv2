@@ -215,13 +215,13 @@ server.tool(
 
 server.tool(
   "update_feature",
-  "Update an existing feature's title, description, priority, or status. CPO may only set status to 'created' or 'ready_for_breakdown'.",
+  "Update an existing feature's title, description, priority, or status. CPO may set status to 'created', 'ready_for_breakdown', or 'complete'.",
   {
     feature_id: z.string().describe("ID of the feature to update"),
     title: z.string().optional().describe("New feature title"),
     description: z.string().optional().describe("New feature description"),
     priority: z.enum(["low", "medium", "high"]).optional().describe("New priority"),
-    status: z.enum(["created", "ready_for_breakdown"]).optional().describe("New status (CPO can only set 'created' or 'ready_for_breakdown')"),
+    status: z.enum(["created", "ready_for_breakdown", "complete"]).optional().describe("New status (CPO can set 'created', 'ready_for_breakdown', or 'complete')"),
     spec: z.string().optional().describe("Full feature spec (self-contained, readable by Breakdown Specialist)"),
     acceptance_tests: z.string().optional().describe("Feature-level acceptance criteria"),
     human_checklist: z.string().optional().describe("Manual verification steps for human on test server"),
@@ -1043,14 +1043,16 @@ server.tool(
 );
 
 server.tool(
-  "merge_pr",
-  "Merge a feature's PR into master and mark the feature complete. Only works when feature is in pr_ready status.",
+  "request_feature_fix",
+  "Request a fix for a feature — cancels stale combine/verify jobs, resets feature to building, and queues a senior-engineer code job inheriting the feature branch.",
   {
-    feature_id: z.string().describe("The feature ID whose PR to merge"),
+    feature_id: z.string().describe("Feature ID to fix"),
+    reason: z.string().describe("What needs fixing and why"),
   },
-  guardedHandler("merge_pr", async ({ feature_id }) => {
+  guardedHandler("request_feature_fix", async ({ feature_id, reason }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
 
     if (!supabaseUrl || !supabaseAnonKey) {
       return {
@@ -1059,26 +1061,37 @@ server.tool(
       };
     }
 
-    const response = await fetch(`${supabaseUrl}/functions/v1/merge-pr`, {
+    if (!companyId) {
+      return {
+        content: [{ type: "text" as const, text: "Error: ZAZIG_COMPANY_ID is required for request_feature_fix" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/request-feature-fix`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ featureId: feature_id }),
+      body: JSON.stringify({
+        company_id: companyId,
+        feature_id,
+        reason,
+      }),
     });
 
-    if (response.ok) {
-      const data = await response.json() as { message?: string; sha?: string };
+    const payload = await response.text().catch(() => "");
+
+    if (!response.ok) {
       return {
-        content: [{ type: "text" as const, text: data.message ?? "PR merged and feature marked complete." }],
+        content: [{ type: "text" as const, text: `Failed to request feature fix (HTTP ${response.status}): ${payload || "unknown error"}` }],
+        isError: true,
       };
     }
 
-    const errorBody = await response.text().catch(() => "unknown error");
     return {
-      content: [{ type: "text" as const, text: `Failed to merge PR (HTTP ${response.status}): ${errorBody}` }],
-      isError: true,
+      content: [{ type: "text" as const, text: payload }],
     };
   }),
 );

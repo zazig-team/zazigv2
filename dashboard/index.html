@@ -424,17 +424,6 @@
       font-weight: 600;
     }
 
-    .card-specced-label {
-      color: #6ee7b7;
-      border: 1px solid rgba(16, 185, 129, 0.35);
-      border-radius: 4px;
-      padding: 1px 6px;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      font-size: 0.58rem;
-      font-weight: 600;
-    }
-
     .card-pr-pending-label {
       color: #93c5fd;
       border: 1px solid rgba(59, 130, 246, 0.4);
@@ -1245,11 +1234,12 @@
 
       const AUTH_HEADERS = { apikey: ANON_KEY, Authorization: 'Bearer ' + ANON_KEY };
 
-      // Intake funnel: ideas -> triage -> proposal (pre-pipeline)
+      // Intake funnel: ideas -> triage -> development (pre-pipeline)
       const INTAKE_COLUMNS = [
-        { key: 'new',     label: 'Ideas',    color: '#64748b', source: 'ideas' },
-        { key: 'triaged', label: 'Triage',   color: '#f59e0b', source: 'ideas' },
-        { key: 'created', label: 'Proposal', color: '#a855f7', source: 'features' },
+        { key: 'new',             label: 'Ideas',       color: '#64748b', source: 'ideas' },
+        { key: 'triaged',         label: 'Triage',      color: '#f59e0b', source: 'ideas' },
+        { key: 'created',         label: 'Development', color: '#a855f7', source: 'features' },
+        { key: 'created_specced', label: 'Ready',       color: '#6366f1', source: 'features' },
       ];
 
       // Build pipeline: ready -> complete
@@ -1639,7 +1629,7 @@
 
         // Meta line
         var meta = el('div', 'card-meta');
-        var isProposal = colDef.key === 'created';
+        var isDevelopment = colDef.key === 'created';
         var allJobs = Array.isArray(feature?.jobs) ? feature.jobs : [];
         var jobs = allJobs.filter(function(j) {
           return normalizeStatus(j?.status) !== 'cancelled';
@@ -1647,11 +1637,10 @@
 
         var doneCount = 0;
         var activeJobs = [];
-        if (isProposal) {
+        if (isDevelopment) {
           var isWorkshop = Array.isArray(feature.tags) && feature.tags.indexOf('needs-workshop') !== -1;
-          var isSpecced = !isWorkshop && feature.spec && feature.spec.trim() !== '';
-          var badgeClass = isWorkshop ? 'card-workshop-label' : (isSpecced ? 'card-specced-label' : 'card-speccing-label');
-          var badgeText = isWorkshop ? 'workshop' : (isSpecced ? 'specced' : 'needs spec');
+          var badgeClass = isWorkshop ? 'card-workshop-label' : 'card-speccing-label';
+          var badgeText = isWorkshop ? 'workshop' : 'needs spec';
           meta.appendChild(el('span', badgeClass, badgeText));
         } else if (jobs.length > 0) {
           doneCount = jobs.filter(function(j) {
@@ -1701,7 +1690,7 @@
         card.appendChild(body);
 
         // Progress bar — aggregate all job completion while any job is active
-        if (!isProposal && jobs.length > 0 && activeJobs.length > 0) {
+        if (!isDevelopment && jobs.length > 0 && activeJobs.length > 0) {
           var progress = getFeatureProgress(jobs);
           var track = el('div', 'card-progress');
           var fill = el('div', 'card-progress-fill active');
@@ -1885,12 +1874,18 @@
           featuresByCol[PIPELINE_COLUMNS[p].key] = [];
         }
         featuresByCol.created = [];
+        featuresByCol.created_specced = [];
 
         for (var i = 0; i < features.length; i++) {
           var fs = normalizeStatus(features[i]?.status);
           if (fs === 'cancelled') continue;
           if (fs === 'created') {
-            featuresByCol.created.push(features[i]);
+            var hasSpec = features[i].spec && features[i].spec.trim() !== '';
+            if (hasSpec) {
+              featuresByCol.created_specced.push(features[i]);
+            } else {
+              featuresByCol.created.push(features[i]);
+            }
           } else if (featuresByCol[fs]) {
             featuresByCol[fs].push(features[i]);
           }

@@ -20,6 +20,19 @@ interface AgentSession {
   sessionName: string;
 }
 
+function getFirstWindowId(sessionName: string): string | undefined {
+  try {
+    const output = execSync(
+      `tmux list-windows -t ${sessionName} -F '#{window_id}'`,
+      { encoding: "utf-8", timeout: 5000 },
+    ).trim();
+    if (!output) return undefined;
+    return output.split("\n")[0]?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function discoverAgentSessions(
   machineId: string,
   companyId?: string,
@@ -72,22 +85,33 @@ export function launchTui(options: {
   // prevent Ctrl+B n/p from cycling across all agents.
   const firstAgent = agents[0]!;
   try {
+    const firstAgentWindowId = getFirstWindowId(firstAgent.sessionName);
+    if (!firstAgentWindowId) {
+      throw new Error(`No tmux window found for session ${firstAgent.sessionName}`);
+    }
+
     execSync(
       `tmux new-session -d -s ${viewerSession}`,
       { stdio: "pipe" }
     );
+
+    const viewerDefaultWindowId = getFirstWindowId(viewerSession);
+    if (!viewerDefaultWindowId) {
+      throw new Error(`No default tmux window found for viewer session ${viewerSession}`);
+    }
+
     // Link the first agent's window and remove the empty default window
     execSync(
-      `tmux link-window -s ${firstAgent.sessionName}:0 -t ${viewerSession}:1`,
+      `tmux link-window -s ${firstAgentWindowId} -t ${viewerSession}`,
       { stdio: "pipe" }
     );
     execSync(
-      `tmux kill-window -t ${viewerSession}:0`,
+      `tmux kill-window -t ${viewerDefaultWindowId}`,
       { stdio: "pipe" }
     );
     // Rename to role
     execSync(
-      `tmux rename-window -t ${viewerSession}:1 ${firstAgent.role.toUpperCase()}`,
+      `tmux rename-window -t ${firstAgentWindowId} ${firstAgent.role.toUpperCase()}`,
       { stdio: "pipe" }
     );
   } catch (err) {
@@ -99,14 +123,19 @@ export function launchTui(options: {
   for (let i = 1; i < agents.length; i++) {
     const agent = agents[i]!;
     try {
+      const agentWindowId = getFirstWindowId(agent.sessionName);
+      if (!agentWindowId) {
+        console.warn(`Could not find tmux window for ${agent.role} session ${agent.sessionName}`);
+        continue;
+      }
       execSync(
-        `tmux link-window -s ${agent.sessionName}:0 -t ${viewerSession}`,
+        `tmux link-window -s ${agentWindowId} -t ${viewerSession}`,
         { stdio: "pipe" }
       );
       // Rename the linked window
       try {
         execSync(
-          `tmux rename-window -t ${viewerSession}:${i + 1} ${agent.role.toUpperCase()}`,
+          `tmux rename-window -t ${agentWindowId} ${agent.role.toUpperCase()}`,
           { stdio: "pipe" }
         );
       } catch { /* rename is best-effort */ }

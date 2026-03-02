@@ -713,6 +713,48 @@
       flex-shrink: 0;
     }
 
+    .detail-action-btn {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      border: 1px solid;
+      border-radius: 6px;
+      padding: 5px 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .detail-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .detail-action-btn-retry {
+      color: #e8a838;
+      background: rgba(232,168,56,0.08);
+      border-color: rgba(232,168,56,0.3);
+    }
+
+    .detail-action-btn-retry:hover:not(:disabled) {
+      background: rgba(232,168,56,0.15);
+      border-color: rgba(232,168,56,0.5);
+    }
+
+    .detail-action-btn-complete {
+      color: #3cbf6e;
+      background: rgba(60,191,110,0.08);
+      border-color: rgba(60,191,110,0.3);
+    }
+
+    .detail-action-btn-complete:hover:not(:disabled) {
+      background: rgba(60,191,110,0.15);
+      border-color: rgba(60,191,110,0.5);
+    }
+
+    .detail-footer-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .detail-footer-msg { font-size: 0.65rem; font-family: 'JetBrains Mono', monospace; }
+    .detail-footer-msg.success { color: #3cbf6e; }
+    .detail-footer-msg.error { color: #e74c3c; }
+    .detail-footer-msg.loading { color: #8b919a; }
+
     /* ── Responsive ────────────────────────────── */
 
     @media (max-width: 900px) {
@@ -781,6 +823,10 @@
 
       const SUPABASE_URL = 'https://jmussmwglgbwncgygzbz.supabase.co';
       const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0';
+      // WARNING: This key grants full DB access. For local dev only.
+      // In production, inject via Netlify environment variable or server-side config.
+      const SERVICE_ROLE_KEY = typeof __SERVICE_ROLE_KEY__ !== 'undefined' ? __SERVICE_ROLE_KEY__ : 'YOUR_SERVICE_ROLE_KEY_HERE';
+      const SERVICE_HEADERS = { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' };
 
       const FEATURES_BASE =
         SUPABASE_URL + '/rest/v1/features?select=id,title,status,spec,acceptance_tests,branch,project_id,created_at,updated_at,jobs(id,title,status,progress,model,job_type,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
@@ -838,6 +884,7 @@
 
       // Cache last fetched features for detail views
       let lastFeatures = [];
+      let actionInFlight = false;
 
       // ── Helpers ──────────────────────────────
 
@@ -1104,6 +1151,86 @@
         detailTitleEl.textContent = getFeatureTitle(feature);
         detailStatusEl.textContent = status;
         detailFooterEl.textContent = '';
+        if (status === 'failed') {
+          var footerActions = el('div', 'detail-footer-actions');
+          var retryBtn = el('button', 'detail-action-btn detail-action-btn-retry');
+          retryBtn.id = 'retryBtn';
+          retryBtn.type = 'button';
+          retryBtn.textContent = 'Retry';
+          var markCompleteBtn = el('button', 'detail-action-btn detail-action-btn-complete');
+          markCompleteBtn.id = 'markCompleteBtn';
+          markCompleteBtn.type = 'button';
+          markCompleteBtn.textContent = 'Mark Complete';
+          footerActions.appendChild(retryBtn);
+          footerActions.appendChild(markCompleteBtn);
+          detailFooterEl.appendChild(footerActions);
+
+          retryBtn.addEventListener('click', function() {
+            if (actionInFlight) return;
+            if (!window.confirm('This will queue a fix job for this feature. The pipeline will attempt to resolve the failure. Continue?')) return;
+            actionInFlight = true;
+            retryBtn.disabled = true;
+            markCompleteBtn.disabled = true;
+            var loadingSpan = el('span', 'detail-footer-msg loading', 'Processing\u2026');
+            footerActions.appendChild(loadingSpan);
+            fetch(SUPABASE_URL + '/functions/v1/request-feature-fix', {
+              method: 'POST',
+              headers: SERVICE_HEADERS,
+              body: JSON.stringify({ company_id: activeCompanyId, feature_id: feature.id, reason: 'Manual retry from dashboard' })
+            }).then(function(res) {
+              if (!res.ok) {
+                return res.text().then(function(body) { throw { status: res.status, body: body }; });
+              }
+              footerActions.innerHTML = '';
+              var msg = el('span', 'detail-footer-msg success', 'Retry queued');
+              footerActions.appendChild(msg);
+              actionInFlight = false;
+              refreshDashboard();
+              setTimeout(closeDetail, 1500);
+            }).catch(function(err) {
+              if (footerActions.contains(loadingSpan)) footerActions.removeChild(loadingSpan);
+              retryBtn.disabled = false;
+              markCompleteBtn.disabled = false;
+              var errMsg = err && err.status ? 'Error ' + err.status + ': ' + (err.body || '') : 'Network error';
+              var msg = el('span', 'detail-footer-msg error', errMsg);
+              footerActions.appendChild(msg);
+              actionInFlight = false;
+            });
+          });
+
+          markCompleteBtn.addEventListener('click', function() {
+            if (actionInFlight) return;
+            if (!window.confirm('This will mark the feature as complete. Use this when you\u2019ve manually finished the work. Continue?')) return;
+            actionInFlight = true;
+            retryBtn.disabled = true;
+            markCompleteBtn.disabled = true;
+            var loadingSpan = el('span', 'detail-footer-msg loading', 'Processing\u2026');
+            footerActions.appendChild(loadingSpan);
+            fetch(SUPABASE_URL + '/functions/v1/update-feature', {
+              method: 'POST',
+              headers: SERVICE_HEADERS,
+              body: JSON.stringify({ feature_id: feature.id, status: 'complete' })
+            }).then(function(res) {
+              if (!res.ok) {
+                return res.text().then(function(body) { throw { status: res.status, body: body }; });
+              }
+              footerActions.innerHTML = '';
+              var msg = el('span', 'detail-footer-msg success', 'Marked complete');
+              footerActions.appendChild(msg);
+              actionInFlight = false;
+              refreshDashboard();
+              setTimeout(closeDetail, 1500);
+            }).catch(function(err) {
+              if (footerActions.contains(loadingSpan)) footerActions.removeChild(loadingSpan);
+              retryBtn.disabled = false;
+              markCompleteBtn.disabled = false;
+              var errMsg = err && err.status ? 'Error ' + err.status + ': ' + (err.body || '') : 'Network error';
+              var msg = el('span', 'detail-footer-msg error', errMsg);
+              footerActions.appendChild(msg);
+              actionInFlight = false;
+            });
+          });
+        }
 
         // Build content
         detailContentEl.textContent = '';

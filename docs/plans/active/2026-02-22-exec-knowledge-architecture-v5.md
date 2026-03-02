@@ -21,6 +21,12 @@ The v1 design proposed a single "Knowledge Lenses" system with atomic claims. Th
 
 ---
 
+## Future Expansion: Assets (Layer 6?)
+
+> **Parked idea (2026-03-02):** There is potentially a third knowledge dimension alongside doctrines and canons: **assets**. Assets are concrete resources an agent can draw on to do its job — a designer may have logos, brand photos, style guides; a PR manager may have validated press contact lists; a CMO may have audience persona documents. Unlike doctrines (beliefs) and canons (knowledge), assets are *materials*. This needs architectural thinking about storage, retrieval, and injection patterns. See ideas inbox `390cf375`.
+
+---
+
 ## Core Innovation: Two Knowledge Systems
 
 Skills are capability signposts — lightweight metadata in context, full instructions on demand. Knowledge needs TWO equivalent systems because what an exec *believes* (professional judgment) is architecturally different from what an exec has *studied* (reference material).

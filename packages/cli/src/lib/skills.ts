@@ -39,10 +39,16 @@ function isUuid(v: string): boolean {
 
 export function resolveRepoRoot(): string {
   const thisDir = dirname(fileURLToPath(import.meta.url));
-  const candidates = [
-    resolve(thisDir, "..", "..", ".."),
-    process.cwd(),
-  ];
+  // Walk up from the compiled script location to find repo root.
+  // Built path is packages/cli/dist/lib/skills.js — 4 levels up to repo root.
+  const candidates: string[] = [];
+  let dir = thisDir;
+  for (let i = 0; i < 8; i++) {
+    dir = dirname(dir);
+    candidates.push(dir);
+  }
+  candidates.push(process.cwd());
+
   for (const candidate of candidates) {
     if (existsSync(join(candidate, "projects", "skills")) && existsSync(join(candidate, ".claude", "skills"))) {
       return candidate;

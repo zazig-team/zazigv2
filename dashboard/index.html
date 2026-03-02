@@ -939,6 +939,49 @@
       border-radius: 10px;
     }
 
+    .detail-idea-block {
+      border-color: rgba(16, 185, 129, 0.28);
+      background: linear-gradient(180deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.04));
+    }
+
+    .detail-idea-title {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
+
+    .detail-idea-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .detail-idea-chip {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #86efac;
+      border: 1px solid rgba(16, 185, 129, 0.45);
+      background: rgba(16, 185, 129, 0.14);
+      border-radius: 999px;
+      padding: 2px 8px;
+      line-height: 1.4;
+    }
+
+    .detail-idea-id {
+      margin-top: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.64rem;
+      color: var(--text-dim);
+      word-break: break-all;
+    }
+
     .detail-context-text {
       font-family: 'DM Sans', sans-serif;
       font-size: 0.8rem;
@@ -1135,6 +1178,7 @@
 
       // Only these job statuses indicate actively-working (show progress bar)
       const WORKING_JOB_STATUSES = new Set(['executing', 'blocked', 'reviewing']);
+      const COMPLETE_JOB_STATUSES = new Set(['complete', 'done', 'approved']);
       const TERMINAL_JOB_STATUSES = new Set(['complete', 'failed', 'cancelled']);
 
       // Board elements
@@ -1330,6 +1374,59 @@
         return 'Untitled idea';
       }
 
+      function getIdeaBodyText(idea) {
+        return parseText(idea?.description ?? idea?.raw_text ?? idea?.text);
+      }
+
+      function findCachedIdea(ideaId) {
+        var key = String(ideaId || '');
+        if (!key) return null;
+        for (var i = 0; i < lastIdeas.length; i++) {
+          if (String(lastIdeas[i]?.id || '') === key) return lastIdeas[i];
+        }
+        return null;
+      }
+
+      function fetchIdeaById(ideaId) {
+        if (!ideaId) return Promise.resolve(null);
+        return apiPost(QUERY_IDEAS_URL, {
+          idea_id: String(ideaId),
+          company_id: activeCompanyId || null,
+          limit: 1,
+        }).then(function(payload) {
+          var ideas = Array.isArray(payload?.ideas) ? payload.ideas : [];
+          return ideas.length > 0 ? ideas[0] : null;
+        });
+      }
+
+      function buildSourceIdeaBlock(idea, sourceIdeaId) {
+        var block = el('div', 'detail-context-block detail-idea-block');
+
+        if (!idea) {
+          var missingText = el('div', 'detail-context-text muted', 'Source idea unavailable');
+          block.appendChild(missingText);
+          if (sourceIdeaId) {
+            block.appendChild(el('div', 'detail-idea-id', 'ID: ' + String(sourceIdeaId)));
+          }
+          return block;
+        }
+
+        block.appendChild(el('div', 'detail-idea-title', getIdeaTitle(idea)));
+
+        var chips = el('div', 'detail-idea-meta');
+        chips.appendChild(el('span', 'detail-idea-chip', normalizeStatus(idea.status) || 'idea'));
+        chips.appendChild(buildPriorityBadge(idea.priority, 'priority-badge'));
+        block.appendChild(chips);
+
+        var summary = getIdeaBodyText(idea);
+        var summaryClass = summary ? 'detail-context-text' : 'detail-context-text muted';
+        block.appendChild(el('div', summaryClass, summary || 'No idea description'));
+
+        block.appendChild(el('div', 'detail-idea-id',
+          'ID: ' + String(idea.id || sourceIdeaId || '\u2014')));
+        return block;
+      }
+
       function getIdeaRecommendation(idea) {
         var notes = idea?.triage_notes;
         if (notes && typeof notes === 'object') {
@@ -1364,6 +1461,22 @@
       function clampProgress(v) {
         var n = Number(v);
         return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0;
+      }
+
+      function getJobCompletionPercent(job) {
+        var status = normalizeStatus(job?.status);
+        if (COMPLETE_JOB_STATUSES.has(status)) return 100;
+        if (TERMINAL_JOB_STATUSES.has(status)) return 100;
+        return clampProgress(job?.progress);
+      }
+
+      function getFeatureProgress(jobs) {
+        if (!Array.isArray(jobs) || jobs.length === 0) return 0;
+        var total = 0;
+        for (var i = 0; i < jobs.length; i++) {
+          total += getJobCompletionPercent(jobs[i]);
+        }
+        return Math.max(0, Math.min(100, Math.round(total / jobs.length)));
       }
 
       function sortJobs(jobs) {
@@ -1440,19 +1553,20 @@
           return normalizeStatus(j?.status) !== 'cancelled';
         });
 
+        var doneCount = 0;
+        var activeJobs = [];
         if (isProposal) {
           var isWorkshop = Array.isArray(feature.tags) && feature.tags.indexOf('needs-workshop') !== -1;
           var badgeClass = isWorkshop ? 'card-workshop-label' : 'card-speccing-label';
           var badgeText = isWorkshop ? 'workshop' : 'speccing';
           meta.appendChild(el('span', badgeClass, badgeText));
         } else if (jobs.length > 0) {
-          var doneCount = jobs.filter(function(j) {
-            var s = normalizeStatus(j?.status);
-            return s === 'complete';
+          doneCount = jobs.filter(function(j) {
+            return COMPLETE_JOB_STATUSES.has(normalizeStatus(j?.status));
           }).length;
           meta.appendChild(el('span', '', doneCount + '/' + jobs.length + ' done'));
 
-          var activeJobs = jobs.filter(function(j) {
+          activeJobs = jobs.filter(function(j) {
             return WORKING_JOB_STATUSES.has(normalizeStatus(j?.status));
           });
           if (activeJobs.length > 0) {
@@ -1480,13 +1594,9 @@
 
         card.appendChild(body);
 
-        // Progress bar — ONLY if there's an actively-working job
-        var activeJob = jobs.find(function(j) {
-          return WORKING_JOB_STATUSES.has(normalizeStatus(j?.status));
-        });
-
-        if (activeJob && !isProposal) {
-          var progress = clampProgress(activeJob.progress);
+        // Progress bar — aggregate all job completion while any job is active
+        if (!isProposal && jobs.length > 0 && activeJobs.length > 0) {
+          var progress = getFeatureProgress(jobs);
           var track = el('div', 'card-progress');
           var fill = el('div', 'card-progress-fill active');
           fill.style.width = Math.max(progress, 5) + '%';
@@ -1741,7 +1851,7 @@
       }
 
       async function fetchIdeas() {
-        var statuses = ['new', 'triaged', 'parked', 'done'];
+        var statuses = ['new', 'triaged', 'parked', 'done', 'promoted'];
         var calls = statuses.map(function(status) {
           return apiPost(QUERY_IDEAS_URL, {
             status: status,
@@ -1924,28 +2034,9 @@
         if (feature.updated_at) addMeta('Updated', formatDate(feature.updated_at));
         if (feature.created_by) addMeta('By', feature.created_by);
 
-        // Source idea link
+        // Source idea metadata (non-clickable)
         if (feature.source_idea_id) {
-          var sourceIdea = lastIdeas.find(function(idea) {
-            return String(idea.id) === String(feature.source_idea_id);
-          });
-          var sourceLink = el('span', 'detail-meta-value');
-          sourceLink.style.cursor = 'pointer';
-          sourceLink.style.color = 'var(--col-done)';
-          sourceLink.style.textDecoration = 'underline';
-          sourceLink.style.textUnderlineOffset = '3px';
-          sourceLink.textContent = sourceIdea
-            ? (sourceIdea.title || sourceIdea.raw_text || '').slice(0, 60)
-            : String(feature.source_idea_id).slice(0, 8) + '\u2026';
-          sourceLink.title = 'View source idea';
-          sourceLink.addEventListener('click', function() {
-            if (sourceIdea) {
-              detailViewStack.push({ type: 'feature', data: feature });
-              openIdeaDetail(sourceIdea);
-              detailBackBtn.style.display = '';
-            }
-          });
-          addMeta('Source', sourceLink);
+          addMeta('Source Idea ID', String(feature.source_idea_id));
         }
 
         detailContentEl.appendChild(metaDiv);
@@ -2010,6 +2101,38 @@
           }
 
           detailContentEl.appendChild(jobList);
+        }
+
+        if (feature.source_idea_id) {
+          var sourceIdeaId = String(feature.source_idea_id);
+          var detailIdSnapshot = String(feature.id);
+          detailContentEl.appendChild(el('div', 'detail-section-title', 'Idea'));
+          var sourceIdeaSlot = el('div');
+          detailContentEl.appendChild(sourceIdeaSlot);
+
+          function renderSourceIdea(idea) {
+            sourceIdeaSlot.replaceChildren(buildSourceIdeaBlock(idea, sourceIdeaId));
+          }
+
+          var cachedSourceIdea = findCachedIdea(sourceIdeaId);
+          if (cachedSourceIdea) {
+            renderSourceIdea(cachedSourceIdea);
+          } else {
+            var loadingBlock = el('div', 'detail-context-block detail-idea-block');
+            loadingBlock.appendChild(el('div', 'detail-context-text muted', 'Loading source idea\u2026'));
+            sourceIdeaSlot.appendChild(loadingBlock);
+
+            fetchIdeaById(sourceIdeaId).then(function(fetchedIdea) {
+              if (String(openDetailId || '') !== detailIdSnapshot) return;
+              if (fetchedIdea && !findCachedIdea(sourceIdeaId)) {
+                lastIdeas.push(fetchedIdea);
+              }
+              renderSourceIdea(fetchedIdea || null);
+            }).catch(function() {
+              if (String(openDetailId || '') !== detailIdSnapshot) return;
+              renderSourceIdea(null);
+            });
+          }
         }
 
         // Context / spec

@@ -10,7 +10,7 @@
  *
  * Tmux session naming: `{machineId}-{jobId}`
  * Model selection (slotType is the primary routing signal):
- *   slotType=codex                     → `claude -p` (sonnet, with codex-delegate routing)
+ *   slotType=codex                     → `codex exec --full-auto` (native Codex execution)
  *   slotType=claude_code               → `claude -p` (print mode, model from orchestrator)
  *   role != null (persistent agents)   → `claude -p` (claude-opus-4-6, print mode)
  */
@@ -478,21 +478,22 @@ export class JobExecutor {
     // --- 4. Build command based on complexity/model ---
     let cmd: string;
     let cmdArgs: string[];
+    // Compute promptFilePath early so it can be embedded in codex args.
+    const promptFilePath = join(ephemeralWorkspaceDir!, ".zazig-prompt.txt");
     if (isInteractive) {
       // Interactive TUI mode — no -p flag, agent can use /remote-control
       const resolvedModel = msg.model && msg.model !== "codex" ? msg.model : "claude-sonnet-4-6";
       cmd = "claude";
       cmdArgs = ["--model", resolvedModel];
     } else {
-      const built = buildCommand(slotType, complexity, model);
+      const built = buildCommand(slotType, complexity, model, worktreePath, promptFilePath);
       cmd = built.cmd;
       cmdArgs = built.args;
     }
     const sessionName = `${this.machineId}-${jobId}`;
 
-    // --- 4b. Write prompt to file (piped via stdin to avoid CLI arg length limits) ---
+    // --- 4b. Write prompt to file (piped via stdin for claude, or as positional arg for codex) ---
     mkdirSync(ephemeralWorkspaceDir!, { recursive: true });
-    const promptFilePath = join(ephemeralWorkspaceDir!, ".zazig-prompt.txt");
     writeFileSync(promptFilePath, assembledContext);
 
     // --- 5. Clear stale report before spawning (prevents reading a previous job's report) ---
@@ -541,8 +542,9 @@ export class JobExecutor {
           }
         }, CPO_STARTUP_DELAY_MS);
       } else {
-        // Regular -p mode — pipe prompt via stdin
-        await spawnTmuxSession(sessionName, cmd, cmdArgs, ephemeralWorkspaceDir, promptFilePath);
+        // For codex: prompt is a positional CLI arg already embedded in args — do NOT pipe via stdin.
+        // For claude -p: pipe prompt via stdin to avoid OS ARG_MAX limits.
+        await spawnTmuxSession(sessionName, cmd, cmdArgs, ephemeralWorkspaceDir, slotType === "codex" ? undefined : promptFilePath);
       }
     } catch (err) {
       console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
@@ -1867,11 +1869,9 @@ function buildCommand(
   slotType: SlotType,
   complexity: string,
   model: string,
+  worktreePath?: string,
+  promptFilePath?: string,
 ): { cmd: string; args: string[] } {
-  // All jobs run through claude -p. For codex slots, Claude delegates
-  // to codex-delegate internally (matching v1 pattern).
-  // The prompt is piped via stdin (not passed as CLI arg) to avoid OS
-  // argument length limits when context is large.
   const resolvedModel =
     model && model !== "codex"
       ? model
@@ -1881,6 +1881,17 @@ function buildCommand(
           ? "claude-opus-4-6"
           : "claude-sonnet-4-6";
 
+  if (slotType === "codex") {
+    // Native Codex execution — prompt is passed as a positional CLI arg (not stdin).
+    return {
+      cmd: "codex",
+      args: ["exec", "-m", resolvedModel, "--full-auto", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check", promptFilePath ?? ""],
+    };
+  }
+
+  // All non-codex jobs run through claude -p.
+  // The prompt is piped via stdin (not passed as CLI arg) to avoid OS
+  // argument length limits when context is large.
   return {
     cmd: "claude",
     args: ["--model", resolvedModel, "-p", "--verbose", "--output-format", "stream-json"],

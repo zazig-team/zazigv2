@@ -424,6 +424,17 @@
       font-weight: 600;
     }
 
+    .card-specced-label {
+      color: #6ee7b7;
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      border-radius: 4px;
+      padding: 1px 6px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-size: 0.58rem;
+      font-weight: 600;
+    }
+
     .card-pr-pending-label {
       color: #93c5fd;
       border: 1px solid rgba(59, 130, 246, 0.4);
@@ -447,7 +458,6 @@
       text-transform: uppercase;
       font-family: 'JetBrains Mono', monospace;
     }
-
     .idea-card .card-body {
       padding: 10px 12px 9px;
     }
@@ -1639,8 +1649,9 @@
         var activeJobs = [];
         if (isProposal) {
           var isWorkshop = Array.isArray(feature.tags) && feature.tags.indexOf('needs-workshop') !== -1;
-          var badgeClass = isWorkshop ? 'card-workshop-label' : 'card-speccing-label';
-          var badgeText = isWorkshop ? 'workshop' : 'needs spec';
+          var isSpecced = !isWorkshop && feature.spec && feature.spec.trim() !== '';
+          var badgeClass = isWorkshop ? 'card-workshop-label' : (isSpecced ? 'card-specced-label' : 'card-speccing-label');
+          var badgeText = isWorkshop ? 'workshop' : (isSpecced ? 'specced' : 'needs spec');
           meta.appendChild(el('span', badgeClass, badgeText));
         } else if (jobs.length > 0) {
           doneCount = jobs.filter(function(j) {

@@ -23,8 +23,19 @@ import * as fsModule from "node:fs";
 // ---------------------------------------------------------------------------
 
 describe("generateAllowedTools", () => {
-  it("returns prefixed tool names for cpo role", () => {
+  it("returns standard tools only for cpo role when no mcpTools provided", () => {
     expect(generateAllowedTools("cpo")).toEqual([
+      "Read",
+      "Write",
+      "Edit",
+      "Bash",
+      "Glob",
+      "Grep",
+    ]);
+  });
+
+  it("returns prefixed tool names for cpo role when mcpTools provided", () => {
+    expect(generateAllowedTools("cpo", ["query_projects", "create_feature", "update_feature", "request_work"])).toEqual([
       "Read",
       "Write",
       "Edit",
@@ -38,8 +49,19 @@ describe("generateAllowedTools", () => {
     ]);
   });
 
-  it("returns prefixed tool names for breakdown-specialist", () => {
+  it("returns standard tools only for breakdown-specialist when no mcpTools provided", () => {
     expect(generateAllowedTools("breakdown-specialist")).toEqual([
+      "Read",
+      "Write",
+      "Edit",
+      "Bash",
+      "Glob",
+      "Grep",
+    ]);
+  });
+
+  it("returns prefixed tool names for breakdown-specialist when mcpTools provided", () => {
+    expect(generateAllowedTools("breakdown-specialist", ["query_features", "batch_create_jobs"])).toEqual([
       "Read",
       "Write",
       "Edit",

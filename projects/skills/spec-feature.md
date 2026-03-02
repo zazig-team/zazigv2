@@ -207,6 +207,85 @@ Only set the status after the human confirms.
 
 ---
 
+## Background Mode
+
+Background Mode is an async alternative to the interactive Steps 0–7 flow. Use it when the CPO is mid-conversation (e.g., during triage or scrum) and needs a spec written without blocking the human.
+
+### When to Use
+
+Trigger Background Mode when:
+- You are in the middle of another workflow (triage, scrum, standup) and a feature needs speccing
+- The human has provided enough context in conversation that you can brief a subagent without further clarification
+- Blocking the conversation to walk through Steps 1–7 interactively would break the current flow
+
+Do NOT use Background Mode if the feature is underspecified and requires human input to resolve ambiguity. In that case, complete the current workflow and return to interactive mode for speccing.
+
+### Dispatch
+
+The CPO dispatches a subagent via the Agent tool with the following context:
+
+- **Feature ID** — the UUID of the feature record to update
+- **Title and description** — current feature title and any existing description
+- **Conversation context** — relevant context gathered from the current conversation: user intent, scope signals, stated constraints, anything that would inform the spec
+- **Instructions** — the subagent's task (see Subagent Instructions below)
+
+The CPO must pass enough context for the subagent to write a complete, self-contained spec without further clarification. If that bar cannot be met, use interactive mode instead.
+
+**Example dispatch prompt:**
+
+> You are writing a feature spec. Feature ID: `{feature_id}`. Title: `{title}`. Description: `{description}`. Context from conversation: `{context}`. Follow the spec-feature Background Mode subagent instructions: write the spec, acceptance criteria, and human checklist, then apply them directly via update_feature. Do NOT set the feature status to ready_for_breakdown.
+
+### Subagent Instructions
+
+The subagent must:
+
+1. **Write the spec** following the same structure template as Step 3 of interactive mode — Overview, Detailed Requirements, Scope Boundaries, Dependencies, Constraints. The spec must be self-contained: a Breakdown Specialist reading only the spec can decompose the feature into jobs.
+
+2. **Write feature-level acceptance criteria** following the same format as Step 4 — feature-level gates, not job-level Gherkin. Format: numbered criteria + failure cases.
+
+3. **Write the human checklist** following the same format as Step 5 — things requiring human judgment on the test server that automated tests cannot catch.
+
+4. **Apply all three directly** via a single `update_feature` call:
+   ```
+   update_feature(
+     feature_id="{feature_id}",
+     spec="{spec}",
+     acceptance_tests="{acceptance_tests}",
+     human_checklist="{human_checklist}"
+   )
+   ```
+
+5. **Do NOT set `status: ready_for_breakdown`** — that remains a human-approval gate, gated by CPO review in the step below.
+
+6. **Do NOT write to draft files** — apply directly to the feature record via `update_feature`.
+
+### Quality Criteria
+
+The subagent applies the same quality standards as interactive mode:
+
+- **Self-contained spec:** Every requirement is specific enough to write a test for. No vague language. A reader with no conversation history can decompose the feature.
+- **Concrete requirements:** Each requirement is a specific, testable, unambiguous statement of behaviour.
+- **Explicit scope boundaries:** In scope and out of scope are clearly stated to prevent scope creep during breakdown.
+- **Dependencies are concrete:** Not "depends on auth" but the specific tables, APIs, or other features required.
+- **Feature-level ACs only:** No Gherkin, no job-level criteria. Feature ACs describe what the user experiences end-to-end.
+
+### CPO Review
+
+After the subagent completes:
+
+1. Call `query_features(feature_id="{feature_id}")` to read the spec, acceptance_tests, and human_checklist from the feature record (not a file).
+2. Present the complete package to the human — same as Step 6 of interactive mode.
+3. Iterate if the human requests changes (call `update_feature` with revised content).
+4. When the human approves, proceed with Step 7 of interactive mode: confirm explicitly, then call `update_feature(status: ready_for_breakdown)`.
+
+**The status gate does not change.** Background Mode only affects who writes the spec and when — the human-approval requirement before `ready_for_breakdown` is identical to interactive mode.
+
+### Future: Contractor Pattern
+
+This pattern will graduate to using `request_work` once the contractor infrastructure is deployed. The subagent becomes a standalone contractor role (`spec-writer`) with its own MCP scope and job record, dispatched via `request_work(role="spec-writer", feature_id=..., context=...)`. The CPO review step remains unchanged.
+
+---
+
 ## MCP Tools Used
 
 | Tool | Purpose | When |

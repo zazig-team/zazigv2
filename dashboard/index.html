@@ -1292,6 +1292,7 @@
 
       // State
       let isFetching      = false;
+      let fetchEpoch      = 0; // incremented on each refresh; stale responses are discarded
       let activeCompanyId = null;
       let companyBlocked  = false;
       let detailPollTimer = null;
@@ -1989,21 +1990,33 @@
       }
 
       async function refreshDashboard() {
-        if (isFetching || companyBlocked) return;
+        if (companyBlocked) return;
+        // Bump epoch so any in-flight fetch from a previous company is discarded.
+        var epoch = ++fetchEpoch;
+        var companyAtStart = activeCompanyId;
         isFetching = true;
         refreshButton.disabled = true;
         try {
           var payload = await Promise.all([fetchFeatures(), fetchIdeas()]);
-          lastFeatures = payload[0];
+          // Discard if company changed or a newer refresh has already started.
+          if (epoch !== fetchEpoch || companyAtStart !== activeCompanyId) return;
+          // Client-side safety filter: drop any features that leaked from another company.
+          var safeFeatures = Array.isArray(payload[0]) ? payload[0].filter(function(f) {
+            return !activeCompanyId || String(f?.company_id || '') === String(activeCompanyId);
+          }) : [];
+          lastFeatures = safeFeatures;
           lastIdeas = payload[1];
           renderBoard(lastFeatures, lastIdeas);
           setMessage('');
           lastUpdatedEl.textContent = formatTime(new Date());
         } catch (_) {
+          if (epoch !== fetchEpoch) return;
           setMessage('Failed to load \u2014 retrying in 30s', true);
         } finally {
-          isFetching = false;
-          refreshButton.disabled = false;
+          if (epoch === fetchEpoch) {
+            isFetching = false;
+            refreshButton.disabled = false;
+          }
         }
       }
 
@@ -2548,6 +2561,12 @@
             var selectedName = companySelect.options[companySelect.selectedIndex].textContent;
             activeCompanyId = selectedId;
             setBoardTitle(selectedName);
+            // Immediately clear stale data so features from the previous company
+            // are not visible while the new company's data loads.
+            lastFeatures = [];
+            lastIdeas = [];
+            isFetching = false; // allow new fetch to proceed even if one was in-flight
+            renderBoard([], []);
             void refreshDashboard();
           });
         } catch (_) {

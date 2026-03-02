@@ -2130,7 +2130,7 @@ async function createGitHubPR(
 async function initiateTestDeploy(supabase: SupabaseClient, featureId: string): Promise<void> {
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
-    .select("status, project_id, company_id, branch, title")
+    .select("status, project_id, company_id, branch")
     .eq("id", featureId)
     .single();
   if (fetchErr || !feature) {
@@ -2191,7 +2191,7 @@ async function initiateTestDeploy(supabase: SupabaseClient, featureId: string): 
     company_id: feature.company_id,
     project_id: feature.project_id,
     feature_id: featureId,
-    title: feature.title ? `Deploy to test: ${feature.title}` : "Deploy to test",
+    title: "Deploy to test",
     role: "test-deployer",
     job_type: "deploy_to_test",
     complexity: "simple",
@@ -2287,7 +2287,7 @@ export async function handleFeatureApproved(
   // 1. Fetch feature for project/company context
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
-    .select("project_id, company_id, branch, title")
+    .select("project_id, company_id, branch")
     .eq("id", featureId)
     .single();
 
@@ -2338,7 +2338,7 @@ export async function handleFeatureApproved(
     company_id: feature.company_id,
     project_id: feature.project_id,
     feature_id: featureId,
-    title: feature.title ? `Deploy to production: ${feature.title}` : "Deploy to production",
+    title: "Deploy to production",
     role: "deployer",
     job_type: "deploy_to_prod",
     complexity: "simple",
@@ -3354,7 +3354,7 @@ export async function handleDeployComplete(
     company_id: feature.company_id,
     project_id: feature.project_id,
     feature_id: featureId,
-    title: feature.title ? `Test feature: ${feature.title}` : "Test feature",
+    title: "Test feature",
     role: "tester",
     job_type: "feature_test",
     complexity: "simple",

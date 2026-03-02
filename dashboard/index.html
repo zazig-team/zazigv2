@@ -424,6 +424,30 @@
       font-weight: 600;
     }
 
+    .card-pr-pending-label {
+      color: #93c5fd;
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      border-radius: 4px;
+      padding: 1px 6px;
+      letter-spacing: 0.04em;
+      font-size: 0.58rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .card-pr-exists-label {
+      color: #6ee7b7;
+      border: 1px solid rgba(52, 211, 153, 0.4);
+      border-radius: 4px;
+      padding: 1px 6px;
+      letter-spacing: 0.04em;
+      font-size: 0.58rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
     .idea-card .card-body {
       padding: 10px 12px 9px;
     }
@@ -1106,6 +1130,17 @@
     .detail-footer-msg.success { color: #3cbf6e; }
     .detail-footer-msg.error { color: #e74c3c; }
     .detail-footer-msg.loading { color: #8b919a; }
+    .detail-pr-link {
+      color: var(--col-pr_ready);
+      font-size: 0.8rem;
+      text-decoration: none;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 4px 8px;
+      border: 1px solid var(--col-pr_ready);
+      border-radius: 4px;
+      display: inline-block;
+    }
+    .detail-pr-link:hover { background: rgba(59, 130, 246, 0.1); }
 
     /* ── Responsive ────────────────────────────── */
 
@@ -1188,7 +1223,7 @@
       const SERVICE_HEADERS = { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' };
 
       const FEATURES_BASE =
-        SUPABASE_URL + '/rest/v1/features?select=id,title,description,priority,status,spec,acceptance_tests,branch,project_id,tags,source_idea_id,created_at,updated_at,error,jobs(id,title,status,progress,model,job_type,role,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
+        SUPABASE_URL + '/rest/v1/features?select=id,title,description,priority,status,spec,acceptance_tests,branch,project_id,tags,source_idea_id,created_at,updated_at,error,pr_url,jobs(id,title,status,progress,model,job_type,role,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
       const QUERY_IDEAS_URL =
         SUPABASE_URL + '/functions/v1/query-ideas';
       const COMPANIES_BASE =
@@ -1625,6 +1660,19 @@
 
         if (meta.childNodes.length > 0) body.appendChild(meta);
 
+        // PR status badge for pr_ready column
+        if (colDef.key === 'pr_ready') {
+          var prMeta = el('div', 'card-meta');
+          if (feature.pr_url) {
+            var prNumMatch = String(feature.pr_url).match(/\/pull\/(\d+)/);
+            var prLabel = prNumMatch ? 'PR #' + prNumMatch[1] : 'HAS PR';
+            prMeta.appendChild(el('span', 'card-pr-exists-label', prLabel));
+          } else {
+            prMeta.appendChild(el('span', 'card-pr-pending-label', 'PR PENDING'));
+          }
+          body.appendChild(prMeta);
+        }
+
         // Error subtitle for failed features
         if (normalizeStatus(feature.status) === 'failed' && feature.error) {
           var errEl = el('div', 'card-meta', '');
@@ -2056,6 +2104,15 @@
         detailTitleEl.textContent = getFeatureTitle(feature);
         detailStatusEl.textContent = status;
         detailFooterEl.textContent = '';
+        if (feature.pr_url) {
+          var prLink = document.createElement('a');
+          prLink.href = feature.pr_url;
+          prLink.target = '_blank';
+          prLink.rel = 'noopener noreferrer';
+          prLink.textContent = 'View PR on GitHub';
+          prLink.className = 'detail-pr-link';
+          detailFooterEl.appendChild(prLink);
+        }
         if (status === 'failed') {
           var footerActions = el('div', 'detail-footer-actions');
           var retryBtn = el('button', 'detail-action-btn detail-action-btn-retry');

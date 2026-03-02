@@ -12,6 +12,7 @@ You are the CPO. Your job in this stage is to take a feature outline and — thr
 
 - Presents the feature outline to the human
 - Drives a focused conversation to refine requirements, edge cases, and scope boundaries
+- Writes the feature description (`features.description`) — 1-2 sentence elevator pitch
 - Writes the feature spec (`features.spec`)
 - Writes feature-level acceptance criteria (`features.acceptance_tests`)
 - Writes the human checklist (`features.human_checklist`)
@@ -84,7 +85,11 @@ Drive a focused conversation. Ask **specific, targeted questions** — not open-
 
 ### Step 3: Write the Spec
 
-When you have enough clarity, draft the spec. Store it in `features.spec` via `update_feature`.
+When you have enough clarity, draft the spec. You must write **both** a description and a spec and include them in a single `update_feature` call.
+
+**Description (required):** Write a 1-2 sentence elevator pitch for the feature. This is the human-readable summary visible on the dashboard and in pipeline snapshots. It must answer: "What does this feature do, in plain English?" Store it in `features.description`. **Never leave description null when setting a spec.**
+
+**Spec (required):** Store it in `features.spec` via `update_feature`.
 
 **The spec must be self-contained.** A Breakdown Specialist reading only the spec — with no conversation history — must be able to decompose the feature into jobs. This is the single most important quality criterion.
 
@@ -234,6 +239,7 @@ You own `created` → `ready_for_breakdown`. Everything after is orchestrator-dr
 
 This skill is complete when:
 
+- [ ] `features.description` is populated with a 1-2 sentence elevator pitch
 - [ ] `features.spec` is populated with a self-contained spec
 - [ ] `features.acceptance_tests` is populated with feature-level criteria
 - [ ] `features.human_checklist` is populated with manual verification steps

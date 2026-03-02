@@ -99,6 +99,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ ok: true, note: "nothing to update" });
     }
 
+    // Warn when spec is being set without a description — description is required
+    // for dashboard readability and pipeline snapshot scanning.
+    if (updates.spec !== undefined && !updates.description) {
+      // Check if the existing feature already has a description
+      const { data: existing } = await supabase
+        .from("features")
+        .select("description")
+        .eq("id", feature_id)
+        .single();
+      if (!existing?.description) {
+        console.warn(
+          `[update-feature] WARNING: spec set on feature ${feature_id} but description is null. ` +
+          "Features should always have a description when a spec is written.",
+        );
+      }
+    }
+
     const { data: updated, error } = await supabase
       .from("features")
       .update(updates)

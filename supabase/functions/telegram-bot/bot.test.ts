@@ -13,6 +13,7 @@ import {
 
 interface MockSupabaseConfig {
   companyId?: string | null;
+  telegramUsername?: string | null;
   ideasCountToday?: number;
   recentIdeas?: Array<{ title: string | null; raw_text: string | null; created_at: string }>;
   // deno-lint-ignore no-explicit-any
@@ -22,6 +23,7 @@ interface MockSupabaseConfig {
 function createMockSupabase(config: MockSupabaseConfig = {}) {
   const insertCalls: Record<string, unknown>[] = [];
   const companyId = config.companyId ?? "00000000-0000-0000-0000-000000000111";
+  const telegramUsername = config.telegramUsername ?? null;
 
   const ideasCountToday = config.ideasCountToday ?? 0;
   const recentIdeas = config.recentIdeas ?? [];
@@ -41,7 +43,10 @@ function createMockSupabase(config: MockSupabaseConfig = {}) {
                         return {
                           single: async () => {
                             if (!companyId) return { data: null, error: { message: "not found" } };
-                            return { data: { company_id: companyId }, error: null };
+                            return {
+                              data: { company_id: companyId, telegram_username: telegramUsername },
+                              error: null,
+                            };
                           },
                         };
                       },
@@ -284,6 +289,7 @@ Deno.test("handleText inserts idea row with source_ref", async () => {
 
   const { supabase, insertCalls } = createMockSupabase({
     companyId: "00000000-0000-0000-0000-000000000123",
+    telegramUsername: "tom.weaver",
   });
 
   try {
@@ -291,7 +297,7 @@ Deno.test("handleText inserts idea row with source_ref", async () => {
       makeMessage({
         message_id: 42,
         chat: { id: 777, type: "private" },
-        from: { id: 555, is_bot: false, first_name: "Tom" },
+        from: { id: 555, is_bot: false, first_name: "Tom", username: "different-user" },
         text: "Capture this idea from text",
       }),
       makeContext(supabase),
@@ -304,6 +310,7 @@ Deno.test("handleText inserts idea row with source_ref", async () => {
   assertEquals(insertCalls[0]["company_id"], "00000000-0000-0000-0000-000000000123");
   assertEquals(insertCalls[0]["source"], "telegram");
   assertEquals(insertCalls[0]["source_ref"], "telegram:777:42");
+  assertEquals(insertCalls[0]["originator"], "tom-weaver");
   assertEquals(sentTexts.length, 1);
   assertStringIncludes(sentTexts[0], "Captured as an idea");
 });
@@ -358,7 +365,7 @@ Deno.test("handleVoice downloads, transcribes, inserts, and confirms", async () 
       makeMessage({
         message_id: 9,
         chat: { id: 888, type: "private" },
-        from: { id: 444, is_bot: false, first_name: "Tom" },
+        from: { id: 444, is_bot: false, first_name: "Tom", username: "voicecreator" },
         voice: {
           file_id: "voice-file-id",
           file_unique_id: "voice-unique-id",
@@ -376,6 +383,7 @@ Deno.test("handleVoice downloads, transcribes, inserts, and confirms", async () 
   assertEquals(insertCalls[0]["company_id"], "00000000-0000-0000-0000-000000000abc");
   assertEquals(insertCalls[0]["raw_text"], "Transcribed voice idea text");
   assertEquals(insertCalls[0]["source_ref"], "telegram:888:9");
+  assertEquals(insertCalls[0]["originator"], "voicecreator");
 
   // One progress message + one success confirmation
   assertEquals(sentTexts.length, 2);

@@ -1,0 +1,45 @@
+name: Apply Supabase Migrations
+
+on:
+  push:
+    branches: [main, master]
+
+jobs:
+  apply-migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Detect and apply changed migrations
+        run: |
+          set -euo pipefail
+
+          BEFORE_SHA="${{ github.event.before }}"
+          ZERO_HASH="0000000000000000000000000000000000000000"
+
+          if [ "$BEFORE_SHA" = "$ZERO_HASH" ]; then
+            echo "First push to branch detected - applying migrations without diff check."
+            supabase db push --project-ref "$SUPABASE_PROJECT_REF" --no-confirm
+            exit 0
+          fi
+
+          CHANGED_MIGRATIONS=$(git diff --name-only "$BEFORE_SHA" HEAD -- supabase/migrations/ | grep -E '\.sql$' || true)
+
+          if [ -z "$CHANGED_MIGRATIONS" ]; then
+            echo "No migrations to apply."
+            exit 0
+          fi
+
+          echo "Migrations to apply:"
+          echo "$CHANGED_MIGRATIONS"
+          supabase db push --project-ref "$SUPABASE_PROJECT_REF" --no-confirm
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}

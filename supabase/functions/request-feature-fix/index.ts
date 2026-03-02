@@ -89,13 +89,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const previousStatus = feature.status;
 
-    // 3. Cancel all active combine/verify jobs for this feature
-    const cancelStatuses = ["queued", "dispatched", "executing"];
+    // 3. Cancel all combine/verify/review jobs for this feature (including completed ones).
+    // Without this, the pipeline creates duplicate combine/verify jobs after the fix.
+    const cancelStatuses = ["queued", "dispatched", "executing", "complete", "reviewing", "verifying"];
     const { error: cancelErr } = await supabase
       .from("jobs")
       .update({ status: "cancelled" })
       .eq("feature_id", feature_id)
-      .in("job_type", ["combine", "verify"])
+      .in("job_type", ["combine", "review", "verify"])
       .in("status", cancelStatuses);
 
     if (cancelErr) {

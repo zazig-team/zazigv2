@@ -120,10 +120,28 @@ export function launchTui(options: {
     execSync(`tmux set -t ${viewerSession} mouse on`, { stdio: "pipe" });
   } catch { /* best-effort */ }
 
-  // Set status bar to show agent windows
+  // Color-code status bar per role so you can tell agents apart at a glance.
+  // The hook fires on every window switch and updates the bar color.
+  const roleColors: Record<string, string> = {
+    CPO: "bg=blue,fg=white",
+    CTO: "bg=green,fg=black",
+    VPE: "bg=magenta,fg=white",
+    CMO: "bg=yellow,fg=black",
+  };
+  const defaultColor = "bg=colour240,fg=white";
+
+  // Build a shell case statement for the hook
+  const caseBranches = Object.entries(roleColors)
+    .map(([role, style]) => `${role}) tmux set -t ${viewerSession} status-style '${style}' ;;`)
+    .join(" ");
+  const hookCmd = `W=$(tmux display-message -p '#W'); case $W in ${caseBranches} *) tmux set -t ${viewerSession} status-style '${defaultColor}' ;; esac`;
+
   try {
+    // Set initial color based on first agent
+    const firstRole = agents[0]!.role.toUpperCase();
+    const initialColor = roleColors[firstRole] ?? defaultColor;
     execSync(
-      `tmux set -t ${viewerSession} status-style "bg=blue,fg=white"`,
+      `tmux set -t ${viewerSession} status-style "${initialColor}"`,
       { stdio: "pipe" }
     );
     execSync(
@@ -131,7 +149,12 @@ export function launchTui(options: {
       { stdio: "pipe" }
     );
     execSync(
-      `tmux set -t ${viewerSession} status-right " Ctrl+B n: next agent | Ctrl+B d: detach "`,
+      `tmux set -t ${viewerSession} status-right " Ctrl+B n: next | Ctrl+B d: detach "`,
+      { stdio: "pipe" }
+    );
+    // Hook: change status bar color when switching windows
+    execSync(
+      `tmux set-hook -t ${viewerSession} after-select-window "run-shell '${hookCmd}'"`,
       { stdio: "pipe" }
     );
   } catch { /* best-effort */ }

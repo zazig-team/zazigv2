@@ -611,9 +611,10 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     if (!machines) {
       const { data: m, error: mErr } = await supabase
         .from("machines")
-        .select("id, company_id, name, slots_claude_code, slots_codex, last_heartbeat, status")
+        .select("id, company_id, name, slots_claude_code, slots_codex, last_heartbeat, status, enabled")
         .eq("company_id", job.company_id)
-        .eq("status", "online");
+        .eq("status", "online")
+        .neq("enabled", false);
 
       if (mErr) {
         console.error("[orchestrator] Error fetching machines:", mErr.message);

@@ -182,6 +182,12 @@ interface ActiveJob {
   repoUrl?: string;
   /** Feature branch name — used as PR head branch. */
   featureBranch?: string;
+  /** Job spec text — stored for codex post-execution Haiku review. */
+  spec?: string;
+  /** Acceptance criteria text — stored for codex post-execution Haiku review. */
+  acceptanceCriteria?: string;
+  /** Human-readable job title — used in codex commit message. */
+  jobTitle?: string;
 }
 
 interface ActivePersistentAgent {
@@ -596,6 +602,9 @@ export class JobExecutor {
       cardType: msg.cardType,
       repoUrl: msg.repoUrl ?? undefined,
       featureBranch: msg.featureBranch ?? undefined,
+      spec: msg.spec,
+      acceptanceCriteria: msg.acceptanceCriteria,
+      jobTitle: msg.title,
     };
     this.activeJobs.set(jobId, activeJob);
 
@@ -1290,6 +1299,43 @@ export class JobExecutor {
       this.slots.release(job.slotType);
     }
 
+    // Codex post-execution review: run Haiku to verify the diff before completing.
+    // Only applies to codex jobs with a worktree (code-context jobs).
+    if (job.slotType === "codex" && job.worktreePath) {
+      const reviewResult = await runCodexReview(job, job.spec ?? "", job.acceptanceCriteria ?? "");
+      jobLog(jobId, `Codex review: pass=${reviewResult.pass}, reason=${reviewResult.reason}`);
+      console.log(`[executor] Codex review for jobId=${jobId}: pass=${reviewResult.pass}, reason=${reviewResult.reason}`);
+
+      if (!reviewResult.pass) {
+        // Revert any uncommitted changes
+        try {
+          await execFileAsync("git", ["checkout", "."], { cwd: job.worktreePath });
+          jobLog(jobId, "Reverted uncommitted codex changes via git checkout .");
+        } catch (revertErr) {
+          jobLog(jobId, `git checkout . failed (non-fatal): ${String(revertErr)}`);
+        }
+        // Flush log before failing
+        const failLogChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+        if (failLogChunk !== null) {
+          await this.supabase.rpc("append_raw_log", { job_id: jobId, chunk: failLogChunk.chunk }).catch(() => {});
+        }
+        await this.sendJobFailed(jobId, reviewResult.reason, "unknown");
+        return;
+      }
+
+      // Review passed — commit the changes
+      const commitMsg = `codex: ${job.jobTitle ?? jobId}`;
+      try {
+        await execFileAsync("git", ["add", "-A"], { cwd: job.worktreePath });
+        await execFileAsync("git", ["commit", "-m", commitMsg], { cwd: job.worktreePath });
+        jobLog(jobId, `Codex changes committed: ${commitMsg}`);
+        console.log(`[executor] Codex commit for jobId=${jobId}: "${commitMsg}"`);
+      } catch (commitErr) {
+        jobLog(jobId, `git commit failed (non-fatal, will still push): ${String(commitErr)}`);
+        console.warn(`[executor] Codex commit failed for jobId=${jobId}: ${String(commitErr)}`);
+      }
+    }
+
     // Look for the report file. Agents write .claude/cpo-report.md relative to
     // their CWD which is the ephemeral workspace dir (e.g. ~/.zazigv2/job-<id>/).
     // Fall back to $HOME for persistent agents that don't have a workspace dir.
@@ -1787,6 +1833,81 @@ export class JobExecutor {
       machineId: this.machineId,
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: Codex post-execution Haiku review
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs a Claude Haiku code review against the git diff produced by a codex job.
+ *
+ * Flow:
+ *   1. git diff HEAD — if empty, returns FAIL "Codex produced no changes"
+ *   2. Writes the review prompt to a temp file to avoid ARG_MAX issues
+ *   3. Pipes the prompt into `claude --model claude-haiku-4-5-20251001 -p` via cat
+ *   4. Parses "PASS" or "FAIL: reason" from the output
+ *   5. On any error, returns FAIL with the error message
+ */
+async function runCodexReview(
+  job: ActiveJob,
+  jobSpec: string,
+  acceptanceCriteria: string,
+): Promise<{ pass: boolean; reason: string }> {
+  const worktreePath = job.worktreePath!;
+
+  // 1. Check for any changes
+  let diff: string;
+  try {
+    const { stdout } = await execFileAsync("git", ["diff", "HEAD"], { cwd: worktreePath });
+    diff = stdout;
+  } catch (err) {
+    return { pass: false, reason: `git diff failed: ${String(err)}` };
+  }
+
+  if (!diff.trim()) {
+    return { pass: false, reason: "Codex produced no changes" };
+  }
+
+  // 2. Build and write review prompt
+  const reviewPrompt = [
+    "You are reviewing a code diff produced by an automated coding agent.",
+    "## Original Spec",
+    jobSpec,
+    "## Acceptance Criteria",
+    acceptanceCriteria,
+    "## Diff",
+    diff,
+    "PASS if: changes address the spec, no obvious bugs, no placeholder code.",
+    "FAIL if: incomplete, obvious errors, unrelated file changes, missed acceptance criteria.",
+    "Respond with exactly: PASS or FAIL: reason",
+  ].join("\n");
+
+  const reviewPromptPath = join(worktreePath, ".zazig-review-prompt.txt");
+  writeFileSync(reviewPromptPath, reviewPrompt, "utf-8");
+
+  // 3. Run Haiku via cat pipe to avoid ARG_MAX
+  let reviewOutput: string;
+  try {
+    const shellCmd = `cat ${shellEscape([reviewPromptPath])} | claude --model claude-haiku-4-5-20251001 -p`;
+    const { stdout } = await execFileAsync("bash", ["-c", shellCmd], {
+      cwd: worktreePath,
+      maxBuffer: 1024 * 1024,
+    } as object);
+    reviewOutput = stdout.trim();
+  } catch (err) {
+    return { pass: false, reason: `Haiku review failed: ${String(err)}` };
+  }
+
+  // 4. Parse PASS / FAIL
+  if (reviewOutput.startsWith("PASS")) {
+    return { pass: true, reason: "PASS" };
+  }
+  const failMatch = reviewOutput.match(/^FAIL:\s*(.+)/s);
+  return {
+    pass: false,
+    reason: failMatch ? failMatch[1].trim() : reviewOutput || "Haiku returned no output",
+  };
 }
 
 // ---------------------------------------------------------------------------

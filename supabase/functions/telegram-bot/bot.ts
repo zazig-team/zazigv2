@@ -135,7 +135,10 @@ async function transcribeAudio(
 ): Promise<string | null> {
   try {
     const formData = new FormData();
-    const blob = new Blob([audioBytes], { type: mimeType });
+    // Normalize into an ArrayBuffer-backed view for BlobPart typing/runtime safety.
+    const normalizedAudio = new Uint8Array(audioBytes.byteLength);
+    normalizedAudio.set(audioBytes);
+    const blob = new Blob([normalizedAudio], { type: mimeType });
     formData.append("file", blob, "audio.ogg");
     formData.append("model", "whisper-1");
 
@@ -155,6 +158,77 @@ async function transcribeAudio(
     console.error("[telegram-bot] transcribeAudio threw:", err);
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Ideas table helpers (/status and /recent)
+// ---------------------------------------------------------------------------
+
+interface RecentIdeaRow {
+  title: string | null;
+  raw_text: string | null;
+  created_at: string;
+}
+
+async function queryIdeasCountToday(
+  supabase: SupabaseClient,
+  companyId: string,
+): Promise<number | null> {
+  try {
+    const start = new Date();
+    start.setUTCHours(0, 0, 0, 0);
+
+    const { count, error } = await supabase
+      .from("ideas")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("source", "telegram")
+      .gte("created_at", start.toISOString());
+
+    if (error) {
+      console.error("[telegram-bot] queryIdeasCountToday failed:", error.message);
+      return null;
+    }
+    return count ?? 0;
+  } catch (err) {
+    console.error("[telegram-bot] queryIdeasCountToday threw:", err);
+    return null;
+  }
+}
+
+async function queryRecentIdeas(
+  supabase: SupabaseClient,
+  companyId: string,
+): Promise<RecentIdeaRow[] | null> {
+  try {
+    const { data, error } = await supabase
+      .from("ideas")
+      .select("title,raw_text,created_at")
+      .eq("company_id", companyId)
+      .eq("source", "telegram")
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    if (error) {
+      console.error("[telegram-bot] queryRecentIdeas failed:", error.message);
+      return null;
+    }
+    return (data ?? []) as RecentIdeaRow[];
+  } catch (err) {
+    console.error("[telegram-bot] queryRecentIdeas threw:", err);
+    return null;
+  }
+}
+
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 3) + "...";
+}
+
+function formatUtcTimestamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toISOString().replace("T", " ").slice(0, 16) + " UTC";
 }
 
 // ---------------------------------------------------------------------------
@@ -193,9 +267,104 @@ export async function handleCommand(
           "• Your CPO will triage ideas during the next session\n\n" +
           "Commands:\n" +
           "/start – Welcome message\n" +
-          "/help – This message",
+          "/help – This message\n" +
+          "/status – Count of Telegram ideas captured today\n" +
+          "/recent – Last 5 Telegram ideas",
       );
       break;
+
+    case "/status": {
+      const fromId = message.from?.id;
+      if (!fromId) {
+        await sendMessage(
+          ctx.token,
+          chatId,
+          "I could not identify your Telegram user ID for /status.",
+        );
+        break;
+      }
+
+      const companyId = await lookupCompanyId(ctx.supabase, fromId);
+      if (!companyId) {
+        await sendMessage(
+          ctx.token,
+          chatId,
+          "You are not registered with a Zazig company. Please contact your administrator.",
+        );
+        break;
+      }
+
+      const count = await queryIdeasCountToday(ctx.supabase, companyId);
+      if (count === null) {
+        await sendMessage(
+          ctx.token,
+          chatId,
+          "I could not fetch status right now. Please try again.",
+        );
+        break;
+      }
+
+      await sendMessage(
+        ctx.token,
+        chatId,
+        `Connected. ${count} Telegram ideas captured today.`,
+      );
+      break;
+    }
+
+    case "/recent": {
+      const fromId = message.from?.id;
+      if (!fromId) {
+        await sendMessage(
+          ctx.token,
+          chatId,
+          "I could not identify your Telegram user ID for /recent.",
+        );
+        break;
+      }
+
+      const companyId = await lookupCompanyId(ctx.supabase, fromId);
+      if (!companyId) {
+        await sendMessage(
+          ctx.token,
+          chatId,
+          "You are not registered with a Zazig company. Please contact your administrator.",
+        );
+        break;
+      }
+
+      const ideas = await queryRecentIdeas(ctx.supabase, companyId);
+      if (ideas === null) {
+        await sendMessage(
+          ctx.token,
+          chatId,
+          "I could not fetch recent ideas right now. Please try again.",
+        );
+        break;
+      }
+
+      if (ideas.length === 0) {
+        await sendMessage(
+          ctx.token,
+          chatId,
+          "No recent Telegram ideas for your company yet.",
+        );
+        break;
+      }
+
+      const lines = ideas.map((idea, idx) => {
+        const raw = (idea.raw_text ?? "").replace(/\s+/g, " ").trim();
+        const label = (idea.title ?? "").trim() || (raw ? truncate(raw, 60) : "(empty)");
+        return `${idx + 1}. ${label} — ${formatUtcTimestamp(idea.created_at)}`;
+      });
+
+      await sendMessage(
+        ctx.token,
+        chatId,
+        `Recent Telegram ideas:\n${lines.join("\n")}`,
+      );
+      break;
+    }
 
     default:
       await sendMessage(

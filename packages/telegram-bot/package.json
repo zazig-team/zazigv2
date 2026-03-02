@@ -5,6 +5,7 @@
   "description": "Telegram Ideas Bot — captures text and voice ideas via Telegram",
   "type": "module",
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/index.js",

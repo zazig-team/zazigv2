@@ -182,6 +182,7 @@ function incrementSlotPayload(machine: MachineRow, slotType: SlotType): Record<s
 
 interface RoutingEntry {
   complexity: string;
+  role: string;
   model: string;
   slotType: SlotType;
 }
@@ -203,7 +204,7 @@ async function loadRouting(
   // Fetch global defaults (company_id IS NULL) and company-specific overrides.
   const { data, error } = await supabase
     .from("complexity_routing")
-    .select("complexity, company_id, roles:role_id(default_model, slot_type)")
+    .select("complexity, company_id, roles:role_id(name, default_model, slot_type)")
     .or(`company_id.is.null,company_id.eq.${companyId}`);
 
   const map = new Map<string, RoutingEntry>();
@@ -211,9 +212,9 @@ async function loadRouting(
   if (error || !data) {
     console.warn("[orchestrator] Failed to load complexity_routing, using hardcoded fallbacks:", error?.message);
     // Hardcoded fallback if DB is empty or query fails
-    map.set("simple", { complexity: "simple", model: "codex", slotType: "codex" });
-    map.set("medium", { complexity: "medium", model: "claude-sonnet-4-6", slotType: "claude_code" });
-    map.set("complex", { complexity: "complex", model: "claude-opus-4-6", slotType: "claude_code" });
+    map.set("simple", { complexity: "simple", role: "junior-engineer", model: "codex", slotType: "codex" });
+    map.set("medium", { complexity: "medium", role: "senior-engineer", model: "claude-sonnet-4-6", slotType: "claude_code" });
+    map.set("complex", { complexity: "complex", role: "senior-engineer", model: "claude-opus-4-6", slotType: "claude_code" });
     routingCache = map;
     return map;
   }
@@ -223,10 +224,11 @@ async function loadRouting(
   const overrides = data.filter((r: Record<string, unknown>) => r.company_id !== null);
 
   for (const row of [...globals, ...overrides]) {
-    const role = row.roles as unknown as { default_model: string; slot_type: string } | null;
+    const role = row.roles as unknown as { name: string; default_model: string; slot_type: string } | null;
     if (!role) continue;
     map.set(row.complexity as string, {
       complexity: row.complexity as string,
+      role: role.name,
       model: role.default_model,
       slotType: role.slot_type as SlotType,
     });
@@ -250,22 +252,23 @@ function resolveModelAndSlot(
   complexity: string | null,
   existingModel: string | null,
   jobId?: string,
-): { model: string; slotType: SlotType } {
+): { role: string; model: string; slotType: SlotType } {
   // Explicit model override on the job takes precedence.
   if (existingModel) {
     const entry = routing.get(complexity ?? "medium");
     const slotType = entry?.slotType ?? "claude_code";
-    return { model: existingModel, slotType };
+    const role = entry?.role ?? "senior-engineer";
+    return { role, model: existingModel, slotType };
   }
 
   const entry = routing.get(complexity ?? "medium");
   if (entry) {
-    return { model: entry.model, slotType: entry.slotType };
+    return { role: entry.role, model: entry.model, slotType: entry.slotType };
   }
 
   // Fallback if complexity not in routing table
   console.warn(`[orchestrator] No routing entry for complexity=${complexity} on job ${jobId ?? "?"}, defaulting to sonnet`);
-  return { model: "claude-sonnet-4-6", slotType: "claude_code" };
+  return { role: "senior-engineer", model: "claude-sonnet-4-6", slotType: "claude_code" };
 }
 
 // ---------------------------------------------------------------------------
@@ -1331,7 +1334,12 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
 
   // Handle reviewer verify job completion: check pass/fail and advance or notify CPO
   if (jobRow?.job_type === "verify" && jobRow?.role === "reviewer" && jobRow?.feature_id) {
-    const passed = result?.toUpperCase().startsWith("PASSED");
+    const normalizedResult = result?.toUpperCase() ?? "";
+    const passed = normalizedResult.startsWith("PASSED");
+    const failed =
+      normalizedResult.startsWith("FAILED") ||
+      normalizedResult.startsWith("NO_REPORT") ||
+      normalizedResult.startsWith("VERDICT_MISSING");
     if (passed) {
       console.log(`[orchestrator] Verification PASSED for feature ${jobRow.feature_id} — advancing to pr_ready`);
       const { data: prReadyUpdated } = await supabase
@@ -1352,9 +1360,15 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
         );
         await notifyPRReady(supabase, jobRow.company_id, featureTitle, prUrl);
       }
-    } else if (result?.toUpperCase().startsWith("FAILED")) {
-      console.log(`[orchestrator] Verification FAILED for feature ${jobRow.feature_id} — triggering retry`);
-      await handleVerificationFailed(supabase, jobRow.feature_id, jobRow.company_id, result ?? "");
+    } else if (failed) {
+      const failureResult =
+        normalizedResult.startsWith("NO_REPORT")
+          ? "FAILED: NO_REPORT (reviewer report file missing)"
+          : normalizedResult.startsWith("VERDICT_MISSING")
+            ? "FAILED: VERDICT_MISSING (reviewer report has no machine-parseable verdict)"
+            : (result ?? "FAILED");
+      console.log(`[orchestrator] Verification FAILED for feature ${jobRow.feature_id} — triggering retry (result=${failureResult})`);
+      await handleVerificationFailed(supabase, jobRow.feature_id, jobRow.company_id, failureResult);
     } else {
       // INCONCLUSIVE or unexpected result — notify CPO for manual triage
       console.log(`[orchestrator] Verification INCONCLUSIVE for feature ${jobRow.feature_id}: result=${result ?? "unknown"}`);
@@ -2667,7 +2681,7 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
   // Fast-track: skip breakdown-specialist and create one direct engineering job.
   if (feature.fast_track) {
     const routing = await loadRouting(supabase, feature.company_id);
-    const { model: fastTrackModel, slotType: fastTrackSlotType } = resolveModelAndSlot(
+    const { role: fastTrackRole, model: fastTrackModel, slotType: fastTrackSlotType } = resolveModelAndSlot(
       routing,
       "simple",
       null,
@@ -2685,7 +2699,7 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
         project_id: feature.project_id,
         feature_id: featureId,
         title: feature.title ?? "Fast-track implementation",
-        role: "senior-engineer",
+        role: fastTrackRole,
         job_type: "code",
         complexity: "simple",
         model: fastTrackModel,
@@ -3081,7 +3095,12 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     const job = latestVerify[0] as { id: string; status: string; context: string; result: string | null };
     if (job.status !== "complete") continue;
 
-    const passed = job.result?.toUpperCase().startsWith("PASSED");
+    const normalizedResult = job.result?.toUpperCase() ?? "";
+    const passed = normalizedResult.startsWith("PASSED");
+    const failed =
+      normalizedResult.startsWith("FAILED") ||
+      normalizedResult.startsWith("NO_REPORT") ||
+      normalizedResult.startsWith("VERDICT_MISSING");
 
     if (passed) {
       console.log(`[orchestrator] processFeatureLifecycle: verify PASSED for feature ${feature.id} — advancing to pr_ready (catch-up)`);
@@ -3104,9 +3123,15 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
         );
         await notifyPRReady(supabase, feature.company_id, featureTitle, prUrl);
       }
-    } else if (job.result?.toUpperCase().startsWith("FAILED")) {
-      console.log(`[orchestrator] processFeatureLifecycle: verify FAILED for feature ${feature.id} — triggering retry (catch-up)`);
-      await handleVerificationFailed(supabase, feature.id, feature.company_id, job.result ?? "");
+    } else if (failed) {
+      const failureResult =
+        normalizedResult.startsWith("NO_REPORT")
+          ? "FAILED: NO_REPORT (reviewer report file missing)"
+          : normalizedResult.startsWith("VERDICT_MISSING")
+            ? "FAILED: VERDICT_MISSING (reviewer report has no machine-parseable verdict)"
+            : (job.result ?? "FAILED");
+      console.log(`[orchestrator] processFeatureLifecycle: verify FAILED for feature ${feature.id} — triggering retry (catch-up, result=${failureResult})`);
+      await handleVerificationFailed(supabase, feature.id, feature.company_id, failureResult);
     } else {
       // INCONCLUSIVE — notify CPO but don't retry (catch-up)
       console.log(`[orchestrator] processFeatureLifecycle: verify INCONCLUSIVE for feature ${feature.id} (catch-up): result=${job.result ?? "unknown"}`);

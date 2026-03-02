@@ -2666,6 +2666,13 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
 
   // Fast-track: skip breakdown-specialist and create one direct engineering job.
   if (feature.fast_track) {
+    const routing = await loadRouting(supabase, feature.company_id);
+    const { model: fastTrackModel, slotType: fastTrackSlotType } = resolveModelAndSlot(
+      routing,
+      "simple",
+      null,
+    );
+
     const fastTrackSpec = (feature.spec ?? "").trim();
     const fastTrackContext = fastTrackSpec.length > 0
       ? fastTrackSpec
@@ -2681,7 +2688,8 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
         role: "senior-engineer",
         job_type: "code",
         complexity: "simple",
-        slot_type: "claude_code",
+        model: fastTrackModel,
+        slot_type: fastTrackSlotType,
         status: "queued",
         context: fastTrackContext,
         acceptance_tests: feature.acceptance_tests ?? null,

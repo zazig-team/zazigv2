@@ -1,6 +1,6 @@
 # Zazig Org Model
 
-**Date:** 2026-02-22
+**Date:** 2026-02-22 (updated 2026-03-03: Memory layer)
 **Status:** reference document
 **Authors:** Tom (owner), Chris (co-founder), CPO (agent)
 
@@ -22,6 +22,7 @@ Every other design doc handles one layer in depth. This doc is the map that show
 | Orchestrator + Dispatch | [`orchestration-server-design.md`](plans/2026-02-18-orchestration-server-design.md) |
 | Pipeline + Job Lifecycle | [`software-development-pipeline-design.md`](plans/2026-02-24-software-development-pipeline-design.md) |
 | Messaging | [`agent-messaging-bidirectional.md`](plans/2026-02-22-agent-messaging-bidirectional.md) |
+| Memory | [`memory-system-design.md`](plans/active/2026-03-03-memory-system-design.md) |
 | Model Routing | Covered in this document ([Model Routing](#model-routing)) — may graduate to own design doc when local model support lands |
 
 ---
@@ -63,10 +64,13 @@ Every zazig worker is assembled from up to six layers, compiled by the orchestra
 │     → See: exec-knowledge-architecture-v5.md                 │
 ├─────────────────────────────────────────────────────────────┤
 │  6. MEMORY                                                   │
-│     What they remember. Episodic context from past jobs,     │
-│     learned patterns, project-specific knowledge.            │
-│     Persists across jobs for workers with continuity.        │
-│     → See: orchestration-server-design.md                    │
+│     What they remember. 9-type taxonomy: Identity            │
+│     (biographical), Decision, Gotcha, Fact, Preference,      │
+│     Observation, Moment, Relationship, Procedure.            │
+│     Stored in Supabase, injected via bulletin (persistent    │
+│     agents) or ContextPack (contractors). Tier-specific      │
+│     token budgets, mandatory slot reservation.               │
+│     → See: memory-system-design.md                           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -85,7 +89,7 @@ Position 5: Doctrine tension blocks     (cross-role contradictions)
 Position 6: Canon source summaries      (if high-similarity match)
 Position 7: Skill content               (how to work on this type of task)
 Position 8: Task context                (what to do now)
-Position 9: Memory context              (what you remember)
+Position 9: Memory context              (what you remember — bulletin or ContextPack, tier-budgeted)
 ```
 
 Positions 1–3b form a **static prefix** cached across all jobs for the same role within a company. Positions 4–9 are **dynamic** and change per task. This split reduces inference costs by ~10x.
@@ -109,7 +113,7 @@ Executives are the leadership team. They have full identity, full knowledge, and
 | **Skills** | Full skill set for their domain |
 | **Doctrines** | Full — role-specific beliefs, heuristics, frameworks |
 | **Canons** | Full — access to all company canon libraries |
-| **Memory** | Persistent — episodic memory across all jobs |
+| **Memory** | Persistent — 9-type episodic memory across all jobs, injected via bulletin (1000-1500 token budget). Biographical identity, decisions, gotchas, procedures. See [memory-system-design.md](plans/active/2026-03-03-memory-system-design.md) |
 | **Heartbeat** | Yes — autonomous, runs on a recurring cycle |
 | **Gateway** | Yes — founders can talk to them directly (e.g., via Slack) |
 | **Autonomy** | High — initiates work, not just responds to it |
@@ -133,7 +137,7 @@ Employees are skilled workers with continuity and light identity. They're more n
 | **Skills** | Focused skill set for their specific function |
 | **Doctrines** | Yes — narrow, deep doctrines for their specialty |
 | **Canons** | Yes — access to relevant canon libraries |
-| **Memory** | Persistent — learns from past jobs, builds expertise over time |
+| **Memory** | Persistent — 9-type memory, learns from past jobs, builds expertise. Injected via bulletin (700-1200 token budget). Role-type shared memory available (all Senior Engineers share patterns). See [memory-system-design.md](plans/active/2026-03-03-memory-system-design.md) |
 | **Heartbeat** | Yes — autonomous for routine tasks (review cycles, scheduled scans) |
 | **Gateway** | Scoped — role-specific, typically write-only (e.g., Social Media Manager posts to X but doesn't receive founder DMs). Not all employees have gateways; granted per role config. |
 | **Autonomy** | Moderate — runs routine work autonomously, also dispatched by execs |
@@ -159,7 +163,7 @@ Contractors are specialist experts hired per job. They're the most narrowly scop
 | **Skills** | Specialist skill set for their one function |
 | **Doctrines** | Yes — deep specialist doctrines (a Cybersecurity Tester has OWASP doctrines) |
 | **Canons** | Yes — specialist canon libraries (security canons, legal canons) |
-| **Memory** | Job-scoped — context within a single engagement (e.g., multi-phase migration). Optionally shared: learns patterns across jobs for the same contractor type. Opt-in per role config; some contractors are genuinely stateless. |
+| **Memory** | Job-scoped — injected via ContextPack (300-800 token budget). Optionally shared: learns patterns across jobs for the same contractor type. Opt-in per role config; some contractors are genuinely stateless. Tombstone commit on job completion. See [memory-system-design.md](plans/active/2026-03-03-memory-system-design.md) |
 | **Heartbeat** | No — not autonomous, dispatched per job |
 | **Gateway** | No — no direct engagement |
 | **Autonomy** | None — given a job, executes it, reports, gone |
@@ -168,7 +172,7 @@ Contractors are specialist experts hired per job. They're the most narrowly scop
 
 Contractors don't need personality because no one engages with them directly. They don't need heartbeats because they aren't autonomous. What they *do* need is deep specialist knowledge — a Cybersecurity Tester with security doctrines + OWASP canons + pentest skills is far more effective than a generalist CTO running a security scan.
 
-**Contractor memory model.** Contractors have opt-in, two-tier memory. **Job-scoped memory** persists within a single engagement — a Migration Specialist doing Phase 2 of a migration can recall Phase 1 decisions without re-reading the entire context. **Shared memory** accumulates across jobs for the same contractor type — a Cybersecurity Tester that has audited 50 codebases learns common vulnerability patterns and carries those forward. Both tiers are opt-in per role config; some contractors (one-shot auditors, simple linters) should remain genuinely stateless.
+**Contractor memory model.** Contractors have opt-in, two-tier memory. **Job-scoped memory** persists within a single engagement — a Migration Specialist doing Phase 2 of a migration can recall Phase 1 decisions without re-reading the entire context. **Shared memory** accumulates across jobs for the same contractor type — a Cybersecurity Tester that has audited 50 codebases learns common vulnerability patterns and carries those forward. Both tiers are opt-in per role config; some contractors (one-shot auditors, simple linters) should remain genuinely stateless. On job completion, contractors perform a **tombstone commit** — structured memory extraction before termination. Memory is injected via **ContextPack** (300-800 token budget, scored by relevance, mandatory slot reservation). See [memory-system-design.md](plans/active/2026-03-03-memory-system-design.md) for full specification.
 
 **The contractor marketplace.** Contractors are the natural unit for a zazig marketplace. Like real contractors, they build expertise that serves any client. A company doesn't need to "hire" a full-time Accessibility Auditor — they spin one up when needed, pay per job, and it arrives pre-loaded with accessibility doctrines and WCAG canons. This dovetails with the canon library marketplace (see knowledge architecture v5, Phase 6): you're selling pre-configured specialist knowledge, not just books.
 
@@ -193,7 +197,7 @@ Zazig Contractor Marketplace (future)
 | **Skills** | Broad | Focused | Specialist |
 | **Doctrines** | Wide domain | Deep, narrow | Deep, narrow |
 | **Canons** | All company libraries | Relevant libraries | Specialist libraries |
-| **Memory** | Persistent | Persistent | Job-scoped + optional shared (opt-in per role) |
+| **Memory** | Persistent (bulletin, 1000-1500 tokens) | Persistent (bulletin, 700-1200 tokens) | Job-scoped + optional shared (ContextPack, 300-800 tokens) |
 | **Heartbeat** | Yes | Yes | No |
 | **Gateway** | Yes — bidirectional (Slack, etc.) | Scoped — role-specific, typically write-only | No |
 | **Charter** | Full (mandates + interdictions) | Light (interdictions only) | None |
@@ -237,9 +241,10 @@ Job dispatched
     │
     ▼
 6. Load memory context (tier-dependent):
-   ├── Exec:       Full episodic memory
-   ├── Employee:   Full episodic memory
-   └── Contractor: Job-scoped memory (if enabled) + shared type memory (if enabled)
+   ├── Exec:       Bulletin — LLM-synthesised brief from top memories (1000-1500 tokens)
+   ├── Employee:   Bulletin — scoped to role + project (700-1200 tokens)
+   └── Contractor: ContextPack — scored memories, greedy fill (300-800 tokens)
+   Mandatory slot reservation: 2 gotchas + 2 decisions + 1 risk filled first
     │
     ▼
 7. Assemble prompt stack in cache-optimized order
@@ -525,7 +530,7 @@ The orchestrator needs to be aware of tiers for:
 
 1. **Prompt compilation** — which personality mode to use
 2. **Heartbeat management** — execs and employees get heartbeats, contractors don't
-3. **Memory injection** — execs and employees get full memory; contractors get job-scoped/shared memory if enabled
+3. **Memory injection** — execs and employees get bulletin (LLM-synthesised, tier-budgeted); contractors get ContextPack (scored, greedy fill). Mandatory slot reservation ensures critical gotchas/decisions always surface. Post-job extraction runs via `extract-memories` Edge Function. See [memory-system-design.md](plans/active/2026-03-03-memory-system-design.md)
 4. **Gateway routing** — execs get bidirectional gateways; employees get scoped gateways (if configured); contractors get none
 5. **Model routing** — read `model_config` from role, resolve primary model, check local availability, select review chain (see [Model Routing](#model-routing))
 6. **Charter enforcement** — validate actions against interdictions; cross-validate mandates across all active execs at startup (see [Charters](#charters-mandates-and-interdictions))

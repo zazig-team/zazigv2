@@ -3,6 +3,7 @@
 ## Corrections
 | Date | Source | What Went Wrong | What To Do Instead |
 |------|--------|----------------|-------------------|
+| 2026-03-03 | docs/plans directory | Assumed design docs were at `docs/plans/*.md` but they are organized into subdirectories: `active/`, `shipped/`, `archived/`, `parked/`. Only one file sits at root level. | Always check `docs/plans/active/` and `docs/plans/shipped/` for the canonical design docs. New standalone docs can go at `docs/plans/` root. |
 | 2026-02-20 | Doppler secrets | Searched `--config dev` and found no Supabase keys. Keys are in `--config prd`. | Always check `prd` config first for zazig project in Doppler |
 | 2026-02-20 | Trello access | Said "I don't have Trello API access" when Trello API key + token are in Doppler and have been used extensively. | Always check Doppler for Trello creds. Full Trello API access across both workspaces. Using "Trello Lite" pattern. |
 | 2026-02-24 | Supabase migrations | Tried `supabase db push`, `supabase db execute --file` — neither works (migration history mismatch, no --file flag). Wasted time looking for auth that was in Doppler. | Use Management API: `curl -X POST https://api.supabase.com/v1/projects/{ref}/database/query` with `SUPABASE_ACCESS_TOKEN` from Doppler (zazig/prd). Works for all SQL including DDL. |
@@ -39,6 +40,13 @@
 - Skill-to-role/stage mapping as an explicit section in design docs — clarifies what the orchestrator must assemble at dispatch time and what machines need installed
 
 ## Patterns That Don't Work
+
+## Design Doc Patterns
+- Design docs in `docs/plans/` are organized by status: `active/`, `shipped/`, `archived/`, `parked/`
+- New standalone design docs (not yet categorized) sit at `docs/plans/` root
+- Design doc format: Title, Date, Status, Authors, Part of ORG MODEL, Companion docs. Then: Problem, Architecture, Integration, Implementation Plan, Open Questions, Appendices
+- Cross-reference other docs by relative path from the plans directory (e.g., `active/2026-02-22-exec-knowledge-architecture-v5.md`)
+- Memory system design: `docs/plans/active/2026-03-03-memory-system-design.md` (in active subdirectory, v3 — includes Procedure type, tier-specific budgets, mandatory slot reservation, hardened Context Handoff Protocol)
 
 ## Domain Notes
 - Replaces zazig v1's VP-Eng, Supervisor, watchdog, and launch scripts

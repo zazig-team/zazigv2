@@ -7,7 +7,8 @@
     "packages/shared",
     "packages/orchestrator",
     "packages/local-agent",
-    "packages/cli"
+    "packages/cli",
+    "packages/webui"
   ],
   "scripts": {
     "build": "npm run build --workspaces",

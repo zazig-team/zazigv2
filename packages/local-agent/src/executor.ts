@@ -188,6 +188,8 @@ interface ActiveJob {
   acceptanceCriteria?: string;
   /** Human-readable job title — used in codex commit message. */
   jobTitle?: string;
+  /** Git HEAD commit recorded BEFORE Codex spawns — needed for self-commit detection. */
+  startingCommit?: string;
 }
 
 interface ActivePersistentAgent {
@@ -406,6 +408,7 @@ export class JobExecutor {
     let worktreePath: string | undefined;
     let repoDir: string | undefined;
     let jobBranch: string | undefined;
+    let startingCommit: string | undefined;
     const roleName = msg.role ?? "senior-engineer";
     const requiresCodeContext = !NO_CODE_CONTEXT_ROLES.has(roleName);
 
@@ -443,6 +446,14 @@ export class JobExecutor {
 
         jobLog(jobId, `Worktree created at ${worktreePath} (branch: ${jobBranch})`);
         console.log(`[executor] Git worktree created at ${worktreePath} (branch: ${jobBranch}) for jobId=${jobId}`);
+
+        // Record HEAD before Codex runs — self-commit detection needs pre-execution baseline.
+        if (msg.slotType === "codex") {
+          try {
+            const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
+            startingCommit = stdout.trim();
+          } catch { /* non-fatal — runCodexReview falls back to recording inline */ }
+        }
       } else {
         ephemeralWorkspaceDir = buildScratchWorkspaceDir(this.companyId, roleName, jobId);
         mkdirSync(ephemeralWorkspaceDir, { recursive: true });
@@ -608,6 +619,7 @@ export class JobExecutor {
       spec: msg.spec,
       acceptanceCriteria: msg.acceptanceCriteria,
       jobTitle: msg.title,
+      startingCommit,
     };
     this.activeJobs.set(jobId, activeJob);
 
@@ -1873,13 +1885,18 @@ async function runCodexReview(
     ".zazig-review-prompt.txt",
   ];
 
-  // Record starting commit before any staging/committing.
+  // Use pre-recorded starting commit (captured before Codex spawned) if available.
+  // Falls back to current HEAD for non-codex paths or if pre-recording failed.
   let startingCommit: string;
-  try {
-    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
-    startingCommit = stdout.trim();
-  } catch (err) {
-    return { pass: false, reason: `git rev-parse failed: ${String(err)}`, committed: false };
+  if (job.startingCommit) {
+    startingCommit = job.startingCommit;
+  } else {
+    try {
+      const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
+      startingCommit = stdout.trim();
+    } catch (err) {
+      return { pass: false, reason: `git rev-parse failed: ${String(err)}`, committed: false };
+    }
   }
 
   // 1. Stage and commit codex output (excluding overlay files)

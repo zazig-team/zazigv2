@@ -2085,7 +2085,9 @@ function buildCommand(
     model && model !== "codex"
       ? model
       : slotType === "codex"
-        ? "claude-sonnet-4-6"      // lighter model — Codex does the heavy lifting
+        ? (complexity === "medium" || complexity === "complex"
+          ? "gpt-5.3-codex"
+          : "gpt-5.3-codex-spark")
         : complexity === "complex"
           ? "claude-opus-4-6"
           : "claude-sonnet-4-6";

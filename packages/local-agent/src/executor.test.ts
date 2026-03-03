@@ -156,6 +156,33 @@ function makeMockSupabase() {
   };
 }
 
+function parseShellTokens(shellCommand: string): string[] {
+  const command = shellCommand.includes("; ") ? shellCommand.split("; ", 2)[1] ?? "" : shellCommand;
+  return (command.match(/'[^']*'|"[^"]*"|\S+/g) ?? []).map((token) => {
+    if ((token.startsWith("'") && token.endsWith("'")) || (token.startsWith("\"") && token.endsWith("\""))) {
+      return token.slice(1, -1).replace(/'\"'\"'/g, "'");
+    }
+    return token;
+  });
+}
+
+function getCodexTmuxArgs(mockExec: Mock): string[] {
+  const newSessionCall = mockExec.mock.calls.find((call: unknown[]) => {
+    return call[0] === "tmux" && Array.isArray(call[1]) && call[1][0] === "new-session";
+  });
+  expect(newSessionCall).toBeDefined();
+  const args = newSessionCall?.[1] as string[] | undefined;
+  expect(Array.isArray(args)).toBe(true);
+  const shellCommand = typeof args?.at(-1) === "string" ? args?.at(-1) : undefined;
+  expect(shellCommand).toBeDefined();
+  return parseShellTokens(shellCommand as string);
+}
+
+function getPromptWriteContent(writeFile: Mock): string {
+  const call = writeFile.mock.calls.find((entry: unknown[]) => typeof entry[0] === "string" && (entry[0] as string).endsWith(".zazig-prompt.txt"));
+  return typeof call?.[1] === "string" ? call[1] as string : "";
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -352,6 +379,92 @@ describe("JobExecutor — progress integration", () => {
 
     // Duplicate should be ignored before ack/executing status or slot acquisition.
     expect(send.mock.calls.length).toBe(sendCallsAfterFirstStart);
+  });
+});
+
+describe("JobExecutor — codex command and context assembly", () => {
+  let send: ReturnType<typeof vi.fn>;
+  let slots: SlotTracker;
+  let supabase: ReturnType<typeof makeMockSupabase>;
+  let executor: JobExecutor;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    mockExecFileAsync = vi.fn(async (cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "has-session") {
+        throw new Error("session not found");
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    send = vi.fn().mockResolvedValue(undefined);
+    slots = new SlotTracker({ claude_code: 2, codex: 1 });
+    supabase = makeMockSupabase();
+    executor = new JobExecutor(
+      "machine-1",
+      "company-test",
+      slots,
+      send as unknown as SendFn,
+      supabase.client as any,
+      "https://test.supabase.co",
+      "test-anon-key",
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("includes model_reasoning_effort=xhigh for medium codex jobs", async () => {
+    await executor.handleStartJob(makeStartJob({
+      slotType: "codex",
+      complexity: "medium",
+      promptStackMinusSkills: "BASE PROMPT",
+    }));
+
+    const codexArgs = getCodexTmuxArgs(mockExecFileAsync as unknown as Mock);
+    expect(codexArgs).toEqual(expect.arrayContaining(["-c", "model_reasoning_effort=xhigh"]));
+    expect(codexArgs.at(-1)).toBe("/tmp/mock-worktree/.zazig-prompt.txt");
+    expect(codexArgs.indexOf("-c")).toBeLessThan(codexArgs.lastIndexOf("/tmp/mock-worktree/.zazig-prompt.txt"));
+  });
+
+  it("does not include reasoning flag for simple codex jobs", async () => {
+    await executor.handleStartJob(makeStartJob({
+      slotType: "codex",
+      complexity: "simple",
+      promptStackMinusSkills: "BASE PROMPT",
+    }));
+
+    const codexArgs = getCodexTmuxArgs(mockExecFileAsync as unknown as Mock);
+    expect(codexArgs).not.toContain("model_reasoning_effort=xhigh");
+    expect(codexArgs.at(-1)).toBe("/tmp/mock-worktree/.zazig-prompt.txt");
+  });
+
+  it("excludes CODEX_ROUTING_INSTRUCTIONS from codex context", async () => {
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as Mock;
+    await executor.handleStartJob(makeStartJob({
+      slotType: "codex",
+      promptStackMinusSkills: "BASE PROMPT",
+    }));
+
+    const promptContent = getPromptWriteContent(writeFileSyncMock);
+    expect(promptContent).toContain("BASE PROMPT");
+    expect(promptContent).not.toContain("codex-delegate implement");
+  });
+
+  it("includes CODEX_ROUTING_INSTRUCTIONS for claude_code context", async () => {
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as Mock;
+    await executor.handleStartJob(makeStartJob({
+      slotType: "claude_code",
+      complexity: "medium",
+      promptStackMinusSkills: "BASE PROMPT",
+    }));
+
+    const promptContent = getPromptWriteContent(writeFileSyncMock);
+    expect(promptContent).toContain("BASE PROMPT");
+    expect(promptContent).toContain("codex-delegate implement");
   });
 });
 

@@ -2006,9 +2006,23 @@ function buildCommand(
 
   if (slotType === "codex") {
     // Native Codex execution — prompt is passed as a positional CLI arg (not stdin).
+    const codexArgs = [
+      "exec",
+      "-m",
+      resolvedModel,
+      "--full-auto",
+      "-C",
+      worktreePath ?? process.cwd(),
+      "--skip-git-repo-check",
+    ];
+    if (complexity === "medium") {
+      codexArgs.push("-c", "model_reasoning_effort=xhigh");
+    }
+    codexArgs.push(promptFilePath ?? "");
+
     return {
       cmd: "codex",
-      args: ["exec", "-m", resolvedModel, "--full-auto", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check", promptFilePath ?? ""],
+      args: codexArgs,
     };
   }
 

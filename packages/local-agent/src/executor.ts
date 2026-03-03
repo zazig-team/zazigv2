@@ -391,10 +391,12 @@ export class JobExecutor {
 
     const isInteractive = msg.interactive === true;
 
+    const repoRoot = resolveRepoRoot();
+
     // --- 3. Assemble context from pre-built promptStackMinusSkills ---
     // The orchestrator builds the full prompt stack with a <!-- SKILLS --> marker.
     // We insert skill file content at the marker position.
-    const assembledContext = assembleContext(msg);
+    const assembledContext = assembleContext(msg, repoRoot);
 
     console.log(`[executor] Assembled context for jobId=${jobId}:\n${assembledContext}`);
 
@@ -457,7 +459,6 @@ export class JobExecutor {
 
     // Set up workspace overlay (CLAUDE.md, .mcp.json, .claude/).
     const thisDir = dirname(fileURLToPath(import.meta.url));
-    const repoRoot = resolveRepoRoot();
     const mcpServerPath = join(thisDir, "agent-mcp-server.js");
     try {
       setupJobWorkspace({
@@ -945,7 +946,7 @@ export class JobExecutor {
         jobId,
         companyId: resolvedCompanyId,
         role,
-        claudeMdContent: assembleContext(msg),
+        claudeMdContent: assembleContext(msg, repoRoot),
         skills: msg.roleSkills,
         repoSkillsDir: join(repoRoot, "projects", "skills"),
         repoInteractiveSkillsDir: join(repoRoot, ".claude", "skills"),
@@ -1937,14 +1938,6 @@ async function runCodexReview(
 // ---------------------------------------------------------------------------
 
 /**
- * Resolves the path to a skill's SKILL.md file.
- * Skill names may contain colons (e.g. "commit-commands:commit") which are valid path separators.
- */
-function skillFilePath(name: string): string {
-  return join(homedir(), ".claude", "skills", name, "SKILL.md");
-}
-
-/**
  * Assembles the final agent context from a pre-built promptStackMinusSkills.
  *
  * The orchestrator builds the full prompt stack with a <!-- SKILLS --> marker
@@ -1955,17 +1948,29 @@ function skillFilePath(name: string): string {
  *
  * Missing skill files are warned and skipped — they do not fail the job.
  */
-function assembleContext(msg: StartJob): string {
+function assembleContext(msg: StartJob, repoRoot?: string): string {
   let assembled = msg.promptStackMinusSkills ?? msg.context ?? "";
 
   // Insert skill content at the marker position
   if (msg.roleSkills && msg.roleSkills.length > 0) {
     const skillParts: string[] = [];
     for (const name of msg.roleSkills) {
+      const candidateSkillPaths = [
+        ...(repoRoot ? [
+          join(repoRoot, "projects", "skills", `${name}.md`),
+          join(repoRoot, "projects", "skills", name, "SKILL.md"),
+          join(repoRoot, ".claude", "skills", name, "SKILL.md"),
+        ] : []),
+        join(homedir(), ".claude", "skills", name, "SKILL.md"),
+      ];
+      const skillPath = candidateSkillPaths.find((path) => existsSync(path));
       try {
-        skillParts.push(readFileSync(skillFilePath(name), "utf8"));
+        if (!skillPath) throw new Error("missing skill file");
+        skillParts.push(readFileSync(skillPath, "utf8"));
       } catch {
-        console.warn(`[executor] Skill file not found, skipping: ${skillFilePath(name)}`);
+        console.warn(
+          `[executor] Skill file not found, skipping: ${name} (checked: ${candidateSkillPaths.join(", ")})`,
+        );
       }
     }
     const skillContent = skillParts.join("\n\n---\n\n");

@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCompany } from "../hooks/useCompany";
-import { fetchTeamPageData, type TeamPageData } from "../lib/queries";
+import { useRealtimeTable } from "../hooks/useRealtimeTable";
+import {
+  fetchTeamPageData,
+  type TeamPageData,
+  updateExecArchetype,
+} from "../lib/queries";
 
 function readable(value: string): string {
   return value.replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -47,29 +52,73 @@ export default function Team(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<TeamPageData>(EMPTY_DATA);
   const [openPickerByCardId, setOpenPickerByCardId] = useState<Record<string, boolean>>({});
+  const [archetypeErrorByCardId, setArchetypeErrorByCardId] = useState<Record<string, string>>({});
+  const [updatingCardId, setUpdatingCardId] = useState<string | null>(null);
+  const refreshTimerRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    async function loadTeamData(): Promise<void> {
-      if (!activeCompany?.id) {
-        setData(EMPTY_DATA);
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const payload = await fetchTeamPageData(activeCompany.id);
-        setData(payload);
-      } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : String(loadError));
-      } finally {
-        setLoading(false);
-      }
+  const loadTeamData = useCallback(async (): Promise<void> => {
+    if (!activeCompany?.id) {
+      setData(EMPTY_DATA);
+      return;
     }
 
-    void loadTeamData();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const payload = await fetchTeamPageData(activeCompany.id);
+      setData(payload);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setLoading(false);
+    }
   }, [activeCompany?.id]);
+
+  useEffect(() => {
+    void loadTeamData();
+  }, [loadTeamData]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleRealtimeRefresh = useCallback(() => {
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current);
+    }
+
+    refreshTimerRef.current = window.setTimeout(() => {
+      void loadTeamData();
+      refreshTimerRef.current = null;
+    }, 300);
+  }, [loadTeamData]);
+
+  const realtimeEnabled = Boolean(activeCompany?.id);
+  const realtimeFilter = activeCompany?.id
+    ? `company_id=eq.${activeCompany.id}`
+    : undefined;
+
+  useRealtimeTable({
+    table: "machines",
+    filter: realtimeFilter,
+    enabled: realtimeEnabled,
+    onInsert: scheduleRealtimeRefresh,
+    onUpdate: scheduleRealtimeRefresh,
+  });
+
+  useRealtimeTable({
+    table: "jobs",
+    filter: realtimeFilter,
+    enabled: realtimeEnabled,
+    onInsert: scheduleRealtimeRefresh,
+    onUpdate: scheduleRealtimeRefresh,
+    onDelete: scheduleRealtimeRefresh,
+  });
 
   const totalSlots = useMemo(() => {
     return data.machines.reduce((sum, machine) => sum + machine.slotsClaudeCode + machine.slotsCodex, 0);
@@ -78,6 +127,40 @@ export default function Team(): JSX.Element {
   const activeSlots = useMemo(() => {
     return data.engineers.length + data.execCards.length;
   }, [data.engineers.length, data.execCards.length]);
+
+  const onSelectArchetype = useCallback(
+    async (personalityId: string, archetypeId: string): Promise<void> => {
+      setUpdatingCardId(personalityId);
+      setArchetypeErrorByCardId((current) => {
+        const next = { ...current };
+        delete next[personalityId];
+        return next;
+      });
+
+      try {
+        await updateExecArchetype(personalityId, archetypeId);
+        await loadTeamData();
+        setOpenPickerByCardId((current) => ({
+          ...current,
+          [personalityId]: false,
+        }));
+      } catch (updateError) {
+        const message = updateError instanceof Error ? updateError.message : String(updateError);
+        const lower = message.toLowerCase();
+        const friendlyMessage = lower.includes("permission") || lower.includes("rls")
+          ? "Permission denied — RLS policy needed"
+          : message;
+
+        setArchetypeErrorByCardId((current) => ({
+          ...current,
+          [personalityId]: friendlyMessage,
+        }));
+      } finally {
+        setUpdatingCardId(null);
+      }
+    },
+    [loadTeamData],
+  );
 
   return (
     <div className="team-page">
@@ -102,6 +185,9 @@ export default function Team(): JSX.Element {
             ) : (
               data.execCards.map((exec) => {
                 const pickerOpen = openPickerByCardId[exec.id] ?? false;
+                const archetypeOptions = data.archetypeOptionsByRoleId[exec.roleId] ?? [];
+                const archetypeError = archetypeErrorByCardId[exec.id];
+                const isUpdating = updatingCardId === exec.id;
 
                 return (
                   <article className="exec-card" key={exec.id}>
@@ -170,7 +256,35 @@ export default function Team(): JSX.Element {
 
                     {pickerOpen ? (
                       <div className="archetype-picker visible">
-                        <div className="archetype-picker-title">Archetype options will be writable in Phase 2.</div>
+                        <div className="archetype-picker-title">Choose an archetype for {readable(exec.roleName)}</div>
+                        <div className="archetype-options">
+                          {archetypeOptions.length === 0 ? (
+                            <div className="inline-feedback">No archetype options found for this role.</div>
+                          ) : (
+                            archetypeOptions.map((option) => {
+                              const selected = option.id === exec.archetypeId;
+                              return (
+                                <button
+                                  key={option.id}
+                                  className={`archetype-option${selected ? " selected" : ""}`}
+                                  type="button"
+                                  disabled={isUpdating}
+                                  onClick={() => void onSelectArchetype(exec.id, option.id)}
+                                >
+                                  <div className="archetype-option-info">
+                                    <div className="archetype-option-name">{option.name}</div>
+                                    <div className="archetype-option-desc">{option.tagline || "No tagline provided."}</div>
+                                  </div>
+                                  <div className="archetype-option-check" />
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                        {isUpdating ? <div className="inline-feedback">Updating archetype...</div> : null}
+                        {archetypeError ? (
+                          <div className="inline-feedback inline-feedback--error">{archetypeError}</div>
+                        ) : null}
                       </div>
                     ) : null}
 

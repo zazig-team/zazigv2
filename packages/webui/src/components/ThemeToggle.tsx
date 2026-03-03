@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-const THEME_KEY = "zazig:webui:theme";
+const THEME_KEY = "zazig-theme";
 
 type Theme = "light" | "dark";
 
@@ -28,6 +28,12 @@ export default function ThemeToggle(): JSX.Element {
   const [theme, setTheme] = useState<Theme>(() => getCurrentTheme());
 
   useEffect(() => {
+    const storedTheme = window.localStorage.getItem(THEME_KEY);
+    if (storedTheme === "light" || storedTheme === "dark") {
+      document.documentElement.setAttribute("data-theme", storedTheme);
+      setTheme(storedTheme);
+    }
+
     const observer = new MutationObserver(() => {
       setTheme(getCurrentTheme());
     });

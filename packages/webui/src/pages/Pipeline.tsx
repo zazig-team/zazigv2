@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useCompany } from "../hooks/useCompany";
 import {
@@ -6,6 +6,7 @@ import {
   type PipelineFeature,
   type PipelineStatus,
 } from "../hooks/usePipelineSnapshot";
+import { useRealtimeTable } from "../hooks/useRealtimeTable";
 import { fetchIdeas, type Idea } from "../lib/queries";
 
 type FilterMode = "all" | "mine" | "urgent" | "stale";
@@ -75,6 +76,7 @@ export default function Pipeline(): JSX.Element {
   const [ideasLoading, setIdeasLoading] = useState(false);
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [showParked, setShowParked] = useState(false);
+  const refreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     async function loadIdeas(): Promise<void> {
@@ -105,18 +107,64 @@ export default function Pipeline(): JSX.Element {
     void loadIdeas();
   }, [activeCompany?.id]);
 
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current);
+    }
+
+    refreshTimerRef.current = window.setTimeout(() => {
+      void refresh();
+      refreshTimerRef.current = null;
+    }, 300);
+  }, [refresh]);
+
+  const realtimeEnabled = Boolean(activeCompany?.id);
+  const realtimeFilter = activeCompany?.id
+    ? `company_id=eq.${activeCompany.id}`
+    : undefined;
+
+  useRealtimeTable({
+    table: "features",
+    filter: realtimeFilter,
+    enabled: realtimeEnabled,
+    onInsert: scheduleRefresh,
+    onUpdate: scheduleRefresh,
+  });
+
+  useRealtimeTable({
+    table: "jobs",
+    filter: realtimeFilter,
+    enabled: realtimeEnabled,
+    onInsert: scheduleRefresh,
+    onUpdate: scheduleRefresh,
+  });
+
   const allFeatures = useMemo(
     () => Object.values(snapshot.byStatus).flat(),
     [snapshot.byStatus],
   );
 
-  const mineIdentifier =
-    user?.email?.split("@")[0] ?? user?.id ?? "";
+  const mineIdentifier = user?.email?.split("@")[0] ?? "";
+  const userId = user?.id ?? "";
 
   const applyFeatureFilter = (feature: PipelineFeature): boolean => {
     switch (filterMode) {
       case "mine":
-        return roleMatchesMine(feature.assignee, mineIdentifier);
+        if (!feature.assignee) {
+          return false;
+        }
+        return (
+          roleMatchesMine(feature.assignee, mineIdentifier) ||
+          feature.assignee === userId
+        );
       case "urgent":
         return ["urgent", "high"].includes(feature.priority.toLowerCase());
       case "stale":
@@ -142,7 +190,13 @@ export default function Pipeline(): JSX.Element {
     }
 
     if (filterMode === "mine") {
-      return roleMatchesMine(idea.originator, mineIdentifier);
+      if (!idea.originator) {
+        return false;
+      }
+      return (
+        roleMatchesMine(idea.originator, mineIdentifier) ||
+        idea.originator === userId
+      );
     }
 
     return true;
@@ -164,12 +218,15 @@ export default function Pipeline(): JSX.Element {
     }
 
     return next;
-  }, [snapshot.byStatus, filterMode, mineIdentifier]);
+  }, [snapshot.byStatus, filterMode, mineIdentifier, userId]);
 
-  const filteredIdeas = useMemo(() => ideas.filter(applyIdeaFilter), [ideas, filterMode, mineIdentifier]);
+  const filteredIdeas = useMemo(
+    () => ideas.filter(applyIdeaFilter),
+    [ideas, filterMode, mineIdentifier, userId],
+  );
   const filteredParkedIdeas = useMemo(
     () => parkedIdeas.filter(applyIdeaFilter),
-    [parkedIdeas, filterMode, mineIdentifier],
+    [parkedIdeas, filterMode, mineIdentifier, userId],
   );
 
   const metrics = useMemo(() => {

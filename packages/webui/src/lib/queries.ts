@@ -9,6 +9,7 @@ export interface Goal {
   target: string | null;
   target_date: string | null;
   status: string | null;
+  progress: number | null;
   position: number | null;
 }
 
@@ -17,6 +18,7 @@ export interface FocusArea {
   title: string;
   description: string | null;
   status: string;
+  health: string | null;
   domain_tags: string[] | null;
   goals: Goal[];
 }
@@ -131,7 +133,13 @@ export async function fetchGoals(companyId: string): Promise<Goal[]> {
     company_id: companyId,
   });
 
-  const goals = (data.goals ?? []).slice();
+  const goals = (data.goals ?? []).map((goal) => ({
+    ...goal,
+    progress:
+      typeof goal.progress === "number" && Number.isFinite(goal.progress)
+        ? goal.progress
+        : null,
+  }));
   goals.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
   return goals;
 }
@@ -145,7 +153,10 @@ export async function fetchFocusAreas(companyId: string): Promise<FocusArea[]> {
     },
   );
 
-  return data.focus_areas ?? [];
+  return (data.focus_areas ?? []).map((focusArea) => ({
+    ...focusArea,
+    health: typeof focusArea.health === "string" ? focusArea.health : null,
+  }));
 }
 
 export async function fetchIdeas(
@@ -298,6 +309,7 @@ export async function fetchDashboardTeam(
 
 export interface TeamExecCard {
   id: string;
+  roleId: string;
   roleName: string;
   model: string;
   archetypeId: string | null;
@@ -452,6 +464,7 @@ export async function fetchTeamPageData(companyId: string): Promise<TeamPageData
 
     return {
       id: String(row.id),
+      roleId: typeof row.role_id === "string" ? row.role_id : "",
       roleName: role?.name ?? "Role",
       model: role?.default_model ?? "unknown",
       archetypeId: (row.archetype_id as string | null) ?? null,
@@ -547,4 +560,18 @@ export async function fetchTeamPageData(companyId: string): Promise<TeamPageData
     machines,
     contractors,
   };
+}
+
+export async function updateExecArchetype(
+  personalityId: string,
+  archetypeId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("exec_personalities")
+    .update({ archetype_id: archetypeId })
+    .eq("id", personalityId);
+
+  if (error) {
+    throw error;
+  }
 }

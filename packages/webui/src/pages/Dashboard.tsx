@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useCompany } from "../hooks/useCompany";
+import { useRealtimeTable } from "../hooks/useRealtimeTable";
 import {
   fetchActivity,
   fetchDashboardTeam,
@@ -109,11 +110,6 @@ function eventSummary(item: EventItem): string {
   return item.event_type.replace(/_/g, " ");
 }
 
-function fallbackGoalProgress(index: number): number {
-  const fallback = [35, 12, 5];
-  return fallback[index] ?? 0;
-}
-
 function readableRole(value: string): string {
   return value.replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -150,6 +146,36 @@ const EMPTY_TEAM: TeamSidebarData = {
   machineHeartbeatById: {},
 };
 
+type FocusBadgeTone = "badge--positive" | "badge--negative" | "badge--caution" | "badge--neutral";
+
+function focusBadgeDetails(focusArea: FocusArea): { label: string; tone: FocusBadgeTone } {
+  const health = focusArea.health?.toLowerCase() ?? null;
+
+  if (health) {
+    if (health === "on_track" || health === "healthy") {
+      return { label: health.replace(/_/g, " "), tone: "badge--positive" };
+    }
+    if (health === "behind") {
+      return { label: health, tone: "badge--negative" };
+    }
+    if (health === "waiting") {
+      return { label: health, tone: "badge--caution" };
+    }
+    if (health === "later") {
+      return { label: health, tone: "badge--neutral" };
+    }
+  }
+
+  const status = focusArea.status.toLowerCase();
+  if (status === "active") {
+    return { label: focusArea.status, tone: "badge--positive" };
+  }
+  if (status === "paused") {
+    return { label: focusArea.status, tone: "badge--caution" };
+  }
+  return { label: focusArea.status, tone: "badge--neutral" };
+}
+
 export default function Dashboard(): JSX.Element {
   const { user } = useAuth();
   const { activeCompany } = useCompany();
@@ -166,39 +192,88 @@ export default function Dashboard(): JSX.Element {
   const [ideaText, setIdeaText] = useState("");
   const [ideaSubmitting, setIdeaSubmitting] = useState(false);
   const [ideaMessage, setIdeaMessage] = useState<string | null>(null);
+  const refreshTimerRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    async function loadDashboardData(): Promise<void> {
-      if (!activeCompany?.id) {
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const [goalsData, focusAreasData, activityData, pulseData, teamData] = await Promise.all([
-          fetchGoals(activeCompany.id),
-          fetchFocusAreas(activeCompany.id),
-          fetchActivity(activeCompany.id),
-          fetchPulseMetrics(activeCompany.id),
-          fetchDashboardTeam(activeCompany.id),
-        ]);
-
-        setGoals(goalsData.slice(0, 3));
-        setFocusAreas(focusAreasData.slice(0, 5));
-        setActivity(activityData);
-        setPulse(pulseData);
-        setTeam(teamData);
-      } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : String(loadError));
-      } finally {
-        setLoading(false);
-      }
+  const loadDashboardData = useCallback(async (): Promise<void> => {
+    if (!activeCompany?.id) {
+      return;
     }
 
-    void loadDashboardData();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const [goalsData, focusAreasData, activityData, pulseData, teamData] = await Promise.all([
+        fetchGoals(activeCompany.id),
+        fetchFocusAreas(activeCompany.id),
+        fetchActivity(activeCompany.id),
+        fetchPulseMetrics(activeCompany.id),
+        fetchDashboardTeam(activeCompany.id),
+      ]);
+
+      setGoals(goalsData.slice(0, 3));
+      setFocusAreas(focusAreasData.slice(0, 5));
+      setActivity(activityData);
+      setPulse(pulseData);
+      setTeam(teamData);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setLoading(false);
+    }
   }, [activeCompany?.id]);
+
+  useEffect(() => {
+    void loadDashboardData();
+  }, [loadDashboardData]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleRealtimeRefresh = useCallback(() => {
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current);
+    }
+
+    refreshTimerRef.current = window.setTimeout(() => {
+      void loadDashboardData();
+      refreshTimerRef.current = null;
+    }, 300);
+  }, [loadDashboardData]);
+
+  const realtimeEnabled = Boolean(activeCompany?.id);
+  const realtimeFilter = activeCompany?.id
+    ? `company_id=eq.${activeCompany.id}`
+    : undefined;
+
+  useRealtimeTable({
+    table: "features",
+    filter: realtimeFilter,
+    enabled: realtimeEnabled,
+    onInsert: scheduleRealtimeRefresh,
+    onUpdate: scheduleRealtimeRefresh,
+  });
+
+  useRealtimeTable({
+    table: "jobs",
+    filter: realtimeFilter,
+    enabled: realtimeEnabled,
+    onInsert: scheduleRealtimeRefresh,
+    onUpdate: scheduleRealtimeRefresh,
+  });
+
+  useRealtimeTable({
+    table: "machines",
+    filter: realtimeFilter,
+    enabled: realtimeEnabled,
+    onInsert: scheduleRealtimeRefresh,
+    onUpdate: scheduleRealtimeRefresh,
+  });
 
   const displayName = userDisplayName(user?.user_metadata?.name, user?.email);
   const now = new Date();
@@ -233,7 +308,12 @@ export default function Dashboard(): JSX.Element {
       setIdeaText("");
       setIdeaMessage("Idea sent to inbox");
     } catch (submitError) {
-      setIdeaMessage(submitError instanceof Error ? submitError.message : String(submitError));
+      const message = submitError instanceof Error ? submitError.message : String(submitError);
+      const lower = message.toLowerCase();
+      const friendlyMessage = lower.includes("permission") || lower.includes("rls")
+        ? "Idea submission blocked — RLS policy needed"
+        : message;
+      setIdeaMessage(friendlyMessage);
     } finally {
       setIdeaSubmitting(false);
     }
@@ -258,7 +338,7 @@ export default function Dashboard(): JSX.Element {
             </div>
             <div className="goals-grid">
               {goals.map((goal, index) => {
-                const progress = fallbackGoalProgress(index);
+                const progress = goal.progress ?? 0;
                 const color = ["var(--ember)", "var(--caution)", "var(--info)"][index] ?? "var(--ember)";
                 return (
                   <article className="goal-card" key={goal.id}>
@@ -415,12 +495,7 @@ export default function Dashboard(): JSX.Element {
               <div className="focus-item">No focus areas found</div>
             ) : (
               focusAreas.map((focusArea) => {
-                const statusClass =
-                  focusArea.status === "active"
-                    ? "badge--positive"
-                    : focusArea.status === "paused"
-                      ? "badge--caution"
-                      : "badge--neutral";
+                const { label, tone } = focusBadgeDetails(focusArea);
 
                 return (
                   <div className="focus-item" key={focusArea.id}>
@@ -430,9 +505,9 @@ export default function Dashboard(): JSX.Element {
                         {focusArea.goals.length} linked goal{focusArea.goals.length === 1 ? "" : "s"}
                       </div>
                     </div>
-                    <span className={`badge ${statusClass}`}>
+                    <span className={`badge ${tone}`}>
                       <span className="badge-dot" />
-                      {focusArea.status}
+                      {label}
                     </span>
                   </div>
                 );

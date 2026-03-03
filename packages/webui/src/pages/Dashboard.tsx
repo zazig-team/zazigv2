@@ -21,6 +21,7 @@ import {
   type PulseMetrics,
   type TeamSidebarData,
 } from "../lib/queries";
+import DashboardDetailPanel from "../components/DashboardDetailPanel";
 
 function greetingForHour(hour: number): string {
   if (hour < 12) {
@@ -192,6 +193,8 @@ export default function Dashboard(): JSX.Element {
   const [ideaText, setIdeaText] = useState("");
   const [ideaSubmitting, setIdeaSubmitting] = useState(false);
   const [ideaMessage, setIdeaMessage] = useState<string | null>(null);
+  const [selectedGoal, setSelectedGoal] = useState<{ goal: Goal; color: string } | null>(null);
+  const [selectedFocusArea, setSelectedFocusArea] = useState<FocusArea | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
 
   const refreshDecisions = useCallback(async (): Promise<void> => {
@@ -240,30 +243,37 @@ export default function Dashboard(): JSX.Element {
 
     try {
       const [
-        goalsData,
-        focusAreasData,
-        activityData,
-        pulseData,
-        teamData,
-        decisionsData,
-        actionItemsData,
-      ] = await Promise.all([
+        goalsResult,
+        focusAreasResult,
+        activityResult,
+        pulseResult,
+        teamResult,
+        decisionsResult,
+        actionItemsResult,
+      ] = await Promise.allSettled([
         fetchGoals(activeCompany.id),
         fetchFocusAreas(activeCompany.id),
         fetchActivity(activeCompany.id),
         fetchPulseMetrics(activeCompany.id),
         fetchDashboardTeam(activeCompany.id),
-        fetchDecisions(activeCompany.id).catch(() => []),
-        fetchActionItems(activeCompany.id).catch(() => []),
+        fetchDecisions(activeCompany.id),
+        fetchActionItems(activeCompany.id),
       ]);
 
-      setGoals(goalsData.slice(0, 3));
-      setFocusAreas(focusAreasData.slice(0, 5));
-      setActivity(activityData);
-      setPulse(pulseData);
-      setTeam(teamData);
-      setDecisions(decisionsData);
-      setActionItems(actionItemsData);
+      setGoals((goalsResult.status === "fulfilled" ? goalsResult.value : []).slice(0, 3));
+      setFocusAreas((focusAreasResult.status === "fulfilled" ? focusAreasResult.value : []).slice(0, 5));
+      setActivity(activityResult.status === "fulfilled" ? activityResult.value : []);
+      setPulse(pulseResult.status === "fulfilled" ? pulseResult.value : EMPTY_PULSE);
+      setTeam(teamResult.status === "fulfilled" ? teamResult.value : EMPTY_TEAM);
+      setDecisions(decisionsResult.status === "fulfilled" ? decisionsResult.value : []);
+      setActionItems(actionItemsResult.status === "fulfilled" ? actionItemsResult.value : []);
+
+      const failures = [goalsResult, focusAreasResult, activityResult, pulseResult, teamResult, decisionsResult, actionItemsResult]
+        .filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failures.length > 0) {
+        const firstReason = failures[0].reason;
+        setError(firstReason instanceof Error ? firstReason.message : String(firstReason));
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
@@ -448,7 +458,11 @@ export default function Dashboard(): JSX.Element {
                 const progress = goal.progress ?? 0;
                 const color = ["var(--ember)", "var(--caution)", "var(--info)"][index] ?? "var(--ember)";
                 return (
-                  <article className="goal-card" key={goal.id}>
+                  <article
+                    className="goal-card"
+                    key={goal.id}
+                    onClick={() => setSelectedGoal({ goal, color })}
+                  >
                     <div className="goal-rank">{index + 1}</div>
                     <div className="goal-horizon">{goal.time_horizon ?? "Near"}</div>
                     <div className="goal-title">{goal.title}</div>
@@ -631,7 +645,9 @@ export default function Dashboard(): JSX.Element {
 
           <section className="fade-up d8">
             <div className="ideas-bar">
-              <div className="ideas-bar-icon">+</div>
+              <div className="ideas-bar-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v6l3-2"/><path d="M12 3v6l-3-2"/><path d="M12 9a7 7 0 1 0 0 14 7 7 0 0 0 0-14Z"/></svg>
+              </div>
               <input
                 type="text"
                 placeholder="Share an idea you'd love to see built..."
@@ -677,9 +693,16 @@ export default function Dashboard(): JSX.Element {
                 const { label, tone } = focusBadgeDetails(focusArea);
 
                 return (
-                  <div className="focus-item" key={focusArea.id}>
-                    <div>
+                  <div
+                    className="focus-item"
+                    key={focusArea.id}
+                    onClick={() => setSelectedFocusArea(focusArea)}
+                  >
+                    <div style={{ minWidth: 0, flex: 1 }}>
                       <span className="focus-name">{focusArea.title}</span>
+                      {focusArea.description ? (
+                        <div className="focus-desc">{focusArea.description}</div>
+                      ) : null}
                       <div className="focus-sub">
                         {focusArea.goals.length} linked goal{focusArea.goals.length === 1 ? "" : "s"}
                       </div>
@@ -697,7 +720,7 @@ export default function Dashboard(): JSX.Element {
           <section className="sidebar-card fade-up d6">
             <div className="sidebar-card-title">Your Team</div>
             {team.members.length === 0 ? (
-              <div className="team-member">No active jobs</div>
+              <div className="team-member">No team members configured</div>
             ) : (
               team.members.map((member) => {
                 const initials = member.role
@@ -706,17 +729,32 @@ export default function Dashboard(): JSX.Element {
                   .join("")
                   .slice(0, 2);
 
+                const hasActivity = member.activeJobs > 0;
+                const dotClass = hasActivity
+                  ? "dot dot--positive dot--breathe"
+                  : member.isExec
+                    ? "dot dot--offline"
+                    : "dot dot--offline";
+
                 return (
                   <div className="team-member" key={member.role}>
-                    <span className="dot dot--positive dot--breathe" style={{ width: 8, height: 8 }} />
+                    <span className={dotClass} style={{ width: 8, height: 8 }} />
                     <div className="team-avatar">{initials}</div>
                     <div className="team-info">
                       <div className="team-name">{readableRole(member.role)}</div>
                       <div className="team-task">
-                        Heartbeat {heartbeatAge(Object.values(team.machineHeartbeatById)[0] ?? null)}
+                        {member.isExec && member.activeJobs === 0
+                          ? "Idle"
+                          : member.activeJobs > 0
+                            ? `${member.activeJobs} active job${member.activeJobs === 1 ? "" : "s"}`
+                            : "No active jobs"}
                       </div>
                     </div>
-                    <div className="team-slots">{member.activeJobs} jobs</div>
+                    {member.isExec ? (
+                      <div className="team-slots" style={{ fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Exec</div>
+                    ) : (
+                      <div className="team-slots">{member.activeJobs} jobs</div>
+                    )}
                   </div>
                 );
               })
@@ -724,6 +762,23 @@ export default function Dashboard(): JSX.Element {
           </section>
         </aside>
       </div>
+
+      {selectedGoal ? (
+        <DashboardDetailPanel
+          type="goal"
+          goal={selectedGoal.goal}
+          color={selectedGoal.color}
+          onClose={() => setSelectedGoal(null)}
+        />
+      ) : null}
+
+      {selectedFocusArea ? (
+        <DashboardDetailPanel
+          type="focusArea"
+          focusArea={selectedFocusArea}
+          onClose={() => setSelectedFocusArea(null)}
+        />
+      ) : null}
     </div>
   );
 }

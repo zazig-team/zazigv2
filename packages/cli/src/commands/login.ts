@@ -1,13 +1,12 @@
 /**
  * login.ts — zazig login
  *
- * Sends a magic link to the user's email. A local HTTP callback server
- * captures the auth tokens and stores them in ~/.zazigv2/credentials.json.
- * Company context comes from user_companies at runtime, not at login time.
+ * Sends a 6-digit OTP code to the user's email. The user enters the code
+ * in the terminal to complete authentication. Tokens are stored in
+ * ~/.zazigv2/credentials.json. Company context comes from user_companies
+ * at runtime, not at login time.
  */
 
-import * as http from "node:http";
-import { URL } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { saveCredentials } from "../lib/credentials.js";
 import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
@@ -16,157 +15,98 @@ export async function login(): Promise<void> {
   const supabaseUrl = process.env["SUPABASE_URL"] ?? DEFAULT_SUPABASE_URL;
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
 
-  // 1. Prompt for email
   const rl = createInterface({ input: process.stdin, output: process.stdout });
+
   let email: string;
   try {
     email = (await rl.question("Email address: ")).trim();
-  } finally {
+  } catch {
     rl.close();
+    console.error("Email is required.");
+    process.exit(1);
+    return;
   }
 
   if (!email) {
+    rl.close();
     console.error("Email is required.");
     process.exit(1);
   }
 
-  // 2. Find an available port. Prefer 3000 because Supabase's site_url
-  //    (the fallback redirect) points to 127.0.0.1:3000.
-  const port = await findAvailablePort(3000);
-
-  // 3. Start local callback server
-  let resolveCallback: (tokens: {
-    access_token: string;
-    refresh_token: string;
-  }) => void;
-  const callbackPromise = new Promise<{
-    access_token: string;
-    refresh_token: string;
-  }>((resolve) => {
-    resolveCallback = resolve;
-  });
-
-  // HTML page that reads tokens from the URL hash and POSTs them back.
-  const callbackHtml = `<!DOCTYPE html>
-<html><body>
-<p>Login successful &mdash; you can close this tab.</p>
-<script>
-const hash = window.location.hash.substring(1);
-const params = new URLSearchParams(hash);
-const at = params.get('access_token');
-const rt = params.get('refresh_token');
-if (at && rt) {
-  fetch('/token', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ access_token: at, refresh_token: rt })
-  });
-} else {
-  document.body.innerHTML = '<p>Login failed &mdash; no tokens received.</p>';
-}
-</script>
-</body></html>`;
-
-  const server = http.createServer((req, res) => {
-    const url = new URL(req.url!, `http://127.0.0.1:${port}`);
-
-    if (url.pathname === "/" || url.pathname === "/callback") {
-      // Handle both root (site_url fallback) and /callback (explicit redirect_to)
-      res.writeHead(200, { "Content-Type": "text/html" });
-      res.end(callbackHtml);
-    } else if (url.pathname === "/token" && req.method === "POST") {
-      let body = "";
-      req.on("data", (chunk: Buffer) => {
-        body += chunk;
-      });
-      req.on("end", () => {
-        try {
-          const tokens = JSON.parse(body) as {
-            access_token: string;
-            refresh_token: string;
-          };
-          res.writeHead(200);
-          res.end();
-          resolveCallback(tokens);
-        } catch {
-          res.writeHead(400);
-          res.end();
-        }
-      });
-    } else {
-      res.writeHead(404);
-      res.end();
-    }
-  });
-
-  // Bind to 127.0.0.1 to match Supabase site_url (127.0.0.1:3000)
-  await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
-
-  // 4. Send magic link
-  const redirectTo = `http://127.0.0.1:${port}/callback`;
-
-  const resp = await fetch(`${supabaseUrl}/auth/v1/magiclink`, {
+  // 1. Send OTP code via email
+  const otpResp = await fetch(`${supabaseUrl}/auth/v1/otp`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       apikey: anonKey,
     },
-    body: JSON.stringify({ email, redirect_to: redirectTo }),
+    body: JSON.stringify({ email }),
   });
 
-  if (!resp.ok) {
-    server.close();
-    console.error(`Failed to send magic link (HTTP ${resp.status}).`);
+  if (!otpResp.ok) {
+    rl.close();
+    const body = await otpResp.text();
+    console.error(`Failed to send login code (HTTP ${otpResp.status}): ${body}`);
     process.exit(1);
   }
 
-  console.log(
-    `Magic link sent to ${email} — check your email and click the link to log in.`
-  );
+  console.log(`\nLogin code sent to ${email} — check your email.`);
 
-  // 5. Wait for callback (timeout after 5 minutes)
-  const timeoutMs = 5 * 60 * 1000;
-  let tokens: { access_token: string; refresh_token: string };
+  // 2. Prompt for the 6-digit code
+  let code: string;
   try {
-    tokens = await Promise.race([
-      callbackPromise,
-      new Promise<never>((_, reject) => {
-        const t = setTimeout(() => reject(new Error("Login timed out")), timeoutMs);
-        t.unref(); // Don't keep the process alive after login succeeds
-      }),
-    ]);
-  } catch (err) {
-    server.close();
-    throw err;
+    code = (await rl.question("Enter code: ")).trim();
+  } catch {
+    rl.close();
+    console.error("Code entry cancelled.");
+    process.exit(1);
+    return;
+  } finally {
+    rl.close();
   }
 
-  server.close();
+  if (!code) {
+    console.error("Code is required.");
+    process.exit(1);
+  }
 
-  // 6. Save credentials — no company selection at login time
+  // 3. Verify the OTP code
+  const verifyResp = await fetch(`${supabaseUrl}/auth/v1/verify`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: anonKey,
+    },
+    body: JSON.stringify({
+      email,
+      token: code,
+      type: "email",
+    }),
+  });
+
+  if (!verifyResp.ok) {
+    const body = await verifyResp.text();
+    console.error(`Verification failed (HTTP ${verifyResp.status}): ${body}`);
+    process.exit(1);
+  }
+
+  const session = (await verifyResp.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+  };
+
+  if (!session.access_token || !session.refresh_token) {
+    console.error("Verification succeeded but no tokens received.");
+    process.exit(1);
+  }
+
+  // 4. Save credentials
   saveCredentials({
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token,
+    accessToken: session.access_token,
+    refreshToken: session.refresh_token,
     email,
     supabaseUrl,
   });
 
   console.log(`Logged in as ${email}`);
-}
-
-function findAvailablePort(preferredPort: number): Promise<number> {
-  return new Promise((resolve) => {
-    const server = http.createServer();
-    server.listen(preferredPort, "127.0.0.1", () => {
-      const addr = server.address() as { port: number };
-      server.close(() => resolve(addr.port));
-    });
-    server.on("error", () => {
-      // Preferred port taken — use any available port
-      const s = http.createServer();
-      s.listen(0, "127.0.0.1", () => {
-        const addr = s.address() as { port: number };
-        s.close(() => resolve(addr.port));
-      });
-    });
-  });
 }

@@ -28,7 +28,7 @@ export default function Landing(): JSX.Element {
             <span className="landing-hero-logo">zazig</span>
             <span className="landing-hero-dot" />
           </div>
-          <p className="landing-hero-tagline">Your engineering team builds while you sleep.</p>
+          <p className="landing-hero-tagline">Your autonomous startup that scales while you sleep.</p>
           <Link to="/login" className="landing-hero-cta">
             Get started
             <svg

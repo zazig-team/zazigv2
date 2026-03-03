@@ -1,7 +1,6 @@
-[build]
-  base = "packages/webui"
-  command = "npm run build"
-  publish = "dist"
+# NOTE: This file is kept here for reference but the actual Netlify config
+# lives at the repo root (../../netlify.toml) because the build requires
+# workspace resolution from the monorepo root.
 
 [[redirects]]
   from = "/*"

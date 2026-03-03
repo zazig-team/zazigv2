@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>zazig — Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper:#F7F6F2;--white:#FFFFFF;--chalk:#E9E6DE;--chalk-light:#F0EEE9;
+    --dust:#B5B0A2;--stone:#7C7868;--graphite:#52504A;--ink:#1C1B17;
+    --ember:#C54B2A;--ember-hover:#A83D22;--ember-dim:rgba(197,75,42,0.10);
+    --ember-glow:rgba(197,75,42,0.25);--ember-wash:#FDF0EC;
+    --positive:#2B7A4B;--positive-dim:rgba(43,122,75,0.10);
+    --caution:#B8860B;--caution-dim:rgba(184,134,11,0.10);
+    --negative:#C53030;--negative-dim:rgba(197,48,48,0.10);
+    --info:#4A6FA5;--info-dim:rgba(74,111,165,0.10);
+    --font-sans:'Plus Jakarta Sans',system-ui,sans-serif;
+    --font-mono:'JetBrains Mono','SF Mono',monospace;
+    --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;--sp-6:32px;--sp-7:48px;
+    --radius-sm:6px;--radius-md:10px;
+    --shadow-sm:0 1px 2px rgba(28,27,23,0.05);
+    --shadow-md:0 2px 8px rgba(28,27,23,0.06),0 0 0 1px rgba(28,27,23,0.04);
+    /* Pipeline status colors */
+    --col-ideas:#8B7355;--col-triage:#B8860B;--col-proposal:#C54B2A;--col-ready:#6B7FA5;
+    --col-breakdown:#9E5580;--col-building:#C54B2A;--col-combining:#B8860B;
+    --col-verifying:#4A8FA5;--col-pr:#4A6FA5;--col-complete:#2B7A4B;
+    --col-failed:#C53030;--col-shipped:#2B7A4B;
+  }
+  [data-theme="dark"] {
+    --paper:#0C0D10;--white:#16181D;--chalk:#252830;--chalk-light:#1D2026;
+    --dust:#505660;--stone:#868C98;--graphite:#B0B6C3;--ink:#EAECF1;
+    --ember:#E8553A;--ember-hover:#D14830;--ember-dim:rgba(232,85,58,0.12);
+    --ember-glow:rgba(232,85,58,0.25);--ember-wash:rgba(232,85,58,0.08);
+    --positive:#3ECF71;--positive-dim:rgba(62,207,113,0.10);
+    --caution:#E5B835;--caution-dim:rgba(229,184,53,0.10);
+    --negative:#EF5454;--negative-dim:rgba(239,84,84,0.10);
+    --info:#6B9FD4;--info-dim:rgba(107,159,212,0.10);
+    --shadow-sm:0 1px 2px rgba(0,0,0,0.3);
+    --shadow-md:0 2px 8px rgba(0,0,0,0.4),0 0 0 1px rgba(255,255,255,0.05);
+    --col-ideas:#8A919C;--col-triage:#E5B835;--col-proposal:#E8553A;--col-ready:#6B9FD4;
+    --col-breakdown:#C478A0;--col-building:#E8553A;--col-combining:#E5B835;
+    --col-verifying:#50B8D0;--col-pr:#6B9FD4;--col-complete:#3ECF71;
+    --col-failed:#EF5454;--col-shipped:#3ECF71;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{font-size:16px;-webkit-font-smoothing:antialiased}
+  body{font-family:var(--font-sans);background:var(--paper);color:var(--ink)}
+  ::selection{background:var(--ember-dim)}
+
+  /* NAV */
+  .nav{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:0 var(--sp-5);height:52px;background:var(--white);border-bottom:1px solid var(--chalk)}
+  .nav-left{display:flex;align-items:center;gap:var(--sp-5)}
+  .nav-brand{display:flex;align-items:center;gap:5px;font-weight:800;font-size:17px;letter-spacing:-0.03em;color:var(--ink);text-decoration:none}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .dot--positive{background:var(--positive);box-shadow:0 0 8px rgba(43,122,75,0.35)}
+  .dot--breathe{animation:breathe 4s ease-in-out infinite}
+  @keyframes breathe{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.65;transform:scale(.88)}}
+  .nav-links{display:flex;gap:var(--sp-4);font-size:13px;font-weight:500;color:var(--stone)}
+  .nav-links a{text-decoration:none;color:inherit;padding:16px 0;border-bottom:2px solid transparent;transition:color .15s}
+  .nav-links a:hover{color:var(--ink)}
+  .nav-links a.active{color:var(--ink);font-weight:600;border-bottom-color:var(--ember)}
+  .nav-right{display:flex;align-items:center;gap:var(--sp-3)}
+  .company-switcher{position:relative}
+  .company-switcher-btn{font-family:var(--font-mono);font-size:11px;color:var(--dust);letter-spacing:.02em;background:none;border:1px solid transparent;border-radius:var(--radius-sm);padding:4px 8px;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .15s}
+  .company-switcher-btn:hover{color:var(--ink);border-color:var(--chalk);background:var(--chalk-light)}
+  .company-switcher-btn svg{width:10px;height:10px}
+  .company-switcher-menu{display:none;position:absolute;top:100%;right:0;margin-top:4px;background:var(--white);border:1px solid var(--chalk);border-radius:var(--radius-md);box-shadow:var(--shadow-md);min-width:200px;z-index:200;overflow:hidden}
+  .company-switcher-menu.open{display:block}
+  .company-switcher-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;font-size:13px;color:var(--graphite);cursor:pointer;transition:background .1s;border:none;background:none;width:100%;text-align:left;font-family:var(--font-sans)}
+  .company-switcher-item:hover{background:var(--chalk-light)}
+  .company-switcher-item--active{color:var(--ink);font-weight:600}
+  .company-switcher-check{width:6px;height:6px;border-radius:50%;background:var(--ember)}
+  .company-switcher-divider{height:1px;background:var(--chalk);margin:4px 0}
+  .company-switcher-add{color:var(--stone);font-size:12px}
+  .theme-toggle{width:32px;height:32px;border-radius:50%;border:1px solid var(--chalk);background:var(--paper);color:var(--stone);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+  .theme-toggle:hover{border-color:var(--dust);color:var(--ink);background:var(--chalk-light)}
+  .theme-toggle svg{width:15px;height:15px}
+  .theme-toggle .icon-moon{display:block}.theme-toggle .icon-sun{display:none}
+  [data-theme="dark"] .theme-toggle .icon-moon{display:none}
+  [data-theme="dark"] .theme-toggle .icon-sun{display:block}
+  .nav-avatar{width:28px;height:28px;border-radius:50%;background:var(--ink);color:var(--white);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px}
+
+  /* PAGE HEADER */
+  .page-header{display:flex;align-items:center;justify-content:space-between;padding:var(--sp-3) var(--sp-5);border-bottom:1px solid var(--chalk);background:var(--white)}
+  .page-header-left{display:flex;align-items:center;gap:var(--sp-4)}
+  .page-title{font-weight:700;font-size:16px;letter-spacing:-0.01em}
+  .page-stats{display:flex;gap:var(--sp-4)}
+  .page-stat{display:flex;align-items:center;gap:var(--sp-2);font-size:12px;color:var(--stone)}
+  .page-stat-value{font-family:var(--font-mono);font-weight:500;font-size:13px;color:var(--ink)}
+  .page-header-right{display:flex;align-items:center;gap:var(--sp-2)}
+  .filter-btn{font-family:var(--font-sans);font-size:11px;font-weight:500;padding:5px 10px;border-radius:var(--radius-sm);background:transparent;color:var(--stone);border:1px solid var(--chalk);cursor:pointer;transition:all .15s}
+  .filter-btn:hover{background:var(--chalk-light);color:var(--ink)}
+  .filter-btn.active{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+
+  /* BOARD */
+  .board{display:flex;flex:1;min-height:calc(100vh - 52px - 44px);overflow-x:auto;padding:var(--sp-3) var(--sp-3) 0;gap:var(--sp-3)}
+  .col{width:272px;min-width:272px;display:flex;flex-direction:column;flex-shrink:0;background:var(--chalk-light);border-radius:var(--radius-md);overflow:hidden}
+  .col--wide{width:272px;min-width:272px}
+  .col-header{padding:var(--sp-3) var(--sp-3);display:flex;align-items:center;justify-content:space-between}
+  .col-title{display:flex;align-items:center;gap:6px}
+  .col-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+  .col-name{font-family:var(--font-mono);font-size:10px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;color:var(--stone)}
+  .col-count{font-family:var(--font-mono);font-size:10px;color:var(--dust);background:var(--chalk);padding:1px 7px;border-radius:99px}
+  .col-body{flex:1;padding:0 var(--sp-2) var(--sp-2);display:flex;flex-direction:column;gap:var(--sp-2);overflow-y:auto}
+  .col-body::-webkit-scrollbar{width:4px}
+  .col-body::-webkit-scrollbar-track{background:transparent}
+  .col-body::-webkit-scrollbar-thumb{background:var(--chalk);border-radius:4px}
+  .col-empty{font-family:var(--font-mono);font-size:11px;color:var(--dust);text-align:center;padding:var(--sp-7) var(--sp-3)}
+
+  /* CARDS */
+  .card{background:var(--white);border:1px solid var(--chalk);border-radius:var(--radius-sm);overflow:hidden;cursor:pointer;transition:box-shadow .2s,transform .15s}
+  .card:hover{box-shadow:var(--shadow-md);transform:translateY(-1px)}
+  .card-accent{height:3px;width:100%}
+  .card-body{padding:var(--sp-3)}
+  .card-title{font-size:13.5px;font-weight:600;color:var(--ink);line-height:1.35;margin-bottom:4px}
+  .card-desc{font-size:12px;color:var(--stone);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:var(--sp-2)}
+  .card-footer{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);margin-top:var(--sp-2)}
+  .card-tag{font-family:var(--font-mono);font-size:9px;letter-spacing:.03em;padding:2px 7px;border-radius:3px;font-weight:500}
+  .card-assignee{font-family:var(--font-mono);font-size:9px;color:var(--dust);display:flex;align-items:center;gap:4px}
+  .card-assignee-dot{width:5px;height:5px;border-radius:50%}
+  .card-jobs{display:flex;align-items:center;gap:3px;margin-top:var(--sp-2);padding-top:var(--sp-2);border-top:1px solid var(--chalk-light)}
+  .card-job-pip{width:14px;height:4px;border-radius:2px;flex-shrink:0}
+  .card-job-count{font-family:var(--font-mono);font-size:9px;color:var(--dust);margin-left:4px}
+
+  /* Priority + meta row */
+  .card-meta{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:4px;font-size:11px;color:var(--dust)}
+  .priority-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+  .priority-dot--urgent{background:var(--negative)}
+  .priority-dot--high{background:var(--ember)}
+  .priority-dot--medium{background:var(--caution)}
+  .priority-dot--low{background:var(--positive)}
+  .card-status-tag{font-family:var(--font-mono);font-size:9px;letter-spacing:.04em;padding:2px 6px;border-radius:3px;text-transform:uppercase;font-weight:600;border:1px solid}
+
+  /* Parked section */
+  .parked-toggle{width:100%;font-family:var(--font-mono);font-size:10px;color:var(--dust);background:var(--chalk);border:1px solid var(--chalk);border-radius:var(--radius-sm);padding:var(--sp-2) var(--sp-3);cursor:pointer;text-align:left;margin-bottom:var(--sp-2);transition:background .15s}
+  .parked-toggle:hover{background:var(--stone);color:var(--ink)}
+  .section-label{font-family:var(--font-mono);font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:var(--dust);padding:var(--sp-2) var(--sp-1) var(--sp-1);font-weight:500}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="founder-dashboard-v2.html" class="nav-brand">zazig<span class="dot dot--positive dot--breathe"></span></a>
+    <div class="nav-links">
+      <a href="founder-dashboard-v2.html">Dashboard</a>
+      <a href="pipeline-v2.html" class="active">Pipeline</a>
+      <a href="team-v2.html">Team</a>
+    </div>
+  </div>
+  <div class="nav-right">
+    <div class="company-switcher">
+      <button class="company-switcher-btn" onclick="this.nextElementSibling.classList.toggle('open')">
+        zazig-dev
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="company-switcher-menu">
+        <button class="company-switcher-item company-switcher-item--active">zazig-dev<span class="company-switcher-check"></span></button>
+        <button class="company-switcher-item">acme-corp</button>
+        <div class="company-switcher-divider"></div>
+        <button class="company-switcher-item company-switcher-add">+ Add company</button>
+      </div>
+    </div>
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79Z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
+    <div class="nav-avatar">TW</div>
+  </div>
+</nav>
+
+<div class="page-header">
+  <div class="page-header-left">
+    <div class="page-title">Pipeline</div>
+    <div class="page-stats">
+      <div class="page-stat" style="color:var(--dust);font-family:var(--font-mono);font-size:10px;letter-spacing:.04em;">Last 24h</div>
+      <div class="page-stat">Active <span class="page-stat-value">7</span></div>
+      <div class="page-stat">Shipped <span class="page-stat-value" style="color:var(--positive)">2</span></div>
+      <div class="page-stat">Failed <span class="page-stat-value" style="color:var(--negative)">1</span></div>
+    </div>
+  </div>
+  <div class="page-header-right">
+    <button class="filter-btn active">All</button>
+    <button class="filter-btn">Mine</button>
+    <button class="filter-btn">Urgent</button>
+    <button class="filter-btn">Stale</button>
+  </div>
+</div>
+
+<div class="board">
+
+  <!-- ═══ INTAKE ZONE ═══ -->
+
+  <!-- Ideas -->
+  <div class="col">
+    <div class="col-header"><div class="col-title"><span class="col-dot" style="background:var(--col-ideas)"></span><span class="col-name">Ideas</span></div><span class="col-count">0</span></div>
+    <div class="col-body">
+      <button class="parked-toggle" onclick="var el=this.nextElementSibling;el.style.display=el.style.display==='none'?'flex':'none';this.textContent=el.style.display==='none'?'\u25B6 Parked (25)':'\u25BC Parked (25)'">&#9654; Parked (25)</button>
+      <div style="display:none;flex-direction:column;gap:var(--sp-1)">
+        <div class="card"><div class="card-accent" style="background:var(--col-ideas)"></div><div class="card-body">
+          <div class="card-title">Cost tracking per feature</div>
+          <div class="card-desc">Show API spend per pipeline run</div>
+          <div class="card-footer"><span class="card-tag" style="background:var(--caution-dim);color:var(--caution)">infra</span></div>
+        </div></div>
+        <div class="card"><div class="card-accent" style="background:var(--col-ideas)"></div><div class="card-body">
+          <div class="card-title">Agent performance metrics</div>
+          <div class="card-desc">Track success rates per agent role</div>
+          <div class="card-footer"><span class="card-tag" style="background:var(--positive-dim);color:var(--positive)">data</span></div>
+        </div></div>
+      </div>
+      <div class="section-label">This Week (25)</div>
+      <div class="card"><div class="card-accent" style="background:var(--col-ideas)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--high"></span>high &middot; 1d ago</div>
+        <div class="card-title">Exec Knowledge Architecture: Canons and Doctrines (v5 design)</div>
+        <div class="card-footer"><span class="card-assignee"><span class="card-assignee-dot" style="background:var(--positive)"></span>tom-cpo</span></div>
+      </div></div>
+      <div class="card"><div class="card-accent" style="background:var(--col-ideas)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--high"></span>high &middot; 1d ago</div>
+        <div class="card-title">Deep research: agentic memory — state of the art and architecture</div>
+        <div class="card-footer"><span class="card-assignee"><span class="card-assignee-dot" style="background:var(--positive)"></span>tom</span></div>
+      </div></div>
+      <div class="card"><div class="card-accent" style="background:var(--col-ideas)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--medium"></span>medium &middot; 2d ago</div>
+        <div class="card-title">Autonomous agent-improvement system — meta-contractor for prompts, skills</div>
+        <div class="card-footer"><span class="card-tag" style="background:var(--info-dim);color:var(--info)">research</span></div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- Triage -->
+  <div class="col col--wide">
+    <div class="col-header"><div class="col-title"><span class="col-dot" style="background:var(--col-triage)"></span><span class="col-name">Triage</span></div><span class="col-count">16</span></div>
+    <div class="col-body">
+      <div class="card"><div class="card-accent" style="background:var(--col-triage)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--high"></span>high &middot; 20h ago</div>
+        <div class="card-title">Pipeline gap: NO_REPORT verification result leaves feature stuck</div>
+        <div class="card-footer"><span class="card-assignee"><span class="card-assignee-dot" style="background:var(--positive)"></span>tom-cpo</span></div>
+      </div></div>
+      <div class="card"><div class="card-accent" style="background:var(--col-triage)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--medium"></span>medium &middot; 1d ago</div>
+        <div class="card-title">Multi-repo support</div>
+        <div class="card-desc">Connect multiple GitHub repos per company</div>
+        <div class="card-footer"><span class="card-tag" style="background:var(--ember-dim);color:var(--ember)">complex</span></div>
+      </div></div>
+      <div class="card"><div class="card-accent" style="background:var(--col-triage)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--low"></span>low &middot; 2d ago</div>
+        <div class="card-title">Real-time Slack notifications</div>
+        <div class="card-desc">DM or channel when features ship or need input</div>
+        <div class="card-footer"><span class="card-tag" style="background:var(--info-dim);color:var(--info)">ux</span></div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- Proposal -->
+  <div class="col col--wide">
+    <div class="col-header"><div class="col-title"><span class="col-dot" style="background:var(--col-proposal)"></span><span class="col-name">Proposal</span></div><span class="col-count">7</span></div>
+    <div class="col-body">
+      <div class="card"><div class="card-accent" style="background:var(--col-proposal)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--medium"></span>medium</div>
+        <div class="card-title">Native Codex execution — medium jobs</div>
+        <div class="card-desc">Extend native Codex execution to medium complexity jobs. Routin...</div>
+        <div class="card-footer"><span class="card-status-tag" style="background:var(--positive-dim);color:var(--positive);border-color:var(--positive)">specced</span></div>
+      </div></div>
+      <div class="card"><div class="card-accent" style="background:var(--col-proposal)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--low"></span>low</div>
+        <div class="card-title">Graceful Daemon Shutdown — Transition In-Flight Jobs</div>
+        <div class="card-footer"><span class="card-tag" style="background:var(--info-dim);color:var(--info)">code</span></div>
+      </div></div>
+      <div class="card"><div class="card-accent" style="background:var(--col-proposal)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--medium"></span>medium</div>
+        <div class="card-title">Slack notification preferences</div>
+        <div class="card-desc">Choose which events trigger Slack DMs vs channel</div>
+        <div class="card-footer"><span class="card-tag" style="background:var(--info-dim);color:var(--info)">design</span><span class="card-assignee"><span class="card-assignee-dot" style="background:var(--positive)"></span>CPO</span></div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- Ready -->
+  <div class="col">
+    <div class="col-header"><div class="col-title"><span class="col-dot" style="background:var(--col-ready)"></span><span class="col-name">Ready</span></div><span class="col-count">0</span></div>
+    <div class="col-body"><div class="col-empty">No items</div></div>
+  </div>
+
+  <!-- Breakdown -->
+  <div class="col">
+    <div class="col-header"><div class="col-title"><span class="col-dot" style="background:var(--col-breakdown)"></span><span class="col-name">Breakdown</span></div><span class="col-count">0</span></div>
+    <div class="col-body"><div class="col-empty">No items</div></div>
+  </div>
+
+  <!-- Building -->
+  <div class="col">
+    <div class="col-header"><div class="col-title"><span class="col-dot" style="background:var(--col-building)"></span><span class="col-name">Building</span></div><span class="col-count">0</span></div>
+    <div class="col-body"><div class="col-empty">No items</div></div>
+  </div>
+
+  <!-- Combining -->
+  <div class="col">
+    <div class="col-header"><div class="col-title"><span class="col-dot" style="background:var(--col-combining)"></span><span class="col-name">Combining</span></div><span class="col-count">0</span></div>
+    <div class="col-body"><div class="col-empty">No items</div></div>
+  </div>
+
+  <!-- Verifying -->
+  <div class="col">
+    <div class="col-header"><div class="col-title"><span class="col-dot" style="background:var(--col-verifying)"></span><span class="col-name">Verifying</span></div><span class="col-count">0</span></div>
+    <div class="col-body"><div class="col-empty">No items</div></div>
+  </div>
+
+  <!-- PR Ready -->
+  <div class="col col--wide">
+    <div class="col-header"><div class="col-title"><span class="col-dot" style="background:var(--col-pr)"></span><span class="col-name">PR Ready</span></div><span class="col-count">5</span></div>
+    <div class="col-body">
+      <div class="card"><div class="card-accent" style="background:var(--col-pr)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--low"></span>low</div>
+        <div class="card-title">Haiku review gate after overlay + commit fixes</div>
+        <div class="card-desc">End-to-end smoke test validating that the Haiku code review gate...</div>
+        <div class="card-footer"><span class="card-assignee"><span class="card-assignee-dot" style="background:var(--dust)"></span>done</span></div>
+        <div class="card-jobs">
+          <span class="card-job-pip" style="background:var(--positive)"></span>
+          <span class="card-job-pip" style="background:var(--positive)"></span>
+          <span class="card-job-pip" style="background:var(--positive)"></span>
+          <span class="card-job-count">3/3 done</span>
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- Complete -->
+  <div class="col col--wide">
+    <div class="col-header"><div class="col-title"><span class="col-dot" style="background:var(--col-complete)"></span><span class="col-name">Complete</span></div><span class="col-count">30</span></div>
+    <div class="col-body">
+      <div class="section-label">Recent</div>
+      <div class="card"><div class="card-accent" style="background:var(--col-complete)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--medium"></span>medium &middot; 8h ago</div>
+        <div class="card-title">CPO Sub-Agent Dispatch — Local Code Investigator</div>
+        <div class="card-desc">Enable the CPO to spawn local sub-agents within its session for...</div>
+        <div class="card-footer"><span class="card-assignee"><span class="card-assignee-dot" style="background:var(--dust)"></span>done</span></div>
+        <div class="card-jobs">
+          <span class="card-job-pip" style="background:var(--positive)"></span>
+          <span class="card-job-pip" style="background:var(--positive)"></span>
+          <span class="card-job-pip" style="background:var(--positive)"></span>
+          <span class="card-job-pip" style="background:var(--positive)"></span>
+          <span class="card-job-pip" style="background:var(--positive)"></span>
+          <span class="card-job-pip" style="background:var(--positive)"></span>
+          <span class="card-job-pip" style="background:var(--positive)"></span>
+          <span class="card-job-count">7/7 done</span>
+        </div>
+      </div></div>
+      <div class="card"><div class="card-accent" style="background:var(--col-complete)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--low"></span>low &middot; 18h ago</div>
+        <div class="card-title">Smoke test #3: Codex routing after daemon restart</div>
+        <div class="card-desc">Fast-tracked simple job to verify Codex CLI execution path works...</div>
+        <div class="card-footer"><span class="card-assignee"><span class="card-assignee-dot" style="background:var(--dust)"></span>done</span></div>
+        <div class="card-jobs">
+          <span class="card-job-pip" style="background:var(--positive)"></span>
+          <span class="card-job-count">1/1 done</span>
+        </div>
+      </div></div>
+      <button class="parked-toggle" onclick="var el=this.nextElementSibling;el.style.display=el.style.display==='none'?'flex':'none';this.textContent=el.style.display==='none'?'\u25B6 Older (28)':'\u25BC Older (28)'">&#9654; Older (28)</button>
+      <div style="display:none;flex-direction:column;gap:var(--sp-2)">
+        <div class="card" style="opacity:0.7"><div class="card-accent" style="background:var(--col-complete)"></div><div class="card-body">
+          <div class="card-meta"><span class="priority-dot priority-dot--low"></span>low &middot; 3d ago</div>
+          <div class="card-title">Feature prioritisation edge function</div>
+          <div class="card-footer"><span class="card-assignee"><span class="card-assignee-dot" style="background:var(--dust)"></span>done</span></div>
+        </div></div>
+        <div class="card" style="opacity:0.7"><div class="card-accent" style="background:var(--col-complete)"></div><div class="card-body">
+          <div class="card-meta"><span class="priority-dot priority-dot--medium"></span>medium &middot; 4d ago</div>
+          <div class="card-title">Job DAG dispatch and dependency resolution</div>
+          <div class="card-footer"><span class="card-assignee"><span class="card-assignee-dot" style="background:var(--dust)"></span>done</span></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Failed -->
+  <div class="col col--wide">
+    <div class="col-header"><div class="col-title"><span class="col-dot" style="background:var(--col-failed)"></span><span class="col-name">Failed</span></div><span class="col-count">5</span></div>
+    <div class="col-body">
+      <div class="card"><div class="card-accent" style="background:var(--col-failed)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--medium"></span>medium</div>
+        <div class="card-title">Slot routing by complexity</div>
+        <div class="card-desc">Route jobs to machines by tier</div>
+        <div class="card-footer"><span class="card-tag" style="background:var(--negative-dim);color:var(--negative)">failed</span></div>
+        <div class="card-jobs">
+          <span class="card-job-pip" style="background:var(--positive)"></span>
+          <span class="card-job-pip" style="background:var(--negative)"></span>
+          <span class="card-job-pip" style="background:var(--chalk)"></span>
+          <span class="card-job-count">1/3 fail</span>
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- Shipped -->
+  <div class="col col--wide">
+    <div class="col-header"><div class="col-title"><span class="col-dot" style="background:var(--col-shipped)"></span><span class="col-name">Shipped</span></div><span class="col-count">33</span></div>
+    <div class="col-body">
+      <div class="section-label">Recent</div>
+      <div class="card"><div class="card-accent" style="background:var(--col-shipped)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--urgent"></span>urgent &middot; 6h ago</div>
+        <div class="card-title">Getting a Grip: Connect ideas, plans, and pipeline into single trackable system</div>
+        <div class="card-footer"><span class="card-tag" style="background:var(--positive-dim);color:var(--positive)">live</span><span class="card-assignee"><span class="card-assignee-dot" style="background:var(--positive)"></span>tom-cpo</span></div>
+      </div></div>
+      <div class="card"><div class="card-accent" style="background:var(--col-shipped)"></div><div class="card-body">
+        <div class="card-meta"><span class="priority-dot priority-dot--medium"></span>medium &middot; 22h ago</div>
+        <div class="card-title">Background spec writing — async proposal pipeline</div>
+        <div class="card-footer"><span class="card-tag" style="background:var(--positive-dim);color:var(--positive)">live</span><span class="card-assignee"><span class="card-assignee-dot" style="background:var(--dust)"></span>done</span></div>
+      </div></div>
+      <button class="parked-toggle" onclick="var el=this.nextElementSibling;el.style.display=el.style.display==='none'?'flex':'none';this.textContent=el.style.display==='none'?'\u25B6 Older (31)':'\u25BC Older (31)'">&#9654; Older (31)</button>
+      <div style="display:none;flex-direction:column;gap:var(--sp-2)">
+        <div class="card" style="opacity:0.7"><div class="card-accent" style="background:var(--col-shipped)"></div><div class="card-body">
+          <div class="card-meta"><span class="priority-dot priority-dot--high"></span>high &middot; 3d ago</div>
+          <div class="card-title">Machine registration flow</div>
+          <div class="card-desc">New machines register via CLI, get slots assigned</div>
+          <div class="card-footer"><span class="card-tag" style="background:var(--positive-dim);color:var(--positive)">live</span><span class="card-assignee"><span class="card-assignee-dot" style="background:var(--dust)"></span>done</span></div>
+        </div></div>
+        <div class="card" style="opacity:0.7"><div class="card-accent" style="background:var(--col-shipped)"></div><div class="card-body">
+          <div class="card-meta"><span class="priority-dot priority-dot--medium"></span>medium &middot; 5d ago</div>
+          <div class="card-title">Orchestrator DAG dispatch</div>
+          <div class="card-footer"><span class="card-tag" style="background:var(--positive-dim);color:var(--positive)">live</span><span class="card-assignee"><span class="card-assignee-dot" style="background:var(--dust)"></span>done</span></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    const h = document.documentElement;
+    h.setAttribute('data-theme', h.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.company-switcher')) {
+      document.querySelectorAll('.company-switcher-menu').forEach(m => m.classList.remove('open'));
+    }
+  });
+</script>
+</body>
+</html>

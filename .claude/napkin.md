@@ -4,6 +4,7 @@
 | Date | Source | What Went Wrong | What To Do Instead |
 |------|--------|----------------|-------------------|
 | 2026-03-03 | docs/plans directory | Assumed design docs were at `docs/plans/*.md` but they are organized into subdirectories: `active/`, `shipped/`, `archived/`, `parked/`. Only one file sits at root level. | Always check `docs/plans/active/` and `docs/plans/shipped/` for the canonical design docs. New standalone docs can go at `docs/plans/` root. |
+| 2026-03-03 | Idea-feature link | Assumed no DB link between ideas and features existed, told user we'd need a migration. Actually, ideas table already has `promoted_to_type`, `promoted_to_id`, `promoted_at` columns + a `query-idea-status` edge function that traces the full chain. | Check edge functions and do `SELECT *` from the table before assuming columns don't exist — migrations may not capture all schema changes (some done via direct ALTER). |
 | 2026-02-20 | Doppler secrets | Searched `--config dev` and found no Supabase keys. Keys are in `--config prd`. | Always check `prd` config first for zazig project in Doppler |
 | 2026-02-20 | Trello access | Said "I don't have Trello API access" when Trello API key + token are in Doppler and have been used extensively. | Always check Doppler for Trello creds. Full Trello API access across both workspaces. Using "Trello Lite" pattern. |
 | 2026-02-24 | Supabase migrations | Tried `supabase db push`, `supabase db execute --file` — neither works (migration history mismatch, no --file flag). Wasted time looking for auth that was in Doppler. | Use Management API: `curl -X POST https://api.supabase.com/v1/projects/{ref}/database/query` with `SUPABASE_ACCESS_TOKEN` from Doppler (zazig/prd). Works for all SQL including DDL. |
@@ -43,10 +44,35 @@
 
 ## Design Doc Patterns
 - Design docs in `docs/plans/` are organized by status: `active/`, `shipped/`, `archived/`, `parked/`
-- New standalone design docs (not yet categorized) sit at `docs/plans/` root
+- **Always date-prefix files** (`2026-MM-DD-name.md`) and put them in the appropriate subdirectory (usually `active/`). Never dump undated files in `docs/plans/` root.
+- Group related docs in a subfolder within `active/` if there are 3+ files (e.g., `active/webui/` for all WebUI prompts and design docs)
 - Design doc format: Title, Date, Status, Authors, Part of ORG MODEL, Companion docs. Then: Problem, Architecture, Integration, Implementation Plan, Open Questions, Appendices
 - Cross-reference other docs by relative path from the plans directory (e.g., `active/2026-02-22-exec-knowledge-architecture-v5.md`)
 - Memory system design: `docs/plans/active/2026-03-03-memory-system-design.md` (in active subdirectory, v3 — includes Procedure type, tier-specific budgets, mandatory slot reservation, hardened Context Handoff Protocol)
+
+## WebUI Status (2026-03-03)
+- Deployed to Netlify: https://zazig-webui.netlify.app (site ID: dc0c201a-c481-4724-8b07-40e089f3b6d4)
+- Deploy command: `cd zazigv2 && npx netlify deploy --prod --dir=packages/webui/dist --site dc0c201a-c481-4724-8b07-40e089f3b6d4 --filter @zazig/webui`
+- Phase 1 complete: auth, landing, login, dashboard, pipeline, team — all read-only, connected to live Supabase
+- Phase 2 complete (Codex): Realtime subscriptions, archetype picker write-back, theme persistence, goal progress, focus area health
+- Phase 3 SQL done: `decisions` + `action_items` tables, RLS, Realtime publication, `features` added to Realtime, `ideas` SELECT policy
+- CLI login: uses OTP code flow (not magic link redirect). Supabase magic link email template includes `{{ .Token }}` for 6-digit code.
+- Supabase auth: `site_url` set to `https://zazig-webui.netlify.app`. CLI uses OTP to avoid redirect issues.
+- Logo: zazig green dot must always align to baseline of "g" (not centered)
+- Landing slogan: "Your autonomous startup that scales while you sleep."
+
+## WebUI Codebase Gotchas
+- CSS Grid overflow: always use `minmax(0, 1fr)` not bare `1fr` — bare `1fr` defaults to `minmax(min-content, 1fr)` and prevents columns from shrinking below content width
+- `.main` needs `overflow: hidden` + `min-width: 0` to clip content within grid cell
+- Netlify deploy from monorepo: must use `--filter @zazig/webui` flag, deploy from repo root, not from packages/webui
+- Pipeline statuses in DB: `created`, `ready_for_breakdown`, `breakdown`, `building`, `combining`, `verifying`, `pr_ready`, `complete`, `cancelled`, `failed`
+- Idea statuses in DB: `new`, `triaged`, `parked`, `promoted`, `rejected`, `done`
+- Idea-to-feature linking: lives on the **ideas** table — `promoted_to_type` ("feature"|"job"|"research"), `promoted_to_id` (UUID), `promoted_at` (timestamp). No FK on features table. Reverse lookup: `SELECT FROM ideas WHERE promoted_to_type='feature' AND promoted_to_id=<featureId>`
+- Features have `pr_url` column (migration 072) — use this as primary PR link, fall back to job `pr_url`
+- Features have `spec` and `acceptance_tests` text columns (migration 008) — check `spec` to determine "Specced" vs "Needs spec" badge
+- Ideas have many unused columns: `scope`, `complexity`, `domain`, `autonomy`, `tags`, `flags`, `clarification_notes`, `source`, `source_ref`, `suggested_exec`, `project_id`
+- Features have unused columns: `error` (failure reason), `human_checklist`
+- Jobs have unused columns: `rejection_feedback`, `blocked_reason`, `verify_context`
 
 ## Domain Notes
 - Replaces zazig v1's VP-Eng, Supervisor, watchdog, and launch scripts

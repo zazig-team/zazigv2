@@ -3,7 +3,8 @@ import { fetchPipelineSnapshot } from "../lib/queries";
 
 export type PipelineStatus =
   | "created"
-  | "breaking_down"
+  | "ready_for_breakdown"
+  | "breakdown"
   | "building"
   | "combining_and_pr"
   | "verifying"
@@ -22,6 +23,11 @@ export interface PipelineFeature {
   jobsDone: number;
   jobsTotal: number;
   assignee: string | null;
+  hasSpec: boolean;
+  needsWorkshop: boolean;
+  prUrl: string | null;
+  branch: string | null;
+  createdBy: string | null;
 }
 
 export interface NormalizedPipelineSnapshot {
@@ -33,7 +39,8 @@ const EMPTY_SNAPSHOT: NormalizedPipelineSnapshot = {
   updatedAt: null,
   byStatus: {
     created: [],
-    breaking_down: [],
+    ready_for_breakdown: [],
+    breakdown: [],
     building: [],
     combining_and_pr: [],
     verifying: [],
@@ -53,9 +60,10 @@ function toPipelineStatus(rawStatus: string | null | undefined): PipelineStatus 
     case "created":
       return "created";
     case "ready_for_breakdown":
+      return "ready_for_breakdown";
     case "breakdown":
     case "breaking_down":
-      return "breaking_down";
+      return "breakdown";
     case "building":
       return "building";
     case "combining":
@@ -64,6 +72,7 @@ function toPipelineStatus(rawStatus: string | null | undefined): PipelineStatus 
     case "verifying":
       return "verifying";
     case "merging":
+    case "pr_ready":
       return "merging";
     case "complete":
     case "shipped":
@@ -150,6 +159,9 @@ function parseFeature(raw: Record<string, unknown>, fallbackStatus: PipelineStat
   const description =
     stringValue(raw.description) ?? stringValue(raw.summary) ?? stringValue(raw.context) ?? "";
 
+  const spec = stringValue(raw.spec);
+  const tags = Array.isArray(raw.tags) ? raw.tags : [];
+
   return {
     id,
     title,
@@ -162,13 +174,19 @@ function parseFeature(raw: Record<string, unknown>, fallbackStatus: PipelineStat
     jobsTotal,
     assignee:
       stringValue(raw.owner_id) ?? stringValue(raw.owner) ?? stringValue(raw.originator),
+    hasSpec: spec !== null && spec.trim().length > 0,
+    needsWorkshop: tags.includes("needs-workshop"),
+    prUrl: stringValue(raw.pr_url) ?? null,
+    branch: stringValue(raw.branch) ?? null,
+    createdBy: stringValue(raw.created_by) ?? null,
   };
 }
 
 function normalizeSnapshot(snapshot: unknown, updatedAt: string | null): NormalizedPipelineSnapshot {
   const byStatus: Record<PipelineStatus, PipelineFeature[]> = {
     created: [],
-    breaking_down: [],
+    ready_for_breakdown: [],
+    breakdown: [],
     building: [],
     combining_and_pr: [],
     verifying: [],
@@ -243,7 +261,12 @@ export function usePipelineSnapshot(companyId: string | null): {
       const response = await fetchPipelineSnapshot(companyId);
       setSnapshot(normalizeSnapshot(response.snapshot, response.updated_at ?? null));
     } catch (refreshError) {
-      setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+      const msg = refreshError instanceof Error
+        ? refreshError.message
+        : (refreshError && typeof refreshError === "object" && "message" in refreshError)
+          ? String((refreshError as { message: unknown }).message)
+          : String(refreshError);
+      setError(msg);
       setSnapshot(EMPTY_SNAPSHOT);
     } finally {
       setLoading(false);

@@ -38,6 +38,32 @@ function statusDot(status: string | null | undefined): string {
   return "dot dot--offline";
 }
 
+function execAccentColor(roleName: string): string {
+  switch (roleName.toLowerCase()) {
+    case "cpo":
+      return "var(--ember)";
+    case "cto":
+      return "var(--info)";
+    case "cmo":
+      return "var(--caution)";
+    default:
+      return "var(--dust)";
+  }
+}
+
+function execAccentDim(roleName: string): string {
+  switch (roleName.toLowerCase()) {
+    case "cpo":
+      return "var(--ember-dim)";
+    case "cto":
+      return "var(--info-dim)";
+    case "cmo":
+      return "var(--caution-dim)";
+    default:
+      return "var(--chalk)";
+  }
+}
+
 const EMPTY_DATA: TeamPageData = {
   execCards: [],
   archetypeOptionsByRoleId: {},
@@ -189,11 +215,14 @@ export default function Team(): JSX.Element {
                 const archetypeError = archetypeErrorByCardId[exec.id];
                 const isUpdating = updatingCardId === exec.id;
 
+                const accent = execAccentColor(exec.roleName);
+                const accentDim = execAccentDim(exec.roleName);
+
                 return (
                   <article className="exec-card" key={exec.id}>
                     <div className="exec-header">
                       <div className="exec-identity">
-                        <div className="exec-avatar">
+                        <div className="exec-avatar" style={{ borderColor: accent }}>
                           {exec.roleName.slice(0, 2).toUpperCase()}
                           <div className="exec-status-dot dot--positive dot--breathe" />
                         </div>
@@ -225,11 +254,11 @@ export default function Team(): JSX.Element {
                       </div>
 
                       <div className="archetype-current">
-                        <div className="archetype-icon" style={{ background: "var(--ember-dim)", color: "var(--ember)" }}>
+                        <div className="archetype-icon" style={{ background: accentDim, color: accent }}>
                           ⚡
                         </div>
                         <div className="archetype-info">
-                          <div className="archetype-name" style={{ color: "var(--ember)" }}>
+                          <div className="archetype-name" style={{ color: accent }}>
                             {exec.archetypeName}
                           </div>
                           <div className="archetype-tagline">{exec.archetypeTagline || "No archetype tagline configured."}</div>
@@ -243,7 +272,7 @@ export default function Team(): JSX.Element {
                                 <span
                                   key={trait}
                                   className="trait"
-                                  style={{ background: "var(--ember-dim)", color: "var(--ember)" }}
+                                  style={{ background: accentDim, color: accent }}
                                 >
                                   {trait}
                                 </span>
@@ -293,13 +322,13 @@ export default function Team(): JSX.Element {
                       <div className="belief-list">
                         {exec.philosophy.length === 0 ? (
                           <div className="belief">
-                            <div className="belief-marker" style={{ background: "var(--ember)" }} />
+                            <div className="belief-marker" style={{ background: accent }} />
                             No philosophy statements configured.
                           </div>
                         ) : (
                           exec.philosophy.map((belief) => (
                             <div className="belief" key={belief}>
-                              <div className="belief-marker" style={{ background: "var(--ember)" }} />
+                              <div className="belief-marker" style={{ background: accent }} />
                               {belief}
                             </div>
                           ))

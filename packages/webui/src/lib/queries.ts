@@ -86,6 +86,7 @@ export interface PulseMetrics {
 export interface TeamSidebarMember {
   role: string;
   activeJobs: number;
+  isExec: boolean;
 }
 
 export interface TeamSidebarData {
@@ -207,51 +208,108 @@ async function invokeGet<TResponse>(
 }
 
 export async function fetchGoals(companyId: string): Promise<Goal[]> {
-  const data = await invokePost<EdgeListResponse<Goal, "goals">>("query-goals", {
-    company_id: companyId,
-  });
+  const { data, error } = await supabase
+    .from("goals")
+    .select("id, title, description, time_horizon, metric, target, target_date, status, progress, position")
+    .eq("company_id", companyId)
+    .order("position", { ascending: true });
 
-  const goals = (data.goals ?? []).map((goal) => ({
-    ...goal,
+  if (error) {
+    throw error;
+  }
+
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    id: String(row.id),
+    title: typeof row.title === "string" ? row.title : "Goal",
+    description: typeof row.description === "string" ? row.description : null,
+    time_horizon: typeof row.time_horizon === "string" ? row.time_horizon : null,
+    metric: typeof row.metric === "string" ? row.metric : null,
+    target: typeof row.target === "string" ? row.target : null,
+    target_date: typeof row.target_date === "string" ? row.target_date : null,
+    status: typeof row.status === "string" ? row.status : null,
     progress:
-      typeof goal.progress === "number" && Number.isFinite(goal.progress)
-        ? goal.progress
+      typeof row.progress === "number" && Number.isFinite(row.progress)
+        ? row.progress
         : null,
+    position: typeof row.position === "number" ? row.position : null,
   }));
-  goals.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
-  return goals;
 }
 
 export async function fetchFocusAreas(companyId: string): Promise<FocusArea[]> {
-  const data = await invokePost<EdgeListResponse<FocusArea, "focus_areas">>(
-    "query-focus-areas",
-    {
-      company_id: companyId,
-      include_goals: true,
-    },
-  );
+  const { data, error } = await supabase
+    .from("focus_areas")
+    .select("id, title, description, status, health, domain_tags, focus_area_goals(goals(id, title, description, time_horizon, metric, target, target_date, status))")
+    .eq("company_id", companyId)
+    .order("position", { ascending: true });
 
-  return (data.focus_areas ?? []).map((focusArea) => ({
-    ...focusArea,
-    health: typeof focusArea.health === "string" ? focusArea.health : null,
-  }));
+  if (error) {
+    throw error;
+  }
+
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => {
+    const joinRows = Array.isArray(row.focus_area_goals)
+      ? (row.focus_area_goals as Array<{ goals: Record<string, unknown> | null }>)
+      : [];
+
+    const goals: Goal[] = joinRows
+      .map((jr) => jr.goals)
+      .filter((g): g is Record<string, unknown> => g !== null)
+      .map((g) => ({
+        id: String(g.id),
+        title: typeof g.title === "string" ? g.title : "Goal",
+        description: typeof g.description === "string" ? g.description : null,
+        time_horizon: typeof g.time_horizon === "string" ? g.time_horizon : null,
+        metric: typeof g.metric === "string" ? g.metric : null,
+        target: typeof g.target === "string" ? g.target : null,
+        target_date: typeof g.target_date === "string" ? g.target_date : null,
+        status: typeof g.status === "string" ? g.status : null,
+        progress: null,
+        position: null,
+      }));
+
+    return {
+      id: String(row.id),
+      title: typeof row.title === "string" ? row.title : "Focus Area",
+      description: typeof row.description === "string" ? row.description : null,
+      status: typeof row.status === "string" ? row.status : "active",
+      health: typeof row.health === "string" ? row.health : null,
+      domain_tags: Array.isArray(row.domain_tags) ? (row.domain_tags as string[]) : null,
+      goals,
+    };
+  });
 }
 
 export async function fetchIdeas(
   companyId: string,
   statuses?: string[],
 ): Promise<Idea[]> {
-  const body: Record<string, unknown> = {
-    company_id: companyId,
-    limit: 80,
-  };
+  let query = supabase
+    .from("ideas")
+    .select("id, title, description, raw_text, status, priority, created_at, originator")
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false })
+    .limit(80);
 
   if (statuses && statuses.length > 0) {
-    body.statuses = statuses;
+    query = query.in("status", statuses);
   }
 
-  const data = await invokePost<EdgeListResponse<Idea, "ideas">>("query-ideas", body);
-  return data.ideas ?? [];
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    id: String(row.id),
+    title: typeof row.title === "string" ? row.title : null,
+    description: typeof row.description === "string" ? row.description : null,
+    raw_text: typeof row.raw_text === "string" ? row.raw_text : "",
+    status: typeof row.status === "string" ? row.status : "new",
+    priority: typeof row.priority === "string" ? row.priority : null,
+    created_at: typeof row.created_at === "string" ? row.created_at : new Date().toISOString(),
+    originator: typeof row.originator === "string" ? row.originator : null,
+  }));
 }
 
 export async function fetchDecisions(companyId: string): Promise<Decision[]> {
@@ -322,9 +380,246 @@ export async function fetchActionItems(companyId: string): Promise<ActionItem[]>
 export async function fetchPipelineSnapshot(
   companyId: string,
 ): Promise<PipelineSnapshotResponse> {
-  return invokeGet<PipelineSnapshotResponse>("get-pipeline-snapshot", {
-    company_id: companyId,
-  });
+  const [featuresResult, jobsResult] = await Promise.all([
+    supabase
+      .from("features")
+      .select("id, title, description, status, priority, created_at, created_by, spec, pr_url, branch, tags")
+      .eq("company_id", companyId),
+    supabase
+      .from("jobs")
+      .select("id, feature_id, status")
+      .eq("company_id", companyId),
+  ]);
+
+  if (featuresResult.error) {
+    throw featuresResult.error;
+  }
+  if (jobsResult.error) {
+    throw jobsResult.error;
+  }
+
+  const jobs = (jobsResult.data ?? []) as Array<{ id: string; feature_id: string | null; status: string }>;
+  const jobCountsByFeature: Record<string, { total: number; complete: number }> = {};
+  for (const job of jobs) {
+    if (!job.feature_id) continue;
+    if (!jobCountsByFeature[job.feature_id]) {
+      jobCountsByFeature[job.feature_id] = { total: 0, complete: 0 };
+    }
+    jobCountsByFeature[job.feature_id].total++;
+    if (job.status === "complete") {
+      jobCountsByFeature[job.feature_id].complete++;
+    }
+  }
+
+  const features = (featuresResult.data ?? []) as Array<Record<string, unknown>>;
+  const featuresByStatus: Record<string, Array<Record<string, unknown>>> = {};
+  for (const feature of features) {
+    const status = typeof feature.status === "string" ? feature.status : "created";
+    if (!featuresByStatus[status]) {
+      featuresByStatus[status] = [];
+    }
+    const id = String(feature.id);
+    const counts = jobCountsByFeature[id];
+    featuresByStatus[status].push({
+      ...feature,
+      job_counts: counts ? { total: counts.total, complete: counts.complete } : { total: 0, complete: 0 },
+    });
+  }
+
+  return {
+    snapshot: { features_by_status: featuresByStatus },
+    updated_at: new Date().toISOString(),
+  };
+}
+
+export interface FeatureJob {
+  id: string;
+  title: string;
+  status: string;
+  role: string;
+  model: string | null;
+  complexity: string | null;
+  prUrl: string | null;
+  branch: string | null;
+}
+
+export interface SourceIdea {
+  id: string;
+  title: string | null;
+  rawText: string;
+  status: string;
+  promotedAt: string | null;
+}
+
+export interface FeatureDetail {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  branch: string | null;
+  spec: string | null;
+  acceptanceTests: string | null;
+  verificationType: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  createdBy: string | null;
+  prUrl: string | null;
+  jobs: FeatureJob[];
+  sourceIdea: SourceIdea | null;
+}
+
+export async function fetchFeatureDetail(featureId: string): Promise<FeatureDetail> {
+  const [featureResult, jobsResult, ideaResult] = await Promise.all([
+    supabase
+      .from("features")
+      .select(
+        "id, title, description, status, priority, branch, spec, acceptance_tests, verification_type, created_at, updated_at, completed_at, created_by, pr_url",
+      )
+      .eq("id", featureId)
+      .single(),
+    supabase
+      .from("jobs")
+      .select("id, title, status, role, model, complexity, pr_url, branch")
+      .eq("feature_id", featureId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("ideas")
+      .select("id, title, raw_text, status, promoted_at")
+      .eq("promoted_to_type", "feature")
+      .eq("promoted_to_id", featureId)
+      .limit(1),
+  ]);
+
+  if (featureResult.error) {
+    throw featureResult.error;
+  }
+
+  const f = featureResult.data as Record<string, unknown>;
+
+  const jobs: FeatureJob[] = ((jobsResult.data ?? []) as Array<Record<string, unknown>>).map(
+    (j) => ({
+      id: String(j.id),
+      title: typeof j.title === "string" ? j.title : "Untitled job",
+      status: typeof j.status === "string" ? j.status : "queued",
+      role: typeof j.role === "string" ? j.role : "unknown",
+      model: typeof j.model === "string" ? j.model : null,
+      complexity: typeof j.complexity === "string" ? j.complexity : null,
+      prUrl: typeof j.pr_url === "string" ? j.pr_url : null,
+      branch: typeof j.branch === "string" ? j.branch : null,
+    }),
+  );
+
+  // PR URL: prefer feature-level pr_url, fall back to first job with one
+  const featurePrUrl =
+    (typeof f.pr_url === "string" ? f.pr_url : null) ??
+    jobs.find((j) => j.prUrl)?.prUrl ??
+    null;
+
+  return {
+    id: String(f.id),
+    title: typeof f.title === "string" ? f.title : "Untitled",
+    description: typeof f.description === "string" ? f.description : null,
+    status: typeof f.status === "string" ? f.status : "created",
+    priority: typeof f.priority === "string" ? f.priority : "medium",
+    branch: typeof f.branch === "string" ? f.branch : null,
+    spec: typeof f.spec === "string" ? f.spec : null,
+    acceptanceTests: typeof f.acceptance_tests === "string" ? f.acceptance_tests : null,
+    verificationType: typeof f.verification_type === "string" ? f.verification_type : null,
+    createdAt: typeof f.created_at === "string" ? f.created_at : new Date().toISOString(),
+    updatedAt: typeof f.updated_at === "string" ? f.updated_at : new Date().toISOString(),
+    completedAt: typeof f.completed_at === "string" ? f.completed_at : null,
+    createdBy: typeof f.created_by === "string" ? f.created_by : null,
+    prUrl: featurePrUrl,
+    jobs,
+    sourceIdea: (() => {
+      const ideaRow = (ideaResult.data ?? [])[0] as Record<string, unknown> | undefined;
+      if (!ideaRow) return null;
+      return {
+        id: String(ideaRow.id),
+        title: typeof ideaRow.title === "string" ? ideaRow.title : null,
+        rawText: typeof ideaRow.raw_text === "string" ? ideaRow.raw_text : "",
+        status: typeof ideaRow.status === "string" ? ideaRow.status : "promoted",
+        promotedAt: typeof ideaRow.promoted_at === "string" ? ideaRow.promoted_at : null,
+      };
+    })(),
+  };
+}
+
+export interface IdeaDetail {
+  id: string;
+  title: string | null;
+  description: string | null;
+  rawText: string;
+  status: string;
+  priority: string;
+  originator: string | null;
+  source: string | null;
+  sourceRef: string | null;
+  clarificationNotes: string | null;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+  promotedToType: string | null;
+  promotedToId: string | null;
+  promotedAt: string | null;
+  promotedFeature: { id: string; title: string; status: string } | null;
+}
+
+export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
+  const { data, error } = await supabase
+    .from("ideas")
+    .select(
+      "id, title, description, raw_text, status, priority, originator, source, source_ref, clarification_notes, tags, created_at, updated_at, promoted_to_type, promoted_to_id, promoted_at",
+    )
+    .eq("id", ideaId)
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  const row = data as Record<string, unknown>;
+
+  // If promoted to a feature, fetch its title and status
+  let promotedFeature: IdeaDetail["promotedFeature"] = null;
+  if (row.promoted_to_type === "feature" && typeof row.promoted_to_id === "string") {
+    const { data: featureData } = await supabase
+      .from("features")
+      .select("id, title, status")
+      .eq("id", row.promoted_to_id)
+      .single();
+
+    if (featureData) {
+      const f = featureData as Record<string, unknown>;
+      promotedFeature = {
+        id: String(f.id),
+        title: typeof f.title === "string" ? f.title : "Untitled",
+        status: typeof f.status === "string" ? f.status : "created",
+      };
+    }
+  }
+
+  return {
+    id: String(row.id),
+    title: typeof row.title === "string" ? row.title : null,
+    description: typeof row.description === "string" ? row.description : null,
+    rawText: typeof row.raw_text === "string" ? row.raw_text : "",
+    status: typeof row.status === "string" ? row.status : "new",
+    priority: typeof row.priority === "string" ? row.priority : "medium",
+    originator: typeof row.originator === "string" ? row.originator : null,
+    source: typeof row.source === "string" ? row.source : null,
+    sourceRef: typeof row.source_ref === "string" ? row.source_ref : null,
+    clarificationNotes: typeof row.clarification_notes === "string" ? row.clarification_notes : null,
+    tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
+    createdAt: typeof row.created_at === "string" ? row.created_at : new Date().toISOString(),
+    updatedAt: typeof row.updated_at === "string" ? row.updated_at : new Date().toISOString(),
+    promotedToType: typeof row.promoted_to_type === "string" ? row.promoted_to_type : null,
+    promotedToId: typeof row.promoted_to_id === "string" ? row.promoted_to_id : null,
+    promotedAt: typeof row.promoted_at === "string" ? row.promoted_at : null,
+    promotedFeature,
+  };
 }
 
 export async function submitIdea(params: {
@@ -407,17 +702,22 @@ export async function fetchPulseMetrics(companyId: string): Promise<PulseMetrics
   const features = (featuresResult.data ?? []) as Array<{ status: string }>;
   const jobs = (jobsResult.data ?? []) as Array<{ status: string }>;
 
-  const mergedFeatures = features.filter((feature) => feature.status === "complete").length;
+  const completedFeatures = features.filter(
+    (feature) => feature.status === "complete" || feature.status === "merged",
+  ).length;
   const failedFeatures = features.filter(
     (feature) => feature.status === "failed" || feature.status === "cancelled",
   ).length;
   const activeFeatures = features.filter(
     (feature) =>
       feature.status === "created" ||
+      feature.status === "ready_for_breakdown" ||
+      feature.status === "breakdown" ||
       feature.status === "breaking_down" ||
       feature.status === "building" ||
       feature.status === "combining_and_pr" ||
-      feature.status === "verifying",
+      feature.status === "verifying" ||
+      feature.status === "merging",
   ).length;
 
   const activeJobs = jobs.filter(
@@ -429,7 +729,7 @@ export async function fetchPulseMetrics(companyId: string): Promise<PulseMetrics
 
   return {
     activeFeatures,
-    mergedFeatures,
+    mergedFeatures: completedFeatures,
     failedFeatures,
     activeJobs,
     totalJobs,
@@ -440,7 +740,7 @@ export async function fetchPulseMetrics(companyId: string): Promise<PulseMetrics
 export async function fetchDashboardTeam(
   companyId: string,
 ): Promise<TeamSidebarData> {
-  const [jobsResult, machinesResult] = await Promise.all([
+  const [jobsResult, machinesResult, execResult] = await Promise.all([
     supabase
       .from("jobs")
       .select("role, status, machine_id")
@@ -449,6 +749,10 @@ export async function fetchDashboardTeam(
     supabase
       .from("machines")
       .select("id, last_heartbeat")
+      .eq("company_id", companyId),
+    supabase
+      .from("exec_personalities")
+      .select("id, roles(name)")
       .eq("company_id", companyId),
   ]);
 
@@ -471,9 +775,39 @@ export async function fetchDashboardTeam(
     byRole.set(job.role, (byRole.get(job.role) ?? 0) + 1);
   }
 
-  const members = [...byRole.entries()]
-    .map(([role, activeJobs]) => ({ role, activeJobs }))
-    .sort((a, b) => b.activeJobs - a.activeJobs);
+  // Exec personalities are always shown (CPO, CTO, etc.)
+  const execRoleNames = new Set<string>();
+  if (!execResult.error && execResult.data) {
+    for (const row of execResult.data as Array<{ id: string; roles: { name: string } | Array<{ name: string }> | null }>) {
+      const role = Array.isArray(row.roles) ? row.roles[0] : row.roles;
+      if (role?.name) {
+        execRoleNames.add(role.name);
+      }
+    }
+  }
+
+  const members: TeamSidebarMember[] = [];
+
+  // Add execs first (always present)
+  for (const roleName of execRoleNames) {
+    members.push({
+      role: roleName,
+      activeJobs: byRole.get(roleName) ?? 0,
+      isExec: true,
+    });
+    byRole.delete(roleName);
+  }
+
+  // Add remaining active job roles
+  for (const [role, activeJobs] of byRole.entries()) {
+    members.push({ role, activeJobs, isExec: false });
+  }
+
+  // Sort: execs first, then by active jobs
+  members.sort((a, b) => {
+    if (a.isExec !== b.isExec) return a.isExec ? -1 : 1;
+    return b.activeJobs - a.activeJobs;
+  });
 
   const machineHeartbeatById: Record<string, string | null> = {};
   for (const machine of (machinesResult.data ?? []) as Array<{
@@ -544,6 +878,25 @@ function parsePhilosophy(value: unknown): string[] {
   return [];
 }
 
+function parseDimensionValue(raw: unknown): string | null {
+  if (typeof raw === "number") {
+    return String(raw);
+  }
+  if (typeof raw === "string") {
+    return raw;
+  }
+  if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    if (typeof obj.value === "number") {
+      return String(obj.value);
+    }
+    if (typeof obj.current === "number") {
+      return String(obj.current);
+    }
+  }
+  return null;
+}
+
 function parseTraits(value: unknown): string[] {
   if (!value || typeof value !== "object") {
     return [];
@@ -552,7 +905,10 @@ function parseTraits(value: unknown): string[] {
   const entries = Object.entries(value as Record<string, unknown>);
   return entries
     .slice(0, 5)
-    .map(([key, raw]) => `${key.replace(/_/g, " ")}: ${String(raw)}`);
+    .map(([key, raw]) => {
+      const parsed = parseDimensionValue(raw);
+      return parsed !== null ? `${key.replace(/_/g, " ")}: ${parsed}` : key.replace(/_/g, " ");
+    });
 }
 
 export async function fetchTeamPageData(companyId: string): Promise<TeamPageData> {

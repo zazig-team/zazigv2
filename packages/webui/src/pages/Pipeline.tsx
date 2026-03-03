@@ -8,6 +8,8 @@ import {
 } from "../hooks/usePipelineSnapshot";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
 import { fetchIdeas, type Idea } from "../lib/queries";
+import FeatureDetailPanel from "../components/FeatureDetailPanel";
+import IdeaDetailPanel from "../components/IdeaDetailPanel";
 
 type FilterMode = "all" | "mine" | "urgent" | "stale";
 
@@ -17,16 +19,22 @@ interface ColumnDefinition {
   colorVar: string;
 }
 
-const COLUMN_DEFINITIONS: ColumnDefinition[] = [
-  { key: "created", label: "Created", colorVar: "--col-created" },
-  { key: "breaking_down", label: "Breaking Down", colorVar: "--col-breakdown" },
+const ACTIVE_COLUMNS: ColumnDefinition[] = [
+  { key: "created", label: "Proposal", colorVar: "--col-created" },
+  { key: "ready_for_breakdown", label: "Ready", colorVar: "--col-ready" },
+  { key: "breakdown", label: "Breakdown", colorVar: "--col-breakdown" },
   { key: "building", label: "Building", colorVar: "--col-building" },
   { key: "combining_and_pr", label: "Combining & PR", colorVar: "--col-combining" },
   { key: "verifying", label: "Verifying", colorVar: "--col-verifying" },
   { key: "merging", label: "Merging", colorVar: "--col-merging" },
+];
+
+const TERMINAL_COLUMNS: ColumnDefinition[] = [
   { key: "complete", label: "Complete", colorVar: "--col-complete" },
   { key: "failed", label: "Failed", colorVar: "--col-failed" },
 ];
+
+const AGE_THRESHOLD_HOURS = 24;
 
 function ageLabel(ageHours: number | null): string {
   if (ageHours === null) {
@@ -66,23 +74,34 @@ function ideaTitle(idea: Idea): string {
   return idea.title ?? idea.description ?? idea.raw_text;
 }
 
+function prNumberFromUrl(url: string | null): string | null {
+  if (!url) return null;
+  const match = url.match(/\/pull\/(\d+)/);
+  return match ? `#${match[1]}` : null;
+}
+
 export default function Pipeline(): JSX.Element {
   const { activeCompany } = useCompany();
   const { user } = useAuth();
   const { loading, error, snapshot, refresh } = usePipelineSnapshot(activeCompany?.id ?? null);
 
-  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [newIdeas, setNewIdeas] = useState<Idea[]>([]);
+  const [triagedIdeas, setTriagedIdeas] = useState<Idea[]>([]);
   const [parkedIdeas, setParkedIdeas] = useState<Idea[]>([]);
   const [ideasError, setIdeasError] = useState<string | null>(null);
   const [ideasLoading, setIdeasLoading] = useState(false);
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [showParked, setShowParked] = useState(false);
+  const [showArchived, setShowArchived] = useState<Record<string, boolean>>({});
+  const [selectedFeature, setSelectedFeature] = useState<{ id: string; colorVar: string } | null>(null);
+  const [selectedIdea, setSelectedIdea] = useState<{ id: string; colorVar: string } | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     async function loadIdeas(): Promise<void> {
       if (!activeCompany?.id) {
-        setIdeas([]);
+        setNewIdeas([]);
+        setTriagedIdeas([]);
         setParkedIdeas([]);
         return;
       }
@@ -91,12 +110,14 @@ export default function Pipeline(): JSX.Element {
       setIdeasError(null);
 
       try {
-        const [activeIdeas, parked] = await Promise.all([
-          fetchIdeas(activeCompany.id, ["new", "triaged"]),
+        const [fresh, triaged, parked] = await Promise.all([
+          fetchIdeas(activeCompany.id, ["new"]),
+          fetchIdeas(activeCompany.id, ["triaged"]),
           fetchIdeas(activeCompany.id, ["parked"]),
         ]);
 
-        setIdeas(activeIdeas);
+        setNewIdeas(fresh);
+        setTriagedIdeas(triaged);
         setParkedIdeas(parked);
       } catch (loadError) {
         setIdeasError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -206,7 +227,8 @@ export default function Pipeline(): JSX.Element {
   const filteredByStatus = useMemo(() => {
     const next: Record<PipelineStatus, PipelineFeature[]> = {
       created: [],
-      breaking_down: [],
+      ready_for_breakdown: [],
+      breakdown: [],
       building: [],
       combining_and_pr: [],
       verifying: [],
@@ -222,9 +244,13 @@ export default function Pipeline(): JSX.Element {
     return next;
   }, [snapshot.byStatus, filterMode, mineIdentifier, userId]);
 
-  const filteredIdeas = useMemo(
-    () => ideas.filter(applyIdeaFilter),
-    [ideas, filterMode, mineIdentifier, userId],
+  const filteredNewIdeas = useMemo(
+    () => newIdeas.filter(applyIdeaFilter),
+    [newIdeas, filterMode, mineIdentifier, userId],
+  );
+  const filteredTriagedIdeas = useMemo(
+    () => triagedIdeas.filter(applyIdeaFilter),
+    [triagedIdeas, filterMode, mineIdentifier, userId],
   );
   const filteredParkedIdeas = useMemo(
     () => parkedIdeas.filter(applyIdeaFilter),
@@ -234,19 +260,100 @@ export default function Pipeline(): JSX.Element {
   const metrics = useMemo(() => {
     const active =
       filteredByStatus.created.length +
-      filteredByStatus.breaking_down.length +
+      filteredByStatus.ready_for_breakdown.length +
+      filteredByStatus.breakdown.length +
       filteredByStatus.building.length +
       filteredByStatus.combining_and_pr.length +
-      filteredByStatus.verifying.length;
+      filteredByStatus.verifying.length +
+      filteredByStatus.merging.length;
 
     return {
       active,
-      merged: filteredByStatus.complete.length,
+      complete: filteredByStatus.complete.length,
       failed: filteredByStatus.failed.length,
-      ideas: filteredIdeas.length,
+      ideas: filteredNewIdeas.length + filteredTriagedIdeas.length,
       totalFeatures: allFeatures.length,
     };
-  }, [filteredByStatus, filteredIdeas.length, allFeatures.length]);
+  }, [filteredByStatus, filteredNewIdeas.length, filteredTriagedIdeas.length, allFeatures.length]);
+
+  const renderFeatureCard = (feature: PipelineFeature, colorVar: string) => {
+    const prNumber = prNumberFromUrl(feature.prUrl);
+    return (
+      <article
+        className="card card--clickable"
+        key={feature.id}
+        onClick={() => setSelectedFeature({ id: feature.id, colorVar })}
+      >
+        <div className="card-accent" style={{ background: `var(${colorVar})` }} />
+        <div className="card-body">
+          <div className="card-meta">
+            <span className={priorityDotClass(feature.priority)} />
+            {feature.priority.toLowerCase()} · {ageLabel(feature.ageHours)}
+          </div>
+          <div className="card-title">{feature.title}</div>
+          <div className="card-desc">{feature.description}</div>
+
+          <div className="card-badges">
+            {feature.status === "created" ? (
+              feature.needsWorkshop
+                ? <span className="card-badge card-badge--workshop">Workshop</span>
+                : feature.hasSpec
+                  ? <span className="card-badge card-badge--positive">Specced</span>
+                  : <span className="card-badge card-badge--caution">Needs spec</span>
+            ) : null}
+            {prNumber ? (
+              <span className="card-badge card-badge--info">{prNumber}</span>
+            ) : null}
+            {feature.createdBy ? (
+              <span className="card-badge">{feature.createdBy}</span>
+            ) : null}
+          </div>
+
+          <div className="card-jobs">
+            {Array.from({ length: Math.max(feature.jobsTotal, 1) }).map((_, index) => {
+              const active = index < feature.jobsDone;
+              return (
+                <span
+                  key={`${feature.id}-pip-${index}`}
+                  className="card-job-pip"
+                  style={{ background: active ? "var(--positive)" : "var(--chalk)" }}
+                />
+              );
+            })}
+            <span className="card-job-count">
+              {feature.jobsDone}/{feature.jobsTotal || 0} done
+            </span>
+          </div>
+        </div>
+      </article>
+    );
+  };
+
+  const renderIdeaCard = (idea: Idea, colorVar: string, showPromote?: boolean) => (
+    <article
+      className="card card--clickable"
+      key={idea.id}
+      onClick={() => setSelectedIdea({ id: idea.id, colorVar })}
+    >
+      <div className="card-accent" style={{ background: `var(${colorVar})` }} />
+      <div className="card-body">
+        <div className="card-meta">
+          <span className={priorityDotClass(idea.priority)} />
+          {(idea.priority ?? "medium").toLowerCase()} · {ageLabel(Math.floor((Date.now() - Date.parse(idea.created_at)) / 3_600_000))}
+        </div>
+        <div className="card-title">{ideaTitle(idea)}</div>
+        <div className="card-desc">{idea.description ?? idea.raw_text}</div>
+        <div className="card-badges">
+          {idea.originator ? (
+            <span className="card-badge">{idea.originator}</span>
+          ) : null}
+          {showPromote ? (
+            <span className="card-badge card-badge--positive">Triaged</span>
+          ) : null}
+        </div>
+      </div>
+    </article>
+  );
 
   return (
     <div className="pipeline-page">
@@ -255,7 +362,7 @@ export default function Pipeline(): JSX.Element {
           <div className="page-title">Pipeline</div>
           <div className="page-stats">
             <div className="page-stat">Active <span className="page-stat-value">{metrics.active}</span></div>
-            <div className="page-stat">Complete <span className="page-stat-value" style={{ color: "var(--positive)" }}>{metrics.merged}</span></div>
+            <div className="page-stat">Complete <span className="page-stat-value" style={{ color: "var(--positive)" }}>{metrics.complete}</span></div>
             <div className="page-stat">Failed <span className="page-stat-value" style={{ color: "var(--negative)" }}>{metrics.failed}</span></div>
             <div className="page-stat">Ideas <span className="page-stat-value">{metrics.ideas}</span></div>
           </div>
@@ -279,18 +386,19 @@ export default function Pipeline(): JSX.Element {
       </div>
 
       <div className="pipeline-board">
+        {/* IDEAS column — status: new */}
         <section className="pipeline-col">
           <header className="pipeline-col-header">
             <div className="pipeline-col-title">
               <span className="col-dot" style={{ background: "var(--col-ideas)" }} />
               <span className="col-name">Ideas</span>
             </div>
-            <span className="col-count">{filteredIdeas.length}</span>
+            <span className="col-count">{filteredNewIdeas.length}</span>
           </header>
 
           <div className="pipeline-col-body">
             <button className="parked-toggle" type="button" onClick={() => setShowParked((value) => !value)}>
-              {showParked ? "▼" : "▶"} Parked ({filteredParkedIdeas.length})
+              {showParked ? "\u25BC" : "\u25B6"} Parked ({filteredParkedIdeas.length})
             </button>
 
             {showParked ? (
@@ -298,41 +406,40 @@ export default function Pipeline(): JSX.Element {
                 {filteredParkedIdeas.length === 0 ? (
                   <div className="col-empty">No parked ideas</div>
                 ) : (
-                  filteredParkedIdeas.map((idea) => (
-                    <article className="card" key={idea.id}>
-                      <div className="card-accent" style={{ background: "var(--col-ideas)" }} />
-                      <div className="card-body">
-                        <div className="card-title">{ideaTitle(idea)}</div>
-                        <div className="card-desc">{idea.description ?? idea.raw_text}</div>
-                      </div>
-                    </article>
-                  ))
+                  filteredParkedIdeas.map((idea) => renderIdeaCard(idea, "--col-ideas"))
                 )}
               </div>
             ) : null}
 
-            <div className="section-label">Inbox</div>
-            {filteredIdeas.length === 0 ? (
-              <div className="col-empty">No ideas</div>
+            {filteredNewIdeas.length === 0 ? (
+              <div className="col-empty">No new ideas</div>
             ) : (
-              filteredIdeas.map((idea) => (
-                <article className="card" key={idea.id}>
-                  <div className="card-accent" style={{ background: "var(--col-ideas)" }} />
-                  <div className="card-body">
-                    <div className="card-meta">
-                      <span className={priorityDotClass(idea.priority)} />
-                      {(idea.priority ?? "medium").toLowerCase()} · {ageLabel(Math.floor((Date.now() - Date.parse(idea.created_at)) / 3_600_000))}
-                    </div>
-                    <div className="card-title">{ideaTitle(idea)}</div>
-                    <div className="card-desc">{idea.description ?? idea.raw_text}</div>
-                  </div>
-                </article>
-              ))
+              filteredNewIdeas.map((idea) => renderIdeaCard(idea, "--col-ideas"))
             )}
           </div>
         </section>
 
-        {COLUMN_DEFINITIONS.map((column) => {
+        {/* TRIAGE column — status: triaged */}
+        <section className="pipeline-col">
+          <header className="pipeline-col-header">
+            <div className="pipeline-col-title">
+              <span className="col-dot" style={{ background: "var(--col-triage)" }} />
+              <span className="col-name">Triage</span>
+            </div>
+            <span className="col-count">{filteredTriagedIdeas.length}</span>
+          </header>
+
+          <div className="pipeline-col-body">
+            {filteredTriagedIdeas.length === 0 ? (
+              <div className="col-empty">No items</div>
+            ) : (
+              filteredTriagedIdeas.map((idea) => renderIdeaCard(idea, "--col-triage", true))
+            )}
+          </div>
+        </section>
+
+        {/* Active feature columns: Proposal | Ready | Breakdown | Building | Combining | Verifying | PR Ready */}
+        {ACTIVE_COLUMNS.map((column) => {
           const features = filteredByStatus[column.key];
           return (
             <section className="pipeline-col" key={column.key}>
@@ -348,34 +455,55 @@ export default function Pipeline(): JSX.Element {
                 {features.length === 0 ? (
                   <div className="col-empty">No items</div>
                 ) : (
-                  features.map((feature) => (
-                    <article className="card" key={feature.id}>
-                      <div className="card-accent" style={{ background: `var(${column.colorVar})` }} />
-                      <div className="card-body">
-                        <div className="card-meta">
-                          <span className={priorityDotClass(feature.priority)} />
-                          {feature.priority.toLowerCase()} · {ageLabel(feature.ageHours)}
-                        </div>
-                        <div className="card-title">{feature.title}</div>
-                        <div className="card-desc">{feature.description}</div>
-                        <div className="card-jobs">
-                          {Array.from({ length: Math.max(feature.jobsTotal, 1) }).map((_, index) => {
-                            const active = index < feature.jobsDone;
-                            return (
-                              <span
-                                key={`${feature.id}-pip-${index}`}
-                                className="card-job-pip"
-                                style={{ background: active ? "var(--positive)" : "var(--chalk)" }}
-                              />
-                            );
-                          })}
-                          <span className="card-job-count">
-                            {feature.jobsDone}/{feature.jobsTotal || 0} done
-                          </span>
-                        </div>
-                      </div>
-                    </article>
-                  ))
+                  features.map((feature) => renderFeatureCard(feature, column.colorVar))
+                )}
+              </div>
+            </section>
+          );
+        })}
+
+        {/* Terminal columns (Complete | Failed) — items >24h old are minimised */}
+        {TERMINAL_COLUMNS.map((column) => {
+          const all = filteredByStatus[column.key];
+          const recent = all.filter((f) => (f.ageHours ?? 0) < AGE_THRESHOLD_HOURS);
+          const archived = all.filter((f) => (f.ageHours ?? 0) >= AGE_THRESHOLD_HOURS);
+          const isOpen = showArchived[column.key] ?? false;
+
+          return (
+            <section className="pipeline-col" key={column.key}>
+              <header className="pipeline-col-header">
+                <div className="pipeline-col-title">
+                  <span className="col-dot" style={{ background: `var(${column.colorVar})` }} />
+                  <span className="col-name">{column.label}</span>
+                </div>
+                <span className="col-count">{all.length}</span>
+              </header>
+
+              <div className="pipeline-col-body">
+                {archived.length > 0 ? (
+                  <button
+                    className="parked-toggle"
+                    type="button"
+                    onClick={() =>
+                      setShowArchived((prev) => ({ ...prev, [column.key]: !prev[column.key] }))
+                    }
+                  >
+                    {isOpen ? "\u25BC" : "\u25B6"} Older ({archived.length})
+                  </button>
+                ) : null}
+
+                {isOpen ? (
+                  <div className="pipeline-stack">
+                    {archived.map((feature) => renderFeatureCard(feature, column.colorVar))}
+                  </div>
+                ) : null}
+
+                {recent.length === 0 && archived.length === 0 ? (
+                  <div className="col-empty">No items</div>
+                ) : recent.length === 0 ? (
+                  <div className="col-empty">No recent items</div>
+                ) : (
+                  recent.map((feature) => renderFeatureCard(feature, column.colorVar))
                 )}
               </div>
             </section>
@@ -390,6 +518,22 @@ export default function Pipeline(): JSX.Element {
       {ideasError ? <div className="inline-feedback inline-feedback--error">{ideasError}</div> : null}
       {snapshot.updatedAt ? (
         <div className="inline-feedback">Updated {new Date(snapshot.updatedAt).toLocaleString("en-GB")}</div>
+      ) : null}
+
+      {selectedFeature ? (
+        <FeatureDetailPanel
+          featureId={selectedFeature.id}
+          colorVar={selectedFeature.colorVar}
+          onClose={() => setSelectedFeature(null)}
+        />
+      ) : null}
+
+      {selectedIdea ? (
+        <IdeaDetailPanel
+          ideaId={selectedIdea.id}
+          colorVar={selectedIdea.colorVar}
+          onClose={() => setSelectedIdea(null)}
+        />
       ) : null}
     </div>
   );

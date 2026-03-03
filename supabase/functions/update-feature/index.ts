@@ -2,8 +2,8 @@
  * zazigv2 — update-feature Edge Function
  *
  * Updates an existing feature on behalf of the CPO agent.
- * Guards status transitions: CPO may only set 'created' or 'ready_for_breakdown'.
- * Fires a feature_status_changed event when status → ready_for_breakdown.
+ * Guards status transitions: CPO may only set 'created' or 'breaking_down'.
+ * Fires a feature_status_changed event when status → breaking_down.
  *
  * Runtime: Deno / Supabase Edge Functions
  */
@@ -40,7 +40,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 }
 
 // CPO can only set these statuses — all others are orchestrator-managed
-const ALLOWED_CPO_STATUSES = ["created", "ready_for_breakdown", "complete"] as const;
+const ALLOWED_CPO_STATUSES = ["created", "breaking_down", "ready_for_breakdown", "complete"] as const;
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -86,7 +86,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (description !== undefined) updates.description = description;
     if (priority !== undefined) updates.priority = priority;
     if (status !== undefined) {
-      updates.status = status;
+      // Map legacy status to new pipeline status
+      updates.status = status === "ready_for_breakdown" ? "breaking_down" : status;
       if (status === "complete") updates.completed_at = new Date().toISOString();
     }
     if (spec !== undefined) updates.spec = spec;
@@ -127,8 +128,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    // If status changed to ready_for_breakdown, insert event so orchestrator picks it up
-    if (status === "ready_for_breakdown") {
+    // If status changed to breaking_down, insert event so orchestrator picks it up
+    // Accept legacy "ready_for_breakdown" and map it to "breaking_down"
+    if (status === "ready_for_breakdown" || status === "breaking_down") {
       // Cancel all existing jobs from previous pipeline runs so the catch-up loop
       // doesn't re-fail the feature before the new breakdown can finish.
       await supabase
@@ -141,7 +143,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         company_id: updated.company_id,
         feature_id,
         event_type: "feature_status_changed",
-        detail: { from: null, to: "ready_for_breakdown" },
+        detail: { from: null, to: "breaking_down" },
       });
     }
 

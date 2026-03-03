@@ -1978,8 +1978,10 @@ function assembleContext(msg: StartJob): string {
     assembled += `\n\n---\n\n# Sub-Agent Instructions\nWhen spawning sub-agents, begin their prompt with the content of:\n${personalityFile}`;
   }
 
-  // Codex routing (static string, could move server-side later)
-  if (msg.slotType === "codex") {
+  // Only Claude Code jobs should see these routing instructions so they can
+  // delegate to Codex when needed. Native Codex jobs write code directly and
+  // should not self-delegate.
+  if (msg.slotType !== "codex") {
     assembled += `\n\n---\n\n${CODEX_ROUTING_INSTRUCTIONS}`;
   }
 

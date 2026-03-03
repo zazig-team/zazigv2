@@ -2045,34 +2045,10 @@ async function runCodexReview(
 function assembleContext(msg: StartJob, repoRoot?: string): string {
   let assembled = msg.promptStackMinusSkills ?? msg.context ?? "";
 
-  // Insert skill content at the marker position
-  if (msg.roleSkills && msg.roleSkills.length > 0) {
-    const skillParts: string[] = [];
-    for (const name of msg.roleSkills) {
-      const candidateSkillPaths = [
-        ...(repoRoot ? [
-          join(repoRoot, "projects", "skills", `${name}.md`),
-          join(repoRoot, "projects", "skills", name, "SKILL.md"),
-          join(repoRoot, ".claude", "skills", name, "SKILL.md"),
-        ] : []),
-        join(homedir(), ".claude", "skills", name, "SKILL.md"),
-      ];
-      const skillPath = candidateSkillPaths.find((path) => existsSync(path));
-      try {
-        if (!skillPath) throw new Error("missing skill file");
-        skillParts.push(readFileSync(skillPath, "utf8"));
-      } catch {
-        console.warn(
-          `[executor] Skill file not found, skipping: ${name} (checked: ${candidateSkillPaths.join(", ")})`,
-        );
-      }
-    }
-    const skillContent = skillParts.join("\n\n---\n\n");
-    assembled = assembled.replace(SKILLS_MARKER, skillContent);
-  } else {
-    // No skills — remove the marker and its surrounding separators
-    assembled = assembled.replace(`\n\n---\n\n${SKILLS_MARKER}\n\n---\n\n`, "\n\n---\n\n");
-  }
+  // Skills are loaded natively by Claude Code from .claude/skills/ — no need
+  // to inline them into CLAUDE.md. Just strip the marker placeholder.
+  assembled = assembled.replace(`\n\n---\n\n${SKILLS_MARKER}\n\n---\n\n`, "\n\n---\n\n");
+  assembled = assembled.replace(SKILLS_MARKER, "");
 
   // Sub-agent personality (writes to local disk — must stay local)
   if (msg.subAgentPrompt) {

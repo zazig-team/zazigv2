@@ -1876,9 +1876,11 @@ async function runCodexReview(
     acceptanceCriteria,
     "## Diff",
     diff,
-    "PASS if: changes address the spec, no obvious bugs, no placeholder code.",
-    "FAIL if: incomplete, obvious errors, unrelated file changes, missed acceptance criteria.",
-    "Respond with exactly: PASS or FAIL: reason",
+    "Evaluate spec compliance, not minimal file count; changes across 2-5 files are normal for medium-complexity jobs.",
+    "If you see an unexpected extra file (for example, a helper file or test file not explicitly requested), include a note in the response but still return PASS when spec requirements are met.",
+    "PASS if: changes address the spec, no obvious bugs, no placeholder code, and acceptance criteria are met.",
+    "FAIL if: incomplete or incorrect implementation, obvious errors, or missed acceptance criteria.",
+    "Respond with exactly: PASS: reason or FAIL: reason",
   ].join("\n");
 
   const reviewPromptPath = join(worktreePath, ".zazig-review-prompt.txt");

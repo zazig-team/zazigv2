@@ -12,6 +12,32 @@
 import { writeFileSync, mkdirSync, existsSync, copyFileSync, readFileSync, appendFileSync, symlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
+type SubagentRoleConfig = {
+  name: string;
+  description: string;
+  subagent_type: string;
+  model: string;
+  tools: string[];
+  prompt: string;
+};
+
+type SubagentConfigs = {
+  roles: Record<string, SubagentRoleConfig>;
+};
+
+const SUBAGENT_CONFIGS: SubagentConfigs = {
+  roles: {
+    "code-investigator": {
+      name: "Code Investigator",
+      description: "Read-only codebase exploration — answers questions about code structure, patterns, and implementation details",
+      subagent_type: "Explore",
+      model: "claude-sonnet-4-6",
+      tools: ["Read", "Grep", "Glob", "Bash"],
+      prompt: "You are a Code Investigator sub-agent. Your job is to explore the provided codebase(s) and answer the question given to you. You have READ-ONLY access. Do not write, edit, or delete any files. Do not run commands that modify the repository. Search thoroughly, trace execution paths, and return a clear, concise answer with relevant file paths and line numbers.",
+    },
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -136,7 +162,16 @@ export function generateAllowedTools(role: string, mcpTools?: string[]): string[
   const extra = mcpTools ?? [];
   const allMcp = [...new Set([...roleDefaults, ...extra])];
   const toolList = allMcp.map((name) => `mcp__zazig-messaging__${name}`);
-  return [...STANDARD_TOOLS, ...toolList];
+  const extraClaudeTools = role === "cpo" ? ["Agent"] : [];
+  return [...STANDARD_TOOLS, ...extraClaudeTools, ...toolList];
+}
+
+export async function writeSubagentsConfig(
+  workspaceDir: string,
+  subagentsConfig: SubagentConfigs = SUBAGENT_CONFIGS,
+): Promise<void> {
+  const subagentsPath = join(workspaceDir, ".claude", "subagents.json");
+  writeFileSync(subagentsPath, JSON.stringify(subagentsConfig, null, 2));
 }
 
 // ---------------------------------------------------------------------------

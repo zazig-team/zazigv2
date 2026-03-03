@@ -1314,11 +1314,14 @@ export class JobExecutor {
       console.log(`[executor] Codex review for jobId=${jobId}: pass=${reviewResult.pass}, reason=${reviewResult.reason}`);
 
       if (!reviewResult.pass) {
-        // Revert the review commit when present.
+        // Revert the review changes based on how commits were produced.
         try {
           if (reviewResult.committed) {
             await execFileAsync("git", ["reset", "--hard", "HEAD~1"], { cwd: job.worktreePath });
             jobLog(jobId, "Reverted codex review commit via git reset --hard HEAD~1.");
+          } else if (reviewResult.codexSelfCommitted && reviewResult.startingCommit) {
+            await execFileAsync("git", ["reset", "--hard", reviewResult.startingCommit], { cwd: job.worktreePath });
+            jobLog(jobId, `Reverted codex self-commits via git reset --hard ${reviewResult.startingCommit}.`);
           } else {
             await execFileAsync("git", ["checkout", "."], { cwd: job.worktreePath });
             jobLog(jobId, "Reverted uncommitted codex changes via git checkout .");
@@ -1853,7 +1856,13 @@ async function runCodexReview(
   job: ActiveJob,
   jobSpec: string,
   acceptanceCriteria: string,
-): Promise<{ pass: boolean; reason: string; committed: boolean }> {
+): Promise<{
+  pass: boolean;
+  reason: string;
+  committed: boolean;
+  codexSelfCommitted?: boolean;
+  startingCommit?: string;
+}> {
   const worktreePath = job.worktreePath!;
   const overlayPaths = [
     "CLAUDE.md",
@@ -1863,6 +1872,15 @@ async function runCodexReview(
     ".zazig-prompt.txt",
     ".zazig-review-prompt.txt",
   ];
+
+  // Record starting commit before any staging/committing.
+  let startingCommit: string;
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
+    startingCommit = stdout.trim();
+  } catch (err) {
+    return { pass: false, reason: `git rev-parse failed: ${String(err)}`, committed: false };
+  }
 
   // 1. Stage and commit codex output (excluding overlay files)
   let committed = false;
@@ -1875,43 +1893,56 @@ async function runCodexReview(
     await execFileAsync("git", ["commit", "-m", `codex: ${job.jobId}`], { cwd: worktreePath });
     committed = true;
   } catch {
-    // If nothing to commit, that's fine — the filtered diff check below will catch it.
+    // Nothing to commit — Codex may have committed on its own.
   }
 
-  // No commit means no deliverable changes were recorded.
-  if (!committed) {
+  // Get current HEAD after commit attempt.
+  let currentCommit: string;
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
+    currentCommit = stdout.trim();
+  } catch (err) {
+    return { pass: false, reason: `git rev-parse failed: ${String(err)}`, committed, startingCommit };
+  }
+
+  // Detect Codex self-commit: our commit failed but HEAD moved.
+  const codexSelfCommitted = !committed && currentCommit !== startingCommit;
+
+  if (!committed && !codexSelfCommitted) {
+    // No commit from us AND no commit from Codex — check for uncommitted changes.
     let uncommittedDiff = "";
     try {
       const { stdout } = await execFileAsync("git", [
         "diff", "HEAD", "--", ".",
-        ":!CLAUDE.md",
-        ":!.mcp.json",
-        ":!.claude/",
-        ":!.gitignore",
-        ":!.zazig-prompt.txt",
-        ":!.zazig-review-prompt.txt",
+        ...overlayPaths.map((path) => `:!${path}`),
       ], { cwd: worktreePath });
       uncommittedDiff = stdout;
     } catch (err) {
       return { pass: false, reason: `git diff failed: ${String(err)}`, committed: false };
     }
     if (!uncommittedDiff.trim()) {
-      return { pass: false, reason: "Codex produced no changes", committed: false };
+      return { pass: false, reason: "Codex produced no changes", committed: false, startingCommit };
     }
-    return { pass: false, reason: "Codex changes could not be committed", committed: false };
+    return { pass: false, reason: "Codex changes could not be committed", committed: false, startingCommit };
   }
 
-  // 2. Review the committed change only
+  // 2. Review all changes from the starting commit to HEAD.
   let diff: string;
   try {
-    const { stdout } = await execFileAsync("git", ["diff", "HEAD~1..HEAD"], { cwd: worktreePath });
+    const { stdout } = await execFileAsync("git", ["diff", `${startingCommit}..HEAD`], { cwd: worktreePath });
     diff = stdout;
   } catch (err) {
-    return { pass: false, reason: `git diff failed: ${String(err)}`, committed };
+    return {
+      pass: false,
+      reason: `git diff failed: ${String(err)}`,
+      committed,
+      codexSelfCommitted,
+      startingCommit,
+    };
   }
 
   if (!diff.trim()) {
-    return { pass: false, reason: "Codex produced no changes", committed };
+    return { pass: false, reason: "Codex produced no changes", committed, codexSelfCommitted, startingCommit };
   }
 
   // 3. Build and write review prompt
@@ -1944,18 +1975,20 @@ async function runCodexReview(
     } as object);
     reviewOutput = stdout.trim();
   } catch (err) {
-    return { pass: false, reason: `Haiku review failed: ${String(err)}`, committed };
+    return { pass: false, reason: `Haiku review failed: ${String(err)}`, committed, codexSelfCommitted, startingCommit };
   }
 
   // 5. Parse PASS / FAIL
   if (reviewOutput.startsWith("PASS")) {
-    return { pass: true, reason: "PASS", committed };
+    return { pass: true, reason: "PASS", committed, codexSelfCommitted, startingCommit };
   }
   const failMatch = reviewOutput.match(/^FAIL:\s*(.+)/s);
   return {
     pass: false,
     reason: failMatch ? failMatch[1].trim() : reviewOutput || "Haiku returned no output",
     committed,
+    codexSelfCommitted,
+    startingCommit,
   };
 }
 

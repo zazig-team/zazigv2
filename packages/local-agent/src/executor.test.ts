@@ -713,3 +713,138 @@ describe("messageQueue — queue cap (enqueueWithCap)", () => {
     expect(queue.length).toBe(25);
   });
 });
+
+// ---------------------------------------------------------------------------
+// runCodexReview — Haiku review prompt content for multi-file diffs
+// (AC-3-001, AC-3-002, AC-3-003)
+// ---------------------------------------------------------------------------
+
+function getReviewPromptContent(writeFile: Mock): string {
+  const call = writeFile.mock.calls.find(
+    (entry: unknown[]) => typeof entry[0] === "string" && (entry[0] as string).endsWith(".zazig-review-prompt.txt"),
+  );
+  return typeof call?.[1] === "string" ? call[1] as string : "";
+}
+
+const MULTI_FILE_DIFF = [
+  "diff --git a/src/foo.ts b/src/foo.ts",
+  "index abc..def 100644",
+  "--- a/src/foo.ts",
+  "+++ b/src/foo.ts",
+  "@@ -1,3 +1,5 @@",
+  "+export function newFeature() { return true; }",
+  " export function existing() { return 1; }",
+  "diff --git a/src/bar.ts b/src/bar.ts",
+  "index 123..456 100644",
+  "--- a/src/bar.ts",
+  "+++ b/src/bar.ts",
+  "@@ -1,2 +1,4 @@",
+  "+export function helper() { return newFeature(); }",
+  " export function old() { return 2; }",
+].join("\n");
+
+describe("runCodexReview — Haiku review prompt content (AC-3-001, AC-3-002, AC-3-003)", () => {
+  let send: ReturnType<typeof vi.fn>;
+  let slots: SlotTracker;
+  let supabase: ReturnType<typeof makeMockSupabase>;
+  let executor: JobExecutor;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    send = vi.fn().mockResolvedValue(undefined);
+    slots = new SlotTracker({ claude_code: 2, codex: 1 });
+    supabase = makeMockSupabase();
+    executor = new JobExecutor(
+      "machine-1",
+      "company-test",
+      slots,
+      send as unknown as SendFn,
+      supabase.client as any,
+      "https://test.supabase.co",
+      "test-anon-key",
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function setupCodexJobCompletion(haikuResponse: string) {
+    mockExecFileAsync = vi.fn(async (cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "has-session") {
+        throw new Error("session not found");
+      }
+      if (cmd === "git" && args[0] === "diff") {
+        return { stdout: MULTI_FILE_DIFF, stderr: "" };
+      }
+      if (cmd === "bash") {
+        return { stdout: haikuResponse, stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    });
+  }
+
+  it("AC-3-001: review prompt does not penalize multi-file diffs as suspicious or scope creep", async () => {
+    setupCodexJobCompletion("PASS");
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as Mock;
+
+    await executor.handleStartJob(makeStartJob({
+      slotType: "codex",
+      complexity: "medium",
+      spec: "Implement newFeature() in foo.ts and helper() in bar.ts",
+      acceptanceCriteria: "AC-1-001: newFeature() returns true\nAC-1-002: helper() uses newFeature()",
+    }));
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    const prompt = getReviewPromptContent(writeFileSyncMock);
+    expect(prompt.length, "review prompt should be non-empty").toBeGreaterThan(0);
+    expect(prompt, "prompt must not flag unrelated file changes as a FAIL criterion").not.toMatch(/unrelated file changes/i);
+    expect(prompt, "prompt must not assume single-file output").not.toMatch(/single.?file/i);
+  });
+
+  it("AC-3-002: review prompt maintains strict failure gate for incorrect/incomplete code", async () => {
+    setupCodexJobCompletion("FAIL: newFeature() is not implemented");
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as Mock;
+
+    await executor.handleStartJob(makeStartJob({
+      slotType: "codex",
+      complexity: "medium",
+      spec: "Implement newFeature() returning true",
+      acceptanceCriteria: "AC-1-001: newFeature() must return true",
+    }));
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    const prompt = getReviewPromptContent(writeFileSyncMock);
+    expect(prompt.length, "review prompt should be non-empty").toBeGreaterThan(0);
+    expect(prompt, "prompt must instruct FAIL for incomplete code").toMatch(/fail/i);
+    expect(prompt, "prompt must instruct FAIL for missed acceptance criteria").toMatch(/acceptance criteria/i);
+  });
+
+  it("AC-3-003: review prompt instructs Haiku to flag extra helper files as warning notes, not automatic failures", async () => {
+    setupCodexJobCompletion("PASS");
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as Mock;
+
+    await executor.handleStartJob(makeStartJob({
+      slotType: "codex",
+      complexity: "medium",
+      spec: "Implement newFeature() in foo.ts",
+      acceptanceCriteria: "AC-1-001: newFeature() returns true",
+    }));
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    const prompt = getReviewPromptContent(writeFileSyncMock);
+    expect(prompt.length, "review prompt should be non-empty").toBeGreaterThan(0);
+    expect(
+      prompt,
+      "prompt must mention how to handle unexpected/extra files",
+    ).toMatch(/unexpected.*file|extra.*file|additional.*file|helper.*file/i);
+    expect(
+      prompt,
+      "prompt must instruct to include a note/warning rather than fail for extra files",
+    ).toMatch(/note|warn/i);
+  });
+});

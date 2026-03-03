@@ -15,7 +15,7 @@
  *   role != null (persistent agents)   → `claude -p` (claude-opus-4-6, print mode)
  */
 
-import { execFile, spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync, appendFileSync, createWriteStream } from "node:fs";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
@@ -123,7 +123,7 @@ export function jobLog(jobId: string, message: string): void {
 /** Marker in promptStackMinusSkills where skill content is inserted by the local agent. */
 const SKILLS_MARKER = "<!-- SKILLS -->";
 
-/** Codex delegation instructions injected into Claude Code contexts.
+/** Codex delegation instructions injected into non-codex contexts.
  *  Matches v1's token-budget routing: Claude supervises, Codex does the heavy lifting. */
 const CODEX_ROUTING_INSTRUCTIONS = `## Codex Delegation (REQUIRED)
 
@@ -137,26 +137,6 @@ Requirements:
 - For investigation/research, use: codex-delegate investigate --dir $(pwd) "question"
 
 After codex-delegate completes, review the diff output and decide whether to keep, modify, or discard changes.`;
-
-let codexDelegateAvailableCache: boolean | undefined;
-
-/**
- * Returns true when codex-delegate should be offered to Claude Code jobs.
- * Env override:
- *   ZAZIG_CODEX_DELEGATE=1/true  -> force enabled
- *   ZAZIG_CODEX_DELEGATE=0/false -> force disabled
- */
-function codexDelegateEnabled(): boolean {
-  const override = process.env["ZAZIG_CODEX_DELEGATE"]?.trim().toLowerCase();
-  if (override === "1" || override === "true") return true;
-  if (override === "0" || override === "false") return false;
-
-  if (codexDelegateAvailableCache !== undefined) return codexDelegateAvailableCache;
-
-  const probe = spawnSync("codex-delegate", ["--help"], { stdio: "ignore" });
-  codexDelegateAvailableCache = !probe.error;
-  return codexDelegateAvailableCache;
-}
 
 /** Universal file-writing rules for all agents. Used locally for workspace setup. */
 export const FILE_WRITING_RULES = `## File Writing Rules
@@ -1943,8 +1923,11 @@ async function runCodexReview(
     acceptanceCriteria,
     "## Diff",
     diff,
-    "PASS if: changes address the spec, no obvious bugs, no placeholder code.",
-    "FAIL if: incomplete, obvious errors, unrelated file changes, missed acceptance criteria.",
+    "Review against spec and acceptance criteria, not diff size.",
+    "Do NOT fail solely because multiple files were touched.",
+    "Adjacent files (tests, types, helpers) are acceptable if they support the spec; flag as observation unless clearly unrelated.",
+    "PASS if: changes address the spec, acceptance criteria are met, and there are no obvious bugs or placeholder code.",
+    "FAIL if: requirements are missing, acceptance criteria are missed, there are obvious errors, or changes are clearly unrelated.",
     "Respond with exactly: PASS or FAIL: reason",
   ].join("\n");
 
@@ -2050,9 +2033,8 @@ function assembleContext(msg: StartJob, repoRoot?: string): string {
     assembled += `\n\n---\n\n# Sub-Agent Instructions\nWhen spawning sub-agents, begin their prompt with the content of:\n${personalityFile}`;
   }
 
-  // Claude Code can optionally delegate coding to codex-delegate when available.
-  // Native codex jobs execute code changes directly.
-  if (msg.slotType === "claude_code" && codexDelegateEnabled()) {
+  // Native codex jobs execute code changes directly and should not self-delegate.
+  if (msg.slotType !== "codex") {
     assembled += `\n\n---\n\n${CODEX_ROUTING_INSTRUCTIONS}`;
   }
 
@@ -2077,9 +2059,14 @@ function buildCommand(
 
   if (slotType === "codex") {
     // Native Codex execution — prompt is passed as a positional CLI arg (not stdin).
+    const args = ["exec", "-m", resolvedModel, "--full-auto", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
+    if (complexity === "medium") {
+      args.push("-c", "model_reasoning_effort=xhigh");
+    }
+    args.push(promptFilePath ?? "");
     return {
       cmd: "codex",
-      args: ["exec", "-m", resolvedModel, "--full-auto", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check", promptFilePath ?? ""],
+      args,
     };
   }
 

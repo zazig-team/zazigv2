@@ -34,7 +34,6 @@ import {
 import type {
   StartJob,
   SlotType,
-  AgentMessage,
   Heartbeat,
   JobStatusMessage,
   JobComplete,
@@ -129,6 +128,28 @@ interface MachineRow {
   slots_codex: number;
   last_heartbeat: string | null;
   status: string;
+}
+
+interface DecisionResolved {
+  type: "DecisionResolved";
+  decisionId: string;
+  companyId: string;
+  fromRole: string;
+  action: string;
+  selectedOption: string | null;
+  note: string | null;
+}
+
+function isDecisionResolved(msg: unknown): msg is DecisionResolved {
+  if (!msg || typeof msg !== "object") return false;
+  const row = msg as Record<string, unknown>;
+  return row.type === "DecisionResolved" &&
+    typeof row.decisionId === "string" &&
+    typeof row.companyId === "string" &&
+    typeof row.fromRole === "string" &&
+    typeof row.action === "string" &&
+    (typeof row.selectedOption === "string" || row.selectedOption === null) &&
+    (typeof row.note === "string" || row.note === null);
 }
 
 // ---------------------------------------------------------------------------
@@ -2566,6 +2587,82 @@ export async function handleFeatureRejected(
   });
 }
 
+async function handleDecisionResolved(
+  supabase: SupabaseClient,
+  msg: DecisionResolved,
+): Promise<void> {
+  const { decisionId, companyId, fromRole, action, selectedOption, note } = msg;
+
+  console.log(
+    `[orchestrator] Decision ${decisionId} resolved: action=${action}, option=${selectedOption}`,
+  );
+
+  const { data: persistentJob, error: persistentJobErr } = await supabase
+    .from("jobs")
+    .select("id, machine_id, machines(name)")
+    .eq("company_id", companyId)
+    .eq("role", fromRole)
+    .eq("status", "executing")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (persistentJobErr) {
+    console.error(
+      `[orchestrator] Failed to locate active persistent job for role ${fromRole}:`,
+      persistentJobErr.message,
+    );
+    return;
+  }
+
+  const machineName = (persistentJob?.machines as { name?: string } | null)?.name;
+
+  if (!persistentJob?.id || !machineName) {
+    console.warn(
+      `[orchestrator] No active persistent job for role ${fromRole} in company ${companyId} — decision resolution not forwarded`,
+    );
+    return;
+  }
+
+  const agentChannel = supabase.channel(agentChannelName(machineName, companyId));
+  await new Promise<void>((resolve) => {
+    agentChannel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        const result = await agentChannel.send({
+          type: "broadcast",
+          event: "decision_resolved",
+          payload: {
+            type: "DecisionResolved",
+            decisionId,
+            action,
+            selectedOption,
+            note,
+            jobId: persistentJob.id,
+          },
+        });
+
+        if (result !== "ok") {
+          console.error(
+            `[orchestrator] Failed to forward decision resolution to ${fromRole} on machine ${machineName}: ${result}`,
+          );
+        } else {
+          console.log(
+            `[orchestrator] Forwarded decision resolution to ${fromRole} on machine ${machineName}`,
+          );
+        }
+
+        await agentChannel.unsubscribe();
+        resolve();
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        console.error(
+          `[orchestrator] Realtime channel error while forwarding decision ${decisionId} to ${fromRole} on machine ${machineName}`,
+        );
+        resolve();
+      }
+    });
+  });
+}
+
 /**
  * Handles a verification failure by delegating to the request-feature-fix
  * edge function (single source of truth for cancel → reset → re-queue logic).
@@ -3671,7 +3768,7 @@ async function listenForAgentMessages(
 
     channel
       .on("broadcast", { event: "*" }, async ({ payload }: { payload: unknown }) => {
-        const msg = payload as AgentMessage;
+        const msg = payload;
 
         if (isHeartbeat(msg)) {
           await handleHeartbeat(supabase, msg);
@@ -3693,6 +3790,8 @@ async function listenForAgentMessages(
           await handleDeployComplete(supabase, msg);
         } else if (isJobBlocked(msg)) {
           await handleJobBlocked(supabase, msg);
+        } else if (isDecisionResolved(msg)) {
+          await handleDecisionResolved(supabase, msg);
         } else if (isStopAck(msg)) {
           console.log(`[orchestrator] StopAck received — job ${(msg as { jobId: string }).jobId}`);
         } else {

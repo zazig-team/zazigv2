@@ -214,6 +214,76 @@ server.tool(
 );
 
 server.tool(
+  "create_decision",
+  "Present a structured decision to the founder for resolution. Use this when the founder needs to choose between options, approve a direction, or provide input on a tactical or strategic question.",
+  {
+    title: z.string().describe("Clear, concise decision title as a question"),
+    context: z.string().optional().describe("Your reasoning and analysis that led to this decision point"),
+    options: z.array(z.object({
+      label: z.string().describe("Short option name"),
+      description: z.string().optional().describe("What this option means"),
+      recommended: z.boolean().optional().describe("Whether you recommend this option"),
+    })).min(2).describe("Available options (at least 2)"),
+    category: z.enum(["routine", "tactical", "strategic", "foundational"]).optional()
+      .describe("Decision category — routine (low impact), tactical (near-term), strategic (direction-setting), foundational (architectural)"),
+    recommendation_rationale: z.string().optional()
+      .describe("Why you recommend the option(s) marked as recommended"),
+    expires_in_hours: z.number().optional().describe("Hours before this decision expires (default: 24)"),
+  },
+  guardedHandler("create_decision", async ({ title, context, options, category, recommendation_rationale, expires_in_hours }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+    const fromRole = process.env.ZAZIG_ROLE ?? "cpo";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    if (!companyId) {
+      return {
+        content: [{ type: "text" as const, text: "Error: ZAZIG_COMPANY_ID is required for create_decision" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/create-decision`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({
+        company_id: companyId,
+        from_role: fromRole,
+        title,
+        context,
+        options,
+        category,
+        recommendation_rationale,
+        expires_in_hours,
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { decision_id: string };
+      return {
+        content: [{ type: "text" as const, text: `Decision created successfully. decision_id: ${data.decision_id}` }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to create decision (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  }),
+);
+
+server.tool(
   "update_feature",
   "Update an existing feature's title, description, priority, or status. CPO may set status to 'created', 'ready_for_breakdown', or 'complete'.",
   {

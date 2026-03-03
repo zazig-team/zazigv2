@@ -984,6 +984,15 @@ input {
   color: var(--stone);
 }
 
+.empty-state {
+  padding: var(--sp-4) var(--sp-5);
+  color: var(--stone);
+  font-size: 14px;
+  background: var(--white);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--chalk);
+}
+
 .action-card {
   background: var(--white);
   border: 1px solid var(--chalk);
@@ -1086,6 +1095,17 @@ input {
   margin-top: var(--sp-3);
   font-size: 13px;
   color: var(--stone);
+}
+
+.decision-note-input {
+  width: 100%;
+  margin-top: var(--sp-3);
+  border: 1px solid var(--chalk);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--ink);
+  font-size: 12px;
+  padding: 8px 10px;
 }
 
 .decision-footer {

@@ -34,6 +34,38 @@ export interface Idea {
   originator: string | null;
 }
 
+export interface DecisionOption {
+  label: string;
+  description?: string;
+  recommended?: boolean;
+}
+
+export interface Decision {
+  id: string;
+  from_role: string;
+  category: string;
+  title: string;
+  context: string | null;
+  options: DecisionOption[];
+  recommendation_rationale: string | null;
+  status: string;
+  resolution: Record<string, unknown> | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface ActionItem {
+  id: string;
+  source_role: string | null;
+  title: string;
+  detail: string | null;
+  cta_label: string;
+  cta_type: string;
+  cta_payload: Record<string, unknown> | null;
+  status: string;
+  created_at: string;
+}
+
 export interface EventItem {
   id: string;
   event_type: string;
@@ -68,6 +100,52 @@ export interface PipelineSnapshotResponse {
 
 interface EdgeListResponse<TItem, TKey extends string> {
   [key: string]: TItem[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function asDecisionOption(value: unknown): DecisionOption | null {
+  if (typeof value === "string" && value.trim()) {
+    return { label: value.trim() };
+  }
+
+  if (!isRecord(value) || typeof value.label !== "string" || !value.label.trim()) {
+    return null;
+  }
+
+  return {
+    label: value.label,
+    description: typeof value.description === "string" ? value.description : undefined,
+    recommended: typeof value.recommended === "boolean" ? value.recommended : undefined,
+  };
+}
+
+function parseDecisionOptions(value: unknown): DecisionOption[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(asDecisionOption)
+    .filter((option): option is DecisionOption => option !== null);
+}
+
+function isMissingRelationError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeError = error as { code?: unknown; message?: unknown };
+  const code = typeof maybeError.code === "string" ? maybeError.code : "";
+  const message = typeof maybeError.message === "string" ? maybeError.message.toLowerCase() : "";
+
+  return (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    (message.includes("relation") && message.includes("does not exist"))
+  );
 }
 
 function relationObject<T>(value: T | T[] | null | undefined): T | null {
@@ -176,6 +254,71 @@ export async function fetchIdeas(
   return data.ideas ?? [];
 }
 
+export async function fetchDecisions(companyId: string): Promise<Decision[]> {
+  const { data, error } = await supabase
+    .from("decisions")
+    .select(
+      "id, from_role, category, title, context, options, recommendation_rationale, status, resolution, expires_at, created_at",
+    )
+    .eq("company_id", companyId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      return [];
+    }
+    throw error;
+  }
+
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    id: typeof row.id === "string" ? row.id : crypto.randomUUID(),
+    from_role: typeof row.from_role === "string" ? row.from_role : "system",
+    category: typeof row.category === "string" ? row.category : "tactical",
+    title: typeof row.title === "string" ? row.title : "Decision",
+    context: typeof row.context === "string" ? row.context : null,
+    options: parseDecisionOptions(row.options),
+    recommendation_rationale:
+      typeof row.recommendation_rationale === "string"
+        ? row.recommendation_rationale
+        : null,
+    status: typeof row.status === "string" ? row.status : "pending",
+    resolution: isRecord(row.resolution) ? row.resolution : null,
+    expires_at: typeof row.expires_at === "string" ? row.expires_at : null,
+    created_at:
+      typeof row.created_at === "string" ? row.created_at : new Date().toISOString(),
+  }));
+}
+
+export async function fetchActionItems(companyId: string): Promise<ActionItem[]> {
+  const { data, error } = await supabase
+    .from("action_items")
+    .select("id, source_role, title, detail, cta_label, cta_type, cta_payload, status, created_at")
+    .eq("company_id", companyId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      return [];
+    }
+    throw error;
+  }
+
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    id: typeof row.id === "string" ? row.id : crypto.randomUUID(),
+    source_role: typeof row.source_role === "string" ? row.source_role : null,
+    title: typeof row.title === "string" ? row.title : "Action item",
+    detail: typeof row.detail === "string" ? row.detail : null,
+    cta_label: typeof row.cta_label === "string" ? row.cta_label : "Resolve",
+    cta_type: typeof row.cta_type === "string" ? row.cta_type : "acknowledge",
+    cta_payload: isRecord(row.cta_payload) ? row.cta_payload : null,
+    status: typeof row.status === "string" ? row.status : "pending",
+    created_at:
+      typeof row.created_at === "string" ? row.created_at : new Date().toISOString(),
+  }));
+}
+
 export async function fetchPipelineSnapshot(
   companyId: string,
 ): Promise<PipelineSnapshotResponse> {
@@ -194,6 +337,42 @@ export async function submitIdea(params: {
     raw_text: params.rawText,
     originator: params.originator,
   });
+}
+
+export async function resolveDecision(params: {
+  decisionId: string;
+  action: "resolve" | "defer" | "add_note";
+  selectedOption?: string;
+  note?: string;
+}): Promise<void> {
+  await invokePost("update-decision", {
+    decision_id: params.decisionId,
+    action: params.action,
+    selected_option: params.selectedOption,
+    note: params.note,
+  });
+}
+
+export async function resolveActionItem(actionItemId: string): Promise<void> {
+  const { error } = await supabase
+    .from("action_items")
+    .update({ status: "resolved", resolved_at: new Date().toISOString() })
+    .eq("id", actionItemId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function dismissActionItem(actionItemId: string): Promise<void> {
+  const { error } = await supabase
+    .from("action_items")
+    .update({ status: "dismissed", resolved_at: new Date().toISOString() })
+    .eq("id", actionItemId);
+
+  if (error) {
+    throw error;
+  }
 }
 
 export async function fetchActivity(companyId: string): Promise<EventItem[]> {

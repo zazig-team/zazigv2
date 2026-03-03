@@ -3,44 +3,24 @@ import { useAuth } from "../hooks/useAuth";
 import { useCompany } from "../hooks/useCompany";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
 import {
+  fetchActionItems,
   fetchActivity,
   fetchDashboardTeam,
+  fetchDecisions,
   fetchFocusAreas,
   fetchGoals,
   fetchPulseMetrics,
+  resolveActionItem,
+  resolveDecision,
   submitIdea,
+  type ActionItem,
+  type Decision,
   type EventItem,
   type FocusArea,
   type Goal,
   type PulseMetrics,
   type TeamSidebarData,
 } from "../lib/queries";
-
-interface DecisionPlaceholder {
-  from: string;
-  urgency: string;
-  title: string;
-  context: string;
-  options: string[];
-  recommendation: string;
-}
-
-const NEEDS_YOU_PLACEHOLDER = {
-  title: "Stripe API key needed for payment integration",
-  detail: "Onboarding flow is blocked. Engineer cannot proceed without live credentials.",
-  cta: "Provide key",
-};
-
-const DECISIONS_PLACEHOLDER: DecisionPlaceholder = {
-  from: "CPO · Tactical",
-  urgency: "Expires in 22h",
-  title: "Three features are ready for breakdown. Which should we prioritise?",
-  context:
-    "Pipeline has capacity for 2 concurrent builds. The full-loop focus area directly unblocks onboarding.",
-  options: ["Onboarding flow", "Pipeline retry logic", "Slack notifications"],
-  recommendation:
-    "CPO recommends Onboarding flow — directly unblocks Goal 1 and the Full Loop focus area.",
-};
 
 function greetingForHour(hour: number): string {
   if (hour < 12) {
@@ -79,6 +59,22 @@ function formatTime(iso: string): string {
     minute: "2-digit",
     hour12: false,
   }).format(new Date(iso));
+}
+
+function formatExpiresIn(expiresAt: string): string {
+  const delta = Date.parse(expiresAt) - Date.now();
+  if (delta <= 0) {
+    return "Expired";
+  }
+
+  const hours = Math.floor(delta / 3_600_000);
+  if (hours < 1) {
+    return "Expires soon";
+  }
+  if (hours < 24) {
+    return `Expires in ${hours}h`;
+  }
+  return `Expires in ${Math.floor(hours / 24)}d`;
 }
 
 function eventTone(eventType: string): "positive" | "caution" | "negative" | "info" {
@@ -188,14 +184,54 @@ export default function Dashboard(): JSX.Element {
   const [activity, setActivity] = useState<EventItem[]>([]);
   const [pulse, setPulse] = useState<PulseMetrics>(EMPTY_PULSE);
   const [team, setTeam] = useState<TeamSidebarData>(EMPTY_TEAM);
+  const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [actionItems, setActionItems] = useState<ActionItem[]>([]);
+  const [noteText, setNoteText] = useState<Record<string, string>>({});
+  const [decidingId, setDecidingId] = useState<string | null>(null);
 
   const [ideaText, setIdeaText] = useState("");
   const [ideaSubmitting, setIdeaSubmitting] = useState(false);
   const [ideaMessage, setIdeaMessage] = useState<string | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
 
+  const refreshDecisions = useCallback(async (): Promise<void> => {
+    if (!activeCompany?.id) {
+      setDecisions([]);
+      return;
+    }
+
+    try {
+      const data = await fetchDecisions(activeCompany.id);
+      setDecisions(data);
+    } catch {
+      setDecisions([]);
+    }
+  }, [activeCompany?.id]);
+
+  const refreshActionItems = useCallback(async (): Promise<void> => {
+    if (!activeCompany?.id) {
+      setActionItems([]);
+      return;
+    }
+
+    try {
+      const data = await fetchActionItems(activeCompany.id);
+      setActionItems(data);
+    } catch {
+      setActionItems([]);
+    }
+  }, [activeCompany?.id]);
+
   const loadDashboardData = useCallback(async (): Promise<void> => {
     if (!activeCompany?.id) {
+      setGoals([]);
+      setFocusAreas([]);
+      setActivity([]);
+      setPulse(EMPTY_PULSE);
+      setTeam(EMPTY_TEAM);
+      setDecisions([]);
+      setActionItems([]);
+      setNoteText({});
       return;
     }
 
@@ -203,12 +239,22 @@ export default function Dashboard(): JSX.Element {
     setError(null);
 
     try {
-      const [goalsData, focusAreasData, activityData, pulseData, teamData] = await Promise.all([
+      const [
+        goalsData,
+        focusAreasData,
+        activityData,
+        pulseData,
+        teamData,
+        decisionsData,
+        actionItemsData,
+      ] = await Promise.all([
         fetchGoals(activeCompany.id),
         fetchFocusAreas(activeCompany.id),
         fetchActivity(activeCompany.id),
         fetchPulseMetrics(activeCompany.id),
         fetchDashboardTeam(activeCompany.id),
+        fetchDecisions(activeCompany.id).catch(() => []),
+        fetchActionItems(activeCompany.id).catch(() => []),
       ]);
 
       setGoals(goalsData.slice(0, 3));
@@ -216,6 +262,8 @@ export default function Dashboard(): JSX.Element {
       setActivity(activityData);
       setPulse(pulseData);
       setTeam(teamData);
+      setDecisions(decisionsData);
+      setActionItems(actionItemsData);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
@@ -275,6 +323,22 @@ export default function Dashboard(): JSX.Element {
     onUpdate: scheduleRealtimeRefresh,
   });
 
+  useRealtimeTable({
+    table: "decisions",
+    filter: realtimeFilter,
+    enabled: realtimeEnabled,
+    onInsert: refreshDecisions,
+    onUpdate: refreshDecisions,
+  });
+
+  useRealtimeTable({
+    table: "action_items",
+    filter: realtimeFilter,
+    enabled: realtimeEnabled,
+    onInsert: refreshActionItems,
+    onUpdate: refreshActionItems,
+  });
+
   const displayName = userDisplayName(user?.user_metadata?.name, user?.email);
   const now = new Date();
   const greeting = greetingForHour(now.getHours());
@@ -282,8 +346,51 @@ export default function Dashboard(): JSX.Element {
   const greetingSummary = useMemo(() => {
     return `Your team shipped ${pulse.mergedFeatures} feature${pulse.mergedFeatures === 1 ? "" : "s"} recently. ` +
       `Pipeline has ${pulse.activeFeatures} active item${pulse.activeFeatures === 1 ? "" : "s"}. ` +
-      `CPO has 3 decisions waiting for you.`;
-  }, [pulse.activeFeatures, pulse.mergedFeatures]);
+      `CPO has ${decisions.length} decision${decisions.length === 1 ? "" : "s"} waiting for you.`;
+  }, [decisions.length, pulse.activeFeatures, pulse.mergedFeatures]);
+
+  const handleResolveActionItem = async (id: string): Promise<void> => {
+    try {
+      await resolveActionItem(id);
+      setActionItems((prev) => prev.filter((item) => item.id !== id));
+    } catch (resolveError) {
+      setError(resolveError instanceof Error ? resolveError.message : String(resolveError));
+    }
+  };
+
+  const handleDecision = async (
+    decisionId: string,
+    action: "resolve" | "defer" | "add_note",
+    selectedOption?: string,
+    note?: string,
+  ): Promise<void> => {
+    const cleanedNote = typeof note === "string" ? note.trim() : "";
+
+    if (action === "add_note" && !cleanedNote) {
+      setError("Write a note before sending.");
+      return;
+    }
+
+    setDecidingId(decisionId);
+    try {
+      await resolveDecision({
+        decisionId,
+        action,
+        selectedOption,
+        note: cleanedNote || undefined,
+      });
+      if (action === "add_note") {
+        setNoteText((prev) => ({ ...prev, [decisionId]: "" }));
+        return;
+      }
+
+      setDecisions((prev) => prev.filter((decision) => decision.id !== decisionId));
+    } catch (decisionError) {
+      setError(decisionError instanceof Error ? decisionError.message : String(decisionError));
+    } finally {
+      setDecidingId(null);
+    }
+  };
 
   const onSubmitIdea = async (): Promise<void> => {
     if (!activeCompany?.id) {
@@ -364,55 +471,127 @@ export default function Dashboard(): JSX.Element {
           <section className="fade-up d3">
             <div className="section-label">
               Needs You
-              <span className="section-label-count section-label-count--caution">1 action</span>
+              <span className="section-label-count section-label-count--caution">
+                {actionItems.length} action{actionItems.length === 1 ? "" : "s"}
+              </span>
             </div>
-            <article className="action-card">
-              <div className="action-icon">!</div>
-              <div className="action-content">
-                <div className="action-title">{NEEDS_YOU_PLACEHOLDER.title}</div>
-                <div className="action-detail">{NEEDS_YOU_PLACEHOLDER.detail}</div>
-              </div>
-              <button className="action-cta" type="button">
-                {NEEDS_YOU_PLACEHOLDER.cta}
-              </button>
-            </article>
+            {actionItems.length === 0 ? (
+              <div className="empty-state">Nothing needs your attention right now.</div>
+            ) : (
+              actionItems.map((item) => (
+                <article className="action-card" key={item.id}>
+                  <div className="action-icon">!</div>
+                  <div className="action-content">
+                    <div className="action-title">{item.title}</div>
+                    {item.detail ? <div className="action-detail">{item.detail}</div> : null}
+                  </div>
+                  <button
+                    className="action-cta"
+                    type="button"
+                    onClick={() => void handleResolveActionItem(item.id)}
+                  >
+                    {item.cta_label}
+                  </button>
+                </article>
+              ))
+            )}
           </section>
 
           <section className="fade-up d4">
             <div className="section-label">
               Decisions Waiting
-              <span className="section-label-count section-label-count--ember">3 pending</span>
+              <span className="section-label-count section-label-count--ember">
+                {decisions.length} pending
+              </span>
             </div>
-            <article className="decision-card">
-              <div className="decision-header">
-                <span className="decision-from">{DECISIONS_PLACEHOLDER.from}</span>
-                <span className="decision-urgency">{DECISIONS_PLACEHOLDER.urgency}</span>
-              </div>
-              <div className="decision-title">{DECISIONS_PLACEHOLDER.title}</div>
-              <div className="decision-context">{DECISIONS_PLACEHOLDER.context}</div>
-              <div className="decision-options">
-                {DECISIONS_PLACEHOLDER.options.map((option, index) => (
-                  <span
-                    className={`decision-option${index === 0 ? " decision-option--recommended" : ""}`}
-                    key={option}
-                  >
-                    {option}
-                  </span>
-                ))}
-              </div>
-              <div className="decision-rec">{DECISIONS_PLACEHOLDER.recommendation}</div>
-              <div className="decision-footer">
-                <button className="decision-action" type="button">
-                  Accept recommendation
-                </button>
-                <button className="decision-action" type="button">
-                  Add a note
-                </button>
-                <button className="decision-action" type="button">
-                  Defer
-                </button>
-              </div>
-            </article>
+            {decisions.length === 0 ? (
+              <div className="empty-state">No decisions waiting.</div>
+            ) : (
+              decisions.map((decision) => {
+                const recommended = decision.options.find((option) => option.recommended);
+                const expiresIn = decision.expires_at
+                  ? formatExpiresIn(decision.expires_at)
+                  : null;
+
+                return (
+                  <article className="decision-card" key={decision.id}>
+                    <div className="decision-header">
+                      <span className="decision-from">
+                        {decision.from_role.toUpperCase()} · {decision.category}
+                      </span>
+                      {expiresIn ? (
+                        <span className="decision-urgency">{expiresIn}</span>
+                      ) : null}
+                    </div>
+                    <div className="decision-title">{decision.title}</div>
+                    {decision.context ? (
+                      <div className="decision-context">{decision.context}</div>
+                    ) : null}
+                    <div className="decision-options">
+                      {decision.options.map((option, index) => (
+                        <span
+                          key={`${decision.id}-${option.label}-${index}`}
+                          className={`decision-option${option.recommended ? " decision-option--recommended" : ""}`}
+                        >
+                          {option.label}
+                        </span>
+                      ))}
+                    </div>
+                    {decision.recommendation_rationale ? (
+                      <div className="decision-rec">{decision.recommendation_rationale}</div>
+                    ) : null}
+                    <input
+                      className="decision-note-input"
+                      type="text"
+                      placeholder="Add note for CPO..."
+                      value={noteText[decision.id] ?? ""}
+                      onChange={(event) =>
+                        setNoteText((prev) => ({ ...prev, [decision.id]: event.target.value }))}
+                    />
+                    <div className="decision-footer">
+                      {recommended ? (
+                        <button
+                          className="decision-action"
+                          type="button"
+                          disabled={decidingId === decision.id}
+                          onClick={() => void handleDecision(decision.id, "resolve", recommended.label)}
+                        >
+                          Accept recommendation
+                        </button>
+                      ) : null}
+                      <button
+                        className="decision-action"
+                        type="button"
+                        disabled={decidingId === decision.id || !(noteText[decision.id] ?? "").trim()}
+                        onClick={() =>
+                          void handleDecision(
+                            decision.id,
+                            "add_note",
+                            undefined,
+                            noteText[decision.id],
+                          )}
+                      >
+                        Add a note
+                      </button>
+                      <button
+                        className="decision-action"
+                        type="button"
+                        disabled={decidingId === decision.id}
+                        onClick={() =>
+                          void handleDecision(
+                            decision.id,
+                            "defer",
+                            undefined,
+                            noteText[decision.id],
+                          )}
+                      >
+                        Defer
+                      </button>
+                    </div>
+                  </article>
+                );
+              })
+            )}
           </section>
 
           <section className="fade-up d6">

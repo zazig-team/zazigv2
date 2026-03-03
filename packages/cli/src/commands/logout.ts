@@ -8,14 +8,19 @@ import { existsSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const CREDENTIALS_PATH = join(homedir(), ".zazigv2", "credentials.json");
+function credentialsPath(): string {
+  const env = process.env["ZAZIG_ENV"];
+  const filename = env && env !== "production" ? `credentials-${env}.json` : "credentials.json";
+  return join(homedir(), ".zazigv2", filename);
+}
 
 export function logout(): void {
-  if (!existsSync(CREDENTIALS_PATH)) {
+  const p = credentialsPath();
+  if (!existsSync(p)) {
     console.log("Not logged in.");
     return;
   }
 
-  unlinkSync(CREDENTIALS_PATH);
+  unlinkSync(p);
   console.log("Logged out.");
 }

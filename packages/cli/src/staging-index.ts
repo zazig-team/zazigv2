@@ -9,6 +9,9 @@
 
 // Set environment before any imports
 process.env["ZAZIG_ENV"] = "staging";
+process.env["SUPABASE_URL"] = "https://ymgjtrbrvhezxpwjuhbu.supabase.co";
+process.env["SUPABASE_ANON_KEY"] =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltZ2p0cmJydmhlenhwd2p1aGJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1MzE0ODksImV4cCI6MjA4ODEwNzQ4OX0.tIWVnC87cJMVzZILdkKzfPckTQhx6xt95JPhfwzSWR0";
 
 // Delegate to the main CLI
 await import("./index.js");

@@ -61,6 +61,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   // Exchange the authorization code for a bot token.
+  // redirect_uri must match the one sent in the initial authorization request.
+  const redirectUri = `${SUPABASE_URL}/functions/v1/slack-oauth`;
   const tokenRes = await fetch("https://slack.com/api/oauth.v2.access", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -68,6 +70,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       client_id: SLACK_CLIENT_ID,
       client_secret: SLACK_CLIENT_SECRET,
       code,
+      redirect_uri: redirectUri,
     }),
   });
 

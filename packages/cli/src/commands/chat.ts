@@ -41,6 +41,7 @@ export function discoverAgentSessions(
   try {
     const output = execSync("tmux list-sessions -F '#{session_name}'", {
       encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
       timeout: 5000,
     });
     const companyPrefix = companyId ? companyId.slice(0, 8) + "-" : "";

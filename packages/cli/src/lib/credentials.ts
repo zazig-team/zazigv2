@@ -11,7 +11,12 @@ import { join } from "node:path";
 import { DEFAULT_SUPABASE_ANON_KEY } from "./constants.js";
 
 const ZAZIGV2_DIR = join(homedir(), ".zazigv2");
-const CREDENTIALS_PATH = join(ZAZIGV2_DIR, "credentials.json");
+
+function credentialsPath(): string {
+  const env = process.env["ZAZIG_ENV"];
+  const filename = env && env !== "production" ? `credentials-${env}.json` : "credentials.json";
+  return join(ZAZIGV2_DIR, filename);
+}
 
 export interface Credentials {
   accessToken: string;
@@ -21,12 +26,12 @@ export interface Credentials {
 }
 
 export function credentialsExist(): boolean {
-  return existsSync(CREDENTIALS_PATH);
+  return existsSync(credentialsPath());
 }
 
 export function loadCredentials(): Credentials {
   try {
-    const raw = readFileSync(CREDENTIALS_PATH, "utf-8");
+    const raw = readFileSync(credentialsPath(), "utf-8");
     return JSON.parse(raw) as Credentials;
   } catch {
     throw new Error("No credentials found. Run 'zazig login' first.");
@@ -35,7 +40,7 @@ export function loadCredentials(): Credentials {
 
 export function saveCredentials(creds: Credentials): void {
   mkdirSync(ZAZIGV2_DIR, { recursive: true });
-  writeFileSync(CREDENTIALS_PATH, JSON.stringify(creds, null, 2) + "\n", {
+  writeFileSync(credentialsPath(), JSON.stringify(creds, null, 2) + "\n", {
     mode: 0o600,
   });
 }

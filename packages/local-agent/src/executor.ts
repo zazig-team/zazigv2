@@ -112,7 +112,7 @@ function resolveRepoRoot(): string {
 }
 
 /** Write a timestamped line to a per-job lifecycle log file ({jobId}-pre-post.log). */
-function jobLog(jobId: string, message: string): void {
+export function jobLog(jobId: string, message: string): void {
   try {
     mkdirSync(JOB_LOG_DIR, { recursive: true });
     const line = `${new Date().toISOString()} ${message}\n`;
@@ -560,7 +560,7 @@ export class JobExecutor {
       return;
     }
 
-    jobLog(jobId, `Tmux session started — session=${sessionName}, cmd=${cmd}, cwd=${ephemeralWorkspaceDir ?? "none"}`);
+    jobLog(jobId, `Tmux session started — session=${sessionName}, cmd=${cmd} ${cmdArgs.join(" ")}, cwd=${ephemeralWorkspaceDir ?? "none"}`);
     console.log(`[executor] Tmux session started — session=${sessionName}, cmd=${cmd}`);
 
     // --- 6b. Start pipe-pane to stream session output to a log file ---
@@ -568,8 +568,10 @@ export class JobExecutor {
     try {
       mkdirSync(JOB_LOG_DIR, { recursive: true });
       await startPipePane(sessionName, logPath);
+      jobLog(jobId, `pipe-pane started → ${logPath}`);
     } catch (err) {
       // Pipe-pane failure is non-fatal — logs simply won't be captured
+      jobLog(jobId, `pipe-pane FAILED: ${String(err)}`);
       console.warn(`[executor] pipe-pane start failed for jobId=${jobId}: ${String(err)}`);
     }
 
@@ -1320,7 +1322,7 @@ export class JobExecutor {
         // Flush log before failing
         const failLogChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
         if (failLogChunk !== null) {
-          await this.supabase.rpc("append_raw_log", { job_id: jobId, chunk: failLogChunk.chunk }).catch(() => {});
+          try { await this.supabase.rpc("append_raw_log", { job_id: jobId, chunk: failLogChunk.chunk }); } catch { /* best-effort */ }
         }
         await this.sendJobFailed(jobId, reviewResult.reason, "unknown");
         return;
@@ -2048,9 +2050,10 @@ async function spawnTmuxSession(
   // When a promptFile is provided, pipe it via stdin to avoid OS argument
   // length limits (ARG_MAX) when the assembled context is large.
   const claudeCmd = shellEscape([cmd, ...args]);
+  // Merge stderr into stdout so pipe-pane captures error output too.
   const shellCmd = promptFile
-    ? `unset CLAUDECODE; cat ${shellEscape([promptFile])} | ${claudeCmd}`
-    : `unset CLAUDECODE; ${claudeCmd}`;
+    ? `unset CLAUDECODE; cat ${shellEscape([promptFile])} | ${claudeCmd} 2>&1`
+    : `unset CLAUDECODE; ${claudeCmd} 2>&1`;
 
   const tmuxArgs = [
     "new-session",

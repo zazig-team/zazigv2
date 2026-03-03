@@ -18,6 +18,7 @@ import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs"
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { HEARTBEAT_INTERVAL_MS, PROTOCOL_VERSION, isOrchestratorMessage } from "@zazigv2/shared";
+import { jobLog } from "./executor.js";
 import type { OrchestratorMessage, Heartbeat, AgentMessage } from "@zazigv2/shared";
 import type { MachineConfig } from "./config.js";
 import type { SlotTracker } from "./slots.js";
@@ -369,6 +370,12 @@ export class AgentConnection {
     }
 
     console.log(`[local-agent] Received message: type=${payload.type}`, JSON.stringify(payload));
+
+    // Log to per-job file immediately so every message is traceable from arrival
+    if ("jobId" in payload && typeof payload.jobId === "string") {
+      const msg = payload as unknown as Record<string, unknown>;
+      jobLog(payload.jobId, `RECV from orchestrator: type=${payload.type}, slotType=${msg.slotType ?? "none"}, role=${msg.role ?? "none"}, cardType=${msg.cardType ?? "none"}`);
+    }
 
     for (const handler of this.handlers) {
       try {

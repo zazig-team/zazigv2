@@ -104,9 +104,53 @@ export async function promote(args: string[]): Promise<void> {
     return;
   }
 
+  // 4. Fast-forward master into production branch (triggers Vercel production deploy)
+  console.log("\nUpdating production branch...");
+  try {
+    const branch = execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
+
+    // Fetch latest and ensure production branch exists locally
+    execSync("git fetch origin", { cwd: repoRoot, stdio: "pipe" });
+    try {
+      execSync("git rev-parse --verify production", { cwd: repoRoot, stdio: "pipe" });
+    } catch {
+      // Create local production branch tracking remote
+      try {
+        execSync("git branch production origin/production", { cwd: repoRoot, stdio: "pipe" });
+      } catch {
+        // Remote doesn't exist either — create from current HEAD
+        execSync("git branch production", { cwd: repoRoot, stdio: "pipe" });
+      }
+    }
+
+    // Checkout production branch, fast-forward merge, push, return
+    execSync("git checkout production", { cwd: repoRoot, stdio: "pipe" });
+    try {
+      execSync(`git merge ${branch} --ff-only`, { cwd: repoRoot, stdio: "pipe" });
+    } catch {
+      // Return to original branch before erroring
+      execSync(`git checkout ${branch}`, { cwd: repoRoot, stdio: "pipe" });
+      console.error(
+        "Fast-forward merge into production failed. The production branch has diverged from master.\n" +
+        "To fix: git checkout production && git reset --hard master && git push --force-with-lease origin production"
+      );
+      process.exitCode = 1;
+      return;
+    }
+    execSync("git push origin production", { cwd: repoRoot, stdio: "pipe" });
+    execSync(`git checkout ${branch}`, { cwd: repoRoot, stdio: "pipe" });
+    console.log("Production branch updated and pushed (triggers Vercel production deploy).");
+  } catch (err) {
+    // Try to return to master on any error
+    try { execSync("git checkout master", { cwd: repoRoot, stdio: "pipe" }); } catch { /* best-effort */ }
+    console.error(`Production branch update failed: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
+
   const deploy = prodEnv.deploy;
 
-  // 4. Push migrations (if supabase provider with migrations enabled)
+  // 5. Push migrations (if supabase provider with migrations enabled)
   if (deploy.provider === "supabase" && deploy.migrations && deploy.project_ref) {
     console.log(`\nPushing migrations to production (${deploy.project_ref})...`);
     try {
@@ -119,7 +163,7 @@ export async function promote(args: string[]): Promise<void> {
     }
   }
 
-  // 5. Deploy edge functions (if supabase provider with edge_functions enabled)
+  // 6. Deploy edge functions (if supabase provider with edge_functions enabled)
   if (deploy.provider === "supabase" && deploy.edge_functions && deploy.project_ref) {
     console.log(`\nDeploying edge functions to production (${deploy.project_ref})...`);
     try {
@@ -142,7 +186,7 @@ export async function promote(args: string[]): Promise<void> {
     }
   }
 
-  // 6. Custom provider
+  // 7. Custom provider
   if (deploy.provider === "custom" && deploy.script) {
     console.log(`\nRunning custom deploy script: ${deploy.script}`);
     try {
@@ -154,13 +198,13 @@ export async function promote(args: string[]): Promise<void> {
     }
   }
 
-  // 7. Pin local agent build (if agent config says pinned)
+  // 8. Pin local agent build (if agent config says pinned)
   if (prodEnv.agent?.source === "pinned") {
     console.log("\nPinning local agent build...");
     pinCurrentBuild(repoRoot);
   }
 
-  // 8. Re-link to production project ref (so local supabase CLI defaults to prod)
+  // 9. Re-link to production project ref (so local supabase CLI defaults to prod)
   if (deploy.provider === "supabase" && deploy.project_ref) {
     try {
       execSync(`npx supabase link --project-ref ${deploy.project_ref}`, { cwd: repoRoot, stdio: "pipe" });

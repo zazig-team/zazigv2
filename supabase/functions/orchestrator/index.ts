@@ -320,7 +320,7 @@ const NO_CODE_CONTEXT_ROLES = new Set([
 
 const TERMINAL_FEATURE_STATUSES_FOR_DEPLOY = new Set([
   "failed",
-  "complete",
+  "merged",
   "cancelled",
 ]);
 
@@ -1279,7 +1279,7 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
       .from("features")
       .update({ status: "building" })
       .eq("id", jobRow.feature_id)
-      .eq("status", "breakdown");
+      .eq("status", "breaking_down");
     console.log(`[orchestrator] Breakdown complete — feature ${jobRow.feature_id} → building`);
 
     // Auto-generate branch name if not already set (matches processFeatureLifecycle logic).
@@ -1362,22 +1362,22 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
       normalizedResult.startsWith("NO_REPORT") ||
       normalizedResult.startsWith("VERDICT_MISSING");
     if (passed) {
-      console.log(`[orchestrator] Verification PASSED for feature ${jobRow.feature_id} — advancing to pr_ready`);
-      const { data: prReadyUpdated } = await supabase
+      console.log(`[orchestrator] Verification PASSED for feature ${jobRow.feature_id} — advancing to merged`);
+      const { data: mergedUpdated } = await supabase
         .from("features")
-        .update({ status: "pr_ready", updated_at: new Date().toISOString() })
+        .update({ status: "merged", updated_at: new Date().toISOString() })
         .eq("id", jobRow.feature_id)
         .eq("status", "verifying")
         .select("id, pr_url, title");
-      if (prReadyUpdated?.length) {
-        const prUrl = (prReadyUpdated[0] as { pr_url?: string }).pr_url ?? null;
-        const featureTitle = (prReadyUpdated[0] as { title?: string }).title ?? jobRow.feature_id;
+      if (mergedUpdated?.length) {
+        const prUrl = (mergedUpdated[0] as { pr_url?: string }).pr_url ?? null;
+        const featureTitle = (mergedUpdated[0] as { title?: string }).title ?? jobRow.feature_id;
         await notifyCPO(
           supabase,
           jobRow.company_id,
           prUrl
-            ? `Feature "${featureTitle}" verified — PR ready for review: ${prUrl}`
-            : `Feature "${featureTitle}" verified and ready for review (PR URL not yet available).`,
+            ? `Feature "${featureTitle}" verified and merged: ${prUrl}`
+            : `Feature "${featureTitle}" verified and merged.`,
         );
         await notifyPRReady(supabase, jobRow.company_id, featureTitle, prUrl);
       }
@@ -1901,14 +1901,14 @@ export async function triggerCombining(supabase: SupabaseClient, featureId: stri
   // 5. Transition feature to combining (CAS: from building).
   const { data: updated, error: updateErr } = await supabase
     .from("features")
-    .update({ status: "combining" })
+    .update({ status: "combining_and_pr" })
     .eq("id", featureId)
     .eq("status", "building")
     .select("id");
 
   if (updateErr || !updated || updated.length === 0) {
     if (updateErr) {
-      console.error(`[orchestrator] triggerCombining: failed to set feature ${featureId} to combining:`, updateErr.message);
+      console.error(`[orchestrator] triggerCombining: failed to set feature ${featureId} to combining_and_pr:`, updateErr.message);
     } else {
       console.log(`[orchestrator] triggerCombining: feature ${featureId} not in building — rolling back queued combine job`);
     }
@@ -1951,11 +1951,7 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
 
   const lateStageStatuses = new Set([
     "verifying",
-    "pr_ready",
-    "deploying_to_test",
-    "ready_to_test",
-    "deploying_to_prod",
-    "complete",
+    "merged",
     "cancelled",
   ]);
 
@@ -2319,150 +2315,19 @@ export async function handleFeatureApproved(
   supabase: SupabaseClient,
   msg: FeatureApproved,
 ): Promise<void> {
-  const { featureId } = msg;
-
-  // 1. Fetch feature for project/company context
-  const { data: feature, error: fetchErr } = await supabase
-    .from("features")
-    .select("project_id, company_id, branch")
-    .eq("id", featureId)
-    .single();
-
-  if (fetchErr || !feature) {
-    console.error(`[orchestrator] Failed to fetch feature ${featureId}:`, fetchErr?.message);
-    return;
-  }
-
-  // 2. Mark feature as deploying_to_prod (CAS: only if currently in ready_to_test)
-  const { data: updated, error: updateErr } = await supabase
-    .from("features")
-    .update({ status: "deploying_to_prod" })
-    .eq("id", featureId)
-    .eq("status", "ready_to_test")
-    .select("id");
-
-  if (updateErr) {
-    console.error(`[orchestrator] Failed to mark feature ${featureId} deploying_to_prod:`, updateErr.message);
-    return;
-  }
-  if (!updated || updated.length === 0) {
-    console.log(`[orchestrator] Feature ${featureId} not in ready_to_test — skipping approval`);
-    return;
-  }
-
-  // 3. Mark all non-cancelled jobs for this feature as complete
-  const { error: jobsErr } = await supabase
-    .from("jobs")
-    .update({ status: "complete" })
-    .eq("feature_id", featureId)
-    .not("status", "eq", "cancelled");
-
-  if (jobsErr) {
-    console.error(`[orchestrator] Failed to mark jobs complete for feature ${featureId}:`, jobsErr.message);
-  }
-
-  // 4. Log approval event
-  await supabase.from("events").insert({
-    company_id: feature.company_id,
-    event_type: "feature_status_changed",
-    detail: { featureId, from: "ready_to_test", to: "deploying_to_prod", reason: "human_approved" },
-  });
-
-  console.log(`[orchestrator] Feature ${featureId} approved — deploying to prod`);
-
-  // 5. Dispatch deployer job for production
-  await supabase.from("jobs").insert({
-    company_id: feature.company_id,
-    project_id: feature.project_id,
-    feature_id: featureId,
-    title: "Deploy to production",
-    role: "deployer",
-    job_type: "deploy_to_prod",
-    complexity: "simple",
-    slot_type: "claude_code",
-    status: "queued",
-    context: JSON.stringify({
-      type: "deploy_to_prod",
-      target: "prod",
-      featureId,
-      featureBranch: feature.branch,
-      projectId: feature.project_id,
-      approved: true,
-    }),
-    branch: feature.branch,
-  });
-
-  console.log(`[orchestrator] Queued prod deploy job for feature ${featureId}`);
+  // Feature-level deploy is no longer part of the pipeline.
+  // Deployment is now handled at the project level via `zazig promote`.
+  // This handler is kept for backwards compatibility but is a no-op.
+  console.log(`[orchestrator] handleFeatureApproved: feature ${msg.featureId} — deploy handled at project level via zazig promote, no-op`);
 }
 
 /**
  * Handles completion of a production deploy job.
- * Transitions feature from deploying_to_prod → complete.
+ * No longer transitions feature status — deploy is now at the project level.
+ * Kept for backwards compatibility with any in-flight deploy_to_prod jobs.
  */
 async function handleProdDeployComplete(supabase: SupabaseClient, featureId: string): Promise<void> {
-  // 1. Fetch feature for project/company context
-  const { data: feature, error: fetchErr } = await supabase
-    .from("features")
-    .select("project_id, company_id, testing_machine_id")
-    .eq("id", featureId)
-    .single();
-
-  if (fetchErr || !feature) {
-    console.error(`[orchestrator] handleProdDeployComplete: feature ${featureId} not found`);
-    return;
-  }
-
-  // 2. Set feature to complete (CAS: from deploying_to_prod)
-  const { data: updated, error: updateErr } = await supabase
-    .from("features")
-    .update({ status: "complete" })
-    .eq("id", featureId)
-    .eq("status", "deploying_to_prod")
-    .select("id");
-
-  if (updateErr) {
-    console.error(`[orchestrator] Failed to mark feature ${featureId} complete:`, updateErr.message);
-    return;
-  }
-  if (!updated || updated.length === 0) {
-    console.log(`[orchestrator] Feature ${featureId} not in deploying_to_prod — skipping`);
-    return;
-  }
-
-  // 3. Log event
-  await supabase.from("events").insert({
-    company_id: feature.company_id,
-    event_type: "feature_status_changed",
-    detail: { featureId, from: "deploying_to_prod", to: "complete" },
-  });
-
-  console.log(`[orchestrator] Feature ${featureId} → complete (prod deploy done)`);
-
-  // 4. Drain the testing queue — promote next verifying feature
-  const { data: nextFeature, error: nextErr } = await supabase
-    .from("features")
-    .select("id")
-    .eq("project_id", feature.project_id)
-    .eq("status", "verifying")
-    .order("updated_at", { ascending: true })
-    .limit(1);
-
-  if (nextErr) {
-    console.error(`[orchestrator] Failed to check queue after prod deploy:`, nextErr.message);
-    return;
-  }
-
-  if (nextFeature && nextFeature.length > 0) {
-    console.log(`[orchestrator] Promoting queued feature ${nextFeature[0].id} to deploying_to_test`);
-    await initiateTestDeploy(supabase, nextFeature[0].id);
-  }
-
-  // 5. Fire-and-forget teardown of the test environment
-  if (feature.testing_machine_id) {
-    runTeardown(supabase, featureId, feature.testing_machine_id, feature.company_id).catch(err => {
-      console.error(`[orchestrator] teardown failed after prod deploy, feature ${featureId}:`, err);
-    });
-  }
+  console.log(`[orchestrator] handleProdDeployComplete: feature ${featureId} — deploy handled at project level, no-op`);
 }
 
 export async function handleFeatureRejected(
@@ -2509,12 +2374,12 @@ export async function handleFeatureRejected(
     return;
   }
 
-  // 2. Reset feature to building (CAS: only if currently in ready_to_test)
+  // 2. Reset feature to building (CAS: only if currently in verifying or merged)
   const { data: updated, error: updateErr } = await supabase
     .from("features")
     .update({ status: "building" })
     .eq("id", featureId)
-    .eq("status", "ready_to_test")
+    .in("status", ["verifying", "merged"])
     .select("id");
 
   if (updateErr) {
@@ -2522,7 +2387,7 @@ export async function handleFeatureRejected(
     return;
   }
   if (!updated || updated.length === 0) {
-    console.log(`[orchestrator] Feature ${featureId} not in ready_to_test — skipping rejection`);
+    console.log(`[orchestrator] Feature ${featureId} not in verifying/merged — skipping rejection`);
     return;
   }
 
@@ -2530,7 +2395,7 @@ export async function handleFeatureRejected(
   await supabase.from("events").insert({
     company_id: feature.company_id,
     event_type: "feature_status_changed",
-    detail: { featureId, from: "ready_to_test", to: "building", reason: "human_rejected", feedback, severity },
+    detail: { featureId, from: "verifying", to: "building", reason: "human_rejected", feedback, severity },
   });
 
   // 4. Queue a fix job with the rejection feedback
@@ -2568,23 +2433,6 @@ export async function handleFeatureRejected(
     }
   }
 
-  // 5. Free up the test env — check queue and promote next feature
-  const { data: nextFeature, error: nextErr } = await supabase
-    .from("features")
-    .select("id")
-    .eq("project_id", feature.project_id)
-    .eq("status", "verifying")
-    .order("updated_at", { ascending: true })
-    .limit(1);
-
-  if (!nextErr && nextFeature && nextFeature.length > 0) {
-    await initiateTestDeploy(supabase, nextFeature[0].id);
-  }
-
-  // 6. Fire-and-forget teardown of the test environment
-  runTeardown(supabase, featureId, machineId, feature.company_id).catch(err => {
-    console.error(`[orchestrator] teardown failed after rejection, feature ${featureId}:`, err);
-  });
 }
 
 async function handleDecisionResolved(
@@ -2697,13 +2545,12 @@ async function handleVerificationFailed(
 // ---------------------------------------------------------------------------
 
 /**
- * Creates a breakdown job for a ready_for_breakdown feature.
+ * Creates a breakdown job for a breaking_down feature.
  *
- * "ready_for_breakdown" means CPO pre-approval (feature spec agreed for development),
- * NOT human post-testing approval (that's handleFeatureApproved: ready_to_test→deploying_to_prod).
+ * "breaking_down" means CPO pre-approval (feature spec agreed for development).
  *
  * Idempotent: skips if a non-terminal breakdown job already exists for this feature.
- * On success, transitions the feature from 'ready_for_breakdown' → 'breakdown'.
+ * Feature stays in 'breaking_down' while the breakdown job executes.
  */
 export async function triggerBreakdown(supabase: SupabaseClient, featureId: string): Promise<void> {
   // 1. Fetch feature for company/project context
@@ -2750,7 +2597,7 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
   }
 
   // 2b. Clean slate: cancel all stale jobs from previous breakdown attempts.
-  // When a feature is reset to ready_for_breakdown after a failed first attempt,
+  // When a feature is reset to breaking_down after a failed first attempt,
   // old completed/failed breakdown, combine, verify, and implementation jobs linger.
   // The combiner and all_feature_jobs_complete RPC will pick up these stale jobs,
   // causing incorrect behaviour. Cancel them so downstream logic starts fresh.
@@ -2817,7 +2664,7 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
       .from("features")
       .update({ status: "building" })
       .eq("id", featureId)
-      .eq("status", "ready_for_breakdown")
+      .eq("status", "breaking_down")
       .select("id");
 
     if (updateErr || !updated || updated.length === 0) {
@@ -2868,34 +2715,31 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
     return;
   }
 
-  // 4. Update feature status to 'breakdown' (breakdown job is in progress)
-  await supabase
-    .from("features")
-    .update({ status: "breakdown" })
-    .eq("id", featureId)
-    .eq("status", "ready_for_breakdown"); // CAS guard
+  // 4. Feature stays in 'breaking_down' (breakdown job is in progress).
+  // CAS guard ensures feature hasn't changed status since we started.
+  // No status update needed — feature is already in 'breaking_down'.
+  // (Old flow had ready_for_breakdown → breakdown; now both are 'breaking_down')
 
   console.log(`[orchestrator] Created breakdown job ${job.id} for feature ${featureId}`);
 }
 
-// processReadyForBreakdown: polls for features that the CPO has approved for development.
-// status='ready_for_breakdown' = "CPO agreed to build this feature — breakdown expert should break it into jobs".
-// DISTINCT from handleFeatureApproved which handles human testing approval (ready_to_test→deploying_to_prod).
+// processReadyForBreakdown: polls for features in 'breaking_down' that need a breakdown job created.
+// Features enter 'breaking_down' when the CPO approves them for development.
 async function processReadyForBreakdown(supabase: SupabaseClient): Promise<void> {
   const { data: features, error } = await supabase
     .from("features")
     .select("id")
-    .eq("status", "ready_for_breakdown")
+    .eq("status", "breaking_down")
     .limit(50);
 
   if (error) {
-    console.error("[orchestrator] Error querying ready_for_breakdown features:", error.message);
+    console.error("[orchestrator] Error querying breaking_down features:", error.message);
     return;
   }
 
   if (!features || features.length === 0) return;
 
-  console.log(`[orchestrator] ${features.length} ready_for_breakdown feature(s) to process.`);
+  console.log(`[orchestrator] ${features.length} breaking_down feature(s) to process.`);
 
   for (const feature of features as { id: string }[]) {
     await triggerBreakdown(supabase, feature.id);
@@ -2914,15 +2758,10 @@ async function processReadyForBreakdown(supabase: SupabaseClient): Promise<void>
  * Handles:
  *   0. Failed job catch-up: marks features failed when JobFailed broadcast was missed
  *   0b. deploy_to_test guard: fails queued/dispatched/executing deploy jobs for terminal features
- *   1. breakdown → building: all breakdown jobs for the feature are complete
- *   2. building → combining: all implementation jobs are complete
- *   3. combining → verifying: the latest combine job is complete
- *   4. verifying → deploying_to_test: the latest verify job is complete and passed
- *   4b. deploying_to_test → ready_to_test: the latest deploy_to_test job is complete
- *   4c. deploy_to_test zombie auto-fail: jobs stuck in executing/dispatched >15 min
- *   4d. combine timeout auto-fail: combine jobs stuck in executing/dispatched >10 min are failed and re-queued
- *   5. deploying_to_test: stuck recovery (5min timeout, max 3 retries/hour)
- *   6. deploying_to_prod → complete: the latest prod deploy job is complete
+ *   1. breaking_down → building: all breakdown jobs for the feature are complete
+ *   2. building → combining_and_pr: all implementation jobs are complete
+ *   3. combining_and_pr → verifying: the latest combine job is complete
+ *   4. verifying → merged: the latest verify job is complete and passed
  */
 async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> {
   // --- 0. Failed job catch-up (all stages) ---
@@ -2932,7 +2771,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
   const { data: activeFeatures, error: activeErr } = await supabase
     .from("features")
     .select("id")
-    .not("status", "in", '("complete","failed","cancelled","created","ready_for_breakdown")')
+    .not("status", "in", '("merged","failed","cancelled","created")')
     .limit(100);
 
   if (activeErr) {
@@ -2956,7 +2795,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
         .from("features")
         .update({ status: "failed", error: errorDetail })
         .eq("id", feature.id)
-        .not("status", "in", '("failed","complete","cancelled")') // CAS guard
+        .not("status", "in", '("failed","merged","cancelled")') // CAS guard
         .select("id");
 
       if (updated && updated.length > 0) {
@@ -2970,7 +2809,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
   const { data: terminalFeatures, error: terminalErr } = await supabase
     .from("features")
     .select("id, status")
-    .in("status", ["failed", "complete", "cancelled"])
+    .in("status", ["failed", "merged", "cancelled"])
     .limit(100);
 
   if (terminalErr) {
@@ -3015,12 +2854,12 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     }
   }
 
-  // --- 1. breakdown → building ---
-  // Features stuck in 'breakdown' where the breakdown job is complete
+  // --- 1. breaking_down → building ---
+  // Features stuck in 'breaking_down' where the breakdown job is complete
   const { data: breakdownFeatures, error: bErr } = await supabase
     .from("features")
     .select("id, company_id")
-    .eq("status", "breakdown")
+    .eq("status", "breaking_down")
     .limit(50);
 
   if (bErr) {
@@ -3054,11 +2893,11 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
         .from("features")
         .update({ status: "building" })
         .eq("id", feature.id)
-        .eq("status", "breakdown")
+        .eq("status", "breaking_down")
         .select("id");
 
       if (updated && updated.length > 0) {
-        console.log(`[orchestrator] processFeatureLifecycle: feature ${feature.id} breakdown → building`);
+        console.log(`[orchestrator] processFeatureLifecycle: feature ${feature.id} breaking_down → building`);
 
         // Auto-generate branch name if not already set.
         const { data: featBranch } = await supabase
@@ -3136,13 +2975,13 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     }
   }
 
-  // --- 3. combining → verifying ---
-  // Features stuck in 'combining' where the latest combine job is already complete.
+  // --- 3. combining_and_pr → verifying ---
+  // Features stuck in 'combining_and_pr' where the latest combine job is already complete.
   // Uses latest job by created_at to avoid advancing on stale jobs from prior rejection cycles.
   const { data: combiningFeatures, error: combineErr } = await supabase
     .from("features")
     .select("id")
-    .eq("status", "combining")
+    .eq("status", "combining_and_pr")
     .limit(50);
 
   if (combineErr) {
@@ -3165,11 +3004,10 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     // Failed combine jobs are handled by Task 0's central catch-up — no action needed here.
   }
 
-  // --- 4. verifying → pr_ready (catch-up) ---
+  // --- 4. verifying → merged (catch-up) ---
   // Features stuck in 'verifying' where the latest verify job is already complete and passed.
-  // The live path (handleJobComplete) advances verifying → pr_ready on receipt of the
+  // The live path (handleJobComplete) advances verifying → merged on receipt of the
   // job_complete message. This catch-up handles cases where that message was missed.
-  // deploy_to_test is out of the pipeline for now — features stop at pr_ready for CPO review.
   const { data: verifyingFeatures, error: verifyErr } = await supabase
     .from("features")
     .select("id, company_id")
@@ -3201,10 +3039,10 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
       normalizedResult.startsWith("VERDICT_MISSING");
 
     if (passed) {
-      console.log(`[orchestrator] processFeatureLifecycle: verify PASSED for feature ${feature.id} — advancing to pr_ready (catch-up)`);
+      console.log(`[orchestrator] processFeatureLifecycle: verify PASSED for feature ${feature.id} — advancing to merged (catch-up)`);
       const { data: updated } = await supabase
         .from("features")
-        .update({ status: "pr_ready", updated_at: new Date().toISOString() })
+        .update({ status: "merged", updated_at: new Date().toISOString() })
         .eq("id", feature.id)
         .eq("status", "verifying")
         .select("id, pr_url, title");
@@ -3216,8 +3054,8 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
           supabase,
           feature.company_id,
           prUrl
-            ? `Feature "${featureTitle}" verified — PR ready for review: ${prUrl}`
-            : `Feature "${featureTitle}" verified and ready for review (PR URL not yet available).`,
+            ? `Feature "${featureTitle}" verified and merged: ${prUrl}`
+            : `Feature "${featureTitle}" verified and merged.`,
         );
         await notifyPRReady(supabase, feature.company_id, featureTitle, prUrl);
       }
@@ -3241,248 +3079,10 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     }
   }
 
-  // --- 4b. deploying_to_test → ready_to_test ---
-  // Features stuck in 'deploying_to_test' where the latest deploy_to_test job is
-  // already complete. The live path (handleDeployComplete) handles Slack notification
-  // and tester job creation — this fallback only does the status transition to
-  // prevent permanent stalls.
-  const { data: deployingTestFeatures, error: deployTestErr } = await supabase
-    .from("features")
-    .select("id")
-    .eq("status", "deploying_to_test")
-    .limit(50);
-
-  if (deployTestErr) {
-    console.error("[orchestrator] processFeatureLifecycle: error querying deploying_to_test features for ready_to_test catch-up:", deployTestErr.message);
-  }
-
-  for (const feature of (deployingTestFeatures ?? []) as { id: string }[]) {
-    const { data: latestDeploy } = await supabase
-      .from("jobs")
-      .select("id, status")
-      .eq("feature_id", feature.id)
-      .eq("job_type", "deploy_to_test")
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (!latestDeploy || latestDeploy.length === 0) continue;
-    const job = latestDeploy[0] as { id: string; status: string };
-    if (job.status !== "complete") continue;
-
-    const { data: updated } = await supabase
-      .from("features")
-      .update({ status: "ready_to_test" })
-      .eq("id", feature.id)
-      .eq("status", "deploying_to_test") // CAS guard
-      .select("id");
-
-    if (updated && updated.length > 0) {
-      console.log(`[orchestrator] processFeatureLifecycle: deploy_to_test complete for feature ${feature.id} — advancing to ready_to_test (catch-up)`);
-    }
-    // Failed deploy jobs are handled by Task 0's central catch-up — no action needed here.
-  }
-
-  // --- 4c. deploy_to_test zombie job auto-fail ---
-  // deploy_to_test is not fully implemented yet. Jobs stuck in executing or
-  // dispatched for >15 minutes are always zombies. Auto-fail them so Task 0's
-  // failed job catch-up can mark the parent feature as failed.
-  // Use created_at for age so re-dispatches cannot reset the timer.
-  const DEPLOY_ZOMBIE_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
-  const COMBINE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
-  const zombieCutoff = new Date(Date.now() - DEPLOY_ZOMBIE_THRESHOLD_MS).toISOString();
-
-  const { data: zombieDeployJobs, error: zombieErr } = await supabase
-    .from("jobs")
-    .select("id, feature_id")
-    .eq("job_type", "deploy_to_test")
-    .not("status", "in", '("complete","failed","queued","cancelled")')
-    .lt("created_at", zombieCutoff)
-    .limit(50);
-
-  if (zombieErr) {
-    console.error("[orchestrator] processFeatureLifecycle: error querying zombie deploy_to_test jobs:", zombieErr.message);
-  }
-
-  for (const job of (zombieDeployJobs ?? []) as { id: string; feature_id: string }[]) {
-    const { data: updated } = await supabase
-      .from("jobs")
-      .update({
-        status: "failed",
-        result: "Auto-failed: deploy_to_test job stuck in executing/dispatched for >15 minutes (zombie)",
-      })
-      .eq("id", job.id)
-      .not("status", "in", '("complete","failed","cancelled")') // CAS guard — don't overwrite terminal states
-      .select("id");
-
-    if (updated && updated.length > 0) {
-      console.warn(`[orchestrator] processFeatureLifecycle: auto-failed zombie deploy_to_test job ${job.id} for feature ${job.feature_id}`);
-    }
-  }
-
-  // --- 4d. combine timeout auto-fail + retry ---
-  // Combine jobs should finish in a few minutes. If one is still dispatched/executing
-  // after 10 minutes, mark it failed and enqueue a fresh combine job for retry.
-  // Use created_at for age so re-dispatches cannot reset the timer.
-  const combineTimeoutCutoff = new Date(Date.now() - COMBINE_TIMEOUT_MS).toISOString();
-  const { data: timedOutCombineJobs, error: combineTimeoutErr } = await supabase
-    .from("jobs")
-    .select("id, company_id, project_id, feature_id, title, role, job_type, complexity, slot_type, context, branch")
-    .eq("job_type", "combine")
-    .in("status", ["dispatched", "executing"])
-    .lt("created_at", combineTimeoutCutoff)
-    .limit(50);
-
-  if (combineTimeoutErr) {
-    console.error("[orchestrator] processFeatureLifecycle: error querying timed-out combine jobs:", combineTimeoutErr.message);
-  }
-
-  for (const job of (timedOutCombineJobs ?? []) as Array<{
-    id: string;
-    company_id: string;
-    project_id: string | null;
-    feature_id: string | null;
-    title: string | null;
-    role: string;
-    job_type: string;
-    complexity: string | null;
-    slot_type: SlotType | null;
-    context: string | null;
-    branch: string | null;
-  }>) {
-    const { data: failedRows, error: failErr } = await supabase
-      .from("jobs")
-      .update({
-        status: "failed",
-        result: "combine_timeout_auto_failed",
-      })
-      .eq("id", job.id)
-      .in("status", ["dispatched", "executing"])
-      .select("id");
-
-    if (failErr) {
-      console.error(`[orchestrator] processFeatureLifecycle: failed to auto-fail timed-out combine job ${job.id}:`, failErr.message);
-      continue;
-    }
-
-    if (!failedRows || failedRows.length === 0) {
-      continue;
-    }
-
-    console.warn(
-      `[orchestrator] processFeatureLifecycle: auto-failed timed-out combine job ${job.id} for feature ${job.feature_id ?? "unknown feature"}`,
-    );
-
-    const { error: retryInsertErr } = await supabase
-      .from("jobs")
-      .insert({
-        company_id: job.company_id,
-        project_id: job.project_id,
-        feature_id: job.feature_id,
-        title: job.title,
-        role: job.role,
-        job_type: job.job_type,
-        complexity: job.complexity,
-        slot_type: job.slot_type,
-        status: "queued",
-        context: job.context,
-        branch: job.branch,
-      });
-
-    if (retryInsertErr) {
-      console.error(
-        `[orchestrator] processFeatureLifecycle: failed to enqueue combine retry for feature ${job.feature_id ?? "unknown feature"} after timeout of job ${job.id}:`,
-        retryInsertErr.message,
-      );
-    } else {
-      console.log(
-        `[orchestrator] processFeatureLifecycle: queued combine retry for feature ${job.feature_id ?? "unknown feature"} after timeout of job ${job.id}`,
-      );
-    }
-  }
-
-  // --- 5. deploying_to_test — stuck recovery ---
-  // Features stuck in 'deploying_to_test' where no deploy job has heartbeated
-  // in the last 5 minutes. The executor updates job.updated_at every 30s while
-  // the tmux session is alive, so a stale updated_at means the job is dead.
-  // Recovery: roll back to 'verifying' so the poller can retry.
-  const DEPLOY_STUCK_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
-  const deployStuckCutoff = new Date(Date.now() - DEPLOY_STUCK_THRESHOLD_MS).toISOString();
-
-  const { data: deployingFeatures, error: deployErr } = await supabase
-    .from("features")
-    .select("id, company_id")
-    .eq("status", "deploying_to_test")
-    .limit(50);
-
-  if (deployErr) {
-    console.error("[orchestrator] processFeatureLifecycle: error querying deploying_to_test features:", deployErr.message);
-  }
-
-  for (const feature of (deployingFeatures ?? []) as { id: string; company_id: string }[]) {
-    // Check the latest deploy_to_test job's heartbeat (updated_at)
-    const { data: latestJob } = await supabase
-      .from("jobs")
-      .select("id, updated_at, status")
-      .eq("feature_id", feature.id)
-      .eq("job_type", "deploy_to_test")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-
-    // Skip if the job has heartbeated recently (still alive)
-    if (latestJob?.updated_at && latestJob.updated_at > deployStuckCutoff) {
-      continue;
-    }
-
-    console.warn(
-      `[orchestrator] processFeatureLifecycle: feature ${feature.id} stuck in deploying_to_test — last job heartbeat stale (${latestJob?.updated_at ?? "no job"}) — rolling back to verifying`,
-    );
-
-    const { error: rollbackErr } = await supabase
-      .from("features")
-      .update({ status: "verifying" })
-      .eq("id", feature.id)
-      .eq("status", "deploying_to_test"); // CAS guard
-
-    if (!rollbackErr) {
-      await notifyCPO(
-        supabase,
-        feature.company_id,
-        `Feature ${feature.id} was stuck in deploying_to_test (no job heartbeat for >5min). Rolled back to verifying for retry.`,
-      );
-    }
-  }
-
-  // --- 6. deploying_to_prod → complete ---
-  // Features stuck in 'deploying_to_prod' where the latest prod deploy job is complete.
-  // Deploy jobs for test vs prod are distinguished by context.target.
-  // Failed deploy jobs are handled by Task 0's central catch-up.
-  const { data: prodDeployFeatures, error: prodErr } = await supabase
-    .from("features")
-    .select("id")
-    .eq("status", "deploying_to_prod")
-    .limit(50);
-
-  if (prodErr) {
-    console.error("[orchestrator] processFeatureLifecycle: error querying deploying_to_prod features:", prodErr.message);
-  }
-
-  for (const feature of (prodDeployFeatures ?? []) as { id: string }[]) {
-    const { data: latestDeploy } = await supabase
-      .from("jobs")
-      .select("id, status, context")
-      .eq("feature_id", feature.id)
-      .eq("job_type", "deploy_to_prod")
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (!latestDeploy || latestDeploy.length === 0) continue;
-    const job = latestDeploy[0] as { id: string; status: string };
-    if (job.status !== "complete") continue;
-
-    console.log(`[orchestrator] processFeatureLifecycle: prod deploy done for feature ${feature.id} — marking complete`);
-    await handleProdDeployComplete(supabase, feature.id);
-  }
+  // --- Sections 4b-6 removed ---
+  // Deploy-to-test and deploy-to-prod are no longer part of the feature pipeline.
+  // Deployment is now handled at the project level via `zazig promote`.
+  // Feature pipeline ends at 'merged'.
 }
 
 // ---------------------------------------------------------------------------
@@ -3491,114 +3091,14 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
 
 /**
  * Handles a successful test environment deployment from a local agent.
- * Stores the test URL on the feature, opens a Slack thread with the URL.
+ * Feature-level deploy is no longer part of the pipeline — deployment is at the project level.
+ * Kept for backwards compatibility with any in-flight deploy messages.
  */
 export async function handleDeployComplete(
   supabase: SupabaseClient,
   msg: DeployComplete,
 ): Promise<void> {
-  const { featureId, testUrl, ephemeral } = msg;
-
-  // 1. Fetch feature details
-  const { data: feature, error: fetchErr } = await supabase
-    .from("features")
-    .select("company_id, project_id, title, human_checklist, spec, branch")
-    .eq("id", featureId)
-    .single();
-
-  if (fetchErr || !feature) {
-    console.error(`[orchestrator] Failed to fetch feature ${featureId} for deploy_complete:`, fetchErr?.message);
-    return;
-  }
-
-  // 2. Store test URL, timestamp, machine affinity, and transition to ready_to_test
-  const { data: updatedRows, error: updateErr } = await supabase
-    .from("features")
-    .update({
-      test_url: testUrl,
-      test_started_at: new Date().toISOString(),
-      testing_machine_id: msg.machineId,
-      status: "ready_to_test",
-    })
-    .eq("id", featureId)
-    .eq("status", "deploying_to_test") // CAS guard
-    .select("id");
-
-  if (updateErr) {
-    console.error(`[orchestrator] Failed to update feature ${featureId} with test URL:`, updateErr.message);
-    return;
-  }
-  if (!updatedRows || updatedRows.length === 0) {
-    console.warn(`[orchestrator] Ignoring stale/duplicate deploy_complete for feature ${featureId} (CAS matched zero rows)`);
-    return;
-  }
-
-  // 3. Send Slack notification with test URL
-  const slackChannel = await getDefaultSlackChannel(supabase, feature.company_id);
-  if (slackChannel) {
-    const botToken = await getSlackBotToken(supabase, feature.company_id);
-    if (botToken) {
-      const checklist = parseChecklist(feature.human_checklist);
-      const checklistText = checklist.length > 0
-        ? "\n\n*Checklist:*\n" + checklist.map((item: string) => `- [ ] ${item}`).join("\n")
-        : "";
-      const envType = ephemeral ? " (ephemeral)" : " (persistent)";
-
-      const text = [
-        `*Feature ready for testing: "${feature.title ?? featureId}"*`,
-        `Deployed to: ${testUrl}${envType}`,
-        checklistText,
-        "",
-        'Reply *"approve"* or *"ship it"* to merge, or *"reject"* with feedback to fix.',
-      ].join("\n");
-
-      const threadTs = await postSlackMessage(botToken, slackChannel, text);
-
-      // Store the Slack channel and thread TS on the feature for the testing loop
-      if (threadTs) {
-        await supabase
-          .from("features")
-          .update({ slack_channel: slackChannel, slack_thread_ts: threadTs })
-          .eq("id", featureId);
-      }
-    }
-  }
-
-  // 4. Queue interactive tester job for the feature
-  const { error: testerErr } = await supabase.from("jobs").insert({
-    company_id: feature.company_id,
-    project_id: feature.project_id,
-    feature_id: featureId,
-    title: "Test feature",
-    role: "tester",
-    job_type: "feature_test",
-    complexity: "simple",
-    slot_type: "claude_code",
-    status: "queued",
-    context: JSON.stringify({
-      type: "feature_test",
-      featureId,
-      featureBranch: feature.branch ?? "",
-      projectId: feature.project_id,
-      testUrl,
-    }),
-    branch: feature.branch ?? null,
-  });
-
-  if (testerErr) {
-    console.error(`[orchestrator] Failed to create tester job for feature ${featureId}:`, testerErr.message);
-  } else {
-    console.log(`[orchestrator] Tester job queued for feature ${featureId}`);
-  }
-
-  // 5. Log event
-  await supabase.from("events").insert({
-    company_id: feature.company_id,
-    event_type: "feature_status_changed",
-    detail: { featureId, from: "deploying_to_test", to: "ready_to_test", testUrl, ephemeral },
-  });
-
-  console.log(`[orchestrator] Deploy complete for feature ${featureId}: ${testUrl}`);
+  console.log(`[orchestrator] handleDeployComplete: feature ${msg.featureId} — deploy handled at project level, no-op`);
 }
 
 

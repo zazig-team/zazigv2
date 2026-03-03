@@ -4,11 +4,12 @@
   "description": "Installable CLI for the zazigv2 local agent — login, join, start/stop/status",
   "type": "module",
   "bin": {
-    "zazig": "./dist/index.js"
+    "zazig": "./dist/index.js",
+    "zazig-staging": "./dist/staging-index.js"
   },
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/index.js",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/index.js dist/staging-index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo"
   },

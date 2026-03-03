@@ -330,12 +330,12 @@ export async function setup(): Promise<void> {
     }
 
     // Local repo path — used only for reading context files, NOT stored in DB
-    // Default to ~/Documents/GitHub/<repo-name> if we can infer a repo name
+    // Default to <cwd>/<repo-name> if we can infer a repo name
     let defaultLocalPath: string | undefined;
     if (repoUrl) {
       const repoName = repoUrl.replace(/\.git$/, "").split("/").pop();
       if (repoName) {
-        defaultLocalPath = join(homedir(), "Documents", "GitHub", repoName);
+        defaultLocalPath = join(process.cwd(), repoName);
       }
     }
     const localPathPrompt = defaultLocalPath

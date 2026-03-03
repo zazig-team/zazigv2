@@ -1,4 +1,4 @@
--- 092_native_codex_simple_model.sql
+-- 100_native_codex_simple_model.sql
 -- Date: 2026-03-02
 -- Purpose: Update junior-engineer role default_model from placeholder 'codex' to
 --          'gpt-5.3-codex-spark', the actual Codex model used for native execution.

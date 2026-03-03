@@ -34,7 +34,7 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
-export const WORKTREE_BASE = join(process.env.HOME ?? "~", "Documents/GitHub/.worktrees");
+export const WORKTREE_BASE = join(process.env.HOME ?? "~", ".zazigv2/worktrees");
 
 export async function createFeatureBranch(repoDir: string, featureName: string): Promise<string> {
   const branchName = `feature/${featureName}`;

@@ -143,12 +143,13 @@ export function removePidFileForCompany(companyId: string): void {
 
 export function startDaemonForCompany(
   env: NodeJS.ProcessEnv,
-  companyId: string
+  companyId: string,
+  agentEntryOverride?: string,
 ): number {
   mkdirSync(LOG_DIR, { recursive: true });
   mkdirSync(ZAZIGV2_DIR, { recursive: true });
 
-  const agentEntry = resolveAgentEntry();
+  const agentEntry = agentEntryOverride ?? resolveAgentEntry();
   const logPath = logPathForCompany(companyId);
   const logFd = openSync(logPath, "a");
 

@@ -1242,16 +1242,14 @@
         { key: 'created_specced', label: 'Ready',       color: '#6366f1', source: 'features' },
       ];
 
-      // Build pipeline: ready -> complete
+      // Build pipeline: breaking_down -> merged
       const PIPELINE_COLUMNS = [
-        { key: 'ready_for_breakdown', label: 'Ready',     color: '#6366f1' },
-        { key: 'breakdown',           label: 'Breakdown', color: '#ec4899' },
-        { key: 'building',            label: 'Building',  color: '#f97316' },
-        { key: 'combining',           label: 'Combining', color: '#eab308' },
-        { key: 'verifying',           label: 'Verifying', color: '#06b6d4' },
-        { key: 'pr_ready',            label: 'PR Ready',  color: '#3b82f6' },
-        { key: 'complete',            label: 'Complete',  color: '#22c55e' },
-        { key: 'failed',              label: 'Failed',    color: '#ef4444' },
+        { key: 'breaking_down',    label: 'Breakdown',    color: '#ec4899' },
+        { key: 'building',         label: 'Building',     color: '#f97316' },
+        { key: 'combining_and_pr', label: 'Combine + PR', color: '#eab308' },
+        { key: 'verifying',        label: 'Verifying',    color: '#06b6d4' },
+        { key: 'merged',           label: 'Merged',       color: '#22c55e' },
+        { key: 'failed',           label: 'Failed',       color: '#ef4444' },
       ];
 
       // Outcome: shipped ideas (after pipeline)

@@ -14,7 +14,7 @@ import {
 
 describe("Pipeline statuses", () => {
   it("FEATURE_STATUSES contains all expected values", () => {
-    expect(FEATURE_STATUSES).toEqual(["created", "ready_for_breakdown", "breakdown", "building", "combining", "verifying", "deploying_to_test", "ready_to_test", "deploying_to_prod", "complete", "cancelled"]);
+    expect(FEATURE_STATUSES).toEqual(["created", "breaking_down", "building", "combining_and_pr", "verifying", "merged", "cancelled", "failed"]);
   });
 
   it("JOB_STATUSES contains key pipeline states", () => {

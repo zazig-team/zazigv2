@@ -150,8 +150,7 @@ fi
 echo "Setting up trust entries for agent working directories..."
 
 TRUST_DIRS=(
-  "$HOME/Documents/GitHub"
-  "$HOME/Documents/GitHub/.worktrees"
+  "$HOME/.zazigv2/worktrees"
 )
 
 for DIR in "${TRUST_DIRS[@]}"; do

@@ -213,16 +213,13 @@ export interface HealthCheck {
 
 export const FEATURE_STATUSES = [
   "created",
-  "ready_for_breakdown",
-  "breakdown",
+  "breaking_down",
   "building",
-  "combining",
+  "combining_and_pr",
   "verifying",
-  "deploying_to_test",
-  "ready_to_test",
-  "deploying_to_prod",
-  "complete",
+  "merged",
   "cancelled",
+  "failed",
 ] as const;
 export type FeatureStatus = typeof FEATURE_STATUSES[number];
 

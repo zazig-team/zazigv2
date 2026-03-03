@@ -1,13 +1,29 @@
-name: Deploy Edge Functions
+name: Deploy to Staging
 
 on:
   push:
     branches: [main, master]
-    paths: ['supabase/functions/**']
 
 jobs:
-  deploy:
+  build-and-test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test
+
+  deploy-edge-functions:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: contains(join(github.event.commits.*.modified, ','), 'supabase/functions/')
+       || contains(join(github.event.commits.*.added, ','), 'supabase/functions/')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -17,35 +33,33 @@ jobs:
         with:
           version: latest
 
-      - name: Detect and deploy changed functions
+      - name: Deploy changed functions to STAGING
         run: |
           BEFORE_SHA="${{ github.event.before }}"
           ZERO_HASH="0000000000000000000000000000000000000000"
 
           if [ "$BEFORE_SHA" = "$ZERO_HASH" ]; then
-            echo "First push to branch — deploying ALL functions"
+            echo "First push — deploying ALL functions to staging"
             for fn_dir in supabase/functions/*/; do
               fn=$(basename "$fn_dir")
               [ "$fn" = "_shared" ] && continue
               echo "Deploying: $fn"
-              supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"
+              supabase functions deploy "$fn" --project-ref "$SUPABASE_STAGING_PROJECT_REF"
             done
             exit 0
           fi
 
-          # Check if _shared changed — if so, deploy everything
           shared_changed=$(git diff --name-only "$BEFORE_SHA" HEAD -- supabase/functions/_shared/ || true)
 
           if [ -n "$shared_changed" ]; then
-            echo "_shared changed — deploying ALL functions"
+            echo "_shared changed — deploying ALL functions to staging"
             for fn_dir in supabase/functions/*/; do
               fn=$(basename "$fn_dir")
               [ "$fn" = "_shared" ] && continue
               echo "Deploying: $fn"
-              supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"
+              supabase functions deploy "$fn" --project-ref "$SUPABASE_STAGING_PROJECT_REF"
             done
           else
-            # Deploy only changed functions
             changed=$(git diff --name-only "$BEFORE_SHA" HEAD -- supabase/functions/ \
               | cut -d/ -f3 \
               | sort -u \
@@ -57,12 +71,32 @@ jobs:
               exit 0
             fi
 
-            echo "Functions to deploy: $changed"
+            echo "Deploying to staging: $changed"
             for fn in $changed; do
               echo "Deploying: $fn"
-              supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"
+              supabase functions deploy "$fn" --project-ref "$SUPABASE_STAGING_PROJECT_REF"
             done
           fi
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+
+  push-staging-migrations:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: contains(join(github.event.commits.*.modified, ','), 'supabase/migrations/')
+       || contains(join(github.event.commits.*.added, ','), 'supabase/migrations/')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Push migrations to STAGING
+        run: |
+          supabase link --project-ref "$SUPABASE_STAGING_PROJECT_REF"
+          supabase db push --include-all
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}

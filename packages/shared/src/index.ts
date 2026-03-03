@@ -43,6 +43,17 @@ export type {
 } from "./messages.js";
 export { FEATURE_STATUSES, JOB_STATUSES } from "./messages.js";
 
+// ---- Environment configuration (zazig.environments.yaml) ----
+
+export type {
+  EnvironmentDeployProvider,
+  EnvironmentDeploy,
+  EnvironmentAgentConfig,
+  EnvironmentHealthcheck,
+  EnvironmentConfig,
+  EnvironmentsConfig,
+} from "./environments.js";
+
 // ---- Card annotation (parsed from Trello card description) ----
 
 export type { CardAnnotation } from "./annotations.js";

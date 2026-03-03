@@ -10,7 +10,8 @@
  *   6. Waits 3s, discovers agent sessions, launches TUI (unless --no-tui).
  */
 
-import { hostname } from "node:os";
+import { hostname, homedir } from "node:os";
+import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { getValidCredentials } from "../lib/credentials.js";
@@ -27,6 +28,7 @@ import {
 import { launchTui, discoverAgentSessions } from "./chat.js";
 import { syncSkillsForCompany } from "./skills.js";
 import { getVersion } from "../lib/version.js";
+import { hasPinnedBuild, getCurrentBuildSha } from "../lib/builds.js";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -174,9 +176,22 @@ export async function start(): Promise<void> {
     ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
   };
 
+  // Resolve agent entry point: use pinned build for production, repo for staging
+  const zazigEnv = process.env["ZAZIG_ENV"] ?? "production";
+  let agentEntryOverride: string | undefined;
+
+  if (zazigEnv === "production" && hasPinnedBuild()) {
+    const buildDir = join(homedir(), ".zazigv2", "builds", "current");
+    agentEntryOverride = join(buildDir, "packages", "local-agent", "dist", "index.js");
+    const sha = getCurrentBuildSha();
+    console.log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);
+  } else if (zazigEnv === "staging") {
+    console.log("Using repo build (staging mode)");
+  }
+
   let pid: number;
   try {
-    pid = startDaemonForCompany(env, company.id);
+    pid = startDaemonForCompany(env, company.id, agentEntryOverride);
     console.log(`Agent started (PID ${pid}). Logs: ${logPathForCompany(company.id)}`);
   } catch (err) {
     console.error(`Failed to start daemon: ${String(err)}`);

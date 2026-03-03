@@ -2823,6 +2823,7 @@ async function processReadyForBreakdown(supabase: SupabaseClient): Promise<void>
  *   4. verifying → deploying_to_test: the latest verify job is complete and passed
  *   4b. deploying_to_test → ready_to_test: the latest deploy_to_test job is complete
  *   4c. deploy_to_test zombie auto-fail: jobs stuck in executing/dispatched >15 min
+ *   4d. combine timeout auto-fail: combine jobs stuck in executing/dispatched >10 min are failed and re-queued
  *   5. deploying_to_test: stuck recovery (5min timeout, max 3 retries/hour)
  *   6. deploying_to_prod → complete: the latest prod deploy job is complete
  */
@@ -3190,6 +3191,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
   // failed job catch-up can mark the parent feature as failed.
   // Use created_at for age so re-dispatches cannot reset the timer.
   const DEPLOY_ZOMBIE_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
+  const COMBINE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
   const zombieCutoff = new Date(Date.now() - DEPLOY_ZOMBIE_THRESHOLD_MS).toISOString();
 
   const { data: zombieDeployJobs, error: zombieErr } = await supabase
@@ -3217,6 +3219,87 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
 
     if (updated && updated.length > 0) {
       console.warn(`[orchestrator] processFeatureLifecycle: auto-failed zombie deploy_to_test job ${job.id} for feature ${job.feature_id}`);
+    }
+  }
+
+  // --- 4d. combine timeout auto-fail + retry ---
+  // Combine jobs should finish in a few minutes. If one is still dispatched/executing
+  // after 10 minutes, mark it failed and enqueue a fresh combine job for retry.
+  // Use created_at for age so re-dispatches cannot reset the timer.
+  const combineTimeoutCutoff = new Date(Date.now() - COMBINE_TIMEOUT_MS).toISOString();
+  const { data: timedOutCombineJobs, error: combineTimeoutErr } = await supabase
+    .from("jobs")
+    .select("id, company_id, project_id, feature_id, title, role, job_type, complexity, slot_type, context, branch")
+    .eq("job_type", "combine")
+    .in("status", ["dispatched", "executing"])
+    .lt("created_at", combineTimeoutCutoff)
+    .limit(50);
+
+  if (combineTimeoutErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying timed-out combine jobs:", combineTimeoutErr.message);
+  }
+
+  for (const job of (timedOutCombineJobs ?? []) as Array<{
+    id: string;
+    company_id: string;
+    project_id: string | null;
+    feature_id: string | null;
+    title: string | null;
+    role: string;
+    job_type: string;
+    complexity: string | null;
+    slot_type: SlotType | null;
+    context: string | null;
+    branch: string | null;
+  }>) {
+    const { data: failedRows, error: failErr } = await supabase
+      .from("jobs")
+      .update({
+        status: "failed",
+        result: "combine_timeout_auto_failed",
+      })
+      .eq("id", job.id)
+      .in("status", ["dispatched", "executing"])
+      .select("id");
+
+    if (failErr) {
+      console.error(`[orchestrator] processFeatureLifecycle: failed to auto-fail timed-out combine job ${job.id}:`, failErr.message);
+      continue;
+    }
+
+    if (!failedRows || failedRows.length === 0) {
+      continue;
+    }
+
+    console.warn(
+      `[orchestrator] processFeatureLifecycle: auto-failed timed-out combine job ${job.id} for feature ${job.feature_id ?? "unknown feature"}`,
+    );
+
+    const { error: retryInsertErr } = await supabase
+      .from("jobs")
+      .insert({
+        company_id: job.company_id,
+        project_id: job.project_id,
+        feature_id: job.feature_id,
+        title: job.title,
+        role: job.role,
+        job_type: job.job_type,
+        complexity: job.complexity,
+        slot_type: job.slot_type,
+        status: "queued",
+        context: job.context,
+        branch: job.branch,
+      });
+
+    if (retryInsertErr) {
+      console.error(
+        `[orchestrator] processFeatureLifecycle: failed to enqueue combine retry for feature ${job.feature_id ?? "unknown feature"} after timeout of job ${job.id}:`,
+        retryInsertErr.message,
+      );
+    } else {
+      console.log(
+        `[orchestrator] processFeatureLifecycle: queued combine retry for feature ${job.feature_id ?? "unknown feature"} after timeout of job ${job.id}`,
+      );
     }
   }
 

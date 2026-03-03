@@ -37,6 +37,7 @@ describe("retry-with-backoff", () => {
     const fn = vi.fn().mockRejectedValue(new Error("fail"));
 
     const promise = retryWithBackoff(fn, { maxAttempts: 3 });
+    promise.catch(() => {});
     await vi.runAllTimersAsync();
 
     await expect(promise).rejects.toThrow("fail");
@@ -51,6 +52,7 @@ describe("retry-with-backoff", () => {
       .mockRejectedValue(finalError);
 
     const promise = retryWithBackoff(fn, { maxAttempts: 2 });
+    promise.catch(() => {});
     await vi.runAllTimersAsync();
 
     await expect(promise).rejects.toBe(finalError);
@@ -60,6 +62,7 @@ describe("retry-with-backoff", () => {
     const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
     const fn = vi
       .fn()
+      .mockRejectedValueOnce(new Error("fail"))
       .mockRejectedValueOnce(new Error("fail"))
       .mockRejectedValueOnce(new Error("fail"))
       .mockResolvedValue("ok");
@@ -133,6 +136,7 @@ describe("retry-with-backoff", () => {
     const fn = vi.fn().mockRejectedValue(new Error("no-retry"));
 
     const promise = retryWithBackoff(fn, { maxAttempts: 1 });
+    promise.catch(() => {});
     await vi.runAllTimersAsync();
 
     await expect(promise).rejects.toThrow("no-retry");

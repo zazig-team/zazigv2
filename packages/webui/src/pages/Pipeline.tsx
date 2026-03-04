@@ -210,7 +210,8 @@ export default function Pipeline(): JSX.Element {
       building: [],
       combining_and_pr: [],
       verifying: [],
-      merged: [],
+      merging: [],
+      complete: [],
       failed: [],
     };
 
@@ -240,7 +241,7 @@ export default function Pipeline(): JSX.Element {
 
     return {
       active,
-      merged: filteredByStatus.merged.length,
+      merged: filteredByStatus.complete.length,
       failed: filteredByStatus.failed.length,
       ideas: filteredIdeas.length,
       totalFeatures: allFeatures.length,
@@ -254,7 +255,7 @@ export default function Pipeline(): JSX.Element {
           <div className="page-title">Pipeline</div>
           <div className="page-stats">
             <div className="page-stat">Active <span className="page-stat-value">{metrics.active}</span></div>
-            <div className="page-stat">Merged <span className="page-stat-value" style={{ color: "var(--positive)" }}>{metrics.merged}</span></div>
+            <div className="page-stat">Complete <span className="page-stat-value" style={{ color: "var(--positive)" }}>{metrics.merged}</span></div>
             <div className="page-stat">Failed <span className="page-stat-value" style={{ color: "var(--negative)" }}>{metrics.failed}</span></div>
             <div className="page-stat">Ideas <span className="page-stat-value">{metrics.ideas}</span></div>
           </div>

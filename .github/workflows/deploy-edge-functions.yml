@@ -22,8 +22,6 @@ jobs:
   deploy-edge-functions:
     needs: build-and-test
     runs-on: ubuntu-latest
-    if: contains(join(github.event.commits.*.modified, ','), 'supabase/functions/')
-       || contains(join(github.event.commits.*.added, ','), 'supabase/functions/')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -84,8 +82,6 @@ jobs:
   push-staging-migrations:
     needs: build-and-test
     runs-on: ubuntu-latest
-    if: contains(join(github.event.commits.*.modified, ','), 'supabase/migrations/')
-       || contains(join(github.event.commits.*.added, ','), 'supabase/migrations/')
     steps:
       - uses: actions/checkout@v4
 

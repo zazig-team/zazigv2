@@ -2,15 +2,16 @@
  * promote.ts — Push tested staging build to production.
  *
  * Flow: authenticate → pick company → pick project → resolve repo →
- * create temp worktree → run promote logic → cleanup.
+ * create temp worktree → build → bundle CLI → commit → fast-forward
+ * production → pin build → cleanup.
  *
- * Reads zazig.environments.yaml from the project repo, pushes migrations,
- * deploys edge functions, and pins the local agent build.
+ * Supabase migrations and edge functions are deployed by GitHub Actions
+ * when the production branch is pushed.
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, readdirSync, statSync, rmSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { getValidCredentials } from "../lib/credentials.js";
@@ -24,25 +25,6 @@ interface Project {
   id: string;
   name: string;
   repo_url: string;
-}
-
-interface EnvironmentDeploy {
-  provider: string;
-  project_ref?: string;
-  edge_functions?: boolean;
-  migrations?: boolean;
-  script?: string;
-}
-
-interface EnvironmentConfig {
-  deploy: EnvironmentDeploy;
-  agent?: { source: string; doppler_config: string };
-  promote_from?: string;
-}
-
-interface EnvironmentsFile {
-  name: string;
-  environments: Record<string, EnvironmentConfig>;
 }
 
 async function fetchProjects(
@@ -87,22 +69,6 @@ async function pickProject(projects: Project[]): Promise<Project> {
     return projects[idx]!;
   } finally {
     rl.close();
-  }
-}
-
-function loadEnvironments(repoRoot: string): EnvironmentsFile | null {
-  const yamlPath = resolve(repoRoot, "zazig.environments.yaml");
-  if (!existsSync(yamlPath)) return null;
-
-  try {
-    const json = execSync(
-      `node -e "const yaml = require('js-yaml'); const fs = require('fs'); console.log(JSON.stringify(yaml.load(fs.readFileSync('${yamlPath}', 'utf8'))))"`,
-      { encoding: "utf-8", cwd: repoRoot }
-    );
-    return JSON.parse(json) as EnvironmentsFile;
-  } catch {
-    console.error("Failed to parse zazig.environments.yaml. Install js-yaml: npm i -D js-yaml");
-    return null;
   }
 }
 
@@ -201,7 +167,7 @@ export async function promote(args: string[]): Promise<void> {
   try {
     await runPromote(repoRoot, defaultBranch);
   } finally {
-    // 10. Cleanup worktree
+    // Cleanup worktree
     console.log("\nCleaning up temporary worktree...");
     try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" }); } catch { /* */ }
     try { rmSync(worktreePath, { recursive: true, force: true }); } catch { /* */ }
@@ -210,22 +176,7 @@ export async function promote(args: string[]): Promise<void> {
 }
 
 async function runPromote(repoRoot: string, defaultBranch: string): Promise<void> {
-  // 1. Load environments config
-  const config = loadEnvironments(repoRoot);
-  if (!config) {
-    console.error("No zazig.environments.yaml found in project repo.");
-    process.exitCode = 1;
-    return;
-  }
-
-  const prodEnv = config.environments["production"];
-  if (!prodEnv) {
-    console.error("No 'production' environment defined in zazig.environments.yaml.");
-    process.exitCode = 1;
-    return;
-  }
-
-  // 2. Safety checks — verify worktree is on the default branch and up to date
+  // 1. Safety checks — verify worktree is on the default branch and up to date
   try {
     const branch = execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
     if (branch !== defaultBranch) {
@@ -247,7 +198,7 @@ async function runPromote(repoRoot: string, defaultBranch: string): Promise<void
     return;
   }
 
-  // 3. Install dependencies and build
+  // 2. Install dependencies and build
   console.log("\nInstalling dependencies...");
   try {
     execSync("npm ci", { cwd: repoRoot, stdio: "inherit" });
@@ -257,7 +208,7 @@ async function runPromote(repoRoot: string, defaultBranch: string): Promise<void
     return;
   }
 
-  console.log("\nRunning build check...");
+  console.log("\nRunning build...");
   try {
     execSync("npm run build", { cwd: repoRoot, stdio: "inherit" });
   } catch {
@@ -266,7 +217,35 @@ async function runPromote(repoRoot: string, defaultBranch: string): Promise<void
     return;
   }
 
-  // 4. Fast-forward master into production branch (triggers Vercel production deploy)
+  // 3. Bundle CLI
+  console.log("\nBundling CLI...");
+  try {
+    execSync("node packages/cli/scripts/bundle.js", { cwd: repoRoot, stdio: "inherit" });
+  } catch {
+    console.error("Bundle failed.");
+    process.exitCode = 1;
+    return;
+  }
+
+  // 4. Commit bundle to master if changed, push
+  console.log("\nCommitting bundle...");
+  try {
+    execSync("git add packages/cli/releases/zazig.mjs", { cwd: repoRoot, stdio: "pipe" });
+    const diff = execSync("git diff --cached --name-only", { encoding: "utf-8", cwd: repoRoot }).trim();
+    if (diff) {
+      execSync('git commit -m "chore: update production CLI bundle"', { cwd: repoRoot, stdio: "pipe" });
+      execSync(`git push origin ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
+      console.log("Bundle committed and pushed.");
+    } else {
+      console.log("Bundle unchanged, skipping commit.");
+    }
+  } catch (err) {
+    console.error(`Bundle commit/push failed: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // 5. Fast-forward production branch (triggers production CI)
   console.log("\nUpdating production branch...");
   try {
     // Ensure production branch exists locally
@@ -295,7 +274,7 @@ async function runPromote(repoRoot: string, defaultBranch: string): Promise<void
     }
     execSync("git push origin production", { cwd: repoRoot, stdio: "pipe" });
     execSync(`git checkout ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
-    console.log("Production branch updated and pushed (triggers Vercel production deploy).");
+    console.log("Production branch updated and pushed (triggers CI for Supabase deployment).");
   } catch (err) {
     try { execSync(`git checkout ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" }); } catch { /* best-effort */ }
     console.error(`Production branch update failed: ${String(err)}`);
@@ -303,72 +282,12 @@ async function runPromote(repoRoot: string, defaultBranch: string): Promise<void
     return;
   }
 
-  const deploy = prodEnv.deploy;
-
-  // 5. Push migrations (if supabase provider with migrations enabled)
-  if (deploy.provider === "supabase" && deploy.migrations && deploy.project_ref) {
-    console.log(`\nPushing migrations to production (${deploy.project_ref})...`);
-    try {
-      execSync(`npx supabase link --project-ref ${deploy.project_ref}`, { cwd: repoRoot, stdio: "inherit" });
-      execSync("npx supabase db push --include-all", { cwd: repoRoot, stdio: "inherit" });
-    } catch (err) {
-      console.error(`Migration push failed: ${String(err)}`);
-      process.exitCode = 1;
-      return;
-    }
-  }
-
-  // 6. Deploy edge functions (if supabase provider with edge_functions enabled)
-  if (deploy.provider === "supabase" && deploy.edge_functions && deploy.project_ref) {
-    console.log(`\nDeploying edge functions to production (${deploy.project_ref})...`);
-    try {
-      execSync(`npx supabase link --project-ref ${deploy.project_ref}`, { cwd: repoRoot, stdio: "pipe" });
-      const fnDir = resolve(repoRoot, "supabase", "functions");
-      if (existsSync(fnDir)) {
-        const functions = readdirSync(fnDir).filter(f => {
-          return f !== "_shared" && statSync(resolve(fnDir, f)).isDirectory();
-        });
-        for (const fn of functions) {
-          console.log(`  Deploying: ${fn}`);
-          execSync(`npx supabase functions deploy ${fn} --no-verify-jwt --project-ref ${deploy.project_ref}`, {
-            cwd: repoRoot,
-            stdio: "pipe",
-          });
-        }
-      }
-    } catch (err) {
-      console.error(`Edge function deploy failed: ${String(err)}`);
-      process.exitCode = 1;
-      return;
-    }
-  }
-
-  // 7. Custom provider
-  if (deploy.provider === "custom" && deploy.script) {
-    console.log(`\nRunning custom deploy script: ${deploy.script}`);
-    try {
-      execSync(deploy.script, { cwd: repoRoot, stdio: "inherit" });
-    } catch (err) {
-      console.error(`Custom deploy script failed: ${String(err)}`);
-      process.exitCode = 1;
-      return;
-    }
-  }
-
-  // 8. Pin local agent build (if agent config says pinned)
-  if (prodEnv.agent?.source === "pinned") {
-    console.log("\nPinning local agent build...");
-    pinCurrentBuild(repoRoot);
-  }
-
-  // 9. Re-link to production project ref (so local supabase CLI defaults to prod)
-  if (deploy.provider === "supabase" && deploy.project_ref) {
-    try {
-      execSync(`npx supabase link --project-ref ${deploy.project_ref}`, { cwd: repoRoot, stdio: "pipe" });
-    } catch { /* best-effort */ }
-  }
+  // 6. Pin local agent build
+  console.log("\nPinning local agent build...");
+  pinCurrentBuild(repoRoot);
 
   const sha = execSync("git rev-parse --short HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-  console.log(`\nPromoted ${config.name} to production (${sha}).`);
+  console.log(`\nPromoted to production (${sha}).`);
+  console.log("CI will deploy Supabase migrations and edge functions.");
   console.log("Restart your production agent to use the new build: zazig stop && zazig start");
 }

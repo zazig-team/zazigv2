@@ -1,10 +1,19 @@
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
-const pkgPath = join(thisDir, "..", "..", "package.json");
+
+function findPackageJson(): string {
+  for (const rel of ["../../package.json", "../package.json"]) {
+    const candidate = join(thisDir, rel);
+    if (existsSync(candidate)) return candidate;
+  }
+  return join(thisDir, "../../package.json");
+}
+
+const pkgPath = findPackageJson();
 
 export function getVersion(): string {
   const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));

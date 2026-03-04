@@ -1275,12 +1275,17 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
 
   // Handle breakdown job completion: feature transitions breakdown → building
   if (jobRow?.job_type === "breakdown" && jobRow?.feature_id) {
-    await supabase
+    const { data: transitioned } = await supabase
       .from("features")
       .update({ status: "building" })
       .eq("id", jobRow.feature_id)
-      .eq("status", "breaking_down");
-    console.log(`[orchestrator] Breakdown complete — feature ${jobRow.feature_id} → building`);
+      .eq("status", "breaking_down")
+      .select("id");
+    if (transitioned && transitioned.length > 0) {
+      console.log(`[orchestrator] Breakdown complete — feature ${jobRow.feature_id} → building`);
+    } else {
+      console.warn(`[orchestrator] Breakdown complete but feature ${jobRow.feature_id} was not in breaking_down (may have already transitioned)`);
+    }
 
     // Auto-generate branch name if not already set (matches processFeatureLifecycle logic).
     // This prevents a race where this Realtime handler transitions the feature before the
@@ -2579,33 +2584,35 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
     console.log(`[orchestrator] triggerBreakdown: auto-generated branch for feature ${featureId}: ${branch}`);
   }
 
-  // 2. Check no active breakdown job already exists (idempotency).
-  // Only block if a breakdown is actively in progress (queued/dispatched/executing/blocked).
-  // Completed/failed/cancelled/done jobs do not block re-triggering, which allows
-  // features to be reset and re-broken-down after a failed or stale breakdown.
+  // 2. Check no active or completed breakdown job already exists (idempotency).
+  // Block if a breakdown is in progress OR already completed — a complete breakdown
+  // means processFeatureLifecycle should advance the feature to building, not re-trigger.
+  // Only failed/cancelled jobs allow re-triggering (intentional reset).
   const { data: existing } = await supabase
     .from("jobs")
     .select("id, status")
     .eq("feature_id", featureId)
     .eq("job_type", "breakdown")
-    .in("status", ["queued", "dispatched", "executing", "blocked"])
+    .in("status", ["queued", "dispatched", "executing", "blocked", "complete"])
     .maybeSingle();
 
   if (existing) {
-    console.log(`[orchestrator] triggerBreakdown: breakdown job ${existing.id} already exists for feature ${featureId}, skipping`);
+    console.log(`[orchestrator] triggerBreakdown: breakdown job ${existing.id} (${existing.status}) already exists for feature ${featureId}, skipping`);
     return;
   }
 
-  // 2b. Clean slate: cancel all stale jobs from previous breakdown attempts.
+  // 2b. Clean slate: cancel stale jobs from previous breakdown attempts.
   // When a feature is reset to breaking_down after a failed first attempt,
-  // old completed/failed breakdown, combine, verify, and implementation jobs linger.
+  // old failed breakdown, combine, verify, and implementation jobs linger.
   // The combiner and all_feature_jobs_complete RPC will pick up these stale jobs,
   // causing incorrect behaviour. Cancel them so downstream logic starts fresh.
+  // NOTE: We do NOT cancel "complete" jobs here — those are needed by
+  // processFeatureLifecycle to detect that breakdown succeeded and advance to building.
   const { data: staleJobs, error: staleErr } = await supabase
     .from("jobs")
     .select("id")
     .eq("feature_id", featureId)
-    .in("status", ["complete", "failed", "cancelled"]);
+    .in("status", ["failed", "cancelled"]);
 
   if (!staleErr && staleJobs && staleJobs.length > 0) {
     const staleIds = staleJobs.map((j: { id: string }) => j.id);
@@ -2887,6 +2894,18 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
         .limit(1);
       if (failedBreakdown && failedBreakdown.length > 0) {
         continue; // handleJobFailed will mark the feature as failed
+      }
+      // Require at least one complete breakdown job — zero jobs means breakdown
+      // hasn't run yet (or records were lost), not that it succeeded.
+      const { data: completeBreakdown } = await supabase
+        .from("jobs")
+        .select("id")
+        .eq("feature_id", feature.id)
+        .eq("job_type", "breakdown")
+        .eq("status", "complete")
+        .limit(1);
+      if (!completeBreakdown || completeBreakdown.length === 0) {
+        continue; // No complete breakdown — wait for one to finish
       }
       // All breakdown jobs done — transition to building
       const { data: updated } = await supabase

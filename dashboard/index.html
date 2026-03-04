@@ -1214,15 +1214,26 @@
     (() => {
       'use strict';
 
-      const SUPABASE_URL = 'https://ymgjtrbrvhezxpwjuhbu.supabase.co';
-      const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltZ2p0cmJydmhlenhwd2p1aGJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1MzE0ODksImV4cCI6MjA4ODEwNzQ4OX0.tIWVnC87cJMVzZILdkKzfPckTQhx6xt95JPhfwzSWR0';
+      const ENVS = {
+        staging: {
+          url: 'https://ymgjtrbrvhezxpwjuhbu.supabase.co',
+          key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltZ2p0cmJydmhlenhwd2p1aGJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1MzE0ODksImV4cCI6MjA4ODEwNzQ4OX0.tIWVnC87cJMVzZILdkKzfPckTQhx6xt95JPhfwzSWR0',
+        },
+        production: {
+          url: 'https://jmussmwglgbwncgygzbz.supabase.co',
+          key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0',
+        },
+      };
+      const ENV_NAME = new URLSearchParams(window.location.search).get('env') || 'production';
+      const SUPABASE_URL = ENVS[ENV_NAME]?.url || ENVS.production.url;
+      const ANON_KEY = ENVS[ENV_NAME]?.key || ENVS.production.key;
       // WARNING: This key grants full DB access. For local dev only.
       // In production, inject via Netlify environment variable or server-side config.
       const SERVICE_ROLE_KEY = typeof __SERVICE_ROLE_KEY__ !== 'undefined' ? __SERVICE_ROLE_KEY__ : 'YOUR_SERVICE_ROLE_KEY_HERE';
       const SERVICE_HEADERS = { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' };
 
       const FEATURES_BASE =
-        SUPABASE_URL + '/rest/v1/features?select=id,title,description,priority,status,spec,acceptance_tests,branch,project_id,tags,source_idea_id,created_at,updated_at,error,pr_url,jobs(id,title,status,progress,model,job_type,role,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
+        SUPABASE_URL + '/rest/v1/features?select=id,company_id,title,description,priority,status,spec,acceptance_tests,branch,project_id,tags,source_idea_id,created_at,updated_at,error,pr_url,jobs(id,title,status,progress,model,job_type,role,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
       const QUERY_IDEAS_URL =
         SUPABASE_URL + '/functions/v1/query-ideas';
       const COMPANIES_BASE =
@@ -1595,6 +1606,18 @@
           tag.textContent = companyName;
           boardTitleEl.appendChild(tag);
         }
+        var envBadge = document.createElement('span');
+        envBadge.style.cssText = 'margin-left:12px;font-size:11px;padding:2px 8px;border-radius:4px;font-family:JetBrains Mono,monospace;vertical-align:middle;';
+        if (ENV_NAME === 'staging') {
+          envBadge.style.background = 'rgba(245,158,11,0.15)';
+          envBadge.style.color = '#f59e0b';
+          envBadge.textContent = 'STAGING';
+        } else {
+          envBadge.style.background = 'rgba(34,197,94,0.15)';
+          envBadge.style.color = '#22c55e';
+          envBadge.textContent = 'PRODUCTION';
+        }
+        boardTitleEl.appendChild(envBadge);
       }
 
       // ── Card Rendering ──────────────────────

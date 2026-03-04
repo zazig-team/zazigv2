@@ -1,10 +1,12 @@
--- Migration: Add 'merging' pipeline step and job-merger role.
--- Replaces terminal status 'merged' with 'merging' (active step) + 'complete' (terminal).
+-- Fix: migration 110 failed because rows with status 'merged' existed when the
+-- new constraint was added. This migration re-applies the same changes in the
+-- correct order (update rows first, then add constraint). All statements are
+-- idempotent.
 
--- 1. Migrate existing 'merged' rows to 'complete' BEFORE changing the constraint
+-- 1. Migrate existing 'merged' rows to 'complete'
 UPDATE public.features SET status = 'complete' WHERE status = 'merged';
 
--- 2. Update features_status_check to include 'merging' and 'complete' (replacing 'merged')
+-- 2. Re-apply features_status_check (drop first in case 110 partially applied)
 ALTER TABLE public.features DROP CONSTRAINT IF EXISTS features_status_check;
 ALTER TABLE public.features ADD CONSTRAINT features_status_check
     CHECK (status = ANY (ARRAY[
@@ -14,7 +16,7 @@ ALTER TABLE public.features ADD CONSTRAINT features_status_check
         'complete','cancelled','failed'
     ]));
 
--- 2. Add 'merge' to jobs_job_type_check
+-- 3. Re-apply jobs_job_type_check (idempotent)
 ALTER TABLE public.jobs DROP CONSTRAINT IF EXISTS jobs_job_type_check;
 ALTER TABLE public.jobs ADD CONSTRAINT jobs_job_type_check
     CHECK (job_type IN (
@@ -23,7 +25,7 @@ ALTER TABLE public.jobs ADD CONSTRAINT jobs_job_type_check
         'deploy_to_test', 'deploy_to_prod', 'review', 'feature_test'
     ));
 
--- 3. Insert job-merger role
+-- 4. Re-apply job-merger role (idempotent via ON CONFLICT)
 INSERT INTO public.roles (name, description, is_persistent, default_model, slot_type, prompt, skills)
 VALUES (
     'job-merger',

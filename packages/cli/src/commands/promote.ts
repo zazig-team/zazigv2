@@ -176,7 +176,7 @@ export async function promote(args: string[]): Promise<void> {
 }
 
 async function runPromote(repoRoot: string, defaultBranch: string): Promise<void> {
-  // 1. Safety checks — verify worktree is on the default branch and up to date
+  // 1. Safety checks — verify worktree is on the default branch
   try {
     const branch = execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
     if (branch !== defaultBranch) {
@@ -185,12 +185,19 @@ async function runPromote(repoRoot: string, defaultBranch: string): Promise<void
       return;
     }
 
-    const local = execSync("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-    const remote = execSync(`git rev-parse origin/${branch}`, { encoding: "utf-8", cwd: repoRoot }).trim();
-    if (local !== remote) {
-      console.error(`Local ${branch} (${local.slice(0, 7)}) differs from origin (${remote.slice(0, 7)}).`);
-      process.exitCode = 1;
-      return;
+    // In a bare-repo worktree, origin/* refs don't exist — the fetch already
+    // updated refs/heads/master directly, so the worktree is up-to-date.
+    // Only compare if origin/<branch> actually resolves.
+    try {
+      const local = execSync("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
+      const remote = execSync(`git rev-parse origin/${branch}`, { encoding: "utf-8", cwd: repoRoot, stdio: ["pipe", "pipe", "pipe"] }).trim();
+      if (local !== remote) {
+        console.error(`Local ${branch} (${local.slice(0, 7)}) differs from origin (${remote.slice(0, 7)}).`);
+        process.exitCode = 1;
+        return;
+      }
+    } catch {
+      // No origin/<branch> ref — bare repo, already up to date from fetch.
     }
   } catch (err) {
     console.error(`Git check failed: ${String(err)}`);

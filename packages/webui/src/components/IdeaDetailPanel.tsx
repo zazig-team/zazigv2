@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchIdeaDetail, type IdeaDetail } from "../lib/queries";
+import FormattedProse from "./FormattedProse";
 
 interface Props {
   ideaId: string;
@@ -180,21 +181,21 @@ export default function IdeaDetailPanel({ ideaId, colorVar, onClose }: Props): J
               {detail.rawText ? (
                 <section className="detail-section">
                   <h3 className="detail-section-title">Raw Idea</h3>
-                  <div className="detail-prose">{detail.rawText}</div>
+                  <div className="detail-prose"><FormattedProse text={detail.rawText} /></div>
                 </section>
               ) : null}
 
               {detail.description && detail.description !== detail.rawText ? (
                 <section className="detail-section">
                   <h3 className="detail-section-title">Description</h3>
-                  <div className="detail-prose">{detail.description}</div>
+                  <div className="detail-prose"><FormattedProse text={detail.description} /></div>
                 </section>
               ) : null}
 
               {detail.clarificationNotes ? (
                 <section className="detail-section">
                   <h3 className="detail-section-title">Clarification Notes</h3>
-                  <div className="detail-prose">{detail.clarificationNotes}</div>
+                  <div className="detail-prose"><FormattedProse text={detail.clarificationNotes} /></div>
                 </section>
               ) : null}
 

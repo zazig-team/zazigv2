@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchFeatureDetail, type FeatureDetail } from "../lib/queries";
+import FormattedProse from "./FormattedProse";
 
 interface Props {
   featureId: string;
@@ -206,7 +207,7 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Pro
               {detail.description ? (
                 <section className="detail-section">
                   <h3 className="detail-section-title">Description</h3>
-                  <div className="detail-prose">{detail.description}</div>
+                  <div className="detail-prose"><FormattedProse text={detail.description} /></div>
                 </section>
               ) : null}
 

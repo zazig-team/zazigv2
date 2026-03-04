@@ -1,4 +1,5 @@
 import type { FocusArea, Goal } from "../lib/queries";
+import FormattedProse from "./FormattedProse";
 
 interface GoalDetailProps {
   type: "goal";
@@ -81,21 +82,21 @@ export default function DashboardDetailPanel(props: Props): JSX.Element {
             {goal.description ? (
               <section className="detail-section">
                 <h3 className="detail-section-title">Description</h3>
-                <div className="detail-prose">{goal.description}</div>
+                <div className="detail-prose"><FormattedProse text={goal.description} /></div>
               </section>
             ) : null}
 
             {goal.metric ? (
               <section className="detail-section">
                 <h3 className="detail-section-title">Metric</h3>
-                <div className="detail-prose">{goal.metric}</div>
+                <div className="detail-prose"><FormattedProse text={goal.metric} /></div>
               </section>
             ) : null}
 
             {goal.target ? (
               <section className="detail-section">
                 <h3 className="detail-section-title">Measurable Target</h3>
-                <div className="detail-prose">{goal.target}</div>
+                <div className="detail-prose"><FormattedProse text={goal.target} /></div>
               </section>
             ) : null}
           </div>
@@ -146,7 +147,7 @@ export default function DashboardDetailPanel(props: Props): JSX.Element {
           {focusArea.description ? (
             <section className="detail-section">
               <h3 className="detail-section-title">Description</h3>
-              <div className="detail-prose">{focusArea.description}</div>
+              <div className="detail-prose"><FormattedProse text={focusArea.description} /></div>
             </section>
           ) : null}
 

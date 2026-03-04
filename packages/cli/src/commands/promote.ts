@@ -2,7 +2,7 @@
  * promote.ts — Push tested staging build to production.
  *
  * Flow: authenticate → pick company → pick project → resolve repo →
- * create temp worktree → build → bundle CLI → commit → fast-forward
+ * create temp worktree → build → bundle CLI + agent → commit → fast-forward
  * production → pin build → cleanup.
  *
  * Supabase migrations and edge functions are deployed by GitHub Actions
@@ -234,17 +234,17 @@ async function runPromote(repoRoot: string, defaultBranch: string): Promise<void
     return;
   }
 
-  // 4. Commit bundle to master if changed, push
-  console.log("\nCommitting bundle...");
+  // 4. Commit bundles to master if changed, push
+  console.log("\nCommitting bundles...");
   try {
-    execSync("git add packages/cli/releases/zazig.mjs", { cwd: repoRoot, stdio: "pipe" });
+    execSync("git add packages/cli/releases/zazig.mjs packages/local-agent/releases/zazig-agent.mjs packages/local-agent/releases/agent-mcp-server.mjs", { cwd: repoRoot, stdio: "pipe" });
     const diff = execSync("git diff --cached --name-only", { encoding: "utf-8", cwd: repoRoot }).trim();
     if (diff) {
-      execSync('git commit -m "chore: update production CLI bundle"', { cwd: repoRoot, stdio: "pipe" });
+      execSync('git commit -m "chore: update production bundles"', { cwd: repoRoot, stdio: "pipe" });
       execSync(`git push origin ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
-      console.log("Bundle committed and pushed.");
+      console.log("Bundles committed and pushed.");
     } else {
-      console.log("Bundle unchanged, skipping commit.");
+      console.log("Bundles unchanged, skipping commit.");
     }
   } catch (err) {
     console.error(`Bundle commit/push failed: ${String(err)}`);

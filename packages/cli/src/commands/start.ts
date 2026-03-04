@@ -182,7 +182,7 @@ export async function start(): Promise<void> {
 
   if (zazigEnv === "production" && hasPinnedBuild()) {
     const buildDir = join(homedir(), ".zazigv2", "builds", "current");
-    agentEntryOverride = join(buildDir, "packages", "local-agent", "dist", "index.js");
+    agentEntryOverride = join(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
     const sha = getCurrentBuildSha();
     console.log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);
   } else if (zazigEnv === "staging") {

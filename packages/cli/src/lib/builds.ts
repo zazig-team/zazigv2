@@ -22,7 +22,7 @@ export function getCurrentBuildSha(): string | null {
 }
 
 export function hasPinnedBuild(): boolean {
-  return existsSync(join(CURRENT, "packages", "local-agent", "dist", "index.js"));
+  return existsSync(join(CURRENT, "packages", "local-agent", "releases", "zazig-agent.mjs"));
 }
 
 export function pinCurrentBuild(repoRoot: string): void {
@@ -38,14 +38,10 @@ export function pinCurrentBuild(repoRoot: string): void {
 
   mkdirSync(CURRENT, { recursive: true });
 
-  // Copy built artifacts
+  // Copy bundled agent artifacts (self-contained, no node_modules needed)
   const toCopy = [
-    "packages/local-agent/dist",
-    "packages/shared/dist",
-    "packages/local-agent/package.json",
-    "packages/shared/package.json",
-    "package.json",
-    "node_modules",
+    "packages/local-agent/releases/zazig-agent.mjs",
+    "packages/local-agent/releases/agent-mcp-server.mjs",
   ];
 
   for (const rel of toCopy) {
@@ -53,7 +49,7 @@ export function pinCurrentBuild(repoRoot: string): void {
     const dest = join(CURRENT, rel);
     if (existsSync(src)) {
       mkdirSync(join(dest, ".."), { recursive: true });
-      cpSync(src, dest, { recursive: true });
+      cpSync(src, dest);
     }
   }
 

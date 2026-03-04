@@ -28,6 +28,17 @@ import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageI
 import { PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
 import { setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
+
+/**
+ * Resolve the MCP server path — prefers the bundled .mjs (production),
+ * falls back to the tsc-compiled .js (dev mode).
+ */
+function resolveMcpServerPath(): string {
+  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const mjsPath = join(thisDir, "agent-mcp-server.mjs");
+  if (existsSync(mjsPath)) return mjsPath;
+  return join(thisDir, "agent-mcp-server.js");
+}
 import { RepoManager } from "./branches.js";
 
 const execFileAsync = promisify(execFile);
@@ -467,8 +478,7 @@ export class JobExecutor {
     }
 
     // Set up workspace overlay (CLAUDE.md, .mcp.json, .claude/).
-    const thisDir = dirname(fileURLToPath(import.meta.url));
-    const mcpServerPath = join(thisDir, "agent-mcp-server.js");
+    const mcpServerPath = resolveMcpServerPath();
     try {
       setupJobWorkspace({
         workspaceDir: ephemeralWorkspaceDir!,
@@ -943,10 +953,8 @@ export class JobExecutor {
 
     // --- Create agent workspace with .mcp.json ---
     try {
-      // Resolve path to the compiled agent-mcp-server.js relative to this file's dist/ location
-      const thisDir = dirname(fileURLToPath(import.meta.url));
       const repoRoot = resolveRepoRoot();
-      const mcpServerPath = join(thisDir, "agent-mcp-server.js");
+      const mcpServerPath = resolveMcpServerPath();
 
       setupJobWorkspace({
         workspaceDir,

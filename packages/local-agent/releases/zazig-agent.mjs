@@ -1,14 +1,20 @@
-#!/usr/bin/env node
+import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
 var __esm = (fn, res) => function __init() {
   return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
 };
-var __commonJS = (cb, mod) => function __require() {
+var __commonJS = (cb, mod) => function __require2() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
 var __export = (target, all) => {
@@ -153,11 +159,11 @@ function __metadata(metadataKey, metadataValue) {
 }
 function __awaiter(thisArg, _arguments, P, generator) {
   function adopt(value) {
-    return value instanceof P ? value : new P(function(resolve4) {
-      resolve4(value);
+    return value instanceof P ? value : new P(function(resolve2) {
+      resolve2(value);
     });
   }
-  return new (P || (P = Promise))(function(resolve4, reject) {
+  return new (P || (P = Promise))(function(resolve2, reject) {
     function fulfilled(value) {
       try {
         step(generator.next(value));
@@ -173,7 +179,7 @@ function __awaiter(thisArg, _arguments, P, generator) {
       }
     }
     function step(result) {
-      result.done ? resolve4(result.value) : adopt(result.value).then(fulfilled, rejected);
+      result.done ? resolve2(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
     step((generator = generator.apply(thisArg, _arguments || [])).next());
   });
@@ -364,14 +370,14 @@ function __asyncValues(o) {
   }, i);
   function verb(n) {
     i[n] = o[n] && function(v) {
-      return new Promise(function(resolve4, reject) {
-        v = o[n](v), settle(resolve4, reject, v.done, v.value);
+      return new Promise(function(resolve2, reject) {
+        v = o[n](v), settle(resolve2, reject, v.done, v.value);
       });
     };
   }
-  function settle(resolve4, reject, d, v) {
+  function settle(resolve2, reject, d, v) {
     Promise.resolve(v).then(function(v2) {
-      resolve4({ value: v2, done: d });
+      resolve2({ value: v2, done: d });
     }, reject);
   }
 }
@@ -567,9 +573,9 @@ var require_helper = __commonJS({
     exports.resolveFetch = void 0;
     var resolveFetch3 = (customFetch) => {
       if (customFetch) {
-        return (...args2) => customFetch(...args2);
+        return (...args) => customFetch(...args);
       }
-      return (...args2) => fetch(...args2);
+      return (...args) => fetch(...args);
     };
     exports.resolveFetch = resolveFetch3;
   }
@@ -1406,12 +1412,12 @@ var require_push = __commonJS({
       updatePayload(payload) {
         this.payload = Object.assign(Object.assign({}, this.payload), payload);
       }
-      receive(status2, callback) {
+      receive(status, callback) {
         var _a;
-        if (this._hasReceived(status2)) {
+        if (this._hasReceived(status)) {
           callback((_a = this.receivedResp) === null || _a === void 0 ? void 0 : _a.response);
         }
-        this.recHooks.push({ status: status2, callback });
+        this.recHooks.push({ status, callback });
         return this;
       }
       startTimeout() {
@@ -1431,9 +1437,9 @@ var require_push = __commonJS({
           this.trigger("timeout", {});
         }, this.timeout);
       }
-      trigger(status2, response) {
+      trigger(status, response) {
         if (this.refEvent)
-          this.channel._trigger(this.refEvent, { status: status2, response });
+          this.channel._trigger(this.refEvent, { status, response });
       }
       destroy() {
         this._cancelRefEvent();
@@ -1449,11 +1455,11 @@ var require_push = __commonJS({
         clearTimeout(this.timeoutTimer);
         this.timeoutTimer = void 0;
       }
-      _matchReceive({ status: status2, response }) {
-        this.recHooks.filter((h) => h.status === status2).forEach((h) => h.callback(response));
+      _matchReceive({ status, response }) {
+        this.recHooks.filter((h) => h.status === status).forEach((h) => h.callback(response));
       }
-      _hasReceived(status2) {
-        return this.receivedResp && this.receivedResp.status === status2;
+      _hasReceived(status) {
+        return this.receivedResp && this.receivedResp.status === status;
       }
     };
     exports.default = Push;
@@ -1975,11 +1981,11 @@ var require_RealtimeChannel = __commonJS({
        * @param args.payload Payload to be sent
        * @param opts Options to be used during the send process
        */
-      async send(args2, opts = {}) {
+      async send(args, opts = {}) {
         var _a, _b;
-        if (!this._canPush() && args2.type === "broadcast") {
+        if (!this._canPush() && args.type === "broadcast") {
           console.warn("Realtime send() is automatically falling back to REST API. This behavior will be deprecated in the future. Please use httpSend() explicitly for REST delivery.");
-          const { event, payload: endpoint_payload } = args2;
+          const { event, payload: endpoint_payload } = args;
           const headers = {
             apikey: this.socket.apiKey ? this.socket.apiKey : "",
             "Content-Type": "application/json"
@@ -2013,15 +2019,15 @@ var require_RealtimeChannel = __commonJS({
             }
           }
         } else {
-          return new Promise((resolve4) => {
+          return new Promise((resolve2) => {
             var _a2, _b2, _c;
-            const push = this._push(args2.type, args2, opts.timeout || this.timeout);
-            if (args2.type === "broadcast" && !((_c = (_b2 = (_a2 = this.params) === null || _a2 === void 0 ? void 0 : _a2.config) === null || _b2 === void 0 ? void 0 : _b2.broadcast) === null || _c === void 0 ? void 0 : _c.ack)) {
-              resolve4("ok");
+            const push = this._push(args.type, args, opts.timeout || this.timeout);
+            if (args.type === "broadcast" && !((_c = (_b2 = (_a2 = this.params) === null || _a2 === void 0 ? void 0 : _a2.config) === null || _b2 === void 0 ? void 0 : _b2.broadcast) === null || _c === void 0 ? void 0 : _c.ack)) {
+              resolve2("ok");
             }
-            push.receive("ok", () => resolve4("ok"));
-            push.receive("error", () => resolve4("error"));
-            push.receive("timeout", () => resolve4("timed out"));
+            push.receive("ok", () => resolve2("ok"));
+            push.receive("error", () => resolve2("error"));
+            push.receive("timeout", () => resolve2("timed out"));
           });
         }
       }
@@ -2049,16 +2055,16 @@ var require_RealtimeChannel = __commonJS({
         };
         this.joinPush.destroy();
         let leavePush = null;
-        return new Promise((resolve4) => {
+        return new Promise((resolve2) => {
           leavePush = new push_1.default(this, constants_1.CHANNEL_EVENTS.leave, {}, timeout);
           leavePush.receive("ok", () => {
             onClose();
-            resolve4("ok");
+            resolve2("ok");
           }).receive("timeout", () => {
             onClose();
-            resolve4("timed out");
+            resolve2("timed out");
           }).receive("error", () => {
-            resolve4("error");
+            resolve2("error");
           });
           leavePush.send();
           if (!this._canPush()) {
@@ -2137,8 +2143,8 @@ var require_RealtimeChannel = __commonJS({
       _trigger(type, payload, ref) {
         var _a, _b;
         const typeLower = type.toLocaleLowerCase();
-        const { close, error, leave, join: join12 } = constants_1.CHANNEL_EVENTS;
-        const events = [close, error, leave, join12];
+        const { close, error, leave, join: join7 } = constants_1.CHANNEL_EVENTS;
+        const events = [close, error, leave, join7];
         if (ref && events.indexOf(typeLower) >= 0 && ref !== this._joinRef()) {
           return;
         }
@@ -2405,9 +2411,9 @@ var require_RealtimeClient = __commonJS({
         this._heartbeatSentAt = null;
         this._resolveFetch = (customFetch) => {
           if (customFetch) {
-            return (...args2) => customFetch(...args2);
+            return (...args) => customFetch(...args);
           }
-          return (...args2) => fetch(...args2);
+          return (...args) => fetch(...args);
         };
         if (!((_a = options === null || options === void 0 ? void 0 : options.params) === null || _a === void 0 ? void 0 : _a.apikey)) {
           throw new Error("API key is required to connect to Realtime");
@@ -2508,11 +2514,11 @@ Option 2: Install and provide the "ws" package:
        * @param channel A RealtimeChannel instance
        */
       async removeChannel(channel) {
-        const status2 = await channel.unsubscribe();
+        const status = await channel.unsubscribe();
         if (this.channels.length === 0) {
           this.disconnect();
         }
-        return status2;
+        return status;
       }
       /**
        * Unsubscribes and removes all channels
@@ -2752,8 +2758,8 @@ Option 2: Install and provide the "ws" package:
           }
           const { topic, event, payload, ref } = msg;
           const refString = ref ? `(${ref})` : "";
-          const status2 = payload.status || "";
-          this.log("receive", `${status2} ${topic} ${event} ${refString}`.trim(), payload);
+          const status = payload.status || "";
+          this.log("receive", `${status} ${topic} ${event} ${refString}`.trim(), payload);
           this.channels.filter((channel) => channel._isMember(topic)).forEach((channel) => channel._trigger(event, payload, ref));
           this._triggerStateCallbacks("message", msg);
         });
@@ -3184,11 +3190,11 @@ var require_errors = __commonJS({
     exports.isAuthRetryableFetchError = isAuthRetryableFetchError;
     exports.isAuthWeakPasswordError = isAuthWeakPasswordError;
     var AuthError = class extends Error {
-      constructor(message, status2, code) {
+      constructor(message, status, code) {
         super(message);
         this.__isAuthError = true;
         this.name = "AuthError";
-        this.status = status2;
+        this.status = status;
         this.code = code;
       }
     };
@@ -3197,10 +3203,10 @@ var require_errors = __commonJS({
       return typeof error === "object" && error !== null && "__isAuthError" in error;
     }
     var AuthApiError = class extends AuthError {
-      constructor(message, status2, code) {
-        super(message, status2, code);
+      constructor(message, status, code) {
+        super(message, status, code);
         this.name = "AuthApiError";
-        this.status = status2;
+        this.status = status;
         this.code = code;
       }
     };
@@ -3217,10 +3223,10 @@ var require_errors = __commonJS({
     };
     exports.AuthUnknownError = AuthUnknownError;
     var CustomAuthError = class extends AuthError {
-      constructor(message, name, status2, code) {
-        super(message, status2, code);
+      constructor(message, name, status, code) {
+        super(message, status, code);
         this.name = name;
-        this.status = status2;
+        this.status = status;
       }
     };
     exports.CustomAuthError = CustomAuthError;
@@ -3290,8 +3296,8 @@ var require_errors = __commonJS({
       return isAuthError(error) && error.name === "AuthPKCECodeVerifierMissingError";
     }
     var AuthRetryableFetchError = class extends CustomAuthError {
-      constructor(message, status2) {
-        super(message, "AuthRetryableFetchError", status2, void 0);
+      constructor(message, status) {
+        super(message, "AuthRetryableFetchError", status, void 0);
       }
     };
     exports.AuthRetryableFetchError = AuthRetryableFetchError;
@@ -3299,8 +3305,8 @@ var require_errors = __commonJS({
       return isAuthError(error) && error.name === "AuthRetryableFetchError";
     }
     var AuthWeakPasswordError = class extends CustomAuthError {
-      constructor(message, status2, reasons) {
-        super(message, "AuthWeakPasswordError", status2, "weak_password");
+      constructor(message, status, reasons) {
+        super(message, "AuthWeakPasswordError", status, "weak_password");
         this.reasons = reasons;
       }
     };
@@ -3517,7 +3523,7 @@ var require_helpers = __commonJS({
     exports.generateCallbackId = generateCallbackId;
     exports.parseParametersFromURL = parseParametersFromURL;
     exports.decodeJWT = decodeJWT;
-    exports.sleep = sleep3;
+    exports.sleep = sleep2;
     exports.retryable = retryable;
     exports.generatePKCEVerifier = generatePKCEVerifier;
     exports.generatePKCEChallenge = generatePKCEChallenge;
@@ -3591,9 +3597,9 @@ var require_helpers = __commonJS({
     }
     var resolveFetch3 = (customFetch) => {
       if (customFetch) {
-        return (...args2) => customFetch(...args2);
+        return (...args) => customFetch(...args);
       }
-      return (...args2) => fetch(...args2);
+      return (...args) => fetch(...args);
     };
     exports.resolveFetch = resolveFetch3;
     var looksLikeFetchResponse = (maybeResponse) => {
@@ -3654,7 +3660,7 @@ var require_helpers = __commonJS({
       };
       return data;
     }
-    async function sleep3(time) {
+    async function sleep2(time) {
       return await new Promise((accept) => {
         setTimeout(() => accept(null), time);
       });
@@ -5089,10 +5095,10 @@ var require_webauthn = __commonJS({
         authenticatorAttachment: (_a = credentialWithAttachment.authenticatorAttachment) !== null && _a !== void 0 ? _a : void 0
       };
     }
-    function isValidDomain(hostname2) {
+    function isValidDomain(hostname) {
       return (
         // Consider localhost valid as well since it's okay wrt Secure Contexts
-        hostname2 === "localhost" || /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/i.test(hostname2)
+        hostname === "localhost" || /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/i.test(hostname)
       );
     }
     function browserSupportsWebAuthn() {
@@ -5175,7 +5181,7 @@ var require_webauthn = __commonJS({
       attestation: "direct"
     };
     function deepMerge(...sources) {
-      const isObject = (val) => val !== null && typeof val === "object" && !Array.isArray(val);
+      const isObject2 = (val) => val !== null && typeof val === "object" && !Array.isArray(val);
       const isArrayBufferLike = (val) => val instanceof ArrayBuffer || ArrayBuffer.isView(val);
       const result = {};
       for (const source of sources) {
@@ -5189,9 +5195,9 @@ var require_webauthn = __commonJS({
             result[key] = value;
           } else if (isArrayBufferLike(value)) {
             result[key] = value;
-          } else if (isObject(value)) {
+          } else if (isObject2(value)) {
             const existing = result[key];
-            if (isObject(existing)) {
+            if (isObject2(existing)) {
               result[key] = deepMerge(existing, value);
             } else {
               result[key] = deepMerge(value);
@@ -5681,9 +5687,9 @@ var require_GoTrueClient = __commonJS({
       _logPrefix() {
         return `GoTrueClient@${this.storageKey}:${this.instanceID} (${version_1.version}) ${(/* @__PURE__ */ new Date()).toISOString()}`;
       }
-      _debug(...args2) {
+      _debug(...args) {
         if (this.logDebugMessages) {
-          this.logger(this._logPrefix(), ...args2);
+          this.logger(this._logPrefix(), ...args);
         }
         return this;
       }
@@ -8107,231 +8113,3854 @@ var require_main3 = __commonJS({
   }
 });
 
-// dist/commands/login.js
-import * as http from "node:http";
-import { URL as URL2 } from "node:url";
-import { createInterface } from "node:readline/promises";
+// ../../node_modules/ws/lib/constants.js
+var require_constants3 = __commonJS({
+  "../../node_modules/ws/lib/constants.js"(exports, module) {
+    "use strict";
+    var BINARY_TYPES = ["nodebuffer", "arraybuffer", "fragments"];
+    var hasBlob = typeof Blob !== "undefined";
+    if (hasBlob) BINARY_TYPES.push("blob");
+    module.exports = {
+      BINARY_TYPES,
+      CLOSE_TIMEOUT: 3e4,
+      EMPTY_BUFFER: Buffer.alloc(0),
+      GUID: "258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
+      hasBlob,
+      kForOnEventAttribute: Symbol("kIsForOnEventAttribute"),
+      kListener: Symbol("kListener"),
+      kStatusCode: Symbol("status-code"),
+      kWebSocket: Symbol("websocket"),
+      NOOP: () => {
+      }
+    };
+  }
+});
 
-// dist/lib/credentials.js
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+// ../../node_modules/ws/lib/buffer-util.js
+var require_buffer_util = __commonJS({
+  "../../node_modules/ws/lib/buffer-util.js"(exports, module) {
+    "use strict";
+    var { EMPTY_BUFFER } = require_constants3();
+    var FastBuffer = Buffer[Symbol.species];
+    function concat(list, totalLength) {
+      if (list.length === 0) return EMPTY_BUFFER;
+      if (list.length === 1) return list[0];
+      const target = Buffer.allocUnsafe(totalLength);
+      let offset = 0;
+      for (let i = 0; i < list.length; i++) {
+        const buf = list[i];
+        target.set(buf, offset);
+        offset += buf.length;
+      }
+      if (offset < totalLength) {
+        return new FastBuffer(target.buffer, target.byteOffset, offset);
+      }
+      return target;
+    }
+    function _mask(source, mask, output, offset, length) {
+      for (let i = 0; i < length; i++) {
+        output[offset + i] = source[i] ^ mask[i & 3];
+      }
+    }
+    function _unmask(buffer, mask) {
+      for (let i = 0; i < buffer.length; i++) {
+        buffer[i] ^= mask[i & 3];
+      }
+    }
+    function toArrayBuffer(buf) {
+      if (buf.length === buf.buffer.byteLength) {
+        return buf.buffer;
+      }
+      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length);
+    }
+    function toBuffer(data) {
+      toBuffer.readOnly = true;
+      if (Buffer.isBuffer(data)) return data;
+      let buf;
+      if (data instanceof ArrayBuffer) {
+        buf = new FastBuffer(data);
+      } else if (ArrayBuffer.isView(data)) {
+        buf = new FastBuffer(data.buffer, data.byteOffset, data.byteLength);
+      } else {
+        buf = Buffer.from(data);
+        toBuffer.readOnly = false;
+      }
+      return buf;
+    }
+    module.exports = {
+      concat,
+      mask: _mask,
+      toArrayBuffer,
+      toBuffer,
+      unmask: _unmask
+    };
+    if (!process.env.WS_NO_BUFFER_UTIL) {
+      try {
+        const bufferUtil = __require("bufferutil");
+        module.exports.mask = function(source, mask, output, offset, length) {
+          if (length < 48) _mask(source, mask, output, offset, length);
+          else bufferUtil.mask(source, mask, output, offset, length);
+        };
+        module.exports.unmask = function(buffer, mask) {
+          if (buffer.length < 32) _unmask(buffer, mask);
+          else bufferUtil.unmask(buffer, mask);
+        };
+      } catch (e) {
+      }
+    }
+  }
+});
+
+// ../../node_modules/ws/lib/limiter.js
+var require_limiter = __commonJS({
+  "../../node_modules/ws/lib/limiter.js"(exports, module) {
+    "use strict";
+    var kDone = Symbol("kDone");
+    var kRun = Symbol("kRun");
+    var Limiter = class {
+      /**
+       * Creates a new `Limiter`.
+       *
+       * @param {Number} [concurrency=Infinity] The maximum number of jobs allowed
+       *     to run concurrently
+       */
+      constructor(concurrency) {
+        this[kDone] = () => {
+          this.pending--;
+          this[kRun]();
+        };
+        this.concurrency = concurrency || Infinity;
+        this.jobs = [];
+        this.pending = 0;
+      }
+      /**
+       * Adds a job to the queue.
+       *
+       * @param {Function} job The job to run
+       * @public
+       */
+      add(job) {
+        this.jobs.push(job);
+        this[kRun]();
+      }
+      /**
+       * Removes a job from the queue and runs it if possible.
+       *
+       * @private
+       */
+      [kRun]() {
+        if (this.pending === this.concurrency) return;
+        if (this.jobs.length) {
+          const job = this.jobs.shift();
+          this.pending++;
+          job(this[kDone]);
+        }
+      }
+    };
+    module.exports = Limiter;
+  }
+});
+
+// ../../node_modules/ws/lib/permessage-deflate.js
+var require_permessage_deflate = __commonJS({
+  "../../node_modules/ws/lib/permessage-deflate.js"(exports, module) {
+    "use strict";
+    var zlib = __require("zlib");
+    var bufferUtil = require_buffer_util();
+    var Limiter = require_limiter();
+    var { kStatusCode } = require_constants3();
+    var FastBuffer = Buffer[Symbol.species];
+    var TRAILER = Buffer.from([0, 0, 255, 255]);
+    var kPerMessageDeflate = Symbol("permessage-deflate");
+    var kTotalLength = Symbol("total-length");
+    var kCallback = Symbol("callback");
+    var kBuffers = Symbol("buffers");
+    var kError = Symbol("error");
+    var zlibLimiter;
+    var PerMessageDeflate = class {
+      /**
+       * Creates a PerMessageDeflate instance.
+       *
+       * @param {Object} [options] Configuration options
+       * @param {(Boolean|Number)} [options.clientMaxWindowBits] Advertise support
+       *     for, or request, a custom client window size
+       * @param {Boolean} [options.clientNoContextTakeover=false] Advertise/
+       *     acknowledge disabling of client context takeover
+       * @param {Number} [options.concurrencyLimit=10] The number of concurrent
+       *     calls to zlib
+       * @param {(Boolean|Number)} [options.serverMaxWindowBits] Request/confirm the
+       *     use of a custom server window size
+       * @param {Boolean} [options.serverNoContextTakeover=false] Request/accept
+       *     disabling of server context takeover
+       * @param {Number} [options.threshold=1024] Size (in bytes) below which
+       *     messages should not be compressed if context takeover is disabled
+       * @param {Object} [options.zlibDeflateOptions] Options to pass to zlib on
+       *     deflate
+       * @param {Object} [options.zlibInflateOptions] Options to pass to zlib on
+       *     inflate
+       * @param {Boolean} [isServer=false] Create the instance in either server or
+       *     client mode
+       * @param {Number} [maxPayload=0] The maximum allowed message length
+       */
+      constructor(options, isServer, maxPayload) {
+        this._maxPayload = maxPayload | 0;
+        this._options = options || {};
+        this._threshold = this._options.threshold !== void 0 ? this._options.threshold : 1024;
+        this._isServer = !!isServer;
+        this._deflate = null;
+        this._inflate = null;
+        this.params = null;
+        if (!zlibLimiter) {
+          const concurrency = this._options.concurrencyLimit !== void 0 ? this._options.concurrencyLimit : 10;
+          zlibLimiter = new Limiter(concurrency);
+        }
+      }
+      /**
+       * @type {String}
+       */
+      static get extensionName() {
+        return "permessage-deflate";
+      }
+      /**
+       * Create an extension negotiation offer.
+       *
+       * @return {Object} Extension parameters
+       * @public
+       */
+      offer() {
+        const params = {};
+        if (this._options.serverNoContextTakeover) {
+          params.server_no_context_takeover = true;
+        }
+        if (this._options.clientNoContextTakeover) {
+          params.client_no_context_takeover = true;
+        }
+        if (this._options.serverMaxWindowBits) {
+          params.server_max_window_bits = this._options.serverMaxWindowBits;
+        }
+        if (this._options.clientMaxWindowBits) {
+          params.client_max_window_bits = this._options.clientMaxWindowBits;
+        } else if (this._options.clientMaxWindowBits == null) {
+          params.client_max_window_bits = true;
+        }
+        return params;
+      }
+      /**
+       * Accept an extension negotiation offer/response.
+       *
+       * @param {Array} configurations The extension negotiation offers/reponse
+       * @return {Object} Accepted configuration
+       * @public
+       */
+      accept(configurations) {
+        configurations = this.normalizeParams(configurations);
+        this.params = this._isServer ? this.acceptAsServer(configurations) : this.acceptAsClient(configurations);
+        return this.params;
+      }
+      /**
+       * Releases all resources used by the extension.
+       *
+       * @public
+       */
+      cleanup() {
+        if (this._inflate) {
+          this._inflate.close();
+          this._inflate = null;
+        }
+        if (this._deflate) {
+          const callback = this._deflate[kCallback];
+          this._deflate.close();
+          this._deflate = null;
+          if (callback) {
+            callback(
+              new Error(
+                "The deflate stream was closed while data was being processed"
+              )
+            );
+          }
+        }
+      }
+      /**
+       *  Accept an extension negotiation offer.
+       *
+       * @param {Array} offers The extension negotiation offers
+       * @return {Object} Accepted configuration
+       * @private
+       */
+      acceptAsServer(offers) {
+        const opts = this._options;
+        const accepted = offers.find((params) => {
+          if (opts.serverNoContextTakeover === false && params.server_no_context_takeover || params.server_max_window_bits && (opts.serverMaxWindowBits === false || typeof opts.serverMaxWindowBits === "number" && opts.serverMaxWindowBits > params.server_max_window_bits) || typeof opts.clientMaxWindowBits === "number" && !params.client_max_window_bits) {
+            return false;
+          }
+          return true;
+        });
+        if (!accepted) {
+          throw new Error("None of the extension offers can be accepted");
+        }
+        if (opts.serverNoContextTakeover) {
+          accepted.server_no_context_takeover = true;
+        }
+        if (opts.clientNoContextTakeover) {
+          accepted.client_no_context_takeover = true;
+        }
+        if (typeof opts.serverMaxWindowBits === "number") {
+          accepted.server_max_window_bits = opts.serverMaxWindowBits;
+        }
+        if (typeof opts.clientMaxWindowBits === "number") {
+          accepted.client_max_window_bits = opts.clientMaxWindowBits;
+        } else if (accepted.client_max_window_bits === true || opts.clientMaxWindowBits === false) {
+          delete accepted.client_max_window_bits;
+        }
+        return accepted;
+      }
+      /**
+       * Accept the extension negotiation response.
+       *
+       * @param {Array} response The extension negotiation response
+       * @return {Object} Accepted configuration
+       * @private
+       */
+      acceptAsClient(response) {
+        const params = response[0];
+        if (this._options.clientNoContextTakeover === false && params.client_no_context_takeover) {
+          throw new Error('Unexpected parameter "client_no_context_takeover"');
+        }
+        if (!params.client_max_window_bits) {
+          if (typeof this._options.clientMaxWindowBits === "number") {
+            params.client_max_window_bits = this._options.clientMaxWindowBits;
+          }
+        } else if (this._options.clientMaxWindowBits === false || typeof this._options.clientMaxWindowBits === "number" && params.client_max_window_bits > this._options.clientMaxWindowBits) {
+          throw new Error(
+            'Unexpected or invalid parameter "client_max_window_bits"'
+          );
+        }
+        return params;
+      }
+      /**
+       * Normalize parameters.
+       *
+       * @param {Array} configurations The extension negotiation offers/reponse
+       * @return {Array} The offers/response with normalized parameters
+       * @private
+       */
+      normalizeParams(configurations) {
+        configurations.forEach((params) => {
+          Object.keys(params).forEach((key) => {
+            let value = params[key];
+            if (value.length > 1) {
+              throw new Error(`Parameter "${key}" must have only a single value`);
+            }
+            value = value[0];
+            if (key === "client_max_window_bits") {
+              if (value !== true) {
+                const num = +value;
+                if (!Number.isInteger(num) || num < 8 || num > 15) {
+                  throw new TypeError(
+                    `Invalid value for parameter "${key}": ${value}`
+                  );
+                }
+                value = num;
+              } else if (!this._isServer) {
+                throw new TypeError(
+                  `Invalid value for parameter "${key}": ${value}`
+                );
+              }
+            } else if (key === "server_max_window_bits") {
+              const num = +value;
+              if (!Number.isInteger(num) || num < 8 || num > 15) {
+                throw new TypeError(
+                  `Invalid value for parameter "${key}": ${value}`
+                );
+              }
+              value = num;
+            } else if (key === "client_no_context_takeover" || key === "server_no_context_takeover") {
+              if (value !== true) {
+                throw new TypeError(
+                  `Invalid value for parameter "${key}": ${value}`
+                );
+              }
+            } else {
+              throw new Error(`Unknown parameter "${key}"`);
+            }
+            params[key] = value;
+          });
+        });
+        return configurations;
+      }
+      /**
+       * Decompress data. Concurrency limited.
+       *
+       * @param {Buffer} data Compressed data
+       * @param {Boolean} fin Specifies whether or not this is the last fragment
+       * @param {Function} callback Callback
+       * @public
+       */
+      decompress(data, fin, callback) {
+        zlibLimiter.add((done) => {
+          this._decompress(data, fin, (err, result) => {
+            done();
+            callback(err, result);
+          });
+        });
+      }
+      /**
+       * Compress data. Concurrency limited.
+       *
+       * @param {(Buffer|String)} data Data to compress
+       * @param {Boolean} fin Specifies whether or not this is the last fragment
+       * @param {Function} callback Callback
+       * @public
+       */
+      compress(data, fin, callback) {
+        zlibLimiter.add((done) => {
+          this._compress(data, fin, (err, result) => {
+            done();
+            callback(err, result);
+          });
+        });
+      }
+      /**
+       * Decompress data.
+       *
+       * @param {Buffer} data Compressed data
+       * @param {Boolean} fin Specifies whether or not this is the last fragment
+       * @param {Function} callback Callback
+       * @private
+       */
+      _decompress(data, fin, callback) {
+        const endpoint = this._isServer ? "client" : "server";
+        if (!this._inflate) {
+          const key = `${endpoint}_max_window_bits`;
+          const windowBits = typeof this.params[key] !== "number" ? zlib.Z_DEFAULT_WINDOWBITS : this.params[key];
+          this._inflate = zlib.createInflateRaw({
+            ...this._options.zlibInflateOptions,
+            windowBits
+          });
+          this._inflate[kPerMessageDeflate] = this;
+          this._inflate[kTotalLength] = 0;
+          this._inflate[kBuffers] = [];
+          this._inflate.on("error", inflateOnError);
+          this._inflate.on("data", inflateOnData);
+        }
+        this._inflate[kCallback] = callback;
+        this._inflate.write(data);
+        if (fin) this._inflate.write(TRAILER);
+        this._inflate.flush(() => {
+          const err = this._inflate[kError];
+          if (err) {
+            this._inflate.close();
+            this._inflate = null;
+            callback(err);
+            return;
+          }
+          const data2 = bufferUtil.concat(
+            this._inflate[kBuffers],
+            this._inflate[kTotalLength]
+          );
+          if (this._inflate._readableState.endEmitted) {
+            this._inflate.close();
+            this._inflate = null;
+          } else {
+            this._inflate[kTotalLength] = 0;
+            this._inflate[kBuffers] = [];
+            if (fin && this.params[`${endpoint}_no_context_takeover`]) {
+              this._inflate.reset();
+            }
+          }
+          callback(null, data2);
+        });
+      }
+      /**
+       * Compress data.
+       *
+       * @param {(Buffer|String)} data Data to compress
+       * @param {Boolean} fin Specifies whether or not this is the last fragment
+       * @param {Function} callback Callback
+       * @private
+       */
+      _compress(data, fin, callback) {
+        const endpoint = this._isServer ? "server" : "client";
+        if (!this._deflate) {
+          const key = `${endpoint}_max_window_bits`;
+          const windowBits = typeof this.params[key] !== "number" ? zlib.Z_DEFAULT_WINDOWBITS : this.params[key];
+          this._deflate = zlib.createDeflateRaw({
+            ...this._options.zlibDeflateOptions,
+            windowBits
+          });
+          this._deflate[kTotalLength] = 0;
+          this._deflate[kBuffers] = [];
+          this._deflate.on("data", deflateOnData);
+        }
+        this._deflate[kCallback] = callback;
+        this._deflate.write(data);
+        this._deflate.flush(zlib.Z_SYNC_FLUSH, () => {
+          if (!this._deflate) {
+            return;
+          }
+          let data2 = bufferUtil.concat(
+            this._deflate[kBuffers],
+            this._deflate[kTotalLength]
+          );
+          if (fin) {
+            data2 = new FastBuffer(data2.buffer, data2.byteOffset, data2.length - 4);
+          }
+          this._deflate[kCallback] = null;
+          this._deflate[kTotalLength] = 0;
+          this._deflate[kBuffers] = [];
+          if (fin && this.params[`${endpoint}_no_context_takeover`]) {
+            this._deflate.reset();
+          }
+          callback(null, data2);
+        });
+      }
+    };
+    module.exports = PerMessageDeflate;
+    function deflateOnData(chunk) {
+      this[kBuffers].push(chunk);
+      this[kTotalLength] += chunk.length;
+    }
+    function inflateOnData(chunk) {
+      this[kTotalLength] += chunk.length;
+      if (this[kPerMessageDeflate]._maxPayload < 1 || this[kTotalLength] <= this[kPerMessageDeflate]._maxPayload) {
+        this[kBuffers].push(chunk);
+        return;
+      }
+      this[kError] = new RangeError("Max payload size exceeded");
+      this[kError].code = "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH";
+      this[kError][kStatusCode] = 1009;
+      this.removeListener("data", inflateOnData);
+      this.reset();
+    }
+    function inflateOnError(err) {
+      this[kPerMessageDeflate]._inflate = null;
+      if (this[kError]) {
+        this[kCallback](this[kError]);
+        return;
+      }
+      err[kStatusCode] = 1007;
+      this[kCallback](err);
+    }
+  }
+});
+
+// ../../node_modules/ws/lib/validation.js
+var require_validation = __commonJS({
+  "../../node_modules/ws/lib/validation.js"(exports, module) {
+    "use strict";
+    var { isUtf8 } = __require("buffer");
+    var { hasBlob } = require_constants3();
+    var tokenChars = [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      // 0 - 15
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      // 16 - 31
+      0,
+      1,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      1,
+      1,
+      0,
+      1,
+      1,
+      0,
+      // 32 - 47
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      // 48 - 63
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      // 64 - 79
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      // 80 - 95
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      // 96 - 111
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0
+      // 112 - 127
+    ];
+    function isValidStatusCode(code) {
+      return code >= 1e3 && code <= 1014 && code !== 1004 && code !== 1005 && code !== 1006 || code >= 3e3 && code <= 4999;
+    }
+    function _isValidUTF8(buf) {
+      const len = buf.length;
+      let i = 0;
+      while (i < len) {
+        if ((buf[i] & 128) === 0) {
+          i++;
+        } else if ((buf[i] & 224) === 192) {
+          if (i + 1 === len || (buf[i + 1] & 192) !== 128 || (buf[i] & 254) === 192) {
+            return false;
+          }
+          i += 2;
+        } else if ((buf[i] & 240) === 224) {
+          if (i + 2 >= len || (buf[i + 1] & 192) !== 128 || (buf[i + 2] & 192) !== 128 || buf[i] === 224 && (buf[i + 1] & 224) === 128 || // Overlong
+          buf[i] === 237 && (buf[i + 1] & 224) === 160) {
+            return false;
+          }
+          i += 3;
+        } else if ((buf[i] & 248) === 240) {
+          if (i + 3 >= len || (buf[i + 1] & 192) !== 128 || (buf[i + 2] & 192) !== 128 || (buf[i + 3] & 192) !== 128 || buf[i] === 240 && (buf[i + 1] & 240) === 128 || // Overlong
+          buf[i] === 244 && buf[i + 1] > 143 || buf[i] > 244) {
+            return false;
+          }
+          i += 4;
+        } else {
+          return false;
+        }
+      }
+      return true;
+    }
+    function isBlob(value) {
+      return hasBlob && typeof value === "object" && typeof value.arrayBuffer === "function" && typeof value.type === "string" && typeof value.stream === "function" && (value[Symbol.toStringTag] === "Blob" || value[Symbol.toStringTag] === "File");
+    }
+    module.exports = {
+      isBlob,
+      isValidStatusCode,
+      isValidUTF8: _isValidUTF8,
+      tokenChars
+    };
+    if (isUtf8) {
+      module.exports.isValidUTF8 = function(buf) {
+        return buf.length < 24 ? _isValidUTF8(buf) : isUtf8(buf);
+      };
+    } else if (!process.env.WS_NO_UTF_8_VALIDATE) {
+      try {
+        const isValidUTF8 = __require("utf-8-validate");
+        module.exports.isValidUTF8 = function(buf) {
+          return buf.length < 32 ? _isValidUTF8(buf) : isValidUTF8(buf);
+        };
+      } catch (e) {
+      }
+    }
+  }
+});
+
+// ../../node_modules/ws/lib/receiver.js
+var require_receiver = __commonJS({
+  "../../node_modules/ws/lib/receiver.js"(exports, module) {
+    "use strict";
+    var { Writable } = __require("stream");
+    var PerMessageDeflate = require_permessage_deflate();
+    var {
+      BINARY_TYPES,
+      EMPTY_BUFFER,
+      kStatusCode,
+      kWebSocket
+    } = require_constants3();
+    var { concat, toArrayBuffer, unmask } = require_buffer_util();
+    var { isValidStatusCode, isValidUTF8 } = require_validation();
+    var FastBuffer = Buffer[Symbol.species];
+    var GET_INFO = 0;
+    var GET_PAYLOAD_LENGTH_16 = 1;
+    var GET_PAYLOAD_LENGTH_64 = 2;
+    var GET_MASK = 3;
+    var GET_DATA = 4;
+    var INFLATING = 5;
+    var DEFER_EVENT = 6;
+    var Receiver2 = class extends Writable {
+      /**
+       * Creates a Receiver instance.
+       *
+       * @param {Object} [options] Options object
+       * @param {Boolean} [options.allowSynchronousEvents=true] Specifies whether
+       *     any of the `'message'`, `'ping'`, and `'pong'` events can be emitted
+       *     multiple times in the same tick
+       * @param {String} [options.binaryType=nodebuffer] The type for binary data
+       * @param {Object} [options.extensions] An object containing the negotiated
+       *     extensions
+       * @param {Boolean} [options.isServer=false] Specifies whether to operate in
+       *     client or server mode
+       * @param {Number} [options.maxPayload=0] The maximum allowed message length
+       * @param {Boolean} [options.skipUTF8Validation=false] Specifies whether or
+       *     not to skip UTF-8 validation for text and close messages
+       */
+      constructor(options = {}) {
+        super();
+        this._allowSynchronousEvents = options.allowSynchronousEvents !== void 0 ? options.allowSynchronousEvents : true;
+        this._binaryType = options.binaryType || BINARY_TYPES[0];
+        this._extensions = options.extensions || {};
+        this._isServer = !!options.isServer;
+        this._maxPayload = options.maxPayload | 0;
+        this._skipUTF8Validation = !!options.skipUTF8Validation;
+        this[kWebSocket] = void 0;
+        this._bufferedBytes = 0;
+        this._buffers = [];
+        this._compressed = false;
+        this._payloadLength = 0;
+        this._mask = void 0;
+        this._fragmented = 0;
+        this._masked = false;
+        this._fin = false;
+        this._opcode = 0;
+        this._totalPayloadLength = 0;
+        this._messageLength = 0;
+        this._fragments = [];
+        this._errored = false;
+        this._loop = false;
+        this._state = GET_INFO;
+      }
+      /**
+       * Implements `Writable.prototype._write()`.
+       *
+       * @param {Buffer} chunk The chunk of data to write
+       * @param {String} encoding The character encoding of `chunk`
+       * @param {Function} cb Callback
+       * @private
+       */
+      _write(chunk, encoding, cb) {
+        if (this._opcode === 8 && this._state == GET_INFO) return cb();
+        this._bufferedBytes += chunk.length;
+        this._buffers.push(chunk);
+        this.startLoop(cb);
+      }
+      /**
+       * Consumes `n` bytes from the buffered data.
+       *
+       * @param {Number} n The number of bytes to consume
+       * @return {Buffer} The consumed bytes
+       * @private
+       */
+      consume(n) {
+        this._bufferedBytes -= n;
+        if (n === this._buffers[0].length) return this._buffers.shift();
+        if (n < this._buffers[0].length) {
+          const buf = this._buffers[0];
+          this._buffers[0] = new FastBuffer(
+            buf.buffer,
+            buf.byteOffset + n,
+            buf.length - n
+          );
+          return new FastBuffer(buf.buffer, buf.byteOffset, n);
+        }
+        const dst = Buffer.allocUnsafe(n);
+        do {
+          const buf = this._buffers[0];
+          const offset = dst.length - n;
+          if (n >= buf.length) {
+            dst.set(this._buffers.shift(), offset);
+          } else {
+            dst.set(new Uint8Array(buf.buffer, buf.byteOffset, n), offset);
+            this._buffers[0] = new FastBuffer(
+              buf.buffer,
+              buf.byteOffset + n,
+              buf.length - n
+            );
+          }
+          n -= buf.length;
+        } while (n > 0);
+        return dst;
+      }
+      /**
+       * Starts the parsing loop.
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      startLoop(cb) {
+        this._loop = true;
+        do {
+          switch (this._state) {
+            case GET_INFO:
+              this.getInfo(cb);
+              break;
+            case GET_PAYLOAD_LENGTH_16:
+              this.getPayloadLength16(cb);
+              break;
+            case GET_PAYLOAD_LENGTH_64:
+              this.getPayloadLength64(cb);
+              break;
+            case GET_MASK:
+              this.getMask();
+              break;
+            case GET_DATA:
+              this.getData(cb);
+              break;
+            case INFLATING:
+            case DEFER_EVENT:
+              this._loop = false;
+              return;
+          }
+        } while (this._loop);
+        if (!this._errored) cb();
+      }
+      /**
+       * Reads the first two bytes of a frame.
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      getInfo(cb) {
+        if (this._bufferedBytes < 2) {
+          this._loop = false;
+          return;
+        }
+        const buf = this.consume(2);
+        if ((buf[0] & 48) !== 0) {
+          const error = this.createError(
+            RangeError,
+            "RSV2 and RSV3 must be clear",
+            true,
+            1002,
+            "WS_ERR_UNEXPECTED_RSV_2_3"
+          );
+          cb(error);
+          return;
+        }
+        const compressed = (buf[0] & 64) === 64;
+        if (compressed && !this._extensions[PerMessageDeflate.extensionName]) {
+          const error = this.createError(
+            RangeError,
+            "RSV1 must be clear",
+            true,
+            1002,
+            "WS_ERR_UNEXPECTED_RSV_1"
+          );
+          cb(error);
+          return;
+        }
+        this._fin = (buf[0] & 128) === 128;
+        this._opcode = buf[0] & 15;
+        this._payloadLength = buf[1] & 127;
+        if (this._opcode === 0) {
+          if (compressed) {
+            const error = this.createError(
+              RangeError,
+              "RSV1 must be clear",
+              true,
+              1002,
+              "WS_ERR_UNEXPECTED_RSV_1"
+            );
+            cb(error);
+            return;
+          }
+          if (!this._fragmented) {
+            const error = this.createError(
+              RangeError,
+              "invalid opcode 0",
+              true,
+              1002,
+              "WS_ERR_INVALID_OPCODE"
+            );
+            cb(error);
+            return;
+          }
+          this._opcode = this._fragmented;
+        } else if (this._opcode === 1 || this._opcode === 2) {
+          if (this._fragmented) {
+            const error = this.createError(
+              RangeError,
+              `invalid opcode ${this._opcode}`,
+              true,
+              1002,
+              "WS_ERR_INVALID_OPCODE"
+            );
+            cb(error);
+            return;
+          }
+          this._compressed = compressed;
+        } else if (this._opcode > 7 && this._opcode < 11) {
+          if (!this._fin) {
+            const error = this.createError(
+              RangeError,
+              "FIN must be set",
+              true,
+              1002,
+              "WS_ERR_EXPECTED_FIN"
+            );
+            cb(error);
+            return;
+          }
+          if (compressed) {
+            const error = this.createError(
+              RangeError,
+              "RSV1 must be clear",
+              true,
+              1002,
+              "WS_ERR_UNEXPECTED_RSV_1"
+            );
+            cb(error);
+            return;
+          }
+          if (this._payloadLength > 125 || this._opcode === 8 && this._payloadLength === 1) {
+            const error = this.createError(
+              RangeError,
+              `invalid payload length ${this._payloadLength}`,
+              true,
+              1002,
+              "WS_ERR_INVALID_CONTROL_PAYLOAD_LENGTH"
+            );
+            cb(error);
+            return;
+          }
+        } else {
+          const error = this.createError(
+            RangeError,
+            `invalid opcode ${this._opcode}`,
+            true,
+            1002,
+            "WS_ERR_INVALID_OPCODE"
+          );
+          cb(error);
+          return;
+        }
+        if (!this._fin && !this._fragmented) this._fragmented = this._opcode;
+        this._masked = (buf[1] & 128) === 128;
+        if (this._isServer) {
+          if (!this._masked) {
+            const error = this.createError(
+              RangeError,
+              "MASK must be set",
+              true,
+              1002,
+              "WS_ERR_EXPECTED_MASK"
+            );
+            cb(error);
+            return;
+          }
+        } else if (this._masked) {
+          const error = this.createError(
+            RangeError,
+            "MASK must be clear",
+            true,
+            1002,
+            "WS_ERR_UNEXPECTED_MASK"
+          );
+          cb(error);
+          return;
+        }
+        if (this._payloadLength === 126) this._state = GET_PAYLOAD_LENGTH_16;
+        else if (this._payloadLength === 127) this._state = GET_PAYLOAD_LENGTH_64;
+        else this.haveLength(cb);
+      }
+      /**
+       * Gets extended payload length (7+16).
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      getPayloadLength16(cb) {
+        if (this._bufferedBytes < 2) {
+          this._loop = false;
+          return;
+        }
+        this._payloadLength = this.consume(2).readUInt16BE(0);
+        this.haveLength(cb);
+      }
+      /**
+       * Gets extended payload length (7+64).
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      getPayloadLength64(cb) {
+        if (this._bufferedBytes < 8) {
+          this._loop = false;
+          return;
+        }
+        const buf = this.consume(8);
+        const num = buf.readUInt32BE(0);
+        if (num > Math.pow(2, 53 - 32) - 1) {
+          const error = this.createError(
+            RangeError,
+            "Unsupported WebSocket frame: payload length > 2^53 - 1",
+            false,
+            1009,
+            "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH"
+          );
+          cb(error);
+          return;
+        }
+        this._payloadLength = num * Math.pow(2, 32) + buf.readUInt32BE(4);
+        this.haveLength(cb);
+      }
+      /**
+       * Payload length has been read.
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      haveLength(cb) {
+        if (this._payloadLength && this._opcode < 8) {
+          this._totalPayloadLength += this._payloadLength;
+          if (this._totalPayloadLength > this._maxPayload && this._maxPayload > 0) {
+            const error = this.createError(
+              RangeError,
+              "Max payload size exceeded",
+              false,
+              1009,
+              "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH"
+            );
+            cb(error);
+            return;
+          }
+        }
+        if (this._masked) this._state = GET_MASK;
+        else this._state = GET_DATA;
+      }
+      /**
+       * Reads mask bytes.
+       *
+       * @private
+       */
+      getMask() {
+        if (this._bufferedBytes < 4) {
+          this._loop = false;
+          return;
+        }
+        this._mask = this.consume(4);
+        this._state = GET_DATA;
+      }
+      /**
+       * Reads data bytes.
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      getData(cb) {
+        let data = EMPTY_BUFFER;
+        if (this._payloadLength) {
+          if (this._bufferedBytes < this._payloadLength) {
+            this._loop = false;
+            return;
+          }
+          data = this.consume(this._payloadLength);
+          if (this._masked && (this._mask[0] | this._mask[1] | this._mask[2] | this._mask[3]) !== 0) {
+            unmask(data, this._mask);
+          }
+        }
+        if (this._opcode > 7) {
+          this.controlMessage(data, cb);
+          return;
+        }
+        if (this._compressed) {
+          this._state = INFLATING;
+          this.decompress(data, cb);
+          return;
+        }
+        if (data.length) {
+          this._messageLength = this._totalPayloadLength;
+          this._fragments.push(data);
+        }
+        this.dataMessage(cb);
+      }
+      /**
+       * Decompresses data.
+       *
+       * @param {Buffer} data Compressed data
+       * @param {Function} cb Callback
+       * @private
+       */
+      decompress(data, cb) {
+        const perMessageDeflate = this._extensions[PerMessageDeflate.extensionName];
+        perMessageDeflate.decompress(data, this._fin, (err, buf) => {
+          if (err) return cb(err);
+          if (buf.length) {
+            this._messageLength += buf.length;
+            if (this._messageLength > this._maxPayload && this._maxPayload > 0) {
+              const error = this.createError(
+                RangeError,
+                "Max payload size exceeded",
+                false,
+                1009,
+                "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH"
+              );
+              cb(error);
+              return;
+            }
+            this._fragments.push(buf);
+          }
+          this.dataMessage(cb);
+          if (this._state === GET_INFO) this.startLoop(cb);
+        });
+      }
+      /**
+       * Handles a data message.
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      dataMessage(cb) {
+        if (!this._fin) {
+          this._state = GET_INFO;
+          return;
+        }
+        const messageLength = this._messageLength;
+        const fragments = this._fragments;
+        this._totalPayloadLength = 0;
+        this._messageLength = 0;
+        this._fragmented = 0;
+        this._fragments = [];
+        if (this._opcode === 2) {
+          let data;
+          if (this._binaryType === "nodebuffer") {
+            data = concat(fragments, messageLength);
+          } else if (this._binaryType === "arraybuffer") {
+            data = toArrayBuffer(concat(fragments, messageLength));
+          } else if (this._binaryType === "blob") {
+            data = new Blob(fragments);
+          } else {
+            data = fragments;
+          }
+          if (this._allowSynchronousEvents) {
+            this.emit("message", data, true);
+            this._state = GET_INFO;
+          } else {
+            this._state = DEFER_EVENT;
+            setImmediate(() => {
+              this.emit("message", data, true);
+              this._state = GET_INFO;
+              this.startLoop(cb);
+            });
+          }
+        } else {
+          const buf = concat(fragments, messageLength);
+          if (!this._skipUTF8Validation && !isValidUTF8(buf)) {
+            const error = this.createError(
+              Error,
+              "invalid UTF-8 sequence",
+              true,
+              1007,
+              "WS_ERR_INVALID_UTF8"
+            );
+            cb(error);
+            return;
+          }
+          if (this._state === INFLATING || this._allowSynchronousEvents) {
+            this.emit("message", buf, false);
+            this._state = GET_INFO;
+          } else {
+            this._state = DEFER_EVENT;
+            setImmediate(() => {
+              this.emit("message", buf, false);
+              this._state = GET_INFO;
+              this.startLoop(cb);
+            });
+          }
+        }
+      }
+      /**
+       * Handles a control message.
+       *
+       * @param {Buffer} data Data to handle
+       * @return {(Error|RangeError|undefined)} A possible error
+       * @private
+       */
+      controlMessage(data, cb) {
+        if (this._opcode === 8) {
+          if (data.length === 0) {
+            this._loop = false;
+            this.emit("conclude", 1005, EMPTY_BUFFER);
+            this.end();
+          } else {
+            const code = data.readUInt16BE(0);
+            if (!isValidStatusCode(code)) {
+              const error = this.createError(
+                RangeError,
+                `invalid status code ${code}`,
+                true,
+                1002,
+                "WS_ERR_INVALID_CLOSE_CODE"
+              );
+              cb(error);
+              return;
+            }
+            const buf = new FastBuffer(
+              data.buffer,
+              data.byteOffset + 2,
+              data.length - 2
+            );
+            if (!this._skipUTF8Validation && !isValidUTF8(buf)) {
+              const error = this.createError(
+                Error,
+                "invalid UTF-8 sequence",
+                true,
+                1007,
+                "WS_ERR_INVALID_UTF8"
+              );
+              cb(error);
+              return;
+            }
+            this._loop = false;
+            this.emit("conclude", code, buf);
+            this.end();
+          }
+          this._state = GET_INFO;
+          return;
+        }
+        if (this._allowSynchronousEvents) {
+          this.emit(this._opcode === 9 ? "ping" : "pong", data);
+          this._state = GET_INFO;
+        } else {
+          this._state = DEFER_EVENT;
+          setImmediate(() => {
+            this.emit(this._opcode === 9 ? "ping" : "pong", data);
+            this._state = GET_INFO;
+            this.startLoop(cb);
+          });
+        }
+      }
+      /**
+       * Builds an error object.
+       *
+       * @param {function(new:Error|RangeError)} ErrorCtor The error constructor
+       * @param {String} message The error message
+       * @param {Boolean} prefix Specifies whether or not to add a default prefix to
+       *     `message`
+       * @param {Number} statusCode The status code
+       * @param {String} errorCode The exposed error code
+       * @return {(Error|RangeError)} The error
+       * @private
+       */
+      createError(ErrorCtor, message, prefix, statusCode, errorCode) {
+        this._loop = false;
+        this._errored = true;
+        const err = new ErrorCtor(
+          prefix ? `Invalid WebSocket frame: ${message}` : message
+        );
+        Error.captureStackTrace(err, this.createError);
+        err.code = errorCode;
+        err[kStatusCode] = statusCode;
+        return err;
+      }
+    };
+    module.exports = Receiver2;
+  }
+});
+
+// ../../node_modules/ws/lib/sender.js
+var require_sender = __commonJS({
+  "../../node_modules/ws/lib/sender.js"(exports, module) {
+    "use strict";
+    var { Duplex } = __require("stream");
+    var { randomFillSync } = __require("crypto");
+    var PerMessageDeflate = require_permessage_deflate();
+    var { EMPTY_BUFFER, kWebSocket, NOOP } = require_constants3();
+    var { isBlob, isValidStatusCode } = require_validation();
+    var { mask: applyMask, toBuffer } = require_buffer_util();
+    var kByteLength = Symbol("kByteLength");
+    var maskBuffer = Buffer.alloc(4);
+    var RANDOM_POOL_SIZE = 8 * 1024;
+    var randomPool;
+    var randomPoolPointer = RANDOM_POOL_SIZE;
+    var DEFAULT = 0;
+    var DEFLATING = 1;
+    var GET_BLOB_DATA = 2;
+    var Sender2 = class _Sender {
+      /**
+       * Creates a Sender instance.
+       *
+       * @param {Duplex} socket The connection socket
+       * @param {Object} [extensions] An object containing the negotiated extensions
+       * @param {Function} [generateMask] The function used to generate the masking
+       *     key
+       */
+      constructor(socket, extensions, generateMask) {
+        this._extensions = extensions || {};
+        if (generateMask) {
+          this._generateMask = generateMask;
+          this._maskBuffer = Buffer.alloc(4);
+        }
+        this._socket = socket;
+        this._firstFragment = true;
+        this._compress = false;
+        this._bufferedBytes = 0;
+        this._queue = [];
+        this._state = DEFAULT;
+        this.onerror = NOOP;
+        this[kWebSocket] = void 0;
+      }
+      /**
+       * Frames a piece of data according to the HyBi WebSocket protocol.
+       *
+       * @param {(Buffer|String)} data The data to frame
+       * @param {Object} options Options object
+       * @param {Boolean} [options.fin=false] Specifies whether or not to set the
+       *     FIN bit
+       * @param {Function} [options.generateMask] The function used to generate the
+       *     masking key
+       * @param {Boolean} [options.mask=false] Specifies whether or not to mask
+       *     `data`
+       * @param {Buffer} [options.maskBuffer] The buffer used to store the masking
+       *     key
+       * @param {Number} options.opcode The opcode
+       * @param {Boolean} [options.readOnly=false] Specifies whether `data` can be
+       *     modified
+       * @param {Boolean} [options.rsv1=false] Specifies whether or not to set the
+       *     RSV1 bit
+       * @return {(Buffer|String)[]} The framed data
+       * @public
+       */
+      static frame(data, options) {
+        let mask;
+        let merge = false;
+        let offset = 2;
+        let skipMasking = false;
+        if (options.mask) {
+          mask = options.maskBuffer || maskBuffer;
+          if (options.generateMask) {
+            options.generateMask(mask);
+          } else {
+            if (randomPoolPointer === RANDOM_POOL_SIZE) {
+              if (randomPool === void 0) {
+                randomPool = Buffer.alloc(RANDOM_POOL_SIZE);
+              }
+              randomFillSync(randomPool, 0, RANDOM_POOL_SIZE);
+              randomPoolPointer = 0;
+            }
+            mask[0] = randomPool[randomPoolPointer++];
+            mask[1] = randomPool[randomPoolPointer++];
+            mask[2] = randomPool[randomPoolPointer++];
+            mask[3] = randomPool[randomPoolPointer++];
+          }
+          skipMasking = (mask[0] | mask[1] | mask[2] | mask[3]) === 0;
+          offset = 6;
+        }
+        let dataLength;
+        if (typeof data === "string") {
+          if ((!options.mask || skipMasking) && options[kByteLength] !== void 0) {
+            dataLength = options[kByteLength];
+          } else {
+            data = Buffer.from(data);
+            dataLength = data.length;
+          }
+        } else {
+          dataLength = data.length;
+          merge = options.mask && options.readOnly && !skipMasking;
+        }
+        let payloadLength = dataLength;
+        if (dataLength >= 65536) {
+          offset += 8;
+          payloadLength = 127;
+        } else if (dataLength > 125) {
+          offset += 2;
+          payloadLength = 126;
+        }
+        const target = Buffer.allocUnsafe(merge ? dataLength + offset : offset);
+        target[0] = options.fin ? options.opcode | 128 : options.opcode;
+        if (options.rsv1) target[0] |= 64;
+        target[1] = payloadLength;
+        if (payloadLength === 126) {
+          target.writeUInt16BE(dataLength, 2);
+        } else if (payloadLength === 127) {
+          target[2] = target[3] = 0;
+          target.writeUIntBE(dataLength, 4, 6);
+        }
+        if (!options.mask) return [target, data];
+        target[1] |= 128;
+        target[offset - 4] = mask[0];
+        target[offset - 3] = mask[1];
+        target[offset - 2] = mask[2];
+        target[offset - 1] = mask[3];
+        if (skipMasking) return [target, data];
+        if (merge) {
+          applyMask(data, mask, target, offset, dataLength);
+          return [target];
+        }
+        applyMask(data, mask, data, 0, dataLength);
+        return [target, data];
+      }
+      /**
+       * Sends a close message to the other peer.
+       *
+       * @param {Number} [code] The status code component of the body
+       * @param {(String|Buffer)} [data] The message component of the body
+       * @param {Boolean} [mask=false] Specifies whether or not to mask the message
+       * @param {Function} [cb] Callback
+       * @public
+       */
+      close(code, data, mask, cb) {
+        let buf;
+        if (code === void 0) {
+          buf = EMPTY_BUFFER;
+        } else if (typeof code !== "number" || !isValidStatusCode(code)) {
+          throw new TypeError("First argument must be a valid error code number");
+        } else if (data === void 0 || !data.length) {
+          buf = Buffer.allocUnsafe(2);
+          buf.writeUInt16BE(code, 0);
+        } else {
+          const length = Buffer.byteLength(data);
+          if (length > 123) {
+            throw new RangeError("The message must not be greater than 123 bytes");
+          }
+          buf = Buffer.allocUnsafe(2 + length);
+          buf.writeUInt16BE(code, 0);
+          if (typeof data === "string") {
+            buf.write(data, 2);
+          } else {
+            buf.set(data, 2);
+          }
+        }
+        const options = {
+          [kByteLength]: buf.length,
+          fin: true,
+          generateMask: this._generateMask,
+          mask,
+          maskBuffer: this._maskBuffer,
+          opcode: 8,
+          readOnly: false,
+          rsv1: false
+        };
+        if (this._state !== DEFAULT) {
+          this.enqueue([this.dispatch, buf, false, options, cb]);
+        } else {
+          this.sendFrame(_Sender.frame(buf, options), cb);
+        }
+      }
+      /**
+       * Sends a ping message to the other peer.
+       *
+       * @param {*} data The message to send
+       * @param {Boolean} [mask=false] Specifies whether or not to mask `data`
+       * @param {Function} [cb] Callback
+       * @public
+       */
+      ping(data, mask, cb) {
+        let byteLength;
+        let readOnly;
+        if (typeof data === "string") {
+          byteLength = Buffer.byteLength(data);
+          readOnly = false;
+        } else if (isBlob(data)) {
+          byteLength = data.size;
+          readOnly = false;
+        } else {
+          data = toBuffer(data);
+          byteLength = data.length;
+          readOnly = toBuffer.readOnly;
+        }
+        if (byteLength > 125) {
+          throw new RangeError("The data size must not be greater than 125 bytes");
+        }
+        const options = {
+          [kByteLength]: byteLength,
+          fin: true,
+          generateMask: this._generateMask,
+          mask,
+          maskBuffer: this._maskBuffer,
+          opcode: 9,
+          readOnly,
+          rsv1: false
+        };
+        if (isBlob(data)) {
+          if (this._state !== DEFAULT) {
+            this.enqueue([this.getBlobData, data, false, options, cb]);
+          } else {
+            this.getBlobData(data, false, options, cb);
+          }
+        } else if (this._state !== DEFAULT) {
+          this.enqueue([this.dispatch, data, false, options, cb]);
+        } else {
+          this.sendFrame(_Sender.frame(data, options), cb);
+        }
+      }
+      /**
+       * Sends a pong message to the other peer.
+       *
+       * @param {*} data The message to send
+       * @param {Boolean} [mask=false] Specifies whether or not to mask `data`
+       * @param {Function} [cb] Callback
+       * @public
+       */
+      pong(data, mask, cb) {
+        let byteLength;
+        let readOnly;
+        if (typeof data === "string") {
+          byteLength = Buffer.byteLength(data);
+          readOnly = false;
+        } else if (isBlob(data)) {
+          byteLength = data.size;
+          readOnly = false;
+        } else {
+          data = toBuffer(data);
+          byteLength = data.length;
+          readOnly = toBuffer.readOnly;
+        }
+        if (byteLength > 125) {
+          throw new RangeError("The data size must not be greater than 125 bytes");
+        }
+        const options = {
+          [kByteLength]: byteLength,
+          fin: true,
+          generateMask: this._generateMask,
+          mask,
+          maskBuffer: this._maskBuffer,
+          opcode: 10,
+          readOnly,
+          rsv1: false
+        };
+        if (isBlob(data)) {
+          if (this._state !== DEFAULT) {
+            this.enqueue([this.getBlobData, data, false, options, cb]);
+          } else {
+            this.getBlobData(data, false, options, cb);
+          }
+        } else if (this._state !== DEFAULT) {
+          this.enqueue([this.dispatch, data, false, options, cb]);
+        } else {
+          this.sendFrame(_Sender.frame(data, options), cb);
+        }
+      }
+      /**
+       * Sends a data message to the other peer.
+       *
+       * @param {*} data The message to send
+       * @param {Object} options Options object
+       * @param {Boolean} [options.binary=false] Specifies whether `data` is binary
+       *     or text
+       * @param {Boolean} [options.compress=false] Specifies whether or not to
+       *     compress `data`
+       * @param {Boolean} [options.fin=false] Specifies whether the fragment is the
+       *     last one
+       * @param {Boolean} [options.mask=false] Specifies whether or not to mask
+       *     `data`
+       * @param {Function} [cb] Callback
+       * @public
+       */
+      send(data, options, cb) {
+        const perMessageDeflate = this._extensions[PerMessageDeflate.extensionName];
+        let opcode = options.binary ? 2 : 1;
+        let rsv1 = options.compress;
+        let byteLength;
+        let readOnly;
+        if (typeof data === "string") {
+          byteLength = Buffer.byteLength(data);
+          readOnly = false;
+        } else if (isBlob(data)) {
+          byteLength = data.size;
+          readOnly = false;
+        } else {
+          data = toBuffer(data);
+          byteLength = data.length;
+          readOnly = toBuffer.readOnly;
+        }
+        if (this._firstFragment) {
+          this._firstFragment = false;
+          if (rsv1 && perMessageDeflate && perMessageDeflate.params[perMessageDeflate._isServer ? "server_no_context_takeover" : "client_no_context_takeover"]) {
+            rsv1 = byteLength >= perMessageDeflate._threshold;
+          }
+          this._compress = rsv1;
+        } else {
+          rsv1 = false;
+          opcode = 0;
+        }
+        if (options.fin) this._firstFragment = true;
+        const opts = {
+          [kByteLength]: byteLength,
+          fin: options.fin,
+          generateMask: this._generateMask,
+          mask: options.mask,
+          maskBuffer: this._maskBuffer,
+          opcode,
+          readOnly,
+          rsv1
+        };
+        if (isBlob(data)) {
+          if (this._state !== DEFAULT) {
+            this.enqueue([this.getBlobData, data, this._compress, opts, cb]);
+          } else {
+            this.getBlobData(data, this._compress, opts, cb);
+          }
+        } else if (this._state !== DEFAULT) {
+          this.enqueue([this.dispatch, data, this._compress, opts, cb]);
+        } else {
+          this.dispatch(data, this._compress, opts, cb);
+        }
+      }
+      /**
+       * Gets the contents of a blob as binary data.
+       *
+       * @param {Blob} blob The blob
+       * @param {Boolean} [compress=false] Specifies whether or not to compress
+       *     the data
+       * @param {Object} options Options object
+       * @param {Boolean} [options.fin=false] Specifies whether or not to set the
+       *     FIN bit
+       * @param {Function} [options.generateMask] The function used to generate the
+       *     masking key
+       * @param {Boolean} [options.mask=false] Specifies whether or not to mask
+       *     `data`
+       * @param {Buffer} [options.maskBuffer] The buffer used to store the masking
+       *     key
+       * @param {Number} options.opcode The opcode
+       * @param {Boolean} [options.readOnly=false] Specifies whether `data` can be
+       *     modified
+       * @param {Boolean} [options.rsv1=false] Specifies whether or not to set the
+       *     RSV1 bit
+       * @param {Function} [cb] Callback
+       * @private
+       */
+      getBlobData(blob, compress, options, cb) {
+        this._bufferedBytes += options[kByteLength];
+        this._state = GET_BLOB_DATA;
+        blob.arrayBuffer().then((arrayBuffer) => {
+          if (this._socket.destroyed) {
+            const err = new Error(
+              "The socket was closed while the blob was being read"
+            );
+            process.nextTick(callCallbacks, this, err, cb);
+            return;
+          }
+          this._bufferedBytes -= options[kByteLength];
+          const data = toBuffer(arrayBuffer);
+          if (!compress) {
+            this._state = DEFAULT;
+            this.sendFrame(_Sender.frame(data, options), cb);
+            this.dequeue();
+          } else {
+            this.dispatch(data, compress, options, cb);
+          }
+        }).catch((err) => {
+          process.nextTick(onError, this, err, cb);
+        });
+      }
+      /**
+       * Dispatches a message.
+       *
+       * @param {(Buffer|String)} data The message to send
+       * @param {Boolean} [compress=false] Specifies whether or not to compress
+       *     `data`
+       * @param {Object} options Options object
+       * @param {Boolean} [options.fin=false] Specifies whether or not to set the
+       *     FIN bit
+       * @param {Function} [options.generateMask] The function used to generate the
+       *     masking key
+       * @param {Boolean} [options.mask=false] Specifies whether or not to mask
+       *     `data`
+       * @param {Buffer} [options.maskBuffer] The buffer used to store the masking
+       *     key
+       * @param {Number} options.opcode The opcode
+       * @param {Boolean} [options.readOnly=false] Specifies whether `data` can be
+       *     modified
+       * @param {Boolean} [options.rsv1=false] Specifies whether or not to set the
+       *     RSV1 bit
+       * @param {Function} [cb] Callback
+       * @private
+       */
+      dispatch(data, compress, options, cb) {
+        if (!compress) {
+          this.sendFrame(_Sender.frame(data, options), cb);
+          return;
+        }
+        const perMessageDeflate = this._extensions[PerMessageDeflate.extensionName];
+        this._bufferedBytes += options[kByteLength];
+        this._state = DEFLATING;
+        perMessageDeflate.compress(data, options.fin, (_, buf) => {
+          if (this._socket.destroyed) {
+            const err = new Error(
+              "The socket was closed while data was being compressed"
+            );
+            callCallbacks(this, err, cb);
+            return;
+          }
+          this._bufferedBytes -= options[kByteLength];
+          this._state = DEFAULT;
+          options.readOnly = false;
+          this.sendFrame(_Sender.frame(buf, options), cb);
+          this.dequeue();
+        });
+      }
+      /**
+       * Executes queued send operations.
+       *
+       * @private
+       */
+      dequeue() {
+        while (this._state === DEFAULT && this._queue.length) {
+          const params = this._queue.shift();
+          this._bufferedBytes -= params[3][kByteLength];
+          Reflect.apply(params[0], this, params.slice(1));
+        }
+      }
+      /**
+       * Enqueues a send operation.
+       *
+       * @param {Array} params Send operation parameters.
+       * @private
+       */
+      enqueue(params) {
+        this._bufferedBytes += params[3][kByteLength];
+        this._queue.push(params);
+      }
+      /**
+       * Sends a frame.
+       *
+       * @param {(Buffer | String)[]} list The frame to send
+       * @param {Function} [cb] Callback
+       * @private
+       */
+      sendFrame(list, cb) {
+        if (list.length === 2) {
+          this._socket.cork();
+          this._socket.write(list[0]);
+          this._socket.write(list[1], cb);
+          this._socket.uncork();
+        } else {
+          this._socket.write(list[0], cb);
+        }
+      }
+    };
+    module.exports = Sender2;
+    function callCallbacks(sender, err, cb) {
+      if (typeof cb === "function") cb(err);
+      for (let i = 0; i < sender._queue.length; i++) {
+        const params = sender._queue[i];
+        const callback = params[params.length - 1];
+        if (typeof callback === "function") callback(err);
+      }
+    }
+    function onError(sender, err, cb) {
+      callCallbacks(sender, err, cb);
+      sender.onerror(err);
+    }
+  }
+});
+
+// ../../node_modules/ws/lib/event-target.js
+var require_event_target = __commonJS({
+  "../../node_modules/ws/lib/event-target.js"(exports, module) {
+    "use strict";
+    var { kForOnEventAttribute, kListener } = require_constants3();
+    var kCode = Symbol("kCode");
+    var kData = Symbol("kData");
+    var kError = Symbol("kError");
+    var kMessage = Symbol("kMessage");
+    var kReason = Symbol("kReason");
+    var kTarget = Symbol("kTarget");
+    var kType = Symbol("kType");
+    var kWasClean = Symbol("kWasClean");
+    var Event = class {
+      /**
+       * Create a new `Event`.
+       *
+       * @param {String} type The name of the event
+       * @throws {TypeError} If the `type` argument is not specified
+       */
+      constructor(type) {
+        this[kTarget] = null;
+        this[kType] = type;
+      }
+      /**
+       * @type {*}
+       */
+      get target() {
+        return this[kTarget];
+      }
+      /**
+       * @type {String}
+       */
+      get type() {
+        return this[kType];
+      }
+    };
+    Object.defineProperty(Event.prototype, "target", { enumerable: true });
+    Object.defineProperty(Event.prototype, "type", { enumerable: true });
+    var CloseEvent = class extends Event {
+      /**
+       * Create a new `CloseEvent`.
+       *
+       * @param {String} type The name of the event
+       * @param {Object} [options] A dictionary object that allows for setting
+       *     attributes via object members of the same name
+       * @param {Number} [options.code=0] The status code explaining why the
+       *     connection was closed
+       * @param {String} [options.reason=''] A human-readable string explaining why
+       *     the connection was closed
+       * @param {Boolean} [options.wasClean=false] Indicates whether or not the
+       *     connection was cleanly closed
+       */
+      constructor(type, options = {}) {
+        super(type);
+        this[kCode] = options.code === void 0 ? 0 : options.code;
+        this[kReason] = options.reason === void 0 ? "" : options.reason;
+        this[kWasClean] = options.wasClean === void 0 ? false : options.wasClean;
+      }
+      /**
+       * @type {Number}
+       */
+      get code() {
+        return this[kCode];
+      }
+      /**
+       * @type {String}
+       */
+      get reason() {
+        return this[kReason];
+      }
+      /**
+       * @type {Boolean}
+       */
+      get wasClean() {
+        return this[kWasClean];
+      }
+    };
+    Object.defineProperty(CloseEvent.prototype, "code", { enumerable: true });
+    Object.defineProperty(CloseEvent.prototype, "reason", { enumerable: true });
+    Object.defineProperty(CloseEvent.prototype, "wasClean", { enumerable: true });
+    var ErrorEvent = class extends Event {
+      /**
+       * Create a new `ErrorEvent`.
+       *
+       * @param {String} type The name of the event
+       * @param {Object} [options] A dictionary object that allows for setting
+       *     attributes via object members of the same name
+       * @param {*} [options.error=null] The error that generated this event
+       * @param {String} [options.message=''] The error message
+       */
+      constructor(type, options = {}) {
+        super(type);
+        this[kError] = options.error === void 0 ? null : options.error;
+        this[kMessage] = options.message === void 0 ? "" : options.message;
+      }
+      /**
+       * @type {*}
+       */
+      get error() {
+        return this[kError];
+      }
+      /**
+       * @type {String}
+       */
+      get message() {
+        return this[kMessage];
+      }
+    };
+    Object.defineProperty(ErrorEvent.prototype, "error", { enumerable: true });
+    Object.defineProperty(ErrorEvent.prototype, "message", { enumerable: true });
+    var MessageEvent = class extends Event {
+      /**
+       * Create a new `MessageEvent`.
+       *
+       * @param {String} type The name of the event
+       * @param {Object} [options] A dictionary object that allows for setting
+       *     attributes via object members of the same name
+       * @param {*} [options.data=null] The message content
+       */
+      constructor(type, options = {}) {
+        super(type);
+        this[kData] = options.data === void 0 ? null : options.data;
+      }
+      /**
+       * @type {*}
+       */
+      get data() {
+        return this[kData];
+      }
+    };
+    Object.defineProperty(MessageEvent.prototype, "data", { enumerable: true });
+    var EventTarget = {
+      /**
+       * Register an event listener.
+       *
+       * @param {String} type A string representing the event type to listen for
+       * @param {(Function|Object)} handler The listener to add
+       * @param {Object} [options] An options object specifies characteristics about
+       *     the event listener
+       * @param {Boolean} [options.once=false] A `Boolean` indicating that the
+       *     listener should be invoked at most once after being added. If `true`,
+       *     the listener would be automatically removed when invoked.
+       * @public
+       */
+      addEventListener(type, handler, options = {}) {
+        for (const listener of this.listeners(type)) {
+          if (!options[kForOnEventAttribute] && listener[kListener] === handler && !listener[kForOnEventAttribute]) {
+            return;
+          }
+        }
+        let wrapper;
+        if (type === "message") {
+          wrapper = function onMessage(data, isBinary) {
+            const event = new MessageEvent("message", {
+              data: isBinary ? data : data.toString()
+            });
+            event[kTarget] = this;
+            callListener(handler, this, event);
+          };
+        } else if (type === "close") {
+          wrapper = function onClose(code, message) {
+            const event = new CloseEvent("close", {
+              code,
+              reason: message.toString(),
+              wasClean: this._closeFrameReceived && this._closeFrameSent
+            });
+            event[kTarget] = this;
+            callListener(handler, this, event);
+          };
+        } else if (type === "error") {
+          wrapper = function onError(error) {
+            const event = new ErrorEvent("error", {
+              error,
+              message: error.message
+            });
+            event[kTarget] = this;
+            callListener(handler, this, event);
+          };
+        } else if (type === "open") {
+          wrapper = function onOpen() {
+            const event = new Event("open");
+            event[kTarget] = this;
+            callListener(handler, this, event);
+          };
+        } else {
+          return;
+        }
+        wrapper[kForOnEventAttribute] = !!options[kForOnEventAttribute];
+        wrapper[kListener] = handler;
+        if (options.once) {
+          this.once(type, wrapper);
+        } else {
+          this.on(type, wrapper);
+        }
+      },
+      /**
+       * Remove an event listener.
+       *
+       * @param {String} type A string representing the event type to remove
+       * @param {(Function|Object)} handler The listener to remove
+       * @public
+       */
+      removeEventListener(type, handler) {
+        for (const listener of this.listeners(type)) {
+          if (listener[kListener] === handler && !listener[kForOnEventAttribute]) {
+            this.removeListener(type, listener);
+            break;
+          }
+        }
+      }
+    };
+    module.exports = {
+      CloseEvent,
+      ErrorEvent,
+      Event,
+      EventTarget,
+      MessageEvent
+    };
+    function callListener(listener, thisArg, event) {
+      if (typeof listener === "object" && listener.handleEvent) {
+        listener.handleEvent.call(listener, event);
+      } else {
+        listener.call(thisArg, event);
+      }
+    }
+  }
+});
+
+// ../../node_modules/ws/lib/extension.js
+var require_extension = __commonJS({
+  "../../node_modules/ws/lib/extension.js"(exports, module) {
+    "use strict";
+    var { tokenChars } = require_validation();
+    function push(dest, name, elem) {
+      if (dest[name] === void 0) dest[name] = [elem];
+      else dest[name].push(elem);
+    }
+    function parse(header) {
+      const offers = /* @__PURE__ */ Object.create(null);
+      let params = /* @__PURE__ */ Object.create(null);
+      let mustUnescape = false;
+      let isEscaping = false;
+      let inQuotes = false;
+      let extensionName;
+      let paramName;
+      let start = -1;
+      let code = -1;
+      let end = -1;
+      let i = 0;
+      for (; i < header.length; i++) {
+        code = header.charCodeAt(i);
+        if (extensionName === void 0) {
+          if (end === -1 && tokenChars[code] === 1) {
+            if (start === -1) start = i;
+          } else if (i !== 0 && (code === 32 || code === 9)) {
+            if (end === -1 && start !== -1) end = i;
+          } else if (code === 59 || code === 44) {
+            if (start === -1) {
+              throw new SyntaxError(`Unexpected character at index ${i}`);
+            }
+            if (end === -1) end = i;
+            const name = header.slice(start, end);
+            if (code === 44) {
+              push(offers, name, params);
+              params = /* @__PURE__ */ Object.create(null);
+            } else {
+              extensionName = name;
+            }
+            start = end = -1;
+          } else {
+            throw new SyntaxError(`Unexpected character at index ${i}`);
+          }
+        } else if (paramName === void 0) {
+          if (end === -1 && tokenChars[code] === 1) {
+            if (start === -1) start = i;
+          } else if (code === 32 || code === 9) {
+            if (end === -1 && start !== -1) end = i;
+          } else if (code === 59 || code === 44) {
+            if (start === -1) {
+              throw new SyntaxError(`Unexpected character at index ${i}`);
+            }
+            if (end === -1) end = i;
+            push(params, header.slice(start, end), true);
+            if (code === 44) {
+              push(offers, extensionName, params);
+              params = /* @__PURE__ */ Object.create(null);
+              extensionName = void 0;
+            }
+            start = end = -1;
+          } else if (code === 61 && start !== -1 && end === -1) {
+            paramName = header.slice(start, i);
+            start = end = -1;
+          } else {
+            throw new SyntaxError(`Unexpected character at index ${i}`);
+          }
+        } else {
+          if (isEscaping) {
+            if (tokenChars[code] !== 1) {
+              throw new SyntaxError(`Unexpected character at index ${i}`);
+            }
+            if (start === -1) start = i;
+            else if (!mustUnescape) mustUnescape = true;
+            isEscaping = false;
+          } else if (inQuotes) {
+            if (tokenChars[code] === 1) {
+              if (start === -1) start = i;
+            } else if (code === 34 && start !== -1) {
+              inQuotes = false;
+              end = i;
+            } else if (code === 92) {
+              isEscaping = true;
+            } else {
+              throw new SyntaxError(`Unexpected character at index ${i}`);
+            }
+          } else if (code === 34 && header.charCodeAt(i - 1) === 61) {
+            inQuotes = true;
+          } else if (end === -1 && tokenChars[code] === 1) {
+            if (start === -1) start = i;
+          } else if (start !== -1 && (code === 32 || code === 9)) {
+            if (end === -1) end = i;
+          } else if (code === 59 || code === 44) {
+            if (start === -1) {
+              throw new SyntaxError(`Unexpected character at index ${i}`);
+            }
+            if (end === -1) end = i;
+            let value = header.slice(start, end);
+            if (mustUnescape) {
+              value = value.replace(/\\/g, "");
+              mustUnescape = false;
+            }
+            push(params, paramName, value);
+            if (code === 44) {
+              push(offers, extensionName, params);
+              params = /* @__PURE__ */ Object.create(null);
+              extensionName = void 0;
+            }
+            paramName = void 0;
+            start = end = -1;
+          } else {
+            throw new SyntaxError(`Unexpected character at index ${i}`);
+          }
+        }
+      }
+      if (start === -1 || inQuotes || code === 32 || code === 9) {
+        throw new SyntaxError("Unexpected end of input");
+      }
+      if (end === -1) end = i;
+      const token = header.slice(start, end);
+      if (extensionName === void 0) {
+        push(offers, token, params);
+      } else {
+        if (paramName === void 0) {
+          push(params, token, true);
+        } else if (mustUnescape) {
+          push(params, paramName, token.replace(/\\/g, ""));
+        } else {
+          push(params, paramName, token);
+        }
+        push(offers, extensionName, params);
+      }
+      return offers;
+    }
+    function format(extensions) {
+      return Object.keys(extensions).map((extension) => {
+        let configurations = extensions[extension];
+        if (!Array.isArray(configurations)) configurations = [configurations];
+        return configurations.map((params) => {
+          return [extension].concat(
+            Object.keys(params).map((k) => {
+              let values = params[k];
+              if (!Array.isArray(values)) values = [values];
+              return values.map((v) => v === true ? k : `${k}=${v}`).join("; ");
+            })
+          ).join("; ");
+        }).join(", ");
+      }).join(", ");
+    }
+    module.exports = { format, parse };
+  }
+});
+
+// ../../node_modules/ws/lib/websocket.js
+var require_websocket = __commonJS({
+  "../../node_modules/ws/lib/websocket.js"(exports, module) {
+    "use strict";
+    var EventEmitter = __require("events");
+    var https = __require("https");
+    var http = __require("http");
+    var net = __require("net");
+    var tls = __require("tls");
+    var { randomBytes, createHash: createHash2 } = __require("crypto");
+    var { Duplex, Readable } = __require("stream");
+    var { URL: URL2 } = __require("url");
+    var PerMessageDeflate = require_permessage_deflate();
+    var Receiver2 = require_receiver();
+    var Sender2 = require_sender();
+    var { isBlob } = require_validation();
+    var {
+      BINARY_TYPES,
+      CLOSE_TIMEOUT,
+      EMPTY_BUFFER,
+      GUID,
+      kForOnEventAttribute,
+      kListener,
+      kStatusCode,
+      kWebSocket,
+      NOOP
+    } = require_constants3();
+    var {
+      EventTarget: { addEventListener, removeEventListener }
+    } = require_event_target();
+    var { format, parse } = require_extension();
+    var { toBuffer } = require_buffer_util();
+    var kAborted = Symbol("kAborted");
+    var protocolVersions = [8, 13];
+    var readyStates = ["CONNECTING", "OPEN", "CLOSING", "CLOSED"];
+    var subprotocolRegex = /^[!#$%&'*+\-.0-9A-Z^_`|a-z~]+$/;
+    var WebSocket3 = class _WebSocket extends EventEmitter {
+      /**
+       * Create a new `WebSocket`.
+       *
+       * @param {(String|URL)} address The URL to which to connect
+       * @param {(String|String[])} [protocols] The subprotocols
+       * @param {Object} [options] Connection options
+       */
+      constructor(address, protocols, options) {
+        super();
+        this._binaryType = BINARY_TYPES[0];
+        this._closeCode = 1006;
+        this._closeFrameReceived = false;
+        this._closeFrameSent = false;
+        this._closeMessage = EMPTY_BUFFER;
+        this._closeTimer = null;
+        this._errorEmitted = false;
+        this._extensions = {};
+        this._paused = false;
+        this._protocol = "";
+        this._readyState = _WebSocket.CONNECTING;
+        this._receiver = null;
+        this._sender = null;
+        this._socket = null;
+        if (address !== null) {
+          this._bufferedAmount = 0;
+          this._isServer = false;
+          this._redirects = 0;
+          if (protocols === void 0) {
+            protocols = [];
+          } else if (!Array.isArray(protocols)) {
+            if (typeof protocols === "object" && protocols !== null) {
+              options = protocols;
+              protocols = [];
+            } else {
+              protocols = [protocols];
+            }
+          }
+          initAsClient(this, address, protocols, options);
+        } else {
+          this._autoPong = options.autoPong;
+          this._closeTimeout = options.closeTimeout;
+          this._isServer = true;
+        }
+      }
+      /**
+       * For historical reasons, the custom "nodebuffer" type is used by the default
+       * instead of "blob".
+       *
+       * @type {String}
+       */
+      get binaryType() {
+        return this._binaryType;
+      }
+      set binaryType(type) {
+        if (!BINARY_TYPES.includes(type)) return;
+        this._binaryType = type;
+        if (this._receiver) this._receiver._binaryType = type;
+      }
+      /**
+       * @type {Number}
+       */
+      get bufferedAmount() {
+        if (!this._socket) return this._bufferedAmount;
+        return this._socket._writableState.length + this._sender._bufferedBytes;
+      }
+      /**
+       * @type {String}
+       */
+      get extensions() {
+        return Object.keys(this._extensions).join();
+      }
+      /**
+       * @type {Boolean}
+       */
+      get isPaused() {
+        return this._paused;
+      }
+      /**
+       * @type {Function}
+       */
+      /* istanbul ignore next */
+      get onclose() {
+        return null;
+      }
+      /**
+       * @type {Function}
+       */
+      /* istanbul ignore next */
+      get onerror() {
+        return null;
+      }
+      /**
+       * @type {Function}
+       */
+      /* istanbul ignore next */
+      get onopen() {
+        return null;
+      }
+      /**
+       * @type {Function}
+       */
+      /* istanbul ignore next */
+      get onmessage() {
+        return null;
+      }
+      /**
+       * @type {String}
+       */
+      get protocol() {
+        return this._protocol;
+      }
+      /**
+       * @type {Number}
+       */
+      get readyState() {
+        return this._readyState;
+      }
+      /**
+       * @type {String}
+       */
+      get url() {
+        return this._url;
+      }
+      /**
+       * Set up the socket and the internal resources.
+       *
+       * @param {Duplex} socket The network socket between the server and client
+       * @param {Buffer} head The first packet of the upgraded stream
+       * @param {Object} options Options object
+       * @param {Boolean} [options.allowSynchronousEvents=false] Specifies whether
+       *     any of the `'message'`, `'ping'`, and `'pong'` events can be emitted
+       *     multiple times in the same tick
+       * @param {Function} [options.generateMask] The function used to generate the
+       *     masking key
+       * @param {Number} [options.maxPayload=0] The maximum allowed message size
+       * @param {Boolean} [options.skipUTF8Validation=false] Specifies whether or
+       *     not to skip UTF-8 validation for text and close messages
+       * @private
+       */
+      setSocket(socket, head2, options) {
+        const receiver = new Receiver2({
+          allowSynchronousEvents: options.allowSynchronousEvents,
+          binaryType: this.binaryType,
+          extensions: this._extensions,
+          isServer: this._isServer,
+          maxPayload: options.maxPayload,
+          skipUTF8Validation: options.skipUTF8Validation
+        });
+        const sender = new Sender2(socket, this._extensions, options.generateMask);
+        this._receiver = receiver;
+        this._sender = sender;
+        this._socket = socket;
+        receiver[kWebSocket] = this;
+        sender[kWebSocket] = this;
+        socket[kWebSocket] = this;
+        receiver.on("conclude", receiverOnConclude);
+        receiver.on("drain", receiverOnDrain);
+        receiver.on("error", receiverOnError);
+        receiver.on("message", receiverOnMessage);
+        receiver.on("ping", receiverOnPing);
+        receiver.on("pong", receiverOnPong);
+        sender.onerror = senderOnError;
+        if (socket.setTimeout) socket.setTimeout(0);
+        if (socket.setNoDelay) socket.setNoDelay();
+        if (head2.length > 0) socket.unshift(head2);
+        socket.on("close", socketOnClose);
+        socket.on("data", socketOnData);
+        socket.on("end", socketOnEnd);
+        socket.on("error", socketOnError);
+        this._readyState = _WebSocket.OPEN;
+        this.emit("open");
+      }
+      /**
+       * Emit the `'close'` event.
+       *
+       * @private
+       */
+      emitClose() {
+        if (!this._socket) {
+          this._readyState = _WebSocket.CLOSED;
+          this.emit("close", this._closeCode, this._closeMessage);
+          return;
+        }
+        if (this._extensions[PerMessageDeflate.extensionName]) {
+          this._extensions[PerMessageDeflate.extensionName].cleanup();
+        }
+        this._receiver.removeAllListeners();
+        this._readyState = _WebSocket.CLOSED;
+        this.emit("close", this._closeCode, this._closeMessage);
+      }
+      /**
+       * Start a closing handshake.
+       *
+       *          +----------+   +-----------+   +----------+
+       *     - - -|ws.close()|-->|close frame|-->|ws.close()|- - -
+       *    |     +----------+   +-----------+   +----------+     |
+       *          +----------+   +-----------+         |
+       * CLOSING  |ws.close()|<--|close frame|<--+-----+       CLOSING
+       *          +----------+   +-----------+   |
+       *    |           |                        |   +---+        |
+       *                +------------------------+-->|fin| - - - -
+       *    |         +---+                      |   +---+
+       *     - - - - -|fin|<---------------------+
+       *              +---+
+       *
+       * @param {Number} [code] Status code explaining why the connection is closing
+       * @param {(String|Buffer)} [data] The reason why the connection is
+       *     closing
+       * @public
+       */
+      close(code, data) {
+        if (this.readyState === _WebSocket.CLOSED) return;
+        if (this.readyState === _WebSocket.CONNECTING) {
+          const msg = "WebSocket was closed before the connection was established";
+          abortHandshake(this, this._req, msg);
+          return;
+        }
+        if (this.readyState === _WebSocket.CLOSING) {
+          if (this._closeFrameSent && (this._closeFrameReceived || this._receiver._writableState.errorEmitted)) {
+            this._socket.end();
+          }
+          return;
+        }
+        this._readyState = _WebSocket.CLOSING;
+        this._sender.close(code, data, !this._isServer, (err) => {
+          if (err) return;
+          this._closeFrameSent = true;
+          if (this._closeFrameReceived || this._receiver._writableState.errorEmitted) {
+            this._socket.end();
+          }
+        });
+        setCloseTimer(this);
+      }
+      /**
+       * Pause the socket.
+       *
+       * @public
+       */
+      pause() {
+        if (this.readyState === _WebSocket.CONNECTING || this.readyState === _WebSocket.CLOSED) {
+          return;
+        }
+        this._paused = true;
+        this._socket.pause();
+      }
+      /**
+       * Send a ping.
+       *
+       * @param {*} [data] The data to send
+       * @param {Boolean} [mask] Indicates whether or not to mask `data`
+       * @param {Function} [cb] Callback which is executed when the ping is sent
+       * @public
+       */
+      ping(data, mask, cb) {
+        if (this.readyState === _WebSocket.CONNECTING) {
+          throw new Error("WebSocket is not open: readyState 0 (CONNECTING)");
+        }
+        if (typeof data === "function") {
+          cb = data;
+          data = mask = void 0;
+        } else if (typeof mask === "function") {
+          cb = mask;
+          mask = void 0;
+        }
+        if (typeof data === "number") data = data.toString();
+        if (this.readyState !== _WebSocket.OPEN) {
+          sendAfterClose(this, data, cb);
+          return;
+        }
+        if (mask === void 0) mask = !this._isServer;
+        this._sender.ping(data || EMPTY_BUFFER, mask, cb);
+      }
+      /**
+       * Send a pong.
+       *
+       * @param {*} [data] The data to send
+       * @param {Boolean} [mask] Indicates whether or not to mask `data`
+       * @param {Function} [cb] Callback which is executed when the pong is sent
+       * @public
+       */
+      pong(data, mask, cb) {
+        if (this.readyState === _WebSocket.CONNECTING) {
+          throw new Error("WebSocket is not open: readyState 0 (CONNECTING)");
+        }
+        if (typeof data === "function") {
+          cb = data;
+          data = mask = void 0;
+        } else if (typeof mask === "function") {
+          cb = mask;
+          mask = void 0;
+        }
+        if (typeof data === "number") data = data.toString();
+        if (this.readyState !== _WebSocket.OPEN) {
+          sendAfterClose(this, data, cb);
+          return;
+        }
+        if (mask === void 0) mask = !this._isServer;
+        this._sender.pong(data || EMPTY_BUFFER, mask, cb);
+      }
+      /**
+       * Resume the socket.
+       *
+       * @public
+       */
+      resume() {
+        if (this.readyState === _WebSocket.CONNECTING || this.readyState === _WebSocket.CLOSED) {
+          return;
+        }
+        this._paused = false;
+        if (!this._receiver._writableState.needDrain) this._socket.resume();
+      }
+      /**
+       * Send a data message.
+       *
+       * @param {*} data The message to send
+       * @param {Object} [options] Options object
+       * @param {Boolean} [options.binary] Specifies whether `data` is binary or
+       *     text
+       * @param {Boolean} [options.compress] Specifies whether or not to compress
+       *     `data`
+       * @param {Boolean} [options.fin=true] Specifies whether the fragment is the
+       *     last one
+       * @param {Boolean} [options.mask] Specifies whether or not to mask `data`
+       * @param {Function} [cb] Callback which is executed when data is written out
+       * @public
+       */
+      send(data, options, cb) {
+        if (this.readyState === _WebSocket.CONNECTING) {
+          throw new Error("WebSocket is not open: readyState 0 (CONNECTING)");
+        }
+        if (typeof options === "function") {
+          cb = options;
+          options = {};
+        }
+        if (typeof data === "number") data = data.toString();
+        if (this.readyState !== _WebSocket.OPEN) {
+          sendAfterClose(this, data, cb);
+          return;
+        }
+        const opts = {
+          binary: typeof data !== "string",
+          mask: !this._isServer,
+          compress: true,
+          fin: true,
+          ...options
+        };
+        if (!this._extensions[PerMessageDeflate.extensionName]) {
+          opts.compress = false;
+        }
+        this._sender.send(data || EMPTY_BUFFER, opts, cb);
+      }
+      /**
+       * Forcibly close the connection.
+       *
+       * @public
+       */
+      terminate() {
+        if (this.readyState === _WebSocket.CLOSED) return;
+        if (this.readyState === _WebSocket.CONNECTING) {
+          const msg = "WebSocket was closed before the connection was established";
+          abortHandshake(this, this._req, msg);
+          return;
+        }
+        if (this._socket) {
+          this._readyState = _WebSocket.CLOSING;
+          this._socket.destroy();
+        }
+      }
+    };
+    Object.defineProperty(WebSocket3, "CONNECTING", {
+      enumerable: true,
+      value: readyStates.indexOf("CONNECTING")
+    });
+    Object.defineProperty(WebSocket3.prototype, "CONNECTING", {
+      enumerable: true,
+      value: readyStates.indexOf("CONNECTING")
+    });
+    Object.defineProperty(WebSocket3, "OPEN", {
+      enumerable: true,
+      value: readyStates.indexOf("OPEN")
+    });
+    Object.defineProperty(WebSocket3.prototype, "OPEN", {
+      enumerable: true,
+      value: readyStates.indexOf("OPEN")
+    });
+    Object.defineProperty(WebSocket3, "CLOSING", {
+      enumerable: true,
+      value: readyStates.indexOf("CLOSING")
+    });
+    Object.defineProperty(WebSocket3.prototype, "CLOSING", {
+      enumerable: true,
+      value: readyStates.indexOf("CLOSING")
+    });
+    Object.defineProperty(WebSocket3, "CLOSED", {
+      enumerable: true,
+      value: readyStates.indexOf("CLOSED")
+    });
+    Object.defineProperty(WebSocket3.prototype, "CLOSED", {
+      enumerable: true,
+      value: readyStates.indexOf("CLOSED")
+    });
+    [
+      "binaryType",
+      "bufferedAmount",
+      "extensions",
+      "isPaused",
+      "protocol",
+      "readyState",
+      "url"
+    ].forEach((property) => {
+      Object.defineProperty(WebSocket3.prototype, property, { enumerable: true });
+    });
+    ["open", "error", "close", "message"].forEach((method) => {
+      Object.defineProperty(WebSocket3.prototype, `on${method}`, {
+        enumerable: true,
+        get() {
+          for (const listener of this.listeners(method)) {
+            if (listener[kForOnEventAttribute]) return listener[kListener];
+          }
+          return null;
+        },
+        set(handler) {
+          for (const listener of this.listeners(method)) {
+            if (listener[kForOnEventAttribute]) {
+              this.removeListener(method, listener);
+              break;
+            }
+          }
+          if (typeof handler !== "function") return;
+          this.addEventListener(method, handler, {
+            [kForOnEventAttribute]: true
+          });
+        }
+      });
+    });
+    WebSocket3.prototype.addEventListener = addEventListener;
+    WebSocket3.prototype.removeEventListener = removeEventListener;
+    module.exports = WebSocket3;
+    function initAsClient(websocket, address, protocols, options) {
+      const opts = {
+        allowSynchronousEvents: true,
+        autoPong: true,
+        closeTimeout: CLOSE_TIMEOUT,
+        protocolVersion: protocolVersions[1],
+        maxPayload: 100 * 1024 * 1024,
+        skipUTF8Validation: false,
+        perMessageDeflate: true,
+        followRedirects: false,
+        maxRedirects: 10,
+        ...options,
+        socketPath: void 0,
+        hostname: void 0,
+        protocol: void 0,
+        timeout: void 0,
+        method: "GET",
+        host: void 0,
+        path: void 0,
+        port: void 0
+      };
+      websocket._autoPong = opts.autoPong;
+      websocket._closeTimeout = opts.closeTimeout;
+      if (!protocolVersions.includes(opts.protocolVersion)) {
+        throw new RangeError(
+          `Unsupported protocol version: ${opts.protocolVersion} (supported versions: ${protocolVersions.join(", ")})`
+        );
+      }
+      let parsedUrl;
+      if (address instanceof URL2) {
+        parsedUrl = address;
+      } else {
+        try {
+          parsedUrl = new URL2(address);
+        } catch (e) {
+          throw new SyntaxError(`Invalid URL: ${address}`);
+        }
+      }
+      if (parsedUrl.protocol === "http:") {
+        parsedUrl.protocol = "ws:";
+      } else if (parsedUrl.protocol === "https:") {
+        parsedUrl.protocol = "wss:";
+      }
+      websocket._url = parsedUrl.href;
+      const isSecure = parsedUrl.protocol === "wss:";
+      const isIpcUrl = parsedUrl.protocol === "ws+unix:";
+      let invalidUrlMessage;
+      if (parsedUrl.protocol !== "ws:" && !isSecure && !isIpcUrl) {
+        invalidUrlMessage = `The URL's protocol must be one of "ws:", "wss:", "http:", "https:", or "ws+unix:"`;
+      } else if (isIpcUrl && !parsedUrl.pathname) {
+        invalidUrlMessage = "The URL's pathname is empty";
+      } else if (parsedUrl.hash) {
+        invalidUrlMessage = "The URL contains a fragment identifier";
+      }
+      if (invalidUrlMessage) {
+        const err = new SyntaxError(invalidUrlMessage);
+        if (websocket._redirects === 0) {
+          throw err;
+        } else {
+          emitErrorAndClose(websocket, err);
+          return;
+        }
+      }
+      const defaultPort = isSecure ? 443 : 80;
+      const key = randomBytes(16).toString("base64");
+      const request = isSecure ? https.request : http.request;
+      const protocolSet = /* @__PURE__ */ new Set();
+      let perMessageDeflate;
+      opts.createConnection = opts.createConnection || (isSecure ? tlsConnect : netConnect);
+      opts.defaultPort = opts.defaultPort || defaultPort;
+      opts.port = parsedUrl.port || defaultPort;
+      opts.host = parsedUrl.hostname.startsWith("[") ? parsedUrl.hostname.slice(1, -1) : parsedUrl.hostname;
+      opts.headers = {
+        ...opts.headers,
+        "Sec-WebSocket-Version": opts.protocolVersion,
+        "Sec-WebSocket-Key": key,
+        Connection: "Upgrade",
+        Upgrade: "websocket"
+      };
+      opts.path = parsedUrl.pathname + parsedUrl.search;
+      opts.timeout = opts.handshakeTimeout;
+      if (opts.perMessageDeflate) {
+        perMessageDeflate = new PerMessageDeflate(
+          opts.perMessageDeflate !== true ? opts.perMessageDeflate : {},
+          false,
+          opts.maxPayload
+        );
+        opts.headers["Sec-WebSocket-Extensions"] = format({
+          [PerMessageDeflate.extensionName]: perMessageDeflate.offer()
+        });
+      }
+      if (protocols.length) {
+        for (const protocol of protocols) {
+          if (typeof protocol !== "string" || !subprotocolRegex.test(protocol) || protocolSet.has(protocol)) {
+            throw new SyntaxError(
+              "An invalid or duplicated subprotocol was specified"
+            );
+          }
+          protocolSet.add(protocol);
+        }
+        opts.headers["Sec-WebSocket-Protocol"] = protocols.join(",");
+      }
+      if (opts.origin) {
+        if (opts.protocolVersion < 13) {
+          opts.headers["Sec-WebSocket-Origin"] = opts.origin;
+        } else {
+          opts.headers.Origin = opts.origin;
+        }
+      }
+      if (parsedUrl.username || parsedUrl.password) {
+        opts.auth = `${parsedUrl.username}:${parsedUrl.password}`;
+      }
+      if (isIpcUrl) {
+        const parts = opts.path.split(":");
+        opts.socketPath = parts[0];
+        opts.path = parts[1];
+      }
+      let req;
+      if (opts.followRedirects) {
+        if (websocket._redirects === 0) {
+          websocket._originalIpc = isIpcUrl;
+          websocket._originalSecure = isSecure;
+          websocket._originalHostOrSocketPath = isIpcUrl ? opts.socketPath : parsedUrl.host;
+          const headers = options && options.headers;
+          options = { ...options, headers: {} };
+          if (headers) {
+            for (const [key2, value] of Object.entries(headers)) {
+              options.headers[key2.toLowerCase()] = value;
+            }
+          }
+        } else if (websocket.listenerCount("redirect") === 0) {
+          const isSameHost = isIpcUrl ? websocket._originalIpc ? opts.socketPath === websocket._originalHostOrSocketPath : false : websocket._originalIpc ? false : parsedUrl.host === websocket._originalHostOrSocketPath;
+          if (!isSameHost || websocket._originalSecure && !isSecure) {
+            delete opts.headers.authorization;
+            delete opts.headers.cookie;
+            if (!isSameHost) delete opts.headers.host;
+            opts.auth = void 0;
+          }
+        }
+        if (opts.auth && !options.headers.authorization) {
+          options.headers.authorization = "Basic " + Buffer.from(opts.auth).toString("base64");
+        }
+        req = websocket._req = request(opts);
+        if (websocket._redirects) {
+          websocket.emit("redirect", websocket.url, req);
+        }
+      } else {
+        req = websocket._req = request(opts);
+      }
+      if (opts.timeout) {
+        req.on("timeout", () => {
+          abortHandshake(websocket, req, "Opening handshake has timed out");
+        });
+      }
+      req.on("error", (err) => {
+        if (req === null || req[kAborted]) return;
+        req = websocket._req = null;
+        emitErrorAndClose(websocket, err);
+      });
+      req.on("response", (res) => {
+        const location = res.headers.location;
+        const statusCode = res.statusCode;
+        if (location && opts.followRedirects && statusCode >= 300 && statusCode < 400) {
+          if (++websocket._redirects > opts.maxRedirects) {
+            abortHandshake(websocket, req, "Maximum redirects exceeded");
+            return;
+          }
+          req.abort();
+          let addr;
+          try {
+            addr = new URL2(location, address);
+          } catch (e) {
+            const err = new SyntaxError(`Invalid URL: ${location}`);
+            emitErrorAndClose(websocket, err);
+            return;
+          }
+          initAsClient(websocket, addr, protocols, options);
+        } else if (!websocket.emit("unexpected-response", req, res)) {
+          abortHandshake(
+            websocket,
+            req,
+            `Unexpected server response: ${res.statusCode}`
+          );
+        }
+      });
+      req.on("upgrade", (res, socket, head2) => {
+        websocket.emit("upgrade", res);
+        if (websocket.readyState !== WebSocket3.CONNECTING) return;
+        req = websocket._req = null;
+        const upgrade = res.headers.upgrade;
+        if (upgrade === void 0 || upgrade.toLowerCase() !== "websocket") {
+          abortHandshake(websocket, socket, "Invalid Upgrade header");
+          return;
+        }
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
+        if (res.headers["sec-websocket-accept"] !== digest) {
+          abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
+          return;
+        }
+        const serverProt = res.headers["sec-websocket-protocol"];
+        let protError;
+        if (serverProt !== void 0) {
+          if (!protocolSet.size) {
+            protError = "Server sent a subprotocol but none was requested";
+          } else if (!protocolSet.has(serverProt)) {
+            protError = "Server sent an invalid subprotocol";
+          }
+        } else if (protocolSet.size) {
+          protError = "Server sent no subprotocol";
+        }
+        if (protError) {
+          abortHandshake(websocket, socket, protError);
+          return;
+        }
+        if (serverProt) websocket._protocol = serverProt;
+        const secWebSocketExtensions = res.headers["sec-websocket-extensions"];
+        if (secWebSocketExtensions !== void 0) {
+          if (!perMessageDeflate) {
+            const message = "Server sent a Sec-WebSocket-Extensions header but no extension was requested";
+            abortHandshake(websocket, socket, message);
+            return;
+          }
+          let extensions;
+          try {
+            extensions = parse(secWebSocketExtensions);
+          } catch (err) {
+            const message = "Invalid Sec-WebSocket-Extensions header";
+            abortHandshake(websocket, socket, message);
+            return;
+          }
+          const extensionNames = Object.keys(extensions);
+          if (extensionNames.length !== 1 || extensionNames[0] !== PerMessageDeflate.extensionName) {
+            const message = "Server indicated an extension that was not requested";
+            abortHandshake(websocket, socket, message);
+            return;
+          }
+          try {
+            perMessageDeflate.accept(extensions[PerMessageDeflate.extensionName]);
+          } catch (err) {
+            const message = "Invalid Sec-WebSocket-Extensions header";
+            abortHandshake(websocket, socket, message);
+            return;
+          }
+          websocket._extensions[PerMessageDeflate.extensionName] = perMessageDeflate;
+        }
+        websocket.setSocket(socket, head2, {
+          allowSynchronousEvents: opts.allowSynchronousEvents,
+          generateMask: opts.generateMask,
+          maxPayload: opts.maxPayload,
+          skipUTF8Validation: opts.skipUTF8Validation
+        });
+      });
+      if (opts.finishRequest) {
+        opts.finishRequest(req, websocket);
+      } else {
+        req.end();
+      }
+    }
+    function emitErrorAndClose(websocket, err) {
+      websocket._readyState = WebSocket3.CLOSING;
+      websocket._errorEmitted = true;
+      websocket.emit("error", err);
+      websocket.emitClose();
+    }
+    function netConnect(options) {
+      options.path = options.socketPath;
+      return net.connect(options);
+    }
+    function tlsConnect(options) {
+      options.path = void 0;
+      if (!options.servername && options.servername !== "") {
+        options.servername = net.isIP(options.host) ? "" : options.host;
+      }
+      return tls.connect(options);
+    }
+    function abortHandshake(websocket, stream, message) {
+      websocket._readyState = WebSocket3.CLOSING;
+      const err = new Error(message);
+      Error.captureStackTrace(err, abortHandshake);
+      if (stream.setHeader) {
+        stream[kAborted] = true;
+        stream.abort();
+        if (stream.socket && !stream.socket.destroyed) {
+          stream.socket.destroy();
+        }
+        process.nextTick(emitErrorAndClose, websocket, err);
+      } else {
+        stream.destroy(err);
+        stream.once("error", websocket.emit.bind(websocket, "error"));
+        stream.once("close", websocket.emitClose.bind(websocket));
+      }
+    }
+    function sendAfterClose(websocket, data, cb) {
+      if (data) {
+        const length = isBlob(data) ? data.size : toBuffer(data).length;
+        if (websocket._socket) websocket._sender._bufferedBytes += length;
+        else websocket._bufferedAmount += length;
+      }
+      if (cb) {
+        const err = new Error(
+          `WebSocket is not open: readyState ${websocket.readyState} (${readyStates[websocket.readyState]})`
+        );
+        process.nextTick(cb, err);
+      }
+    }
+    function receiverOnConclude(code, reason) {
+      const websocket = this[kWebSocket];
+      websocket._closeFrameReceived = true;
+      websocket._closeMessage = reason;
+      websocket._closeCode = code;
+      if (websocket._socket[kWebSocket] === void 0) return;
+      websocket._socket.removeListener("data", socketOnData);
+      process.nextTick(resume, websocket._socket);
+      if (code === 1005) websocket.close();
+      else websocket.close(code, reason);
+    }
+    function receiverOnDrain() {
+      const websocket = this[kWebSocket];
+      if (!websocket.isPaused) websocket._socket.resume();
+    }
+    function receiverOnError(err) {
+      const websocket = this[kWebSocket];
+      if (websocket._socket[kWebSocket] !== void 0) {
+        websocket._socket.removeListener("data", socketOnData);
+        process.nextTick(resume, websocket._socket);
+        websocket.close(err[kStatusCode]);
+      }
+      if (!websocket._errorEmitted) {
+        websocket._errorEmitted = true;
+        websocket.emit("error", err);
+      }
+    }
+    function receiverOnFinish() {
+      this[kWebSocket].emitClose();
+    }
+    function receiverOnMessage(data, isBinary) {
+      this[kWebSocket].emit("message", data, isBinary);
+    }
+    function receiverOnPing(data) {
+      const websocket = this[kWebSocket];
+      if (websocket._autoPong) websocket.pong(data, !this._isServer, NOOP);
+      websocket.emit("ping", data);
+    }
+    function receiverOnPong(data) {
+      this[kWebSocket].emit("pong", data);
+    }
+    function resume(stream) {
+      stream.resume();
+    }
+    function senderOnError(err) {
+      const websocket = this[kWebSocket];
+      if (websocket.readyState === WebSocket3.CLOSED) return;
+      if (websocket.readyState === WebSocket3.OPEN) {
+        websocket._readyState = WebSocket3.CLOSING;
+        setCloseTimer(websocket);
+      }
+      this._socket.end();
+      if (!websocket._errorEmitted) {
+        websocket._errorEmitted = true;
+        websocket.emit("error", err);
+      }
+    }
+    function setCloseTimer(websocket) {
+      websocket._closeTimer = setTimeout(
+        websocket._socket.destroy.bind(websocket._socket),
+        websocket._closeTimeout
+      );
+    }
+    function socketOnClose() {
+      const websocket = this[kWebSocket];
+      this.removeListener("close", socketOnClose);
+      this.removeListener("data", socketOnData);
+      this.removeListener("end", socketOnEnd);
+      websocket._readyState = WebSocket3.CLOSING;
+      if (!this._readableState.endEmitted && !websocket._closeFrameReceived && !websocket._receiver._writableState.errorEmitted && this._readableState.length !== 0) {
+        const chunk = this.read(this._readableState.length);
+        websocket._receiver.write(chunk);
+      }
+      websocket._receiver.end();
+      this[kWebSocket] = void 0;
+      clearTimeout(websocket._closeTimer);
+      if (websocket._receiver._writableState.finished || websocket._receiver._writableState.errorEmitted) {
+        websocket.emitClose();
+      } else {
+        websocket._receiver.on("error", receiverOnFinish);
+        websocket._receiver.on("finish", receiverOnFinish);
+      }
+    }
+    function socketOnData(chunk) {
+      if (!this[kWebSocket]._receiver.write(chunk)) {
+        this.pause();
+      }
+    }
+    function socketOnEnd() {
+      const websocket = this[kWebSocket];
+      websocket._readyState = WebSocket3.CLOSING;
+      websocket._receiver.end();
+      this.end();
+    }
+    function socketOnError() {
+      const websocket = this[kWebSocket];
+      this.removeListener("error", socketOnError);
+      this.on("error", NOOP);
+      if (websocket) {
+        websocket._readyState = WebSocket3.CLOSING;
+        this.destroy();
+      }
+    }
+  }
+});
+
+// ../../node_modules/ws/lib/stream.js
+var require_stream = __commonJS({
+  "../../node_modules/ws/lib/stream.js"(exports, module) {
+    "use strict";
+    var WebSocket3 = require_websocket();
+    var { Duplex } = __require("stream");
+    function emitClose(stream) {
+      stream.emit("close");
+    }
+    function duplexOnEnd() {
+      if (!this.destroyed && this._writableState.finished) {
+        this.destroy();
+      }
+    }
+    function duplexOnError(err) {
+      this.removeListener("error", duplexOnError);
+      this.destroy();
+      if (this.listenerCount("error") === 0) {
+        this.emit("error", err);
+      }
+    }
+    function createWebSocketStream2(ws, options) {
+      let terminateOnDestroy = true;
+      const duplex = new Duplex({
+        ...options,
+        autoDestroy: false,
+        emitClose: false,
+        objectMode: false,
+        writableObjectMode: false
+      });
+      ws.on("message", function message(msg, isBinary) {
+        const data = !isBinary && duplex._readableState.objectMode ? msg.toString() : msg;
+        if (!duplex.push(data)) ws.pause();
+      });
+      ws.once("error", function error(err) {
+        if (duplex.destroyed) return;
+        terminateOnDestroy = false;
+        duplex.destroy(err);
+      });
+      ws.once("close", function close() {
+        if (duplex.destroyed) return;
+        duplex.push(null);
+      });
+      duplex._destroy = function(err, callback) {
+        if (ws.readyState === ws.CLOSED) {
+          callback(err);
+          process.nextTick(emitClose, duplex);
+          return;
+        }
+        let called = false;
+        ws.once("error", function error(err2) {
+          called = true;
+          callback(err2);
+        });
+        ws.once("close", function close() {
+          if (!called) callback(err);
+          process.nextTick(emitClose, duplex);
+        });
+        if (terminateOnDestroy) ws.terminate();
+      };
+      duplex._final = function(callback) {
+        if (ws.readyState === ws.CONNECTING) {
+          ws.once("open", function open() {
+            duplex._final(callback);
+          });
+          return;
+        }
+        if (ws._socket === null) return;
+        if (ws._socket._writableState.finished) {
+          callback();
+          if (duplex._readableState.endEmitted) duplex.destroy();
+        } else {
+          ws._socket.once("finish", function finish() {
+            callback();
+          });
+          ws.close();
+        }
+      };
+      duplex._read = function() {
+        if (ws.isPaused) ws.resume();
+      };
+      duplex._write = function(chunk, encoding, callback) {
+        if (ws.readyState === ws.CONNECTING) {
+          ws.once("open", function open() {
+            duplex._write(chunk, encoding, callback);
+          });
+          return;
+        }
+        ws.send(chunk, callback);
+      };
+      duplex.on("end", duplexOnEnd);
+      duplex.on("error", duplexOnError);
+      return duplex;
+    }
+    module.exports = createWebSocketStream2;
+  }
+});
+
+// ../../node_modules/ws/lib/subprotocol.js
+var require_subprotocol = __commonJS({
+  "../../node_modules/ws/lib/subprotocol.js"(exports, module) {
+    "use strict";
+    var { tokenChars } = require_validation();
+    function parse(header) {
+      const protocols = /* @__PURE__ */ new Set();
+      let start = -1;
+      let end = -1;
+      let i = 0;
+      for (i; i < header.length; i++) {
+        const code = header.charCodeAt(i);
+        if (end === -1 && tokenChars[code] === 1) {
+          if (start === -1) start = i;
+        } else if (i !== 0 && (code === 32 || code === 9)) {
+          if (end === -1 && start !== -1) end = i;
+        } else if (code === 44) {
+          if (start === -1) {
+            throw new SyntaxError(`Unexpected character at index ${i}`);
+          }
+          if (end === -1) end = i;
+          const protocol2 = header.slice(start, end);
+          if (protocols.has(protocol2)) {
+            throw new SyntaxError(`The "${protocol2}" subprotocol is duplicated`);
+          }
+          protocols.add(protocol2);
+          start = end = -1;
+        } else {
+          throw new SyntaxError(`Unexpected character at index ${i}`);
+        }
+      }
+      if (start === -1 || end !== -1) {
+        throw new SyntaxError("Unexpected end of input");
+      }
+      const protocol = header.slice(start, i);
+      if (protocols.has(protocol)) {
+        throw new SyntaxError(`The "${protocol}" subprotocol is duplicated`);
+      }
+      protocols.add(protocol);
+      return protocols;
+    }
+    module.exports = { parse };
+  }
+});
+
+// ../../node_modules/ws/lib/websocket-server.js
+var require_websocket_server = __commonJS({
+  "../../node_modules/ws/lib/websocket-server.js"(exports, module) {
+    "use strict";
+    var EventEmitter = __require("events");
+    var http = __require("http");
+    var { Duplex } = __require("stream");
+    var { createHash: createHash2 } = __require("crypto");
+    var extension = require_extension();
+    var PerMessageDeflate = require_permessage_deflate();
+    var subprotocol = require_subprotocol();
+    var WebSocket3 = require_websocket();
+    var { CLOSE_TIMEOUT, GUID, kWebSocket } = require_constants3();
+    var keyRegex = /^[+/0-9A-Za-z]{22}==$/;
+    var RUNNING = 0;
+    var CLOSING = 1;
+    var CLOSED = 2;
+    var WebSocketServer2 = class extends EventEmitter {
+      /**
+       * Create a `WebSocketServer` instance.
+       *
+       * @param {Object} options Configuration options
+       * @param {Boolean} [options.allowSynchronousEvents=true] Specifies whether
+       *     any of the `'message'`, `'ping'`, and `'pong'` events can be emitted
+       *     multiple times in the same tick
+       * @param {Boolean} [options.autoPong=true] Specifies whether or not to
+       *     automatically send a pong in response to a ping
+       * @param {Number} [options.backlog=511] The maximum length of the queue of
+       *     pending connections
+       * @param {Boolean} [options.clientTracking=true] Specifies whether or not to
+       *     track clients
+       * @param {Number} [options.closeTimeout=30000] Duration in milliseconds to
+       *     wait for the closing handshake to finish after `websocket.close()` is
+       *     called
+       * @param {Function} [options.handleProtocols] A hook to handle protocols
+       * @param {String} [options.host] The hostname where to bind the server
+       * @param {Number} [options.maxPayload=104857600] The maximum allowed message
+       *     size
+       * @param {Boolean} [options.noServer=false] Enable no server mode
+       * @param {String} [options.path] Accept only connections matching this path
+       * @param {(Boolean|Object)} [options.perMessageDeflate=false] Enable/disable
+       *     permessage-deflate
+       * @param {Number} [options.port] The port where to bind the server
+       * @param {(http.Server|https.Server)} [options.server] A pre-created HTTP/S
+       *     server to use
+       * @param {Boolean} [options.skipUTF8Validation=false] Specifies whether or
+       *     not to skip UTF-8 validation for text and close messages
+       * @param {Function} [options.verifyClient] A hook to reject connections
+       * @param {Function} [options.WebSocket=WebSocket] Specifies the `WebSocket`
+       *     class to use. It must be the `WebSocket` class or class that extends it
+       * @param {Function} [callback] A listener for the `listening` event
+       */
+      constructor(options, callback) {
+        super();
+        options = {
+          allowSynchronousEvents: true,
+          autoPong: true,
+          maxPayload: 100 * 1024 * 1024,
+          skipUTF8Validation: false,
+          perMessageDeflate: false,
+          handleProtocols: null,
+          clientTracking: true,
+          closeTimeout: CLOSE_TIMEOUT,
+          verifyClient: null,
+          noServer: false,
+          backlog: null,
+          // use default (511 as implemented in net.js)
+          server: null,
+          host: null,
+          path: null,
+          port: null,
+          WebSocket: WebSocket3,
+          ...options
+        };
+        if (options.port == null && !options.server && !options.noServer || options.port != null && (options.server || options.noServer) || options.server && options.noServer) {
+          throw new TypeError(
+            'One and only one of the "port", "server", or "noServer" options must be specified'
+          );
+        }
+        if (options.port != null) {
+          this._server = http.createServer((req, res) => {
+            const body = http.STATUS_CODES[426];
+            res.writeHead(426, {
+              "Content-Length": body.length,
+              "Content-Type": "text/plain"
+            });
+            res.end(body);
+          });
+          this._server.listen(
+            options.port,
+            options.host,
+            options.backlog,
+            callback
+          );
+        } else if (options.server) {
+          this._server = options.server;
+        }
+        if (this._server) {
+          const emitConnection = this.emit.bind(this, "connection");
+          this._removeListeners = addListeners(this._server, {
+            listening: this.emit.bind(this, "listening"),
+            error: this.emit.bind(this, "error"),
+            upgrade: (req, socket, head2) => {
+              this.handleUpgrade(req, socket, head2, emitConnection);
+            }
+          });
+        }
+        if (options.perMessageDeflate === true) options.perMessageDeflate = {};
+        if (options.clientTracking) {
+          this.clients = /* @__PURE__ */ new Set();
+          this._shouldEmitClose = false;
+        }
+        this.options = options;
+        this._state = RUNNING;
+      }
+      /**
+       * Returns the bound address, the address family name, and port of the server
+       * as reported by the operating system if listening on an IP socket.
+       * If the server is listening on a pipe or UNIX domain socket, the name is
+       * returned as a string.
+       *
+       * @return {(Object|String|null)} The address of the server
+       * @public
+       */
+      address() {
+        if (this.options.noServer) {
+          throw new Error('The server is operating in "noServer" mode');
+        }
+        if (!this._server) return null;
+        return this._server.address();
+      }
+      /**
+       * Stop the server from accepting new connections and emit the `'close'` event
+       * when all existing connections are closed.
+       *
+       * @param {Function} [cb] A one-time listener for the `'close'` event
+       * @public
+       */
+      close(cb) {
+        if (this._state === CLOSED) {
+          if (cb) {
+            this.once("close", () => {
+              cb(new Error("The server is not running"));
+            });
+          }
+          process.nextTick(emitClose, this);
+          return;
+        }
+        if (cb) this.once("close", cb);
+        if (this._state === CLOSING) return;
+        this._state = CLOSING;
+        if (this.options.noServer || this.options.server) {
+          if (this._server) {
+            this._removeListeners();
+            this._removeListeners = this._server = null;
+          }
+          if (this.clients) {
+            if (!this.clients.size) {
+              process.nextTick(emitClose, this);
+            } else {
+              this._shouldEmitClose = true;
+            }
+          } else {
+            process.nextTick(emitClose, this);
+          }
+        } else {
+          const server = this._server;
+          this._removeListeners();
+          this._removeListeners = this._server = null;
+          server.close(() => {
+            emitClose(this);
+          });
+        }
+      }
+      /**
+       * See if a given request should be handled by this server instance.
+       *
+       * @param {http.IncomingMessage} req Request object to inspect
+       * @return {Boolean} `true` if the request is valid, else `false`
+       * @public
+       */
+      shouldHandle(req) {
+        if (this.options.path) {
+          const index = req.url.indexOf("?");
+          const pathname = index !== -1 ? req.url.slice(0, index) : req.url;
+          if (pathname !== this.options.path) return false;
+        }
+        return true;
+      }
+      /**
+       * Handle a HTTP Upgrade request.
+       *
+       * @param {http.IncomingMessage} req The request object
+       * @param {Duplex} socket The network socket between the server and client
+       * @param {Buffer} head The first packet of the upgraded stream
+       * @param {Function} cb Callback
+       * @public
+       */
+      handleUpgrade(req, socket, head2, cb) {
+        socket.on("error", socketOnError);
+        const key = req.headers["sec-websocket-key"];
+        const upgrade = req.headers.upgrade;
+        const version3 = +req.headers["sec-websocket-version"];
+        if (req.method !== "GET") {
+          const message = "Invalid HTTP method";
+          abortHandshakeOrEmitwsClientError(this, req, socket, 405, message);
+          return;
+        }
+        if (upgrade === void 0 || upgrade.toLowerCase() !== "websocket") {
+          const message = "Invalid Upgrade header";
+          abortHandshakeOrEmitwsClientError(this, req, socket, 400, message);
+          return;
+        }
+        if (key === void 0 || !keyRegex.test(key)) {
+          const message = "Missing or invalid Sec-WebSocket-Key header";
+          abortHandshakeOrEmitwsClientError(this, req, socket, 400, message);
+          return;
+        }
+        if (version3 !== 13 && version3 !== 8) {
+          const message = "Missing or invalid Sec-WebSocket-Version header";
+          abortHandshakeOrEmitwsClientError(this, req, socket, 400, message, {
+            "Sec-WebSocket-Version": "13, 8"
+          });
+          return;
+        }
+        if (!this.shouldHandle(req)) {
+          abortHandshake(socket, 400);
+          return;
+        }
+        const secWebSocketProtocol = req.headers["sec-websocket-protocol"];
+        let protocols = /* @__PURE__ */ new Set();
+        if (secWebSocketProtocol !== void 0) {
+          try {
+            protocols = subprotocol.parse(secWebSocketProtocol);
+          } catch (err) {
+            const message = "Invalid Sec-WebSocket-Protocol header";
+            abortHandshakeOrEmitwsClientError(this, req, socket, 400, message);
+            return;
+          }
+        }
+        const secWebSocketExtensions = req.headers["sec-websocket-extensions"];
+        const extensions = {};
+        if (this.options.perMessageDeflate && secWebSocketExtensions !== void 0) {
+          const perMessageDeflate = new PerMessageDeflate(
+            this.options.perMessageDeflate,
+            true,
+            this.options.maxPayload
+          );
+          try {
+            const offers = extension.parse(secWebSocketExtensions);
+            if (offers[PerMessageDeflate.extensionName]) {
+              perMessageDeflate.accept(offers[PerMessageDeflate.extensionName]);
+              extensions[PerMessageDeflate.extensionName] = perMessageDeflate;
+            }
+          } catch (err) {
+            const message = "Invalid or unacceptable Sec-WebSocket-Extensions header";
+            abortHandshakeOrEmitwsClientError(this, req, socket, 400, message);
+            return;
+          }
+        }
+        if (this.options.verifyClient) {
+          const info = {
+            origin: req.headers[`${version3 === 8 ? "sec-websocket-origin" : "origin"}`],
+            secure: !!(req.socket.authorized || req.socket.encrypted),
+            req
+          };
+          if (this.options.verifyClient.length === 2) {
+            this.options.verifyClient(info, (verified, code, message, headers) => {
+              if (!verified) {
+                return abortHandshake(socket, code || 401, message, headers);
+              }
+              this.completeUpgrade(
+                extensions,
+                key,
+                protocols,
+                req,
+                socket,
+                head2,
+                cb
+              );
+            });
+            return;
+          }
+          if (!this.options.verifyClient(info)) return abortHandshake(socket, 401);
+        }
+        this.completeUpgrade(extensions, key, protocols, req, socket, head2, cb);
+      }
+      /**
+       * Upgrade the connection to WebSocket.
+       *
+       * @param {Object} extensions The accepted extensions
+       * @param {String} key The value of the `Sec-WebSocket-Key` header
+       * @param {Set} protocols The subprotocols
+       * @param {http.IncomingMessage} req The request object
+       * @param {Duplex} socket The network socket between the server and client
+       * @param {Buffer} head The first packet of the upgraded stream
+       * @param {Function} cb Callback
+       * @throws {Error} If called more than once with the same socket
+       * @private
+       */
+      completeUpgrade(extensions, key, protocols, req, socket, head2, cb) {
+        if (!socket.readable || !socket.writable) return socket.destroy();
+        if (socket[kWebSocket]) {
+          throw new Error(
+            "server.handleUpgrade() was called more than once with the same socket, possibly due to a misconfiguration"
+          );
+        }
+        if (this._state > RUNNING) return abortHandshake(socket, 503);
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
+        const headers = [
+          "HTTP/1.1 101 Switching Protocols",
+          "Upgrade: websocket",
+          "Connection: Upgrade",
+          `Sec-WebSocket-Accept: ${digest}`
+        ];
+        const ws = new this.options.WebSocket(null, void 0, this.options);
+        if (protocols.size) {
+          const protocol = this.options.handleProtocols ? this.options.handleProtocols(protocols, req) : protocols.values().next().value;
+          if (protocol) {
+            headers.push(`Sec-WebSocket-Protocol: ${protocol}`);
+            ws._protocol = protocol;
+          }
+        }
+        if (extensions[PerMessageDeflate.extensionName]) {
+          const params = extensions[PerMessageDeflate.extensionName].params;
+          const value = extension.format({
+            [PerMessageDeflate.extensionName]: [params]
+          });
+          headers.push(`Sec-WebSocket-Extensions: ${value}`);
+          ws._extensions = extensions;
+        }
+        this.emit("headers", headers, req);
+        socket.write(headers.concat("\r\n").join("\r\n"));
+        socket.removeListener("error", socketOnError);
+        ws.setSocket(socket, head2, {
+          allowSynchronousEvents: this.options.allowSynchronousEvents,
+          maxPayload: this.options.maxPayload,
+          skipUTF8Validation: this.options.skipUTF8Validation
+        });
+        if (this.clients) {
+          this.clients.add(ws);
+          ws.on("close", () => {
+            this.clients.delete(ws);
+            if (this._shouldEmitClose && !this.clients.size) {
+              process.nextTick(emitClose, this);
+            }
+          });
+        }
+        cb(ws, req);
+      }
+    };
+    module.exports = WebSocketServer2;
+    function addListeners(server, map) {
+      for (const event of Object.keys(map)) server.on(event, map[event]);
+      return function removeListeners() {
+        for (const event of Object.keys(map)) {
+          server.removeListener(event, map[event]);
+        }
+      };
+    }
+    function emitClose(server) {
+      server._state = CLOSED;
+      server.emit("close");
+    }
+    function socketOnError() {
+      this.destroy();
+    }
+    function abortHandshake(socket, code, message, headers) {
+      message = message || http.STATUS_CODES[code];
+      headers = {
+        Connection: "close",
+        "Content-Type": "text/html",
+        "Content-Length": Buffer.byteLength(message),
+        ...headers
+      };
+      socket.once("finish", socket.destroy);
+      socket.end(
+        `HTTP/1.1 ${code} ${http.STATUS_CODES[code]}\r
+` + Object.keys(headers).map((h) => `${h}: ${headers[h]}`).join("\r\n") + "\r\n\r\n" + message
+      );
+    }
+    function abortHandshakeOrEmitwsClientError(server, req, socket, code, message, headers) {
+      if (server.listenerCount("wsClientError")) {
+        const err = new Error(message);
+        Error.captureStackTrace(err, abortHandshakeOrEmitwsClientError);
+        server.emit("wsClientError", err, socket, req);
+      } else {
+        abortHandshake(socket, code, message, headers);
+      }
+    }
+  }
+});
+
+// ../local-agent/dist/index.js
+import { createWriteStream } from "node:fs";
+import { homedir as homedir4 } from "node:os";
+import { join as join6 } from "node:path";
+
+// ../local-agent/dist/config.js
+import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// ../shared/dist/index.js
+// ../shared/src/validators.ts
+var ALLOWED_MODELS = /* @__PURE__ */ new Set([
+  "claude-opus-4-6",
+  "claude-sonnet-4-6",
+  "claude-haiku-4-5",
+  "codex",
+  "gpt-5.3-codex",
+  "gpt-5.3-codex xhigh",
+  "gpt-5.3-codex-spark"
+]);
+function isString(v) {
+  return typeof v === "string";
+}
+function isObject(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function hasValidProtocolVersion(v) {
+  return v.protocolVersion === PROTOCOL_VERSION;
+}
+function isStartJob(v) {
+  if (!isObject(v) || v.type !== "start_job") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.jobId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(v.jobId)) return false;
+  if (!isString(v.cardId) || v.cardId.length === 0) return false;
+  if (!["code", "infra", "design", "research", "docs", "persistent_agent", "verify", "breakdown", "combine", "merge", "deploy_to_test", "deploy_to_prod", "review", "bug", "feature_test"].includes(v.cardType)) return false;
+  if (!["simple", "medium", "complex"].includes(v.complexity)) return false;
+  if (!["claude_code", "codex"].includes(v.slotType)) return false;
+  if (!isString(v.model) || !ALLOWED_MODELS.has(v.model)) return false;
+  if (!isString(v.projectId) || v.projectId.length === 0) return false;
+  if (v.repoUrl !== void 0 && v.repoUrl !== null && (!isString(v.repoUrl) || v.repoUrl.length === 0)) return false;
+  if (v.featureBranch !== void 0 && v.featureBranch !== null && (!isString(v.featureBranch) || v.featureBranch.length === 0)) return false;
+  const hasPromptStack = isString(v.promptStackMinusSkills) && v.promptStackMinusSkills.length > 0;
+  const hasContext = isString(v.context);
+  const hasContextRef = isString(v.contextRef) && v.contextRef.length > 0;
+  if (!hasPromptStack && !hasContext && !hasContextRef) return false;
+  if (hasContext && v.context.length > MAX_CONTEXT_BYTES) return false;
+  if (v.role !== void 0 && (!isString(v.role) || v.role.length === 0)) return false;
+  if (v.personalityPrompt !== void 0 && (!isString(v.personalityPrompt) || v.personalityPrompt.length === 0 || v.personalityPrompt.length > MAX_PERSONALITY_PROMPT_BYTES)) return false;
+  if (v.subAgentPrompt !== void 0 && (!isString(v.subAgentPrompt) || v.subAgentPrompt.length === 0 || v.subAgentPrompt.length > MAX_PERSONALITY_PROMPT_BYTES)) return false;
+  if (v.dependencyBranches !== void 0) {
+    if (!Array.isArray(v.dependencyBranches) || v.dependencyBranches.length === 0) return false;
+    if (!v.dependencyBranches.every((b) => isString(b) && b.length > 0)) return false;
+  }
+  if (v.roleMcpTools !== void 0) {
+    if (!Array.isArray(v.roleMcpTools)) return false;
+    if (!v.roleMcpTools.every((t) => isString(t) && t.length > 0)) return false;
+  }
+  return true;
+}
+function isStopJob(v) {
+  if (!isObject(v) || v.type !== "stop_job") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.reason)) return false;
+  return true;
+}
+function isHealthCheck(v) {
+  if (!isObject(v) || v.type !== "health_check") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (v.correlationId !== void 0 && !isString(v.correlationId)) return false;
+  return true;
+}
+function isVerifyJob(v) {
+  if (!isObject(v) || v.type !== "verify_job") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.featureBranch) || v.featureBranch.length === 0) return false;
+  if (!isString(v.jobBranch) || v.jobBranch.length === 0) return false;
+  if (!isString(v.acceptanceTests)) return false;
+  if (v.repoPath !== void 0 && (!isString(v.repoPath) || v.repoPath.length === 0)) return false;
+  return true;
+}
+function isDeployToTest(v) {
+  if (!isObject(v) || v.type !== "deploy_to_test") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.jobType) || !["feature", "standalone"].includes(v.jobType)) return false;
+  if (v.jobType === "feature" && (!isString(v.featureId) || v.featureId.length === 0)) return false;
+  if (v.jobType === "standalone" && (!isString(v.standaloneJobId) || v.standaloneJobId.length === 0)) return false;
+  if (!isString(v.featureBranch) || v.featureBranch.length === 0) return false;
+  if (!isString(v.projectId) || v.projectId.length === 0) return false;
+  if (v.changeSummary !== void 0 && !isString(v.changeSummary)) return false;
+  if (v.repoPath !== void 0 && !isString(v.repoPath)) return false;
+  return true;
+}
+function isTeardownTest(v) {
+  if (!isObject(v) || v.type !== "teardown_test") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.featureId) || v.featureId.length === 0) return false;
+  if (!isString(v.repoPath) || v.repoPath.length === 0) return false;
+  return true;
+}
+function isMessageInbound(v) {
+  if (!isObject(v) || v.type !== "message_inbound") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.conversationId) || v.conversationId.length === 0) return false;
+  if (!isString(v.from) || v.from.length === 0) return false;
+  if (!isString(v.text)) return false;
+  return true;
+}
+function isJobUnblocked(v) {
+  if (!isObject(v) || v.type !== "job_unblocked") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.jobId) || v.jobId.length === 0) return false;
+  if (!isString(v.answer)) return false;
+  return true;
+}
+function isOrchestratorMessage(v) {
+  if (!isObject(v) || !isString(v.type)) return false;
+  switch (v.type) {
+    case "start_job":
+      return isStartJob(v);
+    case "stop_job":
+      return isStopJob(v);
+    case "health_check":
+      return isHealthCheck(v);
+    case "verify_job":
+      return isVerifyJob(v);
+    case "deploy_to_test":
+      return isDeployToTest(v);
+    case "teardown_test":
+      return isTeardownTest(v);
+    case "message_inbound":
+      return isMessageInbound(v);
+    case "job_unblocked":
+      return isJobUnblocked(v);
+    default:
+      return false;
+  }
+}
+
+// ../shared/src/index.ts
 var DEFAULT_SUPABASE_URL = "https://jmussmwglgbwncgygzbz.supabase.co";
 var DEFAULT_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0";
-var DEFAULT_SLACK_CLIENT_ID = "4720449932627.10551036533779";
+var PROTOCOL_VERSION = 1;
+var HEARTBEAT_INTERVAL_MS = 3e4;
+var MAX_CONTEXT_BYTES = 64e3;
+var MAX_PERSONALITY_PROMPT_BYTES = 16e3;
 
-// dist/lib/credentials.js
-var ZAZIGV2_DIR = join(homedir(), ".zazigv2");
-function credentialsPath() {
-  const env = process.env["ZAZIG_ENV"];
-  const filename = env && env !== "production" ? `credentials-${env}.json` : "credentials.json";
-  return join(ZAZIGV2_DIR, filename);
-}
-function loadCredentials() {
-  try {
-    const raw = readFileSync(credentialsPath(), "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    throw new Error("No credentials found. Run 'zazig login' first.");
+// ../local-agent/dist/config.js
+var CONFIG_PATH = join(homedir(), ".zazigv2", "config.json");
+function loadConfig() {
+  const nameFromEnv = process.env["ZAZIG_MACHINE_NAME"];
+  const claudeFromEnv = process.env["ZAZIG_SLOTS_CLAUDE_CODE"];
+  const codexFromEnv = process.env["ZAZIG_SLOTS_CODEX"];
+  let name;
+  let slots;
+  if (nameFromEnv) {
+    name = nameFromEnv;
+    slots = {
+      claude_code: parseInt(claudeFromEnv ?? "4", 10) || 4,
+      codex: parseInt(codexFromEnv ?? "4", 10) || 4
+    };
+  } else if (existsSync(CONFIG_PATH)) {
+    const raw = readFileSync(CONFIG_PATH, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!parsed.name || typeof parsed.name !== "string") {
+      throw new Error("config.json: missing or invalid 'name' field");
+    }
+    name = parsed.name;
+    slots = {
+      claude_code: parsed.slots?.claude_code ?? 4,
+      codex: parsed.slots?.codex ?? 4
+    };
+  } else {
+    throw new Error(`No machine config found at ${CONFIG_PATH}. Run 'zazig start' to configure.`);
   }
-}
-function saveCredentials(creds) {
-  mkdirSync(ZAZIGV2_DIR, { recursive: true });
-  writeFileSync(credentialsPath(), JSON.stringify(creds, null, 2) + "\n", {
-    mode: 384
-  });
-}
-function decodeJwtPayload(token) {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3)
-      return null;
-    return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf-8"));
-  } catch {
-    return null;
-  }
-}
-function isTokenExpired(token) {
-  const payload = decodeJwtPayload(token);
-  if (!payload || typeof payload.exp !== "number")
-    return true;
-  return Date.now() >= payload.exp * 1e3 - 6e4;
-}
-async function getValidCredentials() {
-  const creds = loadCredentials();
-  if (!isTokenExpired(creds.accessToken)) {
-    return creds;
-  }
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const resp = await fetch(`${creds.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: anonKey
-    },
-    body: JSON.stringify({ refresh_token: creds.refreshToken })
-  });
-  if (!resp.ok) {
-    throw new Error(`Token refresh failed (HTTP ${resp.status}). Run 'zazig login' again.`);
-  }
-  const data = await resp.json();
-  const updated = {
-    ...creds,
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token
-  };
-  saveCredentials(updated);
-  return updated;
-}
-
-// dist/commands/login.js
-async function login() {
   const supabaseUrl = process.env["SUPABASE_URL"] ?? DEFAULT_SUPABASE_URL;
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  let email;
-  try {
-    email = (await rl.question("Email address: ")).trim();
-  } finally {
-    rl.close();
-  }
-  if (!email) {
-    console.error("Email is required.");
-    process.exit(1);
-  }
-  const port = await findAvailablePort(3e3);
-  let resolveCallback;
-  const callbackPromise = new Promise((resolve4) => {
-    resolveCallback = resolve4;
-  });
-  const callbackHtml = `<!DOCTYPE html>
-<html><body>
-<p>Login successful &mdash; you can close this tab.</p>
-<script>
-const hash = window.location.hash.substring(1);
-const params = new URLSearchParams(hash);
-const at = params.get('access_token');
-const rt = params.get('refresh_token');
-if (at && rt) {
-  fetch('/token', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ access_token: at, refresh_token: rt })
-  });
-} else {
-  document.body.innerHTML = '<p>Login failed &mdash; no tokens received.</p>';
-}
-</script>
-</body></html>`;
-  const server = http.createServer((req, res) => {
-    const url = new URL2(req.url, `http://127.0.0.1:${port}`);
-    if (url.pathname === "/" || url.pathname === "/callback") {
-      res.writeHead(200, { "Content-Type": "text/html" });
-      res.end(callbackHtml);
-    } else if (url.pathname === "/token" && req.method === "POST") {
-      let body = "";
-      req.on("data", (chunk) => {
-        body += chunk;
-      });
-      req.on("end", () => {
-        try {
-          const tokens2 = JSON.parse(body);
-          res.writeHead(200);
-          res.end();
-          resolveCallback(tokens2);
-        } catch {
-          res.writeHead(400);
-          res.end();
-        }
-      });
-    } else {
-      res.writeHead(404);
-      res.end();
+  const serviceRoleKey = process.env["SUPABASE_SERVICE_ROLE_KEY"];
+  const accessToken = process.env["SUPABASE_ACCESS_TOKEN"];
+  const refreshToken = process.env["SUPABASE_REFRESH_TOKEN"];
+  const companyId = process.env["ZAZIG_COMPANY_ID"];
+  return {
+    name,
+    ...companyId ? { company_id: companyId } : {},
+    slots,
+    supabase: {
+      url: supabaseUrl,
+      anon_key: anonKey,
+      ...serviceRoleKey ? { service_role_key: serviceRoleKey } : {},
+      ...accessToken ? { access_token: accessToken } : {},
+      ...refreshToken ? { refresh_token: refreshToken } : {}
     }
-  });
-  await new Promise((resolve4) => server.listen(port, "127.0.0.1", resolve4));
-  const redirectTo = `http://127.0.0.1:${port}/callback`;
-  const resp = await fetch(`${supabaseUrl}/auth/v1/magiclink`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: anonKey
-    },
-    body: JSON.stringify({ email, redirect_to: redirectTo })
-  });
-  if (!resp.ok) {
-    server.close();
-    console.error(`Failed to send magic link (HTTP ${resp.status}).`);
-    process.exit(1);
-  }
-  console.log(`Magic link sent to ${email} \u2014 check your email and click the link to log in.`);
-  const timeoutMs = 5 * 60 * 1e3;
-  let tokens;
-  try {
-    tokens = await Promise.race([
-      callbackPromise,
-      new Promise((_, reject) => {
-        const t = setTimeout(() => reject(new Error("Login timed out")), timeoutMs);
-        t.unref();
-      })
-    ]);
-  } catch (err) {
-    server.close();
-    throw err;
-  }
-  server.close();
-  saveCredentials({
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token,
-    email,
-    supabaseUrl
-  });
-  console.log(`Logged in as ${email}`);
-}
-function findAvailablePort(preferredPort) {
-  return new Promise((resolve4) => {
-    const server = http.createServer();
-    server.listen(preferredPort, "127.0.0.1", () => {
-      const addr = server.address();
-      server.close(() => resolve4(addr.port));
-    });
-    server.on("error", () => {
-      const s = http.createServer();
-      s.listen(0, "127.0.0.1", () => {
-        const addr = s.address();
-        s.close(() => resolve4(addr.port));
-      });
-    });
-  });
+  };
 }
 
-// dist/commands/logout.js
-import { existsSync as existsSync2, unlinkSync } from "node:fs";
-import { homedir as homedir2 } from "node:os";
-import { join as join2 } from "node:path";
-function credentialsPath2() {
-  const env = process.env["ZAZIG_ENV"];
-  const filename = env && env !== "production" ? `credentials-${env}.json` : "credentials.json";
-  return join2(homedir2(), ".zazigv2", filename);
-}
-function logout() {
-  const p = credentialsPath2();
-  if (!existsSync2(p)) {
-    console.log("Not logged in.");
-    return;
+// ../local-agent/dist/slots.js
+var SlotTracker = class {
+  total;
+  inUse;
+  constructor(config) {
+    this.total = {
+      claude_code: config.claude_code,
+      codex: config.codex
+    };
+    this.inUse = {
+      claude_code: 0,
+      codex: 0
+    };
   }
-  unlinkSync(p);
-  console.log("Logged out.");
-}
-
-// dist/commands/setup.js
-import { createInterface as createInterface2 } from "node:readline/promises";
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2, existsSync as existsSync3 } from "node:fs";
-import { execSync } from "node:child_process";
-import { join as join3 } from "node:path";
-import { randomUUID } from "node:crypto";
+  /** Returns the number of free slots per slot type. */
+  getAvailable() {
+    return {
+      claude_code: Math.max(0, this.total.claude_code - this.inUse.claude_code),
+      codex: Math.max(0, this.total.codex - this.inUse.codex)
+    };
+  }
+  /** Acquire a slot; throws if none are available. For future use by job executor. */
+  acquire(slotType) {
+    const available = this.total[slotType] - this.inUse[slotType];
+    if (available <= 0) {
+      throw new Error(`No available slots for ${slotType}`);
+    }
+    this.inUse[slotType]++;
+  }
+  /** Release a slot previously acquired. For future use by job executor. */
+  release(slotType) {
+    if (this.inUse[slotType] > 0) {
+      this.inUse[slotType]--;
+    }
+  }
+};
 
 // ../../node_modules/@supabase/supabase-js/dist/index.mjs
 var dist_exports = {};
@@ -8433,7 +12062,7 @@ var PostgrestBuilder = class {
       let error = null;
       let data = null;
       let count = null;
-      let status2 = res$1.status;
+      let status = res$1.status;
       let statusText = res$1.statusText;
       if (res$1.ok) {
         var _this$headers$get2, _res$headers$get;
@@ -8457,7 +12086,7 @@ var PostgrestBuilder = class {
           };
           data = null;
           count = null;
-          status2 = 406;
+          status = 406;
           statusText = "Not Acceptable";
         } else if (data.length === 1) data = data[0];
         else data = null;
@@ -8469,18 +12098,18 @@ var PostgrestBuilder = class {
           if (Array.isArray(error) && res$1.status === 404) {
             data = [];
             error = null;
-            status2 = 200;
+            status = 200;
             statusText = "OK";
           }
         } catch (_unused) {
           if (res$1.status === 404 && body === "") {
-            status2 = 204;
+            status = 204;
             statusText = "No Content";
           } else error = { message: body };
         }
         if (error && _this.isMaybeSingle && (error === null || error === void 0 || (_error$details = error.details) === null || _error$details === void 0 ? void 0 : _error$details.includes("0 rows"))) {
           error = null;
-          status2 = 200;
+          status = 200;
           statusText = "OK";
         }
         if (error && _this.shouldThrowOnError) throw new PostgrestError(error);
@@ -8489,7 +12118,7 @@ var PostgrestBuilder = class {
         error,
         data,
         count,
-        status: status2,
+        status,
         statusText
       };
     });
@@ -9625,24 +13254,24 @@ var PostgrestClient = class PostgrestClient2 {
   *   .overrideTypes<{ id: string; user_id: string }[]>()
   * ```
   */
-  rpc(fn, args2 = {}, { head: head2 = false, get: get2 = false, count } = {}) {
+  rpc(fn, args = {}, { head: head2 = false, get: get2 = false, count } = {}) {
     var _this$fetch;
     let method;
     const url = new URL(`${this.url}/rpc/${fn}`);
     let body;
     const _isObject = (v) => v !== null && typeof v === "object" && (!Array.isArray(v) || v.some(_isObject));
-    const _hasObjectArg = head2 && Object.values(args2).some(_isObject);
+    const _hasObjectArg = head2 && Object.values(args).some(_isObject);
     if (_hasObjectArg) {
       method = "POST";
-      body = args2;
+      body = args;
     } else if (head2 || get2) {
       method = head2 ? "HEAD" : "GET";
-      Object.entries(args2).filter(([_, value]) => value !== void 0).map(([name, value]) => [name, Array.isArray(value) ? `{${value.join(",")}}` : `${value}`]).forEach(([name, value]) => {
+      Object.entries(args).filter(([_, value]) => value !== void 0).map(([name, value]) => [name, Array.isArray(value) ? `{${value.join(",")}}` : `${value}`]).forEach(([name, value]) => {
         url.searchParams.append(name, value);
       });
     } else {
       method = "POST";
-      body = args2;
+      body = args;
     }
     const headers = new Headers(this.headers);
     if (_hasObjectArg) headers.set("Prefer", count ? `count=${count},return=minimal` : "return=minimal");
@@ -10197,12 +13826,12 @@ var IcebergRestCatalog = class {
 
 // ../../node_modules/@supabase/storage-js/dist/index.mjs
 var StorageError = class extends Error {
-  constructor(message, namespace = "storage", status2, statusCode) {
+  constructor(message, namespace = "storage", status, statusCode) {
     super(message);
     this.__isStorageError = true;
     this.namespace = namespace;
     this.name = namespace === "vectors" ? "StorageVectorsError" : "StorageError";
-    this.status = status2;
+    this.status = status;
     this.statusCode = statusCode;
   }
 };
@@ -10210,10 +13839,10 @@ function isStorageError(error) {
   return typeof error === "object" && error !== null && "__isStorageError" in error;
 }
 var StorageApiError = class extends StorageError {
-  constructor(message, status2, statusCode, namespace = "storage") {
-    super(message, namespace, status2, statusCode);
+  constructor(message, status, statusCode, namespace = "storage") {
+    super(message, namespace, status, statusCode);
     this.name = namespace === "vectors" ? "StorageVectorsApiError" : "StorageApiError";
-    this.status = status2;
+    this.status = status;
     this.statusCode = statusCode;
   }
   toJSON() {
@@ -10233,8 +13862,8 @@ var StorageUnknownError = class extends StorageError {
   }
 };
 var resolveFetch = (customFetch) => {
-  if (customFetch) return (...args2) => customFetch(...args2);
-  return (...args2) => fetch(...args2);
+  if (customFetch) return (...args) => customFetch(...args);
+  return (...args) => fetch(...args);
 };
 var isPlainObject = (value) => {
   if (typeof value !== "object" || value === null) return false;
@@ -10316,22 +13945,22 @@ var _getErrorMessage = (err) => {
 var handleError = async (error, reject, options, namespace) => {
   if (error && typeof error === "object" && "status" in error && "ok" in error && typeof error.status === "number" && !(options === null || options === void 0 ? void 0 : options.noResolveJson)) {
     const responseError = error;
-    const status2 = responseError.status || 500;
+    const status = responseError.status || 500;
     if (typeof responseError.json === "function") responseError.json().then((err) => {
-      const statusCode = (err === null || err === void 0 ? void 0 : err.statusCode) || (err === null || err === void 0 ? void 0 : err.code) || status2 + "";
-      reject(new StorageApiError(_getErrorMessage(err), status2, statusCode, namespace));
+      const statusCode = (err === null || err === void 0 ? void 0 : err.statusCode) || (err === null || err === void 0 ? void 0 : err.code) || status + "";
+      reject(new StorageApiError(_getErrorMessage(err), status, statusCode, namespace));
     }).catch(() => {
       if (namespace === "vectors") {
-        const statusCode = status2 + "";
-        reject(new StorageApiError(responseError.statusText || `HTTP ${status2} error`, status2, statusCode, namespace));
+        const statusCode = status + "";
+        reject(new StorageApiError(responseError.statusText || `HTTP ${status} error`, status, statusCode, namespace));
       } else {
-        const statusCode = status2 + "";
-        reject(new StorageApiError(responseError.statusText || `HTTP ${status2} error`, status2, statusCode, namespace));
+        const statusCode = status + "";
+        reject(new StorageApiError(responseError.statusText || `HTTP ${status} error`, status, statusCode, namespace));
       }
     });
     else {
-      const statusCode = status2 + "";
-      reject(new StorageApiError(responseError.statusText || `HTTP ${status2} error`, status2, statusCode, namespace));
+      const statusCode = status + "";
+      reject(new StorageApiError(responseError.statusText || `HTTP ${status} error`, status, statusCode, namespace));
     }
   } else reject(new StorageUnknownError(_getErrorMessage(error), error, namespace));
 };
@@ -10349,7 +13978,7 @@ var _getRequestParams = (method, options, parameters, body) => {
   return _objectSpread22(_objectSpread22({}, params), parameters);
 };
 async function _handleRequest(fetcher, method, url, options, parameters, body, namespace) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve2, reject) => {
     fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
       if (!result.ok) throw result;
       if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
@@ -10359,7 +13988,7 @@ async function _handleRequest(fetcher, method, url, options, parameters, body, n
         if (!contentType || !contentType.includes("application/json")) return {};
       }
       return result.json();
-    }).then((data) => resolve4(data)).catch((error) => handleError(error, reject, options, namespace));
+    }).then((data) => resolve2(data)).catch((error) => handleError(error, reject, options, namespace));
   });
 }
 function createFetchApi(namespace = "storage") {
@@ -11863,10 +15492,10 @@ var StorageAnalyticsClient = class extends BaseApiClient {
     return new Proxy(catalog, { get(target, prop) {
       const value = target[prop];
       if (typeof value !== "function") return value;
-      return async (...args2) => {
+      return async (...args) => {
         try {
           return {
-            data: await value.apply(target, args2),
+            data: await value.apply(target, args),
             error: null
           };
         } catch (error) {
@@ -12620,8 +16249,8 @@ function _objectSpread23(e) {
   return e;
 }
 var resolveFetch2 = (customFetch) => {
-  if (customFetch) return (...args2) => customFetch(...args2);
-  return (...args2) => fetch(...args2);
+  if (customFetch) return (...args) => customFetch(...args);
+  return (...args) => fetch(...args);
 };
 var resolveHeadersConstructor = () => {
   return Headers;
@@ -12789,12 +16418,12 @@ var SupabaseClient = class {
   * `"estimated"`: Uses exact count for low numbers and planned count for high
   * numbers.
   */
-  rpc(fn, args2 = {}, options = {
+  rpc(fn, args = {}, options = {
     head: false,
     get: false,
     count: void 0
   }) {
-    return this.rest.rpc(fn, args2, options);
+    return this.rest.rpc(fn, args, options);
   }
   /**
   * Creates a Realtime channel with Broadcast, Presence, and Postgres Changes.
@@ -12890,854 +16519,2842 @@ function shouldShowDeprecationWarning() {
 }
 if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217");
 
-// dist/commands/setup.js
-async function setup() {
-  let ghInstalled = false;
-  try {
-    execSync("gh --version", { stdio: "pipe" });
-    ghInstalled = true;
-  } catch {
+// ../../node_modules/ws/wrapper.mjs
+var import_stream = __toESM(require_stream(), 1);
+var import_receiver = __toESM(require_receiver(), 1);
+var import_sender = __toESM(require_sender(), 1);
+var import_websocket = __toESM(require_websocket(), 1);
+var import_websocket_server = __toESM(require_websocket_server(), 1);
+var wrapper_default = import_websocket.default;
+
+// ../local-agent/dist/connection.js
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync3, mkdirSync as mkdirSync3, appendFileSync as appendFileSync3 } from "node:fs";
+import { homedir as homedir3 } from "node:os";
+import { join as join5 } from "node:path";
+
+// ../local-agent/dist/executor.js
+import { execFile as execFile2 } from "node:child_process";
+import { existsSync as existsSync4, readFileSync as readFileSync3, renameSync, unlinkSync, mkdirSync as mkdirSync2, rmSync as rmSync2, appendFileSync as appendFileSync2 } from "node:fs";
+import { promisify as promisify2 } from "node:util";
+import { homedir as homedir2 } from "node:os";
+import { dirname, join as join4, resolve } from "node:path";
+import { writeFileSync as writeFileSync2 } from "node:fs";
+import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
+
+// ../local-agent/dist/workspace.js
+import { writeFileSync, mkdirSync, existsSync as existsSync2, copyFileSync, readFileSync as readFileSync2, appendFileSync, symlinkSync, rmSync } from "node:fs";
+import { join as join2 } from "node:path";
+var SUBAGENT_CONFIGS = {
+  roles: {
+    "code-investigator": {
+      name: "Code Investigator",
+      description: "Read-only codebase exploration \u2014 answers questions about code structure, patterns, and implementation details",
+      subagent_type: "Explore",
+      model: "claude-sonnet-4-6",
+      tools: ["Read", "Grep", "Glob", "Bash"],
+      prompt: "You are a Code Investigator sub-agent. Your job is to explore the provided codebase(s) and answer the question given to you. You have READ-ONLY access. Do not write, edit, or delete any files. Do not run commands that modify the repository. Search thoroughly, trace execution paths, and return a clear, concise answer with relevant file paths and line numbers."
+    }
   }
-  if (!ghInstalled) {
-    console.log("\nGitHub CLI (gh) is not installed.");
-    console.log("zazig uses gh to create and manage GitHub repositories during setup.\n");
-    console.log("Install it:");
-    console.log("  macOS:   brew install gh");
-    console.log("  Linux:   https://github.com/cli/cli/blob/trunk/docs/install_linux.md");
-    console.log("  Windows: winget install --id GitHub.cli\n");
-    console.log("Then authenticate:  gh auth login\n");
-    process.exitCode = 1;
-    return;
+};
+function resolveSkillSourcePath(config, skillName) {
+  if (config.repoSkillsDir) {
+    const flatPath = join2(config.repoSkillsDir, `${skillName}.md`);
+    if (existsSync2(flatPath))
+      return flatPath;
+    const nestedPath = join2(config.repoSkillsDir, skillName, "SKILL.md");
+    if (existsSync2(nestedPath))
+      return nestedPath;
   }
-  let ghAuthed = false;
-  try {
-    execSync("gh auth status", { stdio: "pipe" });
-    ghAuthed = true;
-  } catch {
+  if (config.repoInteractiveSkillsDir) {
+    const interactivePath = join2(config.repoInteractiveSkillsDir, skillName, "SKILL.md");
+    if (existsSync2(interactivePath))
+      return interactivePath;
   }
-  if (!ghAuthed) {
-    console.log("\nGitHub CLI is installed but not authenticated.");
-    console.log("Run:  gh auth login\n");
-    process.exitCode = 1;
-    return;
-  }
-  let creds;
-  try {
-    creds = await getValidCredentials();
-  } catch (err) {
-    console.error(String(err));
-    process.exitCode = 1;
-    return;
-  }
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const supabase = createClient(creds.supabaseUrl, anonKey);
-  const { error: sessionError } = await supabase.auth.setSession({
-    access_token: creds.accessToken,
-    refresh_token: creds.refreshToken
+  return null;
+}
+function generateMcpConfig(mcpServerPath, env) {
+  return {
+    mcpServers: {
+      "zazig-messaging": {
+        command: "node",
+        args: [mcpServerPath],
+        env: {
+          SUPABASE_URL: env.supabaseUrl,
+          SUPABASE_ANON_KEY: env.supabaseAnonKey,
+          ZAZIG_JOB_ID: env.jobId,
+          ...env.companyId ? { ZAZIG_COMPANY_ID: env.companyId } : {},
+          ...env.allowedTools ? { ZAZIG_ALLOWED_TOOLS: env.allowedTools.join(",") } : {},
+          ...env.tmuxSession ? { ZAZIG_TMUX_SESSION: env.tmuxSession } : {},
+          ...env.role ? { ZAZIG_ROLE: env.role } : {}
+        }
+      }
+    }
+  };
+}
+var STANDARD_TOOLS = [
+  "Read",
+  "Write",
+  "Edit",
+  "Bash",
+  "Glob",
+  "Grep"
+];
+var ROLE_DEFAULT_MCP_TOOLS = {
+  "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "request_work"],
+  "breakdown-specialist": ["query_features", "batch_create_jobs"]
+};
+function generateAllowedTools(role, mcpTools) {
+  const roleDefaults = ROLE_DEFAULT_MCP_TOOLS[role] ?? [];
+  const extra = mcpTools ?? [];
+  const allMcp = [.../* @__PURE__ */ new Set([...roleDefaults, ...extra])];
+  const toolList = allMcp.map((name) => `mcp__zazig-messaging__${name}`);
+  const extraClaudeTools = role === "cpo" ? ["Agent"] : [];
+  return [...STANDARD_TOOLS, ...extraClaudeTools, ...toolList];
+}
+async function writeSubagentsConfig(workspaceDir, subagentsConfig = SUBAGENT_CONFIGS) {
+  const subagentsPath = join2(workspaceDir, ".claude", "subagents.json");
+  writeFileSync(subagentsPath, JSON.stringify(subagentsConfig, null, 2));
+}
+function setupJobWorkspace(config) {
+  mkdirSync(config.workspaceDir, { recursive: true });
+  const mcpConfig = generateMcpConfig(config.mcpServerPath, {
+    supabaseUrl: config.supabaseUrl,
+    supabaseAnonKey: config.supabaseAnonKey,
+    jobId: config.jobId,
+    companyId: config.companyId,
+    allowedTools: config.mcpTools,
+    tmuxSession: config.tmuxSession,
+    role: config.role
   });
-  if (sessionError) {
-    console.error(`Authentication failed: ${sessionError.message}`);
-    console.error("Try running 'zazig login' again.");
-    process.exitCode = 1;
-    return;
-  }
-  const rl = createInterface2({ input: process.stdin, output: process.stdout });
-  try {
-    const { data: pendingInvites } = await supabase.rpc("get_my_pending_invites");
-    if (pendingInvites && pendingInvites.length > 0) {
-      console.log("\nYou have pending invites:");
-      for (const inv of pendingInvites) {
-        const answer = (await rl.question(`  Join "${inv.company_name}"? [y/n]: `)).trim().toLowerCase();
-        if (answer === "y" || answer === "yes") {
-          const { error } = await supabase.rpc("accept_invite", { p_invite_id: inv.invite_id });
-          if (error) {
-            console.error(`    Failed: ${error.message}`);
-          } else {
-            console.log(`    Joined ${inv.company_name}`);
-          }
-        } else {
-          await supabase.rpc("decline_invite", { p_invite_id: inv.invite_id });
-          console.log(`    Declined.`);
-        }
+  writeFileSync(join2(config.workspaceDir, ".mcp.json"), JSON.stringify(mcpConfig, null, 2));
+  writeFileSync(join2(config.workspaceDir, "CLAUDE.md"), config.claudeMdContent);
+  const claudeDir = join2(config.workspaceDir, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(join2(claudeDir, "settings.json"), JSON.stringify({ permissions: { allow: generateAllowedTools(config.role, config.mcpTools) } }, null, 2));
+  if (config.skills && config.skills.length > 0) {
+    for (const skillName of config.skills) {
+      const sourcePath = resolveSkillSourcePath(config, skillName);
+      if (!sourcePath) {
+        console.warn(`[workspace] Skill "${skillName}" not found in repo sources`);
+        continue;
       }
-    }
-    console.log("\nWhat would you like to do?");
-    console.log("  1. Create a new company");
-    console.log("  2. Add a project to an existing company");
-    const choice = (await rl.question("\nChoice [1/2]: ")).trim();
-    let companyId;
-    let companyName;
-    if (choice === "2") {
-      const { data: companies, error } = await supabase.from("companies").select("id, name").order("name");
-      if (error || !companies || companies.length === 0) {
-        console.error("No companies found. Create one first (option 1).");
-        process.exitCode = 1;
-        return;
-      }
-      if (companies.length === 1) {
-        companyId = companies[0].id;
-        companyName = companies[0].name;
-        console.log(`
-Company: ${companyName}`);
-      } else {
-        console.log("\nYour companies:");
-        for (let i = 0; i < companies.length; i++) {
-          console.log(`  [${i + 1}] ${companies[i].name}`);
-        }
-        const idx = parseInt((await rl.question(`Select company [1-${companies.length}]: `)).trim(), 10) - 1;
-        if (idx < 0 || idx >= companies.length) {
-          console.error("Invalid selection.");
-          process.exitCode = 1;
-          return;
-        }
-        companyId = companies[idx].id;
-        companyName = companies[idx].name;
-      }
-    } else {
-      const name = (await rl.question("\nCompany name: ")).trim();
-      if (!name) {
-        console.error("Company name is required.");
-        process.exitCode = 1;
-        return;
-      }
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.error("Could not resolve authenticated user. Try 'zazig login' again.");
-        process.exitCode = 1;
-        return;
-      }
-      const newCompanyId = randomUUID();
-      const { error } = await supabase.from("companies").insert({ id: newCompanyId, name, created_by: user.id });
-      if (error) {
-        console.error(`Failed to create company: ${error.message}`);
-        process.exitCode = 1;
-        return;
-      }
-      const { error: memberErr } = await supabase.from("user_companies").insert({ user_id: user.id, company_id: newCompanyId });
-      if (memberErr) {
-        console.error(`Warning: could not link you to company: ${memberErr.message}`);
-      }
-      companyId = newCompanyId;
-      companyName = name;
-      console.log(`
-Company "${companyName}" created.`);
-    }
-    const projectName = (await rl.question("\nProject name: ")).trim();
-    if (!projectName) {
-      console.error("Project name is required.");
-      process.exitCode = 1;
-      return;
-    }
-    let repoUrl;
-    console.log("\nGit repository:");
-    console.log("  1. Create a new GitHub repo");
-    console.log("  2. Use an existing repo URL");
-    console.log("  3. Skip");
-    const repoChoice = (await rl.question("\nChoice [1/2/3]: ")).trim();
-    if (repoChoice === "1") {
-      const defaultName = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      const repoName = (await rl.question(`Repo name [${defaultName}]: `)).trim() || defaultName;
-      let orgList = [];
-      try {
-        const orgsJson = execSync("gh api user/orgs --jq '.[].login'", { encoding: "utf-8" }).trim();
-        if (orgsJson)
-          orgList = orgsJson.split("\n").filter(Boolean);
-      } catch {
-      }
-      let owner = "";
-      if (orgList.length > 0) {
-        console.log("\nCreate under:");
-        console.log("  1. Personal account");
-        for (let i = 0; i < orgList.length; i++) {
-          console.log(`  ${i + 2}. ${orgList[i]}`);
-        }
-        const ownerIdx = parseInt((await rl.question(`Choice [1-${orgList.length + 1}]: `)).trim(), 10);
-        if (ownerIdx >= 2 && ownerIdx <= orgList.length + 1) {
-          owner = orgList[ownerIdx - 2] + "/";
-        }
-      }
-      try {
-        const result = execSync(`gh repo create ${owner}${repoName} --private --clone=false`, { encoding: "utf-8" }).trim();
-        repoUrl = result.match(/https:\/\/github\.com\/\S+/)?.[0] ?? result;
-        console.log(`Repository created: ${repoUrl}`);
-      } catch (err) {
-        console.error(`Failed to create repo: ${String(err)}`);
-        console.error("Continuing without a repo URL.");
-      }
-    } else if (repoChoice === "2") {
-      let ghUser = "";
-      try {
-        ghUser = execSync("gh api user --jq '.login'", { encoding: "utf-8" }).trim();
-      } catch {
-      }
-      let orgList = [];
-      try {
-        const orgsRaw = execSync("gh api user/orgs --jq '.[].login'", { encoding: "utf-8" }).trim();
-        if (orgsRaw)
-          orgList = orgsRaw.split("\n").filter(Boolean);
-      } catch {
-      }
-      let selectedOwner = ghUser;
-      if (orgList.length > 0) {
-        console.log("\nShow repos for:");
-        if (ghUser)
-          console.log(`  1. ${ghUser} (personal)`);
-        for (let i = 0; i < orgList.length; i++) {
-          console.log(`  ${(ghUser ? 2 : 1) + i}. ${orgList[i]}`);
-        }
-        const manualIdx = (ghUser ? 2 : 1) + orgList.length;
-        console.log(`  ${manualIdx}. Enter URL manually`);
-        const ownerIdx = parseInt((await rl.question(`
-Choice [1-${manualIdx}]: `)).trim(), 10);
-        if (ghUser && ownerIdx === 1) {
-          selectedOwner = ghUser;
-        } else if (ownerIdx === manualIdx) {
-          const urlInput = (await rl.question("Git remote URL: ")).trim();
-          if (urlInput)
-            repoUrl = urlInput;
-          selectedOwner = "";
-        } else {
-          const orgIdx = ownerIdx - (ghUser ? 2 : 1);
-          if (orgIdx >= 0 && orgIdx < orgList.length) {
-            selectedOwner = orgList[orgIdx];
-          }
-        }
-      }
-      if (selectedOwner && !repoUrl) {
-        let repos = [];
+      const destDir = join2(config.workspaceDir, ".claude", "skills", skillName);
+      const destPath = join2(destDir, "SKILL.md");
+      mkdirSync(destDir, { recursive: true });
+      if (config.useSymlinks) {
+        rmSync(destPath, { force: true, recursive: true });
         try {
-          const raw = execSync(`gh repo list ${selectedOwner} --limit 30 --json name,url --jq '.[] | "\\(.name)\\t\\(.url)"'`, { encoding: "utf-8" }).trim();
-          if (raw) {
-            repos = raw.split("\n").map((line) => {
-              const [name, url] = line.split("	");
-              return { name, url };
-            });
-          }
-        } catch {
+          symlinkSync(sourcePath, destPath);
+        } catch (err) {
+          console.warn(`[workspace] Failed to symlink skill "${skillName}", falling back to copy: ${String(err)}`);
+          copyFileSync(sourcePath, destPath);
         }
-        if (repos.length > 0) {
-          console.log(`
-Repos in ${selectedOwner}:`);
-          for (let i = 0; i < repos.length; i++) {
-            console.log(`  [${i + 1}] ${repos[i].name}`);
-          }
-          console.log(`  [${repos.length + 1}] Enter URL manually`);
-          const repoIdx = parseInt((await rl.question(`
-Choice [1-${repos.length + 1}]: `)).trim(), 10);
-          if (repoIdx >= 1 && repoIdx <= repos.length) {
-            repoUrl = repos[repoIdx - 1].url;
-            console.log(`Selected: ${repoUrl}`);
-          } else if (repoIdx === repos.length + 1) {
-            const urlInput = (await rl.question("Git remote URL: ")).trim();
-            if (urlInput)
-              repoUrl = urlInput;
-          }
-        } else {
-          console.log(`
-No repos found under ${selectedOwner}.`);
-          const urlInput = (await rl.question("Git remote URL (or press Enter to skip): ")).trim();
-          if (urlInput)
-            repoUrl = urlInput;
-        }
+      } else {
+        copyFileSync(sourcePath, destPath);
       }
     }
-    let defaultLocalPath;
-    if (repoUrl) {
-      const repoName = repoUrl.replace(/\.git$/, "").split("/").pop();
-      if (repoName) {
-        defaultLocalPath = join3(process.cwd(), repoName);
+  }
+  const gitMarker = join2(config.workspaceDir, ".git");
+  if (existsSync2(gitMarker)) {
+    const GITIGNORE_MARKER = "# zazig workspace files (auto-generated)";
+    const gitignorePath = join2(config.workspaceDir, ".gitignore");
+    const GITIGNORE_BLOCK = [
+      GITIGNORE_MARKER,
+      "CLAUDE.md",
+      ".mcp.json",
+      ".claude/",
+      ".zazig-prompt.txt",
+      "subagent-personality.md",
+      ""
+    ].join("\n");
+    const existingContent = existsSync2(gitignorePath) ? readFileSync2(gitignorePath, "utf8") : "";
+    if (!existingContent.includes(GITIGNORE_MARKER)) {
+      appendFileSync(gitignorePath, (existingContent.endsWith("\n") || existingContent === "" ? "" : "\n") + GITIGNORE_BLOCK);
+    }
+  }
+}
+
+// ../local-agent/dist/branches.js
+import { execFile } from "node:child_process";
+import { existsSync as existsSync3 } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
+import { join as join3 } from "node:path";
+import { promisify } from "node:util";
+var execFileAsync = promisify(execFile);
+async function git(repoDir, ...args) {
+  const { stdout } = await execFileAsync("git", ["-C", repoDir, ...args], {
+    encoding: "utf8"
+  });
+  return stdout.trim();
+}
+function getErrorMessage(error) {
+  if (typeof error === "object" && error !== null) {
+    const stderr = "stderr" in error ? error.stderr : void 0;
+    if (typeof stderr === "string" && stderr.trim().length > 0) {
+      return stderr.trim();
+    }
+    const message = "message" in error ? error.message : void 0;
+    if (typeof message === "string" && message.trim().length > 0) {
+      return message.trim();
+    }
+  }
+  return String(error);
+}
+var WORKTREE_BASE = join3(process.env.HOME ?? "~", ".zazigv2/worktrees");
+async function rebaseOnBranch(repoDir, sourceBranch, targetBranch) {
+  try {
+    await git(repoDir, "checkout", sourceBranch);
+    await git(repoDir, "rebase", targetBranch);
+    return { success: true };
+  } catch (error) {
+    try {
+      await git(repoDir, "rebase", "--abort");
+    } catch {
+    }
+    return { success: false, error: getErrorMessage(error) };
+  }
+}
+async function mergeJobIntoFeature(repoDir, jobBranch, featureBranch) {
+  try {
+    await git(repoDir, "checkout", featureBranch);
+    await git(repoDir, "merge", "--no-ff", jobBranch);
+    return { success: true };
+  } catch (error) {
+    try {
+      await git(repoDir, "merge", "--abort");
+    } catch {
+    }
+    return { success: false, error: getErrorMessage(error) };
+  }
+}
+async function createWorktree(repoDir, branch) {
+  const slug = branch.replace(/\//g, "-");
+  const worktreePath = join3(WORKTREE_BASE, slug);
+  await mkdir(WORKTREE_BASE, { recursive: true });
+  await git(repoDir, "worktree", "add", worktreePath, branch);
+  return worktreePath;
+}
+async function removeWorktree(repoDir, worktreePath) {
+  try {
+    await git(repoDir, "worktree", "remove", "--force", worktreePath);
+  } catch {
+  }
+}
+var REPOS_BASE = join3(process.env.HOME ?? "~", ".zazigv2/repos");
+var RepoManager = class {
+  locks = /* @__PURE__ */ new Map();
+  /** Serialise all git operations for a given repo dir. */
+  async withLock(repoDir, fn) {
+    const prev = this.locks.get(repoDir) ?? Promise.resolve();
+    let resolve2;
+    const next = new Promise((r) => {
+      resolve2 = r;
+    });
+    this.locks.set(repoDir, next);
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      resolve2();
+      if (this.locks.get(repoDir) === next) {
+        this.locks.delete(repoDir);
       }
     }
-    const localPathPrompt = defaultLocalPath ? `Local repo path [${defaultLocalPath}]: ` : "Local repo path for context reading (or press Enter to skip): ";
-    const localRepoPath = (await rl.question(localPathPrompt)).trim() || defaultLocalPath;
-    let repoContext = "";
-    if (localRepoPath) {
-      for (const f of ["README.md", "README.txt", "README"]) {
-        const p = join3(localRepoPath, f);
-        if (existsSync3(p)) {
+  }
+  /**
+   * Bare-clone repoUrl to ~/.zazigv2/repos/{name}/ if not exists, else fetch --prune.
+   * Ensures the fetch refspec is set (bare clones of empty repos omit it).
+   * If the repo is empty (no commits), seeds it with an initial empty commit so
+   * branches can be created from it.
+   * Returns the repo dir path.
+   */
+  async ensureRepo(repoUrl, projectName) {
+    const repoDir = join3(REPOS_BASE, projectName);
+    return this.withLock(repoDir, async () => {
+      await mkdir(REPOS_BASE, { recursive: true });
+      if (!existsSync3(repoDir)) {
+        await execFileAsync("git", ["clone", "--bare", repoUrl, repoDir], { encoding: "utf8" });
+      }
+      await git(repoDir, "config", "remote.origin.fetch", "refs/heads/*:refs/heads/*");
+      try {
+        await git(repoDir, "rev-parse", "--verify", "HEAD");
+      } catch {
+        const tmpDir = join3(REPOS_BASE, `.tmp-init-${projectName}`);
+        try {
+          await execFileAsync("git", ["clone", repoUrl, tmpDir], { encoding: "utf8" });
+          await execFileAsync("git", ["-C", tmpDir, "commit", "--allow-empty", "-m", "Initial commit"], { encoding: "utf8" });
+          await execFileAsync("git", ["-C", tmpDir, "push", "origin", "HEAD"], { encoding: "utf8" });
+        } finally {
+          await execFileAsync("rm", ["-rf", tmpDir]).catch(() => {
+          });
+        }
+        try {
+          await git(repoDir, "fetch", "origin");
+        } catch (e) {
+          console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
+        }
+      }
+      return repoDir;
+    });
+  }
+  /**
+   * Resolve the default branch in a bare repo.
+   * Tries symbolic-ref HEAD first, then falls back to common names.
+   */
+  async resolveDefaultBranch(repoDir) {
+    try {
+      const ref = await git(repoDir, "symbolic-ref", "HEAD");
+      const branchName = ref.replace(/^refs\/heads\//, "");
+      await git(repoDir, "rev-parse", "--verify", `refs/heads/${branchName}`);
+      return branchName;
+    } catch {
+    }
+    for (const name of ["main", "master"]) {
+      try {
+        await git(repoDir, "rev-parse", "--verify", `refs/heads/${name}`);
+        return name;
+      } catch {
+        continue;
+      }
+    }
+    throw new Error(`Cannot resolve default branch in ${repoDir} \u2014 repo may be empty`);
+  }
+  /**
+   * Create feature branch off default branch if not exists. Idempotent.
+   * In a bare repo, branches fetched from origin live directly under refs/heads/,
+   * so there are no origin/* tracking refs.
+   */
+  async ensureFeatureBranch(repoDir, featureBranch) {
+    return this.withLock(repoDir, async () => {
+      try {
+        await git(repoDir, "fetch", "origin");
+      } catch (e) {
+        console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
+      }
+      try {
+        await git(repoDir, "rev-parse", "--verify", `refs/heads/${featureBranch}`);
+        return;
+      } catch {
+      }
+      const defaultBranch = await this.resolveDefaultBranch(repoDir);
+      await git(repoDir, "branch", featureBranch, defaultBranch);
+    });
+  }
+  /**
+   * Create job/{jobId} branch off feature branch, then git worktree add.
+   * Returns { worktreePath, jobBranch }.
+   */
+  async createJobWorktree(repoDir, featureBranch, jobId) {
+    return this.withLock(repoDir, async () => {
+      try {
+        await git(repoDir, "fetch", "origin");
+      } catch (e) {
+        console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
+      }
+      const jobBranch = `job/${jobId}`;
+      const worktreePath = join3(WORKTREE_BASE, `job-${jobId}`);
+      await mkdir(WORKTREE_BASE, { recursive: true });
+      try {
+        await git(repoDir, "worktree", "remove", "--force", worktreePath);
+      } catch {
+      }
+      try {
+        await rm(worktreePath, { recursive: true, force: true });
+      } catch {
+      }
+      try {
+        await git(repoDir, "worktree", "prune");
+      } catch {
+      }
+      try {
+        await git(repoDir, "branch", "-D", jobBranch);
+      } catch {
+      }
+      await git(repoDir, "branch", jobBranch, featureBranch);
+      await git(repoDir, "worktree", "add", worktreePath, jobBranch);
+      return { worktreePath, jobBranch };
+    });
+  }
+  /**
+   * Create a job worktree that inherits code from dependency branches.
+   * For single dep: branches from depBranches[0].
+   * For fan-in (multiple deps): branches from depBranches[0], merges remaining.
+   * Falls back to featureBranch if no dep branches are valid after verification.
+   */
+  async createDependentJobWorktree(repoDir, featureBranch, jobId, depBranches) {
+    return this.withLock(repoDir, async () => {
+      console.log(`[RepoManager] createDependentJobWorktree: jobId=${jobId}, depBranches=${JSON.stringify(depBranches)}`);
+      try {
+        await git(repoDir, "fetch", "origin");
+      } catch (e) {
+        console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
+      }
+      const { stdout: branchList } = await execFileAsync("git", ["-C", repoDir, "branch", "--list", "job/*"], { encoding: "utf8" });
+      console.log(`[RepoManager] Branches after fetch: ${branchList.trim().split("\n").map((b) => b.trim()).join(", ")}`);
+      const validBranches = [];
+      for (const branch of depBranches) {
+        try {
+          const { stdout: sha } = await execFileAsync("git", ["-C", repoDir, "rev-parse", "--verify", `refs/heads/${branch}`], { encoding: "utf8" });
+          const { stdout: logLine } = await execFileAsync("git", ["-C", repoDir, "log", "--oneline", "-1", branch], { encoding: "utf8" });
+          let ancestry = "UNKNOWN";
           try {
-            repoContext += `
---- ${f} ---
-${readFileSync2(p, "utf-8").slice(0, 4e3)}
-`;
+            await execFileAsync("git", ["-C", repoDir, "merge-base", "--is-ancestor", "HEAD~100", branch], { encoding: "utf8" });
+            ancestry = "shares-history";
+          } catch {
+            try {
+              const { stdout: roots } = await execFileAsync("git", ["-C", repoDir, "rev-list", "--max-parents=0", branch], { encoding: "utf8" });
+              const { stdout: mainRoots } = await execFileAsync("git", ["-C", repoDir, "rev-list", "--max-parents=0", "master"], { encoding: "utf8" });
+              ancestry = roots.trim() === mainRoots.trim() ? "same-root" : `DIFFERENT-ROOT(branch=${roots.trim().slice(0, 8)},master=${mainRoots.trim().slice(0, 8)})`;
+            } catch {
+              ancestry = "root-check-failed";
+            }
+          }
+          console.log(`[RepoManager] Dep branch "${branch}": sha=${sha.trim().slice(0, 8)}, log="${logLine.trim()}", ancestry=${ancestry}`);
+          validBranches.push(branch);
+        } catch {
+          console.warn(`[RepoManager] createDependentJobWorktree: dep branch "${branch}" not found in ${repoDir} \u2014 skipping`);
+        }
+      }
+      const jobBranch = `job/${jobId}`;
+      const worktreePath = join3(WORKTREE_BASE, `job-${jobId}`);
+      await mkdir(WORKTREE_BASE, { recursive: true });
+      const baseBranch = validBranches.length > 0 ? validBranches[0] : featureBranch;
+      console.log(`[RepoManager] Creating jobBranch="${jobBranch}" from baseBranch="${baseBranch}", validBranches=${JSON.stringify(validBranches)}`);
+      try {
+        await git(repoDir, "worktree", "remove", "--force", worktreePath);
+      } catch {
+      }
+      try {
+        await rm(worktreePath, { recursive: true, force: true });
+      } catch {
+      }
+      try {
+        await git(repoDir, "worktree", "prune");
+      } catch {
+      }
+      try {
+        await git(repoDir, "branch", "-D", jobBranch);
+      } catch {
+      }
+      await git(repoDir, "branch", jobBranch, baseBranch);
+      await git(repoDir, "worktree", "add", worktreePath, jobBranch);
+      for (const branch of validBranches.slice(1)) {
+        console.log(`[RepoManager] Fan-in merging "${branch}" into worktree at ${worktreePath}`);
+        try {
+          await execFileAsync("git", ["-C", worktreePath, "merge", "--no-ff", branch], { encoding: "utf8" });
+          console.log(`[RepoManager] Fan-in merge of "${branch}" succeeded`);
+        } catch (mergeErr) {
+          try {
+            await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
           } catch {
           }
-          break;
-        }
-      }
-      const pkgPath2 = join3(localRepoPath, "package.json");
-      if (existsSync3(pkgPath2)) {
-        try {
-          repoContext += `
---- package.json ---
-${readFileSync2(pkgPath2, "utf-8").slice(0, 2e3)}
-`;
-        } catch {
-        }
-      }
-    }
-    let projectBrief;
-    const anthropicKey = process.env["ANTHROPIC_API_KEY"];
-    if (anthropicKey) {
-      console.log("\nTell me about this project \u2014 what does it do, what are you building?");
-      const userDescription = (await rl.question("> ")).trim();
-      if (userDescription) {
-        process.stdout.write("\nGenerating project brief...");
-        try {
-          const systemPrompt = "You are a helpful assistant that creates concise project briefs. Given a user's description and optional repo context, write a structured project brief in Markdown with sections: Overview, Tech Stack, Goals. Keep it under 500 words.";
-          const userContent = repoContext ? `User description: ${userDescription}
-
-Repo context:
-${repoContext}` : `User description: ${userDescription}`;
-          const resp = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-api-key": anthropicKey,
-              "anthropic-version": "2023-06-01"
-            },
-            body: JSON.stringify({
-              model: "claude-haiku-4-5-20251001",
-              max_tokens: 1024,
-              system: systemPrompt,
-              messages: [{ role: "user", content: userContent }]
-            })
-          });
-          if (!resp.ok) {
-            throw new Error(`API returned ${resp.status}`);
+          await git(repoDir, "worktree", "remove", "--force", worktreePath);
+          try {
+            await git(repoDir, "branch", "-D", jobBranch);
+          } catch {
           }
-          const result = await resp.json();
-          projectBrief = result.content.find((b) => b.type === "text")?.text ?? userDescription;
-          console.log(" done");
-          if (localRepoPath && projectBrief) {
-            const docsDir = join3(localRepoPath, "docs");
-            mkdirSync2(docsDir, { recursive: true });
-            const projectMdPath = join3(docsDir, "PROJECT.md");
-            writeFileSync2(projectMdPath, `# ${projectName}
-
-${projectBrief}
-`, "utf-8");
-            console.log(`Project brief written to ${projectMdPath}`);
-          }
-        } catch (err) {
-          console.log(" failed");
-          console.error(`AI brief generation failed: ${String(err)}. Using your description instead.`);
-          projectBrief = userDescription;
+          throw new Error(`Fan-in merge of "${branch}" into job/${jobId} failed: ${String(mergeErr)}`);
         }
       }
-    } else {
-      projectBrief = (await rl.question("\nBrief description of the project: ")).trim();
-    }
-    const newProjectId = randomUUID();
-    const { error: projError } = await supabase.from("projects").insert({
-      id: newProjectId,
-      company_id: companyId,
-      name: projectName,
-      repo_url: repoUrl
+      return { worktreePath, jobBranch };
     });
-    if (projError) {
-      console.error(`Failed to create project: ${projError.message}`);
-      process.exitCode = 1;
+  }
+  /**
+   * Push job branch to origin from within the worktree.
+   */
+  async pushJobBranch(worktreePath, jobBranch) {
+    await execFileAsync("git", ["-C", worktreePath, "push", "--force", "origin", jobBranch], {
+      encoding: "utf8"
+    });
+  }
+  /**
+   * Remove worktree (branch persists on remote). Uses --force since the worktree
+   * may have uncommitted changes from a failed agent.
+   */
+  async removeJobWorktree(repoDir, worktreePath) {
+    try {
+      await git(repoDir, "worktree", "remove", "--force", worktreePath);
+    } catch {
+    }
+  }
+};
+
+// ../local-agent/dist/executor.js
+function resolveMcpServerPath() {
+  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const mjsPath = join4(thisDir, "agent-mcp-server.mjs");
+  if (existsSync4(mjsPath))
+    return mjsPath;
+  return join4(thisDir, "agent-mcp-server.js");
+}
+var execFileAsync2 = promisify2(execFile2);
+var POLL_INTERVAL_MS = 3e4;
+var SLOT_RECONCILE_INTERVAL_MS = 6e4;
+var PR_MONITOR_INTERVAL_MS = 6e4;
+var JOB_TIMEOUT_MS = 60 * 6e4;
+var INTERACTIVE_JOB_TIMEOUT_MS = 30 * 6e4;
+function reportRelativePath(role) {
+  const reportFile = role ? `${role}-report.md` : "cpo-report.md";
+  return `.claude/${reportFile}`;
+}
+var REPORT_ARCHIVE_DIR = ".claude/job-reports";
+var NO_CODE_CONTEXT_ROLES = /* @__PURE__ */ new Set([
+  "pipeline-technician",
+  "monitoring-agent",
+  "project-architect"
+]);
+var CPO_STARTUP_DELAY_MS = 15e3;
+var MAX_QUEUE_SIZE = 20;
+var JOB_LOG_DIR = join4(homedir2(), ".zazigv2", "job-logs");
+function buildScratchWorkspaceDir(companyId, role, jobId) {
+  const resolvedCompany = companyId && companyId.trim().length > 0 ? companyId : "unknown-company";
+  return join4(homedir2(), ".zazigv2", `${resolvedCompany}-${role}-${jobId}`);
+}
+function clearJobLogs(jobId) {
+  try {
+    mkdirSync2(JOB_LOG_DIR, { recursive: true });
+    writeFileSync2(join4(JOB_LOG_DIR, `${jobId}-pre-post.log`), "");
+    writeFileSync2(join4(JOB_LOG_DIR, `${jobId}-pipe-pane.log`), "");
+  } catch {
+  }
+}
+function resolveRepoRoot() {
+  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    resolve(thisDir, "..", "..", ".."),
+    process.cwd()
+  ];
+  for (const candidate of candidates) {
+    const hasPipelineSkills = existsSync4(join4(candidate, "projects", "skills"));
+    const hasInteractiveSkills = existsSync4(join4(candidate, ".claude", "skills"));
+    if (hasPipelineSkills && hasInteractiveSkills)
+      return candidate;
+  }
+  console.warn(`[executor] Could not resolve repo root from runtime path; using process.cwd()=${process.cwd()}`);
+  return process.cwd();
+}
+function jobLog(jobId, message) {
+  try {
+    mkdirSync2(JOB_LOG_DIR, { recursive: true });
+    const line = `${(/* @__PURE__ */ new Date()).toISOString()} ${message}
+`;
+    appendFileSync2(join4(JOB_LOG_DIR, `${jobId}-pre-post.log`), line);
+  } catch {
+  }
+}
+var SKILLS_MARKER = "<!-- SKILLS -->";
+var CODEX_ROUTING_INSTRUCTIONS = `## Codex Delegation (REQUIRED)
+
+You MUST use codex-delegate for ALL code changes. Do NOT write code directly.
+
+Run: codex-delegate implement --dir $(pwd) "description of what to implement"
+
+Requirements:
+- Clean git working tree required (commit or stash first)
+- If codex-delegate fails or the task is too complex, you may fall back to writing code directly
+- For investigation/research, use: codex-delegate investigate --dir $(pwd) "question"
+
+After codex-delegate completes, review the diff output and decide whether to keep, modify, or discard changes.`;
+var FILE_WRITING_RULES = `## File Writing Rules
+
+ALL file operations (reads, writes, edits) MUST stay within your working directory.
+Do NOT use absolute paths to other repositories or user home directories.
+
+- Session reports \u2192 \`.claude/{role}-report.md\` in your working directory
+- Design documents, proposals, plans, specs \u2192 \`docs/plans/YYYY-MM-DD-descriptive-slug.md\` (relative to your working directory)
+- Never reference paths outside your working directory \u2014 they belong to other projects`;
+function enqueueWithCap(queue, message, maxSize) {
+  queue.push(message);
+  if (queue.length > maxSize) {
+    const notifIdx = queue.findIndex((m) => m.type === "notification");
+    if (notifIdx !== -1) {
+      const dropped = queue.splice(notifIdx, 1)[0];
+      console.log(`[daemon] Dropped notification message due to queue cap: ${dropped.text.slice(0, 80)}`);
+    } else {
+      console.warn("[daemon] Queue cap exceeded but no notification messages to drop \u2014 queue contains only human messages");
+    }
+  }
+}
+var JobExecutor = class {
+  machineId;
+  companyId;
+  slots;
+  send;
+  supabase;
+  afterJobComplete;
+  supabaseUrl;
+  supabaseAnonKey;
+  /** Map of jobId → active job state. */
+  activeJobs = /* @__PURE__ */ new Map();
+  /** Jobs that have been attempted (including failures) — prevents duplicate dispatch. */
+  /** Manages bare repo clones and job worktrees for all dispatched jobs. */
+  repoManager = new RepoManager();
+  /** Map of role → active persistent agent state. Supports simultaneous CPO, CTO, etc. */
+  persistentAgents = /* @__PURE__ */ new Map();
+  /** Cached machine UUID for persistent_agents DB writes. */
+  machineUuid = null;
+  /** Message queue for injecting into persistent agent tmux sessions. */
+  messageQueue = [];
+  processingQueue = false;
+  reconcileTimer = null;
+  prMonitorTimer = null;
+  constructor(machineId, companyId, slots, send, supabase, supabaseUrl, supabaseAnonKey, afterJobComplete) {
+    this.machineId = machineId;
+    this.companyId = companyId;
+    this.slots = slots;
+    this.send = send;
+    this.supabase = supabase;
+    this.supabaseUrl = supabaseUrl;
+    this.supabaseAnonKey = supabaseAnonKey;
+    this.afterJobComplete = afterJobComplete;
+    this.reconcileTimer = setInterval(() => {
+      void this.reconcileSlots();
+    }, SLOT_RECONCILE_INTERVAL_MS);
+    this.prMonitorTimer = setInterval(() => {
+      void this.monitorMergedPRs();
+    }, PR_MONITOR_INTERVAL_MS);
+  }
+  /** Resolve the machine UUID from the machines table (cached after first call). */
+  async resolveMachineUuid(companyId) {
+    if (this.machineUuid)
+      return this.machineUuid;
+    const { data, error } = await this.supabase.from("machines").select("id").eq("company_id", companyId).eq("name", this.machineId).single();
+    if (error || !data) {
+      console.warn(`[executor] Could not resolve machine UUID for "${this.machineId}": ${error?.message ?? "not found"}`);
+      return null;
+    }
+    this.machineUuid = data.id;
+    return data.id;
+  }
+  // ---------------------------------------------------------------------------
+  // Public: StartJob
+  // ---------------------------------------------------------------------------
+  async handleStartJob(msg) {
+    const { jobId, slotType, complexity, model } = msg;
+    clearJobLogs(jobId);
+    jobLog(jobId, `START handleStartJob \u2014 slotType=${slotType}, complexity=${complexity}, model=${model}, role=${msg.role ?? "none"}, cardType=${msg.cardType}`);
+    console.log(`[executor] handleStartJob \u2014 jobId=${jobId}, slotType=${slotType}, complexity=${complexity}, model=${model}`);
+    if (this.activeJobs.has(jobId)) {
+      jobLog(jobId, `SKIP duplicate start_job \u2014 already running`);
+      console.warn(`[executor] Duplicate start_job ignored for jobId=${jobId} (currently active)`);
       return;
     }
-    console.log(`Project "${projectName}" created (id: ${newProjectId}).`);
-    const supabaseUrl = creds.supabaseUrl;
-    let slackWorkspaceName;
-    console.log("\nNext, connect Slack so you can chat with your AI agents.");
-    await rl.question("Press Enter to open Slack authorization...");
-    const slackClientId = process.env["SLACK_CLIENT_ID"] ?? DEFAULT_SLACK_CLIENT_ID;
-    const scopes = "app_mentions:read,channels:history,channels:manage,chat:write,im:history";
-    const redirectUri = `${supabaseUrl}/functions/v1/slack-oauth`;
-    const oauthUrl = `https://slack.com/oauth/v2/authorize?client_id=${slackClientId}&scope=${scopes}&state=${companyId}&redirect_uri=${encodeURIComponent(redirectUri)}`;
-    const openCmd = process.platform === "darwin" ? "open" : "xdg-open";
     try {
-      execSync(`${openCmd} "${oauthUrl}"`, { stdio: "pipe" });
-    } catch {
-      console.log("Could not open browser. Visit this URL manually:");
-      console.log(`  ${oauthUrl}`);
-    }
-    console.log("Waiting for Slack authorization...");
-    const pollStart = Date.now();
-    const POLL_TIMEOUT_MS = 18e4;
-    const POLL_INTERVAL_MS = 2e3;
-    while (Date.now() - pollStart < POLL_TIMEOUT_MS) {
-      const { data } = await supabase.from("slack_installations").select("team_name").eq("company_id", companyId).limit(1).single();
-      if (data?.team_name) {
-        slackWorkspaceName = data.team_name;
-        console.log(`Slack workspace "${slackWorkspaceName}" connected!`);
-        break;
-      }
-      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-    }
-    if (!slackWorkspaceName) {
-      console.log("Timed out waiting for Slack authorization.");
-      console.log("You can connect Slack later by re-running setup.");
-    }
-    let slackChannelName;
-    if (slackWorkspaceName) {
-      const defaultChannel = "zazig-cpo";
-      const channelInput = (await rl.question(`
-Slack channel for CPO conversations [${defaultChannel}]: `)).trim() || defaultChannel;
-      process.stdout.write(`Creating #${channelInput}...`);
+      await this._handleStartJobInner(msg);
+    } catch (err) {
+      jobLog(jobId, `FATAL handleStartJob crashed: ${String(err)}`);
+      console.error(`[executor] FATAL handleStartJob crashed for jobId=${jobId}:`, err);
       try {
-        const res = await fetch(`${supabaseUrl}/functions/v1/slack-create-channel`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ company_id: companyId, channel_name: channelInput })
-        });
-        const result = await res.json();
-        if (result.ok) {
-          slackChannelName = result.channel_name;
-          console.log(` done! #${slackChannelName} is ready.`);
-        } else {
-          console.log(` failed: ${result.error}`);
-        }
-      } catch (err) {
-        console.log(` failed: ${String(err)}`);
+        this.slots.release(slotType);
+      } catch {
+      }
+      try {
+        await this.sendJobFailed(jobId, `Agent crash: ${String(err)}`, "agent_crash");
+      } catch {
       }
     }
-    let cpoArchetype;
-    console.log("\nConfigure your CPO:");
-    console.log("  1. The Strategist \u2014 data-driven, methodical, speaks in frameworks");
-    console.log("  2. Founder's Instinct \u2014 direct, high-energy, trusts gut with data");
-    console.log("  3. The Operator \u2014 terse, execution-focused, sprint-cadence rhythm");
-    console.log("  4. Skip");
-    const archChoice = (await rl.question("\nChoice [1]: ")).trim() || "1";
-    const archetypeMap = {
-      "1": "strategist",
-      "2": "founders-instinct",
-      "3": "operator"
-    };
-    const archName = archetypeMap[archChoice];
-    const archDisplayNames = {
-      "strategist": "The Strategist",
-      "founders-instinct": "Founder's Instinct",
-      "operator": "The Operator"
-    };
-    if (archName) {
-      const { data: rpcResult, error: rpcErr } = await supabase.rpc("setup_company_cpo", { p_company_id: companyId, p_archetype_name: archName });
-      if (rpcErr) {
-        console.error(`Failed to configure CPO: ${rpcErr.message}`);
-      } else if (rpcResult && !rpcResult.ok) {
-        console.error(`Failed to configure CPO: ${rpcResult.error}`);
-      } else {
-        cpoArchetype = archDisplayNames[archName];
-        console.log(`CPO configured with "${cpoArchetype}" personality.`);
-      }
+  }
+  async _handleStartJobInner(msg) {
+    const { jobId, slotType, complexity, model } = msg;
+    if (msg.cardType === "persistent_agent") {
+      await this.sendJobAck(jobId);
+      await this.handlePersistentJob(jobId, msg, slotType);
+      return;
     }
-    console.log("\nTeammates:");
-    console.log("  1. Invite teammates to the company");
-    console.log("  2. Skip for now");
-    const inviteChoice = (await rl.question("\nChoice [1/2]: ")).trim();
-    const invitedEmails = [];
-    if (inviteChoice === "1") {
-      console.log("\nEnter email addresses (empty line to finish):");
-      while (true) {
-        const email = (await rl.question("  Email: ")).trim();
-        if (!email)
-          break;
-        if (!email.includes("@")) {
-          console.error("    Invalid email, try again.");
-          continue;
+    try {
+      this.slots.acquire(slotType);
+      jobLog(jobId, `Slot acquired: ${slotType}`);
+    } catch (err) {
+      jobLog(jobId, `FAILED no slot available: ${String(err)}`);
+      console.error(`[executor] No slot available for jobId=${jobId}:`, err);
+      await this.sendJobFailed(jobId, `No available slot: ${String(err)}`, "unknown");
+      return;
+    }
+    await this.sendJobAck(jobId);
+    const isInteractive = msg.interactive === true;
+    const repoRoot = resolveRepoRoot();
+    const assembledContext = assembleContext(msg, repoRoot);
+    console.log(`[executor] Assembled context for jobId=${jobId}:
+${assembledContext}`);
+    let ephemeralWorkspaceDir;
+    let worktreePath;
+    let repoDir;
+    let jobBranch;
+    let startingCommit;
+    const roleName = msg.role ?? "senior-engineer";
+    const requiresCodeContext = !NO_CODE_CONTEXT_ROLES.has(roleName);
+    const cleanupPreparedWorkspace = async () => {
+      if (worktreePath && repoDir) {
+      } else if (ephemeralWorkspaceDir) {
+        cleanupJobWorkspace(jobId, ephemeralWorkspaceDir);
+      }
+    };
+    try {
+      if (requiresCodeContext) {
+        if (!msg.repoUrl || !msg.featureBranch) {
+          throw new Error("Missing repoUrl/featureBranch for code-context role");
         }
-        const { error: invErr } = await supabase.from("invites").insert({ company_id: companyId, email, invited_by: (await supabase.auth.getUser()).data.user.id });
-        if (invErr) {
-          if (invErr.message.includes("duplicate")) {
-            console.log(`    ${email} already invited.`);
-          } else {
-            console.error(`    Failed to invite ${email}: ${invErr.message}`);
+        const projectName = msg.repoUrl.split("/").pop()?.replace(/\.git$/, "") ?? jobId;
+        repoDir = await this.repoManager.ensureRepo(msg.repoUrl, projectName);
+        await this.repoManager.ensureFeatureBranch(repoDir, msg.featureBranch);
+        const routing = msg.dependencyBranches && msg.dependencyBranches.length > 0 ? "createDependentJobWorktree" : "createJobWorktree";
+        clearJobLogs(jobId);
+        jobLog(jobId, `Branch routing: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
+        jobLog(jobId, `featureBranch=${msg.featureBranch}, repoDir=${repoDir}`);
+        console.log(`[executor] Branch routing for jobId=${jobId}: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
+        const worktreeResult = msg.dependencyBranches && msg.dependencyBranches.length > 0 ? await this.repoManager.createDependentJobWorktree(repoDir, msg.featureBranch, jobId, msg.dependencyBranches) : await this.repoManager.createJobWorktree(repoDir, msg.featureBranch, jobId);
+        worktreePath = worktreeResult.worktreePath;
+        jobBranch = worktreeResult.jobBranch;
+        ephemeralWorkspaceDir = worktreePath;
+        jobLog(jobId, `Worktree created at ${worktreePath} (branch: ${jobBranch})`);
+        console.log(`[executor] Git worktree created at ${worktreePath} (branch: ${jobBranch}) for jobId=${jobId}`);
+        if (msg.slotType === "codex") {
+          try {
+            const { stdout } = await execFileAsync2("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
+            startingCommit = stdout.trim();
+          } catch {
           }
-          continue;
         }
-        await fetch(`${supabaseUrl}/auth/v1/magiclink`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: anonKey
-          },
-          body: JSON.stringify({ email })
-        });
-        invitedEmails.push(email);
-        console.log(`    Invited ${email}`);
+      } else {
+        ephemeralWorkspaceDir = buildScratchWorkspaceDir(this.companyId, roleName, jobId);
+        mkdirSync2(ephemeralWorkspaceDir, { recursive: true });
+        jobLog(jobId, `Scratch workspace created at ${ephemeralWorkspaceDir} (no git context role=${roleName})`);
+        console.log(`[executor] Scratch workspace created at ${ephemeralWorkspaceDir} for no-code role ${roleName} jobId=${jobId}`);
       }
+    } catch (err) {
+      jobLog(jobId, `FAILED to prepare workspace: ${String(err)}`);
+      console.error(`[executor] Failed to prepare workspace for jobId=${jobId}:`, err);
+      this.slots.release(slotType);
+      await this.sendJobFailed(jobId, `Failed to prepare workspace: ${String(err)}`, "agent_crash");
+      return;
     }
-    console.log("\n--- Setup complete! ---");
-    console.log(`  Company:  ${companyName}`);
-    console.log(`  Project:  ${projectName}`);
-    if (projectBrief) {
-      console.log(`  Brief:    ${projectBrief.split("\n")[0]?.slice(0, 80)}...`);
+    const mcpServerPath = resolveMcpServerPath();
+    try {
+      setupJobWorkspace({
+        workspaceDir: ephemeralWorkspaceDir,
+        mcpServerPath,
+        supabaseUrl: this.supabaseUrl,
+        supabaseAnonKey: this.supabaseAnonKey,
+        jobId,
+        companyId: this.companyId,
+        role: roleName,
+        claudeMdContent: assembledContext,
+        skills: msg.roleSkills,
+        repoSkillsDir: join4(repoRoot, "projects", "skills"),
+        repoInteractiveSkillsDir: join4(repoRoot, ".claude", "skills"),
+        mcpTools: msg.roleMcpTools,
+        tmuxSession: `${this.machineId}-${jobId}`
+      });
+      console.log(`[executor] Workspace overlay written to ${ephemeralWorkspaceDir} for jobId=${jobId}`);
+    } catch (err) {
+      console.warn(`[executor] Failed to write workspace overlay for jobId=${jobId}: ${String(err)}`);
     }
-    if (slackWorkspaceName) {
-      console.log(`  Slack:    ${slackWorkspaceName}${slackChannelName ? ` (#${slackChannelName})` : ""}`);
+    let cmd;
+    let cmdArgs;
+    const promptFilePath = join4(ephemeralWorkspaceDir, ".zazig-prompt.txt");
+    if (isInteractive) {
+      const resolvedModel = msg.model && msg.model !== "codex" ? msg.model : "claude-sonnet-4-6";
+      cmd = "claude";
+      cmdArgs = ["--model", resolvedModel];
+    } else {
+      const built = buildCommand(slotType, complexity, model, worktreePath, promptFilePath);
+      cmd = built.cmd;
+      cmdArgs = built.args;
     }
-    if (cpoArchetype) {
-      console.log(`  CPO:      ${cpoArchetype}`);
+    const sessionName = `${this.machineId}-${jobId}`;
+    mkdirSync2(ephemeralWorkspaceDir, { recursive: true });
+    writeFileSync2(promptFilePath, assembledContext);
+    const reportPath = `${process.env["HOME"] ?? "/tmp"}/${reportRelativePath(msg.role)}`;
+    try {
+      unlinkSync(reportPath);
+    } catch {
     }
-    if (invitedEmails.length > 0) {
-      console.log(`  Invited:  ${invitedEmails.join(", ")}`);
+    if (await isTmuxSessionAlive(sessionName)) {
+      console.warn(`[executor] Stale tmux session ${sessionName} exists \u2014 killing before respawn`);
+      await killTmuxSession(sessionName);
     }
-    console.log("\nRun 'zazig start' to begin.");
-  } finally {
-    rl.close();
-  }
-}
-
-// dist/commands/start.js
-import { hostname, homedir as homedir7 } from "node:os";
-import { join as join9 } from "node:path";
-import { execSync as execSync5 } from "node:child_process";
-import { createInterface as createInterface4 } from "node:readline/promises";
-
-// dist/lib/config.js
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync4, mkdirSync as mkdirSync3 } from "node:fs";
-import { homedir as homedir3 } from "node:os";
-import { join as join4 } from "node:path";
-var ZAZIGV2_DIR2 = join4(homedir3(), ".zazigv2");
-var CONFIG_PATH = join4(ZAZIGV2_DIR2, "config.json");
-function configExists() {
-  return existsSync4(CONFIG_PATH);
-}
-function loadConfig() {
-  try {
-    const raw = readFileSync3(CONFIG_PATH, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (!parsed.name || typeof parsed.name !== "string") {
-      throw new Error("config.json: missing or invalid 'name' field");
-    }
-    return {
-      name: parsed.name,
-      company_id: parsed.company_id,
-      slots: {
-        claude_code: parsed.slots?.claude_code ?? 4,
-        codex: parsed.slots?.codex ?? 4
+    try {
+      if (isInteractive) {
+        const claudeCmd = shellEscape([cmd, ...cmdArgs]);
+        const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
+        await execFileAsync2("tmux", [
+          "new-session",
+          "-d",
+          "-s",
+          sessionName,
+          ...ephemeralWorkspaceDir ? ["-c", ephemeralWorkspaceDir] : [],
+          shellCmd
+        ]);
+        setTimeout(async () => {
+          try {
+            await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "Enter"]);
+            jobLog(jobId, "Sent Enter to dismiss trust prompt");
+          } catch (err) {
+            jobLog(jobId, `Failed to dismiss trust prompt: ${err}`);
+          }
+        }, 3e3);
+        setTimeout(async () => {
+          try {
+            const promptText = readFileSync3(promptFilePath, "utf8");
+            await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "-l", promptText]);
+            await new Promise((resolve2) => setTimeout(resolve2, 2e3));
+            await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "Enter"]);
+            jobLog(jobId, `Injected prompt into interactive session (${promptText.length} chars)`);
+          } catch (err) {
+            jobLog(jobId, `Failed to inject prompt: ${err}`);
+          }
+        }, CPO_STARTUP_DELAY_MS);
+      } else {
+        await spawnTmuxSession(sessionName, cmd, cmdArgs, ephemeralWorkspaceDir, slotType === "codex" ? void 0 : promptFilePath);
       }
+    } catch (err) {
+      console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
+      await cleanupPreparedWorkspace();
+      this.slots.release(slotType);
+      await this.sendJobFailed(jobId, `Failed to start tmux session: ${String(err)}`, "agent_crash");
+      return;
+    }
+    jobLog(jobId, `Tmux session started \u2014 session=${sessionName}, cmd=${cmd} ${cmdArgs.join(" ")}, cwd=${ephemeralWorkspaceDir ?? "none"}`);
+    console.log(`[executor] Tmux session started \u2014 session=${sessionName}, cmd=${cmd}`);
+    const logPath2 = jobLogPath(jobId);
+    try {
+      mkdirSync2(JOB_LOG_DIR, { recursive: true });
+      await startPipePane(sessionName, logPath2);
+      jobLog(jobId, `pipe-pane started \u2192 ${logPath2}`);
+    } catch (err) {
+      jobLog(jobId, `pipe-pane FAILED: ${String(err)}`);
+      console.warn(`[executor] pipe-pane start failed for jobId=${jobId}: ${String(err)}`);
+    }
+    if (process.env["ZAZIG_OPEN_SESSIONS"]) {
+      execFile2("bash", ["-c", `ghostty -e bash -c 'tmux attach -t ${sessionName}'`], (err) => {
+        if (err)
+          console.warn(`[executor] Could not open Ghostty window: ${err.message}`);
+      });
+    }
+    await this.sendJobStatus(jobId, "executing");
+    const activeJob = {
+      jobId,
+      slotType,
+      sessionName,
+      pollTimer: null,
+      timeoutTimer: null,
+      settled: false,
+      startedAt: Date.now(),
+      logPath: logPath2,
+      lastBytesSent: 0,
+      workspaceDir: ephemeralWorkspaceDir,
+      worktreePath,
+      repoDir,
+      jobBranch,
+      role: msg.role,
+      cardType: msg.cardType,
+      repoUrl: msg.repoUrl ?? void 0,
+      featureBranch: msg.featureBranch ?? void 0,
+      spec: msg.spec,
+      acceptanceCriteria: msg.acceptanceCriteria,
+      jobTitle: msg.title,
+      startingCommit
     };
+    this.activeJobs.set(jobId, activeJob);
+    activeJob.timeoutTimer = setTimeout(() => {
+      void this.onJobTimeout(jobId);
+    }, isInteractive ? INTERACTIVE_JOB_TIMEOUT_MS : JOB_TIMEOUT_MS);
+    activeJob.pollTimer = setInterval(() => {
+      this.pollJob(jobId).catch((err) => {
+        jobLog(jobId, `pollJob CRASHED: ${String(err)}`);
+        console.error(`[executor] pollJob crashed for jobId=${jobId}:`, err);
+      });
+    }, POLL_INTERVAL_MS);
+    jobLog(jobId, `Poll timer started (interval=${POLL_INTERVAL_MS}ms)`);
+  }
+  // ---------------------------------------------------------------------------
+  // Public: Spawn a persistent agent from a job definition
+  // ---------------------------------------------------------------------------
+  /**
+   * Spawns a persistent agent from a company-persistent-jobs definition.
+   * Builds a synthetic StartJob-like message and delegates to handlePersistentJob.
+   */
+  async spawnPersistentAgent(job, companyId) {
+    const syntheticMsg = {
+      type: "start_job",
+      protocolVersion: 1,
+      jobId: `persistent-${job.role}-${companyId}`,
+      cardId: `persistent-${job.role}`,
+      cardType: "persistent_agent",
+      complexity: "medium",
+      slotType: job.slot_type,
+      model: job.model,
+      role: job.role,
+      promptStackMinusSkills: job.prompt_stack_minus_skills,
+      roleSkills: job.skills?.length ? job.skills : void 0,
+      roleMcpTools: job.mcp_tools?.length ? job.mcp_tools : void 0
+    };
+    await this.handlePersistentJob(`persistent-${job.role}`, syntheticMsg, syntheticMsg.slotType, companyId);
+  }
+  hasPersistentAgent(role) {
+    return this.persistentAgents.has(role);
+  }
+  /**
+   * Hot-reload a running persistent role.
+   * Reuses the normal spawn path so CLAUDE.md assembly and tmux startup stay consistent.
+   */
+  async reloadPersistentAgent(job, companyId) {
+    const existing = this.persistentAgents.get(job.role);
+    if (!existing) {
+      console.log(`[executor] reloadPersistentAgent skipped \u2014 no active agent for role=${job.role}`);
+      return;
+    }
+    const activeJob = this.activeJobs.get(existing.jobId);
+    if (activeJob) {
+      activeJob.settled = true;
+      this.clearJobTimers(activeJob);
+      this.activeJobs.delete(existing.jobId);
+    } else {
+      console.warn(`[executor] reloadPersistentAgent: active job missing for role=${job.role}, jobId=${existing.jobId}`);
+    }
+    this.clearPersistentAgent(job.role);
+    await this.spawnPersistentAgent(job, companyId);
+  }
+  // ---------------------------------------------------------------------------
+  // Public: MessageInbound
+  // ---------------------------------------------------------------------------
+  /**
+   * Handles an inbound message from an external platform (Slack, Discord, etc.)
+   * by formatting it and injecting into the target persistent agent's tmux session.
+   * Messages are queued and injected one at a time.
+   *
+   * Routing: uses msg.role when present; falls back to the single running agent
+   * (backward-compatible with single-role deployments where role is omitted).
+   */
+  handleMessageInbound(msg) {
+    if (this.persistentAgents.size === 0) {
+      console.warn(`[executor] MessageInbound dropped \u2014 no persistent agents running. from=${msg.from}, conversationId=${msg.conversationId}`);
+      return;
+    }
+    const targetRole = msg.role ?? (this.persistentAgents.size === 1 ? this.persistentAgents.keys().next().value : void 0);
+    if (!targetRole) {
+      console.warn(`[executor] MessageInbound dropped \u2014 multiple persistent agents running but no role specified. from=${msg.from}, conversationId=${msg.conversationId}`);
+      return;
+    }
+    const agent = this.persistentAgents.get(targetRole);
+    if (!agent) {
+      console.warn(`[executor] MessageInbound dropped \u2014 no persistent agent for role=${targetRole}. from=${msg.from}, conversationId=${msg.conversationId}`);
+      return;
+    }
+    const formatted = `[Message from ${msg.from}, conversation:${msg.conversationId}]
+${msg.text}`;
+    console.log(`[executor] Queuing inbound message from ${msg.from} for role=${targetRole} session=${agent.tmuxSession}`);
+    void this.enqueueMessage(formatted, agent.tmuxSession, agent.startedAt);
+  }
+  // ---------------------------------------------------------------------------
+  // Public: StopJob
+  // ---------------------------------------------------------------------------
+  // Public: JobUnblocked
+  // ---------------------------------------------------------------------------
+  /**
+   * Handles a job_unblocked message from the orchestrator.
+   * For V1: the orchestrator already updated the job context in the DB.
+   * If the tmux session is still alive, the agent will pick up the answer
+   * from its DB context on next iteration. If the session died, the
+   * dispatcher will re-pick the job since it's now back to `executing`.
+   */
+  async handleJobUnblocked(msg) {
+    const job = this.activeJobs.get(msg.jobId);
+    if (!job) {
+      console.log(`[executor] JobUnblocked for unknown jobId=${msg.jobId} \u2014 session may have died, dispatcher will re-pick`);
+      return;
+    }
+    console.log(`[executor] JobUnblocked \u2014 jobId=${msg.jobId}, session=${job.sessionName} still alive, agent will read answer from DB context`);
+  }
+  // ---------------------------------------------------------------------------
+  // Public: Graceful shutdown
+  // ---------------------------------------------------------------------------
+  /**
+   * Stops all active jobs. Called by the process shutdown handler before
+   * disconnecting from Supabase.
+   */
+  async stopAll() {
+    if (this.reconcileTimer !== null) {
+      clearInterval(this.reconcileTimer);
+      this.reconcileTimer = null;
+    }
+    if (this.prMonitorTimer !== null) {
+      clearInterval(this.prMonitorTimer);
+      this.prMonitorTimer = null;
+    }
+    this.clearPersistentAgent();
+    for (const [, job] of this.activeJobs) {
+      this.clearJobTimers(job);
+      await killTmuxSession(job.sessionName);
+      if (job.worktreePath && job.repoDir) {
+      } else {
+        cleanupJobWorkspace(job.jobId, job.workspaceDir);
+      }
+      this.slots.release(job.slotType);
+    }
+    this.activeJobs.clear();
+  }
+  /**
+   * Monitors features in pr_ready status for merged PRs.
+   * When a PR is detected as merged via `gh` CLI, advances the feature to complete.
+   */
+  async monitorMergedPRs() {
+    const { data: features } = await this.supabase.from("features").select("id, pr_url, company_id").eq("status", "pr_ready").not("pr_url", "is", null).limit(50);
+    if (!features || features.length === 0)
+      return;
+    for (const feature of features) {
+      try {
+        const { stdout } = await execFileAsync2("gh", [
+          "pr",
+          "view",
+          feature.pr_url,
+          "--json",
+          "state"
+        ], { encoding: "utf8" });
+        const { state } = JSON.parse(stdout);
+        if (state === "MERGED") {
+          const { data: updated } = await this.supabase.from("features").update({ status: "complete", completed_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", feature.id).eq("status", "pr_ready").select("id");
+          if (updated?.length) {
+            await this.supabase.from("events").insert({
+              company_id: feature.company_id,
+              event_type: "feature_status_changed",
+              detail: { featureId: feature.id, from: "pr_ready", to: "complete", reason: "pr_merged" }
+            });
+            console.log(`[executor] PR merged \u2014 feature ${feature.id} \u2192 complete`);
+          }
+        }
+      } catch {
+      }
+    }
+  }
+  /**
+   * Reconciles in-memory active jobs with DB terminal status.
+   * This closes slot leaks when jobs are externally marked terminal in the DB
+   * without a matching StopJob reaching this daemon.
+   */
+  async reconcileSlots() {
+    try {
+      const activeJobIds = [...this.activeJobs.values()].filter((job) => !job.settled && !this.isPersistentJob(job.jobId)).map((job) => job.jobId);
+      if (activeJobIds.length === 0)
+        return;
+      const { data, error } = await this.supabase.from("jobs").select("id,status").in("id", activeJobIds);
+      if (error) {
+        console.warn(`[executor] Slot reconciliation query failed: ${error.message}`);
+        return;
+      }
+      if (!data || data.length === 0)
+        return;
+      const terminalStatuses = /* @__PURE__ */ new Set(["failed", "complete", "cancelled"]);
+      for (const row of data) {
+        if (!terminalStatuses.has(row.status))
+          continue;
+        const job = this.activeJobs.get(row.id);
+        if (!job || job.settled || this.isPersistentJob(job.jobId))
+          continue;
+        console.log(`[executor] Slot reconciliation: job ${job.jobId} externally terminated (DB status=${row.status}), releasing slot`);
+        try {
+          await this.teardownReconciledJob(job);
+        } catch (teardownErr) {
+          console.warn(`[executor] Slot reconciliation teardown failed for job ${job.jobId}: ${String(teardownErr)}`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[executor] Slot reconciliation failed: ${String(err)}`);
+    }
+  }
+  isPersistentJob(jobId) {
+    return jobId.startsWith("persistent-");
+  }
+  async teardownReconciledJob(job) {
+    job.settled = true;
+    this.clearJobTimers(job);
+    this.activeJobs.delete(job.jobId);
+    const sessionAlive = await isTmuxSessionAlive(job.sessionName);
+    if (sessionAlive) {
+      await killTmuxSession(job.sessionName);
+    }
+    if (job.worktreePath && job.repoDir) {
+      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+    } else {
+      cleanupJobWorkspace(job.jobId, job.workspaceDir);
+    }
+    this.slots.release(job.slotType);
+  }
+  // ---------------------------------------------------------------------------
+  // Private: Persistent agent (role-agnostic)
+  // ---------------------------------------------------------------------------
+  /**
+   * Handles a start_job for a persistent agent (cardType === "persistent_agent").
+   *
+   * Unlike regular jobs the persistent session:
+   *   - Runs Claude Code in interactive TUI mode (not -p print mode)
+   *   - Has no poll/timeout timers — it runs indefinitely until StopJob
+   *   - Receives inbound messages via handleMessageInbound (injected into tmux)
+   *
+   * Before spawning, creates an agent workspace at ~/.zazigv2/{role}-workspace/
+   * with a .mcp.json that gives the agent access to the zazig-messaging MCP server.
+   * CLAUDE.md content comes from assembleContext(msg) (promptStackMinusSkills with skills inserted).
+   */
+  async handlePersistentJob(jobId, msg, slotType, companyId) {
+    const role = msg.role ?? "agent";
+    const resolvedCompanyId = companyId ?? process.env["ZAZIG_COMPANY_ID"] ?? "";
+    const workspaceDir = resolvedCompanyId ? join4(homedir2(), ".zazigv2", `${resolvedCompanyId}-${role}-workspace`) : join4(homedir2(), ".zazigv2", `${role}-workspace`);
+    try {
+      const repoRoot = resolveRepoRoot();
+      const mcpServerPath = resolveMcpServerPath();
+      setupJobWorkspace({
+        workspaceDir,
+        mcpServerPath,
+        supabaseUrl: this.supabaseUrl,
+        supabaseAnonKey: this.supabaseAnonKey,
+        jobId,
+        companyId: resolvedCompanyId,
+        role,
+        claudeMdContent: assembleContext(msg, repoRoot),
+        skills: msg.roleSkills,
+        repoSkillsDir: join4(repoRoot, "projects", "skills"),
+        repoInteractiveSkillsDir: join4(repoRoot, ".claude", "skills"),
+        useSymlinks: true,
+        mcpTools: msg.roleMcpTools,
+        tmuxSession: `${this.machineId}-${this.companyId ? this.companyId.slice(0, 8) + "-" : ""}${role}`
+      });
+      if (role === "cpo") {
+        await writeSubagentsConfig(workspaceDir);
+      }
+      let rolePromptForHash = msg.rolePrompt ?? "";
+      if (!rolePromptForHash) {
+        const { data: roleRow } = await this.supabase.from("roles").select("prompt").eq("name", role).single();
+        rolePromptForHash = roleRow?.prompt ?? "";
+      }
+      const promptHash = createHash("sha256").update(rolePromptForHash).digest("hex");
+      writeFileSync2(join4(workspaceDir, ".role"), role);
+      writeFileSync2(join4(workspaceDir, ".prompt-hash"), promptHash);
+      if (resolvedCompanyId) {
+        writeFileSync2(join4(workspaceDir, ".company-id"), resolvedCompanyId);
+      }
+      writeFileSync2(join4(workspaceDir, ".claude", ".file-writing-rules"), FILE_WRITING_RULES);
+      const freshnessScript = join4(repoRoot, "packages", "local-agent", "scripts", "check-prompt-freshness.sh");
+      const settingsPath = join4(workspaceDir, ".claude", "settings.json");
+      const existingSettings = JSON.parse(readFileSync3(settingsPath, "utf8"));
+      existingSettings.hooks = {
+        ...existingSettings.hooks,
+        SessionStart: [
+          { matcher: "", hooks: [{ type: "command", command: `bash ${freshnessScript}` }] }
+        ]
+      };
+      writeFileSync2(settingsPath, JSON.stringify(existingSettings, null, 2));
+      console.log(`[executor] Persistent agent workspace created at ${workspaceDir}`);
+      if (resolvedCompanyId) {
+        const machineUuid = await this.resolveMachineUuid(resolvedCompanyId);
+        if (machineUuid) {
+          this.supabase.from("persistent_agents").upsert({
+            company_id: resolvedCompanyId,
+            role,
+            machine_id: machineUuid,
+            status: "running",
+            prompt_stack: msg.promptStackMinusSkills ?? "",
+            last_heartbeat: (/* @__PURE__ */ new Date()).toISOString()
+          }, { onConflict: "company_id,role,machine_id" }).then(({ error }) => {
+            if (error)
+              console.warn(`[executor] Failed to upsert persistent_agents for ${role}: ${error.message}`);
+          });
+        }
+      }
+    } catch (err) {
+      console.error(`[executor] Persistent agent: failed to create workspace:`, err);
+      await this.sendJobFailed(jobId, `Failed to create agent workspace: ${String(err)}`, "agent_crash");
+      return;
+    }
+    const companyPrefix = this.companyId ? this.companyId.slice(0, 8) + "-" : "";
+    const sessionName = `${this.machineId}-${companyPrefix}${role}`;
+    try {
+      await killTmuxSession(sessionName);
+      const shellCmd = `unset CLAUDECODE; claude --model claude-opus-4-6`;
+      const tmuxArgs = [
+        "new-session",
+        "-d",
+        "-s",
+        sessionName,
+        "-c",
+        workspaceDir,
+        shellCmd
+      ];
+      await execFileAsync2("tmux", tmuxArgs);
+      console.log(`[executor] Spawned persistent ${role} session: ${sessionName} (cwd=${workspaceDir})`);
+    } catch (err) {
+      console.error(`[executor] Persistent agent: failed to spawn tmux session:`, err);
+      await this.sendJobFailed(jobId, `Failed to start agent session: ${String(err)}`, "agent_crash");
+      return;
+    }
+    const spawnedAt = Date.now();
+    const persistentAgent = {
+      role,
+      tmuxSession: sessionName,
+      jobId,
+      companyId: resolvedCompanyId,
+      heartbeatTimer: null,
+      startedAt: spawnedAt
+    };
+    this.persistentAgents.set(role, persistentAgent);
+    if (resolvedCompanyId && this.machineUuid) {
+      const uuid = this.machineUuid;
+      persistentAgent.heartbeatTimer = setInterval(() => {
+        this.supabase.from("persistent_agents").update({ last_heartbeat: (/* @__PURE__ */ new Date()).toISOString() }).eq("company_id", resolvedCompanyId).eq("machine_id", uuid).eq("status", "running").then(({ error }) => {
+          if (error)
+            console.warn(`[executor] Heartbeat update failed for persistent_agents: ${error.message}`);
+        });
+      }, HEARTBEAT_INTERVAL_MS);
+    }
+    this.activeJobs.set(jobId, {
+      jobId,
+      slotType,
+      sessionName,
+      pollTimer: null,
+      timeoutTimer: null,
+      settled: false,
+      startedAt: spawnedAt,
+      logPath: "",
+      lastBytesSent: 0,
+      role: msg.role
+    });
+    await this.sendJobStatus(jobId, "executing");
+    console.log(`[executor] Persistent ${role} session=${sessionName} ready \u2014 jobId=${jobId}`);
+  }
+  // ---------------------------------------------------------------------------
+  async handleStopJob(msg) {
+    const { jobId, reason } = msg;
+    console.log(`[executor] handleStopJob \u2014 jobId=${jobId}, reason=${reason}`);
+    try {
+      await this._handleStopJobInner(msg);
+    } catch (err) {
+      jobLog(jobId, `FATAL handleStopJob crashed: ${String(err)}`);
+      console.error(`[executor] FATAL handleStopJob crashed for jobId=${jobId}:`, err);
+    }
+  }
+  async _handleStopJobInner(msg) {
+    const { jobId, reason } = msg;
+    const job = this.activeJobs.get(jobId);
+    if (!job) {
+      console.warn(`[executor] StopJob for unknown jobId=${jobId} \u2014 sending StopAck anyway`);
+      await this.sendStopAck(jobId);
+      return;
+    }
+    job.settled = true;
+    this.clearJobTimers(job);
+    this.activeJobs.delete(jobId);
+    const stoppedPersistentRole = [...this.persistentAgents.values()].find((a) => a.jobId === jobId)?.role;
+    if (stoppedPersistentRole) {
+      this.clearPersistentAgent(stoppedPersistentRole);
+    }
+    await killTmuxSession(job.sessionName);
+    const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+    if (logChunk !== null) {
+      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
+        job_id: jobId,
+        chunk: logChunk.chunk
+      });
+      if (appendErr) {
+        console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+    if (job.worktreePath && job.jobBranch) {
+      try {
+        await this.repoManager.pushJobBranch(job.worktreePath, job.jobBranch);
+      } catch (pushErr) {
+        console.warn(`[executor] handleStopJob: push failed for jobId=${jobId} (best-effort): ${String(pushErr)}`);
+      }
+    }
+    if (job.worktreePath && job.repoDir) {
+    } else {
+      cleanupJobWorkspace(jobId, job.workspaceDir);
+    }
+    if (!stoppedPersistentRole) {
+      this.slots.release(job.slotType);
+    }
+    await this.sendStopAck(jobId);
+  }
+  // ---------------------------------------------------------------------------
+  // Private: Poll loop
+  // ---------------------------------------------------------------------------
+  async pollJob(jobId) {
+    const job = this.activeJobs.get(jobId);
+    if (!job || job.settled) {
+      jobLog(jobId, `pollJob skipped \u2014 job=${job ? "exists" : "missing"}, settled=${job?.settled}`);
+      return;
+    }
+    const alive = await isTmuxSessionAlive(job.sessionName);
+    jobLog(jobId, `pollJob \u2014 session=${job.sessionName}, alive=${alive}`);
+    if (alive) {
+      const elapsedMs = Date.now() - job.startedAt;
+      const progress = Math.min(95, Math.floor(elapsedMs / JOB_TIMEOUT_MS * 100));
+      const { error: progressErr } = await this.supabase.from("jobs").update({ progress, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", jobId);
+      if (progressErr) {
+        jobLog(jobId, `Progress write failed: ${progressErr.message}`);
+        console.warn(`[executor] Progress write failed for jobId=${jobId}: ${progressErr.message}`);
+      }
+      const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+      if (logChunk !== null) {
+        const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
+          job_id: jobId,
+          chunk: logChunk.chunk
+        });
+        if (appendErr) {
+          console.warn(`[executor] Log append failed for jobId=${jobId}: ${appendErr.message}`);
+        } else {
+          job.lastBytesSent = logChunk.newOffset;
+        }
+      }
+      jobLog(jobId, `Still running \u2014 progress=${progress}`);
+      console.log(`[executor] Job still running \u2014 jobId=${jobId}, session=${job.sessionName}, progress=${progress}`);
+      return;
+    }
+    jobLog(jobId, `Tmux session ended \u2014 triggering onJobEnded`);
+    console.log(`[executor] Tmux session ended \u2014 jobId=${jobId}, session=${job.sessionName}`);
+    await this.onJobEnded(
+      jobId,
+      false
+      /* not a forced timeout */
+    );
+  }
+  // ---------------------------------------------------------------------------
+  // Private: Timeout
+  // ---------------------------------------------------------------------------
+  async onJobTimeout(jobId) {
+    const job = this.activeJobs.get(jobId);
+    if (!job || job.settled)
+      return;
+    jobLog(jobId, `TIMEOUT after ${JOB_TIMEOUT_MS / 6e4} min`);
+    console.warn(`[executor] Job timed out after ${JOB_TIMEOUT_MS / 6e4} min \u2014 jobId=${jobId}`);
+    job.settled = true;
+    this.clearJobTimers(job);
+    this.activeJobs.delete(jobId);
+    const timedOutPersistentRole = [...this.persistentAgents.values()].find((a) => a.jobId === jobId)?.role;
+    if (timedOutPersistentRole) {
+      this.clearPersistentAgent(timedOutPersistentRole);
+    }
+    await killTmuxSession(job.sessionName);
+    const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+    if (logChunk !== null) {
+      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
+        job_id: jobId,
+        chunk: logChunk.chunk
+      });
+      if (appendErr) {
+        console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+    if (job.worktreePath && job.jobBranch) {
+      try {
+        await this.repoManager.pushJobBranch(job.worktreePath, job.jobBranch);
+      } catch (pushErr) {
+        console.warn(`[executor] onJobTimeout: push failed for jobId=${jobId} (best-effort): ${String(pushErr)}`);
+      }
+    }
+    if (job.worktreePath && job.repoDir) {
+    } else {
+      cleanupJobWorkspace(jobId, job.workspaceDir);
+    }
+    if (!timedOutPersistentRole) {
+      this.slots.release(job.slotType);
+    }
+    await this.sendJobFailed(jobId, "Job exceeded 60-minute timeout", "timeout");
+  }
+  // ---------------------------------------------------------------------------
+  // Private: Job ended (session exited naturally)
+  // ---------------------------------------------------------------------------
+  async onJobEnded(jobId, _timedOut) {
+    const job = this.activeJobs.get(jobId);
+    if (!job || job.settled) {
+      jobLog(jobId, `onJobEnded SKIPPED \u2014 job=${job ? "exists" : "missing"}, settled=${job?.settled}`);
+      return;
+    }
+    jobLog(jobId, `onJobEnded START \u2014 role=${job.role ?? "none"}, worktree=${job.worktreePath ?? "none"}`);
+    job.settled = true;
+    this.clearJobTimers(job);
+    this.activeJobs.delete(jobId);
+    const exitedPersistentRole = [...this.persistentAgents.values()].find((a) => a.jobId === jobId)?.role;
+    if (exitedPersistentRole) {
+      this.clearPersistentAgent(exitedPersistentRole);
+    } else {
+      this.slots.release(job.slotType);
+    }
+    if (job.slotType === "codex" && job.worktreePath) {
+      const reviewResult = await runCodexReview(job, job.spec ?? "", job.acceptanceCriteria ?? "");
+      jobLog(jobId, `Codex review: pass=${reviewResult.pass}, reason=${reviewResult.reason}`);
+      console.log(`[executor] Codex review for jobId=${jobId}: pass=${reviewResult.pass}, reason=${reviewResult.reason}`);
+      if (!reviewResult.pass) {
+        try {
+          if (reviewResult.committed) {
+            await execFileAsync2("git", ["reset", "--hard", "HEAD~1"], { cwd: job.worktreePath });
+            jobLog(jobId, "Reverted codex review commit via git reset --hard HEAD~1.");
+          } else if (reviewResult.codexSelfCommitted && reviewResult.startingCommit) {
+            await execFileAsync2("git", ["reset", "--hard", reviewResult.startingCommit], { cwd: job.worktreePath });
+            jobLog(jobId, `Reverted codex self-commits via git reset --hard ${reviewResult.startingCommit}.`);
+          } else {
+            await execFileAsync2("git", ["checkout", "."], { cwd: job.worktreePath });
+            jobLog(jobId, "Reverted uncommitted codex changes via git checkout .");
+          }
+        } catch (revertErr) {
+          jobLog(jobId, `codex revert failed (non-fatal): ${String(revertErr)}`);
+        }
+        const failLogChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+        if (failLogChunk !== null) {
+          try {
+            await this.supabase.rpc("append_raw_log", { job_id: jobId, chunk: failLogChunk.chunk });
+          } catch {
+          }
+        }
+        await this.sendJobFailed(jobId, reviewResult.reason, "unknown");
+        return;
+      }
+    }
+    const homeDir = process.env["HOME"] ?? "/tmp";
+    const archiveDir = `${homeDir}/${REPORT_ARCHIVE_DIR}`;
+    const jobReportPath = `${archiveDir}/${jobId}.md`;
+    const rpPath = reportRelativePath(job.role);
+    const candidatePaths = [];
+    if (job.worktreePath) {
+      candidatePaths.push(`${job.worktreePath}/${rpPath}`);
+    } else if (job.workspaceDir) {
+      candidatePaths.push(`${job.workspaceDir}/${rpPath}`);
+    }
+    candidatePaths.push(`${homeDir}/${rpPath}`);
+    const REPORT_FALLBACKS = {
+      reviewer: ".claude/verify-report.md",
+      deployer: ".claude/deploy-report.md",
+      "test-deployer": ".claude/deploy-report.md",
+      tester: ".claude/tester-report.md",
+      "job-merger": ".claude/job-merger-report.md"
+    };
+    const fallback = job.role ? REPORT_FALLBACKS[job.role] : void 0;
+    if (fallback && fallback !== rpPath) {
+      if (job.worktreePath)
+        candidatePaths.push(`${job.worktreePath}/${fallback}`);
+      else if (job.workspaceDir)
+        candidatePaths.push(`${job.workspaceDir}/${fallback}`);
+      candidatePaths.push(`${homeDir}/${fallback}`);
+    }
+    let result = "NO_REPORT";
+    let report;
+    jobLog(jobId, `Report search \u2014 rpPath=${rpPath}, fallback=${fallback ?? "none"}, candidates=${JSON.stringify(candidatePaths)}`);
+    mkdirSync2(archiveDir, { recursive: true });
+    for (const candidatePath of candidatePaths) {
+      try {
+        renameSync(candidatePath, jobReportPath);
+        report = readFileSync3(jobReportPath, "utf-8");
+        jobLog(jobId, `Report FOUND at ${candidatePath} (${report.length} chars)`);
+        console.log(`[executor] Claimed report for jobId=${jobId} from ${candidatePath} \u2192 ${jobReportPath}`);
+        break;
+      } catch {
+        jobLog(jobId, `Report not at ${candidatePath}`);
+      }
+    }
+    if (report) {
+      const passMatch = report.match(/^status:\s*(pass|success|fail)\s*$/m);
+      if (passMatch) {
+        const prefix = passMatch[1] === "fail" ? "FAILED" : "PASSED";
+        const reasonMatch = report.match(/^failure_reason:\s*(.+)$/m);
+        result = reasonMatch?.[1]?.trim() ? `${prefix}: ${reasonMatch[1].trim()}` : prefix;
+      } else {
+        const passedAnywhere = report.match(/\*?\*?PASSED\*?\*?/);
+        const failedAnywhere = report.match(/\*?\*?FAILED\*?\*?/);
+        if (passedAnywhere && !failedAnywhere) {
+          result = "PASSED";
+        } else if (failedAnywhere) {
+          result = "FAILED";
+        } else {
+          result = "VERDICT_MISSING";
+        }
+      }
+      jobLog(jobId, `Report parsed \u2014 result="${result}"`);
+    } else {
+      jobLog(jobId, `Report NOT FOUND \u2014 result="NO_REPORT"`);
+      console.log(`[executor] No report file for jobId=${jobId}, result=NO_REPORT`);
+    }
+    const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+    if (logChunk !== null) {
+      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
+        job_id: jobId,
+        chunk: logChunk.chunk
+      });
+      if (appendErr) {
+        console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+    if (job.worktreePath && job.jobBranch) {
+      jobLog(jobId, `Pushing branch ${job.jobBranch} from ${job.worktreePath}`);
+      try {
+        await this.repoManager.pushJobBranch(job.worktreePath, job.jobBranch);
+        jobLog(jobId, `Push succeeded for ${job.jobBranch}`);
+        console.log(`[executor] Pushed branch ${job.jobBranch} for jobId=${jobId}`);
+      } catch (pushErr) {
+        jobLog(jobId, `Push FAILED for ${job.jobBranch}: ${String(pushErr)}`);
+        console.warn(`[executor] onJobEnded: push failed for jobId=${jobId}: ${String(pushErr)}`);
+      }
+      await this.supabase.from("jobs").update({ branch: job.jobBranch }).eq("id", jobId);
+      try {
+        await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      } catch (worktreeErr) {
+        jobLog(jobId, `Worktree cleanup failed (non-fatal): ${String(worktreeErr)}`);
+        console.warn(`[executor] Worktree cleanup failed for jobId=${jobId}: ${String(worktreeErr)}`);
+      }
+      if (job.cardType === "combine" && job.repoUrl && job.featureBranch) {
+        await this.createPRForCombineJob(jobId, job);
+      }
+    } else {
+      cleanupJobWorkspace(jobId, job.workspaceDir);
+    }
+    if (job.cardType === "verify" && result.startsWith("PASSED") && job.featureBranch) {
+      jobLog(jobId, `Verify passed \u2014 merging PR for feature branch ${job.featureBranch}`);
+      try {
+        const { stdout: mergeOut } = await execFileAsync2("gh", [
+          "pr",
+          "merge",
+          job.featureBranch,
+          "--squash",
+          "--delete-branch"
+        ], { encoding: "utf8" });
+        jobLog(jobId, `PR merge succeeded: ${mergeOut.trim()}`);
+        console.log(`[executor] PR merged for jobId=${jobId}, branch=${job.featureBranch}`);
+      } catch (mergeErr) {
+        jobLog(jobId, `PR merge FAILED: ${String(mergeErr)}`);
+        console.error(`[executor] PR merge failed for jobId=${jobId}:`, mergeErr);
+      }
+    }
+    if (result === "VERDICT_MISSING") {
+      jobLog(jobId, `Sending JobFailed (no verdict) \u2014 result="${result}"`);
+      try {
+        await this.sendJobFailed(jobId, result, "unknown");
+        jobLog(jobId, `JobFailed sent successfully`);
+      } catch (sendErr) {
+        jobLog(jobId, `sendJobFailed FAILED: ${String(sendErr)}`);
+        console.error(`[executor] sendJobFailed failed for jobId=${jobId}:`, sendErr);
+      }
+    } else {
+      jobLog(jobId, `Sending JobComplete \u2014 result="${result}", hasReport=${!!report}`);
+      try {
+        await this.sendJobComplete(jobId, result, report);
+        jobLog(jobId, `JobComplete sent successfully`);
+      } catch (sendErr) {
+        jobLog(jobId, `sendJobComplete FAILED: ${String(sendErr)}`);
+        console.error(`[executor] sendJobComplete failed for jobId=${jobId}:`, sendErr);
+      }
+    }
+    if (this.afterJobComplete) {
+      try {
+        await this.afterJobComplete(jobId);
+      } catch (err) {
+        console.error(`[executor] afterJobComplete failed for jobId=${jobId}:`, err);
+      }
+    }
+  }
+  // ---------------------------------------------------------------------------
+  // Private: PR creation for combine jobs
+  // ---------------------------------------------------------------------------
+  async createPRForCombineJob(jobId, job) {
+    const repoUrl = job.repoUrl;
+    const featureBranch = job.featureBranch;
+    const { data: jobRow } = await this.supabase.from("jobs").select("feature_id").eq("id", jobId).single();
+    const featureId = jobRow?.feature_id;
+    let featureTitle;
+    if (featureId) {
+      const { data: feature } = await this.supabase.from("features").select("title").eq("id", featureId).single();
+      featureTitle = feature?.title ?? void 0;
+    }
+    const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (!match) {
+      jobLog(jobId, `PR skipped \u2014 cannot parse owner/repo from "${repoUrl}"`);
+      return;
+    }
+    const ownerRepo = match[1];
+    const prTitle = `feat: ${featureTitle ?? featureId ?? jobId}`;
+    const prBody = [
+      "## Auto-generated PR",
+      "",
+      `Feature: ${featureTitle ?? "N/A"}`,
+      `Feature ID: ${featureId ?? "N/A"}`,
+      "",
+      "This PR was automatically created by the zazig pipeline."
+    ].join("\n");
+    try {
+      const { stdout } = await execFileAsync2("gh", [
+        "pr",
+        "create",
+        "--repo",
+        ownerRepo,
+        "--base",
+        "master",
+        "--head",
+        featureBranch,
+        "--title",
+        prTitle,
+        "--body",
+        prBody
+      ], { encoding: "utf8" });
+      const prUrl = stdout.trim();
+      if (prUrl && featureId) {
+        const { data: prWriteData, error: prWriteErr } = await this.supabase.from("features").update({ pr_url: prUrl }).eq("id", featureId).select("id");
+        if (prWriteErr) {
+          jobLog(jobId, `PR URL DB write FAILED for feature ${featureId}: ${prWriteErr.message}`);
+          console.error(`[executor] PR URL DB write failed for feature ${featureId}:`, prWriteErr.message);
+        } else if (!prWriteData?.length) {
+          jobLog(jobId, `PR URL DB write matched 0 rows for feature ${featureId} \u2014 possible RLS block`);
+          console.warn(`[executor] PR URL DB write matched 0 rows for feature ${featureId} \u2014 possible RLS block`);
+        } else {
+          jobLog(jobId, `PR URL persisted for feature ${featureId}: ${prUrl}`);
+        }
+      }
+      jobLog(jobId, `PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);
+      console.log(`[executor] PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);
+    } catch (prErr) {
+      jobLog(jobId, `PR creation failed: ${String(prErr)} \u2014 checking for existing PR`);
+      console.warn(`[executor] PR creation failed for jobId=${jobId}: ${String(prErr)}`);
+      try {
+        const { stdout } = await execFileAsync2("gh", [
+          "pr",
+          "list",
+          "--repo",
+          ownerRepo,
+          "--head",
+          featureBranch,
+          "--json",
+          "url",
+          "--limit",
+          "1"
+        ], { encoding: "utf8" });
+        const prs = JSON.parse(stdout);
+        if (prs.length > 0 && prs[0].url && featureId) {
+          const { data: fallbackData } = await this.supabase.from("features").update({ pr_url: prs[0].url }).eq("id", featureId).select("id");
+          if (!fallbackData?.length) {
+            jobLog(jobId, `PR URL fallback write matched 0 rows for feature ${featureId} \u2014 possible RLS block`);
+          } else {
+            jobLog(jobId, `Found existing PR for feature ${featureId}: ${prs[0].url}`);
+          }
+          console.log(`[executor] Found existing PR for feature ${featureId}: ${prs[0].url}`);
+        }
+      } catch {
+      }
+    }
+  }
+  // ---------------------------------------------------------------------------
+  // Private: Message injection queue (ported from SlackChatRouter)
+  // ---------------------------------------------------------------------------
+  enqueueMessage(message, sessionName, startedAt, type = "human") {
+    return new Promise((resolve2, reject) => {
+      enqueueWithCap(this.messageQueue, { text: message, sessionName, startedAt, type, resolve: resolve2, reject }, MAX_QUEUE_SIZE);
+      if (!this.processingQueue) {
+        void this.processMessageQueue();
+      }
+    });
+  }
+  async processMessageQueue() {
+    this.processingQueue = true;
+    while (this.messageQueue.length > 0) {
+      const item = this.messageQueue.shift();
+      try {
+        await this.injectMessage(item.text, item.sessionName, item.startedAt);
+        item.resolve();
+      } catch (err) {
+        console.error("[executor] Failed to inject message:", err);
+        item.reject(err);
+      }
+    }
+    this.processingQueue = false;
+  }
+  /**
+   * Injects a message into a persistent agent's tmux session immediately.
+   * Claude Code's interactive TUI auto-queues input — no idle detection needed.
+   * If the session just started, waits for CPO_STARTUP_DELAY_MS to let Claude Code initialize.
+   */
+  async injectMessage(message, sessionName, startedAt) {
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < CPO_STARTUP_DELAY_MS) {
+      const wait = CPO_STARTUP_DELAY_MS - elapsed;
+      console.log(`[executor] Session ${sessionName} is ${Math.round(elapsed / 1e3)}s old \u2014 waiting ${Math.round(wait / 1e3)}s for startup`);
+      await sleep(wait);
+    }
+    const singleLine = message.replace(/\r?\n/g, " ");
+    await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "-l", singleLine]);
+    await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "Enter"]);
+    console.log(`[executor] Injected message into session=${sessionName}`);
+  }
+  // ---------------------------------------------------------------------------
+  // Private: Persistent agent cleanup
+  // ---------------------------------------------------------------------------
+  /**
+   * Marks a persistent agent as stopped in the DB, clears its heartbeat timer,
+   * and removes it from the persistentAgents map.
+   *
+   * @param role - The role key to look up in persistentAgents. If omitted, clears ALL agents.
+   */
+  clearPersistentAgent(role) {
+    const agentsToClear = role ? this.persistentAgents.has(role) ? [this.persistentAgents.get(role)] : [] : [...this.persistentAgents.values()];
+    for (const agent of agentsToClear) {
+      if (agent.heartbeatTimer) {
+        clearInterval(agent.heartbeatTimer);
+        agent.heartbeatTimer = null;
+      }
+      if (agent.companyId && this.machineUuid) {
+        this.supabase.from("persistent_agents").update({ status: "stopped" }).eq("company_id", agent.companyId).eq("role", agent.role).eq("machine_id", this.machineUuid).then(({ error }) => {
+          if (error)
+            console.warn(`[executor] Failed to update persistent_agents status for role=${agent.role}: ${error.message}`);
+        });
+      }
+      this.persistentAgents.delete(agent.role);
+    }
+  }
+  // ---------------------------------------------------------------------------
+  // Private: Timer management
+  // ---------------------------------------------------------------------------
+  clearJobTimers(job) {
+    if (job.pollTimer !== null) {
+      clearInterval(job.pollTimer);
+      job.pollTimer = null;
+    }
+    if (job.timeoutTimer !== null) {
+      clearTimeout(job.timeoutTimer);
+      job.timeoutTimer = null;
+    }
+  }
+  // ---------------------------------------------------------------------------
+  // Private: Context resolution
+  // ---------------------------------------------------------------------------
+  async resolveContext(context, contextRef) {
+    if (contextRef) {
+      console.log(`[executor] Fetching context from contextRef: ${contextRef}`);
+      const response = await fetch(contextRef);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch contextRef (HTTP ${response.status}): ${contextRef}`);
+      }
+      return await response.text();
+    }
+    if (context) {
+      return context;
+    }
+    throw new Error("StartJob has neither context nor contextRef");
+  }
+  // ---------------------------------------------------------------------------
+  // Private: Message senders
+  // ---------------------------------------------------------------------------
+  async sendJobAck(jobId) {
+    await this.send({
+      type: "job_ack",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      machineId: this.machineId
+    });
+  }
+  async sendJobStatus(jobId, status, output) {
+    if (!jobId.startsWith("persistent-")) {
+      const { error: dbErr } = await this.supabase.from("jobs").update({ status }).eq("id", jobId);
+      if (dbErr) {
+        console.warn(`[executor] sendJobStatus DB write failed for jobId=${jobId}: ${dbErr.message}`);
+      }
+    }
+    await this.send({
+      type: "job_status",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      status,
+      ...output !== void 0 ? { output } : {}
+    });
+  }
+  async sendJobComplete(jobId, result, report) {
+    if (!jobId.startsWith("persistent-")) {
+      jobLog(jobId, `DB write: status=complete, result="${result.slice(0, 100)}"`);
+      const { error: dbErr } = await this.supabase.from("jobs").update({
+        status: "complete",
+        result,
+        completed_at: (/* @__PURE__ */ new Date()).toISOString(),
+        progress: 100
+      }).eq("id", jobId);
+      if (dbErr) {
+        jobLog(jobId, `DB write FAILED: ${dbErr.message}`);
+        console.warn(`[executor] sendJobComplete DB write failed for jobId=${jobId}: ${dbErr.message}`);
+      } else {
+        jobLog(jobId, `DB write succeeded`);
+      }
+    }
+    await this.send({
+      type: "job_complete",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      machineId: this.machineId,
+      result,
+      ...report !== void 0 ? { report } : {}
+    });
+  }
+  async sendJobFailed(jobId, error, failureReason) {
+    jobLog(jobId, `FAILED \u2014 reason=${failureReason}, error="${error.slice(0, 200)}"`);
+    if (!jobId.startsWith("persistent-")) {
+      const { error: dbErr } = await this.supabase.from("jobs").update({ status: "failed", result: "FAILED" }).eq("id", jobId);
+      if (dbErr) {
+        jobLog(jobId, `DB write FAILED: ${dbErr.message}`);
+        console.warn(`[executor] sendJobFailed DB write failed for jobId=${jobId}: ${dbErr.message}`);
+      }
+    }
+    await this.send({
+      type: "job_failed",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      machineId: this.machineId,
+      error,
+      failureReason
+    });
+  }
+  async sendStopAck(jobId) {
+    await this.send({
+      type: "stop_ack",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      machineId: this.machineId
+    });
+  }
+};
+async function runCodexReview(job, jobSpec, acceptanceCriteria) {
+  const worktreePath = job.worktreePath;
+  const overlayPaths = [
+    "CLAUDE.md",
+    ".mcp.json",
+    ".claude/",
+    ".gitignore",
+    ".zazig-prompt.txt",
+    ".zazig-review-prompt.txt"
+  ];
+  let startingCommit;
+  if (job.startingCommit) {
+    startingCommit = job.startingCommit;
+  } else {
+    try {
+      const { stdout } = await execFileAsync2("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
+      startingCommit = stdout.trim();
+    } catch (err) {
+      return { pass: false, reason: `git rev-parse failed: ${String(err)}`, committed: false };
+    }
+  }
+  let committed = false;
+  try {
+    await execFileAsync2("git", ["add", "--all"], { cwd: worktreePath });
+    await execFileAsync2("git", [
+      "reset",
+      "HEAD",
+      "--",
+      ...overlayPaths
+    ], { cwd: worktreePath }).catch(() => {
+    });
+    await execFileAsync2("git", ["commit", "-m", `codex: ${job.jobId}`], { cwd: worktreePath });
+    committed = true;
+  } catch {
+  }
+  let currentCommit;
+  try {
+    const { stdout } = await execFileAsync2("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
+    currentCommit = stdout.trim();
   } catch (err) {
-    if (err.code === "ENOENT") {
-      throw new Error(`No machine config found at ${CONFIG_PATH}. Run 'zazig start' to configure.`);
-    }
-    throw err;
+    return { pass: false, reason: `git rev-parse failed: ${String(err)}`, committed, startingCommit };
   }
+  const codexSelfCommitted = !committed && currentCommit !== startingCommit;
+  if (!committed && !codexSelfCommitted) {
+    let uncommittedDiff = "";
+    try {
+      const { stdout } = await execFileAsync2("git", [
+        "diff",
+        "HEAD",
+        "--",
+        ".",
+        ...overlayPaths.map((path) => `:!${path}`)
+      ], { cwd: worktreePath });
+      uncommittedDiff = stdout;
+    } catch (err) {
+      return { pass: false, reason: `git diff failed: ${String(err)}`, committed: false };
+    }
+    if (!uncommittedDiff.trim()) {
+      return { pass: false, reason: "Codex produced no changes", committed: false, startingCommit };
+    }
+    return { pass: false, reason: "Codex changes could not be committed", committed: false, startingCommit };
+  }
+  let diff;
+  try {
+    const { stdout } = await execFileAsync2("git", ["diff", `${startingCommit}..HEAD`], { cwd: worktreePath });
+    diff = stdout;
+  } catch (err) {
+    return {
+      pass: false,
+      reason: `git diff failed: ${String(err)}`,
+      committed,
+      codexSelfCommitted,
+      startingCommit
+    };
+  }
+  if (!diff.trim()) {
+    return { pass: false, reason: "Codex produced no changes", committed, codexSelfCommitted, startingCommit };
+  }
+  const reviewPrompt = [
+    "You are reviewing a code diff produced by an automated coding agent.",
+    "## Original Spec",
+    jobSpec,
+    "## Acceptance Criteria",
+    acceptanceCriteria,
+    "## Diff",
+    diff,
+    "Review against spec and acceptance criteria, not diff size.",
+    "Do NOT fail solely because multiple files were touched.",
+    "Adjacent files (tests, types, helpers) are acceptable if they support the spec; flag as observation unless clearly unrelated.",
+    "PASS if: changes address the spec, acceptance criteria are met, and there are no obvious bugs or placeholder code.",
+    "FAIL if: requirements are missing, acceptance criteria are missed, there are obvious errors, or changes are clearly unrelated.",
+    "Respond with exactly: PASS or FAIL: reason"
+  ].join("\n");
+  const reviewPromptPath = join4(worktreePath, ".zazig-review-prompt.txt");
+  writeFileSync2(reviewPromptPath, reviewPrompt, "utf-8");
+  let reviewOutput;
+  try {
+    const shellCmd = `cat ${shellEscape([reviewPromptPath])} | claude --model claude-haiku-4-5-20251001 -p`;
+    const { stdout } = await execFileAsync2("bash", ["-c", shellCmd], {
+      cwd: worktreePath,
+      maxBuffer: 1024 * 1024
+    });
+    reviewOutput = stdout.trim();
+  } catch (err) {
+    return { pass: false, reason: `Haiku review failed: ${String(err)}`, committed, codexSelfCommitted, startingCommit };
+  }
+  if (reviewOutput.startsWith("PASS")) {
+    return { pass: true, reason: "PASS", committed, codexSelfCommitted, startingCommit };
+  }
+  const failMatch = reviewOutput.match(/^FAIL:\s*(.+)/s);
+  return {
+    pass: false,
+    reason: failMatch ? failMatch[1].trim() : reviewOutput || "Haiku returned no output",
+    committed,
+    codexSelfCommitted,
+    startingCommit
+  };
 }
-function saveConfig(cfg) {
-  mkdirSync3(ZAZIGV2_DIR2, { recursive: true });
-  writeFileSync3(CONFIG_PATH, JSON.stringify(cfg, null, 2) + "\n", {
-    mode: 384
-  });
-}
+function assembleContext(msg, repoRoot) {
+  let assembled = msg.promptStackMinusSkills ?? msg.context ?? "";
+  assembled = assembled.replace(`
 
-// dist/lib/company-picker.js
-import { createInterface as createInterface3 } from "node:readline/promises";
-async function fetchUserCompanies(supabaseUrl, anonKey, accessToken) {
-  const res = await fetch(`${supabaseUrl}/rest/v1/user_companies?select=company_id,companies(id,name)`, {
-    headers: {
-      apikey: anonKey,
-      Authorization: `Bearer ${accessToken}`
-    }
-  });
-  if (!res.ok)
-    throw new Error(`Failed to fetch companies: HTTP ${res.status}`);
-  const rows = await res.json();
-  return rows.map((r) => ({ id: r.companies.id, name: r.companies.name }));
-}
-async function pickCompany(companies) {
-  if (companies.length === 0) {
-    throw new Error("You don't belong to any companies. Run 'zazig setup' first.");
-  }
-  if (companies.length === 1) {
-    return companies[0];
-  }
-  console.log("\nWhich company?\n");
-  for (let i = 0; i < companies.length; i++) {
-    console.log(`  ${i + 1}. ${companies[i].name}`);
-  }
-  const rl = createInterface3({ input: process.stdin, output: process.stdout });
-  try {
-    const ans = await rl.question(`
-Choice [1]: `);
-    const idx = (parseInt(ans.trim(), 10) || 1) - 1;
-    if (idx < 0 || idx >= companies.length) {
-      throw new Error("Invalid choice.");
-    }
-    return companies[idx];
-  } finally {
-    rl.close();
-  }
-}
+---
 
-// dist/lib/daemon.js
-import { spawn } from "node:child_process";
-import { openSync, readFileSync as readFileSync4, writeFileSync as writeFileSync4, unlinkSync as unlinkSync2, mkdirSync as mkdirSync4 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { join as join5, dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-var ZAZIGV2_DIR3 = join5(homedir4(), ".zazigv2");
-var PID_PATH = join5(ZAZIGV2_DIR3, "daemon.pid");
-var LOG_DIR = join5(ZAZIGV2_DIR3, "logs");
-var LOG_PATH = join5(LOG_DIR, "agent.log");
-function resolveAgentEntry() {
-  try {
-    const resolved = fileURLToPath(import.meta.resolve("@zazigv2/local-agent"));
-    if (resolved.includes("/src/") || resolved.endsWith(".ts")) {
-      const pkgDir = resolved.replace(/\/src\/.*$/, "");
-      return resolve(pkgDir, "dist/index.js");
+${SKILLS_MARKER}
+
+---
+
+`, "\n\n---\n\n");
+  assembled = assembled.replace(SKILLS_MARKER, "");
+  if (msg.subAgentPrompt) {
+    const workspaceDir = join4(homedir2(), ".zazigv2", `job-${msg.jobId}`);
+    mkdirSync2(workspaceDir, { recursive: true, mode: 448 });
+    const personalityFile = join4(workspaceDir, "subagent-personality.md");
+    writeFileSync2(personalityFile, msg.subAgentPrompt, { encoding: "utf8", mode: 384 });
+    assembled += `
+
+---
+
+# Sub-Agent Instructions
+When spawning sub-agents, begin their prompt with the content of:
+${personalityFile}`;
+  }
+  if (msg.slotType !== "codex") {
+    assembled += `
+
+---
+
+${CODEX_ROUTING_INSTRUCTIONS}`;
+  }
+  return assembled;
+}
+function buildCommand(slotType, complexity, model, worktreePath, promptFilePath) {
+  const resolvedModel = model && model !== "codex" ? model : slotType === "codex" ? "gpt-5.3-codex" : complexity === "complex" ? "claude-opus-4-6" : "claude-sonnet-4-6";
+  if (slotType === "codex") {
+    const args = ["exec", "-m", resolvedModel, "--full-auto", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
+    if (complexity === "medium") {
+      args.push("-c", "model_reasoning_effort=xhigh");
     }
-    return resolved;
-  } catch {
-    const thisDir2 = dirname(fileURLToPath(import.meta.url));
-    return resolve(thisDir2, "../../local-agent/dist/index.js");
+    args.push(promptFilePath ?? "");
+    return {
+      cmd: "codex",
+      args
+    };
+  }
+  return {
+    cmd: "claude",
+    args: ["--model", resolvedModel, "-p", "--verbose", "--output-format", "stream-json"]
+  };
+}
+async function spawnTmuxSession(sessionName, cmd, args, cwd, promptFile) {
+  const claudeCmd = shellEscape([cmd, ...args]);
+  const shellCmd = promptFile ? `unset CLAUDECODE; cat ${shellEscape([promptFile])} | ${claudeCmd} 2>&1` : `unset CLAUDECODE; ${claudeCmd} 2>&1`;
+  const tmuxArgs = [
+    "new-session",
+    "-d",
+    // detached
+    "-s",
+    sessionName,
+    ...cwd ? ["-c", cwd] : [],
+    shellCmd
+    // the command the session runs
+  ];
+  await execFileAsync2("tmux", tmuxArgs);
+}
+async function killTmuxSession(sessionName) {
+  try {
+    await execFileAsync2("tmux", ["kill-session", "-t", sessionName]);
+    console.log(`[executor] Killed tmux session: ${sessionName}`);
+  } catch (err) {
+    console.warn(`[executor] Could not kill tmux session ${sessionName}:`, err);
   }
 }
-function readPid() {
+async function isTmuxSessionAlive(sessionName) {
   try {
-    const raw = readFileSync4(PID_PATH, "utf-8").trim();
-    const n = parseInt(raw, 10);
-    return Number.isFinite(n) ? n : null;
-  } catch {
-    return null;
-  }
-}
-function isRunning(pid) {
-  try {
-    process.kill(pid, 0);
+    await execFileAsync2("tmux", ["has-session", "-t", sessionName]);
     return true;
   } catch {
     return false;
   }
 }
-function isDaemonRunning() {
-  const pid = readPid();
-  return pid !== null && isRunning(pid);
+function sleep(ms) {
+  return new Promise((resolve2) => setTimeout(resolve2, ms));
 }
-function pidPathForCompany(companyId) {
-  return join5(ZAZIGV2_DIR3, `${companyId}.pid`);
+function jobLogPath(jobId) {
+  return `${JOB_LOG_DIR}/${jobId}-pipe-pane.log`;
 }
-function logPathForCompany(companyId) {
-  mkdirSync4(LOG_DIR, { recursive: true });
-  return join5(LOG_DIR, `${companyId}.log`);
+async function startPipePane(sessionName, logPath2) {
+  await execFileAsync2("tmux", [
+    "pipe-pane",
+    "-t",
+    sessionName,
+    `cat >> '${logPath2}'`
+  ]);
 }
-function readPidForCompany(companyId) {
+function readLogFileFrom(logPath2, offsetBytes) {
   try {
-    const raw = readFileSync4(pidPathForCompany(companyId), "utf-8").trim();
-    const n = parseInt(raw, 10);
-    return Number.isFinite(n) ? n : null;
+    const buf = readFileSync3(logPath2);
+    if (buf.length <= offsetBytes)
+      return null;
+    const raw = buf.subarray(offsetBytes).toString("utf8");
+    const clean = raw.replace(/\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07]*\x07|[()#][A-Za-z0-9]|.)/g, "");
+    if (!clean)
+      return null;
+    return { chunk: clean, newOffset: buf.length };
   } catch {
     return null;
   }
 }
-function isDaemonRunningForCompany(companyId) {
-  const pid = readPidForCompany(companyId);
-  return pid !== null && isRunning(pid);
-}
-function removePidFileForCompany(companyId) {
+function cleanupJobWorkspace(jobId, workspaceDir) {
   try {
-    unlinkSync2(pidPathForCompany(companyId));
+    const target = workspaceDir && workspaceDir.trim().length > 0 ? workspaceDir : join4(homedir2(), ".zazigv2", `job-${jobId}`);
+    rmSync2(target, { recursive: true });
   } catch {
   }
 }
-function startDaemonForCompany(env, companyId, agentEntryOverride) {
-  mkdirSync4(LOG_DIR, { recursive: true });
-  mkdirSync4(ZAZIGV2_DIR3, { recursive: true });
-  const agentEntry = agentEntryOverride ?? resolveAgentEntry();
-  const logPath = logPathForCompany(companyId);
-  const logFd = openSync(logPath, "a");
-  const child = spawn(process.execPath, [agentEntry], {
-    detached: true,
-    stdio: ["ignore", logFd, logFd],
-    env
-  });
-  child.unref();
-  const pid = child.pid;
-  if (pid == null)
-    throw new Error("Spawn succeeded but no PID was assigned");
-  writeFileSync4(pidPathForCompany(companyId), String(pid) + "\n");
-  return pid;
+function shellEscape(parts) {
+  return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
 }
 
-// dist/commands/chat.js
-import { execSync as execSync2, spawnSync } from "node:child_process";
-import { writeFileSync as writeFileSync5, chmodSync } from "node:fs";
-function getFirstWindowId(sessionName) {
+// ../local-agent/dist/job-recovery.js
+async function recoverDispatchedJobs(dbClient, machineName, options) {
+  const gracePeriodMs = options?.gracePeriodMs ?? 5 * 60 * 1e3;
   try {
-    const output = execSync2(`tmux list-windows -t ${sessionName} -F '#{window_id}'`, { encoding: "utf-8", timeout: 5e3 }).trim();
-    if (!output)
-      return void 0;
-    return output.split("\n")[0]?.trim() || void 0;
-  } catch {
-    return void 0;
-  }
-}
-function discoverAgentSessions(machineId, companyId) {
-  try {
-    const output = execSync2("tmux list-sessions -F '#{session_name}'", {
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5e3
-    });
-    const companyPrefix = companyId ? companyId.slice(0, 8) + "-" : "";
-    const prefix = `${machineId}-${companyPrefix}`;
-    return output.trim().split("\n").filter((s) => s.startsWith(prefix)).map((sessionName) => ({
-      role: sessionName.replace(prefix, ""),
-      sessionName
-    }));
-  } catch {
-    return [];
-  }
-}
-function launchTui(options) {
-  const { companyName, agents, onShutdown } = options;
-  if (agents.length === 0) {
-    console.error("No persistent agents running.");
-    return;
-  }
-  const viewerSession = `zazig-view-${companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-  try {
-    execSync2(`tmux kill-session -t ${viewerSession}`, { stdio: "pipe" });
-  } catch {
-  }
-  const firstAgent = agents[0];
-  try {
-    const firstAgentWindowId = getFirstWindowId(firstAgent.sessionName);
-    if (!firstAgentWindowId) {
-      throw new Error(`No tmux window found for session ${firstAgent.sessionName}`);
+    let machineQuery = dbClient.from("machines").select("id").eq("name", machineName);
+    if (options?.companyIds && options.companyIds.length > 0) {
+      machineQuery = machineQuery.in("company_id", options.companyIds);
     }
-    execSync2(`tmux new-session -d -s ${viewerSession}`, { stdio: "pipe" });
-    const viewerDefaultWindowId = getFirstWindowId(viewerSession);
-    if (!viewerDefaultWindowId) {
-      throw new Error(`No default tmux window found for viewer session ${viewerSession}`);
+    const { data: machines, error: machErr } = await machineQuery;
+    if (machErr || !machines || machines.length === 0) {
+      return 0;
     }
-    execSync2(`tmux link-window -s ${firstAgentWindowId} -t ${viewerSession}`, { stdio: "pipe" });
-    execSync2(`tmux kill-window -t ${viewerDefaultWindowId}`, { stdio: "pipe" });
-    execSync2(`tmux rename-window -t ${firstAgentWindowId} ${firstAgent.role.toUpperCase()}`, { stdio: "pipe" });
-  } catch (err) {
-    console.error(`Failed to create viewer session: ${String(err)}`);
-    return;
-  }
-  for (let i = 1; i < agents.length; i++) {
-    const agent = agents[i];
-    try {
-      const agentWindowId = getFirstWindowId(agent.sessionName);
-      if (!agentWindowId) {
-        console.warn(`Could not find tmux window for ${agent.role} session ${agent.sessionName}`);
-        continue;
+    const machineIds = machines.map((m) => m.id);
+    let jobQuery = dbClient.from("jobs").select("id, status, job_type, role").in("machine_id", machineIds).eq("status", "dispatched");
+    if (gracePeriodMs > 0) {
+      const graceCutoff = new Date(Date.now() - gracePeriodMs).toISOString();
+      jobQuery = jobQuery.lt("updated_at", graceCutoff);
+    }
+    const { data: stuckJobs, error: jobErr } = await jobQuery;
+    if (jobErr) {
+      console.error("[local-agent] Error querying dispatched jobs:", jobErr.message);
+      return 0;
+    }
+    if (!stuckJobs || stuckJobs.length === 0) {
+      return 0;
+    }
+    console.log(`[local-agent] Found ${stuckJobs.length} dispatched job(s) \u2014 resetting to queued`);
+    let recovered = 0;
+    for (const job of stuckJobs) {
+      const { error: updateErr } = await dbClient.from("jobs").update({
+        status: "queued",
+        machine_id: null,
+        started_at: null
+      }).eq("id", job.id).eq("status", "dispatched");
+      if (updateErr) {
+        console.error(`[local-agent] Failed to reset job ${job.id}: ${updateErr.message}`);
+      } else {
+        console.log(`[local-agent] Reset job ${job.id} (dispatched \u2192 queued, role=${job.role ?? "none"})`);
+        recovered++;
       }
-      execSync2(`tmux link-window -s ${agentWindowId} -t ${viewerSession}`, { stdio: "pipe" });
+    }
+    return recovered;
+  } catch (err) {
+    console.error("[local-agent] Job recovery failed:", err);
+    return 0;
+  }
+}
+
+// ../local-agent/dist/connection.js
+var CREDENTIALS_PATH = join5(homedir3(), ".zazigv2", "credentials.json");
+var BACKOFF_BASE_MS = 1e3;
+var BACKOFF_MAX_MS = 3e4;
+var BACKOFF_MULTIPLIER = 2;
+var AgentConnection = class {
+  /** Anon-key client — used for Realtime subscriptions only. */
+  supabase;
+  /** Service-role client for direct DB writes (bypasses RLS). Falls back to anon client if service_role_key not set. */
+  dbClient;
+  machineId;
+  primaryCompanyId;
+  companyIds = [];
+  config;
+  slots;
+  handlers = [];
+  /** Inbound channel: `agent:{machineId}:{companyId}` — receives commands from orchestrator. */
+  channel = null;
+  /** Outbound channel: `orchestrator:commands` — sends messages to orchestrator. */
+  outChannel = null;
+  heartbeatTimer = null;
+  reconnectTimer = null;
+  reconnectAttempts = 0;
+  stopped = false;
+  isRecoveryRunning = false;
+  constructor(config, slots) {
+    this.config = config;
+    this.machineId = config.name;
+    this.primaryCompanyId = config.company_id;
+    this.slots = slots;
+    this.supabase = createClient(config.supabase.url, config.supabase.anon_key, {
+      realtime: {
+        // Node.js requires an explicit WebSocket implementation; the ws package
+        // types don't perfectly align with supabase-js's WebSocketLikeConstructor.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        transport: wrapper_default,
+        params: {
+          eventsPerSecond: 10
+        }
+      }
+    });
+    if (config.supabase.access_token && config.supabase.refresh_token) {
+      this.dbClient = createClient(config.supabase.url, config.supabase.anon_key);
+      console.log("[local-agent] Using authenticated JWT with auto-refresh for DB writes");
+    } else if (config.supabase.access_token) {
+      this.dbClient = createClient(config.supabase.url, config.supabase.anon_key, {
+        global: { headers: { Authorization: `Bearer ${config.supabase.access_token}` } }
+      });
+      console.warn("[local-agent] No refresh token \u2014 JWT will expire after ~1h");
+    } else if (config.supabase.service_role_key) {
+      this.dbClient = createClient(config.supabase.url, config.supabase.service_role_key);
+      console.log("[local-agent] Using service_role key for DB writes");
+    } else {
+      this.dbClient = this.supabase;
+      console.warn("[local-agent] No access token or service_role key set \u2014 DB writes will use anon key (may fail)");
+    }
+  }
+  /** Register a handler for incoming OrchestratorMessages. */
+  onMessage(handler) {
+    this.handlers.push(handler);
+  }
+  /**
+   * Send an AgentMessage to the orchestrator via the `orchestrator:commands` channel.
+   * The orchestrator subscribes to this channel and dispatches by message type.
+   */
+  async sendMessage(msg) {
+    if (!this.outChannel || this.stopped) {
+      console.warn("[local-agent] sendMessage called but outbound channel is not connected; message dropped:", msg.type);
+      return;
+    }
+    const result = await this.outChannel.send({
+      type: "broadcast",
+      event: "message",
+      payload: msg
+    });
+    if (result !== "ok") {
+      console.warn(`[local-agent] sendMessage returned: ${result} for type=${msg.type}`);
+    } else {
+      console.log(`[local-agent] Sent ${msg.type} for jobId=${"jobId" in msg ? msg.jobId : "n/a"}`);
+    }
+  }
+  /**
+   * Query user_companies to get all companies the authenticated user belongs to.
+   * Falls back to config.company_id if the query fails or returns nothing.
+   *
+   * IMPORTANT: Only queries when using an authenticated JWT (RLS filters by user).
+   * With service_role key, RLS is bypassed and the query would return ALL companies
+   * for ALL users — causing this machine to register under other users' companies.
+   */
+  async getCompanyIds() {
+    if (!this.config.supabase.access_token) {
+      console.warn("[local-agent] No access token \u2014 skipping user_companies query (service_role would bypass RLS)");
+      return [];
+    }
+    try {
+      const { data } = await this.dbClient.from("user_companies").select("company_id");
+      return (data ?? []).map((r) => r.company_id);
+    } catch (err) {
+      console.warn(`[local-agent] Failed to query user_companies: ${String(err)}`);
+      return [];
+    }
+  }
+  /** Connect to Supabase Realtime and start the heartbeat loop. */
+  async start() {
+    console.log(`[local-agent] Starting daemon for machine: ${this.machineId}`);
+    this.stopped = false;
+    if (this.config.supabase.access_token && this.config.supabase.refresh_token) {
+      const { error } = await this.dbClient.auth.setSession({
+        access_token: this.config.supabase.access_token,
+        refresh_token: this.config.supabase.refresh_token
+      });
+      if (error) {
+        console.warn(`[local-agent] Failed to set auth session: ${error.message}`);
+      } else {
+        console.log("[local-agent] Auth session initialized \u2014 auto-refresh enabled");
+      }
+      this.dbClient.auth.onAuthStateChange((_event, session) => {
+        if (session?.access_token && session?.refresh_token) {
+          try {
+            let existing = {};
+            try {
+              existing = JSON.parse(readFileSync4(CREDENTIALS_PATH, "utf-8"));
+            } catch {
+            }
+            const creds = {
+              ...existing,
+              accessToken: session.access_token,
+              refreshToken: session.refresh_token,
+              email: session.user?.email ?? existing.email,
+              supabaseUrl: this.config.supabase.url
+            };
+            mkdirSync3(join5(homedir3(), ".zazigv2"), { recursive: true });
+            writeFileSync3(CREDENTIALS_PATH, JSON.stringify(creds, null, 2) + "\n", { mode: 384 });
+            console.log(`[local-agent] Credentials refreshed and saved to disk`);
+          } catch (err) {
+            console.warn(`[local-agent] Failed to save refreshed credentials: ${String(err)}`);
+          }
+        }
+      });
+    }
+    const discovered = await this.getCompanyIds();
+    if (discovered.length > 0) {
+      this.companyIds = discovered;
+      console.log(`[local-agent] User belongs to ${discovered.length} company(ies): ${discovered.join(", ")}`);
+    } else if (this.primaryCompanyId) {
+      this.companyIds = [this.primaryCompanyId];
+      console.warn("[local-agent] Could not discover companies from user_companies \u2014 falling back to config.company_id");
+    } else {
+      console.warn("[local-agent] No companies found and no company_id in config \u2014 heartbeats may fail");
+      this.companyIds = [];
+    }
+    if (!this.config.supabase.access_token && !this.config.supabase.service_role_key) {
+      console.warn("[local-agent] No access token set \u2014 multi-company lookup requires an authenticated JWT");
+    }
+    await this.registerMachine();
+    await this.connect();
+  }
+  /** Gracefully disconnect and stop all timers. */
+  async stop() {
+    this.stopped = true;
+    this.clearReconnectTimer();
+    this.clearHeartbeatTimer();
+    if (this.outChannel) {
+      await this.supabase.removeChannel(this.outChannel);
+      this.outChannel = null;
+    }
+    if (this.channel) {
+      await this.supabase.removeChannel(this.channel);
+      this.channel = null;
+    }
+    console.log(`[local-agent] Daemon stopped.`);
+  }
+  // ---------------------------------------------------------------------------
+  // Private connection management
+  // ---------------------------------------------------------------------------
+  async connect() {
+    if (this.stopped)
+      return;
+    if (!this.primaryCompanyId) {
+      throw new Error("Cannot connect without company_id \u2014 set ZAZIG_COMPANY_ID");
+    }
+    const channelName = `agent:${this.machineId}:${this.primaryCompanyId}`;
+    const outChannelName = "orchestrator:commands";
+    console.log(`[local-agent] Connecting to channels: ${channelName} (in), ${outChannelName} (out)`);
+    this.channel = this.supabase.channel(channelName, {
+      config: {
+        broadcast: { ack: false }
+      }
+    });
+    this.channel.on("broadcast", { event: "*" }, (payload) => {
+      console.log(`[local-agent][DEBUG] Broadcast received \u2014 event=${payload.event ?? "unknown"}, keys=${Object.keys(payload)}`);
+    });
+    this.channel.on("broadcast", { event: "message" }, (payload) => {
       try {
-        execSync2(`tmux rename-window -t ${agentWindowId} ${agent.role.toUpperCase()}`, { stdio: "pipe" });
+        console.log(`[local-agent][DEBUG] Matched event=message`);
+        this.handleIncomingPayload(payload.payload);
+      } catch (err) {
+        console.error(`[local-agent] Broadcast handler crashed (event=message):`, err);
+      }
+    });
+    this.channel.on("broadcast", { event: "start_job" }, (payload) => {
+      try {
+        console.log(`[local-agent][DEBUG] Matched event=start_job`);
+        this.handleIncomingPayload(payload.payload);
+      } catch (err) {
+        console.error(`[local-agent] Broadcast handler crashed (event=start_job):`, err);
+      }
+    });
+    this.channel.on("broadcast", { event: "job_unblocked" }, (payload) => {
+      try {
+        console.log(`[local-agent][DEBUG] Matched event=job_unblocked`);
+        this.handleIncomingPayload(payload.payload);
+      } catch (err) {
+        console.error(`[local-agent] Broadcast handler crashed (event=job_unblocked):`, err);
+      }
+    });
+    this.channel.on("broadcast", { event: "message_inbound" }, (payload) => {
+      try {
+        console.log(`[local-agent][DEBUG] Matched event=message_inbound`);
+        this.handleIncomingPayload(payload.payload);
+      } catch (err) {
+        console.error(`[local-agent] Broadcast handler crashed (event=message_inbound):`, err);
+      }
+    });
+    this.outChannel = this.supabase.channel(outChannelName, {
+      config: {
+        broadcast: { ack: false }
+      }
+    });
+    let inReady = false;
+    let outReady = false;
+    const onBothReady = () => {
+      if (inReady && outReady) {
+        this.reconnectAttempts = 0;
+        this.startHeartbeat();
+      }
+    };
+    this.outChannel.subscribe((status, err) => {
+      if (status === "SUBSCRIBED") {
+        console.log(`[local-agent] Connected to outbound channel: ${outChannelName}`);
+        outReady = true;
+        onBothReady();
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.error(`[local-agent] Outbound channel error (status=${status}):`, err ?? "unknown error");
+        this.clearHeartbeatTimer();
+        this.scheduleReconnect();
+      }
+    });
+    this.channel.subscribe((status, err) => {
+      if (status === "SUBSCRIBED") {
+        console.log(`[local-agent] Connected to inbound channel: ${channelName}`);
+        inReady = true;
+        onBothReady();
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.error(`[local-agent] Inbound channel error (status=${status}):`, err ?? "unknown error");
+        this.clearHeartbeatTimer();
+        this.scheduleReconnect();
+      } else if (status === "CLOSED") {
+        if (!this.stopped) {
+          console.warn(`[local-agent] Inbound channel closed unexpectedly. Scheduling reconnect.`);
+          this.clearHeartbeatTimer();
+          this.scheduleReconnect();
+        }
+      }
+    });
+  }
+  handleIncomingPayload(payload) {
+    if (!isOrchestratorMessage(payload)) {
+      const obj = typeof payload === "object" && payload !== null ? payload : {};
+      const jobId = typeof obj.jobId === "string" ? obj.jobId : void 0;
+      const msgType = typeof obj.type === "string" ? obj.type : "unknown";
+      const cardType = typeof obj.cardType === "string" ? obj.cardType : void 0;
+      console.warn(`[local-agent] Rejected invalid message: type=${msgType}, jobId=${jobId ?? "none"}, cardType=${cardType ?? "none"}. Full payload: ${JSON.stringify(payload)}`);
+      if (jobId) {
+        try {
+          const logDir = join5(homedir3(), ".zazigv2", "job-logs");
+          mkdirSync3(logDir, { recursive: true });
+          appendFileSync3(join5(logDir, `${jobId}-pre-post.log`), `${(/* @__PURE__ */ new Date()).toISOString()} REJECTED by validator: type=${msgType}, cardType=${cardType ?? "none"}
+`);
+        } catch {
+        }
+      }
+      return;
+    }
+    console.log(`[local-agent] Received message: type=${payload.type}`, JSON.stringify(payload));
+    if ("jobId" in payload && typeof payload.jobId === "string") {
+      const msg = payload;
+      jobLog(payload.jobId, `RECV from orchestrator: type=${payload.type}, slotType=${msg.slotType ?? "none"}, role=${msg.role ?? "none"}, cardType=${msg.cardType ?? "none"}`);
+    }
+    for (const handler of this.handlers) {
+      try {
+        handler(payload);
+      } catch (err) {
+        console.error("[local-agent] Message handler threw:", err);
+      }
+    }
+  }
+  // ---------------------------------------------------------------------------
+  // Heartbeat
+  // ---------------------------------------------------------------------------
+  startHeartbeat() {
+    this.clearHeartbeatTimer();
+    void this.sendHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      const inState = this.channel?.state ?? "null";
+      console.log(`[local-agent][DEBUG] Channel state: inbound=${inState}, machineId=${this.machineId}`);
+      void this.sendHeartbeat();
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+  clearHeartbeatTimer() {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+  async registerMachine() {
+    if (this.companyIds.length === 0) {
+      console.warn("[local-agent] No companies \u2014 skipping machine registration");
+      return;
+    }
+    const slotsAvailable = this.slots.getAvailable();
+    const row = {
+      name: this.machineId,
+      status: "online",
+      last_heartbeat: (/* @__PURE__ */ new Date()).toISOString(),
+      slots_claude_code: slotsAvailable.claude_code,
+      slots_codex: slotsAvailable.codex
+    };
+    let failures = 0;
+    for (const companyId of this.companyIds) {
+      const { error } = await this.dbClient.from("machines").upsert({ ...row, company_id: companyId }, { onConflict: "company_id,name" });
+      if (error) {
+        console.warn(`[local-agent] Machine registration failed for company ${companyId}: ${error.message}`);
+        failures++;
+      }
+    }
+    if (failures === 0) {
+      console.log(`[local-agent] Machine registered for ${this.companyIds.length} company(ies)`);
+    } else {
+      console.warn(`[local-agent] Machine registration: ${this.companyIds.length - failures}/${this.companyIds.length} succeeded`);
+    }
+  }
+  async sendHeartbeat() {
+    if (this.stopped)
+      return;
+    const slotsAvailable = this.slots.getAvailable();
+    const updatePayload = {
+      last_heartbeat: (/* @__PURE__ */ new Date()).toISOString(),
+      status: "online",
+      slots_claude_code: slotsAvailable.claude_code,
+      slots_codex: slotsAvailable.codex
+    };
+    let dbErr = null;
+    if (this.companyIds.length > 0) {
+      const { error } = await this.dbClient.from("machines").update(updatePayload).eq("name", this.machineId).in("company_id", this.companyIds);
+      if (error)
+        dbErr = error;
+    } else {
+      const { error } = await this.dbClient.from("machines").update(updatePayload).eq("name", this.machineId);
+      if (error)
+        dbErr = error;
+    }
+    if (dbErr) {
+      console.warn(`[local-agent] Heartbeat DB write failed: ${dbErr.message}`);
+    }
+    if (this.outChannel) {
+      const heartbeat = {
+        type: "heartbeat",
+        protocolVersion: PROTOCOL_VERSION,
+        machineId: this.machineId,
+        slotsAvailable
+      };
+      await this.outChannel.send({
+        type: "broadcast",
+        event: "message",
+        payload: heartbeat
+      });
+    }
+    if (dbErr) {
+      console.warn(`[local-agent] Heartbeat FAILED \u2014 machineId=${this.machineId}, slots=${JSON.stringify(slotsAvailable)}, db=FAIL`);
+    }
+    if (!this.isRecoveryRunning) {
+      this.isRecoveryRunning = true;
+      try {
+        const recovered = await recoverDispatchedJobs(this.dbClient, this.machineId, { companyIds: this.companyIds });
+        if (recovered > 0) {
+          console.log(`[local-agent] Heartbeat recovered ${recovered} missed job(s)`);
+        }
+      } catch (err) {
+        console.warn(`[local-agent] Job recovery poll failed:`, err);
+      } finally {
+        this.isRecoveryRunning = false;
+      }
+    }
+  }
+  // ---------------------------------------------------------------------------
+  // Reconnection with exponential backoff
+  // ---------------------------------------------------------------------------
+  /**
+   * Safely remove old channels before reconnecting.
+   *
+   * `removeChannel()` calls `WebSocket.close()` internally. If the WebSocket
+   * is still in CONNECTING state, `ws` emits an 'error' event via
+   * `process.nextTick`. Without a listener this is an unhandled error that
+   * crashes the process. We attach a temporary listener to swallow it.
+   */
+  async cleanupChannels() {
+    const conn = this.supabase.realtime?.conn;
+    const swallowErr = (err) => {
+      console.warn(`[local-agent] Swallowed WebSocket error during channel cleanup: ${err.message}`);
+    };
+    if (conn && typeof conn.on === "function") {
+      conn.on("error", swallowErr);
+    }
+    if (this.outChannel) {
+      try {
+        await this.supabase.removeChannel(this.outChannel);
       } catch {
       }
-    } catch (err) {
-      console.warn(`Could not link ${agent.role} session: ${String(err)}`);
+      this.outChannel = null;
+    }
+    if (this.channel) {
+      try {
+        await this.supabase.removeChannel(this.channel);
+      } catch {
+      }
+      this.channel = null;
     }
   }
-  try {
-    execSync2(`tmux set -t ${viewerSession} mouse on`, { stdio: "pipe" });
-  } catch {
+  scheduleReconnect() {
+    if (this.stopped)
+      return;
+    this.clearReconnectTimer();
+    const delay = Math.min(BACKOFF_BASE_MS * Math.pow(BACKOFF_MULTIPLIER, this.reconnectAttempts), BACKOFF_MAX_MS);
+    this.reconnectAttempts++;
+    console.log(`[local-agent] Reconnecting in ${delay}ms (attempt #${this.reconnectAttempts})...`);
+    this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
+      await this.cleanupChannels();
+      await this.connect();
+    }, delay);
   }
-  const roleColors = {
-    CPO: "bg=blue,fg=white",
-    CTO: "bg=green,fg=black",
-    VPE: "bg=magenta,fg=white",
-    CMO: "bg=yellow,fg=black"
+  clearReconnectTimer() {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+};
+
+// ../local-agent/dist/fix-agent.js
+import { execFile as execFile3 } from "node:child_process";
+import { promisify as promisify3 } from "node:util";
+var execFileAsync3 = promisify3(execFile3);
+var FixAgentManager = class {
+  activeAgents = /* @__PURE__ */ new Map();
+  repoDir;
+  constructor(repoDir) {
+    this.repoDir = repoDir;
+  }
+  /**
+   * Spawn a fix agent for the given feature. Idempotent — if an agent is
+   * already active for this featureId, the call is a no-op.
+   */
+  async spawn(params) {
+    if (this.activeAgents.has(params.featureId))
+      return;
+    const sanitizedId = params.featureId.replace(/[^a-z0-9-]/gi, "").slice(0, 8);
+    if (!sanitizedId) {
+      console.error(`[fix-agent] featureId "${params.featureId}" is empty after sanitization \u2014 aborting spawn`);
+      return;
+    }
+    const sessionName = `fix-${sanitizedId}`;
+    const worktreePath = await createWorktree(this.repoDir, params.featureBranch);
+    const safeChannel = sanitizeSlackField(params.slackChannel);
+    const safeThread = sanitizeSlackField(params.slackThreadTs);
+    const prompt = [
+      "You are a fix agent for a feature currently in human testing.",
+      "A human is testing this feature and will describe issues in Slack.",
+      "Your job: fix issues on the current branch with minimal changes.",
+      "After each fix, commit and push so the test server auto-redeploys.",
+      "Only fix what the human reports. Do not refactor or add features.",
+      `Slack channel: ${safeChannel}`,
+      `Thread: ${safeThread}`
+    ].join(" ");
+    const shellCmd = `unset CLAUDECODE; ${shellEscape2(["claude", "-p", prompt])}`;
+    await execFileAsync3("tmux", [
+      "new-session",
+      "-d",
+      "-s",
+      sessionName,
+      "-c",
+      worktreePath,
+      shellCmd
+    ]);
+    this.activeAgents.set(params.featureId, {
+      featureId: params.featureId,
+      sessionName,
+      worktreePath
+    });
+    console.log(`[fix-agent] Spawned fix agent \u2014 featureId=${params.featureId}, session=${sessionName}, worktree=${worktreePath}`);
+  }
+  /**
+   * Clean up a fix agent: kill the tmux session and remove the worktree.
+   * No-op if no agent is active for this featureId.
+   */
+  async cleanup(featureId) {
+    const agent = this.activeAgents.get(featureId);
+    if (!agent)
+      return;
+    try {
+      await execFileAsync3("tmux", ["kill-session", "-t", agent.sessionName]);
+      console.log(`[fix-agent] Killed tmux session: ${agent.sessionName}`);
+    } catch {
+    }
+    await removeWorktree(this.repoDir, agent.worktreePath);
+    this.activeAgents.delete(featureId);
+    console.log(`[fix-agent] Cleaned up fix agent \u2014 featureId=${featureId}`);
+  }
+  /** Check whether a fix agent is active for the given featureId. */
+  isActive(featureId) {
+    return this.activeAgents.has(featureId);
+  }
+};
+function sanitizeSlackField(s) {
+  return s.replace(/[`$\\"'\n\r]/g, "").slice(0, 200);
+}
+function shellEscape2(parts) {
+  return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
+}
+
+// ../local-agent/dist/verifier.js
+import { execFile as execFile4 } from "node:child_process";
+import { promisify as promisify4 } from "node:util";
+var execFileAsync4 = promisify4(execFile4);
+function getErrorOutput(error) {
+  if (typeof error !== "object" || error === null) {
+    return String(error);
+  }
+  const stdout = "stdout" in error && typeof error.stdout === "string" ? error.stdout : "";
+  const stderr = "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
+  const message = "message" in error && typeof error.message === "string" ? error.message : String(error);
+  return [message, stdout, stderr].filter((part) => part.trim().length > 0).join("\n");
+}
+var defaultRunCommand = async (file, args, options) => {
+  const { stdout, stderr } = await execFileAsync4(file, args, options);
+  return {
+    stdout: typeof stdout === "string" ? stdout : String(stdout ?? ""),
+    stderr: typeof stderr === "string" ? stderr : String(stderr ?? "")
   };
-  const defaultColor = "bg=colour240,fg=white";
-  const scriptLines = [
-    "#!/bin/sh",
-    `W=$(tmux display-message -p '#W')`,
-    ...Object.entries(roleColors).map(([role, style]) => `[ "$W" = "${role}" ] && exec tmux set -t ${viewerSession} status-style '${style}'`),
-    `exec tmux set -t ${viewerSession} status-style '${defaultColor}'`
-  ];
-  const scriptPath = `/tmp/zazig-color-${viewerSession}.sh`;
-  try {
-    writeFileSync5(scriptPath, scriptLines.join("\n") + "\n");
-    chmodSync(scriptPath, 493);
-    const firstRole = agents[0].role.toUpperCase();
-    const initialColor = roleColors[firstRole] ?? defaultColor;
-    execSync2(`tmux set -t ${viewerSession} status-style "${initialColor}"`, { stdio: "pipe" });
-    execSync2(`tmux set -t ${viewerSession} status-left " ${companyName} | "`, { stdio: "pipe" });
-    execSync2(`tmux set -t ${viewerSession} status-right " Ctrl+B n: next | Ctrl+B d: detach "`, { stdio: "pipe" });
-    execSync2(`tmux set-hook -t ${viewerSession} after-select-window "run-shell -b '${scriptPath}'"`, { stdio: "pipe" });
-  } catch {
+};
+var JobVerifier = class {
+  repoDir;
+  machineId;
+  send;
+  branchOps;
+  runCommand;
+  constructor(options) {
+    this.repoDir = options.repoDir;
+    this.machineId = options.machineId;
+    this.send = options.send;
+    this.branchOps = options.branchOps ?? { rebaseOnBranch, mergeJobIntoFeature };
+    this.runCommand = options.runCommand ?? defaultRunCommand;
   }
-  console.log(`Attaching to agents for ${companyName}...`);
-  console.log("Switch agents: Ctrl+B n/p | Scroll: mouse wheel | Detach: Ctrl+B d\n");
-  const result = spawnSync("tmux", ["attach", "-t", viewerSession], {
-    stdio: "inherit"
-  });
-  try {
-    execSync2(`tmux kill-session -t ${viewerSession}`, { stdio: "pipe" });
-  } catch {
+  async verify(msg) {
+    const { jobId, featureBranch, jobBranch, acceptanceTests } = msg;
+    const workDir = msg.repoPath ?? this.repoDir;
+    const rebaseResult = await this.branchOps.rebaseOnBranch(workDir, jobBranch, featureBranch);
+    if (!rebaseResult.success) {
+      await this.sendResult(jobId, false, `Rebase failed:
+${rebaseResult.error ?? "unknown rebase error"}`);
+      return;
+    }
+    const testStep = await this.runStep(workDir, "npm", ["test"], "tests");
+    if (!testStep.success) {
+      await this.sendResult(jobId, false, `Tests failed:
+${testStep.output}`);
+      return;
+    }
+    const lintStep = await this.runStep(workDir, "npm", ["run", "lint"], "lint");
+    if (!lintStep.success) {
+      await this.sendResult(jobId, false, `Lint failed:
+${lintStep.output}`);
+      return;
+    }
+    const typecheckStep = await this.runStep(workDir, "npm", ["run", "typecheck"], "typecheck");
+    if (!typecheckStep.success) {
+      await this.sendResult(jobId, false, `Typecheck failed:
+${typecheckStep.output}`);
+      return;
+    }
+    const mergeResult = await this.branchOps.mergeJobIntoFeature(workDir, jobBranch, featureBranch);
+    if (!mergeResult.success) {
+      await this.sendResult(jobId, false, `Merge failed:
+${mergeResult.error ?? "unknown merge error"}`);
+      return;
+    }
+    const verificationOutput = [
+      `Acceptance tests:
+${acceptanceTests}`,
+      `Tests:
+${testStep.output}`,
+      `Lint:
+${lintStep.output}`,
+      `Typecheck:
+${typecheckStep.output}`,
+      "Merge: success"
+    ].join("\n\n");
+    await this.sendResult(jobId, true, verificationOutput, "Verification checks passed and merged");
   }
-  if (result.status !== 0) {
-    console.error("tmux attach failed.");
-    process.exitCode = 1;
-    return;
+  async runStep(cwd, file, args, label) {
+    try {
+      const { stdout, stderr } = await this.runCommand(file, args, {
+        cwd,
+        encoding: "utf8",
+        timeout: 3e5
+      });
+      const output = [stdout, stderr].filter((part) => part.trim().length > 0).join("\n");
+      return { success: true, output: output || `${label} completed` };
+    } catch (error) {
+      return {
+        success: false,
+        output: getErrorOutput(error)
+      };
+    }
   }
-  onShutdown();
-}
-async function chat() {
-  let creds;
-  try {
-    creds = await getValidCredentials();
-  } catch {
-    console.error("Not logged in. Run 'zazig login' first.");
-    process.exitCode = 1;
-    return;
+  async sendResult(jobId, passed, testOutput, reviewSummary) {
+    await this.send({
+      type: "verify_result",
+      protocolVersion: 1,
+      jobId,
+      machineId: this.machineId,
+      passed,
+      testOutput,
+      ...reviewSummary ? { reviewSummary } : {}
+    });
   }
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
-  const company = await pickCompany(companies);
-  if (!isDaemonRunningForCompany(company.id)) {
-    console.error(`Zazig is not running for ${company.name}. Run 'zazig start' first.`);
-    process.exitCode = 1;
-    return;
-  }
+};
+
+// ../local-agent/dist/index.js
+var companySlug = process.env["ZAZIG_COMPANY_ID"]?.slice(0, 8) ?? "default";
+var logPath = join6(homedir4(), ".zazigv2", `local-agent-${companySlug}.log`);
+var logStream = createWriteStream(logPath, { flags: "a" });
+var origLog = console.log;
+var origErr = console.error;
+var origWarn = console.warn;
+var ts = () => (/* @__PURE__ */ new Date()).toISOString();
+console.log = (...args) => {
+  const line = `${ts()} ${args.join(" ")}
+`;
+  logStream.write(line);
+  origLog(...args);
+};
+console.error = (...args) => {
+  const line = `${ts()} ERROR ${args.join(" ")}
+`;
+  logStream.write(line);
+  origErr(...args);
+};
+console.warn = (...args) => {
+  const line = `${ts()} WARN ${args.join(" ")}
+`;
+  logStream.write(line);
+  origWarn(...args);
+};
+process.on("unhandledRejection", (reason) => {
+  console.error("[local-agent] Unhandled rejection (process NOT exiting):", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[local-agent] Uncaught exception (process NOT exiting):", err);
+});
+async function main() {
+  console.log("[local-agent] Initializing...");
   const config = loadConfig();
-  const machineId = config.name;
-  const agentSessions = discoverAgentSessions(machineId, company.id);
-  if (agentSessions.length === 0) {
-    console.error("No agent sessions found. Daemon may still be starting up.");
-    process.exitCode = 1;
-    return;
-  }
-  launchTui({
-    companyName: company.name,
-    agents: agentSessions,
-    onShutdown: () => {
-      console.log("\nDisconnected from agents (daemon still running).");
+  console.log(`[local-agent] Config loaded \u2014 machine=${config.name}, slots=${JSON.stringify(config.slots)}`);
+  const slots = new SlotTracker(config.slots);
+  const conn = new AgentConnection(config, slots);
+  const executor = new JobExecutor(config.name, config.company_id ?? "", slots, (msg) => conn.sendMessage(msg), conn.dbClient, config.supabase.url, config.supabase.anon_key);
+  const verifier = new JobVerifier({
+    repoDir: process.cwd(),
+    machineId: config.name,
+    send: (msg) => conn.sendMessage(msg)
+  });
+  const _fixAgentManager = new FixAgentManager(process.cwd());
+  conn.onMessage((msg) => {
+    switch (msg.type) {
+      case "start_job":
+        console.log(`[local-agent] Received start_job \u2014 jobId=${msg.jobId}, cardId=${msg.cardId}, slotType=${msg.slotType}, complexity=${msg.complexity}, model=${msg.model}`);
+        executor.handleStartJob(msg).catch((err) => {
+          console.error(`[local-agent] FATAL: handleStartJob crashed for jobId=${msg.jobId}:`, err);
+        });
+        break;
+      case "stop_job":
+        console.log(`[local-agent] Received stop_job \u2014 jobId=${msg.jobId}, reason=${msg.reason}`);
+        executor.handleStopJob(msg).catch((err) => {
+          console.error(`[local-agent] FATAL: handleStopJob crashed for jobId=${msg.jobId}:`, err);
+        });
+        break;
+      case "health_check":
+        console.log("[local-agent] Received health_check \u2014 heartbeat will be sent on next interval");
+        break;
+      case "message_inbound":
+        console.log(`[local-agent] Received message_inbound \u2014 conversationId=${msg.conversationId}, from=${msg.from}`);
+        executor.handleMessageInbound(msg);
+        break;
+      case "job_unblocked":
+        console.log(`[local-agent] Job ${msg.jobId} unblocked \u2014 answer: ${msg.answer.slice(0, 80)}`);
+        void executor.handleJobUnblocked(msg);
+        break;
+      case "verify_job":
+        console.log(`[local-agent] Received verify_job \u2014 jobId=${msg.jobId}, featureBranch=${msg.featureBranch}, jobBranch=${msg.jobBranch}`);
+        void verifier.verify(msg);
+        break;
+      // Legacy message types — orchestrator no longer sends these but they remain
+      // in the OrchestratorMessage union for backward compatibility during rollout.
+      case "deploy_to_test":
+      case "teardown_test":
+        console.warn(`[local-agent] Ignoring deprecated message type: ${msg.type}`);
+        break;
+      default: {
+        const _exhaustive = msg;
+        console.warn("[local-agent] Unhandled message type:", _exhaustive);
+      }
     }
   });
-}
-
-// dist/commands/skills.js
-import { basename } from "node:path";
-
-// dist/lib/skills.js
-import { existsSync as existsSync5, lstatSync, mkdirSync as mkdirSync5, readdirSync, readlinkSync, rmSync, symlinkSync, copyFileSync } from "node:fs";
-import { homedir as homedir5 } from "node:os";
-import { dirname as dirname2, join as join6, resolve as resolve2 } from "node:path";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
-var ZAZIG_DIR = join6(homedir5(), ".zazigv2");
-function isUuid(v) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-}
-function resolveRepoRoot() {
-  const thisDir2 = dirname2(fileURLToPath2(import.meta.url));
-  const candidates = [];
-  let dir = thisDir2;
-  for (let i = 0; i < 8; i++) {
-    dir = dirname2(dir);
-    candidates.push(dir);
+  await conn.start();
+  await recoverDispatchedJobs(conn.dbClient, config.name, {
+    gracePeriodMs: 0,
+    companyIds: conn.companyIds
+  });
+  const companyId = process.env["ZAZIG_COMPANY_ID"];
+  let rolePromptChannel = null;
+  if (companyId) {
+    await discoverAndSpawnPersistentAgents(config.supabase.url, config.supabase.anon_key, companyId, executor);
+    rolePromptChannel = subscribeToRolePromptHotReload(conn, config.name, config.supabase.url, config.supabase.anon_key, companyId, executor);
   }
-  candidates.push(process.cwd());
-  for (const candidate of candidates) {
-    if (existsSync5(join6(candidate, "projects", "skills")) && existsSync5(join6(candidate, ".claude", "skills"))) {
-      return candidate;
+  const shutdown = async (signal) => {
+    console.log(`[local-agent] Received ${signal}, shutting down gracefully...`);
+    if (rolePromptChannel) {
+      try {
+        await conn.supabase.removeChannel(rolePromptChannel);
+      } catch (err) {
+        console.warn("[local-agent] Failed to remove role prompt channel during shutdown:", err);
+      }
+      rolePromptChannel = null;
     }
-  }
-  return process.cwd();
+    await executor.stopAll();
+    await conn.stop();
+    process.exit(0);
+  };
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  console.log("[local-agent] Daemon running. Press Ctrl+C to stop.");
 }
-async function fetchPersistentRoleSkills(supabaseUrl, anonKey, companyId) {
+async function fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId) {
   const url = `${supabaseUrl}/functions/v1/company-persistent-jobs?company_id=${encodeURIComponent(companyId)}`;
   const res = await fetch(url, {
     headers: {
@@ -13747,1262 +19364,71 @@ async function fetchPersistentRoleSkills(supabaseUrl, anonKey, companyId) {
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`Failed to fetch persistent roles (HTTP ${res.status}): ${body.slice(0, 300)}`);
+    throw new Error(`Failed to fetch persistent jobs: HTTP ${res.status} \u2014 body: ${body.slice(0, 500)}`);
   }
-  const rows = await res.json();
-  return rows.filter((r) => typeof r.role === "string").map((r) => ({ role: r.role, skills: Array.isArray(r.skills) ? r.skills : [] }));
-}
-function resolveSkillSourcePath(repoRoot, skillName) {
-  const pipelineRoot = join6(repoRoot, "projects", "skills");
-  const interactiveRoot = join6(repoRoot, ".claude", "skills");
-  const flatPipelinePath = join6(pipelineRoot, `${skillName}.md`);
-  if (existsSync5(flatPipelinePath))
-    return flatPipelinePath;
-  const nestedPipelinePath = join6(pipelineRoot, skillName, "SKILL.md");
-  if (existsSync5(nestedPipelinePath))
-    return nestedPipelinePath;
-  const interactivePath = join6(interactiveRoot, skillName, "SKILL.md");
-  if (existsSync5(interactivePath))
-    return interactivePath;
-  return null;
-}
-function collectRoleWorkspaces(companyId, role) {
-  const names = [
-    `${companyId}-${role}-workspace`,
-    `${role}-workspace`
-  ];
-  const unique = /* @__PURE__ */ new Set();
-  for (const name of names) {
-    if (isUuid(role) && name === `${role}-workspace`)
-      continue;
-    const absPath = join6(ZAZIG_DIR, name);
-    if (existsSync5(absPath))
-      unique.add(absPath);
+  const jobs = await res.json();
+  if (!Array.isArray(jobs)) {
+    throw new Error("Persistent jobs endpoint returned non-array JSON");
   }
-  return [...unique];
+  return jobs;
 }
-function inspectSkillStatus(workspaceSkillPath, sourcePath) {
+async function discoverAndSpawnPersistentAgents(supabaseUrl, anonKey, companyId, executor) {
   try {
-    const stat = lstatSync(workspaceSkillPath);
-    if (stat.isSymbolicLink()) {
-      const target = resolve2(dirname2(workspaceSkillPath), readlinkSync(workspaceSkillPath));
-      if (!existsSync5(target))
-        return "broken_symlink";
-      if (sourcePath && resolve2(sourcePath) === target)
-        return "ok_symlink";
-      return "symlink_mismatch";
-    }
-    return sourcePath ? "copy" : "source_missing";
-  } catch {
-    return sourcePath ? "missing" : "source_missing";
-  }
-}
-function readSkillTarget(workspaceSkillPath) {
-  try {
-    if (!lstatSync(workspaceSkillPath).isSymbolicLink())
-      return void 0;
-    return resolve2(dirname2(workspaceSkillPath), readlinkSync(workspaceSkillPath));
-  } catch {
-    return void 0;
-  }
-}
-function collectWorkspaceSkillStatus(companyId, roleSkills, repoRoot) {
-  const statuses = [];
-  for (const { role, skills: skills2 } of roleSkills) {
-    const workspaceDirs = collectRoleWorkspaces(companyId, role);
-    for (const workspaceDir of workspaceDirs) {
-      const rows = skills2.map((skillName) => {
-        const sourcePath = resolveSkillSourcePath(repoRoot, skillName);
-        const workspacePath = join6(workspaceDir, ".claude", "skills", skillName, "SKILL.md");
-        return {
-          skill: skillName,
-          state: inspectSkillStatus(workspacePath, sourcePath),
-          sourcePath,
-          workspacePath,
-          targetPath: readSkillTarget(workspacePath)
-        };
-      });
-      statuses.push({ role, workspaceDir, skills: rows });
-    }
-  }
-  return statuses;
-}
-function syncWorkspaceSkills(companyId, roleSkills, repoRoot) {
-  const workspaces = collectWorkspaceSkillStatus(companyId, roleSkills, repoRoot);
-  const summary = {
-    workspaces,
-    added: 0,
-    updated: 0,
-    removed: 0,
-    unchanged: 0,
-    warnings: []
-  };
-  for (const workspace of workspaces) {
-    const expected = new Set(workspace.skills.map((s) => s.skill));
-    const skillsRoot = join6(workspace.workspaceDir, ".claude", "skills");
-    mkdirSync5(skillsRoot, { recursive: true });
-    for (const skill of workspace.skills) {
-      if (!skill.sourcePath) {
-        summary.warnings.push(`[skills] ${workspace.role}: source missing for "${skill.skill}"`);
-        continue;
-      }
-      if (skill.state === "ok_symlink") {
-        summary.unchanged += 1;
-        continue;
-      }
-      mkdirSync5(dirname2(skill.workspacePath), { recursive: true });
-      rmSync(skill.workspacePath, { recursive: true, force: true });
-      try {
-        symlinkSync(skill.sourcePath, skill.workspacePath);
-      } catch (err) {
-        copyFileSync(skill.sourcePath, skill.workspacePath);
-        summary.warnings.push(`[skills] ${workspace.role}: symlink failed for "${skill.skill}", copied instead (${String(err)})`);
-      }
-      if (skill.state === "missing")
-        summary.added += 1;
-      else
-        summary.updated += 1;
-    }
-    const entries = readdirSync(skillsRoot, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory() && !entry.isSymbolicLink())
-        continue;
-      if (expected.has(entry.name))
-        continue;
-      rmSync(join6(skillsRoot, entry.name), { recursive: true, force: true });
-      summary.removed += 1;
-    }
-  }
-  return summary;
-}
-
-// dist/commands/skills.js
-function parseCompanyFlag(args2) {
-  const idx = args2.indexOf("--company");
-  if (idx === -1)
-    return void 0;
-  return args2[idx + 1];
-}
-function resolveCompany(companies, selected, companyFlag) {
-  if (!companyFlag)
-    return selected;
-  const found = companies.find((c) => c.id === companyFlag || c.name === companyFlag);
-  if (!found) {
-    throw new Error(`Unknown company: ${companyFlag}`);
-  }
-  return found;
-}
-function printSkillStatus(state) {
-  if (state.length === 0) {
-    console.log("No persistent workspaces found for this company.");
-    return;
-  }
-  for (const ws of state) {
-    console.log(`Workspace: ${basename(ws.workspaceDir)} (${ws.role})`);
-    if (ws.skills.length === 0) {
-      console.log("  (no skills assigned)");
-      continue;
-    }
-    for (const skill of ws.skills) {
-      if (skill.state === "ok_symlink") {
-        console.log(`  ${skill.skill.padEnd(20)} \u2713 symlink -> ${skill.targetPath}`);
-      } else if (skill.state === "missing") {
-        console.log(`  ${skill.skill.padEnd(20)} \u2717 missing in workspace`);
-      } else if (skill.state === "copy") {
-        console.log(`  ${skill.skill.padEnd(20)} ~ copied file (not symlink)`);
-      } else if (skill.state === "broken_symlink") {
-        console.log(`  ${skill.skill.padEnd(20)} \u2717 broken symlink`);
-      } else if (skill.state === "symlink_mismatch") {
-        console.log(`  ${skill.skill.padEnd(20)} ~ symlink target mismatch`);
-      } else {
-        console.log(`  ${skill.skill.padEnd(20)} \u2717 source missing in repo`);
-      }
-    }
-    console.log("");
-  }
-}
-function printSyncSummary(summary) {
-  console.log(`Done. added=${summary.added}, updated=${summary.updated}, removed=${summary.removed}, unchanged=${summary.unchanged}`);
-  if (summary.warnings.length > 0) {
-    for (const warning of summary.warnings) {
-      console.warn(warning);
-    }
-  }
-}
-async function loadContext(args2) {
-  const creds = await getValidCredentials();
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
-  const selected = await pickCompany(companies);
-  const company = resolveCompany(companies, selected, parseCompanyFlag(args2));
-  return { company, anonKey, supabaseUrl: creds.supabaseUrl };
-}
-async function skills(args2) {
-  const [subcommand, ...rest] = args2;
-  if (subcommand !== "status" && subcommand !== "sync") {
-    console.error("Usage: zazig skills <status|sync> [--company <id|name>]");
-    process.exitCode = 1;
-    return;
-  }
-  let context;
-  try {
-    context = await loadContext(rest);
-  } catch (err) {
-    console.error(`Failed to load credentials/company context: ${String(err)}`);
-    process.exitCode = 1;
-    return;
-  }
-  const repoRoot = resolveRepoRoot();
-  let roleSkills;
-  try {
-    roleSkills = await fetchPersistentRoleSkills(context.supabaseUrl, context.anonKey, context.company.id);
-  } catch (err) {
-    console.error(String(err));
-    process.exitCode = 1;
-    return;
-  }
-  if (subcommand === "status") {
-    const status2 = collectWorkspaceSkillStatus(context.company.id, roleSkills, repoRoot);
-    printSkillStatus(status2);
-    return;
-  }
-  const summary = syncWorkspaceSkills(context.company.id, roleSkills, repoRoot);
-  printSyncSummary(summary);
-}
-async function syncSkillsForCompany(supabaseUrl, anonKey, companyId) {
-  const repoRoot = resolveRepoRoot();
-  const roleSkills = await fetchPersistentRoleSkills(supabaseUrl, anonKey, companyId);
-  return syncWorkspaceSkills(companyId, roleSkills, repoRoot);
-}
-
-// dist/lib/version.js
-import { execSync as execSync3 } from "node:child_process";
-import { existsSync as existsSync6, readFileSync as readFileSync5 } from "node:fs";
-import { join as join7, dirname as dirname3 } from "node:path";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
-var thisDir = dirname3(fileURLToPath3(import.meta.url));
-function findPackageJson() {
-  for (const rel of ["../../package.json", "../package.json"]) {
-    const candidate = join7(thisDir, rel);
-    if (existsSync6(candidate))
-      return candidate;
-  }
-  return join7(thisDir, "../../package.json");
-}
-var pkgPath = findPackageJson();
-function getVersion() {
-  const pkg = JSON.parse(readFileSync5(pkgPath, "utf8"));
-  const base = pkg.version ?? "0.0.0";
-  let hash = "";
-  try {
-    hash = execSync3("git rev-parse --short HEAD", { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
-  } catch {
-    return base;
-  }
-  let dirty = false;
-  try {
-    execSync3("git diff --quiet HEAD", { stdio: ["pipe", "pipe", "pipe"] });
-  } catch {
-    dirty = true;
-  }
-  return `${base}+${hash}${dirty ? "-dirty" : ""}`;
-}
-
-// dist/lib/builds.js
-import { execSync as execSync4 } from "node:child_process";
-import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync6, writeFileSync as writeFileSync6, cpSync, renameSync, rmSync as rmSync2 } from "node:fs";
-import { join as join8 } from "node:path";
-import { homedir as homedir6 } from "node:os";
-var BUILDS_DIR = join8(homedir6(), ".zazigv2", "builds");
-var CURRENT = join8(BUILDS_DIR, "current");
-var PREVIOUS = join8(BUILDS_DIR, "previous");
-function getCurrentBuildSha() {
-  const versionFile = join8(CURRENT, ".version");
-  if (!existsSync7(versionFile))
-    return null;
-  return readFileSync6(versionFile, "utf-8").trim();
-}
-function hasPinnedBuild() {
-  return existsSync7(join8(CURRENT, "packages", "local-agent", "releases", "zazig-agent.mjs"));
-}
-function pinCurrentBuild(repoRoot) {
-  const sha = execSync4("git rev-parse HEAD", { cwd: repoRoot, encoding: "utf-8" }).trim();
-  if (existsSync7(CURRENT)) {
-    if (existsSync7(PREVIOUS)) {
-      rmSync2(PREVIOUS, { recursive: true, force: true });
-    }
-    renameSync(CURRENT, PREVIOUS);
-  }
-  mkdirSync6(CURRENT, { recursive: true });
-  const toCopy = [
-    "packages/local-agent/releases/zazig-agent.mjs",
-    "packages/local-agent/releases/agent-mcp-server.mjs"
-  ];
-  for (const rel of toCopy) {
-    const src = join8(repoRoot, rel);
-    const dest = join8(CURRENT, rel);
-    if (existsSync7(src)) {
-      mkdirSync6(join8(dest, ".."), { recursive: true });
-      cpSync(src, dest);
-    }
-  }
-  const extras = [
-    "projects/skills",
-    "zazig.environments.yaml"
-  ];
-  for (const rel of extras) {
-    const src = join8(repoRoot, rel);
-    const dest = join8(CURRENT, rel);
-    if (existsSync7(src)) {
-      mkdirSync6(join8(dest, ".."), { recursive: true });
-      cpSync(src, dest, { recursive: true });
-    }
-  }
-  writeFileSync6(join8(CURRENT, ".version"), sha);
-  console.log(`Build pinned: ${sha}`);
-}
-function rollback() {
-  if (!existsSync7(PREVIOUS)) {
-    console.error("No previous build to rollback to.");
-    return false;
-  }
-  const tempDir = join8(BUILDS_DIR, "swap-temp");
-  if (existsSync7(tempDir))
-    rmSync2(tempDir, { recursive: true, force: true });
-  renameSync(CURRENT, tempDir);
-  renameSync(PREVIOUS, CURRENT);
-  renameSync(tempDir, PREVIOUS);
-  const sha = getCurrentBuildSha();
-  console.log(`Rolled back to: ${sha ?? "unknown"}`);
-  return true;
-}
-
-// dist/commands/start.js
-function sleep(ms) {
-  return new Promise((resolve4) => setTimeout(resolve4, ms));
-}
-function generateMachineName() {
-  const raw = hostname().toLowerCase();
-  return raw.replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "") || "my-machine";
-}
-async function promptForConfig(codexInstalled) {
-  const rl = createInterface4({ input: process.stdin, output: process.stdout });
-  console.log("zazig: first run \u2014 let's configure this machine.\n");
-  try {
-    const claudeAns = await rl.question("Max concurrent Claude Code sessions [4]: ");
-    const claudeCount = parseInt(claudeAns.trim(), 10) || 4;
-    let codexCount = 0;
-    if (codexInstalled) {
-      const codexAns = await rl.question("Max concurrent Codex sessions [4]: ");
-      codexCount = parseInt(codexAns.trim(), 10) || 4;
-    } else {
-      console.log("\nCodex CLI is not installed \u2014 Codex slots set to 0.");
-      console.log("To enable Codex agents later, install it:");
-      console.log("  npm install -g @openai/codex\n");
-    }
-    const name = generateMachineName();
-    saveConfig({
-      name,
-      slots: { claude_code: claudeCount, codex: codexCount }
-    });
-    console.log(`
-Machine configured: ${name} (${claudeCount} Claude Code, ${codexCount} Codex)`);
-  } finally {
-    rl.close();
-  }
-}
-function isProcessRunning(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-async function start() {
-  const noTui = process.argv.includes("--no-tui");
-  const companyFlagIdx = process.argv.indexOf("--company");
-  const companyFlagValue = companyFlagIdx !== -1 ? process.argv[companyFlagIdx + 1] : void 0;
-  let claudeInstalled = false;
-  try {
-    execSync5("claude --version", { stdio: "pipe" });
-    claudeInstalled = true;
-  } catch {
-  }
-  if (!claudeInstalled) {
-    console.error("Claude Code is not installed.");
-    console.error("zazig requires Claude Code to run AI coding agents.\n");
-    console.error("Install it:");
-    console.error("  npm install -g @anthropic-ai/claude-code\n");
-    console.error("Then authenticate:  claude login\n");
-    process.exitCode = 1;
-    return;
-  }
-  let codexInstalled = false;
-  try {
-    execSync5("codex --version", { stdio: "pipe" });
-    codexInstalled = true;
-  } catch {
-  }
-  let creds;
-  try {
-    creds = await getValidCredentials();
-  } catch {
-    console.error("Not logged in. Run 'zazig login' first.");
-    process.exitCode = 1;
-    return;
-  }
-  if (!configExists()) {
-    await promptForConfig(codexInstalled);
-  }
-  const config = loadConfig();
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
-  let company = await pickCompany(companies);
-  if (companyFlagValue) {
-    const found = companies.find((c) => c.id === companyFlagValue || c.name === companyFlagValue);
-    if (found)
-      company = found;
-  }
-  console.log(`zazig ${getVersion()}`);
-  console.log(`Starting zazig for ${company.name}...`);
-  if (isDaemonRunningForCompany(company.id)) {
-    const oldPid = readPidForCompany(company.id);
-    if (oldPid && isProcessRunning(oldPid)) {
-      process.stdout.write(`Stopping existing daemon (PID ${oldPid})...`);
-      try {
-        process.kill(oldPid, "SIGTERM");
-      } catch {
-      }
-      const deadline = Date.now() + 1e4;
-      while (Date.now() < deadline) {
-        await sleep(200);
-        if (!isProcessRunning(oldPid))
-          break;
-      }
-      if (isProcessRunning(oldPid)) {
-        try {
-          process.kill(oldPid, "SIGKILL");
-        } catch {
-        }
-      }
-      console.log(" stopped.");
-    }
-    removePidFileForCompany(company.id);
-  }
-  const env = {
-    ...process.env,
-    SUPABASE_ACCESS_TOKEN: creds.accessToken,
-    SUPABASE_REFRESH_TOKEN: creds.refreshToken ?? "",
-    SUPABASE_URL: creds.supabaseUrl,
-    ZAZIG_MACHINE_NAME: config.name,
-    ZAZIG_COMPANY_ID: company.id,
-    ZAZIG_COMPANY_NAME: company.name,
-    ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
-    ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2)
-  };
-  const zazigEnv = process.env["ZAZIG_ENV"] ?? "production";
-  let agentEntryOverride;
-  if (zazigEnv === "production" && hasPinnedBuild()) {
-    const buildDir = join9(homedir7(), ".zazigv2", "builds", "current");
-    agentEntryOverride = join9(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
-    const sha = getCurrentBuildSha();
-    console.log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);
-  } else if (zazigEnv === "staging") {
-    console.log("Using repo build (staging mode)");
-  }
-  let pid;
-  try {
-    pid = startDaemonForCompany(env, company.id, agentEntryOverride);
-    console.log(`Agent started (PID ${pid}). Logs: ${logPathForCompany(company.id)}`);
-  } catch (err) {
-    console.error(`Failed to start daemon: ${String(err)}`);
-    process.exitCode = 1;
-    return;
-  }
-  process.stdout.write("Waiting for agents to spawn...");
-  let agentSessions = [];
-  let lastCount = 0;
-  let stablePolls = 0;
-  const spawnDeadline = Date.now() + 3e4;
-  while (Date.now() < spawnDeadline) {
-    await sleep(2e3);
-    if (!isProcessRunning(pid)) {
-      console.error(`
-Agent failed to start. Check logs: ${logPathForCompany(company.id)}`);
-      process.exitCode = 1;
-      return;
-    }
-    agentSessions = discoverAgentSessions(config.name, company.id);
-    if (agentSessions.length > 0 && agentSessions.length === lastCount) {
-      stablePolls++;
-      if (stablePolls >= 2)
-        break;
-    } else {
-      stablePolls = 0;
-    }
-    lastCount = agentSessions.length;
-    process.stdout.write(".");
-  }
-  console.log(agentSessions.length > 0 ? ` found ${agentSessions.length} agent(s).` : "");
-  try {
-    const sync = await syncSkillsForCompany(creds.supabaseUrl, anonKey, company.id);
-    console.log(`Skills sync: added=${sync.added}, updated=${sync.updated}, removed=${sync.removed}, unchanged=${sync.unchanged}`);
-    for (const warning of sync.warnings) {
-      console.warn(warning);
+    const jobs = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+    console.log(`[local-agent] Discovered ${jobs.length} persistent agent(s) for company ${companyId}`);
+    for (const job of jobs) {
+      await executor.spawnPersistentAgent(job, companyId);
     }
   } catch (err) {
-    console.warn(`Skills sync skipped: ${String(err)}`);
-  }
-  if (noTui) {
-    console.log("Zazig started successfully (headless).");
-    console.log(`Logs: ${logPathForCompany(company.id)}`);
-  } else if (agentSessions.length === 0) {
-    console.log("No agent sessions found. Daemon may still be starting up.");
-    console.log(`Logs: ${logPathForCompany(company.id)}`);
-  } else {
-    launchTui({
-      companyName: company.name,
-      agents: agentSessions,
-      onShutdown: () => {
-        console.log("\nDetached from agents (daemon still running in background).");
-        console.log("Run 'zazig chat' to reconnect, or 'zazig stop' to stop it.");
-      }
-    });
+    console.error(`[local-agent] Error during persistent agent discovery:`, err);
   }
 }
-
-// dist/commands/stop.js
-function sleep2(ms) {
-  return new Promise((resolve4) => setTimeout(resolve4, ms));
-}
-function isRunning2(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-async function stop() {
-  let creds;
-  try {
-    creds = await getValidCredentials();
-  } catch {
-    console.error("Not logged in. Run 'zazig login' first.");
-    process.exitCode = 1;
-    return;
-  }
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
-  const company = await pickCompany(companies);
-  const pid = readPidForCompany(company.id);
-  if (!pid || !isRunning2(pid)) {
-    console.log(`Agent is not running for ${company.name}.`);
-    return;
-  }
-  process.stdout.write(`Stopping zazig for ${company.name} (PID ${pid})...`);
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-  }
-  const deadline = Date.now() + 1e4;
-  while (Date.now() < deadline) {
-    await sleep2(200);
-    if (!isRunning2(pid))
-      break;
-  }
-  if (isRunning2(pid)) {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-    }
-  }
-  removePidFileForCompany(company.id);
-  console.log(" stopped.");
-}
-
-// dist/commands/status.js
-import { readdirSync as readdirSync2 } from "node:fs";
-import { homedir as homedir8 } from "node:os";
-import { join as join10 } from "node:path";
-function apiFetch(url, headers) {
-  return fetch(url, { headers }).then(async (r) => {
-    if (!r.ok)
-      throw new Error(`HTTP ${r.status}`);
-    return r.json();
-  });
-}
-function findRunningDaemon() {
-  const zazigDir = join10(homedir8(), ".zazigv2");
-  try {
-    const uuidPattern = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.pid$/;
-    for (const entry of readdirSync2(zazigDir)) {
-      const match = entry.match(uuidPattern);
-      if (match) {
-        const companyId = match[1];
-        if (isDaemonRunningForCompany(companyId)) {
-          return { pid: readPidForCompany(companyId), companyId };
-        }
-      }
-    }
-  } catch {
-  }
-  if (isDaemonRunning()) {
-    return { pid: readPid(), companyId: null };
-  }
-  return null;
-}
-async function status() {
-  const daemon = findRunningDaemon();
-  if (!daemon) {
-    console.log("Agent is not running.");
-    return;
-  }
-  const { pid } = daemon;
-  console.log(`zazig ${getVersion()} \u2014 agent running (PID ${pid})`);
-  let creds;
-  try {
-    creds = await getValidCredentials();
-  } catch {
-    return;
-  }
-  let cfg;
-  try {
-    cfg = loadConfig();
-  } catch {
-    return;
-  }
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const headers = {
-    apikey: anonKey,
-    Authorization: `Bearer ${creds.accessToken}`
-  };
-  try {
-    const machines = await apiFetch(`${creds.supabaseUrl}/rest/v1/machines?select=id,name,status,last_heartbeat,slots_claude_code,slots_codex,company_id&name=eq.${encodeURIComponent(cfg.name)}`, headers);
-    if (machines.length === 0) {
-      console.log("  (machine not registered yet \u2014 start the agent to register)");
-      return;
-    }
-    const m = machines[0];
-    const connStatus = String(m.status ?? "unknown");
-    const connIcon = connStatus === "online" ? "\u25CF" : "\u25CB";
-    console.log(`  Connection:     ${connIcon} ${connStatus}`);
-    console.log(`  Machine:        ${String(m.name ?? cfg.name)}`);
-    if (typeof m.last_heartbeat === "string") {
-      const ageSec = Math.round((Date.now() - new Date(m.last_heartbeat).getTime()) / 1e3);
-      console.log(`  Last heartbeat: ${ageSec}s ago`);
-    }
-    const machineId = String(m.id ?? "");
-    if (machineId) {
-      const jobs = await apiFetch(`${creds.supabaseUrl}/rest/v1/jobs?select=id,status,context,slot_type,job_type&machine_id=eq.${encodeURIComponent(machineId)}&status=in.(queued,dispatched,executing,reviewing)`, headers);
-      const claudeActive = jobs.filter((j) => j.slot_type === "claude_code").length;
-      const codexActive = jobs.filter((j) => j.slot_type === "codex").length;
-      const claudeSlots = Number(m.slots_claude_code ?? cfg.slots.claude_code);
-      const codexSlots = Number(m.slots_codex ?? cfg.slots.codex);
-      console.log(`  Claude slots:   ${claudeActive}/${claudeSlots}`);
-      console.log(`  Codex slots:    ${codexActive}/${codexSlots}`);
-      console.log(`  Active jobs:    ${jobs.length}`);
-      for (const job of jobs) {
-        const ctx = typeof job.context === "string" ? job.context.replace(/\s+/g, " ").trim().slice(0, 55) : String(job.id ?? "").slice(0, 8);
-        console.log(`    \u2022 [${job.status}] ${ctx}`);
-      }
-    }
-    const companyIds = machines.map((row) => String(row.company_id ?? "")).filter((id) => id.length > 0);
-    if (companyIds.length > 0) {
-      const persistentAgents = await apiFetch(`${creds.supabaseUrl}/rest/v1/persistent_agents?select=id,role,status,machine_id,last_heartbeat&company_id=in.(${companyIds.join(",")})`, headers);
-      if (Array.isArray(persistentAgents) && persistentAgents.length > 0) {
-        console.log(`  Persistent agents:`);
-        for (const agent of persistentAgents) {
-          const role = String(agent.role ?? "unknown").toUpperCase();
-          const agentStatus = String(agent.status ?? "unknown");
-          const isLocal = agent.machine_id === machineId;
-          const localTag = isLocal ? " (this machine)" : "";
-          const icon = agentStatus === "running" ? "\u25CF" : "\u25CB";
-          console.log(`    ${icon} ${role.padEnd(12)} ${agentStatus}${localTag}`);
-        }
-      }
-    }
-  } catch (err) {
-    console.log(`  (could not fetch live status: ${String(err)})`);
-  }
-}
-
-// dist/commands/personality.js
-async function apiFetch2(url, headers) {
-  const resp = await fetch(url, { headers });
-  if (!resp.ok)
-    throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
-}
-async function resolveCompanyId(supabaseUrl, headers) {
-  const rows = await apiFetch2(`${supabaseUrl}/rest/v1/user_companies?select=company_id&limit=1`, headers);
-  if (rows.length === 0) {
-    throw new Error("No company found for your account. Run 'zazig setup' first.");
-  }
-  return rows[0].company_id;
-}
-async function personality(args2) {
-  const [role, ...flags] = args2;
-  if (!role) {
-    console.error("Usage: zazig personality <role> [--show | --archetype [name]]");
-    process.exitCode = 1;
-    return;
-  }
-  const showFlag = flags.includes("--show");
-  const archetypeIdx = flags.indexOf("--archetype");
-  const hasArchetypeFlag = archetypeIdx >= 0;
-  const archetypeRaw = hasArchetypeFlag ? flags[archetypeIdx + 1] : void 0;
-  const archetypeValue = archetypeRaw && !archetypeRaw.startsWith("--") ? archetypeRaw : void 0;
-  if (!showFlag && !hasArchetypeFlag) {
-    console.error("Usage: zazig personality <role> [--show | --archetype [name]]");
-    process.exitCode = 1;
-    return;
-  }
-  let creds;
-  try {
-    creds = await getValidCredentials();
-  } catch {
-    console.error("Run 'zazig login' first.");
-    process.exitCode = 1;
-    return;
-  }
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const headers = {
-    apikey: anonKey,
-    Authorization: `Bearer ${creds.accessToken}`,
-    "Content-Type": "application/json"
-  };
-  let companyId;
-  try {
-    companyId = await resolveCompanyId(creds.supabaseUrl, headers);
-  } catch (err) {
-    console.error(String(err));
-    process.exitCode = 1;
-    return;
-  }
-  let roleRows;
-  try {
-    roleRows = await apiFetch2(`${creds.supabaseUrl}/rest/v1/roles?select=id,name&name=eq.${encodeURIComponent(role)}&limit=1`, headers);
-  } catch (err) {
-    console.error(`Failed to look up role: ${String(err)}`);
-    process.exitCode = 1;
-    return;
-  }
-  if (roleRows.length === 0) {
-    console.error(`Unknown role: ${role}`);
-    process.exitCode = 1;
-    return;
-  }
-  const roleId = roleRows[0].id;
-  try {
-    if (showFlag) {
-      await showPersonality(creds.supabaseUrl, companyId, headers, role, roleId);
-    } else if (hasArchetypeFlag && archetypeValue) {
-      await switchArchetype(creds.supabaseUrl, companyId, headers, role, roleId, archetypeValue);
-    } else {
-      await listArchetypes(creds.supabaseUrl, companyId, headers, role, roleId);
-    }
-  } catch (err) {
-    console.error(`Error: ${String(err)}`);
-    process.exitCode = 1;
-  }
-}
-async function showPersonality(supabaseUrl, companyId, headers, roleName, roleId) {
-  const rows = await apiFetch2(`${supabaseUrl}/rest/v1/exec_personalities?select=archetype_id,user_overrides,evolved_state,is_frozen,archetype:exec_archetypes(id,display_name,voice_notes,dimensions)&company_id=eq.${encodeURIComponent(companyId)}&role_id=eq.${encodeURIComponent(roleId)}&limit=1`, headers);
-  if (rows.length === 0) {
-    console.log(`No personality configured for ${roleName}.`);
-    console.log(`Run 'zazig personality ${roleName} --archetype' to select one.`);
-    return;
-  }
-  const p = rows[0];
-  const a = p.archetype;
-  console.log(`${roleName.toUpperCase()} Personality \u2014 ${a.display_name}`);
-  console.log("\u2500".repeat(40));
-  const dims = a.dimensions ?? {};
-  const dimNames = Object.keys(dims);
-  if (dimNames.length > 0) {
-    const colWidth = Math.max(9, ...dimNames.map((d) => d.length)) + 2;
-    console.log("Dimension".padEnd(colWidth) + "Current".padEnd(9) + "Default".padEnd(9) + "Bounds");
-    for (const dim of dimNames) {
-      const info = dims[dim];
-      const current = p.user_overrides[dim] !== void 0 ? p.user_overrides[dim] : p.evolved_state[dim] !== void 0 ? p.evolved_state[dim] : info.default;
-      console.log(dim.padEnd(colWidth) + String(current).padEnd(9) + String(info.default).padEnd(9) + `[${info.bounds[0]}, ${info.bounds[1]}]`);
-    }
-    console.log("");
-  }
-  if (a.voice_notes) {
-    console.log(`Voice:  ${a.voice_notes}`);
-  }
-  console.log(`Status: active`);
-  console.log(`Frozen: ${p.is_frozen ? "yes" : "no"}`);
-}
-async function listArchetypes(supabaseUrl, companyId, headers, roleName, roleId) {
-  const [archetypes, pRows] = await Promise.all([
-    apiFetch2(`${supabaseUrl}/rest/v1/exec_archetypes?select=id,display_name,voice_notes&role_id=eq.${encodeURIComponent(roleId)}&order=display_name.asc`, headers),
-    apiFetch2(`${supabaseUrl}/rest/v1/exec_personalities?select=archetype_id&company_id=eq.${encodeURIComponent(companyId)}&role_id=eq.${encodeURIComponent(roleId)}&limit=1`, headers).catch(() => [])
-  ]);
-  if (archetypes.length === 0) {
-    console.log(`No archetypes available for ${roleName}.`);
-    return;
-  }
-  const currentArchetypeId = pRows.length > 0 ? pRows[0].archetype_id : null;
-  console.log(`${roleName.toUpperCase()} Archetypes:`);
-  const maxNameLen = Math.max(...archetypes.map((a) => a.display_name.length));
-  for (const a of archetypes) {
-    const voice = a.voice_notes ? a.voice_notes.replace(/\s+/g, " ").trim().slice(0, 80) : "";
-    const suffix = voice ? ` \u2014 ${voice}` : "";
-    console.log(`  ${a.display_name.padEnd(maxNameLen)}${suffix}`);
-  }
-  const currentName = archetypes.find((a) => a.id === currentArchetypeId)?.display_name ?? null;
-  console.log("");
-  console.log(`Current: ${currentName ?? "(none)"}`);
-  console.log(`Run 'zazig personality ${roleName} --archetype "<name>"' to switch.`);
-}
-async function switchArchetype(supabaseUrl, companyId, headers, roleName, roleId, archetypeName) {
-  const archetypes = await apiFetch2(`${supabaseUrl}/rest/v1/exec_archetypes?select=id,display_name&role_id=eq.${encodeURIComponent(roleId)}&display_name=eq.${encodeURIComponent(archetypeName)}&limit=1`, headers);
-  if (archetypes.length === 0) {
-    console.error(`No archetype found named "${archetypeName}" for role ${roleName}.`);
-    process.exitCode = 1;
-    return;
-  }
-  const archetype = archetypes[0];
-  console.log(`Warning: switching archetype resets all evolved dimensions and overrides.`);
-  console.log(`Switching ${roleName.toUpperCase()} to "${archetype.display_name}"...`);
-  const resp = await fetch(`${supabaseUrl}/rest/v1/exec_personalities?on_conflict=company_id,role_id`, {
-    method: "POST",
-    headers: { ...headers, Prefer: "resolution=merge-duplicates" },
-    body: JSON.stringify({
-      company_id: companyId,
-      role_id: roleId,
-      archetype_id: archetype.id,
-      evolved_state: {},
-      user_overrides: {}
-    })
-  });
-  if (!resp.ok) {
-    const errText = await resp.text();
-    throw new Error(`HTTP ${resp.status} \u2014 ${errText}`);
-  }
-  console.log("Done. Evolved state and overrides reset.");
-}
-
-// dist/commands/promote.js
-import { execSync as execSync6 } from "node:child_process";
-import { existsSync as existsSync8, rmSync as rmSync3 } from "node:fs";
-import { join as join11 } from "node:path";
-import { homedir as homedir9 } from "node:os";
-import { createInterface as createInterface5 } from "node:readline/promises";
-var REPOS_BASE = join11(homedir9(), ".zazigv2", "repos");
-async function fetchProjects(supabaseUrl, anonKey, accessToken, companyId) {
-  const res = await fetch(`${supabaseUrl}/rest/v1/projects?select=id,name,repo_url&company_id=eq.${companyId}`, {
-    headers: {
-      apikey: anonKey,
-      Authorization: `Bearer ${accessToken}`
-    }
-  });
-  if (!res.ok)
-    throw new Error(`Failed to fetch projects: HTTP ${res.status}`);
-  return await res.json();
-}
-async function pickProject(projects) {
-  if (projects.length === 0) {
-    throw new Error("No projects found for this company.");
-  }
-  if (projects.length === 1) {
-    return projects[0];
-  }
-  console.log("\nWhich project?\n");
-  for (let i = 0; i < projects.length; i++) {
-    console.log(`  ${i + 1}. ${projects[i].name}`);
-  }
-  const rl = createInterface5({ input: process.stdin, output: process.stdout });
-  try {
-    const ans = await rl.question(`
-Choice [1]: `);
-    const idx = (parseInt(ans.trim(), 10) || 1) - 1;
-    if (idx < 0 || idx >= projects.length) {
-      throw new Error("Invalid choice.");
-    }
-    return projects[idx];
-  } finally {
-    rl.close();
-  }
-}
-function resolveDefaultBranch(repoDir) {
-  try {
-    const ref = execSync6("git symbolic-ref HEAD", { encoding: "utf-8", cwd: repoDir }).trim();
-    return ref.replace(/^refs\/heads\//, "");
-  } catch {
-  }
-  for (const name of ["main", "master"]) {
-    try {
-      execSync6(`git rev-parse --verify refs/heads/${name}`, { cwd: repoDir, stdio: "pipe" });
-      return name;
-    } catch {
-      continue;
-    }
-  }
-  throw new Error(`Cannot resolve default branch in ${repoDir}`);
-}
-async function promote(args2) {
-  if (args2.includes("--rollback")) {
-    const ok = rollback();
-    process.exitCode = ok ? 0 : 1;
-    return;
-  }
-  let creds;
-  try {
-    creds = await getValidCredentials();
-  } catch {
-    console.error("Not logged in. Run 'zazig login' first.");
-    process.exitCode = 1;
-    return;
-  }
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  let companies;
-  try {
-    companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
-  } catch (err) {
-    console.error(`Failed to fetch companies: ${String(err)}`);
-    console.error("Your session may have expired. Run 'zazig login' and try again.");
-    process.exitCode = 1;
-    return;
-  }
-  const company = await pickCompany(companies);
-  console.log(`
-Company: ${company.name}`);
-  const projects = await fetchProjects(creds.supabaseUrl, anonKey, creds.accessToken, company.id);
-  const project = await pickProject(projects);
-  console.log(`Project: ${project.name}`);
-  const bareRepoDir = join11(REPOS_BASE, project.name);
-  if (!existsSync8(bareRepoDir)) {
-    console.error(`No local repo clone found at ${bareRepoDir}.`);
-    console.error("Run 'zazig start' first to clone the project repo.");
-    process.exitCode = 1;
-    return;
-  }
-  console.log("\nFetching latest from origin...");
-  try {
-    execSync6("git fetch origin", { cwd: bareRepoDir, stdio: "pipe" });
-  } catch (err) {
-    console.warn(`Fetch warning (non-fatal): ${String(err)}`);
-  }
-  const defaultBranch = resolveDefaultBranch(bareRepoDir);
-  const worktreePath = join11(homedir9(), ".zazigv2", "worktrees", "promote-tmp");
-  try {
-    execSync6(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" });
-  } catch {
-  }
-  try {
-    rmSync3(worktreePath, { recursive: true, force: true });
-  } catch {
-  }
-  try {
-    execSync6("git worktree prune", { cwd: bareRepoDir, stdio: "pipe" });
-  } catch {
-  }
-  console.log(`Creating worktree on ${defaultBranch}...`);
-  try {
-    execSync6(`git worktree add "${worktreePath}" ${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
-  } catch (err) {
-    console.error(`Failed to create worktree: ${String(err)}`);
-    process.exitCode = 1;
-    return;
-  }
-  const repoRoot = worktreePath;
-  try {
-    await runPromote(repoRoot, defaultBranch);
-  } finally {
-    console.log("\nCleaning up temporary worktree...");
-    try {
-      execSync6(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" });
-    } catch {
-    }
-    try {
-      rmSync3(worktreePath, { recursive: true, force: true });
-    } catch {
-    }
-    try {
-      execSync6("git worktree prune", { cwd: bareRepoDir, stdio: "pipe" });
-    } catch {
-    }
-  }
-}
-async function runPromote(repoRoot, defaultBranch) {
-  try {
-    const branch = execSync6("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-    if (branch !== defaultBranch) {
-      console.error(`Worktree is on ${branch}, expected ${defaultBranch}.`);
-      process.exitCode = 1;
-      return;
-    }
-    try {
-      const local = execSync6("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-      const remote = execSync6(`git rev-parse origin/${branch}`, { encoding: "utf-8", cwd: repoRoot, stdio: ["pipe", "pipe", "pipe"] }).trim();
-      if (local !== remote) {
-        console.error(`Local ${branch} (${local.slice(0, 7)}) differs from origin (${remote.slice(0, 7)}).`);
-        process.exitCode = 1;
+function subscribeToRolePromptHotReload(conn, machineId, supabaseUrl, anonKey, companyId, executor) {
+  const inFlightRoles = /* @__PURE__ */ new Set();
+  const channelName = `agent:${machineId}:${companyId}:role-prompt-hot-reload`;
+  const channel = conn.supabase.channel(channelName).on("postgres_changes", { event: "UPDATE", schema: "public", table: "roles" }, (payload) => {
+    void (async () => {
+      const nextRow = payload.new ?? {};
+      const prevRow = payload.old ?? {};
+      const role = typeof nextRow.name === "string" ? nextRow.name : "";
+      const prevPrompt = typeof prevRow.prompt === "string" ? prevRow.prompt : "";
+      const nextPrompt = typeof nextRow.prompt === "string" ? nextRow.prompt : "";
+      if (!role || prevPrompt === nextPrompt)
+        return;
+      if (!executor.hasPersistentAgent(role)) {
         return;
       }
-    } catch {
-    }
-  } catch (err) {
-    console.error(`Git check failed: ${String(err)}`);
-    process.exitCode = 1;
-    return;
-  }
-  console.log("\nInstalling dependencies...");
-  try {
-    execSync6("npm ci", { cwd: repoRoot, stdio: "inherit" });
-  } catch {
-    console.error("npm ci failed.");
-    process.exitCode = 1;
-    return;
-  }
-  console.log("\nRunning build...");
-  try {
-    execSync6("npm run build", { cwd: repoRoot, stdio: "inherit" });
-  } catch {
-    console.error("Build failed. Fix build errors before promoting.");
-    process.exitCode = 1;
-    return;
-  }
-  console.log("\nBundling CLI...");
-  try {
-    execSync6("node scripts/bundle.js", { cwd: join11(repoRoot, "packages", "cli"), stdio: "inherit" });
-  } catch {
-    console.error("Bundle failed.");
-    process.exitCode = 1;
-    return;
-  }
-  console.log("\nCommitting bundles...");
-  try {
-    execSync6("git add packages/cli/releases/zazig.mjs packages/local-agent/releases/zazig-agent.mjs packages/local-agent/releases/agent-mcp-server.mjs", { cwd: repoRoot, stdio: "pipe" });
-    const diff = execSync6("git diff --cached --name-only", { encoding: "utf-8", cwd: repoRoot }).trim();
-    if (diff) {
-      execSync6('git commit -m "chore: update production bundles"', { cwd: repoRoot, stdio: "pipe" });
-      execSync6(`git push origin ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
-      console.log("Bundles committed and pushed.");
-    } else {
-      console.log("Bundles unchanged, skipping commit.");
-    }
-  } catch (err) {
-    console.error(`Bundle commit/push failed: ${String(err)}`);
-    process.exitCode = 1;
-    return;
-  }
-  console.log("\nUpdating production branch...");
-  try {
-    try {
-      execSync6("git rev-parse --verify production", { cwd: repoRoot, stdio: "pipe" });
-    } catch {
-      try {
-        execSync6("git branch production origin/production", { cwd: repoRoot, stdio: "pipe" });
-      } catch {
-        execSync6("git branch production", { cwd: repoRoot, stdio: "pipe" });
+      if (inFlightRoles.has(role)) {
+        console.log(`[local-agent] role prompt reload already running for role=${role} \u2014 skipping duplicate event`);
+        return;
       }
-    }
-    execSync6("git checkout production", { cwd: repoRoot, stdio: "pipe" });
-    try {
-      execSync6(`git merge ${defaultBranch} --ff-only`, { cwd: repoRoot, stdio: "pipe" });
-    } catch {
-      execSync6(`git checkout ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
-      console.error("Fast-forward merge into production failed. The production branch has diverged from master.\nTo fix: git checkout production && git reset --hard master && git push --force-with-lease origin production");
-      process.exitCode = 1;
-      return;
-    }
-    execSync6("git push origin production", { cwd: repoRoot, stdio: "pipe" });
-    execSync6(`git checkout ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
-    console.log("Production branch updated and pushed (triggers CI for Supabase deployment).");
-  } catch (err) {
-    try {
-      execSync6(`git checkout ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
-    } catch {
-    }
-    console.error(`Production branch update failed: ${String(err)}`);
-    process.exitCode = 1;
-    return;
-  }
-  console.log("\nPinning local agent build...");
-  pinCurrentBuild(repoRoot);
-  const sha = execSync6("git rev-parse --short HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-  console.log(`
-Promoted to production (${sha}).`);
-  console.log("CI will deploy Supabase migrations and edge functions.");
-  console.log("Restart your production agent to use the new build: zazig stop && zazig start");
-}
-
-// dist/commands/hotfix.js
-import { execSync as execSync7, spawnSync as spawnSync2 } from "node:child_process";
-async function hotfix(args2) {
-  const description = args2.join(" ");
-  if (!description) {
-    console.error('Usage: zazig hotfix "description of the fix"');
-    process.exitCode = 1;
-    return;
-  }
-  try {
-    const branch = execSync7("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8" }).trim();
-    if (branch !== "master" && branch !== "main") {
-      console.error(`Must be on master/main for hotfix. Currently on: ${branch}`);
-      process.exitCode = 1;
-      return;
-    }
-    const status2 = execSync7("git status --porcelain", { encoding: "utf-8" }).trim();
-    if (status2) {
-      console.error("Working tree is dirty. Commit or stash changes first.");
-      process.exitCode = 1;
-      return;
-    }
-    execSync7("git pull origin " + branch, { stdio: "inherit" });
-  } catch (err) {
-    console.error(`Git check failed: ${String(err)}`);
-    process.exitCode = 1;
-    return;
-  }
-  console.log(`
-Starting hotfix session: ${description}`);
-  console.log("Make your changes. When you're done, the agent will commit to master.\n");
-  const prompt = [
-    `You are performing a hotfix. The task: ${description}`,
-    "",
-    "Rules:",
-    "- Make the minimal change needed to fix the issue",
-    "- When done, commit your changes with a message starting with 'hotfix:'",
-    "- Do NOT create a feature branch \u2014 commit directly to master",
-    "- Run npm run build after changes to verify it compiles"
-  ].join("\n");
-  const result = spawnSync2("claude", ["--model", "claude-sonnet-4-6", "-p", prompt], {
-    stdio: "inherit",
-    cwd: process.cwd()
+      inFlightRoles.add(role);
+      try {
+        const jobs = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+        const refreshed = jobs.find((job) => job.role === role);
+        if (!refreshed) {
+          console.log(`[local-agent] role prompt update ignored for role=${role} \u2014 role is not active/persistent in company ${companyId}`);
+          return;
+        }
+        await executor.reloadPersistentAgent(refreshed, companyId);
+        console.log(`[local-agent] Hot-reloaded persistent agent for role=${role}`);
+      } catch (err) {
+        console.error(`[local-agent] Failed to hot-reload role=${role}:`, err);
+      } finally {
+        inFlightRoles.delete(role);
+      }
+    })();
   });
-  if (result.status !== 0) {
-    console.error("Hotfix session failed.");
-    process.exitCode = 1;
-    return;
-  }
-  console.log("\nHotfix committed. CI will deploy to staging automatically.");
-  console.log("Test on staging, then run: zazig promote");
-}
-
-// dist/commands/staging-fix.js
-import { spawnSync as spawnSync3 } from "node:child_process";
-import { existsSync as existsSync9, readFileSync as readFileSync7 } from "node:fs";
-import { resolve as resolve3 } from "node:path";
-async function stagingFix() {
-  const repoRoot = process.cwd();
-  const contextParts = [
-    "# Staging Fix Session",
-    "",
-    "You are an interactive agent for fixing issues found during staging testing.",
-    "You have access to the staging environment.",
-    "",
-    "## What you can do:",
-    "- Read and query the staging database",
-    "- Edit code to fix bugs",
-    "- Run npm run build to verify changes compile",
-    "- Commit fixes to master",
-    "- Deploy edge functions to staging for immediate testing",
-    "",
-    "## Rules:",
-    "- Make minimal, focused fixes",
-    "- Always run npm run build after changes",
-    "- Commit with message starting with 'fix:' or 'hotfix:'",
-    "- Do NOT modify production \u2014 only staging",
-    "- After committing, CI will auto-deploy to staging"
-  ];
-  const envPath = resolve3(repoRoot, "zazig.environments.yaml");
-  if (existsSync9(envPath)) {
-    contextParts.push("");
-    contextParts.push("## Environment Config:");
-    contextParts.push("```yaml");
-    contextParts.push(readFileSync7(envPath, "utf-8"));
-    contextParts.push("```");
-  }
-  console.log("Starting staging fix session...");
-  console.log("Describe the issue you found on staging. Type /exit when done.\n");
-  const result = spawnSync3("claude", ["--model", "claude-sonnet-4-6", "--system-prompt", contextParts.join("\n")], {
-    stdio: "inherit",
-    cwd: repoRoot,
-    env: {
-      ...process.env,
-      ZAZIG_ENV: "staging"
+  channel.subscribe((status, err) => {
+    if (status === "SUBSCRIBED") {
+      console.log(`[local-agent] Subscribed to role prompt hot-reload channel: ${channelName}`);
+    } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+      console.error(`[local-agent] Role prompt hot-reload channel error (status=${status}):`, err ?? "unknown error");
     }
   });
-  if (result.status !== 0 && result.status !== null) {
-    console.error("Staging fix session ended with errors.");
-    process.exitCode = 1;
-  }
-  console.log("\nStaging fix session ended.");
+  return channel;
 }
-
-// dist/index.js
-var [, , cmd, ...args] = process.argv;
-switch (cmd) {
-  case "--version":
-  case "-v":
-    console.log(getVersion());
-    break;
-  case "login":
-    await login();
-    break;
-  case "logout":
-    logout();
-    break;
-  case "setup":
-    await setup();
-    break;
-  case "start":
-    await start();
-    break;
-  case "stop":
-    await stop();
-    break;
-  case "chat":
-    await chat();
-    break;
-  case "status":
-    await status();
-    break;
-  case "personality":
-    await personality(args);
-    break;
-  case "skills":
-    await skills(args);
-    break;
-  case "promote":
-    await promote(args);
-    break;
-  case "hotfix":
-    await hotfix(args);
-    break;
-  case "staging-fix":
-    await stagingFix();
-    break;
-  case void 0:
-  case "--help":
-  case "-h":
-  case "help":
-    console.log("Usage: zazig <command>");
-    console.log("");
-    console.log("Commands:");
-    console.log("  login              Log in to zazig via browser");
-    console.log("  logout             Log out and remove stored credentials");
-    console.log("  setup              Create a company, onboard a project, invite teammates");
-    console.log("  start              Start the local agent daemon in the background");
-    console.log("  stop               Stop the running daemon");
-    console.log("  chat               Reconnect TUI to a running daemon");
-    console.log("  status             Show agent state and active jobs");
-    console.log("  personality <role> Show or switch exec personality (--show, --archetype)");
-    console.log("  skills <subcmd>    Inspect/sync workspace skill links (status, sync)");
-    console.log("  promote            Push staging to production (migrations, edge fns, pinned build)");
-    console.log("  promote --rollback Rollback to previous pinned build");
-    console.log('  hotfix "desc"      Quick fix: interactive session, commits to master');
-    console.log("  staging-fix        Interactive session for fixing staging issues");
-    break;
-  default:
-    console.error(`Unknown command: ${cmd}`);
-    console.error("Run 'zazig --help' to see available commands.");
-    process.exitCode = 1;
-}
+main().catch((err) => {
+  console.error("[local-agent] Fatal startup error:", err);
+  process.exit(1);
+});

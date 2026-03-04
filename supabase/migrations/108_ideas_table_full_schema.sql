@@ -33,7 +33,16 @@ ALTER TABLE public.ideas ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NUL
 ALTER TABLE public.ideas ADD COLUMN IF NOT EXISTS doc_refs TEXT[];
 
 -- 2. Backfill: copy legacy 'text' column into raw_text if raw_text is empty
-UPDATE public.ideas SET raw_text = text WHERE raw_text IS NULL AND text IS NOT NULL;
+-- Guard: only run if the legacy 'text' column exists (staging only)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'ideas' AND column_name = 'text'
+  ) THEN
+    EXECUTE 'UPDATE public.ideas SET raw_text = text WHERE raw_text IS NULL AND text IS NOT NULL';
+  END IF;
+END $$;
 
 -- 3. Make company_id NOT NULL (only after any backfill — will fail if NULLs remain)
 -- Skip if already NOT NULL (production). On staging the table should be empty or pre-populated.

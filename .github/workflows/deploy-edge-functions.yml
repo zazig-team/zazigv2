@@ -31,50 +31,14 @@ jobs:
         with:
           version: latest
 
-      - name: Deploy changed functions to STAGING
+      - name: Deploy ALL edge functions to STAGING
         run: |
-          BEFORE_SHA="${{ github.event.before }}"
-          ZERO_HASH="0000000000000000000000000000000000000000"
-
-          if [ "$BEFORE_SHA" = "$ZERO_HASH" ]; then
-            echo "First push — deploying ALL functions to staging"
-            for fn_dir in supabase/functions/*/; do
-              fn=$(basename "$fn_dir")
-              [ "$fn" = "_shared" ] && continue
-              echo "Deploying: $fn"
-              supabase functions deploy "$fn" --project-ref "$SUPABASE_STAGING_PROJECT_REF"
-            done
-            exit 0
-          fi
-
-          shared_changed=$(git diff --name-only "$BEFORE_SHA" HEAD -- supabase/functions/_shared/ || true)
-
-          if [ -n "$shared_changed" ]; then
-            echo "_shared changed — deploying ALL functions to staging"
-            for fn_dir in supabase/functions/*/; do
-              fn=$(basename "$fn_dir")
-              [ "$fn" = "_shared" ] && continue
-              echo "Deploying: $fn"
-              supabase functions deploy "$fn" --project-ref "$SUPABASE_STAGING_PROJECT_REF"
-            done
-          else
-            changed=$(git diff --name-only "$BEFORE_SHA" HEAD -- supabase/functions/ \
-              | cut -d/ -f3 \
-              | sort -u \
-              | grep -v _shared \
-              || true)
-
-            if [ -z "$changed" ]; then
-              echo "No edge functions changed."
-              exit 0
-            fi
-
-            echo "Deploying to staging: $changed"
-            for fn in $changed; do
-              echo "Deploying: $fn"
-              supabase functions deploy "$fn" --project-ref "$SUPABASE_STAGING_PROJECT_REF"
-            done
-          fi
+          for fn_dir in supabase/functions/*/; do
+            fn=$(basename "$fn_dir")
+            [ "$fn" = "_shared" ] && continue
+            echo "Deploying: $fn"
+            supabase functions deploy "$fn" --project-ref "$SUPABASE_STAGING_PROJECT_REF"
+          done
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}

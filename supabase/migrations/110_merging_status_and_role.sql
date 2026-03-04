@@ -1,11 +1,9 @@
 -- Migration: Add 'merging' pipeline step and job-merger role.
 -- Replaces terminal status 'merged' with 'merging' (active step) + 'complete' (terminal).
 
--- 1. Migrate existing 'merged' rows to 'complete' BEFORE changing the constraint
-UPDATE public.features SET status = 'complete' WHERE status = 'merged';
-
--- 2. Update features_status_check to include 'merging' and 'complete' (replacing 'merged')
+-- 1. Drop old constraint first, then update rows, then add new constraint
 ALTER TABLE public.features DROP CONSTRAINT IF EXISTS features_status_check;
+UPDATE public.features SET status = 'complete' WHERE status = 'merged';
 ALTER TABLE public.features ADD CONSTRAINT features_status_check
     CHECK (status = ANY (ARRAY[
         'created','ready_for_breakdown','breakdown','building',

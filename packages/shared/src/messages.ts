@@ -27,7 +27,7 @@ export type Complexity = "simple" | "medium" | "complex";
  * Category of work described by a Trello card.
  * Determines which execution agent and reviewer the orchestrator selects.
  */
-export type CardType = "code" | "infra" | "design" | "research" | "docs" | "verify" | "breakdown" | "combine" | "deploy_to_test" | "deploy_to_prod" | "review" | "bug" | "persistent_agent" | "feature_test";
+export type CardType = "code" | "infra" | "design" | "research" | "docs" | "verify" | "breakdown" | "combine" | "merge" | "deploy_to_test" | "deploy_to_prod" | "review" | "bug" | "persistent_agent" | "feature_test";
 
 /**
  * Lifecycle status values for a job in the orchestrator's job queue (DB model).
@@ -217,7 +217,8 @@ export const FEATURE_STATUSES = [
   "building",
   "combining_and_pr",
   "verifying",
-  "merged",
+  "merging",
+  "complete",
   "cancelled",
   "failed",
 ] as const;

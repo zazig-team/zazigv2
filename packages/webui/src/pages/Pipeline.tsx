@@ -23,7 +23,8 @@ const COLUMN_DEFINITIONS: ColumnDefinition[] = [
   { key: "building", label: "Building", colorVar: "--col-building" },
   { key: "combining_and_pr", label: "Combining & PR", colorVar: "--col-combining" },
   { key: "verifying", label: "Verifying", colorVar: "--col-verifying" },
-  { key: "merged", label: "Merged", colorVar: "--col-merged" },
+  { key: "merging", label: "Merging", colorVar: "--col-merging" },
+  { key: "complete", label: "Complete", colorVar: "--col-complete" },
   { key: "failed", label: "Failed", colorVar: "--col-failed" },
 ];
 

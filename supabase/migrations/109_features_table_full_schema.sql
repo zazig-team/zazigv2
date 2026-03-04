@@ -91,8 +91,9 @@ BEGIN
     ALTER TABLE public.features ADD CONSTRAINT features_status_check
       CHECK (status = ANY (ARRAY[
         'created','ready_for_breakdown','breakdown','building',
-        'combining','verifying','pr_ready','deploying_to_test',
-        'ready_to_test','deploying_to_prod','complete','cancelled','failed'
+        'combining','combining_and_pr','verifying','merging',
+        'pr_ready','deploying_to_test','ready_to_test','deploying_to_prod',
+        'complete','cancelled','failed'
       ]));
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'features_verification_type_check') THEN

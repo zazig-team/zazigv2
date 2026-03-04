@@ -1242,13 +1242,14 @@
         { key: 'created_specced', label: 'Ready',       color: '#6366f1', source: 'features' },
       ];
 
-      // Build pipeline: breaking_down -> merged
+      // Build pipeline: breaking_down -> complete
       const PIPELINE_COLUMNS = [
         { key: 'breaking_down',    label: 'Breakdown',    color: '#ec4899' },
         { key: 'building',         label: 'Building',     color: '#f97316' },
         { key: 'combining_and_pr', label: 'Combine + PR', color: '#eab308' },
         { key: 'verifying',        label: 'Verifying',    color: '#06b6d4' },
-        { key: 'merged',           label: 'Merged',       color: '#22c55e' },
+        { key: 'merging',          label: 'Merging',      color: '#3b82f6' },
+        { key: 'complete',         label: 'Complete',     color: '#22c55e' },
         { key: 'failed',           label: 'Failed',       color: '#ef4444' },
       ];
 

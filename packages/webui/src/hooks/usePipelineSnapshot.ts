@@ -7,7 +7,8 @@ export type PipelineStatus =
   | "building"
   | "combining_and_pr"
   | "verifying"
-  | "merged"
+  | "merging"
+  | "complete"
   | "failed";
 
 export interface PipelineFeature {
@@ -36,7 +37,8 @@ const EMPTY_SNAPSHOT: NormalizedPipelineSnapshot = {
     building: [],
     combining_and_pr: [],
     verifying: [],
-    merged: [],
+    merging: [],
+    complete: [],
     failed: [],
   },
 };
@@ -61,10 +63,12 @@ function toPipelineStatus(rawStatus: string | null | undefined): PipelineStatus 
       return "combining_and_pr";
     case "verifying":
       return "verifying";
+    case "merging":
+      return "merging";
     case "complete":
     case "shipped":
     case "merged":
-      return "merged";
+      return "complete";
     case "cancelled":
     case "failed":
       return "failed";
@@ -168,7 +172,8 @@ function normalizeSnapshot(snapshot: unknown, updatedAt: string | null): Normali
     building: [],
     combining_and_pr: [],
     verifying: [],
-    merged: [],
+    merging: [],
+    complete: [],
     failed: [],
   };
 

@@ -273,7 +273,6 @@ export class JobExecutor {
   private readonly activeJobs = new Map<string, ActiveJob>();
 
   /** Jobs that have been attempted (including failures) — prevents duplicate dispatch. */
-  private readonly attemptedJobs = new Set<string>();
 
   /** Manages bare repo clones and job worktrees for all dispatched jobs. */
   private readonly repoManager = new RepoManager();
@@ -349,12 +348,11 @@ export class JobExecutor {
         `complexity=${complexity}, model=${model}`
     );
 
-    if (this.activeJobs.has(jobId) || this.attemptedJobs.has(jobId)) {
-      jobLog(jobId, `SKIP duplicate start_job — already attempted`);
-      console.warn(`[executor] Duplicate start_job ignored for jobId=${jobId}`);
+    if (this.activeJobs.has(jobId)) {
+      jobLog(jobId, `SKIP duplicate start_job — already running`);
+      console.warn(`[executor] Duplicate start_job ignored for jobId=${jobId} (currently active)`);
       return;
     }
-    this.attemptedJobs.add(jobId);
 
     try {
       await this._handleStartJobInner(msg);
@@ -1376,6 +1374,7 @@ export class JobExecutor {
       deployer: ".claude/deploy-report.md",
       "test-deployer": ".claude/deploy-report.md",
       tester: ".claude/tester-report.md",
+      "job-merger": ".claude/job-merger-report.md",
     };
     const fallback = job.role ? REPORT_FALLBACKS[job.role] : undefined;
     if (fallback && fallback !== rpPath) {
@@ -1467,6 +1466,21 @@ export class JobExecutor {
       }
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
+    }
+
+    // Verify PASSED → merge the PR to master before reporting completion.
+    if (job.cardType === "verify" && result.startsWith("PASSED") && job.featureBranch) {
+      jobLog(jobId, `Verify passed — merging PR for feature branch ${job.featureBranch}`);
+      try {
+        const { stdout: mergeOut } = await execFileAsync("gh", [
+          "pr", "merge", job.featureBranch, "--squash", "--delete-branch",
+        ], { encoding: "utf8" });
+        jobLog(jobId, `PR merge succeeded: ${mergeOut.trim()}`);
+        console.log(`[executor] PR merged for jobId=${jobId}, branch=${job.featureBranch}`);
+      } catch (mergeErr) {
+        jobLog(jobId, `PR merge FAILED: ${String(mergeErr)}`);
+        console.error(`[executor] PR merge failed for jobId=${jobId}:`, mergeErr);
+      }
     }
 
     // If the verify report had no verdict, treat as a job failure (not completion)
@@ -2078,9 +2092,7 @@ function buildCommand(
     model && model !== "codex"
       ? model
       : slotType === "codex"
-        ? (complexity === "medium" || complexity === "complex"
-          ? "gpt-5.3-codex"
-          : "gpt-5.3-codex-spark")
+        ? "gpt-5.3-codex"
         : complexity === "complex"
           ? "claude-opus-4-6"
           : "claude-sonnet-4-6";

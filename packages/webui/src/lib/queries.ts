@@ -407,7 +407,7 @@ export async function fetchPulseMetrics(companyId: string): Promise<PulseMetrics
   const features = (featuresResult.data ?? []) as Array<{ status: string }>;
   const jobs = (jobsResult.data ?? []) as Array<{ status: string }>;
 
-  const mergedFeatures = features.filter((feature) => feature.status === "merged").length;
+  const mergedFeatures = features.filter((feature) => feature.status === "complete").length;
   const failedFeatures = features.filter(
     (feature) => feature.status === "failed" || feature.status === "cancelled",
   ).length;

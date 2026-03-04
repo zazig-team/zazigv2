@@ -320,7 +320,7 @@ const NO_CODE_CONTEXT_ROLES = new Set([
 
 const TERMINAL_FEATURE_STATUSES_FOR_DEPLOY = new Set([
   "failed",
-  "merged",
+  "complete",
   "cancelled",
 ]);
 
@@ -1367,25 +1367,8 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
       normalizedResult.startsWith("NO_REPORT") ||
       normalizedResult.startsWith("VERDICT_MISSING");
     if (passed) {
-      console.log(`[orchestrator] Verification PASSED for feature ${jobRow.feature_id} — advancing to merged`);
-      const { data: mergedUpdated } = await supabase
-        .from("features")
-        .update({ status: "merged", updated_at: new Date().toISOString() })
-        .eq("id", jobRow.feature_id)
-        .eq("status", "verifying")
-        .select("id, pr_url, title");
-      if (mergedUpdated?.length) {
-        const prUrl = (mergedUpdated[0] as { pr_url?: string }).pr_url ?? null;
-        const featureTitle = (mergedUpdated[0] as { title?: string }).title ?? jobRow.feature_id;
-        await notifyCPO(
-          supabase,
-          jobRow.company_id,
-          prUrl
-            ? `Feature "${featureTitle}" verified and merged: ${prUrl}`
-            : `Feature "${featureTitle}" verified and merged.`,
-        );
-        await notifyPRReady(supabase, jobRow.company_id, featureTitle, prUrl);
-      }
+      console.log(`[orchestrator] Verification PASSED for feature ${jobRow.feature_id} — triggering merge`);
+      await triggerMerging(supabase, jobRow.feature_id);
     } else if (failed) {
       const failureResult =
         normalizedResult.startsWith("NO_REPORT")
@@ -1436,6 +1419,44 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
   // Handle prod deploy job completion: feature transitions deploying_to_prod → complete
   if (jobRow?.job_type === "deploy_to_prod" && jobRow?.feature_id) {
     await handleProdDeployComplete(supabase, jobRow.feature_id);
+  }
+
+  // Handle merge job completion: advance feature to complete or failed
+  if (jobRow?.job_type === "merge" && jobRow?.feature_id) {
+    const normalizedResult = result?.toUpperCase() ?? "";
+    const passed = normalizedResult.startsWith("PASSED");
+    if (passed) {
+      console.log(`[orchestrator] Merge PASSED for feature ${jobRow.feature_id} — advancing to complete`);
+      const { data: completedUpdated } = await supabase
+        .from("features")
+        .update({ status: "complete", completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("id", jobRow.feature_id)
+        .eq("status", "merging")
+        .select("id, pr_url, title");
+      if (completedUpdated?.length) {
+        const prUrl = (completedUpdated[0] as { pr_url?: string }).pr_url ?? null;
+        const featureTitle = (completedUpdated[0] as { title?: string }).title ?? jobRow.feature_id;
+        await notifyCPO(
+          supabase,
+          jobRow.company_id,
+          prUrl
+            ? `Feature "${featureTitle}" merged and complete: ${prUrl}`
+            : `Feature "${featureTitle}" merged and complete.`,
+        );
+      }
+    } else {
+      console.log(`[orchestrator] Merge FAILED for feature ${jobRow.feature_id} — marking failed`);
+      await supabase
+        .from("features")
+        .update({ status: "failed", error: `Merge failed: ${(result ?? "unknown").slice(0, 200)}`, updated_at: new Date().toISOString() })
+        .eq("id", jobRow.feature_id)
+        .eq("status", "merging");
+      await notifyCPO(
+        supabase,
+        jobRow.company_id,
+        `Merge failed for feature ${jobRow.feature_id}: ${(result ?? "unknown").slice(0, 200)}`,
+      );
+    }
   }
 
 }
@@ -1830,6 +1851,7 @@ export async function triggerCombining(supabase: SupabaseClient, featureId: stri
   const NON_IMPLEMENTATION_TYPES = new Set([
     "breakdown",
     "combine",
+    "merge",
     "verify",
     "review",
     "deploy_to_test",
@@ -1956,7 +1978,8 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
 
   const lateStageStatuses = new Set([
     "verifying",
-    "merged",
+    "merging",
+    "complete",
     "cancelled",
   ]);
 
@@ -2062,6 +2085,105 @@ export async function triggerFeatureVerification(supabase: SupabaseClient, featu
       supabase.from("jobs").update({ title }).eq("id", insertedJobId).then(() => {});
     }
   }).catch(() => {});
+}
+
+/**
+ * Triggers the merge step for a verified feature.
+ * Inserts a merge job and transitions the feature from verifying → merging.
+ */
+export async function triggerMerging(supabase: SupabaseClient, featureId: string): Promise<void> {
+  // Fetch feature details
+  const { data: feature, error: fetchErr } = await supabase
+    .from("features")
+    .select("company_id, project_id, branch, pr_url, title")
+    .eq("id", featureId)
+    .single();
+
+  if (fetchErr || !feature) {
+    console.error(`[orchestrator] triggerMerging: feature ${featureId} not found`);
+    return;
+  }
+
+  if (!feature.branch) {
+    console.error(`[orchestrator] triggerMerging: feature ${featureId} has no branch — cannot merge`);
+    return;
+  }
+
+  // Idempotency: check no active/complete merge job exists
+  const { data: existingMerge } = await supabase
+    .from("jobs")
+    .select("id, status")
+    .eq("feature_id", featureId)
+    .eq("job_type", "merge")
+    .in("status", ["queued", "dispatched", "executing", "complete"])
+    .limit(1);
+
+  if (existingMerge && existingMerge.length > 0) {
+    console.log(`[orchestrator] triggerMerging: merge job already exists for feature ${featureId} (${existingMerge[0].id}) — skipping`);
+    return;
+  }
+
+  const mergeContext = JSON.stringify({
+    type: "merge",
+    featureId,
+    featureBranch: feature.branch,
+    prUrl: feature.pr_url ?? null,
+  });
+
+  // Insert merge job first
+  const { data: mergeJob, error: insertErr } = await supabase
+    .from("jobs")
+    .insert({
+      company_id: feature.company_id,
+      project_id: feature.project_id,
+      feature_id: featureId,
+      title: `Merge feature: ${feature.title ?? featureId}`,
+      role: "job-merger",
+      job_type: "merge",
+      complexity: "simple",
+      slot_type: "claude_code",
+      status: "queued",
+      context: mergeContext,
+      branch: feature.branch,
+    })
+    .select("id")
+    .single();
+
+  if (insertErr || !mergeJob) {
+    console.error(`[orchestrator] triggerMerging: failed to insert merge job for feature ${featureId}:`, insertErr?.message);
+    return;
+  }
+
+  // CAS transition: verifying → merging
+  const { data: updated, error: updateErr } = await supabase
+    .from("features")
+    .update({ status: "merging", updated_at: new Date().toISOString() })
+    .eq("id", featureId)
+    .eq("status", "verifying")
+    .select("id");
+
+  if (updateErr || !updated || updated.length === 0) {
+    if (updateErr) {
+      console.error(`[orchestrator] triggerMerging: failed to set feature ${featureId} to merging:`, updateErr.message);
+    } else {
+      console.log(`[orchestrator] triggerMerging: feature ${featureId} not in verifying — rolling back queued merge job`);
+    }
+
+    const { error: rollbackErr } = await supabase
+      .from("jobs")
+      .update({ status: "cancelled", result: "merge_not_started_feature_not_verifying" })
+      .eq("id", mergeJob.id)
+      .eq("status", "queued");
+    if (rollbackErr) {
+      console.error(
+        `[orchestrator] triggerMerging: failed to cancel queued merge job ${mergeJob.id} after CAS miss:`,
+        rollbackErr.message,
+      );
+    }
+    return;
+  }
+
+  console.log(`[orchestrator] Created merge job ${mergeJob.id} for feature ${featureId}`);
 }
 
 /**
@@ -2379,12 +2501,12 @@ export async function handleFeatureRejected(
     return;
   }
 
-  // 2. Reset feature to building (CAS: only if currently in verifying or merged)
+  // 2. Reset feature to building (CAS: only if currently in verifying, merging, or complete)
   const { data: updated, error: updateErr } = await supabase
     .from("features")
     .update({ status: "building" })
     .eq("id", featureId)
-    .in("status", ["verifying", "merged"])
+    .in("status", ["verifying", "merging", "complete"])
     .select("id");
 
   if (updateErr) {
@@ -2392,7 +2514,7 @@ export async function handleFeatureRejected(
     return;
   }
   if (!updated || updated.length === 0) {
-    console.log(`[orchestrator] Feature ${featureId} not in verifying/merged — skipping rejection`);
+    console.log(`[orchestrator] Feature ${featureId} not in verifying/merging/complete — skipping rejection`);
     return;
   }
 
@@ -2768,7 +2890,8 @@ async function processReadyForBreakdown(supabase: SupabaseClient): Promise<void>
  *   1. breaking_down → building: all breakdown jobs for the feature are complete
  *   2. building → combining_and_pr: all implementation jobs are complete
  *   3. combining_and_pr → verifying: the latest combine job is complete
- *   4. verifying → merged: the latest verify job is complete and passed
+ *   4. verifying → merging: the latest verify job is complete and passed
+ *   5. merging → complete: the latest merge job is complete and passed
  */
 async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> {
   // --- 0. Failed job catch-up (all stages) ---
@@ -2778,7 +2901,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
   const { data: activeFeatures, error: activeErr } = await supabase
     .from("features")
     .select("id")
-    .not("status", "in", '("merged","failed","cancelled","created")')
+    .not("status", "in", '("complete","failed","cancelled","created")')
     .limit(100);
 
   if (activeErr) {
@@ -2802,7 +2925,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
         .from("features")
         .update({ status: "failed", error: errorDetail })
         .eq("id", feature.id)
-        .not("status", "in", '("failed","merged","cancelled")') // CAS guard
+        .not("status", "in", '("failed","complete","cancelled")') // CAS guard
         .select("id");
 
       if (updated && updated.length > 0) {
@@ -2816,7 +2939,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
   const { data: terminalFeatures, error: terminalErr } = await supabase
     .from("features")
     .select("id, status")
-    .in("status", ["failed", "merged", "cancelled"])
+    .in("status", ["failed", "complete", "cancelled"])
     .limit(100);
 
   if (terminalErr) {
@@ -3023,10 +3146,10 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     // Failed combine jobs are handled by Task 0's central catch-up — no action needed here.
   }
 
-  // --- 4. verifying → merged (catch-up) ---
+  // --- 4. verifying → merging (catch-up) ---
   // Features stuck in 'verifying' where the latest verify job is already complete and passed.
-  // The live path (handleJobComplete) advances verifying → merged on receipt of the
-  // job_complete message. This catch-up handles cases where that message was missed.
+  // The live path (handleJobComplete) triggers merging on receipt of the job_complete message.
+  // This catch-up handles cases where that message was missed.
   const { data: verifyingFeatures, error: verifyErr } = await supabase
     .from("features")
     .select("id, company_id")
@@ -3058,26 +3181,8 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
       normalizedResult.startsWith("VERDICT_MISSING");
 
     if (passed) {
-      console.log(`[orchestrator] processFeatureLifecycle: verify PASSED for feature ${feature.id} — advancing to merged (catch-up)`);
-      const { data: updated } = await supabase
-        .from("features")
-        .update({ status: "merged", updated_at: new Date().toISOString() })
-        .eq("id", feature.id)
-        .eq("status", "verifying")
-        .select("id, pr_url, title");
-
-      if (updated?.length) {
-        const prUrl = (updated[0] as { pr_url?: string }).pr_url ?? null;
-        const featureTitle = (updated[0] as { title?: string }).title ?? feature.id;
-        await notifyCPO(
-          supabase,
-          feature.company_id,
-          prUrl
-            ? `Feature "${featureTitle}" verified and merged: ${prUrl}`
-            : `Feature "${featureTitle}" verified and merged.`,
-        );
-        await notifyPRReady(supabase, feature.company_id, featureTitle, prUrl);
-      }
+      console.log(`[orchestrator] processFeatureLifecycle: verify PASSED for feature ${feature.id} — triggering merge (catch-up)`);
+      await triggerMerging(supabase, feature.id);
     } else if (failed) {
       const failureResult =
         normalizedResult.startsWith("NO_REPORT")
@@ -3098,10 +3203,66 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
     }
   }
 
-  // --- Sections 4b-6 removed ---
-  // Deploy-to-test and deploy-to-prod are no longer part of the feature pipeline.
-  // Deployment is now handled at the project level via `zazig promote`.
-  // Feature pipeline ends at 'merged'.
+  // --- 5. merging → complete (catch-up) ---
+  // Features stuck in 'merging' where the latest merge job is already complete.
+  const { data: mergingFeatures, error: mergeErr } = await supabase
+    .from("features")
+    .select("id, company_id")
+    .eq("status", "merging")
+    .limit(50);
+
+  if (mergeErr) {
+    console.error("[orchestrator] processFeatureLifecycle: error querying merging features:", mergeErr.message);
+  }
+
+  for (const feature of (mergingFeatures ?? []) as { id: string; company_id: string }[]) {
+    const { data: latestMerge } = await supabase
+      .from("jobs")
+      .select("id, status, result")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "merge")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (!latestMerge || latestMerge.length === 0) continue;
+    const job = latestMerge[0] as { id: string; status: string; result: string | null };
+    if (job.status !== "complete") continue;
+
+    const normalizedResult = job.result?.toUpperCase() ?? "";
+    const passed = normalizedResult.startsWith("PASSED");
+
+    if (passed) {
+      console.log(`[orchestrator] processFeatureLifecycle: merge PASSED for feature ${feature.id} — advancing to complete (catch-up)`);
+      const { data: updated } = await supabase
+        .from("features")
+        .update({ status: "complete", completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("id", feature.id)
+        .eq("status", "merging")
+        .select("id, pr_url, title");
+
+      if (updated?.length) {
+        const prUrl = (updated[0] as { pr_url?: string }).pr_url ?? null;
+        const featureTitle = (updated[0] as { title?: string }).title ?? feature.id;
+        await notifyCPO(
+          supabase,
+          feature.company_id,
+          prUrl
+            ? `Feature "${featureTitle}" merged and complete: ${prUrl}`
+            : `Feature "${featureTitle}" merged and complete.`,
+        );
+      }
+    } else {
+      // Merge failed — mark feature as failed (catch-up)
+      console.log(`[orchestrator] processFeatureLifecycle: merge FAILED for feature ${feature.id} — marking failed (catch-up)`);
+      await supabase
+        .from("features")
+        .update({ status: "failed", error: `Merge failed: ${(job.result ?? "unknown").slice(0, 200)}`, updated_at: new Date().toISOString() })
+        .eq("id", feature.id)
+        .eq("status", "merging");
+    }
+  }
+
+  // Feature pipeline ends at 'complete'.
 }
 
 // ---------------------------------------------------------------------------

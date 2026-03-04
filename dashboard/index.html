@@ -28,6 +28,7 @@
       --col-combining: #eab308;
       --col-verifying: #06b6d4;
       --col-pr_ready: #3b82f6;
+      --col-merging: #3b82f6;
       --col-complete: #22c55e;
       --col-failed: #ef4444;
 
@@ -42,6 +43,7 @@
       --col-combining-bg: rgba(234, 179, 8, 0.04);
       --col-verifying-bg: rgba(6, 182, 212, 0.04);
       --col-pr_ready-bg: rgba(59, 130, 246, 0.04);
+      --col-merging-bg: rgba(59, 130, 246, 0.04);
       --col-complete-bg: rgba(34, 197, 94, 0.04);
       --col-failed-bg: rgba(239, 68, 68, 0.04);
       --col-done-bg: rgba(16, 185, 129, 0.05);
@@ -1253,13 +1255,14 @@
         { key: 'created_specced', label: 'Ready',       color: '#6366f1', source: 'features' },
       ];
 
-      // Build pipeline: breaking_down -> merged
+      // Build pipeline: breaking_down -> complete
       const PIPELINE_COLUMNS = [
         { key: 'breaking_down',    label: 'Breakdown',    color: '#ec4899' },
         { key: 'building',         label: 'Building',     color: '#f97316' },
         { key: 'combining_and_pr', label: 'Combine + PR', color: '#eab308' },
         { key: 'verifying',        label: 'Verifying',    color: '#06b6d4' },
-        { key: 'merged',           label: 'Merged',       color: '#22c55e' },
+        { key: 'merging',          label: 'Merging',      color: '#3b82f6' },
+        { key: 'complete',         label: 'Complete',     color: '#22c55e' },
         { key: 'failed',           label: 'Failed',       color: '#ef4444' },
       ];
 

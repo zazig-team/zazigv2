@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>zazig — Autonomous Software Engineering</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper:      #0C0D10;
+    --surface:    #16181D;
+    --border:     #252830;
+    --dust:       #505660;
+    --stone:      #868C98;
+    --graphite:   #B0B6C3;
+    --ink:        #EAECF1;
+    --ember:      #E8553A;
+    --ember-hover:#F06A52;
+    --ember-dim:  rgba(232, 85, 58, 0.12);
+    --positive:   #3ECF71;
+    --font-body:  'Plus Jakarta Sans', -apple-system, sans-serif;
+    --font-mono:  'JetBrains Mono', 'SF Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* ── Grain overlay ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    background-size: 256px 256px;
+  }
+
+  /* ── Ambient glow ── */
+  .glow {
+    position: fixed;
+    top: 40%;
+    left: 50%;
+    width: 800px;
+    height: 600px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(ellipse at center,
+      rgba(62, 207, 113, 0.04) 0%,
+      rgba(62, 207, 113, 0.015) 30%,
+      transparent 70%
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Layout ── */
+  .page {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  /* ── Nav ── */
+  .nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 24px 48px;
+    flex-shrink: 0;
+  }
+
+  .nav-wordmark {
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+
+  .nav-dot {
+    width: 5px;
+    height: 5px;
+    background: var(--positive);
+    border-radius: 50%;
+    margin-left: 2px;
+    margin-bottom: -1px;
+    animation: breathe 4s ease-in-out infinite;
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+  }
+
+  .nav-link {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    color: var(--stone);
+    text-decoration: none;
+    text-transform: uppercase;
+    transition: color 0.2s;
+  }
+
+  .nav-link:hover { color: var(--ink); }
+
+  .nav-signin {
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 20px;
+    text-decoration: none;
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+
+  .nav-signin:hover {
+    background: var(--border);
+    border-color: var(--dust);
+  }
+
+  /* ── Hero ── */
+  .hero {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0 48px;
+    gap: 0;
+  }
+
+  .hero-mark {
+    display: flex;
+    align-items: baseline;
+    margin-bottom: 28px;
+    opacity: 0;
+    animation: fadeUp 0.8s ease-out 0.1s forwards;
+  }
+
+  .hero-logo {
+    font-family: var(--font-body);
+    font-size: clamp(80px, 12vw, 140px);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: var(--ink);
+  }
+
+  .hero-dot {
+    width: clamp(12px, 1.8vw, 20px);
+    height: clamp(12px, 1.8vw, 20px);
+    background: var(--positive);
+    border-radius: 50%;
+    margin-left: 4px;
+    margin-bottom: 4px;
+    animation: breathe 4s ease-in-out infinite;
+    box-shadow: 0 0 20px rgba(62, 207, 113, 0.3), 0 0 60px rgba(62, 207, 113, 0.1);
+  }
+
+  .hero-tagline {
+    font-size: clamp(18px, 2.5vw, 24px);
+    font-weight: 300;
+    color: var(--stone);
+    letter-spacing: -0.01em;
+    text-align: center;
+    max-width: 500px;
+    line-height: 1.5;
+    margin-bottom: 48px;
+    opacity: 0;
+    animation: fadeUp 0.8s ease-out 0.3s forwards;
+  }
+
+  .hero-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--ember);
+    border: none;
+    border-radius: 10px;
+    padding: 14px 32px;
+    cursor: pointer;
+    transition: all 0.25s;
+    text-decoration: none;
+    opacity: 0;
+    animation: fadeUp 0.8s ease-out 0.5s forwards;
+  }
+
+  .hero-cta:hover {
+    background: var(--ember-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 32px rgba(232, 85, 58, 0.25);
+  }
+
+  .hero-cta svg {
+    width: 16px;
+    height: 16px;
+    transition: transform 0.25s;
+  }
+
+  .hero-cta:hover svg {
+    transform: translateX(3px);
+  }
+
+  /* ── Footer ── */
+  .footer {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 24px 48px;
+    opacity: 0;
+    animation: fadeUp 0.8s ease-out 0.7s forwards;
+  }
+
+  .footer-left {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    color: var(--dust);
+    text-transform: uppercase;
+  }
+
+  .footer-right {
+    display: flex;
+    gap: 24px;
+  }
+
+  .footer-link {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    color: var(--dust);
+    text-decoration: none;
+    text-transform: uppercase;
+    transition: color 0.2s;
+  }
+
+  .footer-link:hover { color: var(--stone); }
+
+  /* ── Animations ── */
+  @keyframes breathe {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 640px) {
+    .nav { padding: 20px 24px; }
+    .nav-links { gap: 20px; }
+    .nav-link { display: none; }
+    .hero { padding: 0 24px; }
+    .hero-tagline { font-size: 17px; }
+    .footer { padding: 20px 24px; }
+    .footer-right { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="glow"></div>
+
+<div class="page">
+
+  <!-- Nav -->
+  <nav class="nav">
+    <a href="/" class="nav-wordmark">zazig<span class="nav-dot"></span></a>
+    <div class="nav-links">
+      <a href="#" class="nav-link">About</a>
+      <a href="#" class="nav-link">Docs</a>
+      <a href="login.html" class="nav-signin">Sign in</a>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <main class="hero">
+    <div class="hero-mark">
+      <span class="hero-logo">zazig</span>
+      <span class="hero-dot"></span>
+    </div>
+    <p class="hero-tagline">Your engineering team builds while you sleep.</p>
+    <a href="login.html" class="hero-cta">
+      Get started
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M3 8h10M9 4l4 4-4 4"/>
+      </svg>
+    </a>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <span class="footer-left">Autonomous software engineering</span>
+    <div class="footer-right">
+      <a href="#" class="footer-link">Twitter</a>
+      <a href="#" class="footer-link">GitHub</a>
+    </div>
+  </footer>
+
+</div>
+
+</body>
+</html>

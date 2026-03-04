@@ -227,7 +227,7 @@ async function runPromote(repoRoot: string, defaultBranch: string): Promise<void
   // 3. Bundle CLI
   console.log("\nBundling CLI...");
   try {
-    execSync("node packages/cli/scripts/bundle.js", { cwd: repoRoot, stdio: "inherit" });
+    execSync("node scripts/bundle.js", { cwd: join(repoRoot, "packages", "cli"), stdio: "inherit" });
   } catch {
     console.error("Bundle failed.");
     process.exitCode = 1;

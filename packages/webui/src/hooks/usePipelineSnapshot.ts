@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchPipelineSnapshot } from "../lib/queries";
+import { fetchPipelineSnapshot, getAccessToken } from "../lib/queries";
 
 export type PipelineStatus =
   | "breaking_down"
@@ -249,6 +249,7 @@ export function usePipelineSnapshot(companyId: string | null): {
     setError(null);
 
     try {
+      await getAccessToken();
       const response = await fetchPipelineSnapshot(companyId);
       setSnapshot(normalizeSnapshot(response.snapshot, response.updated_at ?? null));
     } catch (refreshError) {

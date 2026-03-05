@@ -7,7 +7,7 @@ import {
   type PipelineStatus,
 } from "../hooks/usePipelineSnapshot";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
-import { fetchIdeas, type Idea } from "../lib/queries";
+import { fetchIdeas, getAccessToken, type Idea } from "../lib/queries";
 
 type FilterMode = "all" | "mine" | "urgent" | "stale";
 
@@ -90,6 +90,7 @@ export default function Pipeline(): JSX.Element {
       setIdeasError(null);
 
       try {
+        await getAccessToken();
         const [activeIdeas, parked] = await Promise.all([
           fetchIdeas(activeCompany.id, ["new", "triaged"]),
           fetchIdeas(activeCompany.id, ["parked"]),

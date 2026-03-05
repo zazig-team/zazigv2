@@ -155,24 +155,55 @@ function relationObject<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
-let cachedToken: string | null = null;
-let cachedAt = 0;
-let inflight: Promise<string | null> | null = null;
-const TOKEN_TTL = 30_000; // 30 seconds
-
-async function getAccessToken(): Promise<string | null> {
-  if (cachedToken && Date.now() - cachedAt < TOKEN_TTL) {
-    return cachedToken;
+function isTokenExpired(token: string, bufferSeconds = 30): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]!));
+    if (typeof payload.exp !== "number") {
+      return true;
+    }
+    return payload.exp * 1000 < Date.now() + bufferSeconds * 1000;
+  } catch {
+    return true;
   }
+}
+
+let inflight: Promise<string | null> | null = null;
+
+export async function getAccessToken(): Promise<string | null> {
   if (inflight) {
     return inflight;
   }
-  inflight = supabase.auth.getSession().then(({ data: { session } }) => {
-    cachedToken = session?.access_token ?? null;
-    cachedAt = Date.now();
-    inflight = null;
-    return cachedToken;
-  });
+
+  inflight = (async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        return null;
+      }
+
+      // If token is expired or about to expire in the next 30s, force a refresh
+      if (isTokenExpired(session.access_token, 30)) {
+        const {
+          data: { session: refreshed },
+          error,
+        } = await supabase.auth.refreshSession();
+
+        if (error || !refreshed) {
+          // If refresh fails, return current (might still work if clock drift is the issue)
+          return session.access_token;
+        }
+        return refreshed.access_token;
+      }
+
+      return session.access_token;
+    } finally {
+      inflight = null;
+    }
+  })();
+
   return inflight;
 }
 

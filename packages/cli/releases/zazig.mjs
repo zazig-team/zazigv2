@@ -8420,8 +8420,23 @@ async function sendMagicLink({ supabaseUrl, anonKey, email, redirectTo }) {
     body: JSON.stringify(body)
   });
   if (!resp.ok) {
-    const details = await resp.text().catch(() => "");
-    throw new Error(`Failed to send magic link (HTTP ${resp.status})${details ? `: ${details}` : "."}`);
+    const raw = await resp.text().catch(() => "");
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+    }
+    const errorCode = typeof parsed?.["error_code"] === "string" ? parsed["error_code"] : "";
+    const msg = typeof parsed?.["msg"] === "string" ? parsed["msg"] : "";
+    if (resp.status === 429 || errorCode === "over_email_send_rate_limit") {
+      const wait = msg.match(/after (\d+) seconds/)?.[1];
+      const hint = wait ? `Try again in ${wait} seconds.` : "Wait a moment and try again.";
+      console.error(`Rate limited \u2014 too many sign-in requests. ${hint}`);
+      process.exit(1);
+    }
+    const detail = msg || raw || `HTTP ${resp.status}`;
+    console.error(`Failed to send sign-in email: ${detail}`);
+    process.exit(1);
   }
 }
 async function verifyOtpCode({ supabaseUrl, anonKey, email, code }) {

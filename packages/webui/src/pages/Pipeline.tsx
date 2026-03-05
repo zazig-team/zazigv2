@@ -18,13 +18,16 @@ interface ColumnDefinition {
 }
 
 const COLUMN_DEFINITIONS: ColumnDefinition[] = [
-  { key: "breaking_down", label: "Breaking Down", colorVar: "--col-breakdown" },
+  { key: "proposal", label: "Proposal", colorVar: "--col-proposal" },
+  { key: "ready", label: "Ready", colorVar: "--col-ready" },
+  { key: "breaking_down", label: "Breakdown", colorVar: "--col-breakdown" },
   { key: "building", label: "Building", colorVar: "--col-building" },
-  { key: "combining_and_pr", label: "Combining & PR", colorVar: "--col-combining" },
+  { key: "combining_and_pr", label: "Combining", colorVar: "--col-combining" },
   { key: "verifying", label: "Verifying", colorVar: "--col-verifying" },
-  { key: "merging", label: "Merging", colorVar: "--col-merging" },
+  { key: "pr_ready", label: "PR Ready", colorVar: "--col-pr" },
   { key: "complete", label: "Complete", colorVar: "--col-complete" },
   { key: "failed", label: "Failed", colorVar: "--col-failed" },
+  { key: "shipped", label: "Shipped", colorVar: "--col-shipped" },
 ];
 
 function ageLabel(ageHours: number | null): string {
@@ -71,6 +74,7 @@ export default function Pipeline(): JSX.Element {
   const { loading, error, snapshot, refresh } = usePipelineSnapshot(activeCompany?.id ?? null);
 
   const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [triagedIdeas, setTriagedIdeas] = useState<Idea[]>([]);
   const [parkedIdeas, setParkedIdeas] = useState<Idea[]>([]);
   const [ideasError, setIdeasError] = useState<string | null>(null);
   const [ideasLoading, setIdeasLoading] = useState(false);
@@ -84,6 +88,7 @@ export default function Pipeline(): JSX.Element {
     async function loadIdeas(): Promise<void> {
       if (!activeCompany?.id) {
         setIdeas([]);
+        setTriagedIdeas([]);
         setParkedIdeas([]);
         return;
       }
@@ -93,12 +98,14 @@ export default function Pipeline(): JSX.Element {
 
       try {
         await getAccessToken();
-        const [activeIdeas, parked] = await Promise.all([
-          fetchIdeas(activeCompany.id, ["new", "triaged"]),
+        const [newIdeas, triaged, parked] = await Promise.all([
+          fetchIdeas(activeCompany.id, ["new"]),
+          fetchIdeas(activeCompany.id, ["triaged"]),
           fetchIdeas(activeCompany.id, ["parked"]),
         ]);
 
-        setIdeas(activeIdeas);
+        setIdeas(newIdeas);
+        setTriagedIdeas(triaged);
         setParkedIdeas(parked);
       } catch (loadError) {
         setIdeasError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -207,13 +214,16 @@ export default function Pipeline(): JSX.Element {
 
   const filteredByStatus = useMemo(() => {
     const next: Record<PipelineStatus, PipelineFeature[]> = {
+      proposal: [],
+      ready: [],
       breaking_down: [],
       building: [],
       combining_and_pr: [],
       verifying: [],
-      merging: [],
+      pr_ready: [],
       complete: [],
       failed: [],
+      shipped: [],
     };
 
     for (const key of Object.keys(snapshot.byStatus) as PipelineStatus[]) {
@@ -226,6 +236,10 @@ export default function Pipeline(): JSX.Element {
   const filteredIdeas = useMemo(
     () => ideas.filter(applyIdeaFilter),
     [ideas, filterMode, mineIdentifier, userId],
+  );
+  const filteredTriagedIdeas = useMemo(
+    () => triagedIdeas.filter(applyIdeaFilter),
+    [triagedIdeas, filterMode, mineIdentifier, userId],
   );
   const filteredParkedIdeas = useMemo(
     () => parkedIdeas.filter(applyIdeaFilter),
@@ -261,16 +275,17 @@ export default function Pipeline(): JSX.Element {
       filteredByStatus.breaking_down.length +
       filteredByStatus.building.length +
       filteredByStatus.combining_and_pr.length +
-      filteredByStatus.verifying.length;
+      filteredByStatus.verifying.length +
+      filteredByStatus.pr_ready.length;
 
     return {
       active,
-      merged: filteredByStatus.complete.length,
+      shipped: filteredByStatus.complete.length + filteredByStatus.shipped.length,
       failed: filteredByStatus.failed.length,
-      ideas: filteredIdeas.length,
+      ideas: filteredIdeas.length + filteredTriagedIdeas.length,
       totalFeatures: allFeatures.length,
     };
-  }, [filteredByStatus, filteredIdeas.length, allFeatures.length]);
+  }, [filteredByStatus, filteredIdeas.length, filteredTriagedIdeas.length, allFeatures.length]);
 
   return (
     <div className="pipeline-page">
@@ -279,7 +294,7 @@ export default function Pipeline(): JSX.Element {
           <div className="page-title">Pipeline</div>
           <div className="page-stats">
             <div className="page-stat">Active <span className="page-stat-value">{metrics.active}</span></div>
-            <div className="page-stat">Complete <span className="page-stat-value" style={{ color: "var(--positive)" }}>{metrics.merged}</span></div>
+            <div className="page-stat">Shipped <span className="page-stat-value" style={{ color: "var(--positive)" }}>{metrics.shipped}</span></div>
             <div className="page-stat">Failed <span className="page-stat-value" style={{ color: "var(--negative)" }}>{metrics.failed}</span></div>
             <div className="page-stat">Inbox <span className="page-stat-value">{metrics.ideas}</span></div>
           </div>
@@ -410,6 +425,36 @@ export default function Pipeline(): JSX.Element {
                       {(idea.priority ?? "medium").toLowerCase()} · {ageLabel(Math.floor((Date.now() - Date.parse(idea.created_at)) / 3_600_000))}
                     </div>
                     <span className={`type-chip type-chip--${idea.item_type}`}>{idea.item_type}</span>
+                    <div className="card-title">{ideaTitle(idea)}</div>
+                    <div className="card-desc">{idea.description ?? idea.raw_text}</div>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="pipeline-col">
+          <header className="pipeline-col-header">
+            <div className="pipeline-col-title">
+              <span className="col-dot" style={{ background: "var(--col-triage)" }} />
+              <span className="col-name">Triage</span>
+            </div>
+            <span className="col-count">{filteredTriagedIdeas.length}</span>
+          </header>
+
+          <div className="pipeline-col-body">
+            {filteredTriagedIdeas.length === 0 ? (
+              <div className="col-empty">No items</div>
+            ) : (
+              filteredTriagedIdeas.map((idea) => (
+                <article className="card" key={idea.id}>
+                  <div className="card-accent" style={{ background: "var(--col-triage)" }} />
+                  <div className="card-body">
+                    <div className="card-meta">
+                      <span className={priorityDotClass(idea.priority)} />
+                      {(idea.priority ?? "medium").toLowerCase()} · {ageLabel(Math.floor((Date.now() - Date.parse(idea.created_at)) / 3_600_000))}
+                    </div>
                     <div className="card-title">{ideaTitle(idea)}</div>
                     <div className="card-desc">{idea.description ?? idea.raw_text}</div>
                   </div>

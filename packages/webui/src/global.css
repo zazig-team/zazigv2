@@ -1637,12 +1637,20 @@ input {
   gap: 6px;
 }
 
+.col-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .col-name {
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 500;
   text-transform: uppercase;
   color: var(--stone);
+  letter-spacing: 0.05em;
 }
 
 .col-count {

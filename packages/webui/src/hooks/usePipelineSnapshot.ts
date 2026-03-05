@@ -2,13 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchPipelineSnapshot, getAccessToken } from "../lib/queries";
 
 export type PipelineStatus =
+  | "proposal"
+  | "ready"
   | "breaking_down"
   | "building"
   | "combining_and_pr"
   | "verifying"
-  | "merging"
+  | "pr_ready"
   | "complete"
-  | "failed";
+  | "failed"
+  | "shipped";
 
 export interface PipelineFeature {
   id: string;
@@ -31,13 +34,16 @@ export interface NormalizedPipelineSnapshot {
 const EMPTY_SNAPSHOT: NormalizedPipelineSnapshot = {
   updatedAt: null,
   byStatus: {
+    proposal: [],
+    ready: [],
     breaking_down: [],
     building: [],
     combining_and_pr: [],
     verifying: [],
-    merging: [],
+    pr_ready: [],
     complete: [],
     failed: [],
+    shipped: [],
   },
 };
 
@@ -49,7 +55,11 @@ function toPipelineStatus(rawStatus: string | null | undefined): PipelineStatus 
   const normalized = rawStatus.trim().toLowerCase();
   switch (normalized) {
     case "created":
+    case "proposal":
+      return "proposal";
     case "ready_for_breakdown":
+    case "ready":
+      return "ready";
     case "breakdown":
     case "breaking_down":
       return "breaking_down";
@@ -60,12 +70,14 @@ function toPipelineStatus(rawStatus: string | null | undefined): PipelineStatus 
       return "combining_and_pr";
     case "verifying":
       return "verifying";
+    case "pr_ready":
     case "merging":
-      return "merging";
+      return "pr_ready";
     case "complete":
+      return "complete";
     case "shipped":
     case "merged":
-      return "complete";
+      return "shipped";
     case "cancelled":
     case "failed":
       return "failed";
@@ -164,13 +176,16 @@ function parseFeature(raw: Record<string, unknown>, fallbackStatus: PipelineStat
 
 function normalizeSnapshot(snapshot: unknown, updatedAt: string | null): NormalizedPipelineSnapshot {
   const byStatus: Record<PipelineStatus, PipelineFeature[]> = {
+    proposal: [],
+    ready: [],
     breaking_down: [],
     building: [],
     combining_and_pr: [],
     verifying: [],
-    merging: [],
+    pr_ready: [],
     complete: [],
     failed: [],
+    shipped: [],
   };
 
   if (snapshot && typeof snapshot === "object") {
@@ -217,7 +232,7 @@ function normalizeSnapshot(snapshot: unknown, updatedAt: string | null): Normali
     if (Array.isArray(completedFeatures)) {
       for (const rawFeature of completedFeatures) {
         if (!rawFeature || typeof rawFeature !== "object") continue;
-        const parsed = parseFeature(rawFeature as Record<string, unknown>, "complete");
+        const parsed = parseFeature(rawFeature as Record<string, unknown>, "shipped");
         byStatus[parsed.status].push(parsed);
       }
     }

@@ -30,6 +30,8 @@ export interface Idea {
   raw_text: string;
   status: string;
   priority: string | null;
+  item_type: "idea" | "brief" | "bug" | "test";
+  horizon: "soon" | "later" | null;
   created_at: string;
   originator: string | null;
 }
@@ -287,6 +289,7 @@ export async function fetchFocusAreas(companyId: string): Promise<FocusArea[]> {
 export async function fetchIdeas(
   companyId: string,
   statuses?: string[],
+  item_type?: Idea["item_type"],
 ): Promise<Idea[]> {
   const body: Record<string, unknown> = {
     company_id: companyId,
@@ -296,9 +299,16 @@ export async function fetchIdeas(
   if (statuses && statuses.length > 0) {
     body.statuses = statuses;
   }
+  if (item_type) {
+    body.item_type = item_type;
+  }
 
   const data = await invokePost<EdgeListResponse<Idea, "ideas">>("query-ideas", body);
-  return data.ideas ?? [];
+  return (data.ideas ?? []).map((idea) => ({
+    ...idea,
+    item_type: idea.item_type,
+    horizon: idea.horizon,
+  }));
 }
 
 export async function fetchDecisions(companyId: string): Promise<Decision[]> {
@@ -378,11 +388,13 @@ export async function submitIdea(params: {
   companyId: string;
   rawText: string;
   originator: string;
+  item_type?: Idea["item_type"];
 }): Promise<void> {
   await invokePost("create-idea", {
     company_id: params.companyId,
     raw_text: params.rawText,
     originator: params.originator,
+    item_type: params.item_type,
   });
 }
 

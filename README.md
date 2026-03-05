@@ -214,6 +214,11 @@ supabase:
   url: https://xxx.supabase.co
 ```
 
+## GitHub Actions Secrets
+
+- `STAGING_REPO_PAT` is required by `.github/workflows/deploy-edge-functions.yml` for the `mirror-repo` job that force-pushes to `zazigv2-staging-test-only`.
+- `SUPABASE_PRODUCTION_PROJECT_REF` is used by staging data sync (`sync-prod-data`) and production deploy workflows.
+
 **Secrets** (via Doppler, project `zazig`, config `prd`):
 - `SUPABASE_ANON_KEY` — client-side Supabase key
 - `SUPABASE_SERVICE_ROLE_KEY` — server-side admin key

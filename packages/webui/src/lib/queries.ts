@@ -155,11 +155,20 @@ function relationObject<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
+let cachedToken: string | null = null;
+let cachedAt = 0;
+const TOKEN_TTL = 30_000; // 30 seconds
+
 async function getAccessToken(): Promise<string | null> {
+  if (cachedToken && Date.now() - cachedAt < TOKEN_TTL) {
+    return cachedToken;
+  }
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  return session?.access_token ?? null;
+  cachedToken = session?.access_token ?? null;
+  cachedAt = Date.now();
+  return cachedToken;
 }
 
 async function invokePost<TResponse>(

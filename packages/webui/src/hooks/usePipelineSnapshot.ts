@@ -210,6 +210,19 @@ function normalizeSnapshot(snapshot: unknown, updatedAt: string | null): Normali
     }
   }
 
+  // Pick up completed_features from top level (RPC stores complete/cancelled separately)
+  if (snapshot && typeof snapshot === "object") {
+    const snapshotObj = snapshot as Record<string, unknown>;
+    const completedFeatures = snapshotObj.completed_features;
+    if (Array.isArray(completedFeatures)) {
+      for (const rawFeature of completedFeatures) {
+        if (!rawFeature || typeof rawFeature !== "object") continue;
+        const parsed = parseFeature(rawFeature as Record<string, unknown>, "complete");
+        byStatus[parsed.status].push(parsed);
+      }
+    }
+  }
+
   return {
     updatedAt,
     byStatus,

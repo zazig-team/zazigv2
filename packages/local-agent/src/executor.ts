@@ -590,32 +590,7 @@ export class JobExecutor {
       return;
     }
 
-    jobLog(jobId, `Tmux session started — session=${sessionName}, cmd=${cmd} ${cmdArgs.join(" ")}, cwd=${ephemeralWorkspaceDir ?? "none"}`);
-    console.log(`[executor] Tmux session started — session=${sessionName}, cmd=${cmd}`);
-
-    // --- 6b. Start pipe-pane to stream session output to a log file ---
     const logPath = jobLogPath(jobId);
-    try {
-      mkdirSync(JOB_LOG_DIR, { recursive: true });
-      await startPipePane(sessionName, logPath);
-      jobLog(jobId, `pipe-pane started → ${logPath}`);
-    } catch (err) {
-      // Pipe-pane failure is non-fatal — logs simply won't be captured
-      jobLog(jobId, `pipe-pane FAILED: ${String(err)}`);
-      console.warn(`[executor] pipe-pane start failed for jobId=${jobId}: ${String(err)}`);
-    }
-
-    // --- 6c. Open terminal window for the session (dev/testing) ---
-    if (process.env["ZAZIG_OPEN_SESSIONS"]) {
-      execFile("bash", ["-c", `ghostty -e bash -c 'tmux attach -t ${sessionName}'`], (err) => {
-        if (err) console.warn(`[executor] Could not open Ghostty window: ${err.message}`);
-      });
-    }
-
-    // --- 7. Send JobStatusMessage(executing) ---
-    await this.sendJobStatus(jobId, "executing");
-
-    // --- 8. Register active job and set up polling + timeout ---
     const activeJob: ActiveJob = {
       jobId,
       slotType,
@@ -644,6 +619,33 @@ export class JobExecutor {
       complexity: msg.complexity,
       model: msg.model,
     };
+
+    console.log(`[codex] Starting job — title="${activeJob.jobTitle ?? jobId}", id=${jobId.slice(0, 8)}, complexity=${msg.complexity}, attempt=${activeJob.attempt}/${activeJob.maxAttempts}`);
+    jobLog(jobId, `Tmux session started — session=${sessionName}, cmd=${cmd} ${cmdArgs.join(" ")}, cwd=${ephemeralWorkspaceDir ?? "none"}`);
+    console.log(`[executor] Tmux session started — session=${sessionName}, cmd=${cmd}`);
+
+    // --- 6b. Start pipe-pane to stream session output to a log file ---
+    try {
+      mkdirSync(JOB_LOG_DIR, { recursive: true });
+      await startPipePane(sessionName, logPath);
+      jobLog(jobId, `pipe-pane started → ${logPath}`);
+    } catch (err) {
+      // Pipe-pane failure is non-fatal — logs simply won't be captured
+      jobLog(jobId, `pipe-pane FAILED: ${String(err)}`);
+      console.warn(`[executor] pipe-pane start failed for jobId=${jobId}: ${String(err)}`);
+    }
+
+    // --- 6c. Open terminal window for the session (dev/testing) ---
+    if (process.env["ZAZIG_OPEN_SESSIONS"]) {
+      execFile("bash", ["-c", `ghostty -e bash -c 'tmux attach -t ${sessionName}'`], (err) => {
+        if (err) console.warn(`[executor] Could not open Ghostty window: ${err.message}`);
+      });
+    }
+
+    // --- 7. Send JobStatusMessage(executing) ---
+    await this.sendJobStatus(jobId, "executing");
+
+    // --- 8. Register active job and set up polling + timeout ---
     this.activeJobs.set(jobId, activeJob);
 
     // Timeout: kill after JOB_TIMEOUT_MS (or INTERACTIVE_JOB_TIMEOUT_MS for human-in-loop jobs)
@@ -1370,6 +1372,8 @@ export class JobExecutor {
 
         if (job.attempt < job.maxAttempts) {
           job.attempt += 1;
+          console.log(`[codex] Review FAILED (attempt ${job.attempt - 1}/${job.maxAttempts}) — ${reviewResult.reason}`);
+          console.log(`[codex] Retrying with fix prompt — attempt ${job.attempt}/${job.maxAttempts}, keeping existing changes in place`);
           jobLog(
             jobId,
             `Codex review failed — retrying attempt ${job.attempt}/${job.maxAttempts}. reason="${reviewResult.reason}"`,
@@ -1417,6 +1421,8 @@ export class JobExecutor {
         }
 
         // Final attempt failed — revert everything to startingCommit
+        console.log(`[codex] All ${job.maxAttempts} attempts exhausted — reverting to starting commit`);
+        console.log(`[codex] Failure reasons: ${job.fixReasons.map((r, i) => `[${i + 1}] ${r}`).join(" | ")}`);
         try {
           await execFileAsync("git", ["reset", "--hard", job.startingCommit!], { cwd: job.worktreePath });
           jobLog(jobId, `Reverted to startingCommit ${job.startingCommit} after ${job.attempt} failed attempts.`);
@@ -1439,6 +1445,10 @@ export class JobExecutor {
         }
         await this.sendJobFailed(jobId, job.fixReasons.join(" | "), "unknown");
         return;
+      }
+
+      if (job.attempt > 1) {
+        console.log(`[codex] Review PASSED (attempt ${job.attempt}/${job.maxAttempts}) — fixed after ${job.attempt - 1} retry`);
       }
     }
 
@@ -2001,6 +2011,7 @@ async function runCodexReview(
     ".gitignore",
     ".zazig-prompt.txt",
     ".zazig-review-prompt.txt",
+    ".zazig-fix-prompt-*.txt",
     ".zazig-fix-prompt-1.txt",
     ".zazig-fix-prompt-2.txt",
     ".zazig-fix-prompt-3.txt",

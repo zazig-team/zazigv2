@@ -42,12 +42,15 @@ import { JobExecutor, type PersistentAgentJobDefinition } from "./executor.js";
 import { FixAgentManager } from "./fix-agent.js";
 import { recoverDispatchedJobs } from "./job-recovery.js";
 import { JobVerifier } from "./verifier.js";
-import type { OrchestratorMessage, MessageInbound } from "@zazigv2/shared";
+import { PROTOCOL_VERSION } from "@zazigv2/shared";
+import type { OrchestratorMessage, MessageInbound, DaemonShutdownNotification } from "@zazigv2/shared";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 // ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
+
+let shuttingDown = false;
 
 async function main(): Promise<void> {
   console.log("[local-agent] Initializing...");
@@ -92,6 +95,10 @@ async function main(): Promise<void> {
   conn.onMessage((msg: OrchestratorMessage) => {
     switch (msg.type) {
       case "start_job":
+        if (shuttingDown) {
+          console.log(`[local-agent] SHUTDOWN: Rejecting StartJob for jobId=${msg.jobId} — daemon is shutting down`);
+          return;
+        }
         console.log(
           `[local-agent] Received start_job — jobId=${msg.jobId}, cardId=${msg.cardId}, ` +
             `slotType=${msg.slotType}, complexity=${msg.complexity}, model=${msg.model}`
@@ -183,7 +190,15 @@ async function main(): Promise<void> {
   // ---------------------------------------------------------------------------
 
   const shutdown = async (signal: string): Promise<void> => {
-    console.log(`[local-agent] Received ${signal}, shutting down gracefully...`);
+    if (shuttingDown) {
+      console.log(`[local-agent] SHUTDOWN: Duplicate ${signal} signal ignored`);
+      return;
+    }
+    shuttingDown = true;
+
+    console.log(`[local-agent] SHUTDOWN: Received ${signal}`);
+
+    // Remove role prompt channel first
     if (rolePromptChannel) {
       try {
         await conn.supabase.removeChannel(rolePromptChannel);
@@ -192,8 +207,62 @@ async function main(): Promise<void> {
       }
       rolePromptChannel = null;
     }
+
+    const gracePeriodMs = parseInt(process.env["ZAZIG_GRACEFUL_SHUTDOWN_MS"] ?? "10000", 10);
+    console.log(`[local-agent] SHUTDOWN: Grace period started (${gracePeriodMs}ms)`);
+
+    // DB transition: executing → queued
+    const activeJobIds = executor.getActiveJobIds();
+    for (const jobId of activeJobIds) {
+      try {
+        const { data, error } = await conn.dbClient
+          .from("jobs")
+          .update({ status: "queued", blocked_reason: "daemon shutdown — awaiting re-dispatch" })
+          .eq("id", jobId)
+          .eq("status", "executing")
+          .select("id");
+
+        if (error) {
+          console.error(`[local-agent] SHUTDOWN: DB transition error for job ${jobId}:`, error);
+        } else if (!data || data.length === 0) {
+          console.log(`[local-agent] SHUTDOWN: Job ${jobId} already completed — skipping transition`);
+        } else {
+          console.log(`[local-agent] SHUTDOWN: Job ${jobId} transitioned to queued`);
+        }
+      } catch (err) {
+        console.error(`[local-agent] SHUTDOWN: DB transition error for job ${jobId}:`, err);
+      }
+    }
+
+    // Send DaemonShutdownNotification
+    try {
+      const notification: DaemonShutdownNotification = {
+        type: "daemon_shutdown_notification",
+        protocolVersion: PROTOCOL_VERSION,
+        machineId: config.name,
+        affectedJobIds: activeJobIds,
+      };
+      await conn.sendMessage(notification);
+      console.log("[local-agent] SHUTDOWN: DaemonShutdownNotification sent");
+    } catch (err) {
+      console.error("[local-agent] SHUTDOWN: Failed to send DaemonShutdownNotification:", err);
+    }
+
+    // Grace period wait
+    await new Promise<void>((resolve) => setTimeout(resolve, gracePeriodMs));
+    console.log("[local-agent] SHUTDOWN: Grace period wait complete");
+
+    // Force-kill remaining jobs
+    console.log("[local-agent] SHUTDOWN: Force-kill phase start");
     await executor.stopAll();
-    await conn.stop();
+
+    // Channel cleanup
+    console.log("[local-agent] SHUTDOWN: Channel closure");
+    const stopPromise = conn.stop();
+    const timeoutPromise = new Promise<void>((resolve) => setTimeout(resolve, 5000));
+    await Promise.race([stopPromise, timeoutPromise]);
+
+    console.log("[local-agent] SHUTDOWN: Exit");
     process.exit(0);
   };
 

@@ -277,8 +277,8 @@ export default function Login(): JSX.Element {
           )}
 
           <p className="terms">
-            By continuing, you agree to our <a href="#">Terms of Service</a> and{" "}
-            <a href="#">Privacy Policy</a>.
+            By continuing, you agree to our <a href="/tos">Terms of Service</a> and{" "}
+            <a href="/privacy">Privacy Policy</a>.
           </p>
         </div>
       </div>

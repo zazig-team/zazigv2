@@ -169,14 +169,18 @@ server.tool(
 
 server.tool(
   "create_feature",
-  "Create a new feature for a project",
+  "Create a new feature and immediately queue it for breakdown into jobs. Include spec and acceptance_tests so the Breakdown Specialist can start work — no separate update_feature call needed.",
   {
     title: z.string().describe("Feature title"),
     description: z.string().optional().describe("Feature description"),
     project_id: z.string().optional().describe("Project ID to associate this feature with"),
     priority: z.enum(["low", "medium", "high"]).optional().describe("Feature priority (default: medium)"),
+    spec: z.string().optional().describe("Full feature spec (self-contained, readable by Breakdown Specialist)"),
+    acceptance_tests: z.string().optional().describe("Feature-level acceptance criteria"),
+    human_checklist: z.string().optional().describe("Manual verification steps for human on test server"),
+    fast_track: z.boolean().optional().describe("When true, orchestrator skips breakdown and creates one direct engineering job"),
   },
-  guardedHandler("create_feature", async ({ title, description, project_id, priority }) => {
+  guardedHandler("create_feature", async ({ title, description, project_id, priority, spec, acceptance_tests, human_checklist, fast_track }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -195,7 +199,7 @@ server.tool(
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ title, description, project_id, priority, job_id: jobId, company_id: companyId }),
+      body: JSON.stringify({ title, description, project_id, priority, spec, acceptance_tests, human_checklist, fast_track, job_id: jobId, company_id: companyId }),
     });
 
     if (response.ok) {

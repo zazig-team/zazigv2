@@ -58,10 +58,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     const body = await req.json();
-    const { project_id, title, description, priority, job_id, company_id: explicit_company_id } = body;
+    const { project_id, title, description, priority, job_id, company_id: explicit_company_id, spec, acceptance_tests, human_checklist, fast_track } = body;
 
     if (!title) {
       return jsonResponse({ error: "title is required" }, 400);
+    }
+
+    if (fast_track !== undefined && typeof fast_track !== "boolean") {
+      return jsonResponse({ error: "fast_track must be a boolean when provided" }, 400);
     }
 
     // Resolve company_id: explicit param > job lookup
@@ -80,22 +84,36 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     // Insert feature
+    const insertPayload: Record<string, unknown> = {
+      company_id,
+      project_id: project_id ?? null,
+      title,
+      description: description ?? null,
+      priority: priority ?? "medium",
+      status: "breaking_down",
+    };
+    if (spec !== undefined) insertPayload.spec = spec;
+    if (acceptance_tests !== undefined) insertPayload.acceptance_tests = acceptance_tests;
+    if (human_checklist !== undefined) insertPayload.human_checklist = human_checklist;
+    if (fast_track !== undefined) insertPayload.fast_track = fast_track;
+
     const { data: feature, error } = await supabase
       .from("features")
-      .insert({
-        company_id,
-        project_id: project_id ?? null,
-        title,
-        description: description ?? null,
-        priority: priority ?? "medium",
-        status: "breaking_down",
-      })
-      .select("id")
+      .insert(insertPayload)
+      .select("id, company_id")
       .single();
 
     if (error) {
       return jsonResponse({ error: error.message }, 500);
     }
+
+    // Emit event so orchestrator picks up the new breaking_down feature
+    await supabase.from("events").insert({
+      company_id: feature.company_id,
+      feature_id: feature.id,
+      event_type: "feature_status_changed",
+      detail: { from: null, to: "breaking_down" },
+    });
 
     return jsonResponse({ feature_id: feature.id });
   } catch (err) {

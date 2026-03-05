@@ -17,9 +17,9 @@ set -euo pipefail
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command')
 
-# --- DENY: force push ---
-if echo "$COMMAND" | grep -qE 'git push (--force|-f )'; then
-  jq -n '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"Force push blocked by bash-gate"}}'
+# --- DENY: force push (allow --force-with-lease which is safe) ---
+if echo "$COMMAND" | grep -qE 'git push .*(--force|-f )' && ! echo "$COMMAND" | grep -q '\-\-force-with-lease'; then
+  jq -n '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"Force push blocked by bash-gate (use --force-with-lease instead)"}}'
   exit 0
 fi
 

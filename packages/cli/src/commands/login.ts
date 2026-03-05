@@ -85,13 +85,14 @@ export async function login(args: string[] = []): Promise<void> {
         kind: "callback" as const,
         value,
       }));
+
+      console.log("If your email shows a one-time code instead of a link, paste it and press Enter.");
+      console.log("Or press Enter to continue waiting for the link callback.\n");
+
       const otpPromptPromise = promptForOptionalOtpCode(otpPromptAbort.signal).then((value) => ({
         kind: "otp" as const,
         value,
       }));
-
-      console.log("If your email shows a one-time code instead of a link, paste it and press Enter.");
-      console.log("Or press Enter to continue waiting for the link callback.");
 
       const first = await Promise.race([
         callbackResultPromise,
@@ -232,11 +233,13 @@ async function sendMagicLink({
   redirectTo?: string;
 }): Promise<void> {
   const body: Record<string, string> = { email };
+
+  let url = `${supabaseUrl}/auth/v1/magiclink`;
   if (redirectTo) {
-    body.redirect_to = redirectTo;
+    url += `?redirect_to=${encodeURIComponent(redirectTo)}`;
   }
 
-  const resp = await fetch(`${supabaseUrl}/auth/v1/magiclink`, {
+  const resp = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

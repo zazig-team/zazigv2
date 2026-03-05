@@ -240,30 +240,38 @@ export default function Dashboard(): JSX.Element {
 
     try {
       const [
-        goalsData,
-        focusAreasData,
-        activityData,
-        pulseData,
-        teamData,
-        decisionsData,
-        actionItemsData,
-      ] = await Promise.all([
+        goalsResult,
+        focusAreasResult,
+        activityResult,
+        pulseResult,
+        teamResult,
+        decisionsResult,
+        actionItemsResult,
+      ] = await Promise.allSettled([
         fetchGoals(activeCompany.id),
         fetchFocusAreas(activeCompany.id),
         fetchActivity(activeCompany.id),
         fetchPulseMetrics(activeCompany.id),
         fetchDashboardTeam(activeCompany.id),
-        fetchDecisions(activeCompany.id).catch(() => []),
-        fetchActionItems(activeCompany.id).catch(() => []),
+        fetchDecisions(activeCompany.id),
+        fetchActionItems(activeCompany.id),
       ]);
 
-      setGoals(goalsData.slice(0, 3));
-      setFocusAreas(focusAreasData.slice(0, 5));
-      setActivity(activityData);
-      setPulse(pulseData);
-      setTeam(teamData);
-      setDecisions(decisionsData);
-      setActionItems(actionItemsData);
+      setGoals(goalsResult.status === "fulfilled" ? goalsResult.value.slice(0, 3) : []);
+      setFocusAreas(focusAreasResult.status === "fulfilled" ? focusAreasResult.value.slice(0, 5) : []);
+      setActivity(activityResult.status === "fulfilled" ? activityResult.value : []);
+      setPulse(pulseResult.status === "fulfilled" ? pulseResult.value : EMPTY_PULSE);
+      setTeam(teamResult.status === "fulfilled" ? teamResult.value : EMPTY_TEAM);
+      setDecisions(decisionsResult.status === "fulfilled" ? decisionsResult.value : []);
+      setActionItems(actionItemsResult.status === "fulfilled" ? actionItemsResult.value : []);
+
+      // Surface first error for visibility
+      const firstError = [goalsResult, focusAreasResult, activityResult, pulseResult, teamResult]
+        .find((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (firstError) {
+        const reason = firstError.reason;
+        setError(reason instanceof Error ? reason.message : String(reason));
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {

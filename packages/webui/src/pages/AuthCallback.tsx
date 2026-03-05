@@ -16,6 +16,13 @@ export default function AuthCallback(): JSX.Element {
       return;
     }
 
+    // If URL has auth tokens in the hash, Supabase is still processing them.
+    // Wait for onAuthStateChange to fire instead of redirecting to /login.
+    const hash = window.location.hash;
+    if (hash && (hash.includes("access_token") || hash.includes("error"))) {
+      return;
+    }
+
     navigate("/login", { replace: true });
   }, [loading, navigate, session]);
 

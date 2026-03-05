@@ -7,7 +7,7 @@ function isValidEmail(value: string): boolean {
 }
 
 function normalizeOtp(value: string): string {
-  return value.replace(/\D/g, "").slice(0, 6);
+  return value.replace(/\D/g, "").slice(0, 8);
 }
 
 export default function Login(): JSX.Element {
@@ -26,7 +26,7 @@ export default function Login(): JSX.Element {
     [email, sendingMagicLink],
   );
   const canVerifyOtp = useMemo(
-    () => sentTo !== null && otpCode.length === 6 && !verifyingOtp && !sendingMagicLink,
+    () => sentTo !== null && otpCode.length >= 6 && !verifyingOtp && !sendingMagicLink,
     [otpCode, sentTo, sendingMagicLink, verifyingOtp],
   );
 
@@ -59,8 +59,8 @@ export default function Login(): JSX.Element {
       return;
     }
 
-    if (otpCode.length !== 6) {
-      setOtpError("Enter the 6-digit code from your email.");
+    if (otpCode.length < 6) {
+      setOtpError("Enter the code from your email.");
       return;
     }
 
@@ -140,13 +140,13 @@ export default function Login(): JSX.Element {
               </div>
               <h2 className="success-title">Check your email</h2>
               <p className="success-detail">
-                We sent a sign-in link and 6-digit code to
+                We sent a sign-in link and code to
                 <br />
                 <strong>{sentTo}</strong>
               </p>
               <div className="success-otp">
                 <label className="input-label" htmlFor="otp-code">
-                  Enter 6-digit code
+                  Enter code
                 </label>
                 <input
                   type="text"
@@ -155,7 +155,7 @@ export default function Login(): JSX.Element {
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   placeholder="123456"
-                  maxLength={6}
+                  maxLength={8}
                   value={otpCode}
                   onChange={(event) => {
                     setOtpCode(normalizeOtp(event.target.value));

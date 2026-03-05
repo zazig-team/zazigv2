@@ -17315,24 +17315,7 @@ ${assembledContext}`);
       await this.sendJobFailed(jobId, `Failed to start tmux session: ${String(err)}`, "agent_crash");
       return;
     }
-    jobLog(jobId, `Tmux session started \u2014 session=${sessionName}, cmd=${cmd} ${cmdArgs.join(" ")}, cwd=${ephemeralWorkspaceDir ?? "none"}`);
-    console.log(`[executor] Tmux session started \u2014 session=${sessionName}, cmd=${cmd}`);
     const logPath2 = jobLogPath(jobId);
-    try {
-      mkdirSync2(JOB_LOG_DIR, { recursive: true });
-      await startPipePane(sessionName, logPath2);
-      jobLog(jobId, `pipe-pane started \u2192 ${logPath2}`);
-    } catch (err) {
-      jobLog(jobId, `pipe-pane FAILED: ${String(err)}`);
-      console.warn(`[executor] pipe-pane start failed for jobId=${jobId}: ${String(err)}`);
-    }
-    if (process.env["ZAZIG_OPEN_SESSIONS"]) {
-      execFile2("bash", ["-c", `ghostty -e bash -c 'tmux attach -t ${sessionName}'`], (err) => {
-        if (err)
-          console.warn(`[executor] Could not open Ghostty window: ${err.message}`);
-      });
-    }
-    await this.sendJobStatus(jobId, "executing");
     const activeJob = {
       jobId,
       slotType,
@@ -17354,8 +17337,31 @@ ${assembledContext}`);
       spec: msg.spec,
       acceptanceCriteria: msg.acceptanceCriteria,
       jobTitle: msg.title,
-      startingCommit
+      startingCommit,
+      attempt: 1,
+      maxAttempts: 3,
+      fixReasons: [],
+      complexity: msg.complexity,
+      model: msg.model
     };
+    console.log(`[codex] Starting job \u2014 title="${activeJob.jobTitle ?? jobId}", id=${jobId.slice(0, 8)}, complexity=${msg.complexity}, attempt=${activeJob.attempt}/${activeJob.maxAttempts}`);
+    jobLog(jobId, `Tmux session started \u2014 session=${sessionName}, cmd=${cmd} ${cmdArgs.join(" ")}, cwd=${ephemeralWorkspaceDir ?? "none"}`);
+    console.log(`[executor] Tmux session started \u2014 session=${sessionName}, cmd=${cmd}`);
+    try {
+      mkdirSync2(JOB_LOG_DIR, { recursive: true });
+      await startPipePane(sessionName, logPath2);
+      jobLog(jobId, `pipe-pane started \u2192 ${logPath2}`);
+    } catch (err) {
+      jobLog(jobId, `pipe-pane FAILED: ${String(err)}`);
+      console.warn(`[executor] pipe-pane start failed for jobId=${jobId}: ${String(err)}`);
+    }
+    if (process.env["ZAZIG_OPEN_SESSIONS"]) {
+      execFile2("bash", ["-c", `ghostty -e bash -c 'tmux attach -t ${sessionName}'`], (err) => {
+        if (err)
+          console.warn(`[executor] Could not open Ghostty window: ${err.message}`);
+      });
+    }
+    await this.sendJobStatus(jobId, "executing");
     this.activeJobs.set(jobId, activeJob);
     activeJob.timeoutTimer = setTimeout(() => {
       void this.onJobTimeout(jobId);
@@ -17450,6 +17456,19 @@ ${msg.text}`;
   // ---------------------------------------------------------------------------
   // Public: StopJob
   // ---------------------------------------------------------------------------
+  /** Returns the job IDs of all currently executing jobs. */
+  getActiveJobIds() {
+    return Array.from(this.activeJobs.keys());
+  }
+  /** Stops a single active job by ID using the standard stop flow. */
+  async stopJob(jobId) {
+    await this.handleStopJob({
+      type: "stop_job",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      reason: "graceful_shutdown"
+    });
+  }
   // Public: JobUnblocked
   // ---------------------------------------------------------------------------
   /**
@@ -17716,7 +17735,12 @@ ${msg.text}`;
       startedAt: spawnedAt,
       logPath: "",
       lastBytesSent: 0,
-      role: msg.role
+      role: msg.role,
+      attempt: 1,
+      maxAttempts: 3,
+      fixReasons: [],
+      complexity: msg.complexity,
+      model: msg.model
     });
     await this.sendJobStatus(jobId, "executing");
     console.log(`[executor] Persistent ${role} session=${sessionName} ready \u2014 jobId=${jobId}`);
@@ -17872,31 +17896,71 @@ ${msg.text}`;
     jobLog(jobId, `onJobEnded START \u2014 role=${job.role ?? "none"}, worktree=${job.worktreePath ?? "none"}`);
     job.settled = true;
     this.clearJobTimers(job);
-    this.activeJobs.delete(jobId);
-    const exitedPersistentRole = [...this.persistentAgents.values()].find((a) => a.jobId === jobId)?.role;
-    if (exitedPersistentRole) {
-      this.clearPersistentAgent(exitedPersistentRole);
-    } else {
-      this.slots.release(job.slotType);
-    }
     if (job.slotType === "codex" && job.worktreePath) {
-      const reviewResult = await runCodexReview(job, job.spec ?? "", job.acceptanceCriteria ?? "");
+      let reviewResult;
+      try {
+        reviewResult = await runCodexReview(job, job.spec ?? "", job.acceptanceCriteria ?? "");
+      } catch (reviewErr) {
+        reviewResult = {
+          pass: false,
+          reason: `Codex review crashed: ${String(reviewErr)}`,
+          committed: false
+        };
+      }
       jobLog(jobId, `Codex review: pass=${reviewResult.pass}, reason=${reviewResult.reason}`);
       console.log(`[executor] Codex review for jobId=${jobId}: pass=${reviewResult.pass}, reason=${reviewResult.reason}`);
       if (!reviewResult.pass) {
-        try {
-          if (reviewResult.committed) {
-            await execFileAsync2("git", ["reset", "--hard", "HEAD~1"], { cwd: job.worktreePath });
-            jobLog(jobId, "Reverted codex review commit via git reset --hard HEAD~1.");
-          } else if (reviewResult.codexSelfCommitted && reviewResult.startingCommit) {
-            await execFileAsync2("git", ["reset", "--hard", reviewResult.startingCommit], { cwd: job.worktreePath });
-            jobLog(jobId, `Reverted codex self-commits via git reset --hard ${reviewResult.startingCommit}.`);
-          } else {
-            await execFileAsync2("git", ["checkout", "."], { cwd: job.worktreePath });
-            jobLog(jobId, "Reverted uncommitted codex changes via git checkout .");
+        job.fixReasons.push(reviewResult.reason);
+        if (job.attempt < job.maxAttempts) {
+          job.attempt += 1;
+          console.log(`[codex] Review FAILED (attempt ${job.attempt - 1}/${job.maxAttempts}) \u2014 ${reviewResult.reason}`);
+          console.log(`[codex] Retrying with fix prompt \u2014 attempt ${job.attempt}/${job.maxAttempts}, keeping existing changes in place`);
+          jobLog(jobId, `Codex review failed \u2014 retrying attempt ${job.attempt}/${job.maxAttempts}. reason="${reviewResult.reason}"`);
+          try {
+            const fixPromptPath = buildFixPrompt(job);
+            const built = buildCommand(job.slotType, job.complexity ?? "medium", job.model ?? "codex", job.worktreePath, fixPromptPath);
+            if (await isTmuxSessionAlive(job.sessionName)) {
+              await killTmuxSession(job.sessionName);
+            }
+            await spawnTmuxSession(job.sessionName, built.cmd, built.args, job.worktreePath);
+            try {
+              await startPipePane(job.sessionName, job.logPath);
+              jobLog(jobId, `pipe-pane restarted for retry attempt ${job.attempt}`);
+            } catch (pipeErr) {
+              jobLog(jobId, `pipe-pane restart FAILED (retry attempt ${job.attempt}): ${String(pipeErr)}`);
+              console.warn(`[executor] pipe-pane restart failed for retry jobId=${jobId}: ${String(pipeErr)}`);
+            }
+            job.startedAt = Date.now();
+            job.settled = false;
+            job.timeoutTimer = setTimeout(() => {
+              void this.onJobTimeout(jobId);
+            }, JOB_TIMEOUT_MS);
+            job.pollTimer = setInterval(() => {
+              this.pollJob(jobId).catch((err) => {
+                jobLog(jobId, `pollJob CRASHED: ${String(err)}`);
+                console.error(`[executor] pollJob crashed for jobId=${jobId}:`, err);
+              });
+            }, POLL_INTERVAL_MS);
+            jobLog(jobId, `Retry timers started (interval=${POLL_INTERVAL_MS}ms)`);
+            return;
+          } catch (retryErr) {
+            jobLog(jobId, `Retry spawn FAILED on attempt ${job.attempt}: ${String(retryErr)}`);
           }
+        }
+        console.log(`[codex] All ${job.maxAttempts} attempts exhausted \u2014 reverting to starting commit`);
+        console.log(`[codex] Failure reasons: ${job.fixReasons.map((r, i) => `[${i + 1}] ${r}`).join(" | ")}`);
+        try {
+          await execFileAsync2("git", ["reset", "--hard", job.startingCommit], { cwd: job.worktreePath });
+          jobLog(jobId, `Reverted to startingCommit ${job.startingCommit} after ${job.attempt} failed attempts.`);
         } catch (revertErr) {
-          jobLog(jobId, `codex revert failed (non-fatal): ${String(revertErr)}`);
+          jobLog(jobId, `Final revert failed (non-fatal): ${String(revertErr)}`);
+        }
+        this.activeJobs.delete(jobId);
+        const exitedPersistentRole2 = [...this.persistentAgents.values()].find((a) => a.jobId === jobId)?.role;
+        if (exitedPersistentRole2) {
+          this.clearPersistentAgent(exitedPersistentRole2);
+        } else {
+          this.slots.release(job.slotType);
         }
         const failLogChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
         if (failLogChunk !== null) {
@@ -17905,9 +17969,19 @@ ${msg.text}`;
           } catch {
           }
         }
-        await this.sendJobFailed(jobId, reviewResult.reason, "unknown");
+        await this.sendJobFailed(jobId, job.fixReasons.join(" | "), "unknown");
         return;
       }
+      if (job.attempt > 1) {
+        console.log(`[codex] Review PASSED (attempt ${job.attempt}/${job.maxAttempts}) \u2014 fixed after ${job.attempt - 1} retry`);
+      }
+    }
+    this.activeJobs.delete(jobId);
+    const exitedPersistentRole = [...this.persistentAgents.values()].find((a) => a.jobId === jobId)?.role;
+    if (exitedPersistentRole) {
+      this.clearPersistentAgent(exitedPersistentRole);
+    } else {
+      this.slots.release(job.slotType);
     }
     const homeDir = process.env["HOME"] ?? "/tmp";
     const archiveDir = `${homeDir}/${REPORT_ARCHIVE_DIR}`;
@@ -18320,7 +18394,11 @@ async function runCodexReview(job, jobSpec, acceptanceCriteria) {
     ".claude/",
     ".gitignore",
     ".zazig-prompt.txt",
-    ".zazig-review-prompt.txt"
+    ".zazig-review-prompt.txt",
+    ".zazig-fix-prompt-*.txt",
+    ".zazig-fix-prompt-1.txt",
+    ".zazig-fix-prompt-2.txt",
+    ".zazig-fix-prompt-3.txt"
   ];
   let startingCommit;
   if (job.startingCommit) {
@@ -18463,6 +18541,31 @@ ${personalityFile}`;
 ${CODEX_ROUTING_INSTRUCTIONS}`;
   }
   return assembled;
+}
+function buildFixPrompt(job) {
+  if (!job.worktreePath) {
+    throw new Error("buildFixPrompt requires a worktreePath");
+  }
+  const reasons = job.fixReasons.length > 0 ? job.fixReasons.map((reason, idx) => `${idx + 1}. ${reason}`).join("\n") : "1. No review reason recorded.";
+  const fixPrompt = [
+    `Codex review failed for job ${job.jobId}.`,
+    `Attempt ${job.attempt} of ${job.maxAttempts}.`,
+    "",
+    "## Original Spec",
+    job.spec?.trim().length ? job.spec : "No spec provided.",
+    "",
+    "## Acceptance Criteria",
+    job.acceptanceCriteria?.trim().length ? job.acceptanceCriteria : "No acceptance criteria provided.",
+    "",
+    "## Review Failure Reasons",
+    reasons,
+    "",
+    "Update the implementation to fix every failure reason while staying within the original scope.",
+    "Do not leave placeholder code."
+  ].join("\n");
+  const fixPromptPath = join4(job.worktreePath, `.zazig-fix-prompt-${job.attempt}.txt`);
+  writeFileSync2(fixPromptPath, fixPrompt, "utf-8");
+  return fixPromptPath;
 }
 function buildCommand(slotType, complexity, model, worktreePath, promptFilePath) {
   const resolvedModel = model && model !== "codex" ? model : slotType === "codex" ? "gpt-5.3-codex" : complexity === "complex" ? "claude-opus-4-6" : "claude-sonnet-4-6";
@@ -19271,6 +19374,7 @@ process.on("unhandledRejection", (reason) => {
 process.on("uncaughtException", (err) => {
   console.error("[local-agent] Uncaught exception (process NOT exiting):", err);
 });
+var shuttingDown = false;
 async function main() {
   console.log("[local-agent] Initializing...");
   const config = loadConfig();
@@ -19287,6 +19391,10 @@ async function main() {
   conn.onMessage((msg) => {
     switch (msg.type) {
       case "start_job":
+        if (shuttingDown) {
+          console.log(`[local-agent] SHUTDOWN: Rejecting StartJob for jobId=${msg.jobId} \u2014 daemon is shutting down`);
+          return;
+        }
         console.log(`[local-agent] Received start_job \u2014 jobId=${msg.jobId}, cardId=${msg.cardId}, slotType=${msg.slotType}, complexity=${msg.complexity}, model=${msg.model}`);
         executor.handleStartJob(msg).catch((err) => {
           console.error(`[local-agent] FATAL: handleStartJob crashed for jobId=${msg.jobId}:`, err);
@@ -19337,7 +19445,12 @@ async function main() {
     rolePromptChannel = subscribeToRolePromptHotReload(conn, config.name, config.supabase.url, config.supabase.anon_key, companyId, executor);
   }
   const shutdown = async (signal) => {
-    console.log(`[local-agent] Received ${signal}, shutting down gracefully...`);
+    if (shuttingDown) {
+      console.log(`[local-agent] SHUTDOWN: Duplicate ${signal} signal ignored`);
+      return;
+    }
+    shuttingDown = true;
+    console.log(`[local-agent] SHUTDOWN: Received ${signal}`);
     if (rolePromptChannel) {
       try {
         await conn.supabase.removeChannel(rolePromptChannel);
@@ -19346,8 +19459,44 @@ async function main() {
       }
       rolePromptChannel = null;
     }
+    const gracePeriodMs = parseInt(process.env["ZAZIG_GRACEFUL_SHUTDOWN_MS"] ?? "10000", 10);
+    console.log(`[local-agent] SHUTDOWN: Grace period started (${gracePeriodMs}ms)`);
+    const activeJobIds = executor.getActiveJobIds();
+    for (const jobId of activeJobIds) {
+      try {
+        const { data, error } = await conn.dbClient.from("jobs").update({ status: "queued", blocked_reason: "daemon shutdown \u2014 awaiting re-dispatch" }).eq("id", jobId).eq("status", "executing").select("id");
+        if (error) {
+          console.error(`[local-agent] SHUTDOWN: DB transition error for job ${jobId}:`, error);
+        } else if (!data || data.length === 0) {
+          console.log(`[local-agent] SHUTDOWN: Job ${jobId} already completed \u2014 skipping transition`);
+        } else {
+          console.log(`[local-agent] SHUTDOWN: Job ${jobId} transitioned to queued`);
+        }
+      } catch (err) {
+        console.error(`[local-agent] SHUTDOWN: DB transition error for job ${jobId}:`, err);
+      }
+    }
+    try {
+      const notification = {
+        type: "daemon_shutdown_notification",
+        protocolVersion: PROTOCOL_VERSION,
+        machineId: config.name,
+        affectedJobIds: activeJobIds
+      };
+      await conn.sendMessage(notification);
+      console.log("[local-agent] SHUTDOWN: DaemonShutdownNotification sent");
+    } catch (err) {
+      console.error("[local-agent] SHUTDOWN: Failed to send DaemonShutdownNotification:", err);
+    }
+    await new Promise((resolve2) => setTimeout(resolve2, gracePeriodMs));
+    console.log("[local-agent] SHUTDOWN: Grace period wait complete");
+    console.log("[local-agent] SHUTDOWN: Force-kill phase start");
     await executor.stopAll();
-    await conn.stop();
+    console.log("[local-agent] SHUTDOWN: Channel closure");
+    const stopPromise = conn.stop();
+    const timeoutPromise = new Promise((resolve2) => setTimeout(resolve2, 5e3));
+    await Promise.race([stopPromise, timeoutPromise]);
+    console.log("[local-agent] SHUTDOWN: Exit");
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));

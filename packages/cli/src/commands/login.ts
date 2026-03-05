@@ -166,8 +166,56 @@ async function startCallbackServer(port: number): Promise<{
   });
 
   const callbackHtml = `<!DOCTYPE html>
-<html><body>
-<p>Login successful &mdash; you can close this tab.</p>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>zazig — Signed in</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;800&family=JetBrains+Mono:wght@400&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px;-webkit-font-smoothing:antialiased}
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:#0c0d10;color:#eaecf1;min-height:100vh;display:flex;justify-content:center;align-items:center;overflow:hidden}
+body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.03;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-size:256px 256px}
+.shell{position:relative;z-index:1;width:100%;max-width:400px;padding:24px;text-align:center}
+.card{opacity:0;animation:fadeUp .6s ease-out .1s forwards}
+.brand{display:flex;align-items:center;justify-content:center;margin-bottom:48px}
+.brand-wordmark{font-size:28px;font-weight:800;letter-spacing:-.03em;color:#eaecf1;text-decoration:none}
+.brand-dot{width:7px;height:7px;border-radius:50%;background:#3ecf71;margin-left:2px;margin-bottom:-2px;animation:breathe 4s ease-in-out infinite}
+.icon-ring{width:56px;height:56px;border-radius:50%;margin:0 auto 24px;display:flex;align-items:center;justify-content:center;position:relative}
+.icon-ring.success{background:rgba(62,207,113,.1)}
+.icon-ring.error{background:rgba(239,84,84,.1)}
+.icon-ring svg{width:28px;height:28px;opacity:0}
+.icon-ring.success svg{color:#3ecf71;animation:checkIn .5s ease-out .4s forwards}
+.icon-ring.error svg{color:#ef5454;animation:checkIn .5s ease-out .4s forwards}
+.ring-pulse{position:absolute;inset:0;border-radius:50%;opacity:0}
+.icon-ring.success .ring-pulse{border:2px solid #3ecf71;animation:pulse 1s ease-out .3s forwards}
+.icon-ring.error .ring-pulse{border:2px solid #ef5454;animation:pulse 1s ease-out .3s forwards}
+h2{font-size:20px;font-weight:700;letter-spacing:-.02em;margin-bottom:10px;opacity:0;animation:fadeUp .5s ease-out .5s forwards}
+.detail{font-size:14px;color:#868c98;line-height:1.6;opacity:0;animation:fadeUp .5s ease-out .6s forwards}
+.hint{margin-top:32px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#505660;opacity:0;animation:fadeUp .5s ease-out .7s forwards}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes breathe{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.65;transform:scale(.88)}}
+@keyframes checkIn{0%{opacity:0;transform:scale(.5)}60%{opacity:1;transform:scale(1.15)}100%{opacity:1;transform:scale(1)}}
+@keyframes pulse{0%{opacity:.6;transform:scale(1)}100%{opacity:0;transform:scale(1.8)}}
+</style>
+</head>
+<body>
+<div class="shell">
+<div class="card">
+<div class="brand">
+<span class="brand-wordmark">zazig</span>
+<span class="brand-dot"></span>
+</div>
+<div id="icon" class="icon-ring success">
+<div class="ring-pulse"></div>
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path id="check-path" d="M5 13l4 4L19 7"/></svg>
+</div>
+<h2 id="title">Signed in</h2>
+<p id="detail" class="detail">You&rsquo;re authenticated. Return to your terminal<br>to continue&nbsp;working.</p>
+<p class="hint">You can close this tab</p>
+</div>
+</div>
 <script>
 const hash = window.location.hash.substring(1);
 const params = new URLSearchParams(hash);
@@ -180,10 +228,14 @@ if (at && rt) {
     body: JSON.stringify({ access_token: at, refresh_token: rt })
   });
 } else {
-  document.body.innerHTML = '<p>Login failed &mdash; no tokens received.</p>';
+  document.getElementById('icon').className = 'icon-ring error';
+  document.getElementById('icon').innerHTML = '<div class="ring-pulse"></div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+  document.getElementById('title').textContent = 'Sign-in failed';
+  document.getElementById('detail').innerHTML = 'No authentication tokens were received.<br>Please try <code style="font-family:JetBrains Mono,monospace;font-size:13px;color:#b0b6c3">zazig login</code> again.';
 }
 </script>
-</body></html>`;
+</body>
+</html>`;
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, `http://127.0.0.1:${port}`);

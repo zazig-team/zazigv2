@@ -19,8 +19,26 @@ jobs:
       - run: npm run build
       - run: npm run test
 
-  deploy-edge-functions:
+  push-staging-migrations:
     needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Push migrations to STAGING
+        run: |
+          supabase link --project-ref "$SUPABASE_STAGING_PROJECT_REF"
+          supabase db push --include-all
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+
+  deploy-edge-functions:
+    needs: push-staging-migrations
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,24 +57,6 @@ jobs:
             echo "Deploying: $fn"
             supabase functions deploy "$fn" --project-ref "$SUPABASE_STAGING_PROJECT_REF"
           done
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
-
-  push-staging-migrations:
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      - name: Push migrations to STAGING
-        run: |
-          supabase link --project-ref "$SUPABASE_STAGING_PROJECT_REF"
-          supabase db push --include-all
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}

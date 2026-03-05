@@ -36,7 +36,7 @@ switch (cmd) {
     break;
 
   case "login":
-    await login();
+    await login(args);
     break;
 
   case "logout":
@@ -90,7 +90,8 @@ switch (cmd) {
     console.log("Usage: zazig <command>");
     console.log("");
     console.log("Commands:");
-    console.log("  login              Log in to zazig via browser");
+    console.log("  login              Log in to zazig (link or code)");
+    console.log("  login --otp        Force one-time code flow (no localhost callback)");
     console.log("  logout             Log out and remove stored credentials");
     console.log("  setup              Create a company, onboard a project, invite teammates");
     console.log("  start              Start the local agent daemon in the background");

@@ -10,6 +10,7 @@ import {
 import {
   getCurrentSession,
   onAuthStateChange,
+  verifyEmailOtp,
   signInWithGoogle,
   signInWithMagicLink,
   signOut,
@@ -20,6 +21,7 @@ interface AuthContextValue {
   session: Session | null;
   user: User | null;
   signInWithMagicLink: (email: string) => Promise<void>;
+  verifyEmailOtp: (email: string, token: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -63,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       session,
       user: session?.user ?? null,
       signInWithMagicLink,
+      verifyEmailOtp,
       signInWithGoogle,
       signOut,
     }),

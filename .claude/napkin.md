@@ -11,6 +11,8 @@
 | 2026-03-05 | GoTrue redirect_to | Put `redirect_to` in POST body of `/auth/v1/magiclink` — GoTrue silently ignored it. Wasted hours debugging wildcard matching. | GoTrue reads `redirect_to` as a **query parameter**, not body field. Match how `@supabase/supabase-js` sends it. |
 | 2026-03-05 | CLI release bundle | Changed `login.ts`, rebuilt with `npm run build`, but `zazig` still ran old code. | `zazig` binary points to `releases/zazig.mjs` (esbuild bundle), not `dist/`. Must run `node scripts/bundle.js` after tsc build. Always commit the rebuilt bundle. |
 | 2026-03-05 | Supabase OTP length | Assumed OTP is always 6 digits, hardcoded in UI. Staging sends 8-digit codes. | Never hardcode OTP length. Different Supabase instances can have different `GOTRUE_MAILER_OTP_LENGTH` defaults. |
+| 2026-03-05 | Edge function JWT | Spent hours debugging "Invalid JWT" errors from browser. Assumed token was expired/stale. Actual cause: all edge functions had `verify_jwt=true` (CI deploy didn't use `--no-verify-jwt`). Gateway rejected JWT before function code ran. | Always check `verify_jwt` setting via Management API (`GET /v1/projects/{ref}/functions`) before debugging JWT issues. CI deploys may overwrite `--no-verify-jwt`. |
+| 2026-03-05 | WebUI all-zeros diagnosis | Chased auth token race conditions, JWT expiry, Promise.all vs allSettled — none were the root cause. The real issue was a deploy config problem (verify_jwt). | When edge functions fail from browser but work via curl, first check the function's `verify_jwt` setting. Don't assume code-level auth bugs. |
 
 ## User Preferences
 - TypeScript for both orchestrator and local agent
@@ -54,8 +56,8 @@
 - Memory system design: `docs/plans/active/2026-03-03-memory-system-design.md` (in active subdirectory, v3 — includes Procedure type, tier-specific budgets, mandatory slot reservation, hardened Context Handoff Protocol)
 
 ## WebUI Status (2026-03-03)
-- Deployed to Netlify: https://zazig-webui.netlify.app (site ID: dc0c201a-c481-4724-8b07-40e089f3b6d4)
-- Deploy command: `cd zazigv2 && npx netlify deploy --prod --dir=packages/webui/dist --site dc0c201a-c481-4724-8b07-40e089f3b6d4 --filter @zazig/webui`
+- **Vercel prod (`zazigv2-webui`, www.zazig.com) does NOT auto-deploy from master** — `dashboard` and `zazigv2-webui-staging` do, but prod requires manual deploy: `cd zazigv2 && npx vercel --prod`
+- Old Netlify deploy (decommissioned): `cd zazigv2 && npx netlify deploy --prod --dir=packages/webui/dist --site dc0c201a-c481-4724-8b07-40e089f3b6d4 --filter @zazig/webui`
 - Phase 1 complete: auth, landing, login, dashboard, pipeline, team — all read-only, connected to live Supabase
 - Phase 2 complete (Codex): Realtime subscriptions, archetype picker write-back, theme persistence, goal progress, focus area health
 - Phase 3 SQL done: `decisions` + `action_items` tables, RLS, Realtime publication, `features` added to Realtime, `ideas` SELECT policy

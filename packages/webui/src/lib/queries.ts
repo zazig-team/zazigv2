@@ -211,14 +211,11 @@ async function invokePost<TResponse>(
   functionName: string,
   body: Record<string, unknown>,
 ): Promise<TResponse> {
-  const token = await getAccessToken();
   const { data, error } = await supabase.functions.invoke(functionName, {
     body,
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
 
   if (error) {
-    // Surface the actual response body for debugging
     const context = error instanceof Response
       ? await error.text().catch(() => "")
       : (error as { context?: { body?: unknown } })?.context?.body ?? "";

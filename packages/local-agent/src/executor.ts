@@ -201,6 +201,16 @@ interface ActiveJob {
   jobTitle?: string;
   /** Git HEAD commit recorded BEFORE Codex spawns — needed for self-commit detection. */
   startingCommit?: string;
+  /** Current codex attempt count (1-based) for review/fix retries. */
+  attempt: number;
+  /** Maximum number of codex attempts before terminal failure. */
+  maxAttempts: number;
+  /** Ordered list of codex review failure reasons collected across attempts. */
+  fixReasons: string[];
+  /** Complexity from StartJob — reused when spawning codex retry attempts. */
+  complexity?: string;
+  /** Model from StartJob — reused when spawning codex retry attempts. */
+  model?: string;
 }
 
 interface ActivePersistentAgent {
@@ -580,32 +590,7 @@ export class JobExecutor {
       return;
     }
 
-    jobLog(jobId, `Tmux session started — session=${sessionName}, cmd=${cmd} ${cmdArgs.join(" ")}, cwd=${ephemeralWorkspaceDir ?? "none"}`);
-    console.log(`[executor] Tmux session started — session=${sessionName}, cmd=${cmd}`);
-
-    // --- 6b. Start pipe-pane to stream session output to a log file ---
     const logPath = jobLogPath(jobId);
-    try {
-      mkdirSync(JOB_LOG_DIR, { recursive: true });
-      await startPipePane(sessionName, logPath);
-      jobLog(jobId, `pipe-pane started → ${logPath}`);
-    } catch (err) {
-      // Pipe-pane failure is non-fatal — logs simply won't be captured
-      jobLog(jobId, `pipe-pane FAILED: ${String(err)}`);
-      console.warn(`[executor] pipe-pane start failed for jobId=${jobId}: ${String(err)}`);
-    }
-
-    // --- 6c. Open terminal window for the session (dev/testing) ---
-    if (process.env["ZAZIG_OPEN_SESSIONS"]) {
-      execFile("bash", ["-c", `ghostty -e bash -c 'tmux attach -t ${sessionName}'`], (err) => {
-        if (err) console.warn(`[executor] Could not open Ghostty window: ${err.message}`);
-      });
-    }
-
-    // --- 7. Send JobStatusMessage(executing) ---
-    await this.sendJobStatus(jobId, "executing");
-
-    // --- 8. Register active job and set up polling + timeout ---
     const activeJob: ActiveJob = {
       jobId,
       slotType,
@@ -628,7 +613,39 @@ export class JobExecutor {
       acceptanceCriteria: msg.acceptanceCriteria,
       jobTitle: msg.title,
       startingCommit,
+      attempt: 1,
+      maxAttempts: 3,
+      fixReasons: [],
+      complexity: msg.complexity,
+      model: msg.model,
     };
+
+    console.log(`[codex] Starting job — title="${activeJob.jobTitle ?? jobId}", id=${jobId.slice(0, 8)}, complexity=${msg.complexity}, attempt=${activeJob.attempt}/${activeJob.maxAttempts}`);
+    jobLog(jobId, `Tmux session started — session=${sessionName}, cmd=${cmd} ${cmdArgs.join(" ")}, cwd=${ephemeralWorkspaceDir ?? "none"}`);
+    console.log(`[executor] Tmux session started — session=${sessionName}, cmd=${cmd}`);
+
+    // --- 6b. Start pipe-pane to stream session output to a log file ---
+    try {
+      mkdirSync(JOB_LOG_DIR, { recursive: true });
+      await startPipePane(sessionName, logPath);
+      jobLog(jobId, `pipe-pane started → ${logPath}`);
+    } catch (err) {
+      // Pipe-pane failure is non-fatal — logs simply won't be captured
+      jobLog(jobId, `pipe-pane FAILED: ${String(err)}`);
+      console.warn(`[executor] pipe-pane start failed for jobId=${jobId}: ${String(err)}`);
+    }
+
+    // --- 6c. Open terminal window for the session (dev/testing) ---
+    if (process.env["ZAZIG_OPEN_SESSIONS"]) {
+      execFile("bash", ["-c", `ghostty -e bash -c 'tmux attach -t ${sessionName}'`], (err) => {
+        if (err) console.warn(`[executor] Could not open Ghostty window: ${err.message}`);
+      });
+    }
+
+    // --- 7. Send JobStatusMessage(executing) ---
+    await this.sendJobStatus(jobId, "executing");
+
+    // --- 8. Register active job and set up polling + timeout ---
     this.activeJobs.set(jobId, activeJob);
 
     // Timeout: kill after JOB_TIMEOUT_MS (or INTERACTIVE_JOB_TIMEOUT_MS for human-in-loop jobs)
@@ -1119,6 +1136,11 @@ export class JobExecutor {
       logPath: "",
       lastBytesSent: 0,
       role: msg.role,
+      attempt: 1,
+      maxAttempts: 3,
+      fixReasons: [],
+      complexity: msg.complexity,
+      model: msg.model,
     });
 
     await this.sendJobStatus(jobId, "executing");
@@ -1327,6 +1349,109 @@ export class JobExecutor {
 
     job.settled = true;
     this.clearJobTimers(job);
+
+    // Codex post-execution review: stage+commit codex output, then run Haiku on
+    // the committed diff before completing. Only applies to codex jobs with a
+    // worktree (code-context jobs).
+    if (job.slotType === "codex" && job.worktreePath) {
+      let reviewResult: Awaited<ReturnType<typeof runCodexReview>>;
+      try {
+        reviewResult = await runCodexReview(job, job.spec ?? "", job.acceptanceCriteria ?? "");
+      } catch (reviewErr) {
+        reviewResult = {
+          pass: false,
+          reason: `Codex review crashed: ${String(reviewErr)}`,
+          committed: false,
+        };
+      }
+      jobLog(jobId, `Codex review: pass=${reviewResult.pass}, reason=${reviewResult.reason}`);
+      console.log(`[executor] Codex review for jobId=${jobId}: pass=${reviewResult.pass}, reason=${reviewResult.reason}`);
+
+      if (!reviewResult.pass) {
+        job.fixReasons.push(reviewResult.reason);
+
+        if (job.attempt < job.maxAttempts) {
+          job.attempt += 1;
+          console.log(`[codex] Review FAILED (attempt ${job.attempt - 1}/${job.maxAttempts}) — ${reviewResult.reason}`);
+          console.log(`[codex] Retrying with fix prompt — attempt ${job.attempt}/${job.maxAttempts}, keeping existing changes in place`);
+          jobLog(
+            jobId,
+            `Codex review failed — retrying attempt ${job.attempt}/${job.maxAttempts}. reason="${reviewResult.reason}"`,
+          );
+
+          try {
+            const fixPromptPath = buildFixPrompt(job);
+            const built = buildCommand(
+              job.slotType,
+              job.complexity ?? "medium",
+              job.model ?? "codex",
+              job.worktreePath,
+              fixPromptPath,
+            );
+
+            if (await isTmuxSessionAlive(job.sessionName)) {
+              await killTmuxSession(job.sessionName);
+            }
+
+            await spawnTmuxSession(job.sessionName, built.cmd, built.args, job.worktreePath);
+            try {
+              await startPipePane(job.sessionName, job.logPath);
+              jobLog(jobId, `pipe-pane restarted for retry attempt ${job.attempt}`);
+            } catch (pipeErr) {
+              jobLog(jobId, `pipe-pane restart FAILED (retry attempt ${job.attempt}): ${String(pipeErr)}`);
+              console.warn(`[executor] pipe-pane restart failed for retry jobId=${jobId}: ${String(pipeErr)}`);
+            }
+
+            job.startedAt = Date.now();
+            job.settled = false;
+            job.timeoutTimer = setTimeout(() => {
+              void this.onJobTimeout(jobId);
+            }, JOB_TIMEOUT_MS);
+            job.pollTimer = setInterval(() => {
+              this.pollJob(jobId).catch((err) => {
+                jobLog(jobId, `pollJob CRASHED: ${String(err)}`);
+                console.error(`[executor] pollJob crashed for jobId=${jobId}:`, err);
+              });
+            }, POLL_INTERVAL_MS);
+            jobLog(jobId, `Retry timers started (interval=${POLL_INTERVAL_MS}ms)`);
+            return;
+          } catch (retryErr) {
+            jobLog(jobId, `Retry spawn FAILED on attempt ${job.attempt}: ${String(retryErr)}`);
+          }
+        }
+
+        // Final attempt failed — revert everything to startingCommit
+        console.log(`[codex] All ${job.maxAttempts} attempts exhausted — reverting to starting commit`);
+        console.log(`[codex] Failure reasons: ${job.fixReasons.map((r, i) => `[${i + 1}] ${r}`).join(" | ")}`);
+        try {
+          await execFileAsync("git", ["reset", "--hard", job.startingCommit!], { cwd: job.worktreePath });
+          jobLog(jobId, `Reverted to startingCommit ${job.startingCommit} after ${job.attempt} failed attempts.`);
+        } catch (revertErr) {
+          jobLog(jobId, `Final revert failed (non-fatal): ${String(revertErr)}`);
+        }
+
+        this.activeJobs.delete(jobId);
+        const exitedPersistentRole = [...this.persistentAgents.values()].find(a => a.jobId === jobId)?.role;
+        if (exitedPersistentRole) {
+          this.clearPersistentAgent(exitedPersistentRole);
+        } else {
+          this.slots.release(job.slotType);
+        }
+
+        // Flush log before failing
+        const failLogChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
+        if (failLogChunk !== null) {
+          try { await this.supabase.rpc("append_raw_log", { job_id: jobId, chunk: failLogChunk.chunk }); } catch { /* best-effort */ }
+        }
+        await this.sendJobFailed(jobId, job.fixReasons.join(" | "), "unknown");
+        return;
+      }
+
+      if (job.attempt > 1) {
+        console.log(`[codex] Review PASSED (attempt ${job.attempt}/${job.maxAttempts}) — fixed after ${job.attempt - 1} retry`);
+      }
+    }
+
     this.activeJobs.delete(jobId);
 
     // Clear persistent agent state if the persistent session exited unexpectedly
@@ -1336,40 +1461,6 @@ export class JobExecutor {
     } else {
       // Only release slot for non-persistent jobs
       this.slots.release(job.slotType);
-    }
-
-    // Codex post-execution review: stage+commit codex output, then run Haiku on
-    // the committed diff before completing. Only applies to codex jobs with a
-    // worktree (code-context jobs).
-    if (job.slotType === "codex" && job.worktreePath) {
-      const reviewResult = await runCodexReview(job, job.spec ?? "", job.acceptanceCriteria ?? "");
-      jobLog(jobId, `Codex review: pass=${reviewResult.pass}, reason=${reviewResult.reason}`);
-      console.log(`[executor] Codex review for jobId=${jobId}: pass=${reviewResult.pass}, reason=${reviewResult.reason}`);
-
-      if (!reviewResult.pass) {
-        // Revert the review changes based on how commits were produced.
-        try {
-          if (reviewResult.committed) {
-            await execFileAsync("git", ["reset", "--hard", "HEAD~1"], { cwd: job.worktreePath });
-            jobLog(jobId, "Reverted codex review commit via git reset --hard HEAD~1.");
-          } else if (reviewResult.codexSelfCommitted && reviewResult.startingCommit) {
-            await execFileAsync("git", ["reset", "--hard", reviewResult.startingCommit], { cwd: job.worktreePath });
-            jobLog(jobId, `Reverted codex self-commits via git reset --hard ${reviewResult.startingCommit}.`);
-          } else {
-            await execFileAsync("git", ["checkout", "."], { cwd: job.worktreePath });
-            jobLog(jobId, "Reverted uncommitted codex changes via git checkout .");
-          }
-        } catch (revertErr) {
-          jobLog(jobId, `codex revert failed (non-fatal): ${String(revertErr)}`);
-        }
-        // Flush log before failing
-        const failLogChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
-        if (failLogChunk !== null) {
-          try { await this.supabase.rpc("append_raw_log", { job_id: jobId, chunk: failLogChunk.chunk }); } catch { /* best-effort */ }
-        }
-        await this.sendJobFailed(jobId, reviewResult.reason, "unknown");
-        return;
-      }
     }
 
     // Look for the report file. Agents write .claude/cpo-report.md relative to
@@ -1920,6 +2011,10 @@ async function runCodexReview(
     ".gitignore",
     ".zazig-prompt.txt",
     ".zazig-review-prompt.txt",
+    ".zazig-fix-prompt-*.txt",
+    ".zazig-fix-prompt-1.txt",
+    ".zazig-fix-prompt-2.txt",
+    ".zazig-fix-prompt-3.txt",
   ];
 
   // Use pre-recorded starting commit (captured before Codex spawned) if available.
@@ -2102,6 +2197,37 @@ function assembleContext(msg: StartJob, repoRoot?: string): string {
   }
 
   return assembled;
+}
+
+function buildFixPrompt(job: ActiveJob): string {
+  if (!job.worktreePath) {
+    throw new Error("buildFixPrompt requires a worktreePath");
+  }
+
+  const reasons = job.fixReasons.length > 0
+    ? job.fixReasons.map((reason, idx) => `${idx + 1}. ${reason}`).join("\n")
+    : "1. No review reason recorded.";
+
+  const fixPrompt = [
+    `Codex review failed for job ${job.jobId}.`,
+    `Attempt ${job.attempt} of ${job.maxAttempts}.`,
+    "",
+    "## Original Spec",
+    job.spec?.trim().length ? job.spec : "No spec provided.",
+    "",
+    "## Acceptance Criteria",
+    job.acceptanceCriteria?.trim().length ? job.acceptanceCriteria : "No acceptance criteria provided.",
+    "",
+    "## Review Failure Reasons",
+    reasons,
+    "",
+    "Update the implementation to fix every failure reason while staying within the original scope.",
+    "Do not leave placeholder code.",
+  ].join("\n");
+
+  const fixPromptPath = join(job.worktreePath, `.zazig-fix-prompt-${job.attempt}.txt`);
+  writeFileSync(fixPromptPath, fixPrompt, "utf-8");
+  return fixPromptPath;
 }
 
 function buildCommand(

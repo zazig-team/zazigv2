@@ -1464,73 +1464,183 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
 async function handleJobFailed(supabase: SupabaseClient, msg: JobFailed): Promise<void> {
   const { jobId, machineId, error: errMsg, failureReason } = msg;
 
-  const { data: failedJob } = await supabase
+  const { data: job, error: jobFetchErr } = await supabase
     .from("jobs")
-    .select("source, feature_id, role, job_type")
+    .select("source, feature_id, role, job_type, title")
     .eq("id", jobId)
     .single();
 
-  // Decide recovery strategy based on failure reason.
-  //   agent_crash      → re-queue immediately on a healthy machine
-  //   ci_failure       → failed (needs triage)
-  //   timeout          → failed (needs triage or extended timeout)
-  //   unknown          → failed (log and review)
-  const newStatus =
-    failureReason === "agent_crash" ? "queued" : "failed";
-
-  const updatePayload: Record<string, unknown> = {
-    status: newStatus,
-    machine_id: null,
-  };
-
-  if (newStatus !== "queued") {
-    updatePayload.completed_at = new Date().toISOString();
+  if (jobFetchErr) {
+    console.error(`[orchestrator] handleJobFailed: failed to fetch job ${jobId}:`, jobFetchErr.message);
   }
 
-  const { error: jobErr } = await supabase
+  if (failureReason === "agent_crash") {
+    const { error: requeueErr } = await supabase
+      .from("jobs")
+      .update({ status: "queued", machine_id: null })
+      .eq("id", jobId);
+
+    if (requeueErr) {
+      console.error(`[orchestrator] handleJobFailed: failed to re-queue crashed job ${jobId}:`, requeueErr.message);
+    }
+
+    await releaseSlot(supabase, jobId, machineId);
+    console.log(`[orchestrator] Job ${jobId} agent_crash → re-queued`);
+    return;
+  }
+
+  const { error: failErr } = await supabase
     .from("jobs")
-    .update(updatePayload)
+    .update({
+      status: "failed",
+      machine_id: null,
+      completed_at: new Date().toISOString(),
+    })
     .eq("id", jobId);
 
-  if (jobErr) {
-    console.error(`[orchestrator] Failed to update failed job ${jobId}:`, jobErr.message);
-  } else {
-    console.warn(
-      `[orchestrator] Job ${jobId} failed (reason: ${failureReason}, error: ${errMsg}) → ${newStatus}`,
-    );
+  if (failErr) {
+    console.error(`[orchestrator] handleJobFailed: failed to mark job ${jobId} failed:`, failErr.message);
   }
 
-  // Release the slot regardless of re-queue decision.
   await releaseSlot(supabase, jobId, machineId);
+  console.warn(`[orchestrator] Job ${jobId} failed (reason: ${failureReason}, error: ${errMsg})`);
 
-  // If the job permanently failed (not re-queued), fail the parent feature.
-  if (newStatus === "failed") {
-    const job = failedJob ?? null;
+  if (!job?.feature_id) return;
 
-    if (job?.feature_id) {
-      // Test deploy failures roll back to verifying (retryable) instead of failing the feature
-      if (job.job_type === "deploy_to_test") {
-        await supabase
-          .from("features")
-          .update({ status: "verifying" })
-          .eq("id", job.feature_id)
-          .eq("status", "deploying_to_test");
-        console.log(`[orchestrator] Rolled back feature ${job.feature_id} to verifying after deploy failure`);
-      } else {
-        const errorDetail = `${job.role ?? job.job_type} job failed: ${errMsg ?? "unknown error"}`;
-        const { error: featErr } = await supabase
-          .from("features")
-          .update({ status: "failed", error: errorDetail })
-          .eq("id", job.feature_id);
-
-        if (featErr) {
-          console.error(`[orchestrator] Failed to mark feature ${job.feature_id} as failed:`, featErr.message);
-        } else {
-          console.warn(`[orchestrator] Feature ${job.feature_id} marked as failed: ${errorDetail}`);
-        }
-      }
-    }
+  if (job.job_type === "deploy_to_test") {
+    await supabase
+      .from("features")
+      .update({ status: "verifying" })
+      .eq("id", job.feature_id)
+      .eq("status", "deploying_to_test");
+    console.log(`[orchestrator] Rolled back feature ${job.feature_id} to verifying after deploy failure`);
+    return;
   }
+
+  const { data: feature, error: featureErr } = await supabase
+    .from("features")
+    .select("id, status, retry_count, failure_history, spec, branch, acceptance_tests, company_id, project_id")
+    .eq("id", job.feature_id)
+    .single();
+
+  if (featureErr || !feature) {
+    console.error(`[orchestrator] handleJobFailed: failed to fetch feature ${job.feature_id}:`, featureErr?.message);
+    return;
+  }
+
+  if ((feature.retry_count ?? 0) >= 3) {
+    const errorDetail = `${job.role ?? job.job_type} job failed: ${errMsg ?? "unknown error"}`;
+    await supabase
+      .from("features")
+      .update({ status: "failed", error: errorDetail })
+      .eq("id", feature.id);
+    console.warn(`[orchestrator] Feature retry budget exhausted (3/3) — hard-failing feature ${feature.id}`);
+    return;
+  }
+
+  const nextAttempt = (feature.retry_count ?? 0) + 1;
+  const timestamp = new Date().toISOString();
+  const newEntry = {
+    attempt: nextAttempt,
+    phase: feature.status,
+    job_id: jobId,
+    job_title: job.title ?? null,
+    reason: errMsg ?? failureReason,
+    timestamp,
+  };
+  const currentHistory = Array.isArray(feature.failure_history)
+    ? feature.failure_history as Record<string, unknown>[]
+    : [];
+  const updatedHistory = [...currentHistory, newEntry];
+
+  if (feature.status === "building") {
+    const failureSuffix = `\n\n## Previous Attempt Failure (retry ${nextAttempt} of 3)\nPhase: building\nFailed job: "${job.title}"\nReason: ${errMsg ?? failureReason}`;
+    const { error: featureUpdateErr } = await supabase
+      .from("features")
+      .update({
+        retry_count: nextAttempt,
+        failure_history: updatedHistory,
+        spec: (feature.spec ?? "") + failureSuffix,
+        status: "breaking_down",
+      })
+      .eq("id", feature.id);
+
+    if (featureUpdateErr) {
+      console.error(
+        `[orchestrator] handleJobFailed: failed to reset feature ${feature.id} to breaking_down:`,
+        featureUpdateErr.message,
+      );
+      return;
+    }
+
+    const { error: cancelErr } = await supabase
+      .from("jobs")
+      .update({ status: "cancelled", result: "superseded_by_feature_retry" })
+      .eq("feature_id", feature.id)
+      .in("status", ["queued", "dispatched", "executing", "complete"]);
+
+    if (cancelErr) {
+      console.error(`[orchestrator] handleJobFailed: failed to cancel old jobs for feature ${feature.id}:`, cancelErr.message);
+    }
+
+    console.log(`[orchestrator] Building phase failure — re-breakdown (retry ${nextAttempt}/3): ${errMsg}`);
+    return;
+  }
+
+  const { error: featureUpdateErr } = await supabase
+    .from("features")
+    .update({
+      retry_count: nextAttempt,
+      failure_history: updatedHistory,
+      status: "building",
+    })
+    .eq("id", feature.id);
+
+  if (featureUpdateErr) {
+    console.error(
+      `[orchestrator] handleJobFailed: failed to move feature ${feature.id} back to building:`,
+      featureUpdateErr.message,
+    );
+    return;
+  }
+
+  const { error: cancelErr } = await supabase
+    .from("jobs")
+    .update({ status: "cancelled", result: "superseded_by_feature_retry" })
+    .eq("feature_id", feature.id)
+    .in("status", ["queued", "dispatched", "executing"])
+    .in("job_type", ["merge", "verify", "combine"]);
+
+  if (cancelErr) {
+    console.error(`[orchestrator] handleJobFailed: failed to cancel post-build jobs for feature ${feature.id}:`, cancelErr.message);
+  }
+
+  const featureBranch = (feature as { branch?: string | null }).branch ?? null;
+
+  const { error: insertErr } = await supabase
+    .from("jobs")
+    .insert({
+      company_id: feature.company_id,
+      project_id: feature.project_id,
+      feature_id: feature.id,
+      title: `Fix: ${job.title ?? job.job_type}`,
+      spec: feature.spec ?? "",
+      acceptance_tests: (feature as { acceptance_tests?: string | null }).acceptance_tests ?? "",
+      context: JSON.stringify({ type: "feature_fix", failureDetails: errMsg ?? failureReason, featureBranch }),
+      role: "senior-engineer",
+      job_type: "code",
+      complexity: "medium",
+      slot_type: "claude_code",
+      status: "queued",
+      branch: featureBranch,
+    });
+
+  if (insertErr) {
+    console.error(`[orchestrator] handleJobFailed: failed to queue fix job for feature ${feature.id}:`, insertErr.message);
+    return;
+  }
+
+  console.log(`[orchestrator] Post-building failure — fix job created (retry ${nextAttempt}/3): ${errMsg}`);
 }
 
 export async function handleVerifyResult(supabase: SupabaseClient, msg: VerifyResult): Promise<void> {

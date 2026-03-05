@@ -73,6 +73,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       title,
       description,
       status,
+      item_type,
+      horizon,
       priority,
       suggested_exec,
       tags,
@@ -99,6 +101,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
     if (status !== undefined) updates.status = status;
+    if (item_type !== undefined) updates.item_type = item_type;
+    if (horizon !== undefined) updates.horizon = horizon;
     if (priority !== undefined) updates.priority = priority;
     if (suggested_exec !== undefined) updates.suggested_exec = suggested_exec;
     if (tags !== undefined) updates.tags = tags;
@@ -123,6 +127,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
       updates.triaged_by = triaged_by;
       updates.triaged_at = new Date().toISOString();
+    }
+
+    // Horizon auto-management:
+    // - parked + no explicit horizon => default to "soon"
+    // - any non-parked status => clear horizon
+    if (status !== undefined) {
+      if (status === "parked") {
+        if (horizon === undefined) {
+          updates.horizon = "soon";
+        }
+      } else {
+        updates.horizon = null;
+      }
     }
 
     if (Object.keys(updates).length === 0) {

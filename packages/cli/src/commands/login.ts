@@ -13,8 +13,12 @@ import { saveCredentials } from "../lib/credentials.js";
 import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 
 export async function login(): Promise<void> {
-  const supabaseUrl = process.env["SUPABASE_URL"] ?? DEFAULT_SUPABASE_URL;
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  // Only respect SUPABASE_URL/ANON_KEY env overrides when ZAZIG_ENV is explicitly
+  // set (e.g. staging). Otherwise always use the hardcoded production defaults.
+  // This prevents a stray SUPABASE_URL in the shell from poisoning credentials.json.
+  const envOverride = Boolean(process.env["ZAZIG_ENV"]);
+  const supabaseUrl = (envOverride && process.env["SUPABASE_URL"]) || DEFAULT_SUPABASE_URL;
+  const anonKey = (envOverride && process.env["SUPABASE_ANON_KEY"]) || DEFAULT_SUPABASE_ANON_KEY;
 
   // 1. Prompt for email
   const rl = createInterface({ input: process.stdin, output: process.stdout });

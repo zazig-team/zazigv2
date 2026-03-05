@@ -78,8 +78,10 @@ export async function getValidCredentials(): Promise<Credentials> {
     return creds;
   }
 
-  // Access token is expired — refresh it
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  // Access token is expired — refresh it.
+  // Only respect env override when ZAZIG_ENV is set (staging binary).
+  const envOverride = Boolean(process.env["ZAZIG_ENV"]);
+  const anonKey = (envOverride && process.env["SUPABASE_ANON_KEY"]) || DEFAULT_SUPABASE_ANON_KEY;
 
   const resp = await fetch(
     `${creds.supabaseUrl}/auth/v1/token?grant_type=refresh_token`,

@@ -77,6 +77,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       suggested_exec,
       company_id: explicit_company_id,
       job_id,
+      item_type,
     } = body;
 
     if (!raw_text) {
@@ -120,6 +121,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         project_id: project_id ?? null,
         priority: priority ?? "medium",
         suggested_exec: suggested_exec ?? null,
+        item_type: item_type ?? "idea",
       })
       .select("id")
       .single();

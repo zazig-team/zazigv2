@@ -890,10 +890,43 @@ input {
   line-height: 1.5;
 }
 
+.success-otp {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.success-otp-input {
+  text-align: center;
+  letter-spacing: 0.35em;
+  font-family: var(--font-mono);
+}
+
+.success-otp-submit {
+  margin-top: 4px;
+}
+
+.success-otp-status {
+  display: none;
+  font-size: 11px;
+  color: var(--positive);
+}
+
+.success-otp-status.show {
+  display: block;
+}
+
 .success-resend {
   margin-top: 16px;
   font-size: 13px;
   color: var(--dust);
+}
+
+.success-resend button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Dashboard */

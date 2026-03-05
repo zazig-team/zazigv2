@@ -157,18 +157,23 @@ function relationObject<T>(value: T | T[] | null | undefined): T | null {
 
 let cachedToken: string | null = null;
 let cachedAt = 0;
+let inflight: Promise<string | null> | null = null;
 const TOKEN_TTL = 30_000; // 30 seconds
 
 async function getAccessToken(): Promise<string | null> {
   if (cachedToken && Date.now() - cachedAt < TOKEN_TTL) {
     return cachedToken;
   }
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  cachedToken = session?.access_token ?? null;
-  cachedAt = Date.now();
-  return cachedToken;
+  if (inflight) {
+    return inflight;
+  }
+  inflight = supabase.auth.getSession().then(({ data: { session } }) => {
+    cachedToken = session?.access_token ?? null;
+    cachedAt = Date.now();
+    inflight = null;
+    return cachedToken;
+  });
+  return inflight;
 }
 
 async function invokePost<TResponse>(

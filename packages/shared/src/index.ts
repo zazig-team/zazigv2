@@ -39,6 +39,7 @@ export type {
   DeployFailed,
   DeployNeedsConfig,
   JobBlocked,
+  DaemonShutdownNotification,
   AgentMessage,
 } from "./messages.js";
 export { FEATURE_STATUSES, JOB_STATUSES } from "./messages.js";
@@ -185,6 +186,7 @@ export {
   isDeployFailed,
   isDeployNeedsConfig,
   isJobBlocked,
+  isDaemonShutdownNotification,
   isJobUnblocked,
 } from "./validators.js";
 

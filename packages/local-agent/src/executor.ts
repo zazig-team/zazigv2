@@ -757,6 +757,21 @@ export class JobExecutor {
   // ---------------------------------------------------------------------------
   // Public: StopJob
   // ---------------------------------------------------------------------------
+  /** Returns the job IDs of all currently executing jobs. */
+  public getActiveJobIds(): string[] {
+    return Array.from(this.activeJobs.keys());
+  }
+
+  /** Stops a single active job by ID using the standard stop flow. */
+  public async stopJob(jobId: string): Promise<void> {
+    await this.handleStopJob({
+      type: "stop_job",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId,
+      reason: "graceful_shutdown",
+    });
+  }
+
   // Public: JobUnblocked
   // ---------------------------------------------------------------------------
 

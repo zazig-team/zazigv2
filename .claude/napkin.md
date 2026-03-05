@@ -8,6 +8,9 @@
 | 2026-02-20 | Doppler secrets | Searched `--config dev` and found no Supabase keys. Keys are in `--config prd`. | Always check `prd` config first for zazig project in Doppler |
 | 2026-02-20 | Trello access | Said "I don't have Trello API access" when Trello API key + token are in Doppler and have been used extensively. | Always check Doppler for Trello creds. Full Trello API access across both workspaces. Using "Trello Lite" pattern. |
 | 2026-02-24 | Supabase migrations | Tried `supabase db push`, `supabase db execute --file` — neither works (migration history mismatch, no --file flag). Wasted time looking for auth that was in Doppler. | Use Management API: `curl -X POST https://api.supabase.com/v1/projects/{ref}/database/query` with `SUPABASE_ACCESS_TOKEN` from Doppler (zazig/prd). Works for all SQL including DDL. |
+| 2026-03-05 | GoTrue redirect_to | Put `redirect_to` in POST body of `/auth/v1/magiclink` — GoTrue silently ignored it. Wasted hours debugging wildcard matching. | GoTrue reads `redirect_to` as a **query parameter**, not body field. Match how `@supabase/supabase-js` sends it. |
+| 2026-03-05 | CLI release bundle | Changed `login.ts`, rebuilt with `npm run build`, but `zazig` still ran old code. | `zazig` binary points to `releases/zazig.mjs` (esbuild bundle), not `dist/`. Must run `node scripts/bundle.js` after tsc build. Always commit the rebuilt bundle. |
+| 2026-03-05 | Supabase OTP length | Assumed OTP is always 6 digits, hardcoded in UI. Staging sends 8-digit codes. | Never hardcode OTP length. Different Supabase instances can have different `GOTRUE_MAILER_OTP_LENGTH` defaults. |
 
 ## User Preferences
 - TypeScript for both orchestrator and local agent
@@ -56,8 +59,9 @@
 - Phase 1 complete: auth, landing, login, dashboard, pipeline, team — all read-only, connected to live Supabase
 - Phase 2 complete (Codex): Realtime subscriptions, archetype picker write-back, theme persistence, goal progress, focus area health
 - Phase 3 SQL done: `decisions` + `action_items` tables, RLS, Realtime publication, `features` added to Realtime, `ideas` SELECT policy
-- CLI login: uses OTP code flow (not magic link redirect). Supabase magic link email template includes `{{ .Token }}` for 6-digit code.
-- Supabase auth: `site_url` set to `https://zazig-webui.netlify.app`. CLI uses OTP to avoid redirect issues.
+- CLI login: dual-mode — auto (magic link + OTP fallback), `--otp` (code only), `--link` (link only). Magic link uses localhost callback with `redirect_to` as query param.
+- Supabase auth (prod): `site_url` set to `https://zazig.com`. WebUI on Vercel (`www.zazig.com` prod, `zazigv2-webui-staging.vercel.app` staging).
+- CLI release bundle: `zazig` binary runs from `releases/zazig.mjs` (esbuild), NOT `dist/`. Must run `node scripts/bundle.js` after `npm run build` and commit the bundle.
 - Logo: zazig green dot must always align to baseline of "g" (not centered)
 - Landing slogan: "Your autonomous startup that scales while you sleep."
 

@@ -141,7 +141,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           title: feature.title.trim(),
           description,
           priority: feature.priority ?? "medium",
-          status: "created",
+          status: "breaking_down",
         })
         .select("id")
         .single();
@@ -165,7 +165,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const result = features.map((feature: { title: string }, i: number) => ({
       feature_id: createdFeatureIds[i],
       title: feature.title,
-      status: "created",
+      status: "breaking_down",
     }));
 
     return jsonResponse({ features: result });

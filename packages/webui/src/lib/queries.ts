@@ -413,7 +413,6 @@ export async function fetchPulseMetrics(companyId: string): Promise<PulseMetrics
   ).length;
   const activeFeatures = features.filter(
     (feature) =>
-      feature.status === "created" ||
       feature.status === "breaking_down" ||
       feature.status === "building" ||
       feature.status === "combining_and_pr" ||

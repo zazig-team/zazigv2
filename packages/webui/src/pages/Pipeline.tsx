@@ -18,7 +18,6 @@ interface ColumnDefinition {
 }
 
 const COLUMN_DEFINITIONS: ColumnDefinition[] = [
-  { key: "created", label: "Created", colorVar: "--col-created" },
   { key: "breaking_down", label: "Breaking Down", colorVar: "--col-breakdown" },
   { key: "building", label: "Building", colorVar: "--col-building" },
   { key: "combining_and_pr", label: "Combining & PR", colorVar: "--col-combining" },
@@ -205,7 +204,6 @@ export default function Pipeline(): JSX.Element {
 
   const filteredByStatus = useMemo(() => {
     const next: Record<PipelineStatus, PipelineFeature[]> = {
-      created: [],
       breaking_down: [],
       building: [],
       combining_and_pr: [],
@@ -233,7 +231,6 @@ export default function Pipeline(): JSX.Element {
 
   const metrics = useMemo(() => {
     const active =
-      filteredByStatus.created.length +
       filteredByStatus.breaking_down.length +
       filteredByStatus.building.length +
       filteredByStatus.combining_and_pr.length +

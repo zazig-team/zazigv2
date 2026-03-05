@@ -2847,7 +2847,7 @@ export async function triggerBreakdown(supabase: SupabaseClient, featureId: stri
   // 4. Feature stays in 'breaking_down' (breakdown job is in progress).
   // CAS guard ensures feature hasn't changed status since we started.
   // No status update needed — feature is already in 'breaking_down'.
-  // (Old flow had ready_for_breakdown → breakdown; now both are 'breaking_down')
+  // All pre-build statuses are now just 'breaking_down'.
 
   console.log(`[orchestrator] Created breakdown job ${job.id} for feature ${featureId}`);
 }
@@ -2901,7 +2901,7 @@ async function processFeatureLifecycle(supabase: SupabaseClient): Promise<void> 
   const { data: activeFeatures, error: activeErr } = await supabase
     .from("features")
     .select("id")
-    .not("status", "in", '("complete","failed","cancelled","created")')
+    .not("status", "in", '("complete","failed","cancelled")')
     .limit(100);
 
   if (activeErr) {
@@ -3548,7 +3548,7 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 2b. Re-queue jobs stuck in dispatched/executing with stale updated_at.
     await reapStaleJobs(supabase);
 
-    // 3. Process ready_for_breakdown features → create breakdown jobs.
+    // 3. Process breaking_down features → create breakdown jobs.
     await processReadyForBreakdown(supabase);
 
     // 4. Catch missed feature lifecycle transitions (breakdown→building, building→combining).

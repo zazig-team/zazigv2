@@ -89,8 +89,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: `Feature not found: ${feature_id}` }, 404);
     }
 
-    // Feature must be in breaking_down status (or legacy ready_for_breakdown/breakdown)
-    const validBreakdownStatuses = ["breaking_down", "ready_for_breakdown", "breakdown"];
+    // Feature must be in breaking_down status
+    const validBreakdownStatuses = ["breaking_down"];
     if (!validBreakdownStatuses.includes(feature.status)) {
       return jsonResponse(
         { error: `Feature status is '${feature.status}' — must be 'breaking_down'` },

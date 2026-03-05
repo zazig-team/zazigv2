@@ -88,7 +88,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         title,
         description: description ?? null,
         priority: priority ?? "medium",
-        status: "created",
+        status: "breaking_down",
       })
       .select("id")
       .single();

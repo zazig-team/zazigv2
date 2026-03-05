@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchPipelineSnapshot } from "../lib/queries";
 
 export type PipelineStatus =
-  | "created"
   | "breaking_down"
   | "building"
   | "combining_and_pr"
@@ -32,7 +31,6 @@ export interface NormalizedPipelineSnapshot {
 const EMPTY_SNAPSHOT: NormalizedPipelineSnapshot = {
   updatedAt: null,
   byStatus: {
-    created: [],
     breaking_down: [],
     building: [],
     combining_and_pr: [],
@@ -51,7 +49,6 @@ function toPipelineStatus(rawStatus: string | null | undefined): PipelineStatus 
   const normalized = rawStatus.trim().toLowerCase();
   switch (normalized) {
     case "created":
-      return "created";
     case "ready_for_breakdown":
     case "breakdown":
     case "breaking_down":
@@ -167,7 +164,6 @@ function parseFeature(raw: Record<string, unknown>, fallbackStatus: PipelineStat
 
 function normalizeSnapshot(snapshot: unknown, updatedAt: string | null): NormalizedPipelineSnapshot {
   const byStatus: Record<PipelineStatus, PipelineFeature[]> = {
-    created: [],
     breaking_down: [],
     building: [],
     combining_and_pr: [],
@@ -207,7 +203,7 @@ function normalizeSnapshot(snapshot: unknown, updatedAt: string | null): Normali
           }
           const status =
             toPipelineStatus(stringValue((rawFeature as Record<string, unknown>).status)) ??
-            "created";
+            "breaking_down";
           byStatus[status].push(parseFeature(rawFeature as Record<string, unknown>, status));
         }
       }

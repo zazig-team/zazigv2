@@ -120,7 +120,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           company_id: idea.company_id,
           project_id,
           title: resolvedTitle,
-          status: "created",
+          status: "breaking_down",
           source_idea_id: idea.id,
         })
         .select("id")

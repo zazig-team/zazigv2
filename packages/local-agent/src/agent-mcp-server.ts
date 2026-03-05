@@ -285,13 +285,13 @@ server.tool(
 
 server.tool(
   "update_feature",
-  "Update an existing feature's title, description, priority, or status. CPO may set status to 'created', 'ready_for_breakdown', or 'complete'.",
+  "Update an existing feature's title, description, priority, or status. CPO may set status to 'breaking_down' or 'complete'.",
   {
     feature_id: z.string().describe("ID of the feature to update"),
     title: z.string().optional().describe("New feature title"),
     description: z.string().optional().describe("New feature description"),
     priority: z.enum(["low", "medium", "high"]).optional().describe("New priority"),
-    status: z.enum(["created", "ready_for_breakdown", "complete"]).optional().describe("New status (CPO can set 'created', 'ready_for_breakdown', or 'complete')"),
+    status: z.enum(["breaking_down", "complete"]).optional().describe("New status (CPO can set 'breaking_down' or 'complete')"),
     spec: z.string().optional().describe("Full feature spec (self-contained, readable by Breakdown Specialist)"),
     acceptance_tests: z.string().optional().describe("Feature-level acceptance criteria"),
     human_checklist: z.string().optional().describe("Manual verification steps for human on test server"),
@@ -405,7 +405,7 @@ server.tool(
   {
     feature_id: z.string().optional().describe("Feature UUID — returns a single feature with full detail"),
     project_id: z.string().optional().describe("Project UUID — returns all features for this project"),
-    status: z.string().optional().describe("Filter by status (e.g. 'ready_for_breakdown')"),
+    status: z.string().optional().describe("Filter by status (e.g. 'breaking_down')"),
   },
   guardedHandler("query_features", async ({ feature_id, project_id, status }) => {
     const supabaseUrl = process.env.SUPABASE_URL;

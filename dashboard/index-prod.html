@@ -21,9 +21,6 @@
 
       --col-new: #64748b;
       --col-triaged: #f59e0b;
-      --col-created: #a855f7;
-      --col-ready_for_breakdown: #6366f1;
-      --col-breakdown: #ec4899;
       --col-building: #f97316;
       --col-combining: #eab308;
       --col-verifying: #06b6d4;
@@ -35,9 +32,6 @@
 
       --col-new-bg: rgba(100, 116, 139, 0.06);
       --col-triaged-bg: rgba(245, 158, 11, 0.06);
-      --col-created-bg: rgba(168, 85, 247, 0.05);
-      --col-ready_for_breakdown-bg: rgba(99, 102, 241, 0.04);
-      --col-breakdown-bg: rgba(236, 72, 153, 0.04);
       --col-building-bg: rgba(249, 115, 22, 0.04);
       --col-combining-bg: rgba(234, 179, 8, 0.04);
       --col-verifying-bg: rgba(6, 182, 212, 0.04);
@@ -1238,8 +1232,6 @@
       const INTAKE_COLUMNS = [
         { key: 'new',             label: 'Ideas',       color: '#64748b', source: 'ideas' },
         { key: 'triaged',         label: 'Triage',      color: '#f59e0b', source: 'ideas' },
-        { key: 'created',         label: 'Development', color: '#a855f7', source: 'features' },
-        { key: 'created_specced', label: 'Ready',       color: '#6366f1', source: 'features' },
       ];
 
       // Build pipeline: breaking_down -> complete
@@ -1629,7 +1621,6 @@
 
         // Meta line
         var meta = el('div', 'card-meta');
-        var isDevelopment = colDef.key === 'created';
         var allJobs = Array.isArray(feature?.jobs) ? feature.jobs : [];
         var jobs = allJobs.filter(function(j) {
           return normalizeStatus(j?.status) !== 'cancelled';
@@ -1637,12 +1628,7 @@
 
         var doneCount = 0;
         var activeJobs = [];
-        if (isDevelopment) {
-          var isWorkshop = Array.isArray(feature.tags) && feature.tags.indexOf('needs-workshop') !== -1;
-          var badgeClass = isWorkshop ? 'card-workshop-label' : 'card-speccing-label';
-          var badgeText = isWorkshop ? 'workshop' : 'needs spec';
-          meta.appendChild(el('span', badgeClass, badgeText));
-        } else if (jobs.length > 0) {
+        if (jobs.length > 0) {
           doneCount = jobs.filter(function(j) {
             return COMPLETE_JOB_STATUSES.has(normalizeStatus(j?.status));
           }).length;
@@ -1690,7 +1676,7 @@
         card.appendChild(body);
 
         // Progress bar — aggregate all job completion while any job is active
-        if (!isDevelopment && jobs.length > 0 && activeJobs.length > 0) {
+        if (jobs.length > 0 && activeJobs.length > 0) {
           var progress = getFeatureProgress(jobs);
           var track = el('div', 'card-progress');
           var fill = el('div', 'card-progress-fill active');
@@ -1873,20 +1859,10 @@
         for (var p = 0; p < PIPELINE_COLUMNS.length; p++) {
           featuresByCol[PIPELINE_COLUMNS[p].key] = [];
         }
-        featuresByCol.created = [];
-        featuresByCol.created_specced = [];
-
         for (var i = 0; i < features.length; i++) {
           var fs = normalizeStatus(features[i]?.status);
           if (fs === 'cancelled') continue;
-          if (fs === 'created') {
-            var hasSpec = features[i].spec && features[i].spec.trim() !== '';
-            if (hasSpec) {
-              featuresByCol.created_specced.push(features[i]);
-            } else {
-              featuresByCol.created.push(features[i]);
-            }
-          } else if (featuresByCol[fs]) {
+          if (featuresByCol[fs]) {
             featuresByCol[fs].push(features[i]);
           }
         }

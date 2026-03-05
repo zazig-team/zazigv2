@@ -8188,7 +8188,15 @@ async function getValidCredentials() {
 }
 
 // dist/commands/login.js
-async function login() {
+async function login(args2 = []) {
+  let mode;
+  try {
+    mode = parseLoginMode(args2);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    console.error("Usage: zazig login [--otp|--code|--link]");
+    process.exit(1);
+  }
   const envOverride = Boolean(process.env["ZAZIG_ENV"]);
   const supabaseUrl = envOverride && process.env["SUPABASE_URL"] || DEFAULT_SUPABASE_URL;
   const anonKey = envOverride && process.env["SUPABASE_ANON_KEY"] || DEFAULT_SUPABASE_ANON_KEY;
@@ -8203,7 +8211,93 @@ async function login() {
     console.error("Email is required.");
     process.exit(1);
   }
+  if (mode === "otp") {
+    await sendMagicLink({ supabaseUrl, anonKey, email });
+    console.log(`Sign-in code sent to ${email} \u2014 paste the code from your email below.`);
+    const code = await promptForRequiredOtpCode();
+    const tokens = await verifyOtpCode({ supabaseUrl, anonKey, email, code });
+    persistCredentials({ tokens, email, supabaseUrl });
+    return;
+  }
   const port = await findAvailablePort(3e3);
+  const { server, callbackPromise } = await startCallbackServer(port);
+  const timeoutMs = 5 * 60 * 1e3;
+  let otpPromptAbort = null;
+  try {
+    const redirectTo = `http://127.0.0.1:${port}/callback`;
+    await sendMagicLink({ supabaseUrl, anonKey, email, redirectTo });
+    console.log(`Magic link sent to ${email} \u2014 click the link in your email to finish login.`);
+    const timeoutPromise = loginTimeout(timeoutMs);
+    let tokens;
+    if (mode === "link") {
+      tokens = await Promise.race([callbackPromise, timeoutPromise]);
+    } else {
+      otpPromptAbort = new AbortController();
+      const callbackResultPromise = callbackPromise.then((value) => ({
+        kind: "callback",
+        value
+      }));
+      console.log("If your email shows a one-time code instead of a link, paste it and press Enter.");
+      console.log("Or press Enter to continue waiting for the link callback.\n");
+      const otpPromptPromise = promptForOptionalOtpCode(otpPromptAbort.signal).then((value) => ({
+        kind: "otp",
+        value
+      }));
+      const first = await Promise.race([
+        callbackResultPromise,
+        otpPromptPromise,
+        timeoutPromise
+      ]);
+      if (first.kind === "callback") {
+        otpPromptAbort.abort();
+        tokens = first.value;
+      } else if (!first.value) {
+        tokens = await Promise.race([callbackPromise, timeoutPromise]);
+      } else {
+        try {
+          tokens = await verifyOtpCode({
+            supabaseUrl,
+            anonKey,
+            email,
+            code: first.value
+          });
+        } catch (err) {
+          console.error(`Code verification failed: ${err instanceof Error ? err.message : String(err)}`);
+          console.error("Continuing to wait for the magic link callback...");
+          tokens = await Promise.race([callbackPromise, timeoutPromise]);
+        }
+      }
+    }
+    persistCredentials({ tokens, email, supabaseUrl });
+  } finally {
+    otpPromptAbort?.abort();
+    server.close();
+  }
+}
+function parseLoginMode(args2) {
+  let mode = "auto";
+  for (const arg of args2) {
+    switch (arg) {
+      case "--otp":
+      case "--code":
+        if (mode === "link") {
+          throw new Error("Cannot combine --otp/--code with --link.");
+        }
+        mode = "otp";
+        break;
+      case "--link":
+        if (mode === "otp") {
+          throw new Error("Cannot combine --link with --otp/--code.");
+        }
+        mode = "link";
+        break;
+      default:
+        throw new Error(`Unknown login option: ${arg}`);
+    }
+  }
+  return mode;
+}
+async function startCallbackServer(port) {
   let resolveCallback;
   const callbackPromise = new Promise((resolve4) => {
     resolveCallback = resolve4;
@@ -8239,10 +8333,13 @@ if (at && rt) {
       });
       req.on("end", () => {
         try {
-          const tokens2 = JSON.parse(body);
+          const tokens = JSON.parse(body);
+          if (!tokens.access_token || !tokens.refresh_token) {
+            throw new Error("Missing tokens");
+          }
           res.writeHead(200);
           res.end();
-          resolveCallback(tokens2);
+          resolveCallback(tokens);
         } catch {
           res.writeHead(400);
           res.end();
@@ -8254,36 +8351,64 @@ if (at && rt) {
     }
   });
   await new Promise((resolve4) => server.listen(port, "127.0.0.1", resolve4));
-  const redirectTo = `http://127.0.0.1:${port}/callback`;
-  const resp = await fetch(`${supabaseUrl}/auth/v1/magiclink`, {
+  return { server, callbackPromise };
+}
+async function sendMagicLink({ supabaseUrl, anonKey, email, redirectTo }) {
+  const body = { email };
+  let url = `${supabaseUrl}/auth/v1/magiclink`;
+  if (redirectTo) {
+    url += `?redirect_to=${encodeURIComponent(redirectTo)}`;
+  }
+  const resp = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       apikey: anonKey
     },
-    body: JSON.stringify({ email, redirect_to: redirectTo })
+    body: JSON.stringify(body)
   });
   if (!resp.ok) {
-    server.close();
-    console.error(`Failed to send magic link (HTTP ${resp.status}).`);
-    process.exit(1);
+    const details = await resp.text().catch(() => "");
+    throw new Error(`Failed to send magic link (HTTP ${resp.status})${details ? `: ${details}` : "."}`);
   }
-  console.log(`Magic link sent to ${email} \u2014 check your email and click the link to log in.`);
-  const timeoutMs = 5 * 60 * 1e3;
-  let tokens;
-  try {
-    tokens = await Promise.race([
-      callbackPromise,
-      new Promise((_, reject) => {
-        const t = setTimeout(() => reject(new Error("Login timed out")), timeoutMs);
-        t.unref();
-      })
-    ]);
-  } catch (err) {
-    server.close();
-    throw err;
+}
+async function verifyOtpCode({ supabaseUrl, anonKey, email, code }) {
+  const candidates = [
+    { email, token: code, type: "email" },
+    { email, token: code, type: "magiclink" }
+  ];
+  const errors = [];
+  for (const candidate of candidates) {
+    const resp = await fetch(`${supabaseUrl}/auth/v1/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: anonKey
+      },
+      body: JSON.stringify(candidate)
+    });
+    const dataRaw = await resp.json().catch(() => ({}));
+    const data = dataRaw && typeof dataRaw === "object" ? dataRaw : {};
+    if (!resp.ok) {
+      const msg = typeof data["msg"] === "string" ? data["msg"] : `HTTP ${resp.status}`;
+      errors.push(`${candidate.type}: ${msg}`);
+      continue;
+    }
+    const maybeTopAccess = typeof data["access_token"] === "string" ? data["access_token"] : null;
+    const maybeTopRefresh = typeof data["refresh_token"] === "string" ? data["refresh_token"] : null;
+    const session = typeof data["session"] === "object" && data["session"] !== null ? data["session"] : null;
+    const maybeSessionAccess = session && typeof session["access_token"] === "string" ? session["access_token"] : null;
+    const maybeSessionRefresh = session && typeof session["refresh_token"] === "string" ? session["refresh_token"] : null;
+    const access_token = maybeTopAccess ?? maybeSessionAccess;
+    const refresh_token = maybeTopRefresh ?? maybeSessionRefresh;
+    if (access_token && refresh_token) {
+      return { access_token, refresh_token };
+    }
+    errors.push(`${candidate.type}: verification succeeded but no session tokens returned`);
   }
-  server.close();
+  throw new Error(`Could not verify one-time code (${errors.join("; ")})`);
+}
+function persistCredentials({ tokens, email, supabaseUrl }) {
   saveCredentials({
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
@@ -8291,6 +8416,43 @@ if (at && rt) {
     supabaseUrl
   });
   console.log(`Logged in as ${email}`);
+}
+function loginTimeout(timeoutMs) {
+  return new Promise((_, reject) => {
+    const t = setTimeout(() => reject(new Error("Login timed out")), timeoutMs);
+    t.unref();
+  });
+}
+async function promptForOptionalOtpCode(signal) {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const value = (await rl.question("One-time code (optional): ", { signal })).trim();
+    return value.length > 0 ? value : null;
+  } catch (err) {
+    if (isAbortError(err)) {
+      return null;
+    }
+    throw err;
+  } finally {
+    rl.close();
+  }
+}
+async function promptForRequiredOtpCode() {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    while (true) {
+      const value = (await rl.question("One-time code: ")).trim();
+      if (value.length > 0) {
+        return value;
+      }
+      console.error("A one-time code is required. Paste the code from your email.");
+    }
+  } finally {
+    rl.close();
+  }
+}
+function isAbortError(err) {
+  return err instanceof Error && (err.name === "AbortError" || /aborted/i.test(err.message));
 }
 function findAvailablePort(preferredPort) {
   return new Promise((resolve4) => {
@@ -14951,7 +15113,7 @@ switch (cmd) {
     console.log(getVersion());
     break;
   case "login":
-    await login();
+    await login(args);
     break;
   case "logout":
     logout();
@@ -14993,7 +15155,8 @@ switch (cmd) {
     console.log("Usage: zazig <command>");
     console.log("");
     console.log("Commands:");
-    console.log("  login              Log in to zazig via browser");
+    console.log("  login              Log in to zazig (link or code)");
+    console.log("  login --otp        Force one-time code flow (no localhost callback)");
     console.log("  logout             Log out and remove stored credentials");
     console.log("  setup              Create a company, onboard a project, invite teammates");
     console.log("  start              Start the local agent daemon in the background");

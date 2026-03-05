@@ -17044,26 +17044,6 @@ function jobLog(jobId, message) {
   }
 }
 var SKILLS_MARKER = "<!-- SKILLS -->";
-var CODEX_ROUTING_INSTRUCTIONS = `## Codex Delegation (REQUIRED)
-
-You MUST use codex-delegate for ALL code changes. Do NOT write code directly.
-
-Run: codex-delegate implement --dir $(pwd) "description of what to implement"
-
-Requirements:
-- Clean git working tree required (commit or stash first)
-- If codex-delegate fails or the task is too complex, you may fall back to writing code directly
-- For investigation/research, use: codex-delegate investigate --dir $(pwd) "question"
-
-After codex-delegate completes, review the diff output and decide whether to keep, modify, or discard changes.`;
-var FILE_WRITING_RULES = `## File Writing Rules
-
-ALL file operations (reads, writes, edits) MUST stay within your working directory.
-Do NOT use absolute paths to other repositories or user home directories.
-
-- Session reports \u2192 \`.claude/{role}-report.md\` in your working directory
-- Design documents, proposals, plans, specs \u2192 \`docs/plans/YYYY-MM-DD-descriptive-slug.md\` (relative to your working directory)
-- Never reference paths outside your working directory \u2014 they belong to other projects`;
 function enqueueWithCap(queue, message, maxSize) {
   queue.push(message);
   if (queue.length > maxSize) {
@@ -17652,7 +17632,6 @@ ${msg.text}`;
       if (resolvedCompanyId) {
         writeFileSync2(join4(workspaceDir, ".company-id"), resolvedCompanyId);
       }
-      writeFileSync2(join4(workspaceDir, ".claude", ".file-writing-rules"), FILE_WRITING_RULES);
       const freshnessScript = join4(repoRoot, "packages", "local-agent", "scripts", "check-prompt-freshness.sh");
       const settingsPath = join4(workspaceDir, ".claude", "settings.json");
       const existingSettings = JSON.parse(readFileSync3(settingsPath, "utf8"));
@@ -18532,13 +18511,6 @@ ${SKILLS_MARKER}
 # Sub-Agent Instructions
 When spawning sub-agents, begin their prompt with the content of:
 ${personalityFile}`;
-  }
-  if (msg.slotType !== "codex") {
-    assembled += `
-
----
-
-${CODEX_ROUTING_INSTRUCTIONS}`;
   }
   return assembled;
 }

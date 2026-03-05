@@ -59,7 +59,7 @@ git diff origin/main -- src/path/to/files > "$DIFF_FILE"
 
 **Step 2: Dispatch all 4 agents in parallel**
 
-Use 4 Task tool calls in a single message:
+Use 4 Agent tool calls in a single message:
 
 ```
 Task 1: security-reviewer
@@ -141,7 +141,7 @@ You: I've completed the user authentication feature. Let me run multi-agent revi
 BASE_SHA=$(git merge-base HEAD origin/main)
 git diff $BASE_SHA HEAD > /tmp/review-diff.txt
 
-[Dispatch 4 agents in parallel with Task tool]
+[Dispatch 4 agents in parallel with Agent tool]
 
 [Agents return findings]
 

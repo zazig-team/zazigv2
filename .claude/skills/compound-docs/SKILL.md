@@ -1,6 +1,6 @@
 ---
 name: compound-docs
-description: Use when you've solved a non-trivial problem and want to capture it as searchable team knowledge. Creates problem-solution documentation (different from continuous-learning which creates skills).
+description: "Capture a solved problem as a searchable compound doc. Use after fixing bugs, resolving config issues, debugging infrastructure, or making non-obvious technical decisions. Trigger: 'document this', 'compound doc', 'capture this solution', or proactively after solving any non-trivial problem."
 ---
 
 # Compound Documentation
@@ -8,19 +8,6 @@ description: Use when you've solved a non-trivial problem and want to capture it
 Capture solved problems as searchable documentation. Each solution compounds your team's knowledge.
 
 **Core principle:** Problems solved once shouldn't need solving again. Document the problem, context, decision, and solution.
-
-## Compound Docs vs Continuous Learning
-
-| Aspect | compound-docs | continuous-learning |
-|--------|---------------|---------------------|
-| **Output** | Problem-solution documents | Reusable skills |
-| **Purpose** | "We solved X using Y" | "Here's how to do X" |
-| **Focus** | Why we made decisions | How to repeat a process |
-| **Searchable by** | Problem symptoms, errors | Task type, technique |
-
-**Use compound-docs when:** You solved a specific problem with context that matters.
-
-**Use continuous-learning when:** You discovered a reusable technique or pattern.
 
 ## When to Compound
 

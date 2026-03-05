@@ -147,6 +147,141 @@
 *Speaker 2:* Well, I'm 100% rely on Claude at the moment, which I think we probably have to for now. Yeah.
 *Tom:* I've been looking at, as I say, alternatives. So, so Trying to get my head around agent, agentic harnesses and how they will work. It's been interesting, but I mean it does seem that Pi is the one that people use if they want to roll their own. And it's very good because it supports hot reloading.
 *Tom:* But then you basically have to recreate the functionality that you want from the Claude harness. So doable, it's a thing, but that's what you are.
-*Speaker 2:* I was gonna say.
-*Tom:* What OpenClaw effectively uses is pie as its harness and then it links to Claude and OpenAI. You can choose between a whole bunch of models to actually run within it, which means it is fully neutral. I see that as maybe a ZZV3 thing that we might need to look at.
-*Tom:* I want to show you just something then very quickly. So most of my...
+*Chris:* I was gonna say.
+*Tom:* What OpenClaw effectively uses is pie as its harness and then it links to Claude and OpenAI. You can choose between a whole bunch of models to actually run within it, which means it is fully neutral. I see that as maybe a ZigZig V3 thing that we might need to look at for sure.
+
+---
+*[Transcript extracted from separate source — remainder of meeting below]*
+---
+
+*Tom:* I want to show you just something then very quickly. So most of my stuff within it — I do want to do is — I'll have the dashboard as a thing within the whole web, yeah. So I went into this, yeah — like I got all this running at one point but I couldn't get the login to work properly and so yeah, I gave up.
+
+*Chris:* Um, so obviously I'll tweak these because you've changed some of — I don't know how many.
+
+*Tom:* Yeah, I've removed breakdown at the moment, so sorry.
+
+*Chris:* No, I have got breakdown still. You've got breakdown for sure.
+
+*Tom:* Yeah, I do.
+
+*Chris:* The one I don't know whether we really will fully need anymore is 'ready', because stuff seems to flow through it really quickly.
+
+*Tom:* Like, well — I'm gonna say I don't think there is a 'ready' anymore. There's like 'created' which isn't 'ready', right? So we'd never need to see it on the dash, on the actual visual view, because if stuff is created a minute later it would be picked up and put in.
+
+*Chris:* No, not necessarily, right? So you can create a feature without it being broken down. What then triggers the breakdown?
+
+*Tom:* You ask the CPO.
+
+*Chris:* Yeah, right. So why would you ever not advance it straight?
+
+*Tom:* I've done it before because I created a feature that I hadn't defined enough.
+
+*Chris:* Okay, but it's really an idea then, I guess.
+
+*Tom:* Yes, absolutely. So that's the point — all the definition and speccing should happen here in the ideas section. In a way, what that should have been is — it should have been 'proposal'. And then when that is specced... I've got that aspect out at the moment. But instead of it saying 'need spec', it would — because the database is down — it would say 'spec'd'. And then effectively it could be — at the moment it is manually pushed. But one of the things I was thinking last night is I think we could have a system very easily where if something is a proposal and it's been spec'd out and it's not complicated — like it doesn't need — so 'workshop' means it needs a deep dive around it to figure out if it goes anywhere. And if the pipeline's looking healthy and there are slots free, then the CPO should grab stuff and just do it.
+
+*Chris:* Yeah.
+
+*Tom:* Because I actually think we sit there at the moment needing human intervention on those things, and we probably shouldn't.
+
+*Chris:* Cool. 
+
+Tom: I think there could be a little trigger — a little switch where you could turn on to stop auto-pushing.
+
+*Chris:* Yeah, it makes sense.
+
+*Tom:* But yeah, I think that's a good idea. I think a few switches on here might be a good idea as well. So I think there could be sometimes like 'hold everything' — that could be good. Yeah, because I see another automated thing here at the beginning, which is that it should also triage stuff anyway. But then stuff that's being triaged — what it typically does at the moment is it might go, "here's my five recommendations for things that are really simple that we can promote to needing a specification", and then I'll go and do the specification. And again, if those things don't need human intervention, they should just go all the way through, do the spec, and then push on into the pipeline. So we can have switches at all of these gates, but effectively if we can start to use the free capacity — which is at the moment sitting there idle — to take anything that is actually relatively simple to do, or a bug — like I've got a bug here which in theory could just flow through the whole thing automated. We get much closer to having an automated approach.
+
+*Chris:* Cool. Yeah, great.
+
+*Tom:* The other thing I was then thinking — and this is maybe harder — is do we need, like, would it be useful in the future to have a 'simulating' column or something? Or something that when something gets to the end of it and it's integrated, could we actually have a job run where it goes and tries it and tries to simulate it?
+
+*Chris:* But exactly — so that's what I think. That's what this next bit becomes. Like, once we've got this set up, is to try and add in that step, which is this whole thing of stuff actually happening in that flow. Like, on staging it should go and do it. I mean, it could be because it's using an iOS app and it's trying to see whether it works in an iOS app — could be a web thing. But it running what looks like a real user doing stuff through its own product, coming up with problems or bugs or anything else, and then ideally pushing those problems or bugs back through as ideas in the pipeline, which then get auto-pushed all the way through and it can work on fixing them. So then you have effectively some kind of feedback loop that is continuously improving whilst slots are free.
+
+*Tom:* Yeah, I agree. I think that's the secret of all of this — if we can get it that it's testing itself then it will solve everything in a way.
+
+*Chris:* Yeah.
+
+*Tom:* Because I was also thinking that at the last stage it could simulate and go "here's the bugs", but if you also got it to do just a small thing at the end — like "come up with three ideas that you think would improve this" — be quite specific and detailed and focused and small, these are like one-percent ideas not 100% ideas — then it could push that into the ideas inbox at the beginning, triage them to see whether it works against your goals, and if it works against your goals and it thinks it's doable and it's not going to break anything, it would push it through to a proposal and do a spec. So you actually might get some actual compounded improvement, not just bug fixing. I don't know, maybe I'm being too wild there, but I think it could be...
+
+*Chris:* No, I think eventually the whole point is to remove us as much as possible.
+
+*Tom:* Yeah. Well, we're just feeding in occasional ideas rather than all ideas. And this is the way I think our differential comes from everybody else — the more I'm looking at what everybody else is doing, everybody else is almost requiring founders to be micromanaging, whereas I think we want founders to be able to brief their team and give them ideas but not to then have to babysit any of it through. It should feel magical enough that it's just all being handled — it's only surfacing things that are kind of interventions that you need.
+
+*Tom:* I don't know — I think that's not working, is it? Yeah, I just tried to log into Superbase again before. But so this front dashboard bit had an interface for decisions waiting as well. I don't know if I've still got access to the mock-up or whether it's on staging. Let me just see if I've got the mock-up. Oh no, it's gone — it's in my stash. Doesn't matter. But the idea is that it could — a bit like we talked about the other day — this kind of sim idea where it could pop something up and go "I need a decision on this" and it could happen just through the dashboard.
+
+*Chris:* Yeah, that'd be cool.
+
+*Tom:* Yeah. Okay, well, we need to wait for Superbase to...
+
+*Chris:* I can't promote this, but I'm hoping I can just promote it when it all comes back up, and all my changes will be on live and you can start using the live pipeline but knowing it's more stable.
+
+*Tom:* Yeah. Okay. And then what do I... okay, so I log in to — I'll use the production version because you're promoting it?
+
+*Chris:* Yeah, exactly. So nearly all your jobs should be on the production version. Anything to do with Zizig — yeah, you should be using the production version. Anything the way you're testing what you've done would be on the staging version. And probably not — you're probably not working in Zizig on staging. You're probably working in some other company which you'd ask it to do different things — change the colour of this website or...
+
+*Tom:* Okay. Yeah.
+
+*Chris:* I can get into Superbase now. It does say they're investigating a dashboard and management API issue, but it says it's been fully recovered and they're just continuing to monitor.
+
+*Tom:* I still can't log in. Oh — so in the login stuff — where is zazig.com hosted at the moment?
+
+*Chris:* I think it's probably on Vercel.
+
+*Tom:* No, it's not.
+
+*Chris:* Good question, then. What even is it? Oh. "Deployment not found." Oh, so it was on Vercel and it's gone.
+
+*Tom:* Okay. So yeah, there's nothing — it's just getting a 404 now. Okay. I'm happy with using Vercel.
+
+*Chris:* Maybe it's easier just to keep it all in your stuff.
+
+*Tom:* Yeah, it's fine, it's good — it is easy to use. Do you want to give me a login to it in your space and then I'll see if I can — so then I'll move my stuff back into Vercel, and then — cool. And then if we try and link through the domain, then at least if we look at the auth stuff, we can try and make both of them work via zazig.com on Vercel.
+
+*Chris:* I think that's probably the way. Cool.
+
+*Tom:* Yeah. I think if we can get all that working that would be really good.
+
+*Chris:* Yeah. Which is going to require changes to the CLI, won't it?
+
+*Tom:* So yeah. But if we can get it working on the staging version of the CLI, then we'll know it'll work. So I think what we should probably do just as a practice for now is I will avoid promoting. I think we should leave promoting to you so that at least...
+
+*Chris:* Cool, makes sense.
+
+*Tom:* So my changes can be in staging and then until we're at the stage where we're like "okay, it makes no sense for you to be the blocker anymore", or if we've got to automate it in some way.
+
+*Chris:* Yeah. So the only thing I would say is I guess I'm pretty good at doing that because the beauty is I now ask every day what you've pushed to master. So it'll tell me anyway — all the bits.
+
+*Tom:* Yeah. I guess maybe we should create a spreadsheet or something because if you go and check it — so say you've gone and tested it — that bit, it'd be useful to just have somewhere where we've said "yep, we've checked that."
+
+*Chris:* Yeah. I wonder if we can add it into something on the dashboard or something. Feels...
+
+*Tom:* Just tick it or something.
+
+*Chris:* Yeah.
+
+*Tom:* Yeah, that feels like something to add to the dashboard, doesn't it?
+
+*Chris:* Yeah. It'll only be useful if we could take it in the database — when we have it so that when we ask the CPO about what's left to check, it could then go "oh, all these three things have gone to master and haven't been checked", and be like "okay, yeah."
+
+*Tom:* Oh, before then — I can have a look at that if you want. I'll try and just see if I can work out...
+
+*Chris:* Well, you should — you should figure out what needs to go in the database, and I should figure out what needs to go in the pipeline design. Because effectively I'm going to replace the existing pipeline with the new one ASAP anyway.
+
+*Tom:* Cool. So I'm just thinking — what do I now need to do to get the current version up and running?
+
+*Chris:* So in theory it's just going to be — as soon as I promote this — yeah, then you should just be able to pull from master. And then we will have to ask — I don't know exactly what link command I did to link to that distribution, but I'll ask it, and then you'll run that command.
+
+*Tom:* Yeah. And then, yeah, then it should just be working. Yeah. Okay. All right. So we'll do it later.
+
+*Chris:* Yes.
+
+*Tom:* All right. I know the first time I run promote, it's not going to work.
+
+*Chris:* Yeah.
+
+*Tom:* All right. Just keep me posted.
+
+*Chris:* Yeah. Well, Superbase still won't log in for me. So I'll let you know.
+
+*Tom:* All right. Yeah, bye.

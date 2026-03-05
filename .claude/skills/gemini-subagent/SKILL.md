@@ -15,49 +15,47 @@ Invoke Google's Gemini CLI to get a second AI perspective or delegate tasks.
 - Code review from a different model's viewpoint
 - Brainstorming where diverse AI perspectives add value
 
-## How to Invoke
+## Environment Setup
 
-Use the Bash tool with this pattern:
+Gemini CLI requires Node.js 22+. Every invocation needs this preamble:
+
+```bash
+source ~/.nvm/nvm.sh && nvm use 22 && source ~/.zshrc
+```
+
+### Key Flags
+- `-y` (yolo mode): Auto-approves tool use so it runs non-interactively
+- `-o text`: Returns plain text output (use `-o json` for structured data)
+
+## How to Invoke
 
 ```bash
 source ~/.nvm/nvm.sh && nvm use 22 && source ~/.zshrc && gemini -y -o text "YOUR PROMPT HERE"
 ```
 
-### Flags Explained
-- `-y` (yolo mode): Auto-approves tool use so it runs non-interactively
-- `-o text`: Returns plain text output (use `-o json` for structured data)
-
-### For Tasks Requiring File Access
-
-Gemini CLI has access to the current working directory. For file-related tasks:
+For file-related tasks, `cd` to the project first:
 
 ```bash
-source ~/.nvm/nvm.sh && nvm use 22 && source ~/.zshrc && cd /path/to/project && gemini -y -o text "Review the code in src/main.ts and suggest improvements"
+source ~/.nvm/nvm.sh && nvm use 22 && source ~/.zshrc && cd /path/to/project && gemini -y -o text "Review the code in src/main.ts"
 ```
 
-### For Long-Running Tasks
-
-Run in background and check output later:
+For long-running tasks, run in background:
 
 ```bash
 source ~/.nvm/nvm.sh && nvm use 22 && source ~/.zshrc && gemini -y -o text "Your complex task" &
 ```
 
-## Example Invocations
+## Examples
 
-**Get a code review:**
 ```bash
-source ~/.nvm/nvm.sh && nvm use 22 && source ~/.zshrc && gemini -y -o text "Review this function for bugs and improvements: $(cat src/utils.ts)"
-```
+# Code review
+source ~/.nvm/nvm.sh && nvm use 22 && source ~/.zshrc && gemini -y -o text "Review this function for bugs: $(cat src/utils.ts)"
 
-**Research a topic:**
-```bash
-source ~/.nvm/nvm.sh && nvm use 22 && source ~/.zshrc && gemini -y -o text "What are the best practices for implementing rate limiting in Node.js APIs?"
-```
+# Research
+source ~/.nvm/nvm.sh && nvm use 22 && source ~/.zshrc && gemini -y -o text "Best practices for rate limiting in Node.js APIs?"
 
-**Second opinion on architecture:**
-```bash
-source ~/.nvm/nvm.sh && nvm use 22 && source ~/.zshrc && gemini -y -o text "I'm building a CLI tool that needs plugin support. What architecture patterns would you recommend?"
+# Architecture second opinion
+source ~/.nvm/nvm.sh && nvm use 22 && source ~/.zshrc && gemini -y -o text "Recommend architecture patterns for a CLI tool with plugin support"
 ```
 
 ## Output Handling

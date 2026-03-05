@@ -25,7 +25,7 @@ Send the most recent recommendation or suggestion to another model for independe
 
 - No args: uses `codex-delegate investigate` (default)
 - `--model <name>`: use a specific codex model (passed to `codex-delegate -m`)
-- `gemini`: use Gemini via `gemini-delegate`
+- `gemini`: use Gemini via `gemini-subagent`
 - `ollama <model>`: use a local Ollama model
 
 ## Execution
@@ -69,7 +69,7 @@ If the user passed `--model`, add `-m <model>` to the codex-delegate call.
 
 **Gemini:**
 ```bash
-gemini-delegate ask "<prompt>"
+gemini-subagent ask "<prompt>"
 ```
 Use `-m gemini-3.1-pro-preview` for heavier reasoning tasks.
 

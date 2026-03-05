@@ -10,6 +10,7 @@ import {
   fetchFocusAreas,
   fetchGoals,
   fetchPulseMetrics,
+  getAccessToken,
   resolveActionItem,
   resolveDecision,
   submitIdea,
@@ -239,6 +240,10 @@ export default function Dashboard(): JSX.Element {
     setError(null);
 
     try {
+      // Ensure the session is fresh before starting the batch.
+      // This refreshes the client for direct queries and returns the token for edge functions.
+      await getAccessToken();
+
       const [
         goalsResult,
         focusAreasResult,

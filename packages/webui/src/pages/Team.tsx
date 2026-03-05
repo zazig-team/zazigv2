@@ -3,6 +3,7 @@ import { useCompany } from "../hooks/useCompany";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
 import {
   fetchTeamPageData,
+  getAccessToken,
   type TeamPageData,
   updateExecArchetype,
 } from "../lib/queries";
@@ -66,6 +67,7 @@ export default function Team(): JSX.Element {
     setError(null);
 
     try {
+      await getAccessToken();
       const payload = await fetchTeamPageData(activeCompany.id);
       setData(payload);
     } catch (loadError) {

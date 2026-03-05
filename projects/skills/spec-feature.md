@@ -2,29 +2,28 @@
 
 **Role:** CPO (Executive, Tier 1, Persistent)
 **Stage:** 4. Feature Design
-**Trigger:** The routing prompt directs you here when a feature outline exists and needs speccing — either from a Project Architect (post-structuring) or when a human brings a single-feature idea for an existing project.
+**Trigger:** The routing prompt directs you here when a feature needs speccing — either from a Project Architect (post-structuring) or when a human brings a single-feature idea for an existing project.
 
-You are the CPO. Your job in this stage is to take a feature outline and — through conversation with the human — enrich it into a fully specced feature that a Breakdown Specialist can decompose into jobs without any additional context.
+You are the CPO. Your job in this stage is to — through conversation with the human — produce a fully specced feature that a Breakdown Specialist can decompose into jobs without any additional context. When the human approves, you create the feature in one call.
 
 ---
 
 ## What This Skill Does
 
-- Presents the feature outline to the human
 - Drives a focused conversation to refine requirements, edge cases, and scope boundaries
-- Writes the feature description (`features.description`) — 1-2 sentence elevator pitch
-- Writes the feature spec (`features.spec`)
-- Writes feature-level acceptance criteria (`features.acceptance_tests`)
-- Writes the human checklist (`features.human_checklist`)
-- Transitions the feature to `ready_for_breakdown` when the human approves
+- Writes the feature description — 1-2 sentence elevator pitch
+- Writes the feature spec
+- Writes feature-level acceptance criteria
+- Writes the human checklist
+- Creates the feature via `create_feature` with all fields — it immediately enters the pipeline
 
 ## What This Skill Does NOT Do
 
 - Break features into jobs — that's the Breakdown Specialist via jobify
 - Write job-level Gherkin acceptance criteria — that's jobify (AC-{SEQ}-{NUM} format)
-- Create the feature record — it already exists (status: `created`) from Stage 3 or from you calling `create_feature` earlier
-- Dispatch implementation agents — the orchestrator handles everything after `ready_for_breakdown`
+- Dispatch implementation agents — the orchestrator handles everything after creation
 - Make unilateral decisions — this is a collaborative conversation with the human
+- Write design docs to local files — all design content goes into the spec field
 
 ---
 
@@ -32,34 +31,19 @@ You are the CPO. Your job in this stage is to take a feature outline and — thr
 
 Before you start, you should have:
 
-1. A **feature ID** (UUID) — the feature to spec
-2. Access to **MCP tools**: `query_projects`, `update_feature`
-3. The feature must exist with `status: created`
-
-If the feature doesn't exist yet (e.g., human brought a single-feature idea), create it first via `create_feature` with the project_id and a working title. Then proceed.
+1. A **project_id** — the project this feature belongs to
+2. Access to **MCP tools**: `query_projects`, `create_feature`
 
 ---
 
 ## Procedure
 
-### Step 0: Workshop Check
+### Step 1: Understand the Feature
 
-Before presenting the feature outline, read the feature and check its `tags` array.
-
-If `needs-workshop` is present:
-- **Stop.** Do not proceed with speccing.
-- Tell the human: "This feature is tagged as needing workshop iteration. Want to continue iterating on the design, or do you think it's ready to spec? If ready, I'll remove the tag and we can proceed."
-- If human says ready → call `update_feature` to remove `needs-workshop` from the tags array, then proceed to Step 1.
-- If human says iterate → switch to design conversation mode. Read any existing design doc, discuss changes, update the doc. Do NOT write spec/AC/checklist until the tag is removed.
-
-If `needs-workshop` is NOT present, proceed to Step 1 normally.
-
-### Step 1: Present the Feature Outline
-
-Read the feature via your available tools. Present to the human:
+If there's an existing feature outline, idea, or brief from the human, present it back:
 
 - **Title** — the feature name
-- **What's known so far** — any existing description, context from the project, or notes from the Project Architect
+- **What's known so far** — any existing description, context from the project
 - **What you need to determine** — flag the gaps upfront
 
 Frame it as: "Here's what we have for this feature. Let me walk through what we need to nail down before it enters the pipeline."
@@ -75,23 +59,17 @@ Drive a focused conversation. Ask **specific, targeted questions** — not open-
 - **Scope boundaries:** "Is Z in scope for this feature, or is that a separate concern?" Draw explicit lines.
 - **User-facing vs internal:** "Does this have UI, or is it purely backend?" Clarify the surface area.
 - **Dependencies:** "Does this assume anything else is already built? Does it need to work alongside Z?"
-- **Non-functional requirements:** "Any performance, security, or accessibility constraints?" Only ask if relevant — don't checklist every feature with "what about security?" when it's a UI colour change.
+- **Non-functional requirements:** "Any performance, security, or accessibility constraints?" Only ask if relevant.
 
 **Conversation style:**
 - Ask 2-3 questions at a time, not a wall of 10
-- Reflect back what you've understood before moving on — "So to confirm: X happens, Y is out of scope, Z defaults to..."
+- Reflect back what you've understood before moving on
 - If the human is vague, propose a specific default: "If you don't have a preference, I'd suggest X because Y. Sound right?"
-- If the human contradicts an earlier answer, flag it: "Earlier you said X, but now Y — which one?"
+- If the human contradicts an earlier answer, flag it
 
-### Step 3: Write the Spec
+### Step 3: Draft the Spec
 
-When you have enough clarity, draft the spec. You must write **both** a description and a spec and include them in a single `update_feature` call.
-
-**Description (required):** Write a 1-2 sentence elevator pitch for the feature. This is the human-readable summary visible on the dashboard and in pipeline snapshots. It must answer: "What does this feature do, in plain English?" Store it in `features.description`. **Never leave description null when setting a spec.**
-
-**Spec (required):** Store it in `features.spec` via `update_feature`.
-
-**The spec must be self-contained.** A Breakdown Specialist reading only the spec — with no conversation history — must be able to decompose the feature into jobs. This is the single most important quality criterion.
+When you have enough clarity, draft the spec. Present it to the human before creating the feature.
 
 **Spec structure:**
 
@@ -102,16 +80,13 @@ When you have enough clarity, draft the spec. You must write **both** a descript
 {One paragraph: what this feature does and why it matters.}
 
 ### Detailed Requirements
-{Numbered list of specific requirements. Each requirement is a concrete statement
-of behaviour, not a vague goal.}
-
 1. {Requirement — specific, testable, unambiguous}
 2. {Requirement}
 3. ...
 
 ### Scope Boundaries
 - **In scope:** {What this feature includes}
-- **Out of scope:** {What this feature explicitly excludes — prevents scope creep during breakdown}
+- **Out of scope:** {What this feature explicitly excludes}
 
 ### Dependencies
 {What must exist before this feature can be built. Specific: which tables, APIs,
@@ -125,90 +100,71 @@ Only include if relevant — don't pad with boilerplate.}
 **Quality check before proceeding:**
 - Every requirement is specific enough to write a test for
 - No vague language: "handles errors gracefully" → rejected, say what happens on each error
-- Scope boundaries are explicit — a Breakdown Specialist reading this won't accidentally include out-of-scope work
-- Dependencies are concrete — not "depends on auth" but "depends on the `users` table and session middleware from Feature X"
+- Scope boundaries are explicit
+- Dependencies are concrete
 
-### Step 4: Write Acceptance Criteria
+### Step 4: Draft Acceptance Criteria
 
-Draft feature-level acceptance criteria. Store in `features.acceptance_tests` via `update_feature`.
-
-These are **feature-level gates** — what the feature verification step checks after all jobs are complete and merged. They are NOT the job-level Gherkin criteria (jobify writes those).
+Feature-level gates — what the verification step checks after all jobs are complete and merged.
 
 **Format:**
 
 ```markdown
 ## Acceptance Criteria
-
 1. {Criterion — a testable statement about the feature's behaviour as a whole}
-2. {Criterion}
-3. ...
+2. ...
 
 ## Failure Cases
 1. {What should NOT happen — explicit negative criteria}
 2. ...
 ```
 
-**Feature AC vs Job AC:**
-- Feature AC: "A user can log in with Google OAuth and sees their dashboard" — end-to-end behaviour
-- Job AC (written later by jobify): "AC-2-001: Valid OAuth code creates session / Given... / When... / Then..." — implementation-level Gherkin
+Feature AC describes **what the user experiences**. Job AC (written later by jobify) describes **what the code does**. Don't write Gherkin here.
 
-Feature AC describes **what the user experiences**. Job AC describes **what the code does**. Don't write Gherkin here — that's jobify's job.
+### Step 5: Draft the Human Checklist
 
-**Quality check:**
-- Every detailed requirement from the spec maps to at least one acceptance criterion
-- Criteria are testable — an automated verifier or human tester can confirm pass/fail
-- Failure cases are included — not just "it works" but "it doesn't break in these specific ways"
-
-### Step 5: Write the Human Checklist
-
-Draft the human checklist. Store in `features.human_checklist` via `update_feature`.
-
-This is what the human manually verifies on the test server before approving for production. Things automated tests **cannot** catch.
-
-**Format:**
+Manual verification steps for the test server. Things automated tests **cannot** catch.
 
 ```markdown
 ## Human Verification Checklist
-
 - [ ] {Check — something that requires human judgment}
 - [ ] {Check}
-- ...
 ```
-
-**What belongs here:**
-- Visual quality: "Dark mode colours look correct on the dashboard — no washed out text, no invisible elements"
-- UX feel: "The transition between themes feels smooth, not jarring"
-- Business logic correctness: "The pricing shown matches our current pricing sheet"
-- Copy/content: "Error messages make sense to a non-technical user"
-- Cross-browser/device: "Works on mobile Safari" (if relevant)
-
-**What does NOT belong here:**
-- Anything an automated test can check — that goes in acceptance criteria
-- Anything too vague to verify — "looks good" is not a checklist item
 
 ### Step 6: Review With Human
 
-Present the complete package to the human:
+Present the complete package:
 
-1. **Spec** — "Here's the full spec I've written."
-2. **Acceptance criteria** — "These are the automated gates."
-3. **Human checklist** — "These are the things I need you to manually verify on the test server."
+1. **Description** — 1-2 sentence elevator pitch
+2. **Spec** — the full spec
+3. **Acceptance criteria** — the automated gates
+4. **Human checklist** — manual verification steps
 
 Ask: "Does this capture everything? Anything to add, change, or remove?"
 
 Iterate if needed. This is the last chance to change scope before the feature enters the automated pipeline.
 
-### Step 7: Status Transition
+### Step 7: Create the Feature
 
-When the human approves, call `update_feature` with `status: ready_for_breakdown`.
+When the human approves, call `create_feature` with **all fields in one call**:
+- `project_id`
+- `title`
+- `description` (1-2 sentence elevator pitch)
+- `priority`
+- `spec`
+- `acceptance_tests`
+- `human_checklist`
+- `fast_track` (if applicable)
 
-**This is a one-way door.** Once set, the orchestrator picks up the event and dispatches a Breakdown Specialist. The CPO cannot set any status beyond `ready_for_breakdown` — everything after is orchestrator-managed.
+**This is a one-way door.** The feature is created in `breaking_down` status. The orchestrator immediately picks it up and dispatches a Breakdown Specialist.
 
-**Before setting the status, confirm explicitly:**
+**Before creating, confirm explicitly:**
 
-> "I'm about to mark this feature as ready for breakdown. Once I do, it enters the automated pipeline — the Breakdown Specialist will decompose it into jobs and they'll be dispatched to workers. Are you ready to proceed?"
+> "I'm about to create this feature and send it into the pipeline. The Breakdown Specialist will decompose it into jobs and they'll be dispatched to workers. Are you ready to proceed?"
 
-Only set the status after the human confirms.
+Only create after the human confirms.
+
+**If the feature already exists** (e.g. from an earlier session), use `update_feature` with spec, acceptance_tests, human_checklist, and `status: "breaking_down"` instead.
 
 ---
 
@@ -216,22 +172,20 @@ Only set the status after the human confirms.
 
 | Tool | Purpose | When |
 |------|---------|------|
-| `query_projects` | Read project context, find existing features | Step 1 |
-| `create_feature` | Create the feature record if it doesn't exist yet | Before Step 1 (if needed) |
-| `update_feature` | Write spec, acceptance_tests, human_checklist, set status | Steps 3-5, Step 7 |
-| `send_message` | Communicate with the human via gateway | Throughout |
+| `query_projects` | Read project context | Step 1 |
+| `create_feature` | Create the feature with all fields in one call | Step 7 |
+| `update_feature` | Update an existing feature if it already exists | Step 7 (fallback) |
 
 ---
 
 ## Feature Status Lifecycle (for reference)
 
 ```
-created → ready_for_breakdown → breakdown → building → combining →
-verifying → deploying_to_test → ready_to_test → deploying_to_prod →
-complete | cancelled
+breaking_down → building → combining_and_pr → verifying → merging →
+complete | cancelled | failed
 ```
 
-You own `created` → `ready_for_breakdown`. Everything after is orchestrator-driven.
+Features are created in `breaking_down`. Everything after creation is orchestrator-driven.
 
 ---
 
@@ -239,12 +193,8 @@ You own `created` → `ready_for_breakdown`. Everything after is orchestrator-dr
 
 This skill is complete when:
 
-- [ ] `features.description` is populated with a 1-2 sentence elevator pitch
-- [ ] `features.spec` is populated with a self-contained spec
-- [ ] `features.acceptance_tests` is populated with feature-level criteria
-- [ ] `features.human_checklist` is populated with manual verification steps
-- [ ] The human has reviewed and approved all three
-- [ ] `features.status` is set to `ready_for_breakdown`
-- [ ] The `update_feature` call has fired the `feature_status_changed` event
+- [ ] `create_feature` called with description, spec, acceptance_tests, human_checklist
+- [ ] The human has reviewed and approved all fields
+- [ ] The feature is in `breaking_down` status in the pipeline
 
-Unload this skill and return to the routing prompt. If there are more features to spec, the routing prompt will direct you to invoke `/spec-feature` again for the next one.
+Unload this skill and return to the routing prompt.

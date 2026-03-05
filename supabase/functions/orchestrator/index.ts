@@ -76,15 +76,6 @@ function agentChannelName(machineName: string, companyId: string): string {
 
 const SKILLS_MARKER = "<!-- SKILLS -->";
 
-const FILE_WRITING_RULES = `## File Writing Rules
-
-ALL file operations (reads, writes, edits) MUST stay within your working directory.
-Do NOT use absolute paths to other repositories or user home directories.
-
-- Session reports → \`.claude/{role}-report.md\` in your working directory
-- Design documents, proposals, plans, specs → \`docs/plans/YYYY-MM-DD-descriptive-slug.md\` (relative to your working directory)
-- Never reference paths outside your working directory — they belong to other projects`;
-
 function completionInstructions(role?: string): string {
   const reportFile = role ? `${role}-report.md` : "cpo-report.md";
   return `## On Completion
@@ -839,14 +830,13 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     }
 
     // Assemble the full prompt stack minus skills for observability and dispatch.
-    // Order: personality → role → SKILLS_MARKER → task context → file-writing rules → completion.
+    // Order: personality → role → SKILLS_MARKER → task context → completion.
     // The local agent inserts skill file content at the SKILLS_MARKER position.
     const promptParts: string[] = [];
     if (personalityPrompt) promptParts.push(personalityPrompt);
     if (rolePrompt) promptParts.push(rolePrompt);
     promptParts.push(SKILLS_MARKER);
     if (dispatchContext) promptParts.push(dispatchContext);
-    promptParts.push(FILE_WRITING_RULES);
     promptParts.push(completionInstructions(job.role));
     const promptStackMinusSkills = promptParts.join("\n\n---\n\n");
 

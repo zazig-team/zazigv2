@@ -28,15 +28,6 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 
 const SKILLS_MARKER = "<!-- SKILLS -->";
 
-const FILE_WRITING_RULES = `## File Writing Rules
-
-ALL file operations (reads, writes, edits) MUST stay within your working directory.
-Do NOT use absolute paths to other repositories or user home directories.
-
-- Session reports → \`.claude/{role}-report.md\` in your working directory
-- Design documents, proposals, plans, specs → \`docs/plans/YYYY-MM-DD-descriptive-slug.md\` (relative to your working directory)
-- Never reference paths outside your working directory — they belong to other projects`;
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -155,7 +146,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
         parts.push(role.prompt);
       }
       parts.push(SKILLS_MARKER);
-      parts.push(FILE_WRITING_RULES);
       // No completion instructions for persistent agents (they don't exit)
 
       return {

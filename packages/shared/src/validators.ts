@@ -39,6 +39,7 @@ import type {
   DeployFailed,
   DeployNeedsConfig,
   JobBlocked,
+  DaemonShutdownNotification,
 } from "./messages.js";
 
 import { MAX_CONTEXT_BYTES, MAX_PERSONALITY_PROMPT_BYTES, PROTOCOL_VERSION } from "./index.js";
@@ -353,6 +354,15 @@ export function isJobBlocked(v: unknown): v is JobBlocked {
   return true;
 }
 
+export function isDaemonShutdownNotification(v: unknown): v is DaemonShutdownNotification {
+  if (!isObject(v) || v.type !== "daemon_shutdown_notification") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.machineId) || v.machineId.length === 0) return false;
+  if (!Array.isArray(v.affectedJobIds)) return false;
+  if (!v.affectedJobIds.every((jobId: unknown) => isString(jobId))) return false;
+  return true;
+}
+
 export function isAgentMessage(v: unknown): v is AgentMessage {
   if (!isObject(v) || !isString(v.type)) return false;
   switch (v.type) {
@@ -370,6 +380,7 @@ export function isAgentMessage(v: unknown): v is AgentMessage {
     case "deploy_failed":       return isDeployFailed(v);
     case "deploy_needs_config": return isDeployNeedsConfig(v);
     case "job_blocked":         return isJobBlocked(v);
+    case "daemon_shutdown_notification": return isDaemonShutdownNotification(v);
     default:                    return false;
   }
 }

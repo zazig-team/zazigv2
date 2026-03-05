@@ -46,7 +46,7 @@ Ask one question at a time. Move to the next only after the user answers:
 
 Present the full draft after the walk-through. Iterate until approved.
 
-If you don't have enough context to answer the early questions well, consider running `superpowers:brainstorming` first.
+If you don't have enough context to answer the early questions well, consider running `/brainstorming` first.
 
 ## Tips
 

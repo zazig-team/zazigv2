@@ -37,8 +37,35 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
 
-  deploy-edge-functions:
+  mirror-repo:
     needs: push-staging-migrations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Mirror repo to staging test repo
+        run: |
+          git push --force https://${STAGING_REPO_PAT}@github.com/zazig-team/zazigv2-staging-test-only.git HEAD:master
+        env:
+          STAGING_REPO_PAT: ${{ secrets.STAGING_REPO_PAT }}
+
+  sync-prod-data:
+    needs: mirror-repo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install jq
+        run: sudo apt-get install -y jq
+      - name: Sync zazig company data from prod to staging
+        run: bash scripts/sync-prod-to-staging.sh
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PRODUCTION_PROJECT_REF: ${{ secrets.SUPABASE_PRODUCTION_PROJECT_REF }}
+          SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+
+  deploy-edge-functions:
+    needs: sync-prod-data
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

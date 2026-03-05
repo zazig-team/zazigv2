@@ -6,16 +6,28 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function normalizeOtp(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 6);
+}
+
 export default function Login(): JSX.Element {
-  const { signInWithMagicLink, signInWithGoogle } = useAuth();
+  const { signInWithMagicLink, signInWithGoogle, verifyEmailOtp } = useAuth();
   const [email, setEmail] = useState("");
   const [sendingMagicLink, setSendingMagicLink] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [otpSuccess, setOtpSuccess] = useState<string | null>(null);
 
   const canSubmit = useMemo(
     () => email.trim().length > 0 && !sendingMagicLink,
     [email, sendingMagicLink],
+  );
+  const canVerifyOtp = useMemo(
+    () => sentTo !== null && otpCode.length === 6 && !verifyingOtp && !sendingMagicLink,
+    [otpCode, sentTo, sendingMagicLink, verifyingOtp],
   );
 
   const onSendMagicLink = async (): Promise<void> => {
@@ -32,8 +44,55 @@ export default function Login(): JSX.Element {
     try {
       await signInWithMagicLink(value);
       setSentTo(value);
+      setOtpCode("");
+      setOtpError(null);
+      setOtpSuccess(null);
     } catch (signInError) {
       setError(signInError instanceof Error ? signInError.message : String(signInError));
+    } finally {
+      setSendingMagicLink(false);
+    }
+  };
+
+  const onVerifyOtp = async (): Promise<void> => {
+    if (!sentTo) {
+      return;
+    }
+
+    if (otpCode.length !== 6) {
+      setOtpError("Enter the 6-digit code from your email.");
+      return;
+    }
+
+    setOtpError(null);
+    setOtpSuccess(null);
+    setVerifyingOtp(true);
+
+    try {
+      await verifyEmailOtp(sentTo, otpCode);
+      setOtpSuccess("Code verified. Signing you in...");
+    } catch (verifyError) {
+      setOtpError(verifyError instanceof Error ? verifyError.message : String(verifyError));
+    } finally {
+      setVerifyingOtp(false);
+    }
+  };
+
+  const onResendLink = async (): Promise<void> => {
+    if (!sentTo) {
+      return;
+    }
+
+    setSendingMagicLink(true);
+    setOtpError(null);
+    setOtpSuccess(null);
+
+    try {
+      await signInWithMagicLink(sentTo);
+      setOtpCode("");
+      setOtpSuccess(`Sent a new sign-in email to ${sentTo}.`);
+    } catch (resendError) {
+      setOtpError(resendError instanceof Error ? resendError.message : String(resendError));
     } finally {
       setSendingMagicLink(false);
     }
@@ -81,20 +140,60 @@ export default function Login(): JSX.Element {
               </div>
               <h2 className="success-title">Check your email</h2>
               <p className="success-detail">
-                We sent a sign-in link to
+                We sent a sign-in link and 6-digit code to
                 <br />
                 <strong>{sentTo}</strong>
               </p>
+              <div className="success-otp">
+                <label className="input-label" htmlFor="otp-code">
+                  Enter 6-digit code
+                </label>
+                <input
+                  type="text"
+                  id="otp-code"
+                  className="input-field success-otp-input"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="123456"
+                  maxLength={6}
+                  value={otpCode}
+                  onChange={(event) => {
+                    setOtpCode(normalizeOtp(event.target.value));
+                    if (otpError) {
+                      setOtpError(null);
+                    }
+                    if (otpSuccess) {
+                      setOtpSuccess(null);
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void onVerifyOtp();
+                    }
+                  }}
+                />
+                <button
+                  className="btn-primary success-otp-submit"
+                  type="button"
+                  onClick={() => void onVerifyOtp()}
+                  disabled={!canVerifyOtp}
+                >
+                  {verifyingOtp ? <span className="spinner" /> : "Verify code"}
+                </button>
+                <span className={`input-error${otpError ? " show" : ""}`}>{otpError ?? " "}</span>
+                <span className={`success-otp-status${otpSuccess ? " show" : ""}`}>
+                  {otpSuccess ?? " "}
+                </span>
+              </div>
               <p className="success-resend">
                 Didn&apos;t receive it?{" "}
                 <button
                   type="button"
-                  onClick={() => {
-                    setSentTo(null);
-                    void onSendMagicLink();
-                  }}
+                  onClick={() => void onResendLink()}
+                  disabled={sendingMagicLink}
                 >
-                  Resend link
+                  {sendingMagicLink ? "Sending..." : "Resend link"}
                 </button>
               </p>
             </div>

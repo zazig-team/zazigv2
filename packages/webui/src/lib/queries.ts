@@ -211,15 +211,19 @@ async function invokePost<TResponse>(
   functionName: string,
   body: Record<string, unknown>,
 ): Promise<TResponse> {
-  // getAccessToken() ensures the SDK's internal session is fresh via refreshSession().
-  // Let the SDK attach its own Authorization header — manual override can conflict.
-  await getAccessToken();
+  const token = await getAccessToken();
   const { data, error } = await supabase.functions.invoke(functionName, {
     body,
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
 
   if (error) {
-    throw error;
+    // Surface the actual response body for debugging
+    const context = error instanceof Response
+      ? await error.text().catch(() => "")
+      : (error as { context?: { body?: unknown } })?.context?.body ?? "";
+    const msg = `${functionName}: ${error.message ?? error}${context ? ` — ${JSON.stringify(context)}` : ""}`;
+    throw new Error(msg);
   }
 
   return data as TResponse;

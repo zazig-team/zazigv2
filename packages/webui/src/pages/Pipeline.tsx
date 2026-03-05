@@ -75,7 +75,9 @@ export default function Pipeline(): JSX.Element {
   const [ideasError, setIdeasError] = useState<string | null>(null);
   const [ideasLoading, setIdeasLoading] = useState(false);
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
-  const [showParked, setShowParked] = useState(false);
+  const [inboxTypeFilter, setInboxTypeFilter] = useState<string>("all");
+  const [showReviewSoon, setShowReviewSoon] = useState(false);
+  const [showLongTerm, setShowLongTerm] = useState(false);
   const refreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -229,6 +231,30 @@ export default function Pipeline(): JSX.Element {
     () => parkedIdeas.filter(applyIdeaFilter),
     [parkedIdeas, filterMode, mineIdentifier, userId],
   );
+  const displayedIdeas = useMemo(
+    () => (
+      inboxTypeFilter === "all"
+        ? filteredIdeas
+        : filteredIdeas.filter((idea) => idea.item_type === inboxTypeFilter)
+    ),
+    [filteredIdeas, inboxTypeFilter],
+  );
+  const displayedParkedIdeas = useMemo(
+    () => (
+      inboxTypeFilter === "all"
+        ? filteredParkedIdeas
+        : filteredParkedIdeas.filter((idea) => idea.item_type === inboxTypeFilter)
+    ),
+    [filteredParkedIdeas, inboxTypeFilter],
+  );
+  const reviewSoonIdeas = useMemo(
+    () => displayedParkedIdeas.filter((idea) => idea.horizon === "soon"),
+    [displayedParkedIdeas],
+  );
+  const longTermIdeas = useMemo(
+    () => displayedParkedIdeas.filter((idea) => idea.horizon === "later"),
+    [displayedParkedIdeas],
+  );
 
   const metrics = useMemo(() => {
     const active =
@@ -255,7 +281,7 @@ export default function Pipeline(): JSX.Element {
             <div className="page-stat">Active <span className="page-stat-value">{metrics.active}</span></div>
             <div className="page-stat">Complete <span className="page-stat-value" style={{ color: "var(--positive)" }}>{metrics.merged}</span></div>
             <div className="page-stat">Failed <span className="page-stat-value" style={{ color: "var(--negative)" }}>{metrics.failed}</span></div>
-            <div className="page-stat">Ideas <span className="page-stat-value">{metrics.ideas}</span></div>
+            <div className="page-stat">Inbox <span className="page-stat-value">{metrics.ideas}</span></div>
           </div>
         </div>
 
@@ -281,25 +307,87 @@ export default function Pipeline(): JSX.Element {
           <header className="pipeline-col-header">
             <div className="pipeline-col-title">
               <span className="col-dot" style={{ background: "var(--col-ideas)" }} />
-              <span className="col-name">Ideas</span>
+              <span className="col-name">Inbox</span>
             </div>
-            <span className="col-count">{filteredIdeas.length}</span>
+            <span className="col-count">{displayedIdeas.length}</span>
           </header>
 
+          <div className="inbox-type-tabs">
+            <button
+              className={`filter-btn${inboxTypeFilter === "all" ? " active" : ""}`}
+              type="button"
+              onClick={() => setInboxTypeFilter("all")}
+            >
+              All
+            </button>
+            <button
+              className={`filter-btn${inboxTypeFilter === "idea" ? " active" : ""}`}
+              type="button"
+              onClick={() => setInboxTypeFilter("idea")}
+            >
+              Ideas
+            </button>
+            <button
+              className={`filter-btn${inboxTypeFilter === "brief" ? " active" : ""}`}
+              type="button"
+              onClick={() => setInboxTypeFilter("brief")}
+            >
+              Briefs
+            </button>
+            <button
+              className={`filter-btn${inboxTypeFilter === "bug" ? " active" : ""}`}
+              type="button"
+              onClick={() => setInboxTypeFilter("bug")}
+            >
+              Bugs
+            </button>
+            <button
+              className={`filter-btn${inboxTypeFilter === "test" ? " active" : ""}`}
+              type="button"
+              onClick={() => setInboxTypeFilter("test")}
+            >
+              Tests
+            </button>
+          </div>
+
           <div className="pipeline-col-body">
-            <button className="parked-toggle" type="button" onClick={() => setShowParked((value) => !value)}>
-              {showParked ? "▼" : "▶"} Parked ({filteredParkedIdeas.length})
+            <button className="parked-toggle" type="button" onClick={() => setShowReviewSoon((value) => !value)}>
+              {showReviewSoon ? "▼" : "▶"} Review Soon ({reviewSoonIdeas.length})
             </button>
 
-            {showParked ? (
+            {showReviewSoon ? (
               <div className="pipeline-stack">
-                {filteredParkedIdeas.length === 0 ? (
-                  <div className="col-empty">No parked ideas</div>
+                {reviewSoonIdeas.length === 0 ? (
+                  <div className="col-empty">No review-soon ideas</div>
                 ) : (
-                  filteredParkedIdeas.map((idea) => (
+                  reviewSoonIdeas.map((idea) => (
                     <article className="card" key={idea.id}>
                       <div className="card-accent" style={{ background: "var(--col-ideas)" }} />
                       <div className="card-body">
+                        <span className={`type-chip type-chip--${idea.item_type}`}>{idea.item_type}</span>
+                        <div className="card-title">{ideaTitle(idea)}</div>
+                        <div className="card-desc">{idea.description ?? idea.raw_text}</div>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
+            ) : null}
+
+            <button className="parked-toggle" type="button" onClick={() => setShowLongTerm((value) => !value)}>
+              {showLongTerm ? "▼" : "▶"} Long Term ({longTermIdeas.length})
+            </button>
+
+            {showLongTerm ? (
+              <div className="pipeline-stack">
+                {longTermIdeas.length === 0 ? (
+                  <div className="col-empty">No long-term ideas</div>
+                ) : (
+                  longTermIdeas.map((idea) => (
+                    <article className="card" key={idea.id}>
+                      <div className="card-accent" style={{ background: "var(--col-ideas)" }} />
+                      <div className="card-body">
+                        <span className={`type-chip type-chip--${idea.item_type}`}>{idea.item_type}</span>
                         <div className="card-title">{ideaTitle(idea)}</div>
                         <div className="card-desc">{idea.description ?? idea.raw_text}</div>
                       </div>
@@ -310,10 +398,10 @@ export default function Pipeline(): JSX.Element {
             ) : null}
 
             <div className="section-label">Inbox</div>
-            {filteredIdeas.length === 0 ? (
+            {displayedIdeas.length === 0 ? (
               <div className="col-empty">No ideas</div>
             ) : (
-              filteredIdeas.map((idea) => (
+              displayedIdeas.map((idea) => (
                 <article className="card" key={idea.id}>
                   <div className="card-accent" style={{ background: "var(--col-ideas)" }} />
                   <div className="card-body">
@@ -321,6 +409,7 @@ export default function Pipeline(): JSX.Element {
                       <span className={priorityDotClass(idea.priority)} />
                       {(idea.priority ?? "medium").toLowerCase()} · {ageLabel(Math.floor((Date.now() - Date.parse(idea.created_at)) / 3_600_000))}
                     </div>
+                    <span className={`type-chip type-chip--${idea.item_type}`}>{idea.item_type}</span>
                     <div className="card-title">{ideaTitle(idea)}</div>
                     <div className="card-desc">{idea.description ?? idea.raw_text}</div>
                   </div>

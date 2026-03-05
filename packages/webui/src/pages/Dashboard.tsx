@@ -19,6 +19,7 @@ import {
   type EventItem,
   type FocusArea,
   type Goal,
+  type Idea,
   type PulseMetrics,
   type TeamSidebarData,
 } from "../lib/queries";
@@ -143,6 +144,13 @@ const EMPTY_TEAM: TeamSidebarData = {
   machineHeartbeatById: {},
 };
 
+const IDEA_TYPE_OPTIONS: ReadonlyArray<{ value: Idea["item_type"]; label: string }> = [
+  { value: "idea", label: "Idea" },
+  { value: "brief", label: "Brief" },
+  { value: "bug", label: "Bug" },
+  { value: "test", label: "Test" },
+];
+
 type FocusBadgeTone = "badge--positive" | "badge--negative" | "badge--caution" | "badge--neutral";
 
 function focusBadgeDetails(focusArea: FocusArea): { label: string; tone: FocusBadgeTone } {
@@ -191,6 +199,7 @@ export default function Dashboard(): JSX.Element {
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
   const [ideaText, setIdeaText] = useState("");
+  const [ideaType, setIdeaType] = useState<Idea["item_type"]>("idea");
   const [ideaSubmitting, setIdeaSubmitting] = useState(false);
   const [ideaMessage, setIdeaMessage] = useState<string | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
@@ -424,6 +433,7 @@ export default function Dashboard(): JSX.Element {
         companyId: activeCompany.id,
         rawText: ideaText.trim(),
         originator: user?.email ?? "founder",
+        item_type: ideaType,
       });
       setIdeaText("");
       setIdeaMessage("Idea sent to inbox");
@@ -645,13 +655,36 @@ export default function Dashboard(): JSX.Element {
           <section className="fade-up d8">
             <div className="ideas-bar">
               <div className="ideas-bar-icon">+</div>
+              <div className="ideas-bar-types" role="radiogroup" aria-label="Item type">
+                {IDEA_TYPE_OPTIONS.map((option) => {
+                  const isActive = ideaType === option.value;
+
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={isActive}
+                      className={`ideas-type-toggle${isActive ? " ideas-type-toggle--active" : ""}`}
+                      onClick={() => setIdeaType(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
               <input
                 type="text"
-                placeholder="Share an idea you'd love to see built..."
+                placeholder="Share an idea, report a bug, brief a task..."
                 value={ideaText}
                 onChange={(event) => setIdeaText(event.target.value)}
               />
-              <button type="button" disabled={ideaSubmitting} onClick={() => void onSubmitIdea()}>
+              <button
+                className="ideas-submit-button"
+                type="button"
+                disabled={ideaSubmitting}
+                onClick={() => void onSubmitIdea()}
+              >
                 {ideaSubmitting ? "Sending..." : "Send idea"}
               </button>
             </div>

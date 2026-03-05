@@ -53,6 +53,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: "Missing authorization header" }, 401);
     }
 
+    const url = new URL(req.url);
+    const itemTypeParam = url.searchParams.get("item_type");
+    const horizonParam = url.searchParams.get("horizon");
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { persistSession: false },
     });
@@ -80,6 +84,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
       if (company_id) {
         singleQuery = singleQuery.eq("company_id", company_id);
+      }
+      if (itemTypeParam) {
+        singleQuery = singleQuery.eq("item_type", itemTypeParam);
+      }
+      if (horizonParam) {
+        singleQuery = singleQuery.eq("horizon", horizonParam);
       }
 
       const { data, error } = await singleQuery.single();
@@ -110,6 +120,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
     if (project_id) {
       query = query.eq("project_id", project_id);
+    }
+    if (itemTypeParam) {
+      query = query.eq("item_type", itemTypeParam);
+    }
+    if (horizonParam) {
+      query = query.eq("horizon", horizonParam);
     }
 
     // Full-text search over title + description via the `fts` generated column

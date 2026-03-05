@@ -12,7 +12,7 @@ fi
 : "${SUPABASE_STAGING_PROJECT_REF:?SUPABASE_STAGING_PROJECT_REF is required}"
 
 readonly SUPABASE_API_BASE="https://api.supabase.com/v1/projects"
-readonly ZAZIG_COMPANY_ID="d0d0591b-8405-497f-ac2c-763f3378c999"
+readonly ZAZIG_COMPANY_ID="00000000-0000-0000-0000-000000000001"
 readonly DISCOVERY_SQL="SELECT id FROM companies WHERE name ILIKE '%zazig%' LIMIT 5"
 readonly SYNC_DRY_RUN="${SYNC_DRY_RUN:-0}"
 

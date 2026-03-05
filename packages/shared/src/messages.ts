@@ -600,6 +600,17 @@ export interface JobBlocked {
   reason: string;
 }
 
+/**
+ * Sent by the local agent when daemon shutdown has started and in-flight jobs may be interrupted.
+ */
+export interface DaemonShutdownNotification {
+  type: "daemon_shutdown_notification";
+  protocolVersion: number;
+  machineId: string;
+  /** Job IDs that were in-flight when shutdown was initiated. */
+  affectedJobIds: string[];
+}
+
 /** Union of all messages a local agent sends to the orchestrator. */
 export type AgentMessage =
   | Heartbeat
@@ -615,4 +626,5 @@ export type AgentMessage =
   | DeployComplete
   | DeployFailed
   | DeployNeedsConfig
-  | JobBlocked;
+  | JobBlocked
+  | DaemonShutdownNotification;

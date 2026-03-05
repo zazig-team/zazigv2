@@ -136,16 +136,25 @@ export async function promote(args: string[]): Promise<void> {
     return;
   }
 
-  // 5. Fetch latest from origin
+  // 5. Fetch latest from origin.
+  // The bare repo uses refs/heads/*:refs/heads/* fetch refspec, so `git fetch`
+  // updates local branches directly but NOT refs/remotes/origin/*.
+  // We also update origin/* explicitly so the promote safety check can compare them.
   console.log("\nFetching latest from origin...");
   try {
     execSync("git fetch origin", { cwd: bareRepoDir, stdio: "pipe" });
   } catch (err) {
     console.warn(`Fetch warning (non-fatal): ${String(err)}`);
   }
-
   // 6. Create a temporary worktree from the bare clone on master/main
   const defaultBranch = resolveDefaultBranch(bareRepoDir);
+
+  // Sync refs/remotes/origin/<branch> to match refs/heads/<branch> for comparison.
+  // The bare repo uses refs/heads/*:refs/heads/* fetch refspec, so origin/* refs
+  // are never updated by fetch — we do it manually here.
+  try {
+    execSync(`git update-ref refs/remotes/origin/${defaultBranch} refs/heads/${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
+  } catch { /* non-fatal */ }
   const worktreePath = join(homedir(), ".zazigv2", "worktrees", "promote-tmp");
 
   // Clean up any stale promote worktree

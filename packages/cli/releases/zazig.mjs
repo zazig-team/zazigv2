@@ -8164,7 +8164,8 @@ async function getValidCredentials() {
   if (!isTokenExpired(creds.accessToken)) {
     return creds;
   }
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const envOverride = Boolean(process.env["ZAZIG_ENV"]);
+  const anonKey = envOverride && process.env["SUPABASE_ANON_KEY"] || DEFAULT_SUPABASE_ANON_KEY;
   const resp = await fetch(`${creds.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
     method: "POST",
     headers: {
@@ -8188,8 +8189,9 @@ async function getValidCredentials() {
 
 // dist/commands/login.js
 async function login() {
-  const supabaseUrl = process.env["SUPABASE_URL"] ?? DEFAULT_SUPABASE_URL;
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const envOverride = Boolean(process.env["ZAZIG_ENV"]);
+  const supabaseUrl = envOverride && process.env["SUPABASE_URL"] || DEFAULT_SUPABASE_URL;
+  const anonKey = envOverride && process.env["SUPABASE_ANON_KEY"] || DEFAULT_SUPABASE_ANON_KEY;
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   let email;
   try {
@@ -14689,6 +14691,10 @@ Company: ${company.name}`);
     console.warn(`Fetch warning (non-fatal): ${String(err)}`);
   }
   const defaultBranch = resolveDefaultBranch(bareRepoDir);
+  try {
+    execSync6(`git update-ref refs/remotes/origin/${defaultBranch} refs/heads/${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
+  } catch {
+  }
   const worktreePath = join11(homedir9(), ".zazigv2", "worktrees", "promote-tmp");
   try {
     execSync6(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" });

@@ -30201,12 +30201,16 @@ server.tool("enable_remote", "Enable remote control for this Claude Code session
     };
   }
 }));
-server.tool("create_feature", "Create a new feature for a project", {
+server.tool("create_feature", "Create a new feature and immediately queue it for breakdown into jobs. Include spec and acceptance_tests so the Breakdown Specialist can start work \u2014 no separate update_feature call needed.", {
   title: external_exports3.string().describe("Feature title"),
   description: external_exports3.string().optional().describe("Feature description"),
   project_id: external_exports3.string().optional().describe("Project ID to associate this feature with"),
-  priority: external_exports3.enum(["low", "medium", "high"]).optional().describe("Feature priority (default: medium)")
-}, guardedHandler("create_feature", async ({ title, description, project_id, priority }) => {
+  priority: external_exports3.enum(["low", "medium", "high"]).optional().describe("Feature priority (default: medium)"),
+  spec: external_exports3.string().optional().describe("Full feature spec (self-contained, readable by Breakdown Specialist)"),
+  acceptance_tests: external_exports3.string().optional().describe("Feature-level acceptance criteria"),
+  human_checklist: external_exports3.string().optional().describe("Manual verification steps for human on test server"),
+  fast_track: external_exports3.boolean().optional().describe("When true, orchestrator skips breakdown and creates one direct engineering job")
+}, guardedHandler("create_feature", async ({ title, description, project_id, priority, spec, acceptance_tests, human_checklist, fast_track }) => {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
   const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -30223,7 +30227,7 @@ server.tool("create_feature", "Create a new feature for a project", {
       "Content-Type": "application/json",
       Authorization: `Bearer ${supabaseAnonKey}`
     },
-    body: JSON.stringify({ title, description, project_id, priority, job_id: jobId, company_id: companyId })
+    body: JSON.stringify({ title, description, project_id, priority, spec, acceptance_tests, human_checklist, fast_track, job_id: jobId, company_id: companyId })
   });
   if (response.ok) {
     const data = await response.json();
@@ -30294,12 +30298,12 @@ server.tool("create_decision", "Present a structured decision to the founder for
     isError: true
   };
 }));
-server.tool("update_feature", "Update an existing feature's title, description, priority, or status. CPO may set status to 'created', 'ready_for_breakdown', or 'complete'.", {
+server.tool("update_feature", "Update an existing feature's title, description, priority, or status. CPO may set status to 'breaking_down' or 'complete'.", {
   feature_id: external_exports3.string().describe("ID of the feature to update"),
   title: external_exports3.string().optional().describe("New feature title"),
   description: external_exports3.string().optional().describe("New feature description"),
   priority: external_exports3.enum(["low", "medium", "high"]).optional().describe("New priority"),
-  status: external_exports3.enum(["created", "ready_for_breakdown", "complete"]).optional().describe("New status (CPO can set 'created', 'ready_for_breakdown', or 'complete')"),
+  status: external_exports3.enum(["breaking_down", "complete"]).optional().describe("New status (CPO can set 'breaking_down' or 'complete')"),
   spec: external_exports3.string().optional().describe("Full feature spec (self-contained, readable by Breakdown Specialist)"),
   acceptance_tests: external_exports3.string().optional().describe("Feature-level acceptance criteria"),
   human_checklist: external_exports3.string().optional().describe("Manual verification steps for human on test server"),
@@ -30381,7 +30385,7 @@ server.tool("query_projects", "Query projects (and optionally their features) fo
 server.tool("query_features", "Query features for a project or fetch a single feature by ID. Used by the Breakdown Specialist to read feature specs before running jobify.", {
   feature_id: external_exports3.string().optional().describe("Feature UUID \u2014 returns a single feature with full detail"),
   project_id: external_exports3.string().optional().describe("Project UUID \u2014 returns all features for this project"),
-  status: external_exports3.string().optional().describe("Filter by status (e.g. 'ready_for_breakdown')")
+  status: external_exports3.string().optional().describe("Filter by status (e.g. 'breaking_down')")
 }, guardedHandler("query_features", async ({ feature_id, project_id, status }) => {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;

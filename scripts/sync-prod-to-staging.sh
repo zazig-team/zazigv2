@@ -209,20 +209,13 @@ build_insert_statements() {
           scalar_sql($value)
         end;
 
-    .[0] | keys_unsorted as $cols
-    | ($cols | join(", ")) as $col_list
-    | "INSERT INTO public.\($table) (\($col_list)) VALUES (" +
-        ($cols | map(value_sql(.; .)) | join(", ")) +
+    .[]
+    | to_entries as $entries
+    | "INSERT INTO public.\($table) (" +
+        ($entries | map(.key) | join(", ")) +
+      ") VALUES (" +
+        ($entries | map(value_sql(.key; .value)) | join(", ")) +
       ");"
-    ,
-    (.[1:][] |
-      to_entries as $entries
-      | "INSERT INTO public.\($table) (" +
-          ($entries | map(.key) | join(", ")) +
-        ") VALUES (" +
-          ($entries | map(value_sql(.key; .value)) | join(", ")) +
-        ");"
-    )
   ' <<<"${rows_json}"
 }
 

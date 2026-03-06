@@ -182,6 +182,11 @@ batch_insert_rows() {
     jq '[.[] | .text //= ""]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
   fi
 
+  # Null out machine_id for jobs (prod machines don't exist in staging)
+  if [[ "${table}" == "jobs" ]]; then
+    jq '[.[] | .machine_id = null]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
+  fi
+
   # Jobs have large context/raw_log fields — use smaller batches
   local effective_batch=${BATCH_SIZE}
   if [[ "${table}" == "jobs" ]]; then

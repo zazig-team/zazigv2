@@ -15,7 +15,7 @@ readonly SUPABASE_API_BASE="https://api.supabase.com/v1/projects"
 readonly ZAZIG_COMPANY_ID="00000000-0000-0000-0000-000000000001"
 readonly DISCOVERY_SQL="SELECT id FROM companies WHERE name ILIKE '%zazig%' LIMIT 5"
 readonly SYNC_DRY_RUN="${SYNC_DRY_RUN:-0}"
-readonly SYNC_DAYS="${SYNC_DAYS:-7}"
+readonly SYNC_DAYS="${SYNC_DAYS:-3}"
 readonly BATCH_SIZE=20
 
 # Use temp dir for large JSON — avoids bash argument length limits
@@ -190,7 +190,7 @@ batch_insert_rows() {
   # Jobs have large context/raw_log fields — use smaller batches
   local effective_batch=${BATCH_SIZE}
   if [[ "${table}" == "jobs" ]]; then
-    effective_batch=3
+    effective_batch=5
   fi
 
   types_map="$(fetch_column_types_map "${table}")"
@@ -286,7 +286,7 @@ main() {
   # Features created in last N days
   query_rows_to_file \
     "${SUPABASE_PRODUCTION_PROJECT_REF}" \
-    "SELECT row_to_json(t) FROM (SELECT * FROM public.features WHERE company_id = '${ZAZIG_COMPANY_ID}' AND created_at >= NOW() - INTERVAL '${SYNC_DAYS} days') t" \
+    "SELECT row_to_json(t) FROM (SELECT * FROM public.features WHERE company_id = '${ZAZIG_COMPANY_ID}' AND updated_at >= NOW() - INTERVAL '${SYNC_DAYS} days') t" \
     "read recent features from production" \
     "${features_file}"
 

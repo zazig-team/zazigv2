@@ -160,87 +160,15 @@ fetch_column_types_map() {
   jq -c 'reduce .[] as $row ({}; .[$row.column_name] = $row.udt_name)' < "${rows_file}"
 }
 
-# Generate INSERT statements from rows file, write to output file
-build_insert_statements() {
-  local table="$1"
-  local rows_file="$2"
-  local types_map="$3"
-  local output_file="$4"
-
-  jq -r --arg table "${table}" --argjson types "${types_map}" '
-    def sqlesc: gsub("'"'"'"; "''");
-
-    def scalar_sql($v):
-      if $v == null then
-        "NULL"
-      elif ($v | type) == "boolean" then
-        (if $v then "TRUE" else "FALSE" end)
-      elif ($v | type) == "number" then
-        ($v | tostring)
-      else
-        "'"'"'" + (($v | tostring) | sqlesc) + "'"'"'"
-      end;
-
-    def array_elem_sql($v):
-      if $v == null then
-        "NULL"
-      elif ($v | type) == "boolean" then
-        (if $v then "TRUE" else "FALSE" end)
-      elif ($v | type) == "number" then
-        ($v | tostring)
-      else
-        "'"'"'" + (($v | tostring) | sqlesc) + "'"'"'"
-      end;
-
-    def array_sql($base; $v):
-      if ($v | length) == 0 then
-        "ARRAY[]::" + $base + "[]"
-      else
-        "ARRAY[" + (($v | map(array_elem_sql(.))) | join(", ")) + "]::" + $base + "[]"
-      end;
-
-    def json_sql($target; $v):
-      "'"'"'" + (($v | tojson) | sqlesc) + "'"'"'::" + $target;
-
-    def value_sql($key; $value):
-      ($types[$key] // "") as $udt
-      | if $value == null then
-          "NULL"
-        elif ($udt | startswith("_")) then
-          if ($value | type) == "array" then
-            array_sql(($udt | ltrimstr("_")); $value)
-          else
-            "NULL"
-          end
-        elif ($udt == "json" or $udt == "jsonb") then
-          json_sql($udt; $value)
-        elif (($value | type) == "object" or ($value | type) == "array") then
-          json_sql("jsonb"; $value)
-        else
-          scalar_sql($value)
-        end;
-
-    .[]
-    | to_entries as $entries
-    | "INSERT INTO public.\($table) (" +
-        ($entries | map(.key) | join(", ")) +
-      ") VALUES (" +
-        ($entries | map(value_sql(.key; .value)) | join(", ")) +
-      ");"
-  ' < "${rows_file}" > "${output_file}"
-}
-
 batch_insert_rows() {
   local table="$1"
   local rows_file="$2"
   local row_count
   local types_map
-  local inserts_file="${TMPDIR_SYNC}/${table}_inserts.sql"
   local batch_file="${TMPDIR_SYNC}/${table}_batch.sql"
   local response_file="${TMPDIR_SYNC}/${table}_batch_response.json"
-  local batch_count=0
   local total_batches=0
-  local total_rows=0
+  local offset=0
 
   row_count="$(jq -r 'length' < "${rows_file}")"
   if [[ "${row_count}" -eq 0 ]]; then
@@ -251,37 +179,72 @@ batch_insert_rows() {
   types_map="$(fetch_column_types_map "${table}")"
   log "Inserting ${row_count} ${table} rows into staging (batch size=${BATCH_SIZE})..."
 
-  build_insert_statements "${table}" "${rows_file}" "${types_map}" "${inserts_file}"
-
-  # Reset batch file
-  > "${batch_file}"
-
-  while IFS= read -r insert_sql; do
-    [[ -z "${insert_sql}" ]] && continue
-    echo "${insert_sql}" >> "${batch_file}"
-    batch_count=$((batch_count + 1))
-
-    if [[ ${batch_count} -ge ${BATCH_SIZE} ]]; then
-      total_batches=$((total_batches + 1))
-      total_rows=$((total_rows + batch_count))
-      run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${batch_file}" > "${response_file}"
-      assert_no_api_errors "${response_file}" "insert batch ${total_batches} into ${table}"
-      log "  batch ${total_batches}: ${batch_count} rows inserted"
-      > "${batch_file}"
-      batch_count=0
-    fi
-  done < "${inserts_file}"
-
-  # Flush remaining rows
-  if [[ ${batch_count} -gt 0 ]]; then
+  while [[ ${offset} -lt ${row_count} ]]; do
     total_batches=$((total_batches + 1))
-    total_rows=$((total_rows + batch_count))
+    local batch_rows=$((row_count - offset))
+    if [[ ${batch_rows} -gt ${BATCH_SIZE} ]]; then
+      batch_rows=${BATCH_SIZE}
+    fi
+
+    # Slice N rows and generate all INSERT statements for this batch
+    jq -r --arg table "${table}" --argjson types "${types_map}" \
+      --argjson offset "${offset}" --argjson limit "${batch_rows}" '
+      def sqlesc: gsub("'"'"'"; "''");
+
+      def scalar_sql($v):
+        if $v == null then "NULL"
+        elif ($v | type) == "boolean" then (if $v then "TRUE" else "FALSE" end)
+        elif ($v | type) == "number" then ($v | tostring)
+        else "'"'"'" + (($v | tostring) | sqlesc) + "'"'"'"
+        end;
+
+      def array_elem_sql($v):
+        if $v == null then "NULL"
+        elif ($v | type) == "boolean" then (if $v then "TRUE" else "FALSE" end)
+        elif ($v | type) == "number" then ($v | tostring)
+        else "'"'"'" + (($v | tostring) | sqlesc) + "'"'"'"
+        end;
+
+      def array_sql($base; $v):
+        if ($v | length) == 0 then "ARRAY[]::" + $base + "[]"
+        else "ARRAY[" + (($v | map(array_elem_sql(.))) | join(", ")) + "]::" + $base + "[]"
+        end;
+
+      def json_sql($target; $v):
+        "'"'"'" + (($v | tojson) | sqlesc) + "'"'"'::" + $target;
+
+      def value_sql($key; $value):
+        ($types[$key] // "") as $udt
+        | if $value == null then "NULL"
+          elif ($udt | startswith("_")) then
+            if ($value | type) == "array" then array_sql(($udt | ltrimstr("_")); $value)
+            else "NULL"
+            end
+          elif ($udt == "json" or $udt == "jsonb") then json_sql($udt; $value)
+          elif (($value | type) == "object" or ($value | type) == "array") then json_sql("jsonb"; $value)
+          else scalar_sql($value)
+          end;
+
+      .[$offset:$offset+$limit]
+      | map(
+          to_entries as $entries
+          | "INSERT INTO public.\($table) (" +
+              ($entries | map(.key) | join(", ")) +
+            ") VALUES (" +
+              ($entries | map(value_sql(.key; .value)) | join(", ")) +
+            ");"
+        )
+      | join("\n")
+    ' < "${rows_file}" > "${batch_file}"
+
     run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${batch_file}" > "${response_file}"
     assert_no_api_errors "${response_file}" "insert batch ${total_batches} into ${table}"
-    log "  batch ${total_batches}: ${batch_count} rows inserted"
-  fi
+    log "  batch ${total_batches}: ${batch_rows} rows inserted"
 
-  log "Inserted ${total_rows} ${table} rows in ${total_batches} batches."
+    offset=$((offset + batch_rows))
+  done
+
+  log "Inserted ${row_count} ${table} rows in ${total_batches} batches."
 }
 
 main() {

@@ -229,13 +229,41 @@ Alternatively, check `zazig status` — if it shows 0 active jobs, 0 slots used,
 
 ---
 
-## Evidence From Today (2026-03-05)
+## Evidence From 2026-03-05
 
-- Breakdown job `bc42b958` and pipeline-technician job `2dbfa038` both dispatched to machine `b9233ea4`
-- Neither job has log files in `~/.zazigv2/job-logs/` — the daemon never received the dispatch
-- Daemon log shows the reconnect loop active at the time (every 1 second)
+### What the logs actually show
+
+- Breakdown job `bc42b958` (created 18:41 UTC) and pipeline-technician job `2dbfa038` (created 18:59 UTC) both dispatched to machine `b9233ea4`
+- Neither job has log files in `~/.zazigv2/job-logs/` — Tom's daemon never received the dispatch
+- **CORRECTION: The daemon was NOT in the reconnect loop at dispatch time.** Daemon log shows `Channel state: inbound=joined` every 30s from 18:24 through 19:59 UTC. Perfectly healthy channel.
+- The reconnect loop started at **20:00:00 UTC** — over 1 hour after both jobs were dispatched
+- Zero `Broadcast received` or `start_job` events logged on March 5 — the daemon's catch-all `event: "*"` handler never fired
 - `zazig status` showed 0 active jobs, 0 slots used despite 2 dispatched + 2 queued in DB
-- Feature `a8d4b54f` (Inbox Redesign) stuck in `breaking_down` for 1.5+ hours
+- Pipeline snapshot showed `machines_online: 2` at time of dispatch
+
+### Three hypotheses (most to least likely)
+
+1. **Wrong machine dispatch** — `b9233ea4` may be Chris's machine, not Tom's. Two machines were online. The orchestrator picked one and sent the broadcast there. Tom's daemon was healthy but never got the message because it wasn't the target. **Most likely explanation** — would mean Realtime is NOT at fault for this specific incident.
+
+2. **Silent Realtime loss on healthy channel** — Orchestrator sent to correct channel, Supabase dropped the message despite daemon being `joined`. Would be a server-side bug.
+
+3. **Orchestrator dispatch failure** — DB was updated to `dispatched` but the broadcast returned non-`ok`. Code logs the failure but still marks `dispatched`.
+
+### Action to confirm
+
+```sql
+SELECT id, name FROM machines WHERE id = 'b9233ea4-906a-4439-9316-2392bd02e625';
+```
+
+If name is NOT `toms-macbook-pro-2023-local`, hypothesis #1 is confirmed — routing issue, not Realtime bug.
+
+### Separate issue: reconnect loop (20:00+)
+
+The reconnect loop started at 20:00:00 UTC and ran the rest of the day. Same bug described in the main report — but a **secondary** issue, not the cause of the missed dispatches.
+
+### Bonus bug found: `dispatchVerifyJobToMachine` channel name
+
+Line 1031 of orchestrator: `agentChannelName(machineId, companyId)` passes the UUID `machineId` instead of the machine **name**. Channel name becomes `agent:{uuid}:{companyId}` — daemon listens on `agent:{name}:{companyId}`. **Verify jobs will never be received.** Separate bug, should be fixed alongside.
 
 ---
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useCompany } from "../hooks/useCompany";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
+import DashboardDetailPanel from "../components/DashboardDetailPanel";
 import {
   fetchActionItems,
   fetchActivity,
@@ -198,6 +199,8 @@ export default function Dashboard(): JSX.Element {
   const [noteText, setNoteText] = useState<Record<string, string>>({});
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
+  const [selectedGoal, setSelectedGoal] = useState<{ goal: Goal; color: string } | null>(null);
+  const [selectedFocusArea, setSelectedFocusArea] = useState<FocusArea | null>(null);
   const [ideaText, setIdeaText] = useState("");
   const [ideaType, setIdeaType] = useState<Idea["item_type"]>("idea");
   const [ideaSubmitting, setIdeaSubmitting] = useState(false);
@@ -471,7 +474,7 @@ export default function Dashboard(): JSX.Element {
                 const progress = goal.progress ?? 0;
                 const color = ["var(--ember)", "var(--caution)", "var(--info)"][index] ?? "var(--ember)";
                 return (
-                  <article className="goal-card" key={goal.id}>
+                  <article className="goal-card goal-card--clickable" key={goal.id} onClick={() => setSelectedGoal({ goal, color })}>
                     <div className="goal-rank">{index + 1}</div>
                     <div className="goal-horizon">{goal.time_horizon ?? "Near"}</div>
                     <div className="goal-title">{goal.title}</div>
@@ -723,7 +726,7 @@ export default function Dashboard(): JSX.Element {
                 const { label, tone } = focusBadgeDetails(focusArea);
 
                 return (
-                  <div className="focus-item" key={focusArea.id}>
+                  <div className="focus-item focus-item--clickable" key={focusArea.id} onClick={() => setSelectedFocusArea(focusArea)}>
                     <div>
                       <span className="focus-name">{focusArea.title}</span>
                       <div className="focus-sub">
@@ -770,6 +773,23 @@ export default function Dashboard(): JSX.Element {
           </section>
         </aside>
       </div>
+
+      {selectedGoal ? (
+        <DashboardDetailPanel
+          type="goal"
+          goal={selectedGoal.goal}
+          color={selectedGoal.color}
+          onClose={() => setSelectedGoal(null)}
+        />
+      ) : null}
+
+      {selectedFocusArea ? (
+        <DashboardDetailPanel
+          type="focusArea"
+          focusArea={selectedFocusArea}
+          onClose={() => setSelectedFocusArea(null)}
+        />
+      ) : null}
     </div>
   );
 }

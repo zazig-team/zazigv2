@@ -43,8 +43,10 @@
   --shadow-md: 0 2px 8px rgba(28, 27, 23, 0.06), 0 0 0 1px rgba(28, 27, 23, 0.04);
   --shadow-lg: 0 8px 24px rgba(28, 27, 23, 0.08), 0 0 0 1px rgba(28, 27, 23, 0.04);
 
-  --col-ideas: #8b7355;
-  --col-triage: #b8860b;
+  --col-ideas: #b8860b;
+  --col-brief: #4a6fa5;
+  --col-bug: #c53030;
+  --col-triage: #6b7a6b;
   --col-proposal: #c54b2a;
   --col-ready: #6b7fa5;
   --col-breakdown: #9e5580;
@@ -87,8 +89,10 @@
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
 
-  --col-ideas: #8a919c;
-  --col-triage: #e5b835;
+  --col-ideas: #e5b835;
+  --col-brief: #6b9fd4;
+  --col-bug: #ef5454;
+  --col-triage: #8a9a8a;
   --col-proposal: #e8553a;
   --col-ready: #6b9fd4;
   --col-breakdown: #c478a0;

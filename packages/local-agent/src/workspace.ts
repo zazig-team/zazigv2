@@ -60,6 +60,8 @@ export interface WorkspaceConfig {
   mcpTools?: string[];
   /** Tmux session name for this job/agent. Forwarded as ZAZIG_TMUX_SESSION for enable_remote. */
   tmuxSession?: string;
+  /** Stable daemon machine identifier exposed to skills via workspace config + MCP env. */
+  machineId?: string;
 }
 
 function resolveSkillSourcePath(config: WorkspaceConfig, skillName: string): string | null {
@@ -109,6 +111,7 @@ export function generateMcpConfig(
     allowedTools?: string[];
     tmuxSession?: string;
     role?: string;
+    machineId?: string;
   },
 ): object {
   return {
@@ -124,6 +127,7 @@ export function generateMcpConfig(
           ...(env.allowedTools ? { ZAZIG_ALLOWED_TOOLS: env.allowedTools.join(",") } : {}),
           ...(env.tmuxSession ? { ZAZIG_TMUX_SESSION: env.tmuxSession } : {}),
           ...(env.role ? { ZAZIG_ROLE: env.role } : {}),
+          ...(env.machineId ? { ZAZIG_MACHINE_ID: env.machineId } : {}),
         },
       },
     },
@@ -148,7 +152,7 @@ const STANDARD_TOOLS = [
  * is provided. These match the roles' expected DB-level permissions.
  */
 const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
-  "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "request_work"],
+  "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "request_work", "start_expert_session"],
   "breakdown-specialist": ["query_features", "batch_create_jobs"],
 };
 
@@ -196,6 +200,7 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     allowedTools: config.mcpTools,
     tmuxSession: config.tmuxSession,
     role: config.role,
+    machineId: config.machineId,
   });
   writeFileSync(
     join(config.workspaceDir, ".mcp.json"),
@@ -222,7 +227,22 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     ),
   );
 
-  // 6. Inject skill files if provided
+  // 6. Write machine/workspace metadata for skills that need daemon context.
+  writeFileSync(
+    join(claudeDir, "workspace-config.json"),
+    JSON.stringify(
+      {
+        machineId: config.machineId ?? null,
+        companyId: config.companyId ?? null,
+        jobId: config.jobId,
+        role: config.role,
+      },
+      null,
+      2,
+    ),
+  );
+
+  // 7. Inject skill files if provided
   if (config.skills && config.skills.length > 0) {
     for (const skillName of config.skills) {
       const sourcePath = resolveSkillSourcePath(config, skillName);
@@ -250,7 +270,7 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     }
   }
 
-  // 7. If the workspace is inside a git worktree, update .gitignore to prevent
+  // 8. If the workspace is inside a git worktree, update .gitignore to prevent
   //    agents from accidentally committing overlay files.
   const gitMarker = join(config.workspaceDir, ".git");
   if (existsSync(gitMarker)) {

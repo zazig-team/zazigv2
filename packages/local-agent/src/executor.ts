@@ -482,8 +482,7 @@ export class JobExecutor {
 
     const cleanupPreparedWorkspace = async (): Promise<void> => {
       if (worktreePath && repoDir) {
-        // TEMP: disabled worktree cleanup for debugging
-        // await this.repoManager.removeJobWorktree(repoDir, worktreePath);
+        await this.repoManager.removeJobWorktree(repoDir, worktreePath);
       } else if (ephemeralWorkspaceDir) {
         cleanupJobWorkspace(jobId, ephemeralWorkspaceDir);
       }
@@ -885,8 +884,7 @@ export class JobExecutor {
       this.clearJobTimers(job);
       await killTmuxSession(job.sessionName);
       if (job.worktreePath && job.repoDir) {
-        // TEMP: disabled worktree cleanup for debugging
-        // await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+        await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
       } else {
         cleanupJobWorkspace(job.jobId, job.workspaceDir);
       }
@@ -1263,8 +1261,7 @@ export class JobExecutor {
     // Clean up log file and worktree
     // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
     if (job.worktreePath && job.repoDir) {
-      // TEMP: disabled worktree cleanup for debugging
-      // await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
@@ -1376,8 +1373,7 @@ export class JobExecutor {
 
     // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
     if (job.worktreePath && job.repoDir) {
-      // TEMP: disabled worktree cleanup for debugging
-      // await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }

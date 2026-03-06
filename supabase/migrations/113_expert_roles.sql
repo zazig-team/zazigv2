@@ -18,7 +18,7 @@ ALTER TABLE expert_roles ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Company members can view their expert roles"
   ON expert_roles FOR SELECT
-  USING (company_id IN (SELECT company_id FROM company_members WHERE user_id = auth.uid()));
+  USING (company_id IN (SELECT company_id FROM user_companies WHERE user_id = auth.uid()));
 
 CREATE POLICY "Service role full access to expert_roles"
   ON expert_roles FOR ALL

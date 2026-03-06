@@ -70,6 +70,24 @@ function ideaTitle(idea: Idea): string {
   return idea.title ?? idea.description ?? idea.raw_text;
 }
 
+function ideaAccentColor(itemType: string): string {
+  switch (itemType) {
+    case "brief": return "var(--col-brief)";
+    case "bug": return "var(--col-bug)";
+    case "test": return "var(--col-test)";
+    default: return "var(--col-ideas)";
+  }
+}
+
+function ideaColorVar(itemType: string): string {
+  switch (itemType) {
+    case "brief": return "--col-brief";
+    case "bug": return "--col-bug";
+    case "test": return "--col-test";
+    default: return "--col-ideas";
+  }
+}
+
 export default function Pipeline(): JSX.Element {
   const { activeCompany } = useCompany();
   const { user } = useAuth();
@@ -325,7 +343,7 @@ export default function Pipeline(): JSX.Element {
         <section className="pipeline-col">
           <header className="pipeline-col-header">
             <div className="pipeline-col-title">
-              <span className="col-dot" style={{ background: "var(--col-ideas)" }} />
+              <span className="col-dot" style={{ background: "var(--col-ideas)" }} title="Inbox" />
               <span className="col-name">Inbox</span>
             </div>
             <span className="col-count">{displayedIdeas.length}</span>
@@ -380,8 +398,8 @@ export default function Pipeline(): JSX.Element {
                   <div className="col-empty">No review-soon ideas</div>
                 ) : (
                   reviewSoonIdeas.map((idea) => (
-                    <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: "--col-ideas" })}>
-                      <div className="card-accent" style={{ background: "var(--col-ideas)" }} />
+                    <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: ideaColorVar(idea.item_type) })}>
+                      <div className="card-accent" style={{ background: ideaAccentColor(idea.item_type) }} />
                       <div className="card-body">
                         <span className={`type-chip type-chip--${idea.item_type}`}>{idea.item_type}</span>
                         <div className="card-title">{ideaTitle(idea)}</div>
@@ -403,8 +421,8 @@ export default function Pipeline(): JSX.Element {
                   <div className="col-empty">No long-term ideas</div>
                 ) : (
                   longTermIdeas.map((idea) => (
-                    <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: "--col-ideas" })}>
-                      <div className="card-accent" style={{ background: "var(--col-ideas)" }} />
+                    <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: ideaColorVar(idea.item_type) })}>
+                      <div className="card-accent" style={{ background: ideaAccentColor(idea.item_type) }} />
                       <div className="card-body">
                         <span className={`type-chip type-chip--${idea.item_type}`}>{idea.item_type}</span>
                         <div className="card-title">{ideaTitle(idea)}</div>
@@ -421,8 +439,8 @@ export default function Pipeline(): JSX.Element {
               <div className="col-empty">No ideas</div>
             ) : (
               displayedIdeas.map((idea) => (
-                <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: "--col-ideas" })}>
-                  <div className="card-accent" style={{ background: "var(--col-ideas)" }} />
+                <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: ideaColorVar(idea.item_type) })}>
+                  <div className="card-accent" style={{ background: ideaAccentColor(idea.item_type) }} />
                   <div className="card-body">
                     <div className="card-meta">
                       <span className={priorityDotClass(idea.priority)} />
@@ -452,8 +470,8 @@ export default function Pipeline(): JSX.Element {
               <div className="col-empty">No items</div>
             ) : (
               filteredTriagedIdeas.map((idea) => (
-                <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: "--col-triage" })}>
-                  <div className="card-accent" style={{ background: "var(--col-triage)" }} />
+                <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: ideaColorVar(idea.item_type) })}>
+                  <div className="card-accent" style={{ background: ideaAccentColor(idea.item_type) }} />
                   <div className="card-body">
                     <div className="card-meta">
                       <span className={priorityDotClass(idea.priority)} />

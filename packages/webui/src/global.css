@@ -31,12 +31,10 @@ input {
 
 :root {
   --col-test: #8b5cf6;
-  --col-ideas: #f59e0b;
 }
 
 [data-theme="dark"] {
   --col-test: #a78bfa;
-  --col-ideas: #fbbf24;
 }
 
 @keyframes breathe {

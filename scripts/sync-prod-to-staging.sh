@@ -15,7 +15,7 @@ readonly SUPABASE_API_BASE="https://api.supabase.com/v1/projects"
 readonly ZAZIG_COMPANY_ID="00000000-0000-0000-0000-000000000001"
 readonly DISCOVERY_SQL="SELECT id FROM companies WHERE name ILIKE '%zazig%' LIMIT 5"
 readonly SYNC_DRY_RUN="${SYNC_DRY_RUN:-0}"
-readonly SYNC_DAYS="${SYNC_DAYS:-3}"
+readonly SYNC_DAYS="${SYNC_DAYS:-1}"
 readonly BATCH_SIZE=20
 
 # Use temp dir for large JSON — avoids bash argument length limits

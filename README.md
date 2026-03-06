@@ -1,6 +1,6 @@
 # zazigv2
 
-Cloud orchestration platform that dispatches AI coding agents (Claude Code, Codex) to contributor machines via Supabase Realtime. Replaces manual agent management with a deterministic job pipeline.
+Cloud orchestration platform that dispatches AI coding agents (Claude Code, Codex, etc. ) to contributor machines via Supabase Realtime. Replaces manual agent management with a deterministic job pipeline.
 
 ## Architecture
 

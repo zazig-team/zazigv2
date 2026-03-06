@@ -544,6 +544,159 @@ export async function fetchDashboardTeam(
   return { members, machineHeartbeatById };
 }
 
+export interface FeatureDetailJob {
+  id: string;
+  title: string;
+  status: string;
+  role: string;
+  model: string | null;
+}
+
+export interface FeatureDetail {
+  id: string;
+  title: string;
+  status: string;
+  priority: string | null;
+  description: string | null;
+  spec: string | null;
+  acceptance_tests: string | null;
+  branch: string | null;
+  pr_url: string | null;
+  created_by: string | null;
+  verification_type: string | null;
+  created_at: string;
+  updated_at: string | null;
+  completed_at: string | null;
+  jobs: FeatureDetailJob[];
+  sourceIdea: { title: string; raw_text: string; promoted_at: string | null } | null;
+}
+
+export interface IdeaDetail {
+  id: string;
+  title: string | null;
+  raw_text: string;
+  status: string;
+  priority: string | null;
+  description: string | null;
+  originator: string | null;
+  source: string | null;
+  source_ref: string | null;
+  tags: string[] | null;
+  clarification_notes: string | null;
+  promoted_to_type: string | null;
+  promoted_to_id: string | null;
+  promoted_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+  item_type: string | null;
+  horizon: string | null;
+  promotedFeature: { title: string; status: string } | null;
+}
+
+export async function fetchFeatureDetail(featureId: string): Promise<FeatureDetail> {
+  const { data: feature, error: featureError } = await supabase
+    .from("features")
+    .select("id, title, status, priority, description, spec, acceptance_tests, branch, pr_url, created_by, verification_type, created_at, updated_at, completed_at, source_idea_id")
+    .eq("id", featureId)
+    .single();
+
+  if (featureError) throw featureError;
+
+  const { data: jobs } = await supabase
+    .from("jobs")
+    .select("id, title, status, role, model")
+    .eq("feature_id", featureId);
+
+  let sourceIdea: FeatureDetail["sourceIdea"] = null;
+  const sourceIdeaId = (feature as Record<string, unknown>).source_idea_id;
+  if (typeof sourceIdeaId === "string" && sourceIdeaId) {
+    const { data: idea } = await supabase
+      .from("ideas")
+      .select("title, raw_text, promoted_at")
+      .eq("id", sourceIdeaId)
+      .single();
+
+    if (idea) {
+      const row = idea as { title: string | null; raw_text: string; promoted_at: string | null };
+      sourceIdea = { title: row.title ?? row.raw_text, raw_text: row.raw_text, promoted_at: row.promoted_at };
+    }
+  }
+
+  const f = feature as Record<string, unknown>;
+  return {
+    id: f.id as string,
+    title: f.title as string,
+    status: f.status as string,
+    priority: (f.priority as string | null) ?? null,
+    description: (f.description as string | null) ?? null,
+    spec: (f.spec as string | null) ?? null,
+    acceptance_tests: (f.acceptance_tests as string | null) ?? null,
+    branch: (f.branch as string | null) ?? null,
+    pr_url: (f.pr_url as string | null) ?? null,
+    created_by: (f.created_by as string | null) ?? null,
+    verification_type: (f.verification_type as string | null) ?? null,
+    created_at: f.created_at as string,
+    updated_at: (f.updated_at as string | null) ?? null,
+    completed_at: (f.completed_at as string | null) ?? null,
+    jobs: ((jobs ?? []) as FeatureDetailJob[]).map((j) => ({
+      id: j.id,
+      title: j.title ?? "Job",
+      status: j.status,
+      role: j.role,
+      model: j.model ?? null,
+    })),
+    sourceIdea,
+  };
+}
+
+export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
+  const { data: idea, error: ideaError } = await supabase
+    .from("ideas")
+    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon")
+    .eq("id", ideaId)
+    .single();
+
+  if (ideaError) throw ideaError;
+
+  const row = idea as Record<string, unknown>;
+  let promotedFeature: IdeaDetail["promotedFeature"] = null;
+
+  if (row.promoted_to_type === "feature" && typeof row.promoted_to_id === "string") {
+    const { data: feat } = await supabase
+      .from("features")
+      .select("title, status")
+      .eq("id", row.promoted_to_id)
+      .single();
+
+    if (feat) {
+      const f = feat as { title: string; status: string };
+      promotedFeature = { title: f.title, status: f.status };
+    }
+  }
+
+  return {
+    id: row.id as string,
+    title: (row.title as string | null) ?? null,
+    raw_text: row.raw_text as string,
+    status: row.status as string,
+    priority: (row.priority as string | null) ?? null,
+    description: (row.description as string | null) ?? null,
+    originator: (row.originator as string | null) ?? null,
+    source: (row.source as string | null) ?? null,
+    source_ref: (row.source_ref as string | null) ?? null,
+    tags: Array.isArray(row.tags) ? (row.tags as string[]) : null,
+    clarification_notes: (row.clarification_notes as string | null) ?? null,
+    promoted_to_type: (row.promoted_to_type as string | null) ?? null,
+    promoted_to_id: (row.promoted_to_id as string | null) ?? null,
+    promoted_at: (row.promoted_at as string | null) ?? null,
+    created_at: row.created_at as string,
+    updated_at: (row.updated_at as string | null) ?? null,
+    item_type: (row.item_type as string | null) ?? null,
+    horizon: (row.horizon as string | null) ?? null,
+    promotedFeature,
+  };
+}
+
 export interface TeamExecCard {
   id: string;
   roleId: string;

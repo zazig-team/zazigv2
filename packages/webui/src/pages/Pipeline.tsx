@@ -8,6 +8,8 @@ import {
 } from "../hooks/usePipelineSnapshot";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
 import { fetchIdeas, getAccessToken, type Idea } from "../lib/queries";
+import FeatureDetailPanel from "../components/FeatureDetailPanel";
+import IdeaDetailPanel from "../components/IdeaDetailPanel";
 
 type FilterMode = "all" | "mine" | "urgent" | "stale";
 
@@ -82,6 +84,8 @@ export default function Pipeline(): JSX.Element {
   const [inboxTypeFilter, setInboxTypeFilter] = useState<string>("all");
   const [showReviewSoon, setShowReviewSoon] = useState(false);
   const [showLongTerm, setShowLongTerm] = useState(false);
+  const [selectedFeature, setSelectedFeature] = useState<{ id: string; colorVar: string } | null>(null);
+  const [selectedIdea, setSelectedIdea] = useState<{ id: string; colorVar: string } | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -376,7 +380,7 @@ export default function Pipeline(): JSX.Element {
                   <div className="col-empty">No review-soon ideas</div>
                 ) : (
                   reviewSoonIdeas.map((idea) => (
-                    <article className="card" key={idea.id}>
+                    <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: "--col-ideas" })}>
                       <div className="card-accent" style={{ background: "var(--col-ideas)" }} />
                       <div className="card-body">
                         <span className={`type-chip type-chip--${idea.item_type}`}>{idea.item_type}</span>
@@ -399,7 +403,7 @@ export default function Pipeline(): JSX.Element {
                   <div className="col-empty">No long-term ideas</div>
                 ) : (
                   longTermIdeas.map((idea) => (
-                    <article className="card" key={idea.id}>
+                    <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: "--col-ideas" })}>
                       <div className="card-accent" style={{ background: "var(--col-ideas)" }} />
                       <div className="card-body">
                         <span className={`type-chip type-chip--${idea.item_type}`}>{idea.item_type}</span>
@@ -417,7 +421,7 @@ export default function Pipeline(): JSX.Element {
               <div className="col-empty">No ideas</div>
             ) : (
               displayedIdeas.map((idea) => (
-                <article className="card" key={idea.id}>
+                <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: "--col-ideas" })}>
                   <div className="card-accent" style={{ background: "var(--col-ideas)" }} />
                   <div className="card-body">
                     <div className="card-meta">
@@ -448,7 +452,7 @@ export default function Pipeline(): JSX.Element {
               <div className="col-empty">No items</div>
             ) : (
               filteredTriagedIdeas.map((idea) => (
-                <article className="card" key={idea.id}>
+                <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: "--col-triage" })}>
                   <div className="card-accent" style={{ background: "var(--col-triage)" }} />
                   <div className="card-body">
                     <div className="card-meta">
@@ -481,7 +485,7 @@ export default function Pipeline(): JSX.Element {
                   <div className="col-empty">No items</div>
                 ) : (
                   features.map((feature) => (
-                    <article className="card" key={feature.id}>
+                    <article className="card card--clickable" key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
                       <div className="card-accent" style={{ background: `var(${column.colorVar})` }} />
                       <div className="card-body">
                         <div className="card-meta">
@@ -522,6 +526,22 @@ export default function Pipeline(): JSX.Element {
       {ideasError ? <div className="inline-feedback inline-feedback--error">{ideasError}</div> : null}
       {snapshot.updatedAt ? (
         <div className="inline-feedback">Updated {new Date(snapshot.updatedAt).toLocaleString("en-GB")}</div>
+      ) : null}
+
+      {selectedFeature ? (
+        <FeatureDetailPanel
+          featureId={selectedFeature.id}
+          colorVar={selectedFeature.colorVar}
+          onClose={() => setSelectedFeature(null)}
+        />
+      ) : null}
+
+      {selectedIdea ? (
+        <IdeaDetailPanel
+          ideaId={selectedIdea.id}
+          colorVar={selectedIdea.colorVar}
+          onClose={() => setSelectedIdea(null)}
+        />
       ) : null}
     </div>
   );

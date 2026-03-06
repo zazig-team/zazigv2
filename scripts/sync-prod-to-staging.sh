@@ -18,32 +18,43 @@ readonly SYNC_DRY_RUN="${SYNC_DRY_RUN:-0}"
 readonly SYNC_DAYS="${SYNC_DAYS:-7}"
 readonly BATCH_SIZE=20
 
+# Use temp dir for large JSON — avoids bash argument length limits
+TMPDIR_SYNC="$(mktemp -d)"
+trap 'rm -rf "${TMPDIR_SYNC}"' EXIT
+
 log() {
   echo "[sync-prod-to-staging] $*"
 }
 
 run_sql_query() {
   local project_ref="$1"
-  local sql="$2"
-  local payload
-
-  payload="$(jq -nc --arg query "$sql" '{query: $query}')"
+  local sql_file="$2"
 
   curl -sS -X POST "${SUPABASE_API_BASE}/${project_ref}/database/query" \
     -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
     -H "Content-Type: application/json" \
-    --data "${payload}"
+    --data @<(jq -nc --rawfile query "${sql_file}" '{query: $query}')
+}
+
+# Convenience wrapper for inline SQL strings
+run_sql() {
+  local project_ref="$1"
+  local sql="$2"
+  local tmp="${TMPDIR_SYNC}/inline_sql.tmp"
+
+  printf '%s' "${sql}" > "${tmp}"
+  run_sql_query "${project_ref}" "${tmp}"
 }
 
 assert_no_api_errors() {
-  local response="$1"
+  local response_file="$1"
   local context="$2"
   local errors
 
-  if ! jq -e . >/dev/null 2>&1 <<<"${response}"; then
+  if ! jq -e . >/dev/null 2>&1 < "${response_file}"; then
     log "ERROR: Invalid JSON response for: ${context}"
     log "Response body:"
-    echo "${response}" >&2
+    cat "${response_file}" >&2
     exit 1
   fi
 
@@ -57,7 +68,7 @@ assert_no_api_errors() {
       else
         []
       end
-    ' <<<"${response}"
+    ' < "${response_file}"
   )"
 
   if [[ "${errors}" != "[]" ]]; then
@@ -67,8 +78,9 @@ assert_no_api_errors() {
   fi
 }
 
-extract_rows_array() {
-  local response="$1"
+extract_rows_to_file() {
+  local response_file="$1"
+  local output_file="$2"
 
   jq -c '
     def rows:
@@ -88,34 +100,34 @@ extract_rows_array() {
           .
         end
       )
-  ' <<<"${response}"
+  ' < "${response_file}" > "${output_file}"
 }
 
-query_rows() {
+query_rows_to_file() {
   local project_ref="$1"
   local sql="$2"
   local context="$3"
-  local response
+  local output_file="$4"
+  local response_file="${TMPDIR_SYNC}/response.json"
 
-  response="$(run_sql_query "${project_ref}" "${sql}")"
-  assert_no_api_errors "${response}" "${context}"
-  extract_rows_array "${response}"
+  run_sql "${project_ref}" "${sql}" > "${response_file}"
+  assert_no_api_errors "${response_file}" "${context}"
+  extract_rows_to_file "${response_file}" "${output_file}"
 }
 
 verify_hardcoded_company_id() {
-  local rows
+  local response_file="${TMPDIR_SYNC}/discovery.json"
+  local rows_file="${TMPDIR_SYNC}/discovery_rows.json"
 
   log "Discovering zazig company IDs in production for validation..."
-  rows="$(query_rows \
-    "${SUPABASE_PRODUCTION_PROJECT_REF}" \
-    "${DISCOVERY_SQL}" \
-    "discover zazig company ids in production"
-  )"
+  run_sql "${SUPABASE_PRODUCTION_PROJECT_REF}" "${DISCOVERY_SQL}" > "${response_file}"
+  assert_no_api_errors "${response_file}" "discover zazig company ids in production"
+  extract_rows_to_file "${response_file}" "${rows_file}"
 
   log "Production company candidates from discovery query:"
-  echo "${rows}" | jq .
+  jq . < "${rows_file}"
 
-  if ! jq -e --arg id "${ZAZIG_COMPANY_ID}" 'map(.id) | index($id) != null' >/dev/null <<<"${rows}"; then
+  if ! jq -e --arg id "${ZAZIG_COMPANY_ID}" 'map(.id) | index($id) != null' >/dev/null < "${rows_file}"; then
     log "ERROR: Hardcoded ZAZIG_COMPANY_ID (${ZAZIG_COMPANY_ID}) not found in discovery query results."
     exit 1
   fi
@@ -125,36 +137,35 @@ verify_hardcoded_company_id() {
 
 delete_table_rows_from_staging() {
   local table="$1"
-  local sql
-  local response
-
-  sql="DELETE FROM public.${table} WHERE company_id = '${ZAZIG_COMPANY_ID}'"
+  local response_file="${TMPDIR_SYNC}/delete_response.json"
 
   log "Deleting staging rows from ${table} for company ${ZAZIG_COMPANY_ID}..."
-  response="$(run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${sql}")"
-  assert_no_api_errors "${response}" "delete ${table} rows in staging"
+  run_sql "${SUPABASE_STAGING_PROJECT_REF}" \
+    "DELETE FROM public.${table} WHERE company_id = '${ZAZIG_COMPANY_ID}'" \
+    > "${response_file}"
+  assert_no_api_errors "${response_file}" "delete ${table} rows in staging"
 }
 
 fetch_column_types_map() {
   local table="$1"
-  local rows
-  local sql
+  local response_file="${TMPDIR_SYNC}/coltypes_response.json"
+  local rows_file="${TMPDIR_SYNC}/coltypes_rows.json"
 
-  sql="SELECT column_name, udt_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${table}' ORDER BY ordinal_position"
+  run_sql "${SUPABASE_STAGING_PROJECT_REF}" \
+    "SELECT column_name, udt_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${table}' ORDER BY ordinal_position" \
+    > "${response_file}"
+  assert_no_api_errors "${response_file}" "load staging column types for ${table}"
+  extract_rows_to_file "${response_file}" "${rows_file}"
 
-  rows="$(query_rows \
-    "${SUPABASE_STAGING_PROJECT_REF}" \
-    "${sql}" \
-    "load staging column types for ${table}"
-  )"
-
-  jq -c 'reduce .[] as $row ({}; .[$row.column_name] = $row.udt_name)' <<<"${rows}"
+  jq -c 'reduce .[] as $row ({}; .[$row.column_name] = $row.udt_name)' < "${rows_file}"
 }
 
+# Generate INSERT statements from rows file, write to output file
 build_insert_statements() {
   local table="$1"
-  local rows_json="$2"
+  local rows_file="$2"
   local types_map="$3"
+  local output_file="$4"
 
   jq -r --arg table "${table}" --argjson types "${types_map}" '
     def sqlesc: gsub("'"'"'"; "''");
@@ -216,20 +227,22 @@ build_insert_statements() {
       ") VALUES (" +
         ($entries | map(value_sql(.key; .value)) | join(", ")) +
       ");"
-  ' <<<"${rows_json}"
+  ' < "${rows_file}" > "${output_file}"
 }
 
-# Build batched SQL: groups N insert statements into one API call
 batch_insert_rows() {
   local table="$1"
-  local rows_json="$2"
+  local rows_file="$2"
   local row_count
   local types_map
-  local batch_sql=""
+  local inserts_file="${TMPDIR_SYNC}/${table}_inserts.sql"
+  local batch_file="${TMPDIR_SYNC}/${table}_batch.sql"
+  local response_file="${TMPDIR_SYNC}/${table}_batch_response.json"
   local batch_count=0
   local total_batches=0
+  local total_rows=0
 
-  row_count="$(jq -r 'length' <<<"${rows_json}")"
+  row_count="$(jq -r 'length' < "${rows_file}")"
   if [[ "${row_count}" -eq 0 ]]; then
     log "No ${table} rows to insert; skipping."
     return
@@ -238,39 +251,44 @@ batch_insert_rows() {
   types_map="$(fetch_column_types_map "${table}")"
   log "Inserting ${row_count} ${table} rows into staging (batch size=${BATCH_SIZE})..."
 
+  build_insert_statements "${table}" "${rows_file}" "${types_map}" "${inserts_file}"
+
+  # Reset batch file
+  > "${batch_file}"
+
   while IFS= read -r insert_sql; do
     [[ -z "${insert_sql}" ]] && continue
-    batch_sql+="${insert_sql}"$'\n'
+    echo "${insert_sql}" >> "${batch_file}"
     batch_count=$((batch_count + 1))
 
     if [[ ${batch_count} -ge ${BATCH_SIZE} ]]; then
       total_batches=$((total_batches + 1))
-      assert_no_api_errors \
-        "$(run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${batch_sql}")" \
-        "insert batch ${total_batches} into ${table}"
+      total_rows=$((total_rows + batch_count))
+      run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${batch_file}" > "${response_file}"
+      assert_no_api_errors "${response_file}" "insert batch ${total_batches} into ${table}"
       log "  batch ${total_batches}: ${batch_count} rows inserted"
-      batch_sql=""
+      > "${batch_file}"
       batch_count=0
     fi
-  done < <(build_insert_statements "${table}" "${rows_json}" "${types_map}")
+  done < "${inserts_file}"
 
   # Flush remaining rows
   if [[ ${batch_count} -gt 0 ]]; then
     total_batches=$((total_batches + 1))
-    assert_no_api_errors \
-      "$(run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${batch_sql}")" \
-      "insert batch ${total_batches} into ${table}"
+    total_rows=$((total_rows + batch_count))
+    run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${batch_file}" > "${response_file}"
+    assert_no_api_errors "${response_file}" "insert batch ${total_batches} into ${table}"
     log "  batch ${total_batches}: ${batch_count} rows inserted"
   fi
 
-  log "Inserted ${row_count} ${table} rows in ${total_batches} batches."
+  log "Inserted ${total_rows} ${table} rows in ${total_batches} batches."
 }
 
 main() {
-  local features_rows
+  local features_file="${TMPDIR_SYNC}/features.json"
+  local ideas_file="${TMPDIR_SYNC}/ideas.json"
+  local jobs_file="${TMPDIR_SYNC}/jobs.json"
   local feature_ids
-  local ideas_rows
-  local jobs_rows
 
   log "Starting prod -> staging zazig data sync."
   log "Hardcoded ZAZIG_COMPANY_ID=${ZAZIG_COMPANY_ID}"
@@ -282,35 +300,35 @@ main() {
   # --- Read from production (recent data only) ---
   log "Step 1/3: Reading recent rows from production (last ${SYNC_DAYS} days)..."
 
-  features_rows="$(query_rows \
+  query_rows_to_file \
     "${SUPABASE_PRODUCTION_PROJECT_REF}" \
     "SELECT row_to_json(t) FROM (SELECT * FROM public.features WHERE company_id = '${ZAZIG_COMPANY_ID}' AND created_at >= NOW() - INTERVAL '${SYNC_DAYS} days') t" \
-    "read recent features from production"
-  )"
+    "read recent features from production" \
+    "${features_file}"
 
   # Extract feature IDs for FK-safe job query
-  feature_ids="$(jq -r '[.[].id] | join("'\'','\''")'  <<<"${features_rows}")"
+  feature_ids="$(jq -r '[.[].id] | map("'\''" + . + "'\''") | join(",")' < "${features_file}")"
 
   if [[ -n "${feature_ids}" ]]; then
-    jobs_rows="$(query_rows \
+    query_rows_to_file \
       "${SUPABASE_PRODUCTION_PROJECT_REF}" \
-      "SELECT row_to_json(t) FROM (SELECT * FROM public.jobs WHERE company_id = '${ZAZIG_COMPANY_ID}' AND feature_id IN ('${feature_ids}')) t" \
-      "read jobs for recent features from production"
-    )"
+      "SELECT row_to_json(t) FROM (SELECT * FROM public.jobs WHERE company_id = '${ZAZIG_COMPANY_ID}' AND feature_id IN (${feature_ids})) t" \
+      "read jobs for recent features from production" \
+      "${jobs_file}"
   else
-    jobs_rows="[]"
+    echo "[]" > "${jobs_file}"
   fi
 
-  ideas_rows="$(query_rows \
+  query_rows_to_file \
     "${SUPABASE_PRODUCTION_PROJECT_REF}" \
     "SELECT row_to_json(t) FROM (SELECT * FROM public.ideas WHERE company_id = '${ZAZIG_COMPANY_ID}' AND created_at >= NOW() - INTERVAL '${SYNC_DAYS} days') t" \
-    "read recent ideas from production"
-  )"
+    "read recent ideas from production" \
+    "${ideas_file}"
 
   log "Production row counts (last ${SYNC_DAYS} days):"
-  log "  features=$(jq -r 'length' <<<"${features_rows}")"
-  log "  ideas=$(jq -r 'length' <<<"${ideas_rows}")"
-  log "  jobs=$(jq -r 'length' <<<"${jobs_rows}")"
+  log "  features=$(jq -r 'length' < "${features_file}")"
+  log "  ideas=$(jq -r 'length' < "${ideas_file}")"
+  log "  jobs=$(jq -r 'length' < "${jobs_file}")"
 
   if [[ "${SYNC_DRY_RUN}" == "1" || "${SYNC_DRY_RUN}" == "true" || "${SYNC_DRY_RUN}" == "TRUE" ]]; then
     log "Dry-run enabled; skipping Step 2 (delete) and Step 3 (insert)."
@@ -324,11 +342,11 @@ main() {
   delete_table_rows_from_staging "ideas"
   delete_table_rows_from_staging "features"
 
-  # --- Insert into staging (batched) ---
+  # --- Insert into staging (batched, file-based) ---
   log "Step 3/3: Inserting staging rows in FK-safe order (features -> ideas -> jobs)..."
-  batch_insert_rows "features" "${features_rows}"
-  batch_insert_rows "ideas" "${ideas_rows}"
-  batch_insert_rows "jobs" "${jobs_rows}"
+  batch_insert_rows "features" "${features_file}"
+  batch_insert_rows "ideas" "${ideas_file}"
+  batch_insert_rows "jobs" "${jobs_file}"
 
   log "Sync complete."
 }

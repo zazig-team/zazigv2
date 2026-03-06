@@ -242,6 +242,13 @@ batch_insert_rows() {
     ' < "${rows_file}" > "${batch_file}"
 
     run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${batch_file}" > "${response_file}"
+
+    # Log debug info for first batch to aid debugging
+    if [[ ${total_batches} -eq 1 ]]; then
+      log "  DEBUG first batch SQL (first 300 chars): $(head -c 300 "${batch_file}")"
+      log "  DEBUG first batch response: $(head -c 500 "${response_file}")"
+    fi
+
     assert_no_api_errors "${response_file}" "insert batch ${total_batches} into ${table}"
     log "  batch ${total_batches}: ${batch_rows} rows inserted"
 

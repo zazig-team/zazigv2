@@ -160,69 +160,15 @@ fetch_column_types_map() {
   jq -c 'reduce .[] as $row ({}; .[$row.column_name] = $row.udt_name)' < "${rows_file}"
 }
 
-generate_insert_sql() {
-  local table="$1"
-  local types_map="$2"
-  local row_index="$3"
-  local rows_file="$4"
-  local output_file="$5"
-
-  jq -r --arg table "${table}" --argjson types "${types_map}" --argjson idx "${row_index}" '
-    def sqlesc: gsub("'"'"'"; "''");
-
-    def scalar_sql($v):
-      if $v == null then "NULL"
-      elif ($v | type) == "boolean" then (if $v then "TRUE" else "FALSE" end)
-      elif ($v | type) == "number" then ($v | tostring)
-      else "'"'"'" + (($v | tostring) | sqlesc) + "'"'"'"
-      end;
-
-    def array_elem_sql($v):
-      if $v == null then "NULL"
-      elif ($v | type) == "boolean" then (if $v then "TRUE" else "FALSE" end)
-      elif ($v | type) == "number" then ($v | tostring)
-      else "'"'"'" + (($v | tostring) | sqlesc) + "'"'"'"
-      end;
-
-    def array_sql($base; $v):
-      if ($v | length) == 0 then "ARRAY[]::" + $base + "[]"
-      else "ARRAY[" + (($v | map(array_elem_sql(.))) | join(", ")) + "]::" + $base + "[]"
-      end;
-
-    def json_sql($target; $v):
-      "'"'"'" + (($v | tojson) | sqlesc) + "'"'"'::" + $target;
-
-    def value_sql($key; $value):
-      ($types[$key] // "") as $udt
-      | if $value == null then "NULL"
-        elif ($udt | startswith("_")) then
-          if ($value | type) == "array" then array_sql(($udt | ltrimstr("_")); $value)
-          else "NULL"
-          end
-        elif ($udt == "json" or $udt == "jsonb") then json_sql($udt; $value)
-        elif (($value | type) == "object" or ($value | type) == "array") then json_sql("jsonb"; $value)
-        else scalar_sql($value)
-        end;
-
-    .[$idx]
-    | to_entries as $entries
-    | "INSERT INTO public.\($table) (" +
-        ($entries | map(.key) | join(", ")) +
-      ") VALUES (" +
-        ($entries | map(value_sql(.key; .value)) | join(", ")) +
-      ");"
-  ' < "${rows_file}" > "${output_file}"
-}
-
 batch_insert_rows() {
   local table="$1"
   local rows_file="$2"
   local row_count
   local types_map
-  local sql_file="${TMPDIR_SYNC}/${table}_row.sql"
-  local response_file="${TMPDIR_SYNC}/${table}_row_response.json"
-  local succeeded=0
-  local failed=0
+  local batch_file="${TMPDIR_SYNC}/${table}_batch.sql"
+  local response_file="${TMPDIR_SYNC}/${table}_batch_response.json"
+  local total_batches=0
+  local offset=0
 
   row_count="$(jq -r 'length' < "${rows_file}")"
   if [[ "${row_count}" -eq 0 ]]; then
@@ -230,43 +176,82 @@ batch_insert_rows() {
     return
   fi
 
+  # Coalesce NULL text to empty string for ideas table (staging has NOT NULL constraint)
+  if [[ "${table}" == "ideas" ]]; then
+    jq '[.[] | .text //= ""]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
+  fi
+
   types_map="$(fetch_column_types_map "${table}")"
-  log "Inserting ${row_count} ${table} rows into staging (one at a time with error logging)..."
+  log "Inserting ${row_count} ${table} rows into staging (batch size=${BATCH_SIZE})..."
 
-  for (( i=0; i<row_count; i++ )); do
-    local row_id
-    row_id="$(jq -r --argjson idx "$i" '.[$idx].id // "unknown"' < "${rows_file}")"
-
-    generate_insert_sql "${table}" "${types_map}" "$i" "${rows_file}" "${sql_file}"
-    run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${sql_file}" > "${response_file}"
-
-    # Check for errors without exiting
-    local errors
-    errors="$(jq -c '
-      if type == "object" then
-        ([.error?] + [.message?] + (if (.errors? | type) == "array" then .errors else [] end))
-        | map(select(. != null and . != ""))
-      elif type == "array" then
-        [ .[]? | select(type == "object" and .error? != null and .error? != "") | .error ]
-      else
-        []
-      end
-    ' < "${response_file}")"
-
-    if [[ "${errors}" != "[]" ]]; then
-      failed=$((failed + 1))
-      log "  FAILED row $((i+1))/${row_count} id=${row_id}: ${errors}"
-    else
-      succeeded=$((succeeded + 1))
+  while [[ ${offset} -lt ${row_count} ]]; do
+    total_batches=$((total_batches + 1))
+    local batch_rows=$((row_count - offset))
+    if [[ ${batch_rows} -gt ${BATCH_SIZE} ]]; then
+      batch_rows=${BATCH_SIZE}
     fi
 
-    # Progress every 10 rows
-    if (( (i+1) % 10 == 0 )); then
-      log "  progress: $((i+1))/${row_count} (ok=${succeeded}, fail=${failed})"
-    fi
+    jq -r --arg table "${table}" --argjson types "${types_map}" \
+      --argjson offset "${offset}" --argjson limit "${batch_rows}" '
+      def sqlesc: gsub("'"'"'"; "''");
+
+      def scalar_sql($v):
+        if $v == null then "NULL"
+        elif ($v | type) == "boolean" then (if $v then "TRUE" else "FALSE" end)
+        elif ($v | type) == "number" then ($v | tostring)
+        else "'"'"'" + (($v | tostring) | sqlesc) + "'"'"'"
+        end;
+
+      def array_elem_sql($v):
+        if $v == null then "NULL"
+        elif ($v | type) == "boolean" then (if $v then "TRUE" else "FALSE" end)
+        elif ($v | type) == "number" then ($v | tostring)
+        else "'"'"'" + (($v | tostring) | sqlesc) + "'"'"'"
+        end;
+
+      def array_sql($base; $v):
+        if ($v | length) == 0 then "ARRAY[]::" + $base + "[]"
+        else "ARRAY[" + (($v | map(array_elem_sql(.))) | join(", ")) + "]::" + $base + "[]"
+        end;
+
+      def json_sql($target; $v):
+        "'"'"'" + (($v | tojson) | sqlesc) + "'"'"'::" + $target;
+
+      def value_sql($key; $value):
+        ($types[$key] // "") as $udt
+        | if $value == null then "NULL"
+          elif ($udt | startswith("_")) then
+            if ($value | type) == "array" then array_sql(($udt | ltrimstr("_")); $value)
+            else "NULL"
+            end
+          elif ($udt == "json" or $udt == "jsonb") then json_sql($udt; $value)
+          elif (($value | type) == "object" or ($value | type) == "array") then json_sql("jsonb"; $value)
+          else scalar_sql($value)
+          end;
+
+      .[$offset:$offset+$limit]
+      | map(
+          to_entries as $entries
+          | "INSERT INTO public.\($table) (" +
+              ($entries | map(.key) | join(", ")) +
+            ") VALUES (" +
+              ($entries | map(value_sql(.key; .value)) | join(", ")) +
+            ");"
+        )
+      | join("\n")
+    ' < "${rows_file}" > "${batch_file}"
+
+    run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${batch_file}" > "${response_file}"
+    assert_no_api_errors "${response_file}" "insert batch ${total_batches} into ${table}"
+    log "  batch ${total_batches}: ${batch_rows} rows inserted"
+
+    offset=$((offset + batch_rows))
+
+    # Small delay between batches to avoid rate limiting
+    sleep 1
   done
 
-  log "Finished ${table}: ${succeeded} succeeded, ${failed} failed out of ${row_count}."
+  log "Inserted ${row_count} ${table} rows in ${total_batches} batches."
 }
 
 main() {
@@ -285,30 +270,44 @@ main() {
   # --- Read from production (recent data only) ---
   log "Step 1/3: Reading recent rows from production (last ${SYNC_DAYS} days)..."
 
+  # Features created in last N days
   query_rows_to_file \
     "${SUPABASE_PRODUCTION_PROJECT_REF}" \
     "SELECT row_to_json(t) FROM (SELECT * FROM public.features WHERE company_id = '${ZAZIG_COMPANY_ID}' AND created_at >= NOW() - INTERVAL '${SYNC_DAYS} days') t" \
     "read recent features from production" \
     "${features_file}"
 
-  # Extract feature IDs for FK-safe job query
+  # Extract feature IDs for FK-safe queries
   feature_ids="$(jq -r '[.[].id] | map("'\''" + . + "'\''") | join(",")' < "${features_file}")"
 
+  # Ideas referenced by those features (via source_idea_id) + ideas for those features
   if [[ -n "${feature_ids}" ]]; then
+    # Get source_idea_ids from features
+    local source_idea_ids
+    source_idea_ids="$(jq -r '[.[].source_idea_id // empty] | unique | map("'\''" + . + "'\''") | join(",")' < "${features_file}")"
+
+    local ideas_where="company_id = '${ZAZIG_COMPANY_ID}' AND (id IN (${feature_ids})"
+    if [[ -n "${source_idea_ids}" ]]; then
+      ideas_where="${ideas_where} OR id IN (${source_idea_ids})"
+    fi
+    ideas_where="${ideas_where})"
+
+    query_rows_to_file \
+      "${SUPABASE_PRODUCTION_PROJECT_REF}" \
+      "SELECT row_to_json(t) FROM (SELECT * FROM public.ideas WHERE ${ideas_where}) t" \
+      "read ideas for recent features from production" \
+      "${ideas_file}"
+
+    # Jobs belonging to those features
     query_rows_to_file \
       "${SUPABASE_PRODUCTION_PROJECT_REF}" \
       "SELECT row_to_json(t) FROM (SELECT * FROM public.jobs WHERE company_id = '${ZAZIG_COMPANY_ID}' AND feature_id IN (${feature_ids})) t" \
       "read jobs for recent features from production" \
       "${jobs_file}"
   else
+    echo "[]" > "${ideas_file}"
     echo "[]" > "${jobs_file}"
   fi
-
-  query_rows_to_file \
-    "${SUPABASE_PRODUCTION_PROJECT_REF}" \
-    "SELECT row_to_json(t) FROM (SELECT * FROM public.ideas WHERE company_id = '${ZAZIG_COMPANY_ID}' AND created_at >= NOW() - INTERVAL '${SYNC_DAYS} days') t" \
-    "read recent ideas from production" \
-    "${ideas_file}"
 
   log "Production row counts (last ${SYNC_DAYS} days):"
   log "  features=$(jq -r 'length' < "${features_file}")"
@@ -328,9 +327,9 @@ main() {
   delete_table_rows_from_staging "features"
 
   # --- Insert into staging (batched, file-based) ---
-  log "Step 3/3: Inserting staging rows in FK-safe order (features -> ideas -> jobs)..."
-  batch_insert_rows "features" "${features_file}"
+  log "Step 3/3: Inserting staging rows in FK-safe order (ideas -> features -> jobs)..."
   batch_insert_rows "ideas" "${ideas_file}"
+  batch_insert_rows "features" "${features_file}"
   batch_insert_rows "jobs" "${jobs_file}"
 
   log "Sync complete."

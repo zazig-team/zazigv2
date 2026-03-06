@@ -44,23 +44,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Mirror repo to staging test repo
         run: |
-          echo "=== Token diagnostics ==="
-          echo "Token length: ${#STAGING_REPO_PAT}"
-          echo "Token prefix: ${STAGING_REPO_PAT:0:20}..."
-          echo "Token set: $([ -n "$STAGING_REPO_PAT" ] && echo 'yes' || echo 'NO - EMPTY!')"
-          echo ""
-          echo "=== Testing read access ==="
-          git ls-remote https://${STAGING_REPO_PAT}@github.com/zazig-team/zazigv2-staging-test-only.git || echo "READ FAILED"
-          echo ""
-          echo "=== Removing workflows ==="
           rm -rf .github/workflows
           git add -A
           git -c user.name="CI" -c user.email="ci@zazig.com" commit -m "mirror: staging snapshot" --allow-empty
-          echo ""
-          echo "=== Pushing ==="
-          GIT_CURL_VERBOSE=1 git -c http.postBuffer=524288000 push --force https://${STAGING_REPO_PAT}@github.com/zazig-team/zazigv2-staging-test-only.git HEAD:master 2>&1 || echo "PUSH FAILED with exit code $?"
+          git -c http.postBuffer=524288000 push --force https://${STAGING_REPO_PAT}@github.com/zazig-team/zazigv2-staging-test-only.git HEAD:master
         env:
           STAGING_REPO_PAT: ${{ secrets.STAGING_REPO_PAT }}
 

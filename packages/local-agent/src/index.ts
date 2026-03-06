@@ -39,10 +39,11 @@ import { loadConfig } from "./config.js";
 import { SlotTracker } from "./slots.js";
 import { AgentConnection } from "./connection.js";
 import { JobExecutor, type PersistentAgentJobDefinition } from "./executor.js";
+import { ExpertSessionManager } from "./expert-session-manager.js";
 import { FixAgentManager } from "./fix-agent.js";
 import { recoverDispatchedJobs } from "./job-recovery.js";
 import { JobVerifier } from "./verifier.js";
-import type { OrchestratorMessage, MessageInbound } from "@zazigv2/shared";
+import type { OrchestratorMessage, MessageInbound, StartExpertMessage } from "@zazigv2/shared";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 // ---------------------------------------------------------------------------
@@ -83,6 +84,15 @@ async function main(): Promise<void> {
     repoDir: process.cwd(),
     machineId: config.name,
     send: (msg) => conn.sendMessage(msg),
+  });
+
+  // Initialize expert session manager — handles interactive expert sessions
+  const expertManager = new ExpertSessionManager({
+    machineId: config.name,
+    companyId: config.company_id ?? "",
+    supabase: conn.dbClient,
+    supabaseUrl: config.supabase.url,
+    supabaseAnonKey: config.supabase.anon_key,
   });
 
   // Initialize fix agent manager — spawns ephemeral Claude sessions during testing phase
@@ -129,6 +139,15 @@ async function main(): Promise<void> {
           `[local-agent] Received verify_job — jobId=${msg.jobId}, featureBranch=${msg.featureBranch}, jobBranch=${msg.jobBranch}`,
         );
         void verifier.verify(msg);
+        break;
+
+      case "start_expert":
+        console.log(
+          `[local-agent] Received start_expert — sessionId=${msg.session_id}, machineId=${msg.machine_id}`
+        );
+        expertManager.handleStartExpert(msg).catch((err) => {
+          console.error(`[local-agent] FATAL: handleStartExpert crashed for session=${msg.session_id}:`, err);
+        });
         break;
 
       // Legacy message types — orchestrator no longer sends these but they remain

@@ -15,6 +15,8 @@ readonly SUPABASE_API_BASE="https://api.supabase.com/v1/projects"
 readonly ZAZIG_COMPANY_ID="00000000-0000-0000-0000-000000000001"
 readonly DISCOVERY_SQL="SELECT id FROM companies WHERE name ILIKE '%zazig%' LIMIT 5"
 readonly SYNC_DRY_RUN="${SYNC_DRY_RUN:-0}"
+readonly SYNC_DAYS="${SYNC_DAYS:-7}"
+readonly BATCH_SIZE=20
 
 log() {
   echo "[sync-prod-to-staging] $*"
@@ -121,18 +123,6 @@ verify_hardcoded_company_id() {
   log "Validated hardcoded ZAZIG_COMPANY_ID=${ZAZIG_COMPANY_ID}"
 }
 
-fetch_table_rows_from_prod() {
-  local table="$1"
-  local sql
-
-  sql="SELECT row_to_json(t) FROM (SELECT * FROM public.${table} WHERE company_id = '${ZAZIG_COMPANY_ID}') t"
-
-  query_rows \
-    "${SUPABASE_PRODUCTION_PROJECT_REF}" \
-    "${sql}" \
-    "read ${table} rows from production"
-}
-
 delete_table_rows_from_staging() {
   local table="$1"
   local sql
@@ -219,59 +209,115 @@ build_insert_statements() {
           scalar_sql($value)
         end;
 
-    .[]
-    | to_entries as $entries
-    | "INSERT INTO public.\($table) (" +
-        ($entries | map(.key) | join(", ")) +
-      ") VALUES (" +
-        ($entries | map(value_sql(.key; .value)) | join(", ")) +
+    .[0] | keys_unsorted as $cols
+    | ($cols | join(", ")) as $col_list
+    | "INSERT INTO public.\($table) (\($col_list)) VALUES (" +
+        ($cols | map(value_sql(.; .)) | join(", ")) +
       ");"
+    ,
+    (.[1:][] |
+      to_entries as $entries
+      | "INSERT INTO public.\($table) (" +
+          ($entries | map(.key) | join(", ")) +
+        ") VALUES (" +
+          ($entries | map(value_sql(.key; .value)) | join(", ")) +
+        ");"
+    )
   ' <<<"${rows_json}"
 }
 
-insert_rows_into_staging() {
+# Build batched SQL: groups N insert statements into one API call
+batch_insert_rows() {
   local table="$1"
   local rows_json="$2"
   local row_count
   local types_map
+  local batch_sql=""
+  local batch_count=0
+  local total_batches=0
 
   row_count="$(jq -r 'length' <<<"${rows_json}")"
   if [[ "${row_count}" -eq 0 ]]; then
-    log "No ${table} rows found in production for company ${ZAZIG_COMPANY_ID}; skipping insert."
+    log "No ${table} rows to insert; skipping."
     return
   fi
 
   types_map="$(fetch_column_types_map "${table}")"
-  log "Inserting ${row_count} ${table} rows into staging..."
+  log "Inserting ${row_count} ${table} rows into staging (batch size=${BATCH_SIZE})..."
 
   while IFS= read -r insert_sql; do
     [[ -z "${insert_sql}" ]] && continue
-    assert_no_api_errors \
-      "$(run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${insert_sql}")" \
-      "insert row into ${table} in staging"
+    batch_sql+="${insert_sql}"$'\n'
+    batch_count=$((batch_count + 1))
+
+    if [[ ${batch_count} -ge ${BATCH_SIZE} ]]; then
+      total_batches=$((total_batches + 1))
+      assert_no_api_errors \
+        "$(run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${batch_sql}")" \
+        "insert batch ${total_batches} into ${table}"
+      log "  batch ${total_batches}: ${batch_count} rows inserted"
+      batch_sql=""
+      batch_count=0
+    fi
   done < <(build_insert_statements "${table}" "${rows_json}" "${types_map}")
+
+  # Flush remaining rows
+  if [[ ${batch_count} -gt 0 ]]; then
+    total_batches=$((total_batches + 1))
+    assert_no_api_errors \
+      "$(run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${batch_sql}")" \
+      "insert batch ${total_batches} into ${table}"
+    log "  batch ${total_batches}: ${batch_count} rows inserted"
+  fi
+
+  log "Inserted ${row_count} ${table} rows in ${total_batches} batches."
 }
 
 main() {
   local features_rows
+  local feature_ids
   local ideas_rows
   local jobs_rows
 
   log "Starting prod -> staging zazig data sync."
   log "Hardcoded ZAZIG_COMPANY_ID=${ZAZIG_COMPANY_ID}"
+  log "SYNC_DAYS=${SYNC_DAYS}"
   log "SYNC_DRY_RUN=${SYNC_DRY_RUN}"
 
   verify_hardcoded_company_id
 
-  log "Step 1/3: Reading company rows from production..."
-  features_rows="$(fetch_table_rows_from_prod "features")"
-  ideas_rows="$(fetch_table_rows_from_prod "ideas")"
-  jobs_rows="$(fetch_table_rows_from_prod "jobs")"
+  # --- Read from production (recent data only) ---
+  log "Step 1/3: Reading recent rows from production (last ${SYNC_DAYS} days)..."
 
-  log "Production row counts:"
-  log "features=$(jq -r 'length' <<<"${features_rows}")"
-  log "ideas=$(jq -r 'length' <<<"${ideas_rows}")"
-  log "jobs=$(jq -r 'length' <<<"${jobs_rows}")"
+  features_rows="$(query_rows \
+    "${SUPABASE_PRODUCTION_PROJECT_REF}" \
+    "SELECT row_to_json(t) FROM (SELECT * FROM public.features WHERE company_id = '${ZAZIG_COMPANY_ID}' AND created_at >= NOW() - INTERVAL '${SYNC_DAYS} days') t" \
+    "read recent features from production"
+  )"
+
+  # Extract feature IDs for FK-safe job query
+  feature_ids="$(jq -r '[.[].id] | join("'\'','\''")'  <<<"${features_rows}")"
+
+  if [[ -n "${feature_ids}" ]]; then
+    jobs_rows="$(query_rows \
+      "${SUPABASE_PRODUCTION_PROJECT_REF}" \
+      "SELECT row_to_json(t) FROM (SELECT * FROM public.jobs WHERE company_id = '${ZAZIG_COMPANY_ID}' AND feature_id IN ('${feature_ids}')) t" \
+      "read jobs for recent features from production"
+    )"
+  else
+    jobs_rows="[]"
+  fi
+
+  ideas_rows="$(query_rows \
+    "${SUPABASE_PRODUCTION_PROJECT_REF}" \
+    "SELECT row_to_json(t) FROM (SELECT * FROM public.ideas WHERE company_id = '${ZAZIG_COMPANY_ID}' AND created_at >= NOW() - INTERVAL '${SYNC_DAYS} days') t" \
+    "read recent ideas from production"
+  )"
+
+  log "Production row counts (last ${SYNC_DAYS} days):"
+  log "  features=$(jq -r 'length' <<<"${features_rows}")"
+  log "  ideas=$(jq -r 'length' <<<"${ideas_rows}")"
+  log "  jobs=$(jq -r 'length' <<<"${jobs_rows}")"
 
   if [[ "${SYNC_DRY_RUN}" == "1" || "${SYNC_DRY_RUN}" == "true" || "${SYNC_DRY_RUN}" == "TRUE" ]]; then
     log "Dry-run enabled; skipping Step 2 (delete) and Step 3 (insert)."
@@ -279,15 +325,17 @@ main() {
     return
   fi
 
+  # --- Delete existing staging data ---
   log "Step 2/3: Deleting staging rows in FK-safe order (jobs -> ideas -> features)..."
   delete_table_rows_from_staging "jobs"
   delete_table_rows_from_staging "ideas"
   delete_table_rows_from_staging "features"
 
+  # --- Insert into staging (batched) ---
   log "Step 3/3: Inserting staging rows in FK-safe order (features -> ideas -> jobs)..."
-  insert_rows_into_staging "features" "${features_rows}"
-  insert_rows_into_staging "ideas" "${ideas_rows}"
-  insert_rows_into_staging "jobs" "${jobs_rows}"
+  batch_insert_rows "features" "${features_rows}"
+  batch_insert_rows "ideas" "${ideas_rows}"
+  batch_insert_rows "jobs" "${jobs_rows}"
 
   log "Sync complete."
 }

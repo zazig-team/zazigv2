@@ -273,6 +273,7 @@ async function main(): Promise<void> {
 
     // Force-kill remaining jobs
     console.log("[local-agent] SHUTDOWN: Force-kill phase start");
+    expertManager.cleanup();
     await executor.stopAll();
 
     // Channel cleanup

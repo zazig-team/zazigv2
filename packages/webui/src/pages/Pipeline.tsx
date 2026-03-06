@@ -470,8 +470,8 @@ export default function Pipeline(): JSX.Element {
               <div className="col-empty">No items</div>
             ) : (
               filteredTriagedIdeas.map((idea) => (
-                <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: ideaColorVar(idea.item_type) })}>
-                  <div className="card-accent" style={{ background: ideaAccentColor(idea.item_type) }} />
+                <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: "--col-triage" })}>
+                  <div className="card-accent" style={{ background: "var(--col-triage)" }} />
                   <div className="card-body">
                     <div className="card-meta">
                       <span className={priorityDotClass(idea.priority)} />

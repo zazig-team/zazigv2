@@ -109,6 +109,10 @@ function makeMockSupabase() {
     data: [],
     error: null,
   };
+  let expertRolesResult: { data: unknown; error: { message: string } | null } = {
+    data: [],
+    error: null,
+  };
 
   const makeChainable = (table: string) => {
     const chain = {
@@ -123,15 +127,20 @@ function makeMockSupabase() {
       }),
       upsert: vi.fn(() => Promise.resolve({ error: null, data: null })),
       select: vi.fn((columns: string) => ({
-        eq: vi.fn(() => ({
-          eq: vi.fn(() => ({
+        eq: vi.fn(() => {
+          if (table === "expert_roles" && columns === "name, display_name, description") {
+            return Promise.resolve(expertRolesResult);
+          }
+          return {
+            eq: vi.fn(() => ({
+              single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+            })),
             single: vi.fn(() => Promise.resolve({ data: null, error: null })),
-          })),
-          single: vi.fn(() => Promise.resolve({ data: null, error: null })),
-          not: vi.fn(() => ({
-            limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
-          })),
-        })),
+            not: vi.fn(() => ({
+              limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
+            })),
+          };
+        }),
         in: vi.fn((inColumn: string, inValues: string[]) => {
           selectInCalls.push({ table, columns, inColumn, inValues: [...inValues] });
           return Promise.resolve(inResult);
@@ -152,6 +161,9 @@ function makeMockSupabase() {
     selectInCalls,
     setInResult: (next: { data: unknown; error: { message: string } | null }) => {
       inResult = next;
+    },
+    setExpertRolesResult: (next: { data: unknown; error: { message: string } | null }) => {
+      expertRolesResult = next;
     },
   };
 }
@@ -539,6 +551,28 @@ describe("JobExecutor — ephemeral workspace setup", () => {
     expect(config.role).toBe("breakdown-specialist");
     expect(config.skills).toEqual(["jobify"]);
     expect(config.jobId).toBe("job-001");
+  });
+
+  it("injects expert roster and ensures start-expert skill for cpo role", async () => {
+    const setupMock = setupJobWorkspace as unknown as Mock;
+    supabase.setExpertRolesResult({
+      data: [
+        { name: "security-reviewer", display_name: "Security Reviewer", description: "Threat modeling and security checks" },
+      ],
+      error: null,
+    });
+
+    await executor.handleStartJob(makeStartJob({
+      role: "cpo",
+      roleSkills: ["scrum"],
+    }));
+
+    expect(setupMock).toHaveBeenCalledTimes(1);
+    const config = setupMock.mock.calls[0]![0];
+    expect(config.skills).toEqual(["scrum", "start-expert"]);
+    expect(config.machineId).toBe("machine-1");
+    expect(config.claudeMdContent).toContain("## Expert Agents Available");
+    expect(config.claudeMdContent).toContain("**security-reviewer** (Security Reviewer)");
   });
 
   it("does NOT create workspace for ephemeral job without role field", async () => {

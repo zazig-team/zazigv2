@@ -1117,6 +1117,40 @@ server.tool(
 );
 
 server.tool(
+  "start_expert_session",
+  "Trigger an interactive expert agent session. The expert runs in a dedicated tmux window with the human. Use when specialized expertise is needed (deployment, security review, etc.)",
+  {
+    role_name: z.string().describe("The expert role identifier, e.g. \"test-deployment-expert\""),
+    brief: z.string().describe("Structured handoff context for the expert: what needs to be done, relevant background, expected output"),
+    machine_id: z.string().describe("Which machine to spawn the expert on"),
+    project_id: z.string().optional().describe("Optional project ID for repo access in the expert workspace"),
+  },
+  guardedHandler("start_expert_session", async ({ role_name, brief, machine_id, project_id }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required");
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/start-expert-session`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ role_name, brief, machine_id, project_id }),
+    });
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to start expert session: ${error}`);
+    }
+    const result = await response.json();
+    return { content: [{ type: "text", text: JSON.stringify(result) }] };
+  }),
+);
+
+server.tool(
   "request_feature_fix",
   "Request a fix for a feature — cancels stale combine/verify jobs, resets feature to building, and queues a senior-engineer code job inheriting the feature branch.",
   {

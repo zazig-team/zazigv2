@@ -15,7 +15,7 @@ readonly SUPABASE_API_BASE="https://api.supabase.com/v1/projects"
 readonly ZAZIG_COMPANY_ID="00000000-0000-0000-0000-000000000001"
 readonly DISCOVERY_SQL="SELECT id FROM companies WHERE name ILIKE '%zazig%' LIMIT 5"
 readonly SYNC_DRY_RUN="${SYNC_DRY_RUN:-0}"
-readonly SYNC_DAYS="${SYNC_DAYS:-1}"
+readonly SYNC_DAYS="${SYNC_DAYS:-2}"
 readonly BATCH_SIZE=20
 
 # Use temp dir for large JSON — avoids bash argument length limits
@@ -30,7 +30,7 @@ run_sql_query() {
   local project_ref="$1"
   local sql_file="$2"
 
-  curl -sS -X POST "${SUPABASE_API_BASE}/${project_ref}/database/query" \
+  curl -sS --max-time 30 -X POST "${SUPABASE_API_BASE}/${project_ref}/database/query" \
     -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
     -H "Content-Type: application/json" \
     --data @<(jq -nc --rawfile query "${sql_file}" '{query: $query}')
@@ -182,15 +182,15 @@ batch_insert_rows() {
     jq '[.[] | .text //= ""]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
   fi
 
-  # Null out machine_id for jobs (prod machines don't exist in staging)
+  # Clean up jobs for staging: null machine_id, truncate large fields
   if [[ "${table}" == "jobs" ]]; then
-    jq '[.[] | .machine_id = null]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
+    jq '[.[] | .machine_id = null | .raw_log = null]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
   fi
 
   # Jobs have large context/raw_log fields — use smaller batches
   local effective_batch=${BATCH_SIZE}
   if [[ "${table}" == "jobs" ]]; then
-    effective_batch=5
+    effective_batch=1
   fi
 
   types_map="$(fetch_column_types_map "${table}")"

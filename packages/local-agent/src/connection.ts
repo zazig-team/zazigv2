@@ -287,6 +287,15 @@ export class AgentConnection {
       }
     });
 
+    this.channel.on("broadcast", { event: "start_expert" }, (payload) => {
+      try {
+        console.log(`[local-agent][DEBUG] Matched event=start_expert`);
+        this.handleIncomingPayload(payload.payload);
+      } catch (err) {
+        console.error(`[local-agent] Broadcast handler crashed (event=start_expert):`, err);
+      }
+    });
+
     this.channel.on("broadcast", { event: "message_inbound" }, (payload) => {
       try {
         console.log(`[local-agent][DEBUG] Matched event=message_inbound`);

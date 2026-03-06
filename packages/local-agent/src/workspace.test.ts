@@ -117,13 +117,14 @@ describe("setupJobWorkspace", () => {
       jobId: "job-456",
       role: "breakdown-specialist",
       claudeMdContent: "# Test CLAUDE.md",
+      machineId: "machine-123",
     });
 
     // Verify mkdirSync called with workspaceDir (recursive)
     expect(mkdirSyncMock).toHaveBeenCalledWith("/tmp/test-workspace", { recursive: true });
 
-    // Verify writeFileSync called 3 times (mcp.json, CLAUDE.md, settings.json)
-    expect(writeFileSyncMock).toHaveBeenCalledTimes(3);
+    // Verify writeFileSync called 4 times (mcp.json, CLAUDE.md, settings.json, workspace-config.json)
+    expect(writeFileSyncMock).toHaveBeenCalledTimes(4);
 
     // 1. .mcp.json
     const mcpCall = writeFileSyncMock.mock.calls.find(
@@ -133,6 +134,7 @@ describe("setupJobWorkspace", () => {
     const mcpContent = JSON.parse(mcpCall![1] as string);
     expect(mcpContent.mcpServers["zazig-messaging"]).toBeDefined();
     expect(mcpContent.mcpServers["zazig-messaging"].env.ZAZIG_JOB_ID).toBe("job-456");
+    expect(mcpContent.mcpServers["zazig-messaging"].env.ZAZIG_MACHINE_ID).toBe("machine-123");
 
     // 2. CLAUDE.md
     const claudeCall = writeFileSyncMock.mock.calls.find(
@@ -150,6 +152,15 @@ describe("setupJobWorkspace", () => {
     expect(settingsContent.permissions.allow).toEqual(
       generateAllowedTools("breakdown-specialist"),
     );
+
+    // 4. .claude/workspace-config.json
+    const workspaceConfigCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("workspace-config.json"),
+    );
+    expect(workspaceConfigCall).toBeDefined();
+    const workspaceConfigContent = JSON.parse(workspaceConfigCall![1] as string);
+    expect(workspaceConfigContent.machineId).toBe("machine-123");
+    expect(workspaceConfigContent.role).toBe("breakdown-specialist");
   });
 
   it("copies skill files when skills and repoSkillsDir are provided", () => {

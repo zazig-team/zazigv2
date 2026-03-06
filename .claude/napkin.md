@@ -13,6 +13,8 @@
 | 2026-03-05 | Supabase OTP length | Assumed OTP is always 6 digits, hardcoded in UI. Staging sends 8-digit codes. | Never hardcode OTP length. Different Supabase instances can have different `GOTRUE_MAILER_OTP_LENGTH` defaults. |
 | 2026-03-05 | Edge function JWT | Spent hours debugging "Invalid JWT" errors from browser. Assumed token was expired/stale. Actual cause: all edge functions had `verify_jwt=true` (CI deploy didn't use `--no-verify-jwt`). Gateway rejected JWT before function code ran. | Always check `verify_jwt` setting via Management API (`GET /v1/projects/{ref}/functions`) before debugging JWT issues. CI deploys may overwrite `--no-verify-jwt`. |
 | 2026-03-05 | WebUI all-zeros diagnosis | Chased auth token race conditions, JWT expiry, Promise.all vs allSettled — none were the root cause. The real issue was a deploy config problem (verify_jwt). | When edge functions fail from browser but work via curl, first check the function's `verify_jwt` setting. Don't assume code-level auth bugs. |
+| 2026-03-06 | Pipeline empty columns | Told user Proposal/Complete empty was "correct" without investigating deeply enough. User knew features should be there. Turned out 7 features were bulk-failed at 2026-03-05 01:15 UTC by an unknown process (no events logged). | When user says data is missing, investigate the DB history (updated_at timestamps, event logs) before concluding it's "by design". Unexplained bulk state changes = incident, not normal. |
+| 2026-03-06 | Triage card colors | Changed triage column dot color but forgot to change triage card accent strips — they still used `ideaAccentColor()` which returned amber for idea-type items. | When changing column colors, update both the column header dot AND the card accent strips. Test visually after deploying. |
 
 ## User Preferences
 - TypeScript for both orchestrator and local agent
@@ -46,6 +48,7 @@
 - Skill-to-role/stage mapping as an explicit section in design docs — clarifies what the orchestrator must assemble at dispatch time and what machines need installed
 
 ## Patterns That Don't Work
+- Assuming pipeline columns are empty = bug. Check the DB first — `refresh_pipeline_snapshot` RPC excludes `complete` and `cancelled` from `features_by_status` (they go to `completed_features` → Shipped). Empty columns may be genuinely empty.
 
 ## Design Doc Patterns
 - Design docs in `docs/plans/` are organized by status: `active/`, `shipped/`, `archived/`, `parked/`
@@ -67,11 +70,20 @@
 - Logo: zazig green dot must always align to baseline of "g" (not centered)
 - Landing slogan: "Your autonomous startup that scales while you sleep."
 
+## Pipeline Data Incidents
+- **2026-03-05 01:15 UTC**: 7 features bulk-failed at exact same second (Auto-greenlight, Automated focus area health, Bidirectional Messaging, Build Pipeline: Test & Ship, Persistent Agent Identity, Role Launch Order, Triggers/Events/Wake). No events logged — likely direct DB update, not orchestrator.
+- **2026-03-01 21:33 UTC**: 3 features bulk-cancelled (Idea Visualiser, Persistent Agent Bootstrap Parity, Pipeline smoke test static health).
+- **2026-03-02 09:10-09:19 UTC**: 3 more cancelled (Pipeline Smoke Test, Scheduler/Hooks/External Triggers, Web UI Pipeline Visibility).
+- As of 2026-03-06: all 84 features are terminal (45 failed, 33 complete, 6 cancelled). Zero in proposal/building/verifying on both prod and staging.
+- Staging ref: `ciksoitqfwkgnxxtkscq`, Doppler config: `stg`. Management API returns "Forbidden resource" — use REST API with service role key instead.
+
 ## WebUI Codebase Gotchas
 - CSS Grid overflow: always use `minmax(0, 1fr)` not bare `1fr` — bare `1fr` defaults to `minmax(min-content, 1fr)` and prevents columns from shrinking below content width
 - `.main` needs `overflow: hidden` + `min-width: 0` to clip content within grid cell
 - Netlify deploy from monorepo: must use `--filter @zazig/webui` flag, deploy from repo root, not from packages/webui
 - Pipeline statuses in DB: `created`, `ready_for_breakdown`, `breakdown`, `building`, `combining`, `verifying`, `pr_ready`, `complete`, `cancelled`, `failed`
+- `refresh_pipeline_snapshot` RPC: `features_by_status` excludes `complete` and `cancelled` — complete goes to `completed_features` (maps to Shipped in UI), cancelled is omitted entirely. The `complete` pipeline column will always be empty by design.
+- Pipeline color scheme (dark mode): ideas=amber, briefs=blue, bugs=red, tests=purple, triage=sage green. Defined in `tokens.css`, no longer overridden in `global.css`.
 - Idea statuses in DB: `new`, `triaged`, `parked`, `promoted`, `rejected`, `done`
 - Idea-to-feature linking: lives on the **ideas** table — `promoted_to_type` ("feature"|"job"|"research"), `promoted_to_id` (UUID), `promoted_at` (timestamp). No FK on features table. Reverse lookup: `SELECT FROM ideas WHERE promoted_to_type='feature' AND promoted_to_id=<featureId>`
 - Features have `pr_url` column (migration 072) — use this as primary PR link, fall back to job `pr_url`

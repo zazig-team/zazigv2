@@ -134,6 +134,40 @@ export function jobLog(jobId: string, message: string): void {
 /** Marker in promptStackMinusSkills where skill content is inserted by the local agent. */
 const SKILLS_MARKER = "<!-- SKILLS -->";
 
+/** Codex delegation instructions injected into non-codex contexts.
+ *  Matches v1's token-budget routing: Claude supervises, Codex does the heavy lifting. */
+const CODEX_ROUTING_INSTRUCTIONS = `## Codex Delegation (REQUIRED)
+
+You MUST use codex-delegate for ALL code changes. Do NOT write code directly.
+
+Run: codex-delegate implement --dir $(pwd) "description of what to implement"
+
+Requirements:
+- Clean git working tree required (commit or stash first)
+- If codex-delegate fails or the task is too complex, you may fall back to writing code directly
+- For investigation/research, use: codex-delegate investigate --dir $(pwd) "question"
+
+After codex-delegate completes, review the diff output and decide whether to keep, modify, or discard changes.`;
+
+/** Universal file-writing rules for all agents. Used locally for workspace setup. */
+export const FILE_WRITING_RULES = `## File Writing Rules
+
+ALL file operations (reads, writes, edits) MUST stay within your working directory.
+Do NOT use absolute paths to other repositories or user home directories.
+
+- Session reports → \`.claude/{role}-report.md\` in your working directory
+- Design documents, proposals, plans, specs → \`docs/plans/YYYY-MM-DD-descriptive-slug.md\` (relative to your working directory)
+- Never reference paths outside your working directory — they belong to other projects`;
+
+function ensureRoleSkills(role: string, roleSkills?: string[]): string[] | undefined {
+  const normalized = roleSkills ? [...roleSkills] : [];
+  if (role === "cpo" && !normalized.includes("start-expert")) {
+    normalized.push("start-expert");
+  }
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+
 // ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
@@ -330,6 +364,42 @@ export class JobExecutor {
     return data.id;
   }
 
+  private async withExpertRosterSection(claudeMdContent: string, companyId?: string): Promise<string> {
+    if (!companyId) return claudeMdContent;
+
+    const { data, error } = await this.supabase
+      .from("expert_roles")
+      .select("name, display_name, description")
+      .eq("company_id", companyId);
+
+    if (error) {
+      console.warn(`[executor] Failed to load expert_roles for company ${companyId}: ${error.message}`);
+      return claudeMdContent;
+    }
+
+    const expertRoles = (data ?? []) as Array<{ name: string; display_name?: string | null; description?: string | null }>;
+    if (expertRoles.length === 0) return claudeMdContent;
+
+    const rosterLines = expertRoles.map((role) => {
+      const displayName = role.display_name?.trim() || role.name;
+      const description = role.description?.replace(/\s+/g, " ").trim() || "No description provided.";
+      return `- **${role.name}** (${displayName}): ${description}`;
+    });
+
+    const rosterSection = [
+      "",
+      "## Expert Agents Available",
+      "",
+      "You can trigger expert agents for specialized work. Call the start_expert_session MCP tool to spawn one.",
+      "",
+      ...rosterLines,
+      "",
+      "Proactively suggest expert sessions when the task requires specialized expertise.",
+    ].join("\n");
+
+    return `${claudeMdContent}${rosterSection}`;
+  }
+
   // ---------------------------------------------------------------------------
   // Public: StartJob
   // ---------------------------------------------------------------------------
@@ -386,6 +456,8 @@ export class JobExecutor {
     await this.sendJobAck(jobId);
 
     const isInteractive = msg.interactive === true;
+    const roleName = msg.role ?? "senior-engineer";
+    const roleSkills = ensureRoleSkills(roleName, msg.roleSkills);
 
     const repoRoot = resolveRepoRoot();
 
@@ -393,8 +465,11 @@ export class JobExecutor {
     // The orchestrator builds the full prompt stack with a <!-- SKILLS --> marker.
     // We insert skill file content at the marker position.
     const assembledContext = assembleContext(msg, repoRoot);
+    const cpoContext = roleName === "cpo"
+      ? await this.withExpertRosterSection(assembledContext, this.companyId)
+      : assembledContext;
 
-    console.log(`[executor] Assembled context for jobId=${jobId}:\n${assembledContext}`);
+    console.log(`[executor] Assembled context for jobId=${jobId}:\n${cpoContext}`);
 
     // --- 3c. Prepare execution workspace ---
     // Code-context roles run in git worktrees. NO_CODE_CONTEXT roles run in scratch workspaces.
@@ -403,7 +478,6 @@ export class JobExecutor {
     let repoDir: string | undefined;
     let jobBranch: string | undefined;
     let startingCommit: string | undefined;
-    const roleName = msg.role ?? "senior-engineer";
     const requiresCodeContext = !NO_CODE_CONTEXT_ROLES.has(roleName);
 
     const cleanupPreparedWorkspace = async (): Promise<void> => {
@@ -473,12 +547,13 @@ export class JobExecutor {
         jobId,
         companyId: this.companyId,
         role: roleName,
-        claudeMdContent: assembledContext,
-        skills: msg.roleSkills,
+        claudeMdContent: cpoContext,
+        skills: roleSkills,
         repoSkillsDir: join(repoRoot, "projects", "skills"),
         repoInteractiveSkillsDir: join(repoRoot, ".claude", "skills"),
         mcpTools: msg.roleMcpTools,
         tmuxSession: `${this.machineId}-${jobId}`,
+        machineId: this.machineId,
       });
       console.log(`[executor] Workspace overlay written to ${ephemeralWorkspaceDir} for jobId=${jobId}`);
     } catch (err) {
@@ -505,7 +580,7 @@ export class JobExecutor {
 
     // --- 4b. Write prompt to file (piped via stdin for claude, or as positional arg for codex) ---
     mkdirSync(ephemeralWorkspaceDir!, { recursive: true });
-    writeFileSync(promptFilePath, assembledContext);
+    writeFileSync(promptFilePath, cpoContext);
 
     // --- 5. Clear stale report before spawning (prevents reading a previous job's report) ---
     const reportPath = `${process.env["HOME"] ?? "/tmp"}/${reportRelativePath(msg.role)}`;
@@ -953,6 +1028,7 @@ export class JobExecutor {
    */
   private async handlePersistentJob(jobId: string, msg: StartJob, slotType: SlotType, companyId?: string): Promise<void> {
     const role = msg.role ?? "agent";
+    const roleSkills = ensureRoleSkills(role, msg.roleSkills);
     const resolvedCompanyId = companyId ?? process.env["ZAZIG_COMPANY_ID"] ?? "";
     const workspaceDir = resolvedCompanyId
       ? join(homedir(), ".zazigv2", `${resolvedCompanyId}-${role}-workspace`)
@@ -962,6 +1038,10 @@ export class JobExecutor {
     try {
       const repoRoot = resolveRepoRoot();
       const mcpServerPath = resolveMcpServerPath();
+      const assembledContext = assembleContext(msg, repoRoot);
+      const claudeMdContent = role === "cpo"
+        ? await this.withExpertRosterSection(assembledContext, resolvedCompanyId)
+        : assembledContext;
 
       setupJobWorkspace({
         workspaceDir,
@@ -971,13 +1051,14 @@ export class JobExecutor {
         jobId,
         companyId: resolvedCompanyId,
         role,
-        claudeMdContent: assembleContext(msg, repoRoot),
-        skills: msg.roleSkills,
+        claudeMdContent,
+        skills: roleSkills,
         repoSkillsDir: join(repoRoot, "projects", "skills"),
         repoInteractiveSkillsDir: join(repoRoot, ".claude", "skills"),
         useSymlinks: true,
         mcpTools: msg.roleMcpTools,
         tmuxSession: `${this.machineId}-${this.companyId ? this.companyId.slice(0, 8) + "-" : ""}${role}`,
+        machineId: this.machineId,
       });
 
       if (role === "cpo") {

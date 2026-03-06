@@ -46,7 +46,10 @@ jobs:
           fetch-depth: 0
       - name: Mirror repo to staging test repo
         run: |
-          git push --force https://${STAGING_REPO_PAT}@github.com/zazig-team/zazigv2-staging-test-only.git HEAD:master
+          rm -rf .github/workflows
+          git add -A
+          git -c user.name="CI" -c user.email="ci@zazig.com" commit -m "mirror: staging snapshot" --allow-empty
+          git -c http.postBuffer=524288000 push --force https://${STAGING_REPO_PAT}@github.com/zazig-team/zazigv2-staging-test-only.git HEAD:master
         env:
           STAGING_REPO_PAT: ${{ secrets.STAGING_REPO_PAT }}
 

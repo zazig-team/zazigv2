@@ -48,6 +48,7 @@ export function loadConfig(): MachineConfig {
   // Fall back to config.json if env vars not set
   let name: string;
   let slots: SlotConfig;
+  let companyIdFromFile: string | undefined;
 
   if (nameFromEnv) {
     name  = nameFromEnv;
@@ -62,6 +63,7 @@ export function loadConfig(): MachineConfig {
       throw new Error("config.json: missing or invalid 'name' field");
     }
     name  = parsed.name;
+    companyIdFromFile = parsed.company_id;
     slots = {
       claude_code: parsed.slots?.claude_code ?? 4,
       codex:       parsed.slots?.codex       ?? 4,
@@ -80,7 +82,7 @@ export function loadConfig(): MachineConfig {
   const accessToken    = process.env["SUPABASE_ACCESS_TOKEN"];
   const refreshToken   = process.env["SUPABASE_REFRESH_TOKEN"];
 
-  const companyId = process.env["ZAZIG_COMPANY_ID"];
+  const companyId = process.env["ZAZIG_COMPANY_ID"] ?? companyIdFromFile;
 
   return {
     name,

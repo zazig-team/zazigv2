@@ -25,6 +25,7 @@ import type {
   TeardownTest,
   MessageInbound,
   JobUnblocked,
+  StartExpertMessage,
   Heartbeat,
   JobStatusMessage,
   JobComplete,
@@ -192,6 +193,24 @@ export function isJobUnblocked(v: unknown): v is JobUnblocked {
   return true;
 }
 
+export function isStartExpert(v: unknown): v is StartExpertMessage {
+  if (!isObject(v) || v.type !== "start_expert") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.session_id) || v.session_id.length === 0) return false;
+  if (!isString(v.machine_id) || v.machine_id.length === 0) return false;
+  if (!isString(v.model) || v.model.length === 0) return false;
+  if (!isString(v.brief)) return false;
+  if (!isObject(v.role)) return false;
+  if (!isString(v.role.prompt)) return false;
+  // Optional fields
+  if (v.project_id !== undefined && (!isString(v.project_id) || v.project_id.length === 0)) return false;
+  if (v.repo_url !== undefined && (!isString(v.repo_url) || v.repo_url.length === 0)) return false;
+  if (v.branch !== undefined && (!isString(v.branch) || v.branch.length === 0)) return false;
+  if (v.display_name !== undefined && !isString(v.display_name)) return false;
+  if (v.company_name !== undefined && !isString(v.company_name)) return false;
+  return true;
+}
+
 export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
   if (!isObject(v) || !isString(v.type)) return false;
   switch (v.type) {
@@ -203,6 +222,7 @@ export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
     case "teardown_test":     return isTeardownTest(v);
     case "message_inbound":   return isMessageInbound(v);
     case "job_unblocked":     return isJobUnblocked(v);
+    case "start_expert":      return isStartExpert(v);
     default:                  return false;
   }
 }

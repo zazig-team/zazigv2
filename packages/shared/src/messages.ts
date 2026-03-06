@@ -332,8 +332,54 @@ export interface JobUnblocked {
   answer: string;
 }
 
+/**
+ * Role configuration embedded in a StartExpertMessage.
+ * Contains everything needed to set up the expert's Claude environment.
+ */
+export interface ExpertRoleConfig {
+  /** Role-specific system prompt. */
+  prompt: string;
+  /** Skill names to load into the workspace. */
+  skills?: string[];
+  /** MCP tool names the expert may invoke. */
+  mcp_tools?: string[];
+  /** Overrides merged into .claude/settings.json after workspace setup. */
+  settings_overrides?: Record<string, unknown>;
+}
+
+/**
+ * Tells the local agent to start an interactive expert session.
+ * Expert sessions run Claude in TUI mode for human collaboration
+ * and do not consume a job slot.
+ */
+export interface StartExpertMessage {
+  type: "start_expert";
+  /** Protocol version — must equal PROTOCOL_VERSION. */
+  protocolVersion: number;
+  /** Expert session UUID from the expert_sessions table. */
+  session_id: string;
+  /** Target machine identifier — only the matching machine should act. */
+  machine_id: string;
+  /** Project UUID — when provided, a git worktree is created. */
+  project_id?: string;
+  /** GitHub HTTPS URL for the project repo. Required when project_id is set. */
+  repo_url?: string;
+  /** Branch to base the worktree on (defaults to master). */
+  branch?: string;
+  /** Model identifier for the Claude session. */
+  model: string;
+  /** Task brief text for the expert. */
+  brief: string;
+  /** Human-readable display name for the TUI window. */
+  display_name?: string;
+  /** Company name — used to derive the viewer session name for TUI linking. */
+  company_name?: string;
+  /** Full role configuration. */
+  role: ExpertRoleConfig;
+}
+
 /** Union of all messages the orchestrator sends to a local agent. */
-export type OrchestratorMessage = StartJob | StopJob | HealthCheck | VerifyJob | DeployToTest | TeardownTest | MessageInbound | JobUnblocked;
+export type OrchestratorMessage = StartJob | StopJob | HealthCheck | VerifyJob | DeployToTest | TeardownTest | MessageInbound | JobUnblocked | StartExpertMessage;
 
 // ---------------------------------------------------------------------------
 // Local Agent → Orchestrator messages

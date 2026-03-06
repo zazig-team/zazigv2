@@ -22,6 +22,8 @@ export type {
   TeardownTest,
   MessageInbound,
   JobUnblocked,
+  StartExpertMessage,
+  ExpertRoleConfig,
   OrchestratorMessage,
   // Local Agent → Orchestrator messages
   Heartbeat,
@@ -186,6 +188,7 @@ export {
   isDeployNeedsConfig,
   isJobBlocked,
   isJobUnblocked,
+  isStartExpert,
 } from "./validators.js";
 
 // ---- Personality prompt compilation ----

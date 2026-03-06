@@ -1,7 +1,7 @@
 # Memory System Design Document
 
 **Date:** 2026-03-03
-**Status:** design (v3, founder-reviewed + second opinion)
+**Status:** design (v4, founder-reviewed + second opinion)
 **Authors:** Tom (owner), Claude Opus 4.6 (agent)
 **Part of:** [Zazig Org Model](ORG%20MODEL.md) -- covers Layer 6 (Memory)
 **Informed by:** Memory Architecture Synthesis v3 (`docs/research/2026-03-02-Memory/2026-03-03-memory-synthesis-v3.md`) -- 22 research documents, three independent synthesis efforts (Claude, Gemini, OpenAI Deep Research)
@@ -14,6 +14,7 @@
 | v1 | 2026-03-03 | Initial design document |
 | v2 | 2026-03-03 | Incorporated founder feedback: token budgets, Identity type redefinition, Context Handoff Protocol, bulletin scoping clarification |
 | v3 | 2026-03-03 | Incorporated Codex second-opinion feedback: added Procedure type, hardened Context Handoff Protocol, tier-specific memory budgets, mandatory slot reservation. |
+| v4 | 2026-03-06 | Added active consolidation ("sleep cycle") from Google always-on-memory-agent recon. Added LLM rerank step for Phase 1 retrieval. New Section 4.6, schema + pipeline updates. |
 
 ---
 
@@ -192,6 +193,7 @@ CREATE TABLE public.memories (
     access_count    INTEGER     NOT NULL DEFAULT 0,
     superseded_by   UUID        REFERENCES public.memories(id),
     forgotten       BOOLEAN     NOT NULL DEFAULT FALSE,
+    consolidated    BOOLEAN     NOT NULL DEFAULT FALSE, -- true after sleep cycle has synthesised this memory into an insight
 
     -- Audit
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -359,20 +361,24 @@ Determine worker tier + role + scope context
     │   3. Query top 10 Facts (by relevance to current task)
     │   4. Query top 5 Observations (by recency)
     │   5. Query top 5 Relationships (by relevance)
-    │   6. Memory-Doctrine dedup: suppress memories restating active doctrines
-    │   7. Memory-Doctrine conflict check: suppress contradicting memories, flag for review
-    │   8. Assemble into XML-structured bulletin (see Section 4.4)
-    │   9. Apply mandatory slot reservation (see below)
-    │   10. Fill remaining budget greedily by relevance score
-    │   11. Inject at Position 9 (token budget: tier-dependent, per Section 4.0)
+    │   6. LLM rerank (Phase 1+): pass top 25 FTS candidates + job context to Haiku,
+    │      return top 10 ranked by semantic relevance (see Section 4.3.1)
+    │   7. Memory-Doctrine dedup: suppress memories restating active doctrines
+    │   8. Memory-Doctrine conflict check: suppress contradicting memories, flag for review
+    │   9. Assemble into XML-structured bulletin (see Section 4.4)
+    │   10. Apply mandatory slot reservation (see below)
+    │   11. Fill remaining budget greedily by relevance score
+    │   12. Inject at Position 9 (token budget: tier-dependent, per Section 4.0)
     │
     └── Contractor → ContextPack Pattern
         1. Query memories scoped to job's project + feature
         2. Query role-type shared memories (if opt-in for this contractor role)
         3. Score by relevance to job spec (FTS match in Phase 1; cosine similarity in Phase 2)
-        4. Apply mandatory slot reservation, then fill remaining token budget (tier-dependent, per Section 4.0) greedily from highest-scored
-        5. Log compilation trace (considered vs included vs denied)
-        6. Inject as ## Relevant Memory section in workspace
+        4. LLM rerank (Phase 1+): pass top 25 FTS candidates + job spec to Haiku,
+           return top 10 ranked by semantic relevance (see Section 4.3.1)
+        5. Apply mandatory slot reservation, then fill remaining token budget (tier-dependent, per Section 4.0) greedily from highest-scored
+        6. Log compilation trace (considered vs included vs denied)
+        7. Inject as ## Relevant Memory section in workspace
 ```
 
 **Mandatory Slot Reservation (all tiers):**
@@ -387,6 +393,34 @@ Retrieval priority:
 ```
 
 This ensures that even in a tight 300-token contractor budget, the most dangerous gotchas and most relevant decisions always make it through. The mandatory slots consume ~480 tokens at maximum, leaving at least 320 tokens of free-form budget even in the smallest contractor allocation.
+
+#### 4.3.1 LLM Rerank (Phase 1+)
+
+FTS retrieval is keyword-based -- it misses semantic relevance. Rather than waiting for Phase 2 embeddings, the retrieval pipeline includes an optional LLM rerank step that bridges the gap.
+
+**How it works:**
+
+```
+FTS query returns top 25 candidate memories (oversampled)
+    │
+    ▼
+Haiku/Flash-Lite rerank call:
+    Input:  job context (spec, role, project) + 25 candidate memory summaries
+    Prompt: "Given the job context, rank these memories by relevance.
+             Return the top 10 as a JSON array of memory IDs, most relevant first."
+    Output: ordered list of 10 memory IDs
+    │
+    ▼
+Reranked candidates fed into mandatory slot reservation + budget fill
+```
+
+**Cost:** ~500 input tokens (context) + ~2,500 tokens (25 memories at ~100 tokens each) = ~3,000 tokens per dispatch. At Haiku rates ($0.25/1M input), this is ~$0.001 per dispatch -- negligible.
+
+**Fallback:** If the rerank call fails or times out (>2s), fall through to the original FTS ranking. The rerank is an enhancement, not a gate.
+
+**Why not wait for embeddings:** Embeddings (Phase 2) give better recall at scale, but the rerank gives 80% of the benefit immediately. When Phase 2 ships, the rerank step runs on the hybrid search candidates instead of FTS candidates -- same pipeline, better inputs.
+
+Inspired by Google's always-on-memory-agent pattern of using LLM inference instead of vector similarity for retrieval relevance. Adapted from their "read everything" approach to a bounded candidate set that stays within token budget.
 
 **Pattern 2: On-Demand Fetch (persistent agents only, Phase 2+)**
 
@@ -535,13 +569,98 @@ The `max(0.5)` floor ensures that even decaying memories retain a minimum 50% of
 
 **Nightly maintenance sequence:**
 
-1. **Decay** -- apply per-type formula to all non-exempt memories
+1. **Decay** -- apply per-type formula to all non-exempt memories (note: consolidated source memories decay at 1.5x their base rate)
 2. **Prune** -- soft-delete memories below threshold
 3. **Dedup** -- find memories with >= 0.92 cosine similarity (Phase 2), merge or flag
 4. **Conflict** -- find active contradictions, resolve by confidence or flag for human
 5. **Hard delete** -- remove soft-deleted memories older than 90 days
-6. **Stats** -- log memory counts by type, scope, and age distribution
-7. **Cost tracking** -- log token costs for extraction, retrieval, synthesis operations
+6. **Stats** -- log memory counts by type, scope, age distribution, and consolidation stats (consolidated vs unconsolidated)
+7. **Cost tracking** -- log token costs for extraction, retrieval, consolidation, and synthesis operations
+
+Note: Consolidation ("sleep cycle") runs on a separate 6-hour schedule via its own pg_cron job (see Section 4.6). The nightly maintenance job handles decay, pruning, and cleanup. They are complementary: consolidation creates value, maintenance removes entropy.
+
+### 4.6 Consolidation ("Sleep Cycle")
+
+Decay and pruning are *reactive* memory management -- they remove or diminish existing memories. Consolidation is *proactive* -- it creates new knowledge by synthesising connections between existing memories, much like the human brain replays and connects information during sleep.
+
+This pattern is adapted from Google's [always-on-memory-agent](https://github.com/GoogleCloudPlatform/generative-ai/tree/main/gemini/agents/always-on-memory-agent), which runs a `ConsolidateAgent` every 30 minutes to find cross-cutting insights. We scope it to Zazig's architecture: per-project consolidation, typed outputs, association graph edges, and accelerated decay on source memories.
+
+**Trigger:** A pg_cron job runs every 6 hours (configurable). More frequent than nightly decay (which runs once per 24h) because consolidation produces value, whereas decay is maintenance.
+
+**Process:**
+
+```
+pg_cron fires consolidation job
+    │
+    ▼
+For each active project with >= 3 unconsolidated memories:
+    │
+    ├── Query unconsolidated memories:
+    │   SELECT * FROM memories
+    │   WHERE consolidated = false
+    │     AND scope IN ('project', 'feature')
+    │     AND scope_id = $project_id
+    │     AND NOT forgotten
+    │     AND memory_type NOT IN ('identity')  -- identity doesn't consolidate
+    │   ORDER BY importance DESC, created_at DESC
+    │   LIMIT 20
+    │
+    ├── Call consolidate-memories Edge Function (Haiku):
+    │   Input:  20 unconsolidated memories with their types + content
+    │   Prompt: "Review these memories from project X. Find:
+    │            1. Cross-cutting patterns or themes
+    │            2. Connections between memories that aren't obvious individually
+    │            3. Emerging insights or recurring signals
+    │            For each insight, cite the source memory IDs."
+    │   Output: 1-3 insights, each with source_ids and a relationship description
+    │
+    ├── For each generated insight:
+    │   ├── Create a new memory:
+    │   │   memory_type = 'observation'
+    │   │   confidence_source = 'pattern_inferred'
+    │   │   importance = 0.6 (default for consolidation-generated observations)
+    │   │   scope = same as source memories (project-scoped)
+    │   │   tags = ['consolidation', 'sleep-cycle']
+    │   │   source_job_id = NULL (not from a job -- from consolidation)
+    │   │
+    │   └── Create association edges:
+    │       For each source memory:
+    │           memory_associations(source_id=insight, target_id=source, relation_type='result_of')
+    │
+    ├── Mark source memories: SET consolidated = true
+    │
+    └── Optionally accelerate decay on consolidated source memories:
+        For non-exempt types (not identity/decision/gotcha):
+            SET decay_rate = decay_rate * 1.5  -- consolidated memories age faster,
+                                                -- their insight is the higher-value artifact
+```
+
+**What consolidation produces vs what decay removes:**
+
+| | Consolidation | Decay |
+|---|---|---|
+| **Direction** | Creates new memories | Diminishes existing memories |
+| **Trigger** | Scheduled (every 6h) | Scheduled (nightly) |
+| **Input** | Unconsolidated memories in a scope | All non-exempt memories |
+| **Output** | New `observation` memories with association edges | Updated `importance` scores, soft-deletes |
+| **Relationship** | Complementary -- consolidation creates, then decay cleans up the sources |
+
+**Consolidation does NOT:**
+- Consolidate across projects (project boundaries are firm)
+- Create `gotcha` or `decision` type memories (those require higher confidence; consolidation creates `observation` which can be promoted later via the Phase 3 promotion pipeline)
+- Run on company-scope memories (too broad; company-scope consolidation is a Phase 3+ feature)
+- Delete source memories (they are marked `consolidated = true` and their decay is accelerated, but they persist until natural decay prunes them)
+
+**Interaction with the promotion pipeline (Phase 3):**
+
+Consolidation-generated observations are the primary fuel for the promotion pipeline. An observation that appears in 3+ consolidation cycles across different features = strong signal for promotion to `gotcha`. An observation that spans multiple projects = candidate for doctrine promotion. The `consolidation` tag makes these easy to query.
+
+```
+Sleep Cycle (Phase 1):  memories → consolidation → observations
+Promotion (Phase 3):    observations → gotchas → doctrine candidates
+```
+
+**Cost:** ~3,000 tokens per project per consolidation cycle (20 memories at ~100 tokens each + prompt + output). At Haiku rates, ~$0.001 per project per cycle. With 10 active projects and 4 cycles per day, total cost is ~$0.04/day.
 
 ---
 
@@ -915,10 +1034,13 @@ This matrix is enforced via Supabase Row-Level Security policies on the `memorie
 | 9 | Bulletin assembler (basic) | TypeScript | For persistent agents: query top memories by type priority, format as XML, inject at Position 9 |
 | 10 | Memory type validation | TypeScript | Enforce 9-type taxonomy at write time |
 | 11 | Cost instrumentation (basic) | TypeScript | Log token counts for extraction prompt calls, memory injection sizes |
+| 12 | `consolidate-memories` Edge Function | Deno | Sleep cycle consolidation prompt (see Section 4.6), generates `observation` memories from unconsolidated sources, creates association edges |
+| 13 | Consolidation pg_cron job | SQL | Runs every 6 hours, triggers `consolidate-memories` per active project with >= 3 unconsolidated memories |
+| 14 | LLM rerank step | TypeScript | Haiku-based rerank of top 25 FTS candidates to top 10 by semantic relevance (see Section 4.3.1), with 2s timeout fallback to raw FTS |
 
-**What Phase 1 gives you:** Every completed job leaves behind structured memories. The CPO can save memories manually during conversations. Contractors receive relevant project memories in their workspace. The data is accumulating and searchable via FTS.
+**What Phase 1 gives you:** Every completed job leaves behind structured memories. The CPO can save memories manually during conversations. Contractors receive relevant project memories in their workspace. The data is accumulating and searchable via FTS with LLM reranking for semantic relevance. The sleep cycle consolidation runs every 6 hours, generating cross-cutting insights from accumulated memories.
 
-**What Phase 1 does NOT give you:** No semantic search, no graph traversal, no decay, no multi-scope sharing, no deduplication beyond exact text match, no bulletin synthesis (the "bulletin" is a sorted list, not an LLM-synthesised brief).
+**What Phase 1 does NOT give you:** No embedding-based semantic search, no graph traversal, no decay, no multi-scope sharing, no deduplication beyond exact text match, no bulletin synthesis (the "bulletin" is a sorted list, not an LLM-synthesised brief).
 
 ### Phase 2: Intelligence -- 3-4 weeks
 

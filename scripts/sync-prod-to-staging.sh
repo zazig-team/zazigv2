@@ -61,8 +61,9 @@ assert_no_api_errors() {
   errors="$(
     jq -c '
       if type == "object" then
-        ([.error?] + (if (.errors? | type) == "array" then .errors else [] end))
+        ([.error?, .message?] + (if (.errors? | type) == "array" then .errors else [] end))
         | map(select(. != null and . != ""))
+        | map(select(. | tostring | test("Failed|error|Error|entity too large|ThrottlerException"; "i")))
       elif type == "array" then
         [ .[]? | select(type == "object" and .error? != null and .error? != "") | .error ]
       else
@@ -181,14 +182,20 @@ batch_insert_rows() {
     jq '[.[] | .text //= ""]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
   fi
 
+  # Jobs have large context/raw_log fields — use smaller batches
+  local effective_batch=${BATCH_SIZE}
+  if [[ "${table}" == "jobs" ]]; then
+    effective_batch=3
+  fi
+
   types_map="$(fetch_column_types_map "${table}")"
-  log "Inserting ${row_count} ${table} rows into staging (batch size=${BATCH_SIZE})..."
+  log "Inserting ${row_count} ${table} rows into staging (batch size=${effective_batch})..."
 
   while [[ ${offset} -lt ${row_count} ]]; do
     total_batches=$((total_batches + 1))
     local batch_rows=$((row_count - offset))
-    if [[ ${batch_rows} -gt ${BATCH_SIZE} ]]; then
-      batch_rows=${BATCH_SIZE}
+    if [[ ${batch_rows} -gt ${effective_batch} ]]; then
+      batch_rows=${effective_batch}
     fi
 
     jq -r --arg table "${table}" --argjson types "${types_map}" \
@@ -236,18 +243,12 @@ batch_insert_rows() {
               ($entries | map(.key) | join(", ")) +
             ") VALUES (" +
               ($entries | map(value_sql(.key; .value)) | join(", ")) +
-            ");"
+            ") ON CONFLICT (id) DO NOTHING;"
         )
       | join("\n")
     ' < "${rows_file}" > "${batch_file}"
 
     run_sql_query "${SUPABASE_STAGING_PROJECT_REF}" "${batch_file}" > "${response_file}"
-
-    # Log debug info for first batch to aid debugging
-    if [[ ${total_batches} -eq 1 ]]; then
-      log "  DEBUG first batch SQL (first 300 chars): $(head -c 300 "${batch_file}")"
-      log "  DEBUG first batch response: $(head -c 500 "${response_file}")"
-    fi
 
     assert_no_api_errors "${response_file}" "insert batch ${total_batches} into ${table}"
     log "  batch ${total_batches}: ${batch_rows} rows inserted"

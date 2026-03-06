@@ -329,10 +329,10 @@ main() {
   fi
 
   # --- Delete existing staging data ---
-  log "Step 2/3: Deleting staging rows in FK-safe order (jobs -> ideas -> features)..."
+  log "Step 2/3: Deleting staging rows in FK-safe order (jobs -> features -> ideas)..."
   delete_table_rows_from_staging "jobs"
-  delete_table_rows_from_staging "ideas"
   delete_table_rows_from_staging "features"
+  delete_table_rows_from_staging "ideas"
 
   # --- Insert into staging (batched, file-based) ---
   log "Step 3/3: Inserting staging rows in FK-safe order (ideas -> features -> jobs)..."

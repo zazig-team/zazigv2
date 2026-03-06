@@ -1010,7 +1010,7 @@ async function handleJobStatus(supabase: SupabaseClient, msg: JobStatusMessage):
     .from("jobs")
     .update({ status: msg.status })
     .eq("id", msg.jobId)
-    .in("status", ["dispatched", "executing", "blocked", "reviewing"]) // only update non-terminal jobs
+    .in("status", ["dispatched", "executing", "blocked"]) // only update non-terminal jobs
     .select("id");
 
   if (error) {
@@ -1063,119 +1063,6 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
     return;
   }
 
-  // --- Handle review job completion (code-review results) ---
-  if (jobRow.job_type === "review") {
-    // Mark this review job as complete first
-    await supabase
-      .from("jobs")
-      .update({
-        status: "complete",
-        result,
-        pr_url: pr ?? null,
-        completed_at: new Date().toISOString(),
-        machine_id: null,
-      })
-      .eq("id", jobId);
-
-    await releaseSlot(supabase, jobId, machineId);
-
-    let ctx: Record<string, unknown> = {};
-    try {
-      ctx = JSON.parse(jobRow?.context ?? "{}");
-    } catch {
-      ctx = {};
-    }
-    const originalJobId = typeof ctx.originalJobId === "string" ? ctx.originalJobId : undefined;
-    if (!originalJobId) return;
-
-    const hasP0 = result?.includes("P0") || result?.includes("severity: p0") || result?.includes("p0_found");
-    if (hasP0) {
-      // Re-queue original job with review feedback
-      await supabase.from("jobs")
-        .update({ status: "queued", result: null,
-                  context: JSON.stringify({ ...ctx, review_feedback: result }) })
-        .eq("id", originalJobId).eq("status", "reviewing");
-      console.log(`[orchestrator] Job ${originalJobId} re-queued after P0 review finding`);
-    } else {
-      const { data: originalJob, error: originalJobErr } = await supabase
-        .from("jobs")
-        .select("id, feature_id, branch, acceptance_tests")
-        .eq("id", originalJobId)
-        .single();
-
-      if (originalJobErr || !originalJob) {
-        console.error(`[orchestrator] Could not fetch original job ${originalJobId} after review:`, originalJobErr?.message);
-        return;
-      }
-
-      if (!originalJob.feature_id || !originalJob.branch) {
-        await supabase.from("jobs")
-          .update({ status: "complete", completed_at: new Date().toISOString() })
-          .eq("id", originalJobId).eq("status", "reviewing");
-        console.log(`[orchestrator] Job ${originalJobId} complete after clean review (no feature branch context)`);
-        return;
-      }
-
-      const { data: feature } = await supabase
-        .from("features")
-        .select("branch")
-        .eq("id", originalJob.feature_id)
-        .single();
-
-      const featureBranch = (feature as { branch?: string } | null)?.branch ?? null;
-      if (!featureBranch) {
-        await supabase.from("jobs")
-          .update({ status: "complete", completed_at: new Date().toISOString() })
-          .eq("id", originalJobId).eq("status", "reviewing");
-        console.warn(`[orchestrator] Job ${originalJobId} complete after review but feature branch missing`);
-        return;
-      }
-
-      const { data: verifyingRows, error: verifyingErr } = await supabase
-        .from("jobs")
-        .update({
-          status: "verifying",
-          verify_context: null,
-          completed_at: null,
-        })
-        .eq("id", originalJobId)
-        .eq("status", "reviewing")
-        .select("id");
-
-      if (verifyingErr || !verifyingRows || verifyingRows.length === 0) {
-        console.error(
-          `[orchestrator] Failed to move job ${originalJobId} into verifying after clean review:`,
-          verifyingErr?.message ?? "status changed",
-        );
-        return;
-      }
-
-      const verifyMsg: VerifyJob = {
-        type: "verify_job",
-        protocolVersion: PROTOCOL_VERSION,
-        jobId: originalJobId,
-        featureBranch,
-        jobBranch: originalJob.branch,
-        acceptanceTests: originalJob.acceptance_tests ?? "",
-      };
-
-      const sent = await dispatchVerifyJobToMachine(supabase, machineId, jobRow.company_id, verifyMsg);
-      if (!sent) {
-        await supabase
-          .from("jobs")
-          .update({
-            status: "verify_failed",
-            verify_context: "Failed to dispatch verify_job to local agent",
-            machine_id: null,
-          })
-          .eq("id", originalJobId);
-        console.error(`[orchestrator] Failed to dispatch verify_job for ${originalJobId}`);
-      } else {
-        console.log(`[orchestrator] Job ${originalJobId} moved to verifying and verify_job dispatched`);
-      }
-    }
-    return;
-  }
 
   // --- Normal (non-review, non-persistent) job completion ---
 
@@ -1207,35 +1094,6 @@ export async function handleJobComplete(supabase: SupabaseClient, msg: JobComple
     await checkUnblockedJobs(supabase, jobRow.feature_id, jobId);
   }
 
-  // Trigger reviewing step for feature-linked code jobs
-  const reviewableTypes = ["code", "infra", "bug", "docs"];
-  if (jobRow.feature_id && reviewableTypes.includes(jobRow.job_type ?? "")) {
-    await supabase.from("jobs")
-      .update({ status: "reviewing" })
-      .eq("id", jobId);
-
-    // Dispatch a code-review job
-    await supabase.from("jobs").insert({
-      company_id: jobRow.company_id,
-      project_id: jobRow.project_id,
-      feature_id: jobRow.feature_id,
-      title: "Code review",
-      role: "code-reviewer",
-      job_type: "review",
-      complexity: "simple",
-      slot_type: "claude_code",
-      status: "queued",
-      context: JSON.stringify({
-        type: "job_code_review",
-        originalJobId: jobId,
-        jobBranch: jobRow.branch ?? "",
-      }),
-      branch: jobRow.branch,
-    });
-
-    console.log(`[orchestrator] Job ${jobId} → reviewing, code-review job queued`);
-    return;
-  }
 
   // Check if this is a verification job that completed.
   const contextStr = jobRow?.context ?? "{}";

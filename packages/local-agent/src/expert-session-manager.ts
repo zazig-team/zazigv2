@@ -12,7 +12,7 @@
  * Expert sessions do NOT consume a job slot.
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { execFile } from "node:child_process";
@@ -20,7 +20,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartExpertMessage } from "@zazigv2/shared";
-import { setupJobWorkspace, generateAllowedTools } from "./workspace.js";
+import { setupJobWorkspace } from "./workspace.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -30,10 +30,21 @@ const execFileAsync = promisify(execFile);
 
 interface ExpertSessionState {
   sessionId: string;
+  /** Root workspace dir (~/.zazigv2/expert-{sessionId}). */
   workspaceDir: string;
+  /** Effective workspace dir used as tmux cwd (repo worktree when available). */
+  effectiveWorkspaceDir: string;
   repoDir?: string;
+  bareRepoDir?: string;
   displayName: string;
   tmuxSession: string;
+  viewerSession?: string;
+  viewerWindowName?: string;
+}
+
+interface ViewerLinkResult {
+  viewerSession: string;
+  viewerWindowName: string;
 }
 
 interface ExpertSessionManagerOpts {
@@ -109,6 +120,8 @@ export class ExpertSessionManager {
   private readonly supabaseUrl: string;
   private readonly supabaseAnonKey: string;
   private readonly activeSessions = new Map<string, ExpertSessionState>();
+  private readonly activePollers = new Map<string, ReturnType<typeof setInterval>>();
+  private readonly exitingSessions = new Set<string>();
 
   constructor(opts: ExpertSessionManagerOpts) {
     this.machineId = opts.machineId;
@@ -138,10 +151,11 @@ export class ExpertSessionManager {
 
     // 3. Git worktree setup if project_id + repo_url provided
     let repoDir: string | undefined;
+    let bareRepoDir: string | undefined;
     if (msg.project_id && msg.repo_url) {
       try {
         const projectName = msg.repo_url.split("/").pop()?.replace(/\.git$/, "") ?? msg.project_id;
-        const bareRepoDir = join(homedir(), ".zazigv2", "repos", projectName);
+        bareRepoDir = join(homedir(), ".zazigv2", "repos", projectName);
         const worktreeTarget = join(workspaceDir, "repo");
         const branch = msg.branch ?? "master";
 
@@ -307,16 +321,24 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
     await this.updateSessionStatus(sessionId, "running");
 
     // 12. Link window into viewer TUI and switch
-    await this.linkToViewerTui(msg, tmuxSessionName, displayName);
+    const viewerLink = await this.linkToViewerTui(msg, tmuxSessionName, displayName);
 
     // 13. Store session state
-    this.activeSessions.set(sessionId, {
+    const sessionState: ExpertSessionState = {
       sessionId,
-      workspaceDir: effectiveWorkspaceDir,
+      workspaceDir,
+      effectiveWorkspaceDir,
       repoDir,
+      bareRepoDir,
       displayName,
       tmuxSession: tmuxSessionName,
-    });
+      viewerSession: viewerLink?.viewerSession,
+      viewerWindowName: viewerLink?.viewerWindowName,
+    };
+    this.activeSessions.set(sessionId, sessionState);
+
+    // 14. Start polling for tmux session exit
+    this.startExitPolling(sessionState);
 
     console.log(`[expert] Expert session ${sessionId} is running (tmux=${tmuxSessionName})`);
   }
@@ -347,7 +369,7 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
     msg: StartExpertMessage,
     tmuxSessionName: string,
     displayName: string,
-  ): Promise<void> {
+  ): Promise<ViewerLinkResult | null> {
     // Derive viewer session name from company_name if provided
     let viewerSession: string | undefined;
     if (msg.company_name) {
@@ -367,13 +389,13 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
 
     if (!viewerSession) {
       console.log(`[expert] No viewer session found — expert window not linked to TUI`);
-      return;
+      return null;
     }
 
     // Check if viewer session exists
     if (!(await isTmuxSessionAlive(viewerSession))) {
       console.log(`[expert] Viewer session ${viewerSession} not alive — skipping TUI linking`);
-      return;
+      return null;
     }
 
     try {
@@ -384,8 +406,10 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       const expertWindowId = windowId.trim().split("\n")[0];
       if (!expertWindowId) {
         console.warn(`[expert] Could not determine window ID for ${tmuxSessionName}`);
-        return;
+        return null;
       }
+
+      const viewerWindowName = displayName.toUpperCase().replace(/\s+/g, "-");
 
       // Link the expert window into the viewer session
       await execFileAsync("tmux", [
@@ -398,23 +422,207 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       await execFileAsync("tmux", [
         "rename-window",
         "-t", expertWindowId,
-        displayName.toUpperCase().replace(/\s+/g, "-"),
+        viewerWindowName,
       ]);
 
       // Switch to the new window
       try {
         await execFileAsync("tmux", [
           "select-window",
-          "-t", `${viewerSession}:${displayName.toUpperCase().replace(/\s+/g, "-")}`,
+          "-t", `${viewerSession}:${viewerWindowName}`,
         ]);
       } catch {
         // select-window may fail if no client is attached — that's fine
       }
 
       console.log(`[expert] Linked expert window to viewer session ${viewerSession}`);
+      return { viewerSession, viewerWindowName };
     } catch (err) {
       console.warn(`[expert] Failed to link expert window to viewer TUI:`, err);
+      return null;
     }
+  }
+
+  private startExitPolling(session: ExpertSessionState): void {
+    const existing = this.activePollers.get(session.sessionId);
+    if (existing) {
+      clearInterval(existing);
+    }
+
+    const interval = setInterval(() => {
+      void (async () => {
+        try {
+          if (this.exitingSessions.has(session.sessionId)) return;
+
+          const alive = await isTmuxSessionAlive(session.tmuxSession);
+          if (!alive) {
+            clearInterval(interval);
+            this.activePollers.delete(session.sessionId);
+            await this.handleSessionExit(session);
+          }
+        } catch (err) {
+          // Keep polling on transient failures.
+          console.error("[expert] Poll error:", err);
+        }
+      })();
+    }, 10_000);
+
+    this.activePollers.set(session.sessionId, interval);
+  }
+
+  private async handleSessionExit(session: ExpertSessionState): Promise<void> {
+    if (this.exitingSessions.has(session.sessionId)) return;
+    this.exitingSessions.add(session.sessionId);
+
+    const poller = this.activePollers.get(session.sessionId);
+    if (poller) {
+      clearInterval(poller);
+      this.activePollers.delete(session.sessionId);
+    }
+
+    let summary: string | null = null;
+    const reportPath = join(session.effectiveWorkspaceDir, ".claude", "expert-report.md");
+    try {
+      if (existsSync(reportPath)) {
+        summary = readFileSync(reportPath, "utf8");
+      }
+    } catch (err) {
+      console.warn(`[expert] Failed to read report for session ${session.sessionId}:`, err);
+    }
+
+    try {
+      const { error } = await this.supabase
+        .from("expert_sessions")
+        .update({
+          status: "completed",
+          summary,
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", session.sessionId);
+      if (error) {
+        console.warn(`[expert] Failed to mark session ${session.sessionId} completed: ${error.message}`);
+      }
+    } catch (err) {
+      console.warn(`[expert] Error updating expert session ${session.sessionId}:`, err);
+    }
+
+    await this.injectSummaryIntoCpo(session, summary);
+    await this.switchViewerToCpo(session);
+    await this.cleanupWorktree(session);
+
+    try {
+      rmSync(session.workspaceDir, { recursive: true, force: true });
+    } catch (err) {
+      console.warn(`[expert] Failed to remove workspace ${session.workspaceDir}:`, err);
+    }
+
+    this.activeSessions.delete(session.sessionId);
+    this.exitingSessions.delete(session.sessionId);
+    console.log(`[expert] Session ${session.sessionId} exited and cleaned up`);
+  }
+
+  private async injectSummaryIntoCpo(session: ExpertSessionState, summary: string | null): Promise<void> {
+    const companyPrefix = this.companyId ? `${this.companyId.slice(0, 8)}-` : "";
+    const cpoSessionName = `${this.machineId}-${companyPrefix}cpo`;
+
+    if (!(await isTmuxSessionAlive(cpoSessionName))) {
+      console.warn(`[expert] CPO session ${cpoSessionName} not found; skipping summary injection`);
+      return;
+    }
+
+    const message = summary
+      ? `[Expert Report - ${session.displayName}] ${summary}`
+      : "[Expert session ended - no report written]";
+    const singleLine = message.replace(/\r?\n/g, " ").trim();
+    if (!singleLine) return;
+
+    try {
+      await execFileAsync("tmux", ["send-keys", "-t", cpoSessionName, "-l", singleLine]);
+      await execFileAsync("tmux", ["send-keys", "-t", cpoSessionName, "Enter"]);
+      console.log(`[expert] Injected expert summary into CPO session ${cpoSessionName}`);
+    } catch (err) {
+      console.warn(`[expert] Failed to inject summary into CPO session ${cpoSessionName}:`, err);
+    }
+  }
+
+  private async switchViewerToCpo(session: ExpertSessionState): Promise<void> {
+    if (!session.viewerSession) return;
+    if (!(await isTmuxSessionAlive(session.viewerSession))) return;
+
+    if (session.viewerWindowName) {
+      try {
+        await execFileAsync("tmux", [
+          "unlink-window",
+          "-k",
+          "-t", `${session.viewerSession}:${session.viewerWindowName}`,
+        ]);
+      } catch (err) {
+        console.warn(
+          `[expert] Failed to unlink expert window ${session.viewerWindowName} from ${session.viewerSession}:`,
+          err,
+        );
+      }
+    }
+
+    const directTargets = [
+      `${session.viewerSession}:CPO`,
+      `${session.viewerSession}:cpo`,
+    ];
+    for (const target of directTargets) {
+      try {
+        await execFileAsync("tmux", ["select-window", "-t", target]);
+        return;
+      } catch {
+        // Try next candidate.
+      }
+    }
+
+    try {
+      const { stdout } = await execFileAsync("tmux", [
+        "list-windows",
+        "-t", session.viewerSession,
+        "-F", "#{window_index}:#{window_name}",
+      ]);
+      const lines = stdout.trim().split("\n").filter(Boolean);
+      const cpoLine = lines.find((line) => line.split(":")[1]?.toLowerCase() === "cpo");
+      const cpoIndex = cpoLine?.split(":")[0];
+      if (!cpoIndex) {
+        console.warn(`[expert] Could not find CPO window in viewer session ${session.viewerSession}`);
+        return;
+      }
+      await execFileAsync("tmux", ["select-window", "-t", `${session.viewerSession}:${cpoIndex}`]);
+    } catch (err) {
+      console.warn(`[expert] Failed to switch viewer ${session.viewerSession} back to CPO:`, err);
+    }
+  }
+
+  private async cleanupWorktree(session: ExpertSessionState): Promise<void> {
+    if (!session.repoDir) return;
+
+    try {
+      if (session.bareRepoDir) {
+        await execFileAsync("git", [
+          "-C", session.bareRepoDir,
+          "worktree", "remove", "--force", session.repoDir,
+        ]);
+        await execFileAsync("git", [
+          "-C", session.bareRepoDir,
+          "worktree", "prune",
+        ]);
+      } else {
+        await execFileAsync("git", ["worktree", "remove", "--force", session.repoDir]);
+      }
+      console.log(`[expert] Removed git worktree ${session.repoDir}`);
+    } catch (err) {
+      console.warn(`[expert] Failed to remove git worktree ${session.repoDir}:`, err);
+    }
+  }
+
+  cleanup(): void {
+    for (const poller of this.activePollers.values()) {
+      clearInterval(poller);
+    }
+    this.activePollers.clear();
   }
 
   /** Returns active session state (for exit detection poller). */

@@ -211,6 +211,7 @@ async function main(): Promise<void> {
       }
       rolePromptChannel = null;
     }
+    expertManager.cleanup();
     await executor.stopAll();
     await conn.stop();
     process.exit(0);

@@ -45,6 +45,7 @@ let lastRepoManagerInstance: any;
 vi.mock("./branches.js", () => {
   class MockRepoManager {
     ensureRepo = vi.fn().mockResolvedValue("/tmp/mock-repo");
+    ensureWorktree = vi.fn().mockResolvedValue("/tmp/mock-repo-worktree");
     ensureFeatureBranch = vi.fn().mockResolvedValue(undefined);
     createJobWorktree = vi.fn().mockResolvedValue({
       worktreePath: "/tmp/mock-worktree",
@@ -442,6 +443,83 @@ describe("JobExecutor — slot reconciliation", () => {
   it("does nothing when there are no active jobs", async () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(supabase.selectInCalls.length).toBe(0);
+  });
+});
+
+describe("JobExecutor — repo refresh heartbeat", () => {
+  let send: ReturnType<typeof vi.fn>;
+  let slots: SlotTracker;
+  let supabase: ReturnType<typeof makeMockSupabase>;
+  let executor: JobExecutor;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    mockExecFileAsync = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
+    send = vi.fn().mockResolvedValue(undefined);
+    slots = new SlotTracker({ claude_code: 1, codex: 1 });
+    supabase = makeMockSupabase();
+    executor = new JobExecutor(
+      "machine-1",
+      "company-test",
+      slots,
+      send as unknown as SendFn,
+      supabase.client as any,
+      "https://test.supabase.co",
+      "test-anon-key",
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("refreshes each configured company project on heartbeat", async () => {
+    executor.setCompanyProjects([
+      { name: "project-alpha", repo_url: "https://github.com/test/project-alpha.git" },
+      { name: "project-beta", repo_url: "https://github.com/test/project-beta.git" },
+    ]);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenCalledTimes(2);
+    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenNthCalledWith(1, "project-alpha");
+    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenNthCalledWith(2, "project-beta");
+  });
+
+  it("logs and continues when one project refresh fails", async () => {
+    const refreshErr = new Error("refresh failed");
+    lastRepoManagerInstance.ensureWorktree
+      .mockRejectedValueOnce(refreshErr)
+      .mockResolvedValueOnce("/tmp/mock-repo-worktree");
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    executor.setCompanyProjects([
+      { name: "project-alpha", repo_url: "https://github.com/test/project-alpha.git" },
+      { name: "project-beta", repo_url: "https://github.com/test/project-beta.git" },
+    ]);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith("[repo-refresh] Failed to refresh project-alpha:", refreshErr);
+    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenCalledTimes(2);
+    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenNthCalledWith(2, "project-beta");
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("stops repo refresh timer during stopAll", async () => {
+    executor.setCompanyProjects([
+      { name: "project-alpha", repo_url: "https://github.com/test/project-alpha.git" },
+    ]);
+
+    await executor.stopAll();
+    lastRepoManagerInstance.ensureWorktree.mockClear();
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(lastRepoManagerInstance.ensureWorktree).not.toHaveBeenCalled();
   });
 });
 

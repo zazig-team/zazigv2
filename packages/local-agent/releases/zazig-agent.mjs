@@ -11982,6 +11982,14 @@ var SlotTracker = class {
     }
     this.inUse[slotType]++;
   }
+  /** Try to acquire a slot. Returns true if acquired, false if at capacity. */
+  tryAcquire(slotType) {
+    const available = this.total[slotType] - this.inUse[slotType];
+    if (available <= 0)
+      return false;
+    this.inUse[slotType]++;
+    return true;
+  }
   /** Release a slot previously acquired. For future use by job executor. */
   release(slotType) {
     if (this.inUse[slotType] > 0) {
@@ -17370,14 +17378,12 @@ var JobExecutor = class {
       await this.handlePersistentJob(jobId, msg, slotType);
       return;
     }
-    try {
-      this.slots.acquire(slotType);
+    const slotAcquired = this.slots.tryAcquire(slotType);
+    if (slotAcquired) {
       jobLog(jobId, `Slot acquired: ${slotType}`);
-    } catch (err) {
-      jobLog(jobId, `FAILED no slot available: ${String(err)}`);
-      console.error(`[executor] No slot available for jobId=${jobId}:`, err);
-      await this.sendJobFailed(jobId, `No available slot: ${String(err)}`, "unknown");
-      return;
+    } else {
+      jobLog(jobId, `WARN slot overcommit: running despite no free ${slotType} slot`);
+      console.warn(`[executor] Slot overcommit for jobId=${jobId} \u2014 running anyway (${slotType})`);
     }
     await this.sendJobAck(jobId);
     const isInteractive = msg.interactive === true;
@@ -17436,7 +17442,8 @@ ${cpoContext}`);
     } catch (err) {
       jobLog(jobId, `FAILED to prepare workspace: ${String(err)}`);
       console.error(`[executor] Failed to prepare workspace for jobId=${jobId}:`, err);
-      this.slots.release(slotType);
+      if (slotAcquired)
+        this.slots.release(slotType);
       await this.sendJobFailed(jobId, `Failed to prepare workspace: ${String(err)}`, "agent_crash");
       return;
     }
@@ -17523,7 +17530,8 @@ ${cpoContext}`);
     } catch (err) {
       console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
       await cleanupPreparedWorkspace();
-      this.slots.release(slotType);
+      if (slotAcquired)
+        this.slots.release(slotType);
       await this.sendJobFailed(jobId, `Failed to start tmux session: ${String(err)}`, "agent_crash");
       return;
     }
@@ -17531,6 +17539,7 @@ ${cpoContext}`);
     const activeJob = {
       jobId,
       slotType,
+      slotAcquired,
       sessionName,
       pollTimer: null,
       timeoutTimer: null,
@@ -17538,6 +17547,7 @@ ${cpoContext}`);
       startedAt: Date.now(),
       logPath: logPath2,
       lastBytesSent: 0,
+      lastLifecycleBytesSent: 0,
       workspaceDir: ephemeralWorkspaceDir,
       worktreePath,
       repoDir,
@@ -17728,7 +17738,8 @@ ${msg.text}`;
       } else {
         cleanupJobWorkspace(job.jobId, job.workspaceDir);
       }
-      this.slots.release(job.slotType);
+      if (job.slotAcquired)
+        this.slots.release(job.slotType);
     }
     this.activeJobs.clear();
   }
@@ -17825,7 +17836,8 @@ ${msg.text}`;
     } else {
       cleanupJobWorkspace(job.jobId, job.workspaceDir);
     }
-    this.slots.release(job.slotType);
+    if (job.slotAcquired)
+      this.slots.release(job.slotType);
   }
   // ---------------------------------------------------------------------------
   // Private: Persistent agent (role-agnostic)
@@ -17978,6 +17990,7 @@ ${msg.text}`;
     this.activeJobs.set(jobId, {
       jobId,
       slotType,
+      slotAcquired: false,
       sessionName,
       pollTimer: null,
       timeoutTimer: null,
@@ -17985,6 +17998,7 @@ ${msg.text}`;
       startedAt: spawnedAt,
       logPath: "",
       lastBytesSent: 0,
+      lastLifecycleBytesSent: 0,
       role: msg.role,
       attempt: 1,
       maxAttempts: 3,
@@ -18024,12 +18038,25 @@ ${msg.text}`;
     await killTmuxSession(job.sessionName);
     const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
     if (logChunk !== null) {
-      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-        job_id: jobId,
-        chunk: logChunk.chunk
+      const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "tmux",
+        p_chunk: logChunk.chunk
       });
       if (appendErr) {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+    const lifecycleLogPath1 = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const lifecycleChunk1 = readLogFileFrom(lifecycleLogPath1, job.lastLifecycleBytesSent);
+    if (lifecycleChunk1 !== null) {
+      const { error } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "lifecycle",
+        p_chunk: lifecycleChunk1.chunk
+      });
+      if (!error) {
+        job.lastLifecycleBytesSent = lifecycleChunk1.newOffset;
       }
     }
     if (job.worktreePath && job.jobBranch) {
@@ -18044,7 +18071,7 @@ ${msg.text}`;
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
-    if (!stoppedPersistentRole) {
+    if (!stoppedPersistentRole && job.slotAcquired) {
       this.slots.release(job.slotType);
     }
     await this.sendStopAck(jobId);
@@ -18070,14 +18097,27 @@ ${msg.text}`;
       }
       const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
       if (logChunk !== null) {
-        const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-          job_id: jobId,
-          chunk: logChunk.chunk
+        const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+          p_job_id: jobId,
+          p_type: "tmux",
+          p_chunk: logChunk.chunk
         });
         if (appendErr) {
           console.warn(`[executor] Log append failed for jobId=${jobId}: ${appendErr.message}`);
         } else {
           job.lastBytesSent = logChunk.newOffset;
+        }
+      }
+      const lifecycleLogPath2 = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+      const lifecycleChunk2 = readLogFileFrom(lifecycleLogPath2, job.lastLifecycleBytesSent);
+      if (lifecycleChunk2 !== null) {
+        const { error } = await this.supabase.rpc("append_job_log", {
+          p_job_id: jobId,
+          p_type: "lifecycle",
+          p_chunk: lifecycleChunk2.chunk
+        });
+        if (!error) {
+          job.lastLifecycleBytesSent = lifecycleChunk2.newOffset;
         }
       }
       jobLog(jobId, `Still running \u2014 progress=${progress}`);
@@ -18111,12 +18151,25 @@ ${msg.text}`;
     await killTmuxSession(job.sessionName);
     const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
     if (logChunk !== null) {
-      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-        job_id: jobId,
-        chunk: logChunk.chunk
+      const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "tmux",
+        p_chunk: logChunk.chunk
       });
       if (appendErr) {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+    const lifecycleLogPath3 = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const lifecycleChunk3 = readLogFileFrom(lifecycleLogPath3, job.lastLifecycleBytesSent);
+    if (lifecycleChunk3 !== null) {
+      const { error } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "lifecycle",
+        p_chunk: lifecycleChunk3.chunk
+      });
+      if (!error) {
+        job.lastLifecycleBytesSent = lifecycleChunk3.newOffset;
       }
     }
     if (job.worktreePath && job.jobBranch) {
@@ -18131,7 +18184,7 @@ ${msg.text}`;
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
-    if (!timedOutPersistentRole) {
+    if (!timedOutPersistentRole && job.slotAcquired) {
       this.slots.release(job.slotType);
     }
     await this.sendJobFailed(jobId, "Job exceeded 60-minute timeout", "timeout");
@@ -18211,13 +18264,28 @@ ${msg.text}`;
         const exitedPersistentRole2 = [...this.persistentAgents.values()].find((a) => a.jobId === jobId)?.role;
         if (exitedPersistentRole2) {
           this.clearPersistentAgent(exitedPersistentRole2);
-        } else {
+        } else if (job.slotAcquired) {
           this.slots.release(job.slotType);
         }
         const failLogChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
         if (failLogChunk !== null) {
           try {
-            await this.supabase.rpc("append_raw_log", { job_id: jobId, chunk: failLogChunk.chunk });
+            await this.supabase.rpc("append_job_log", { p_job_id: jobId, p_type: "tmux", p_chunk: failLogChunk.chunk });
+          } catch {
+          }
+        }
+        const lifecycleLogPath4 = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+        const lifecycleChunk4 = readLogFileFrom(lifecycleLogPath4, job.lastLifecycleBytesSent);
+        if (lifecycleChunk4 !== null) {
+          try {
+            const { error } = await this.supabase.rpc("append_job_log", {
+              p_job_id: jobId,
+              p_type: "lifecycle",
+              p_chunk: lifecycleChunk4.chunk
+            });
+            if (!error) {
+              job.lastLifecycleBytesSent = lifecycleChunk4.newOffset;
+            }
           } catch {
           }
         }
@@ -18232,7 +18300,7 @@ ${msg.text}`;
     const exitedPersistentRole = [...this.persistentAgents.values()].find((a) => a.jobId === jobId)?.role;
     if (exitedPersistentRole) {
       this.clearPersistentAgent(exitedPersistentRole);
-    } else {
+    } else if (job.slotAcquired) {
       this.slots.release(job.slotType);
     }
     const homeDir = process.env["HOME"] ?? "/tmp";
@@ -18300,12 +18368,25 @@ ${msg.text}`;
     }
     const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
     if (logChunk !== null) {
-      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-        job_id: jobId,
-        chunk: logChunk.chunk
+      const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "tmux",
+        p_chunk: logChunk.chunk
       });
       if (appendErr) {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+    const lifecycleLogPath5 = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const lifecycleChunk5 = readLogFileFrom(lifecycleLogPath5, job.lastLifecycleBytesSent);
+    if (lifecycleChunk5 !== null) {
+      const { error } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "lifecycle",
+        p_chunk: lifecycleChunk5.chunk
+      });
+      if (!error) {
+        job.lastLifecycleBytesSent = lifecycleChunk5.newOffset;
       }
     }
     if (job.worktreePath && job.jobBranch) {
@@ -18348,16 +18429,7 @@ ${msg.text}`;
         console.error(`[executor] PR merge failed for jobId=${jobId}:`, mergeErr);
       }
     }
-    if (result === "VERDICT_MISSING") {
-      jobLog(jobId, `Sending JobFailed (no verdict) \u2014 result="${result}"`);
-      try {
-        await this.sendJobFailed(jobId, result, "unknown");
-        jobLog(jobId, `JobFailed sent successfully`);
-      } catch (sendErr) {
-        jobLog(jobId, `sendJobFailed FAILED: ${String(sendErr)}`);
-        console.error(`[executor] sendJobFailed failed for jobId=${jobId}:`, sendErr);
-      }
-    } else {
+    if (result === "PASSED" || result.startsWith("PASSED:")) {
       jobLog(jobId, `Sending JobComplete \u2014 result="${result}", hasReport=${!!report}`);
       try {
         await this.sendJobComplete(jobId, result, report);
@@ -18365,6 +18437,15 @@ ${msg.text}`;
       } catch (sendErr) {
         jobLog(jobId, `sendJobComplete FAILED: ${String(sendErr)}`);
         console.error(`[executor] sendJobComplete failed for jobId=${jobId}:`, sendErr);
+      }
+    } else {
+      jobLog(jobId, `Sending JobFailed \u2014 result="${result}"`);
+      try {
+        await this.sendJobFailed(jobId, result, "unknown");
+        jobLog(jobId, `JobFailed sent successfully`);
+      } catch (sendErr) {
+        jobLog(jobId, `sendJobFailed FAILED: ${String(sendErr)}`);
+        console.error(`[executor] sendJobFailed failed for jobId=${jobId}:`, sendErr);
       }
     }
     if (this.afterJobComplete) {
@@ -18611,10 +18692,10 @@ ${msg.text}`;
       ...report !== void 0 ? { report } : {}
     });
   }
-  async sendJobFailed(jobId, error, failureReason) {
-    jobLog(jobId, `FAILED \u2014 reason=${failureReason}, error="${error.slice(0, 200)}"`);
+  async sendJobFailed(jobId, result, failureReason) {
+    jobLog(jobId, `FAILED \u2014 reason=${failureReason}, error="${result.slice(0, 200)}"`);
     if (!jobId.startsWith("persistent-")) {
-      const { error: dbErr } = await this.supabase.from("jobs").update({ status: "failed", result: "FAILED" }).eq("id", jobId);
+      const { error: dbErr } = await this.supabase.from("jobs").update({ status: "failed", result }).eq("id", jobId);
       if (dbErr) {
         jobLog(jobId, `DB write FAILED: ${dbErr.message}`);
         console.warn(`[executor] sendJobFailed DB write failed for jobId=${jobId}: ${dbErr.message}`);
@@ -18625,7 +18706,7 @@ ${msg.text}`;
       protocolVersion: PROTOCOL_VERSION,
       jobId,
       machineId: this.machineId,
-      error,
+      error: result,
       failureReason
     });
   }

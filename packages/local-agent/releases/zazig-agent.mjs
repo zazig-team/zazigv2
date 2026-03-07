@@ -18872,13 +18872,18 @@ function buildFixPrompt(job) {
   if (!job.worktreePath) {
     throw new Error("buildFixPrompt requires a worktreePath");
   }
+  let originalSpec = job.spec;
+  try {
+    originalSpec = readFileSync3(join4(job.worktreePath, ".zazig-prompt.txt"), "utf-8");
+  } catch {
+  }
   const reasons = job.fixReasons.length > 0 ? job.fixReasons.map((reason, idx) => `${idx + 1}. ${reason}`).join("\n") : "1. No review reason recorded.";
   const fixPrompt = [
     `Codex review failed for job ${job.jobId}.`,
     `Attempt ${job.attempt} of ${job.maxAttempts}.`,
     "",
     "## Original Spec",
-    job.spec?.trim().length ? job.spec : "No spec provided.",
+    originalSpec?.trim().length ? originalSpec : "No spec provided.",
     "",
     "## Acceptance Criteria",
     job.acceptanceCriteria?.trim().length ? job.acceptanceCriteria : "No acceptance criteria provided.",

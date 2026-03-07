@@ -404,16 +404,13 @@ export class JobExecutor {
     return data.id;
   }
 
-  private async withExpertRosterSection(claudeMdContent: string, companyId?: string): Promise<string> {
-    if (!companyId) return claudeMdContent;
-
+  private async withExpertRosterSection(claudeMdContent: string): Promise<string> {
     const { data, error } = await this.supabase
       .from("expert_roles")
-      .select("name, display_name, description")
-      .eq("company_id", companyId);
+      .select("name, display_name, description");
 
     if (error) {
-      console.warn(`[executor] Failed to load expert_roles for company ${companyId}: ${error.message}`);
+      console.warn(`[executor] Failed to load expert_roles: ${error.message}`);
       return claudeMdContent;
     }
 
@@ -529,7 +526,7 @@ export class JobExecutor {
     // We insert skill file content at the marker position.
     const assembledContext = assembleContext(msg, repoRoot);
     const cpoContext = roleName === "cpo"
-      ? await this.withExpertRosterSection(assembledContext, this.companyId)
+      ? await this.withExpertRosterSection(assembledContext)
       : assembledContext;
 
     console.log(`[executor] Assembled context for jobId=${jobId}:\n${cpoContext}`);
@@ -1116,7 +1113,7 @@ export class JobExecutor {
       const mcpServerPath = resolveMcpServerPath();
       const assembledContext = assembleContext(msg, repoRoot);
       const claudeMdContent = role === "cpo"
-        ? await this.withExpertRosterSection(assembledContext, resolvedCompanyId)
+        ? await this.withExpertRosterSection(assembledContext)
         : assembledContext;
 
       setupJobWorkspace({

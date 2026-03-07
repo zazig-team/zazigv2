@@ -232,7 +232,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { data: roleData, error: roleErr } = await supabase
       .from("expert_roles")
       .select("id, name, display_name, model, prompt, skills, mcp_tools, settings_overrides")
-      .eq("company_id", companyId)
       .eq("name", roleName)
       .maybeSingle();
 

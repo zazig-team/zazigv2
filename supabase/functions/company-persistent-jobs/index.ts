@@ -117,6 +117,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
       (p: { name: string; repo_url: string | null }) =>
         `- **${p.name}**${p.repo_url ? ` — ${p.repo_url}` : ""}`
     );
+    const repoLines = (projects ?? []).flatMap((p: { name: string }) => [
+      `**${p.name}**`,
+      ``,
+      `Browse code: \`./repos/${p.name}/\` (master)`,
+      ``,
+      `Branch investigation (diffs, logs, specific files on other branches):`,
+      `  git -C ~/.zazigv2/repos/${p.name} log master..{branch}`,
+      `  git -C ~/.zazigv2/repos/${p.name} show {branch}:path/to/file`,
+      ``,
+    ]);
+    const localReposSection = [
+      `### Local Repos`,
+      ``,
+      ...repoLines,
+    ];
     const companyContext = [
       `## Company Context`,
       ``,
@@ -125,6 +140,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       ...(projectLines.length > 0
         ? [`### Projects`, ``, ...projectLines]
         : [`No projects configured yet.`]),
+      ``,
+      ...localReposSection,
       ``,
       `When referencing project repos, use relative paths within the repo — never absolute paths to other users' machines.`,
     ].join("\n");

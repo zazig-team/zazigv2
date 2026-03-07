@@ -285,7 +285,7 @@ describe("JobExecutor — progress integration", () => {
     );
     readFileSyncMock.mockImplementation((path: unknown) => {
       if (typeof path === "string" && (path.endsWith("-pipe-pane.log") || path.endsWith("-pre-post.log"))) {
-        return "log-line-1\n";
+        return Buffer.from("log-line-1\n");
       }
       if (typeof path === "string" && path.endsWith(".json")) {
         return JSON.stringify({ permissions: { allow: [] } });

@@ -16,7 +16,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync, appendFileSync, createWriteStream } from "node:fs";
+import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync, symlinkSync, appendFileSync, createWriteStream } from "node:fs";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -167,6 +167,26 @@ function ensureRoleSkills(role: string, roleSkills?: string[]): string[] | undef
   return normalized.length > 0 ? normalized : undefined;
 }
 
+interface CompanyProjectContext {
+  name: string;
+  repo_url: string | null;
+}
+
+function normalizeCompanyProjects(raw: unknown): CompanyProjectContext[] {
+  if (!Array.isArray(raw)) return [];
+
+  const normalized: CompanyProjectContext[] = [];
+  for (const project of raw) {
+    if (!project || typeof project !== "object") continue;
+    const name = (project as { name?: unknown }).name;
+    const repoUrl = (project as { repo_url?: unknown }).repo_url;
+    if (typeof name !== "string" || name.trim().length === 0) continue;
+    if (repoUrl !== null && (typeof repoUrl !== "string" || repoUrl.trim().length === 0)) continue;
+    normalized.push({ name: name.trim(), repo_url: repoUrl ?? null });
+  }
+  return normalized;
+}
+
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -245,7 +265,12 @@ export interface PersistentAgentJobDefinition {
   model: string;
   slot_type: string;
   mcp_tools?: string[];
+  projects?: CompanyProjectContext[];
 }
+
+type PersistentStartJob = StartJob & {
+  companyProjects?: CompanyProjectContext[];
+};
 
 export interface QueuedMessage {
   text: string;
@@ -413,6 +438,29 @@ export class JobExecutor {
     ].join("\n");
 
     return `${claudeMdContent}${rosterSection}`;
+  }
+
+  private async resolvePersistentProjects(msg: PersistentStartJob, companyId: string): Promise<CompanyProjectContext[]> {
+    const fromMessage = normalizeCompanyProjects(msg.companyProjects);
+    if (fromMessage.length > 0) {
+      return fromMessage;
+    }
+    if (!companyId) {
+      return [];
+    }
+
+    const { data, error } = await this.supabase
+      .from("projects")
+      .select("name, repo_url")
+      .eq("company_id", companyId)
+      .eq("status", "active");
+
+    if (error) {
+      console.warn(`[executor] Failed to load projects for persistent agent company ${companyId}: ${error.message}`);
+      return [];
+    }
+
+    return normalizeCompanyProjects(data);
   }
 
   // ---------------------------------------------------------------------------
@@ -752,12 +800,13 @@ export class JobExecutor {
       promptStackMinusSkills: job.prompt_stack_minus_skills,
       roleSkills: job.skills?.length ? job.skills : undefined,
       roleMcpTools: job.mcp_tools?.length ? job.mcp_tools : undefined,
+      companyProjects: job.projects?.length ? job.projects : undefined,
     };
 
     // Persistent agents don't consume slots — they run alongside dispatched jobs.
     await this.handlePersistentJob(
       `persistent-${job.role}`,
-      syntheticMsg as StartJob,
+      syntheticMsg as PersistentStartJob,
       syntheticMsg.slotType,
       companyId,
     );
@@ -1053,7 +1102,7 @@ export class JobExecutor {
    * with a .mcp.json that gives the agent access to the zazig-messaging MCP server.
    * CLAUDE.md content comes from assembleContext(msg) (promptStackMinusSkills with skills inserted).
    */
-  private async handlePersistentJob(jobId: string, msg: StartJob, slotType: SlotType, companyId?: string): Promise<void> {
+  private async handlePersistentJob(jobId: string, msg: PersistentStartJob, slotType: SlotType, companyId?: string): Promise<void> {
     const role = msg.role ?? "agent";
     const roleSkills = ensureRoleSkills(role, msg.roleSkills);
     const resolvedCompanyId = companyId ?? process.env["ZAZIG_COMPANY_ID"] ?? "";
@@ -1090,6 +1139,21 @@ export class JobExecutor {
 
       if (role === "cpo") {
         await writeSubagentsConfig(workspaceDir);
+      }
+
+      const projects = await this.resolvePersistentProjects(msg, resolvedCompanyId);
+      const reposDir = join(workspaceDir, "repos");
+      mkdirSync(reposDir, { recursive: true });
+      for (const project of projects) {
+        if (!project.repo_url) {
+          console.warn(`[executor] Persistent agent repo link skipped for project=${project.name}: missing repo_url`);
+          continue;
+        }
+        await this.repoManager.ensureRepo(project.repo_url, project.name);
+        const worktreeDir = await this.repoManager.ensureWorktree(project.name);
+        const projectLinkPath = join(reposDir, project.name);
+        rmSync(projectLinkPath, { force: true, recursive: true });
+        symlinkSync(worktreeDir, projectLinkPath);
       }
 
       // --- Write prompt freshness metadata for SessionStart hook ---

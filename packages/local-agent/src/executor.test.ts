@@ -31,6 +31,7 @@ vi.mock("node:fs", () => ({
   mkdirSync: vi.fn(),
   writeFileSync: vi.fn(),
   rmSync: vi.fn(),
+  symlinkSync: vi.fn(),
 }));
 
 vi.mock("node:util", () => ({
@@ -45,7 +46,7 @@ let lastRepoManagerInstance: any;
 vi.mock("./branches.js", () => {
   class MockRepoManager {
     ensureRepo = vi.fn().mockResolvedValue("/tmp/mock-repo");
-    ensureWorktree = vi.fn().mockResolvedValue("/tmp/mock-repo-worktree");
+    ensureWorktree = vi.fn().mockResolvedValue("/tmp/mock-worktree-shared");
     ensureFeatureBranch = vi.fn().mockResolvedValue(undefined);
     createJobWorktree = vi.fn().mockResolvedValue({
       worktreePath: "/tmp/mock-worktree",
@@ -63,6 +64,7 @@ vi.mock("./branches.js", () => {
 
 vi.mock("./workspace.js", () => ({
   setupJobWorkspace: vi.fn(),
+  writeSubagentsConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
 // ---------------------------------------------------------------------------
@@ -424,6 +426,55 @@ describe("JobExecutor — slot reconciliation", () => {
 
     expect(supabase.selectInCalls.length).toBe(0);
     expect(slots.getAvailable().claude_code).toBe(1); // persistent agents don't consume slots
+  });
+
+  it("creates persistent workspace repo symlinks from company projects", async () => {
+    const mkdirSyncMock = fsModule.mkdirSync as unknown as Mock;
+    const rmSyncMock = fsModule.rmSync as unknown as Mock;
+    const symlinkSyncMock = fsModule.symlinkSync as unknown as Mock;
+    const persistentJob = {
+      ...makeStartJob({
+        jobId: "persistent-cpo-links",
+        role: "cpo",
+        cardType: "persistent_agent",
+      }),
+      companyProjects: [
+        { name: "alpha", repo_url: "https://github.com/test/alpha.git" },
+      ],
+    } as StartJob & {
+      companyProjects: Array<{ name: string; repo_url: string }>;
+    };
+
+    await executor.handleStartJob(persistentJob as StartJob);
+
+    expect(lastRepoManagerInstance.ensureRepo).toHaveBeenCalledWith(
+      "https://github.com/test/alpha.git",
+      "alpha",
+    );
+    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenCalledWith("alpha");
+    const madeReposDir = mkdirSyncMock.mock.calls.some((call: unknown[]) =>
+      typeof call[0] === "string"
+      && (call[0] as string).endsWith("/repos")
+      && !!call[1]
+      && typeof call[1] === "object"
+      && (call[1] as { recursive?: unknown }).recursive === true
+    );
+    const removedRepoLink = rmSyncMock.mock.calls.some((call: unknown[]) =>
+      typeof call[0] === "string"
+      && (call[0] as string).endsWith("/repos/alpha")
+      && !!call[1]
+      && typeof call[1] === "object"
+      && (call[1] as { force?: unknown; recursive?: unknown }).force === true
+      && (call[1] as { force?: unknown; recursive?: unknown }).recursive === true
+    );
+    const linkedRepo = symlinkSyncMock.mock.calls.some((call: unknown[]) =>
+      call[0] === "/tmp/mock-worktree-shared"
+      && typeof call[1] === "string"
+      && (call[1] as string).endsWith("/repos/alpha")
+    );
+    expect(madeReposDir).toBe(true);
+    expect(removedRepoLink).toBe(true);
+    expect(linkedRepo).toBe(true);
   });
 
   it("handles reconciliation query failures without releasing slots", async () => {

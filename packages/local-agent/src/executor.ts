@@ -2430,6 +2430,11 @@ function buildFixPrompt(job: ActiveJob): string {
     throw new Error("buildFixPrompt requires a worktreePath");
   }
 
+  let originalSpec = job.spec;
+  try {
+    originalSpec = readFileSync(join(job.worktreePath, ".zazig-prompt.txt"), "utf-8");
+  } catch { /* fall back to job.spec */ }
+
   const reasons = job.fixReasons.length > 0
     ? job.fixReasons.map((reason, idx) => `${idx + 1}. ${reason}`).join("\n")
     : "1. No review reason recorded.";
@@ -2439,7 +2444,7 @@ function buildFixPrompt(job: ActiveJob): string {
     `Attempt ${job.attempt} of ${job.maxAttempts}.`,
     "",
     "## Original Spec",
-    job.spec?.trim().length ? job.spec : "No spec provided.",
+    originalSpec?.trim().length ? originalSpec : "No spec provided.",
     "",
     "## Acceptance Criteria",
     job.acceptanceCriteria?.trim().length ? job.acceptanceCriteria : "No acceptance criteria provided.",

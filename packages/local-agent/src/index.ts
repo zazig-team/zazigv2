@@ -38,11 +38,12 @@ process.on("uncaughtException", (err) => {
 import { loadConfig } from "./config.js";
 import { SlotTracker } from "./slots.js";
 import { AgentConnection } from "./connection.js";
-import { JobExecutor, type PersistentAgentJobDefinition } from "./executor.js";
+import { JobExecutor, type CompanyProject, type PersistentAgentJobDefinition } from "./executor.js";
 import { ExpertSessionManager } from "./expert-session-manager.js";
 import { FixAgentManager } from "./fix-agent.js";
 import { recoverDispatchedJobs } from "./job-recovery.js";
 import { JobVerifier } from "./verifier.js";
+import { RepoManager } from "./branches.js";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import type { OrchestratorMessage, MessageInbound, DaemonShutdownNotification, StartExpertMessage } from "@zazigv2/shared";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -300,7 +301,7 @@ async function fetchPersistentAgentDefinitions(
   supabaseUrl: string,
   anonKey: string,
   companyId: string,
-): Promise<PersistentAgentJobDefinition[]> {
+): Promise<{ jobs: PersistentAgentJobDefinition[]; companyProjects: CompanyProject[] }> {
   // Edge Functions gateway verifies JWTs using the project's HS256 secret.
   // The Supabase Auth JWT (ES256) won't pass this check — use the anon key
   // as the Bearer token instead (it IS an HS256 JWT the gateway accepts).
@@ -320,12 +321,43 @@ async function fetchPersistentAgentDefinitions(
     );
   }
 
-  const jobs = (await res.json()) as unknown;
-  if (!Array.isArray(jobs)) {
-    throw new Error("Persistent jobs endpoint returned non-array JSON");
+  const payload = (await res.json()) as unknown;
+  if (Array.isArray(payload)) {
+    return { jobs: payload as PersistentAgentJobDefinition[], companyProjects: [] };
   }
 
-  return jobs as PersistentAgentJobDefinition[];
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Persistent jobs endpoint returned invalid JSON payload");
+  }
+
+  const body = payload as Record<string, unknown>;
+  const jobs =
+    Array.isArray(body["jobs"]) ? body["jobs"] :
+    Array.isArray(body["persistent_jobs"]) ? body["persistent_jobs"] :
+    Array.isArray(body["persistentJobs"]) ? body["persistentJobs"] :
+    [];
+
+  const projects =
+    Array.isArray(body["company_projects"]) ? body["company_projects"] :
+    Array.isArray(body["companyProjects"]) ? body["companyProjects"] :
+    Array.isArray(body["projects"]) ? body["projects"] :
+    [];
+
+  const companyProjects: CompanyProject[] = [];
+  for (const project of projects) {
+    if (!project || typeof project !== "object") continue;
+    const record = project as Record<string, unknown>;
+    const name = typeof record["name"] === "string" ? record["name"] : "";
+    const repoUrl =
+      typeof record["repo_url"] === "string" ? record["repo_url"] :
+      typeof record["repoUrl"] === "string" ? record["repoUrl"] :
+      "";
+
+    if (!name || !repoUrl) continue;
+    companyProjects.push({ name, repo_url: repoUrl });
+  }
+
+  return { jobs: jobs as PersistentAgentJobDefinition[], companyProjects };
 }
 
 async function discoverAndSpawnPersistentAgents(
@@ -335,9 +367,22 @@ async function discoverAndSpawnPersistentAgents(
   executor: JobExecutor,
 ): Promise<void> {
   try {
-    const jobs = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+    const { jobs, companyProjects } = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
 
     console.log(`[local-agent] Discovered ${jobs.length} persistent agent(s) for company ${companyId}`);
+    console.log(`[local-agent] Discovered ${companyProjects.length} project repo(s) for company ${companyId}`);
+
+    const repoManager = new RepoManager();
+    for (const project of companyProjects) {
+      try {
+        await repoManager.ensureRepo(project.repo_url, project.name);
+        await repoManager.ensureWorktree(project.name);
+      } catch (err) {
+        console.error(`[local-agent] Failed to initialize worktree for project ${project.name}:`, err);
+      }
+    }
+
+    executor.setCompanyProjects(companyProjects);
 
     for (const job of jobs) {
       await executor.spawnPersistentAgent(job, companyId);
@@ -381,7 +426,7 @@ function subscribeToRolePromptHotReload(
           inFlightRoles.add(role);
 
           try {
-            const jobs = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+            const { jobs } = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
             const refreshed = jobs.find((job) => job.role === role);
             if (!refreshed) {
               console.log(

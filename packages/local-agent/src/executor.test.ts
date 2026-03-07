@@ -129,12 +129,12 @@ function makeMockSupabase() {
         return { eq: eqFn };
       }),
       upsert: vi.fn(() => Promise.resolve({ error: null, data: null })),
-      select: vi.fn((columns: string) => ({
-        eq: vi.fn(() => {
-          if (table === "expert_roles" && columns === "name, display_name, description") {
-            return Promise.resolve(expertRolesResult);
-          }
-          return {
+      select: vi.fn((columns: string) => {
+        if (table === "expert_roles" && columns === "name, display_name, description") {
+          return Promise.resolve(expertRolesResult);
+        }
+        return {
+          eq: vi.fn(() => ({
             eq: vi.fn(() => ({
               single: vi.fn(() => Promise.resolve({ data: null, error: null })),
             })),
@@ -142,13 +142,13 @@ function makeMockSupabase() {
             not: vi.fn(() => ({
               limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
             })),
-          };
-        }),
-        in: vi.fn((inColumn: string, inValues: string[]) => {
-          selectInCalls.push({ table, columns, inColumn, inValues: [...inValues] });
-          return Promise.resolve(inResult);
-        }),
-      })),
+          })),
+          in: vi.fn((inColumn: string, inValues: string[]) => {
+            selectInCalls.push({ table, columns, inColumn, inValues: [...inValues] });
+            return Promise.resolve(inResult);
+          }),
+        };
+      }),
     };
     return chain;
   };

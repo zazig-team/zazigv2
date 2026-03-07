@@ -267,6 +267,46 @@ describe("JobExecutor — progress integration", () => {
     expect(values[1]).toBeLessThanOrEqual(values[2]!);
   });
 
+  it("flushes tmux and lifecycle logs via append_job_log RPC with new parameters", async () => {
+    const existsSyncMock = fsModule.existsSync as unknown as Mock;
+    const readFileSyncMock = fsModule.readFileSync as unknown as Mock;
+    existsSyncMock.mockImplementation((path: unknown) =>
+      typeof path === "string" && (path.endsWith("-pipe-pane.log") || path.endsWith("-pre-post.log"))
+    );
+    readFileSyncMock.mockImplementation((path: unknown) => {
+      if (typeof path === "string" && (path.endsWith("-pipe-pane.log") || path.endsWith("-pre-post.log"))) {
+        return "log-line-1\n";
+      }
+      if (typeof path === "string" && path.endsWith(".json")) {
+        return JSON.stringify({ permissions: { allow: [] } });
+      }
+      return "status: pass\nsummary: Job completed.";
+    });
+
+    await executor.handleStartJob(makeStartJob());
+    const rpcMock = (supabase.client as { rpc: Mock }).rpc;
+    rpcMock.mockClear();
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    const appendCalls = rpcMock.mock.calls.filter((call: unknown[]) => call[0] === "append_job_log");
+    expect(appendCalls.some((call: unknown[]) => {
+      const params = call[1] as Record<string, unknown>;
+      return params.p_job_id === "job-001"
+        && params.p_type === "tmux"
+        && typeof params.p_chunk === "string"
+        && (params.p_chunk as string).length > 0;
+    })).toBe(true);
+    expect(appendCalls.some((call: unknown[]) => {
+      const params = call[1] as Record<string, unknown>;
+      return params.p_job_id === "job-001"
+        && params.p_type === "lifecycle"
+        && typeof params.p_chunk === "string"
+        && (params.p_chunk as string).length > 0;
+    })).toBe(true);
+    expect(rpcMock.mock.calls.some((call: unknown[]) => call[0] === "append_raw_log")).toBe(false);
+  });
+
   it("sets progress: 100 in sendJobComplete when session ends", async () => {
     await executor.handleStartJob(makeStartJob());
     supabase.calls.length = 0;

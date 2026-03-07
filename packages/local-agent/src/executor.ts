@@ -195,6 +195,7 @@ function normalizeCompanyProjects(raw: unknown): CompanyProjectContext[] {
 interface ActiveJob {
   jobId: string;
   slotType: SlotType;
+  slotAcquired: boolean;
   sessionName: string;
   pollTimer: ReturnType<typeof setInterval> | null;
   timeoutTimer: ReturnType<typeof setTimeout> | null;
@@ -503,15 +504,13 @@ export class JobExecutor {
       return;
     }
 
-    // --- 1. Acquire slot (throws if none available) ---
-    try {
-      this.slots.acquire(slotType);
+    // --- 1. Acquire slot (soft — never reject a dispatched job) ---
+    const slotAcquired = this.slots.tryAcquire(slotType);
+    if (slotAcquired) {
       jobLog(jobId, `Slot acquired: ${slotType}`);
-    } catch (err) {
-      jobLog(jobId, `FAILED no slot available: ${String(err)}`);
-      console.error(`[executor] No slot available for jobId=${jobId}:`, err);
-      await this.sendJobFailed(jobId, `No available slot: ${String(err)}`, "unknown");
-      return;
+    } else {
+      jobLog(jobId, `WARN slot overcommit: running despite no free ${slotType} slot`);
+      console.warn(`[executor] Slot overcommit for jobId=${jobId} — running anyway (${slotType})`);
     }
 
     // --- 2. Send JobAck immediately to confirm delivery ---
@@ -592,7 +591,7 @@ export class JobExecutor {
     } catch (err) {
       jobLog(jobId, `FAILED to prepare workspace: ${String(err)}`);
       console.error(`[executor] Failed to prepare workspace for jobId=${jobId}:`, err);
-      this.slots.release(slotType);
+      if (slotAcquired) this.slots.release(slotType);
       await this.sendJobFailed(jobId, `Failed to prepare workspace: ${String(err)}`, "agent_crash");
       return;
     }
@@ -696,7 +695,7 @@ export class JobExecutor {
     } catch (err) {
       console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
       await cleanupPreparedWorkspace();
-      this.slots.release(slotType);
+      if (slotAcquired) this.slots.release(slotType);
       await this.sendJobFailed(jobId, `Failed to start tmux session: ${String(err)}`, "agent_crash");
       return;
     }
@@ -705,6 +704,7 @@ export class JobExecutor {
     const activeJob: ActiveJob = {
       jobId,
       slotType,
+      slotAcquired,
       sessionName,
       pollTimer: null,
       timeoutTimer: null,
@@ -956,7 +956,7 @@ export class JobExecutor {
       } else {
         cleanupJobWorkspace(job.jobId, job.workspaceDir);
       }
-      this.slots.release(job.slotType);
+      if (job.slotAcquired) this.slots.release(job.slotType);
     }
     this.activeJobs.clear();
   }
@@ -1083,7 +1083,7 @@ export class JobExecutor {
       cleanupJobWorkspace(job.jobId, job.workspaceDir);
     }
 
-    this.slots.release(job.slotType);
+    if (job.slotAcquired) this.slots.release(job.slotType);
   }
 
   // ---------------------------------------------------------------------------
@@ -1280,6 +1280,7 @@ export class JobExecutor {
     this.activeJobs.set(jobId, {
       jobId,
       slotType,
+      slotAcquired: false,
       sessionName,
       pollTimer: null,
       timeoutTimer: null,
@@ -1382,7 +1383,7 @@ export class JobExecutor {
     }
 
     // Release the slot (persistent agents don't consume slots)
-    if (!stoppedPersistentRole) {
+    if (!stoppedPersistentRole && job.slotAcquired) {
       this.slots.release(job.slotType);
     }
 
@@ -1526,7 +1527,7 @@ export class JobExecutor {
     }
 
     // Only release slot for non-persistent jobs
-    if (!timedOutPersistentRole) {
+    if (!timedOutPersistentRole && job.slotAcquired) {
       this.slots.release(job.slotType);
     }
     await this.sendJobFailed(jobId, "Job exceeded 60-minute timeout", "timeout");
@@ -1633,7 +1634,7 @@ export class JobExecutor {
         const exitedPersistentRole = [...this.persistentAgents.values()].find(a => a.jobId === jobId)?.role;
         if (exitedPersistentRole) {
           this.clearPersistentAgent(exitedPersistentRole);
-        } else {
+        } else if (job.slotAcquired) {
           this.slots.release(job.slotType);
         }
 
@@ -1674,7 +1675,7 @@ export class JobExecutor {
     const exitedPersistentRole = [...this.persistentAgents.values()].find(a => a.jobId === jobId)?.role;
     if (exitedPersistentRole) {
       this.clearPersistentAgent(exitedPersistentRole);
-    } else {
+    } else if (job.slotAcquired) {
       // Only release slot for non-persistent jobs
       this.slots.release(job.slotType);
     }

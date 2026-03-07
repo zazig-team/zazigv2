@@ -15,6 +15,8 @@
 | 2026-03-05 | WebUI all-zeros diagnosis | Chased auth token race conditions, JWT expiry, Promise.all vs allSettled — none were the root cause. The real issue was a deploy config problem (verify_jwt). | When edge functions fail from browser but work via curl, first check the function's `verify_jwt` setting. Don't assume code-level auth bugs. |
 | 2026-03-06 | Pipeline empty columns | Told user Proposal/Complete empty was "correct" without investigating deeply enough. User knew features should be there. Turned out 7 features were bulk-failed at 2026-03-05 01:15 UTC by an unknown process (no events logged). | When user says data is missing, investigate the DB history (updated_at timestamps, event logs) before concluding it's "by design". Unexplained bulk state changes = incident, not normal. |
 | 2026-03-06 | Triage card colors | Changed triage column dot color but forgot to change triage card accent strips — they still used `ideaAccentColor()` which returned amber for idea-type items. | When changing column colors, update both the column header dot AND the card accent strips. Test visually after deploying. |
+| 2026-03-07 | Ideas table columns | Used `body` column name — doesn't exist. Correct column is `raw_text`. | Query an existing row first (`SELECT * FROM ideas LIMIT 1`) before assuming column names. |
+| 2026-03-07 | Ideas source constraint | Used `human` as source value — not valid. CHECK constraint allows: `terminal, slack, telegram, agent, web, api, monitoring`. | Always check CHECK constraints before inserting. Use `web` for human-originated ideas. |
 
 ## User Preferences
 - TypeScript for both orchestrator and local agent
@@ -22,6 +24,8 @@
 - Job queue lives in Supabase Postgres (not Trello)
 - Trello for project/task management — full API access via Doppler (zazig/prd). Using "Trello Lite" pattern.
 - Credential scrubbing must be built in from day one
+- Very visual — prefers interactive visualizations (tech trees, diagrams) over text-based status reports
+- Prefers relational tables over JSONB columns for queryable data (chose `machine_backends` table over JSONB on machines)
 
 ## Codebase Gotchas
 - Spelling: "canons" not "cannons", "Zazig" not "ZeZig/Zezig", "pillar" not "lens", "Supabase" not "SuperBase/super base"
@@ -49,6 +53,8 @@
 
 ## Patterns That Don't Work
 - Assuming pipeline columns are empty = bug. Check the DB first — `refresh_pipeline_snapshot` RPC excludes `complete` and `cancelled` from `features_by_status` (they go to `completed_features` → Shipped). Empty columns may be genuinely empty.
+- Embedding live file reads into static HTML (file:// protocol blocks fetch). Bake content in as static data instead.
+- Trying to read 20+ design docs into context at once — hits token limits. Summarize and embed.
 
 ## Design Doc Patterns
 - Design docs in `docs/plans/` are organized by status: `active/`, `shipped/`, `archived/`, `parked/`
@@ -91,6 +97,15 @@
 - Ideas have many unused columns: `scope`, `complexity`, `domain`, `autonomy`, `tags`, `flags`, `clarification_notes`, `source`, `source_ref`, `suggested_exec`, `project_id`
 - Features have unused columns: `error` (failure reason), `human_checklist`
 - Jobs have unused columns: `rejection_feedback`, `blocked_reason`, `verify_context`
+
+## Active Design Docs
+- Model & Subscription Flexibility: `docs/plans/active/2026-03-06-model-flexibility-design.md` — decouples roles from hardcoded models, introduces `machine_backends` table, Backend interface, runtime probing, model preference chains
+- Tech tree visualization: `packages/webui/public/tech-tree.html` — static Civ-style tech tree showing all mega-projects, dependencies, swim lanes. Needs manual update when projects change.
+
+## Doc Reorganization (2026-03-07)
+- Shipped: idea-to-job-pipeline-design, terminal-first-cpo (design + plan + cards), dashboard-intake-pipeline-spec, detail-panels-reimplementation
+- Archived: persistent-agent-bootstrap-parity-proposal
+- Parked: modular-prompt-architecture-proposal
 
 ## Domain Notes
 - Replaces zazig v1's VP-Eng, Supervisor, watchdog, and launch scripts

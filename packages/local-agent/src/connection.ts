@@ -14,17 +14,21 @@
 
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
 import WebSocket from "ws";
+import { execFile } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { HEARTBEAT_INTERVAL_MS, PROTOCOL_VERSION, isOrchestratorMessage } from "@zazigv2/shared";
 import { jobLog } from "./executor.js";
 import type { OrchestratorMessage, Heartbeat, AgentMessage } from "@zazigv2/shared";
 import type { MachineConfig } from "./config.js";
 import type { SlotTracker } from "./slots.js";
 import { recoverDispatchedJobs } from "./job-recovery.js";
+import pkg from "../package.json" assert { type: "json" };
 
 const CREDENTIALS_PATH = join(homedir(), ".zazigv2", "credentials.json");
+const execFileAsync = promisify(execFile);
 
 // Backoff constants
 const BACKOFF_BASE_MS = 1_000;
@@ -54,6 +58,9 @@ export class AgentConnection {
   private reconnectAttempts = 0;
   private stopped = false;
   private isRecoveryRunning = false;
+  private outdated = false;
+  private outdatedWarningTimer: ReturnType<typeof setInterval> | null = null;
+  private outdatedExitPollTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(config: MachineConfig, slots: SlotTracker) {
     this.config = config;
@@ -220,6 +227,8 @@ export class AgentConnection {
     this.stopped = true;
     this.clearReconnectTimer();
     this.clearHeartbeatTimer();
+    this.clearOutdatedWarningTimer();
+    this.clearOutdatedExitPollTimer();
     if (this.outChannel) {
       await this.supabase.removeChannel(this.outChannel);
       this.outChannel = null;
@@ -378,6 +387,13 @@ export class AgentConnection {
       return;
     }
 
+    if (this.outdated && (payload.type === "start_job" || payload.type === "start_expert")) {
+      console.warn(
+        `[local-agent] Ignoring ${payload.type} while agent is outdated and awaiting upgrade`
+      );
+      return;
+    }
+
     console.log(`[local-agent] Received message: type=${payload.type}`, JSON.stringify(payload));
 
     // Log to per-job file immediately so every message is traceable from arrival
@@ -431,6 +447,7 @@ export class AgentConnection {
       last_heartbeat: new Date().toISOString(),
       slots_claude_code: slotsAvailable.claude_code,
       slots_codex: slotsAvailable.codex,
+      agent_version: pkg.version,
     };
 
     let failures = 0;
@@ -465,6 +482,7 @@ export class AgentConnection {
       status: "online",
       slots_claude_code: slotsAvailable.claude_code,
       slots_codex: slotsAvailable.codex,
+      agent_version: pkg.version,
     };
 
     let dbErr: Error | null = null;
@@ -485,6 +503,25 @@ export class AgentConnection {
 
     if (dbErr) {
       console.warn(`[local-agent] Heartbeat DB write failed: ${dbErr.message}`);
+    }
+
+    const env = process.env["ZAZIG_ENV"] ?? "production";
+    try {
+      const { data: latestVersion, error: latestVersionErr } = await this.dbClient
+        .from("agent_versions")
+        .select("version")
+        .eq("env", env)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (latestVersionErr) {
+        console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${latestVersionErr.message}`);
+      } else if (latestVersion && latestVersion.version !== pkg.version) {
+        this.onOutdatedDetected(pkg.version, latestVersion.version);
+      }
+    } catch (err) {
+      console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${String(err)}`);
     }
 
     // Secondary: also broadcast via Realtime (for orchestrator live monitoring)
@@ -529,6 +566,109 @@ export class AgentConnection {
         console.warn(`[local-agent] Job recovery poll failed:`, err);
       } finally {
         this.isRecoveryRunning = false;
+      }
+    }
+  }
+
+  private onOutdatedDetected(currentVersion: string, requiredVersion: string): void {
+    if (this.outdated) return;
+    this.outdated = true;
+
+    const warningMessage =
+      `\n⚠️  UPDATE REQUIRED: running v${currentVersion}, latest is v${requiredVersion}. Run 'zazig update' to update.\n`;
+    const emitWarning = (): void => {
+      process.stderr.write(warningMessage);
+    };
+
+    emitWarning();
+    this.outdatedWarningTimer = setInterval(() => {
+      emitWarning();
+    }, 60_000);
+
+    void this.closeOutdatedInteractiveSessions();
+    this.startOutdatedExitPolling();
+  }
+
+  private clearOutdatedWarningTimer(): void {
+    if (this.outdatedWarningTimer !== null) {
+      clearInterval(this.outdatedWarningTimer);
+      this.outdatedWarningTimer = null;
+    }
+  }
+
+  private clearOutdatedExitPollTimer(): void {
+    if (this.outdatedExitPollTimer !== null) {
+      clearInterval(this.outdatedExitPollTimer);
+      this.outdatedExitPollTimer = null;
+    }
+  }
+
+  private getActiveJobCount(): number {
+    const available = this.slots.getAvailable();
+    const activeClaudeJobs = Math.max(0, this.config.slots.claude_code - available.claude_code);
+    const activeCodexJobs = Math.max(0, this.config.slots.codex - available.codex);
+    return activeClaudeJobs + activeCodexJobs;
+  }
+
+  private startOutdatedExitPolling(): void {
+    if (this.outdatedExitPollTimer !== null) return;
+    if (process.env["ZAZIG_EXIT_ON_OUTDATED"] !== "1") {
+      console.warn("[local-agent] Outdated agent detected; auto-exit disabled (set ZAZIG_EXIT_ON_OUTDATED=1 to enable)");
+      return;
+    }
+
+    const maybeExit = (): void => {
+      const activeJobs = this.getActiveJobCount();
+      if (activeJobs > 0) {
+        console.warn(`[local-agent] Outdated agent waiting for ${activeJobs} active job(s) to complete`);
+        return;
+      }
+
+      this.clearOutdatedExitPollTimer();
+      console.warn("[local-agent] Outdated agent has no active jobs — exiting for update");
+      void this.stop().finally(() => {
+        process.exit(0);
+      });
+    };
+
+    maybeExit();
+    this.outdatedExitPollTimer = setInterval(maybeExit, 15_000);
+  }
+
+  private async closeOutdatedInteractiveSessions(): Promise<void> {
+    let sessions: string[] = [];
+    try {
+      const { stdout } = await execFileAsync("tmux", ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
+      sessions = stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+    } catch (err) {
+      console.warn(`[local-agent] Could not enumerate tmux sessions while outdated: ${String(err)}`);
+      return;
+    }
+
+    const companyPrefixes = new Set<string>();
+    if (this.primaryCompanyId) companyPrefixes.add(this.primaryCompanyId.slice(0, 8));
+    for (const companyId of this.companyIds) {
+      companyPrefixes.add(companyId.slice(0, 8));
+    }
+
+    const targets = sessions.filter((sessionName) => {
+      if (sessionName.startsWith("expert-")) return true;
+      if (sessionName === `${this.machineId}-cpo`) return true;
+      for (const prefix of companyPrefixes) {
+        if (sessionName === `${this.machineId}-${prefix}-cpo`) return true;
+      }
+      return false;
+    });
+
+    for (const sessionName of targets) {
+      try {
+        await execFileAsync("tmux", ["kill-session", "-t", sessionName], { encoding: "utf8" });
+        console.warn(`[local-agent] Closed interactive tmux session while outdated: ${sessionName}`);
+      } catch (err) {
+        console.warn(`[local-agent] Failed to close tmux session ${sessionName}: ${String(err)}`);
       }
     }
   }

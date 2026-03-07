@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -210,6 +210,39 @@ export class RepoManager {
   }
 
   /**
+   * Ensure a shared worktree for the project exists and is checked out on master.
+   * If an existing worktree is corrupted, remove and recreate it.
+   */
+  async ensureWorktree(projectName: string): Promise<string> {
+    const bareDir = join(REPOS_BASE, projectName);
+    const worktreeDir = join(REPOS_BASE, `${projectName}-worktree`);
+
+    return this.withLock(bareDir, async () => {
+      if (existsSync(worktreeDir)) {
+        const isValid = await this.isValidWorktree(worktreeDir);
+        if (!isValid) {
+          rmSync(worktreeDir, { recursive: true, force: true });
+          await git(bareDir, "worktree", "prune");
+        }
+      }
+
+      if (!existsSync(worktreeDir)) {
+        await git(bareDir, "worktree", "add", worktreeDir, "master");
+      } else {
+        // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
+        // That's expected — diverged branches are intentionally protected. The other
+        // branches are still updated, so we log and continue.
+        try { await git(bareDir, "fetch", "origin"); } catch (e) {
+          console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
+        }
+        await git(worktreeDir, "reset", "--hard", "origin/master");
+      }
+
+      return worktreeDir;
+    });
+  }
+
+  /**
    * Resolve the default branch in a bare repo.
    * Tries symbolic-ref HEAD first, then falls back to common names.
    */
@@ -234,6 +267,15 @@ export class RepoManager {
       }
     }
     throw new Error(`Cannot resolve default branch in ${repoDir} — repo may be empty`);
+  }
+
+  private async isValidWorktree(dir: string): Promise<boolean> {
+    try {
+      await git(dir, "rev-parse", "--git-dir");
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**

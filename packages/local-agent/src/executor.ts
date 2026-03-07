@@ -2084,16 +2084,16 @@ export class JobExecutor {
 
   private async sendJobFailed(
     jobId: string,
-    error: string,
+    result: string,
     failureReason: FailureReason
   ): Promise<void> {
-    jobLog(jobId, `FAILED — reason=${failureReason}, error="${error.slice(0, 200)}"`);
+    jobLog(jobId, `FAILED — reason=${failureReason}, error="${result.slice(0, 200)}"`);
     // Primary: write directly to DB — persist error detail in result column.
     // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).
     if (!jobId.startsWith("persistent-")) {
       const { error: dbErr } = await this.supabase
         .from("jobs")
-        .update({ status: "failed", result: error })
+        .update({ status: "failed", result })
         .eq("id", jobId);
 
       if (dbErr) {
@@ -2108,7 +2108,7 @@ export class JobExecutor {
       protocolVersion: PROTOCOL_VERSION,
       jobId,
       machineId: this.machineId,
-      error,
+      error: result,
       failureReason,
     });
   }

@@ -39,13 +39,12 @@ inserted_lanes AS (
 all_lanes AS (
     SELECT
         capability_lanes.name,
-        MIN(capability_lanes.id) AS id
+        capability_lanes.id
     FROM company
     JOIN public.capability_lanes
         ON capability_lanes.company_id = company.id
     JOIN lane_seed
         ON lane_seed.lane_name = capability_lanes.name
-    GROUP BY capability_lanes.name
 ),
 capability_seed (
     lane_key,

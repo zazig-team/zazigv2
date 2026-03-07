@@ -48,6 +48,14 @@ export class SlotTracker {
     this.inUse[slotType]++;
   }
 
+  /** Try to acquire a slot. Returns true if acquired, false if at capacity. */
+  tryAcquire(slotType: SlotType): boolean {
+    const available = this.total[slotType] - this.inUse[slotType];
+    if (available <= 0) return false;
+    this.inUse[slotType]++;
+    return true;
+  }
+
   /** Release a slot previously acquired. For future use by job executor. */
   release(slotType: SlotType): void {
     if (this.inUse[slotType] > 0) {

@@ -512,21 +512,19 @@ export default function Pipeline(): JSX.Element {
                         </div>
                         <div className="card-title">{feature.title}</div>
                         <div className="card-desc">{feature.description}</div>
-                        <div className="card-jobs">
-                          {Array.from({ length: Math.max(feature.jobsTotal, 1) }).map((_, index) => {
-                            const active = index < feature.jobsDone;
-                            return (
-                              <span
-                                key={`${feature.id}-pip-${index}`}
-                                className="card-job-pip"
-                                style={{ background: active ? "var(--positive)" : "var(--chalk)" }}
+                        {feature.jobsTotal > 0 ? (
+                          <div className="card-jobs">
+                            <div className="card-jobs-bar">
+                              <div
+                                className="card-jobs-bar-fill"
+                                style={{ width: `${Math.round((feature.jobsDone / feature.jobsTotal) * 100)}%` }}
                               />
-                            );
-                          })}
-                          <span className="card-job-count">
-                            {feature.jobsDone}/{feature.jobsTotal || 0} done
-                          </span>
-                        </div>
+                            </div>
+                            <span className="card-job-count">
+                              {feature.jobsDone}/{feature.jobsTotal}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
                     </article>
                   ))

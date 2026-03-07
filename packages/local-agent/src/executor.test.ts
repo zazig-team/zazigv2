@@ -207,6 +207,16 @@ describe("JobExecutor — progress integration", () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
 
+    const readFileSyncMock = fsModule.readFileSync as unknown as Mock;
+    readFileSyncMock.mockImplementation((path: unknown) => {
+      if (typeof path === "string" && path.endsWith(".json")) {
+        return JSON.stringify({ permissions: { allow: [] } });
+      }
+      return "status: pass\nsummary: Job completed.";
+    });
+    const renameSyncMock = fsModule.renameSync as unknown as Mock;
+    renameSyncMock.mockImplementation(() => undefined);
+
     // Default: execFileAsync resolves (tmux commands succeed → session alive)
     mockExecFileAsync = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
 
@@ -285,6 +295,57 @@ describe("JobExecutor — progress integration", () => {
     expect(completeCalls[0]!.data.progress).toBe(100);
     expect(completeCalls[0]!.data.result).toBeDefined();
     expect(completeCalls[0]!.data.completed_at).toBeDefined();
+  });
+
+  it("routes FAILED report result to sendJobFailed and preserves reason in DB result", async () => {
+    const readFileSyncMock = fsModule.readFileSync as unknown as Mock;
+    readFileSyncMock.mockImplementation((path: unknown) => {
+      if (typeof path === "string" && path.endsWith(".json")) {
+        return JSON.stringify({ permissions: { allow: [] } });
+      }
+      return "status: fail\nfailure_reason: Could not acquire git index.lock";
+    });
+
+    await executor.handleStartJob(makeStartJob());
+    supabase.calls.length = 0;
+    mockExecFileAsync.mockRejectedValue(new Error("session not found"));
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    const completeCalls = supabase.calls.filter(
+      (c) => c.table === "jobs" && c.data.status === "complete",
+    );
+    const failCalls = supabase.calls.filter(
+      (c) => c.table === "jobs" && c.data.status === "failed",
+    );
+
+    expect(completeCalls.length).toBe(0);
+    expect(failCalls.length).toBe(1);
+    expect(failCalls[0]!.data.result).toBe("FAILED: Could not acquire git index.lock");
+  });
+
+  it("routes NO_REPORT result to sendJobFailed", async () => {
+    const renameSyncMock = fsModule.renameSync as unknown as Mock;
+    renameSyncMock.mockImplementation(() => {
+      throw new Error("not found");
+    });
+
+    await executor.handleStartJob(makeStartJob());
+    supabase.calls.length = 0;
+    mockExecFileAsync.mockRejectedValue(new Error("session not found"));
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    const completeCalls = supabase.calls.filter(
+      (c) => c.table === "jobs" && c.data.status === "complete",
+    );
+    const failCalls = supabase.calls.filter(
+      (c) => c.table === "jobs" && c.data.status === "failed",
+    );
+
+    expect(completeCalls.length).toBe(0);
+    expect(failCalls.length).toBe(1);
+    expect(failCalls[0]!.data.result).toBe("NO_REPORT");
   });
 
   it("does not reset progress on job failure/timeout", async () => {

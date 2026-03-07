@@ -477,6 +477,50 @@ describe("JobExecutor — slot reconciliation", () => {
     expect(linkedRepo).toBe(true);
   });
 
+  it("continues linking other persistent repos when one project fails", async () => {
+    const symlinkSyncMock = fsModule.symlinkSync as unknown as Mock;
+    const linkErr = new Error("worktree add failed");
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    lastRepoManagerInstance.ensureWorktree
+      .mockRejectedValueOnce(linkErr)
+      .mockResolvedValueOnce("/tmp/mock-worktree-shared");
+
+    const persistentJob = {
+      ...makeStartJob({
+        jobId: "persistent-cpo-links-partial",
+        role: "cpo",
+        cardType: "persistent_agent",
+      }),
+      companyProjects: [
+        { name: "alpha", repo_url: "https://github.com/test/alpha.git" },
+        { name: "beta", repo_url: "https://github.com/test/beta.git" },
+      ],
+    } as StartJob & {
+      companyProjects: Array<{ name: string; repo_url: string }>;
+    };
+
+    await executor.handleStartJob(persistentJob as StartJob);
+
+    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenCalledTimes(2);
+    const linkedBeta = symlinkSyncMock.mock.calls.some((call: unknown[]) =>
+      call[0] === "/tmp/mock-worktree-shared"
+      && typeof call[1] === "string"
+      && (call[1] as string).endsWith("/repos/beta")
+    );
+    const linkedAlpha = symlinkSyncMock.mock.calls.some((call: unknown[]) =>
+      typeof call[1] === "string"
+      && (call[1] as string).endsWith("/repos/alpha")
+    );
+    expect(linkedBeta).toBe(true);
+    expect(linkedAlpha).toBe(false);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "[executor] Persistent agent repo link failed for project=alpha:",
+      linkErr,
+    );
+
+    consoleErrorSpy.mockRestore();
+  });
+
   it("handles reconciliation query failures without releasing slots", async () => {
     await executor.handleStartJob(makeStartJob({ jobId: "job-reconcile-error" }));
     expect(slots.getAvailable().claude_code).toBe(0);

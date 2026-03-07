@@ -152,6 +152,7 @@ describe("setupJobWorkspace", () => {
     expect(settingsContent.permissions.allow).toEqual(
       generateAllowedTools("breakdown-specialist"),
     );
+    expect(settingsContent.permissions.additionalDirectories).toBeUndefined();
 
     // 4. .claude/workspace-config.json
     const workspaceConfigCall = writeFileSyncMock.mock.calls.find(
@@ -161,6 +162,74 @@ describe("setupJobWorkspace", () => {
     const workspaceConfigContent = JSON.parse(workspaceConfigCall![1] as string);
     expect(workspaceConfigContent.machineId).toBe("machine-123");
     expect(workspaceConfigContent.role).toBe("breakdown-specialist");
+  });
+
+  it("adds worktree metadata path to settings permissions when .git points to an absolute gitdir", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const readFileSyncMock = fsModule.readFileSync as unknown as ReturnType<typeof vi.fn>;
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+
+    existsSyncMock.mockImplementation((p: string) =>
+      p === "/tmp/test-workspace/.git",
+    );
+    readFileSyncMock.mockImplementation((p: string) =>
+      p === "/tmp/test-workspace/.git"
+        ? "gitdir: /tmp/repos/project/worktrees/job-456\n"
+        : "",
+    );
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-456",
+      role: "breakdown-specialist",
+      claudeMdContent: "# Test CLAUDE.md",
+    });
+
+    const settingsCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("settings.json"),
+    );
+    expect(settingsCall).toBeDefined();
+    const settingsContent = JSON.parse(settingsCall![1] as string);
+    expect(settingsContent.permissions.additionalDirectories).toEqual([
+      "/tmp/repos/project/worktrees/job-456",
+    ]);
+  });
+
+  it("resolves relative gitdir paths to absolute metadata directories", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const readFileSyncMock = fsModule.readFileSync as unknown as ReturnType<typeof vi.fn>;
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+
+    existsSyncMock.mockImplementation((p: string) =>
+      p === "/tmp/test-workspace/.git",
+    );
+    readFileSyncMock.mockImplementation((p: string) =>
+      p === "/tmp/test-workspace/.git"
+        ? "gitdir: ../repos/project/worktrees/job-456\n"
+        : "",
+    );
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-456",
+      role: "breakdown-specialist",
+      claudeMdContent: "# Test CLAUDE.md",
+    });
+
+    const settingsCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("settings.json"),
+    );
+    expect(settingsCall).toBeDefined();
+    const settingsContent = JSON.parse(settingsCall![1] as string);
+    expect(settingsContent.permissions.additionalDirectories).toEqual([
+      "/tmp/repos/project/worktrees/job-456",
+    ]);
   });
 
   it("copies skill files when skills and repoSkillsDir are provided", () => {

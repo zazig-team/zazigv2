@@ -159,11 +159,11 @@ function __metadata(metadataKey, metadataValue) {
 }
 function __awaiter(thisArg, _arguments, P, generator) {
   function adopt(value) {
-    return value instanceof P ? value : new P(function(resolve2) {
-      resolve2(value);
+    return value instanceof P ? value : new P(function(resolve3) {
+      resolve3(value);
     });
   }
-  return new (P || (P = Promise))(function(resolve2, reject) {
+  return new (P || (P = Promise))(function(resolve3, reject) {
     function fulfilled(value) {
       try {
         step(generator.next(value));
@@ -179,7 +179,7 @@ function __awaiter(thisArg, _arguments, P, generator) {
       }
     }
     function step(result) {
-      result.done ? resolve2(result.value) : adopt(result.value).then(fulfilled, rejected);
+      result.done ? resolve3(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
     step((generator = generator.apply(thisArg, _arguments || [])).next());
   });
@@ -370,14 +370,14 @@ function __asyncValues(o) {
   }, i);
   function verb(n) {
     i[n] = o[n] && function(v) {
-      return new Promise(function(resolve2, reject) {
-        v = o[n](v), settle(resolve2, reject, v.done, v.value);
+      return new Promise(function(resolve3, reject) {
+        v = o[n](v), settle(resolve3, reject, v.done, v.value);
       });
     };
   }
-  function settle(resolve2, reject, d, v) {
+  function settle(resolve3, reject, d, v) {
     Promise.resolve(v).then(function(v2) {
-      resolve2({ value: v2, done: d });
+      resolve3({ value: v2, done: d });
     }, reject);
   }
 }
@@ -2019,15 +2019,15 @@ var require_RealtimeChannel = __commonJS({
             }
           }
         } else {
-          return new Promise((resolve2) => {
+          return new Promise((resolve3) => {
             var _a2, _b2, _c;
             const push = this._push(args.type, args, opts.timeout || this.timeout);
             if (args.type === "broadcast" && !((_c = (_b2 = (_a2 = this.params) === null || _a2 === void 0 ? void 0 : _a2.config) === null || _b2 === void 0 ? void 0 : _b2.broadcast) === null || _c === void 0 ? void 0 : _c.ack)) {
-              resolve2("ok");
+              resolve3("ok");
             }
-            push.receive("ok", () => resolve2("ok"));
-            push.receive("error", () => resolve2("error"));
-            push.receive("timeout", () => resolve2("timed out"));
+            push.receive("ok", () => resolve3("ok"));
+            push.receive("error", () => resolve3("error"));
+            push.receive("timeout", () => resolve3("timed out"));
           });
         }
       }
@@ -2055,16 +2055,16 @@ var require_RealtimeChannel = __commonJS({
         };
         this.joinPush.destroy();
         let leavePush = null;
-        return new Promise((resolve2) => {
+        return new Promise((resolve3) => {
           leavePush = new push_1.default(this, constants_1.CHANNEL_EVENTS.leave, {}, timeout);
           leavePush.receive("ok", () => {
             onClose();
-            resolve2("ok");
+            resolve3("ok");
           }).receive("timeout", () => {
             onClose();
-            resolve2("timed out");
+            resolve3("timed out");
           }).receive("error", () => {
-            resolve2("error");
+            resolve3("error");
           });
           leavePush.send();
           if (!this._canPush()) {
@@ -2143,8 +2143,8 @@ var require_RealtimeChannel = __commonJS({
       _trigger(type, payload, ref) {
         var _a, _b;
         const typeLower = type.toLocaleLowerCase();
-        const { close, error, leave, join: join7 } = constants_1.CHANNEL_EVENTS;
-        const events = [close, error, leave, join7];
+        const { close, error, leave, join: join8 } = constants_1.CHANNEL_EVENTS;
+        const events = [close, error, leave, join8];
         if (ref && events.indexOf(typeLower) >= 0 && ref !== this._joinRef()) {
           return;
         }
@@ -11731,8 +11731,8 @@ var require_websocket_server = __commonJS({
 
 // ../local-agent/dist/index.js
 import { createWriteStream } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { join as join6 } from "node:path";
+import { homedir as homedir5 } from "node:os";
+import { join as join7 } from "node:path";
 
 // ../local-agent/dist/config.js
 import { readFileSync, existsSync } from "node:fs";
@@ -11785,6 +11785,14 @@ function isStartJob(v) {
   if (v.roleMcpTools !== void 0) {
     if (!Array.isArray(v.roleMcpTools)) return false;
     if (!v.roleMcpTools.every((t) => isString(t) && t.length > 0)) return false;
+  }
+  if (v.companyProjects !== void 0) {
+    if (!Array.isArray(v.companyProjects)) return false;
+    if (!v.companyProjects.every(
+      (p) => isObject(p) && isString(p.name) && p.name.length > 0 && (p.repo_url === null || isString(p.repo_url) && p.repo_url.length > 0)
+    )) {
+      return false;
+    }
   }
   return true;
 }
@@ -11845,6 +11853,22 @@ function isJobUnblocked(v) {
   if (!isString(v.answer)) return false;
   return true;
 }
+function isStartExpert(v) {
+  if (!isObject(v) || v.type !== "start_expert") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.session_id) || v.session_id.length === 0) return false;
+  if (!isString(v.machine_id) || v.machine_id.length === 0) return false;
+  if (!isString(v.model) || v.model.length === 0) return false;
+  if (!isString(v.brief)) return false;
+  if (!isObject(v.role)) return false;
+  if (!isString(v.role.prompt)) return false;
+  if (v.project_id !== void 0 && (!isString(v.project_id) || v.project_id.length === 0)) return false;
+  if (v.repo_url !== void 0 && (!isString(v.repo_url) || v.repo_url.length === 0)) return false;
+  if (v.branch !== void 0 && (!isString(v.branch) || v.branch.length === 0)) return false;
+  if (v.display_name !== void 0 && !isString(v.display_name)) return false;
+  if (v.company_name !== void 0 && !isString(v.company_name)) return false;
+  return true;
+}
 function isOrchestratorMessage(v) {
   if (!isObject(v) || !isString(v.type)) return false;
   switch (v.type) {
@@ -11864,6 +11888,8 @@ function isOrchestratorMessage(v) {
       return isMessageInbound(v);
     case "job_unblocked":
       return isJobUnblocked(v);
+    case "start_expert":
+      return isStartExpert(v);
     default:
       return false;
   }
@@ -11885,6 +11911,7 @@ function loadConfig() {
   const codexFromEnv = process.env["ZAZIG_SLOTS_CODEX"];
   let name;
   let slots;
+  let companyIdFromFile;
   if (nameFromEnv) {
     name = nameFromEnv;
     slots = {
@@ -11898,6 +11925,7 @@ function loadConfig() {
       throw new Error("config.json: missing or invalid 'name' field");
     }
     name = parsed.name;
+    companyIdFromFile = parsed.company_id;
     slots = {
       claude_code: parsed.slots?.claude_code ?? 4,
       codex: parsed.slots?.codex ?? 4
@@ -11910,7 +11938,7 @@ function loadConfig() {
   const serviceRoleKey = process.env["SUPABASE_SERVICE_ROLE_KEY"];
   const accessToken = process.env["SUPABASE_ACCESS_TOKEN"];
   const refreshToken = process.env["SUPABASE_REFRESH_TOKEN"];
-  const companyId = process.env["ZAZIG_COMPANY_ID"];
+  const companyId = process.env["ZAZIG_COMPANY_ID"] ?? companyIdFromFile;
   return {
     name,
     ...companyId ? { company_id: companyId } : {},
@@ -13978,7 +14006,7 @@ var _getRequestParams = (method, options, parameters, body) => {
   return _objectSpread22(_objectSpread22({}, params), parameters);
 };
 async function _handleRequest(fetcher, method, url, options, parameters, body, namespace) {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve3, reject) => {
     fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
       if (!result.ok) throw result;
       if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
@@ -13988,7 +14016,7 @@ async function _handleRequest(fetcher, method, url, options, parameters, body, n
         if (!contentType || !contentType.includes("application/json")) return {};
       }
       return result.json();
-    }).then((data) => resolve2(data)).catch((error) => handleError(error, reject, options, namespace));
+    }).then((data) => resolve3(data)).catch((error) => handleError(error, reject, options, namespace));
   });
 }
 function createFetchApi(namespace = "storage") {
@@ -16534,7 +16562,7 @@ import { join as join5 } from "node:path";
 
 // ../local-agent/dist/executor.js
 import { execFile as execFile2 } from "node:child_process";
-import { existsSync as existsSync4, readFileSync as readFileSync3, renameSync, unlinkSync, mkdirSync as mkdirSync2, rmSync as rmSync2, appendFileSync as appendFileSync2 } from "node:fs";
+import { existsSync as existsSync4, readFileSync as readFileSync3, renameSync, unlinkSync, mkdirSync as mkdirSync2, rmSync as rmSync3, symlinkSync as symlinkSync2, appendFileSync as appendFileSync2 } from "node:fs";
 import { promisify as promisify2 } from "node:util";
 import { homedir as homedir2 } from "node:os";
 import { dirname, join as join4, resolve } from "node:path";
@@ -16586,7 +16614,8 @@ function generateMcpConfig(mcpServerPath, env) {
           ...env.companyId ? { ZAZIG_COMPANY_ID: env.companyId } : {},
           ...env.allowedTools ? { ZAZIG_ALLOWED_TOOLS: env.allowedTools.join(",") } : {},
           ...env.tmuxSession ? { ZAZIG_TMUX_SESSION: env.tmuxSession } : {},
-          ...env.role ? { ZAZIG_ROLE: env.role } : {}
+          ...env.role ? { ZAZIG_ROLE: env.role } : {},
+          ...env.machineId ? { ZAZIG_MACHINE_ID: env.machineId } : {}
         }
       }
     }
@@ -16601,7 +16630,7 @@ var STANDARD_TOOLS = [
   "Grep"
 ];
 var ROLE_DEFAULT_MCP_TOOLS = {
-  "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "request_work"],
+  "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "request_work", "start_expert_session"],
   "breakdown-specialist": ["query_features", "batch_create_jobs"]
 };
 function generateAllowedTools(role, mcpTools) {
@@ -16625,13 +16654,20 @@ function setupJobWorkspace(config) {
     companyId: config.companyId,
     allowedTools: config.mcpTools,
     tmuxSession: config.tmuxSession,
-    role: config.role
+    role: config.role,
+    machineId: config.machineId
   });
   writeFileSync(join2(config.workspaceDir, ".mcp.json"), JSON.stringify(mcpConfig, null, 2));
   writeFileSync(join2(config.workspaceDir, "CLAUDE.md"), config.claudeMdContent);
   const claudeDir = join2(config.workspaceDir, ".claude");
   mkdirSync(claudeDir, { recursive: true });
   writeFileSync(join2(claudeDir, "settings.json"), JSON.stringify({ permissions: { allow: generateAllowedTools(config.role, config.mcpTools) } }, null, 2));
+  writeFileSync(join2(claudeDir, "workspace-config.json"), JSON.stringify({
+    machineId: config.machineId ?? null,
+    companyId: config.companyId ?? null,
+    jobId: config.jobId,
+    role: config.role
+  }, null, 2));
   if (config.skills && config.skills.length > 0) {
     for (const skillName of config.skills) {
       const sourcePath = resolveSkillSourcePath(config, skillName);
@@ -16677,7 +16713,7 @@ function setupJobWorkspace(config) {
 
 // ../local-agent/dist/branches.js
 import { execFile } from "node:child_process";
-import { existsSync as existsSync3 } from "node:fs";
+import { existsSync as existsSync3, rmSync as rmSync2 } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join as join3 } from "node:path";
 import { promisify } from "node:util";
@@ -16744,19 +16780,22 @@ async function removeWorktree(repoDir, worktreePath) {
 var REPOS_BASE = join3(process.env.HOME ?? "~", ".zazigv2/repos");
 var RepoManager = class {
   locks = /* @__PURE__ */ new Map();
+  async git(repoDir, ...args) {
+    return git(repoDir, ...args);
+  }
   /** Serialise all git operations for a given repo dir. */
   async withLock(repoDir, fn) {
     const prev = this.locks.get(repoDir) ?? Promise.resolve();
-    let resolve2;
+    let resolve3;
     const next = new Promise((r) => {
-      resolve2 = r;
+      resolve3 = r;
     });
     this.locks.set(repoDir, next);
     await prev;
     try {
       return await fn();
     } finally {
-      resolve2();
+      resolve3();
       if (this.locks.get(repoDir) === next) {
         this.locks.delete(repoDir);
       }
@@ -16776,9 +16815,9 @@ var RepoManager = class {
       if (!existsSync3(repoDir)) {
         await execFileAsync("git", ["clone", "--bare", repoUrl, repoDir], { encoding: "utf8" });
       }
-      await git(repoDir, "config", "remote.origin.fetch", "refs/heads/*:refs/heads/*");
+      await this.git(repoDir, "config", "remote.origin.fetch", "refs/heads/*:refs/heads/*");
       try {
-        await git(repoDir, "rev-parse", "--verify", "HEAD");
+        await this.git(repoDir, "rev-parse", "--verify", "HEAD");
       } catch {
         const tmpDir = join3(REPOS_BASE, `.tmp-init-${projectName}`);
         try {
@@ -16790,7 +16829,7 @@ var RepoManager = class {
           });
         }
         try {
-          await git(repoDir, "fetch", "origin");
+          await this.git(repoDir, "fetch", "origin");
         } catch (e) {
           console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
         }
@@ -16799,26 +16838,90 @@ var RepoManager = class {
     });
   }
   /**
+   * Ensure a shared worktree for the project exists and is checked out on
+   * a stable default branch (prefers master when available).
+   * If an existing worktree is corrupted, remove and recreate it.
+   */
+  async ensureWorktree(projectName) {
+    const bareDir = join3(REPOS_BASE, projectName);
+    const worktreeDir = join3(REPOS_BASE, `${projectName}-worktree`);
+    return this.withLock(bareDir, async () => {
+      try {
+        if (!existsSync3(bareDir)) {
+          throw new Error(`Bare repo missing: ${bareDir}`);
+        }
+        try {
+          await this.git(bareDir, "fetch", "origin");
+        } catch (e) {
+          console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
+        }
+        const targetBranch = await this.resolveSharedWorktreeBranch(bareDir);
+        console.log(`[RepoManager] ensureWorktree project=${projectName} branch=${targetBranch} path=${worktreeDir}`);
+        if (existsSync3(worktreeDir)) {
+          const isValid = await this.isValidWorktree(worktreeDir);
+          if (!isValid) {
+            console.warn(`[RepoManager] ensureWorktree found invalid worktree at ${worktreeDir}; recreating`);
+            rmSync2(worktreeDir, { recursive: true, force: true });
+            await this.git(bareDir, "worktree", "prune");
+          }
+        }
+        if (!existsSync3(worktreeDir)) {
+          await this.git(bareDir, "worktree", "add", worktreeDir, targetBranch);
+          console.log(`[RepoManager] ensureWorktree created ${worktreeDir} on ${targetBranch}`);
+        } else {
+          await this.git(worktreeDir, "checkout", targetBranch);
+          await this.git(worktreeDir, "reset", "--hard", targetBranch);
+          console.log(`[RepoManager] ensureWorktree refreshed ${worktreeDir} on ${targetBranch}`);
+        }
+        return worktreeDir;
+      } catch (error) {
+        const message = getErrorMessage(error);
+        console.error(`[RepoManager] ensureWorktree failed for ${projectName}: ${message}`);
+        throw new Error(`ensureWorktree(${projectName}) failed: ${message}`);
+      }
+    });
+  }
+  /**
    * Resolve the default branch in a bare repo.
    * Tries symbolic-ref HEAD first, then falls back to common names.
    */
   async resolveDefaultBranch(repoDir) {
     try {
-      const ref = await git(repoDir, "symbolic-ref", "HEAD");
+      const ref = await this.git(repoDir, "symbolic-ref", "HEAD");
       const branchName = ref.replace(/^refs\/heads\//, "");
-      await git(repoDir, "rev-parse", "--verify", `refs/heads/${branchName}`);
+      await this.git(repoDir, "rev-parse", "--verify", `refs/heads/${branchName}`);
       return branchName;
     } catch {
     }
     for (const name of ["main", "master"]) {
       try {
-        await git(repoDir, "rev-parse", "--verify", `refs/heads/${name}`);
+        await this.git(repoDir, "rev-parse", "--verify", `refs/heads/${name}`);
         return name;
       } catch {
         continue;
       }
     }
     throw new Error(`Cannot resolve default branch in ${repoDir} \u2014 repo may be empty`);
+  }
+  /**
+   * Shared worktrees historically use "master". If absent, fall back to
+   * the repo's actual default branch.
+   */
+  async resolveSharedWorktreeBranch(repoDir) {
+    try {
+      await this.git(repoDir, "rev-parse", "--verify", "refs/heads/master");
+      return "master";
+    } catch {
+      return this.resolveDefaultBranch(repoDir);
+    }
+  }
+  async isValidWorktree(dir) {
+    try {
+      await this.git(dir, "rev-parse", "--git-dir");
+      return true;
+    } catch {
+      return false;
+    }
   }
   /**
    * Create feature branch off default branch if not exists. Idempotent.
@@ -16828,17 +16931,17 @@ var RepoManager = class {
   async ensureFeatureBranch(repoDir, featureBranch) {
     return this.withLock(repoDir, async () => {
       try {
-        await git(repoDir, "fetch", "origin");
+        await this.git(repoDir, "fetch", "origin");
       } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
       try {
-        await git(repoDir, "rev-parse", "--verify", `refs/heads/${featureBranch}`);
+        await this.git(repoDir, "rev-parse", "--verify", `refs/heads/${featureBranch}`);
         return;
       } catch {
       }
       const defaultBranch = await this.resolveDefaultBranch(repoDir);
-      await git(repoDir, "branch", featureBranch, defaultBranch);
+      await this.git(repoDir, "branch", featureBranch, defaultBranch);
     });
   }
   /**
@@ -16848,7 +16951,7 @@ var RepoManager = class {
   async createJobWorktree(repoDir, featureBranch, jobId) {
     return this.withLock(repoDir, async () => {
       try {
-        await git(repoDir, "fetch", "origin");
+        await this.git(repoDir, "fetch", "origin");
       } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
@@ -16856,7 +16959,23 @@ var RepoManager = class {
       const worktreePath = join3(WORKTREE_BASE, `job-${jobId}`);
       await mkdir(WORKTREE_BASE, { recursive: true });
       try {
-        await git(repoDir, "worktree", "remove", "--force", worktreePath);
+        const wtList = await this.git(repoDir, "worktree", "list", "--porcelain");
+        const entries = wtList.split("\n\n");
+        for (const entry of entries) {
+          if (entry.includes(`branch refs/heads/${jobBranch}`)) {
+            const wtPath = entry.match(/^worktree (.+)$/m)?.[1];
+            if (wtPath) {
+              try {
+                await this.git(repoDir, "worktree", "remove", "--force", wtPath);
+              } catch {
+              }
+              try {
+                await rm(wtPath, { recursive: true, force: true });
+              } catch {
+              }
+            }
+          }
+        }
       } catch {
       }
       try {
@@ -16864,15 +16983,15 @@ var RepoManager = class {
       } catch {
       }
       try {
-        await git(repoDir, "worktree", "prune");
+        await this.git(repoDir, "worktree", "prune");
       } catch {
       }
       try {
-        await git(repoDir, "branch", "-D", jobBranch);
+        await this.git(repoDir, "branch", "-D", jobBranch);
       } catch {
       }
-      await git(repoDir, "branch", jobBranch, featureBranch);
-      await git(repoDir, "worktree", "add", worktreePath, jobBranch);
+      await this.git(repoDir, "branch", jobBranch, featureBranch);
+      await this.git(repoDir, "worktree", "add", worktreePath, jobBranch);
       return { worktreePath, jobBranch };
     });
   }
@@ -16886,7 +17005,7 @@ var RepoManager = class {
     return this.withLock(repoDir, async () => {
       console.log(`[RepoManager] createDependentJobWorktree: jobId=${jobId}, depBranches=${JSON.stringify(depBranches)}`);
       try {
-        await git(repoDir, "fetch", "origin");
+        await this.git(repoDir, "fetch", "origin");
       } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
@@ -16922,7 +17041,23 @@ var RepoManager = class {
       const baseBranch = validBranches.length > 0 ? validBranches[0] : featureBranch;
       console.log(`[RepoManager] Creating jobBranch="${jobBranch}" from baseBranch="${baseBranch}", validBranches=${JSON.stringify(validBranches)}`);
       try {
-        await git(repoDir, "worktree", "remove", "--force", worktreePath);
+        const wtList = await this.git(repoDir, "worktree", "list", "--porcelain");
+        const entries = wtList.split("\n\n");
+        for (const entry of entries) {
+          if (entry.includes(`branch refs/heads/${jobBranch}`)) {
+            const wtPath = entry.match(/^worktree (.+)$/m)?.[1];
+            if (wtPath) {
+              try {
+                await this.git(repoDir, "worktree", "remove", "--force", wtPath);
+              } catch {
+              }
+              try {
+                await rm(wtPath, { recursive: true, force: true });
+              } catch {
+              }
+            }
+          }
+        }
       } catch {
       }
       try {
@@ -16930,15 +17065,15 @@ var RepoManager = class {
       } catch {
       }
       try {
-        await git(repoDir, "worktree", "prune");
+        await this.git(repoDir, "worktree", "prune");
       } catch {
       }
       try {
-        await git(repoDir, "branch", "-D", jobBranch);
+        await this.git(repoDir, "branch", "-D", jobBranch);
       } catch {
       }
-      await git(repoDir, "branch", jobBranch, baseBranch);
-      await git(repoDir, "worktree", "add", worktreePath, jobBranch);
+      await this.git(repoDir, "branch", jobBranch, baseBranch);
+      await this.git(repoDir, "worktree", "add", worktreePath, jobBranch);
       for (const branch of validBranches.slice(1)) {
         console.log(`[RepoManager] Fan-in merging "${branch}" into worktree at ${worktreePath}`);
         try {
@@ -16949,9 +17084,9 @@ var RepoManager = class {
             await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
           } catch {
           }
-          await git(repoDir, "worktree", "remove", "--force", worktreePath);
+          await this.git(repoDir, "worktree", "remove", "--force", worktreePath);
           try {
-            await git(repoDir, "branch", "-D", jobBranch);
+            await this.git(repoDir, "branch", "-D", jobBranch);
           } catch {
           }
           throw new Error(`Fan-in merge of "${branch}" into job/${jobId} failed: ${String(mergeErr)}`);
@@ -16974,7 +17109,7 @@ var RepoManager = class {
    */
   async removeJobWorktree(repoDir, worktreePath) {
     try {
-      await git(repoDir, "worktree", "remove", "--force", worktreePath);
+      await this.git(repoDir, "worktree", "remove", "--force", worktreePath);
     } catch {
     }
   }
@@ -17044,6 +17179,30 @@ function jobLog(jobId, message) {
   }
 }
 var SKILLS_MARKER = "<!-- SKILLS -->";
+function ensureRoleSkills(role, roleSkills) {
+  const normalized = roleSkills ? [...roleSkills] : [];
+  if (role === "cpo" && !normalized.includes("start-expert")) {
+    normalized.push("start-expert");
+  }
+  return normalized.length > 0 ? normalized : void 0;
+}
+function normalizeCompanyProjects(raw) {
+  if (!Array.isArray(raw))
+    return [];
+  const normalized = [];
+  for (const project of raw) {
+    if (!project || typeof project !== "object")
+      continue;
+    const name = project.name;
+    const repoUrl = project.repo_url;
+    if (typeof name !== "string" || name.trim().length === 0)
+      continue;
+    if (repoUrl !== null && (typeof repoUrl !== "string" || repoUrl.trim().length === 0))
+      continue;
+    normalized.push({ name: name.trim(), repo_url: repoUrl ?? null });
+  }
+  return normalized;
+}
 function enqueueWithCap(queue, message, maxSize) {
   queue.push(message);
   if (queue.length > maxSize) {
@@ -17079,6 +17238,8 @@ var JobExecutor = class {
   processingQueue = false;
   reconcileTimer = null;
   prMonitorTimer = null;
+  repoRefreshTimer = null;
+  companyProjects = [];
   constructor(machineId, companyId, slots, send, supabase, supabaseUrl, supabaseAnonKey, afterJobComplete) {
     this.machineId = machineId;
     this.companyId = companyId;
@@ -17094,6 +17255,12 @@ var JobExecutor = class {
     this.prMonitorTimer = setInterval(() => {
       void this.monitorMergedPRs();
     }, PR_MONITOR_INTERVAL_MS);
+    this.repoRefreshTimer = setInterval(() => {
+      void this.refreshCompanyProjectWorktrees();
+    }, SLOT_RECONCILE_INTERVAL_MS);
+  }
+  setCompanyProjects(projects) {
+    this.companyProjects = [...projects];
   }
   /** Resolve the machine UUID from the machines table (cached after first call). */
   async resolveMachineUuid(companyId) {
@@ -17106,6 +17273,49 @@ var JobExecutor = class {
     }
     this.machineUuid = data.id;
     return data.id;
+  }
+  async withExpertRosterSection(claudeMdContent, companyId) {
+    if (!companyId)
+      return claudeMdContent;
+    const { data, error } = await this.supabase.from("expert_roles").select("name, display_name, description").eq("company_id", companyId);
+    if (error) {
+      console.warn(`[executor] Failed to load expert_roles for company ${companyId}: ${error.message}`);
+      return claudeMdContent;
+    }
+    const expertRoles = data ?? [];
+    if (expertRoles.length === 0)
+      return claudeMdContent;
+    const rosterLines = expertRoles.map((role) => {
+      const displayName = role.display_name?.trim() || role.name;
+      const description = role.description?.replace(/\s+/g, " ").trim() || "No description provided.";
+      return `- **${role.name}** (${displayName}): ${description}`;
+    });
+    const rosterSection = [
+      "",
+      "## Expert Agents Available",
+      "",
+      "You can trigger expert agents for specialized work. Call the start_expert_session MCP tool to spawn one.",
+      "",
+      ...rosterLines,
+      "",
+      "Proactively suggest expert sessions when the task requires specialized expertise."
+    ].join("\n");
+    return `${claudeMdContent}${rosterSection}`;
+  }
+  async resolvePersistentProjects(msg, companyId) {
+    const fromMessage = normalizeCompanyProjects(msg.companyProjects);
+    if (fromMessage.length > 0) {
+      return fromMessage;
+    }
+    if (!companyId) {
+      return [];
+    }
+    const { data, error } = await this.supabase.from("projects").select("name, repo_url").eq("company_id", companyId).eq("status", "active");
+    if (error) {
+      console.warn(`[executor] Failed to load projects for persistent agent company ${companyId}: ${error.message}`);
+      return [];
+    }
+    return normalizeCompanyProjects(data);
   }
   // ---------------------------------------------------------------------------
   // Public: StartJob
@@ -17153,19 +17363,22 @@ var JobExecutor = class {
     }
     await this.sendJobAck(jobId);
     const isInteractive = msg.interactive === true;
+    const roleName = msg.role ?? "senior-engineer";
+    const roleSkills = ensureRoleSkills(roleName, msg.roleSkills);
     const repoRoot = resolveRepoRoot();
     const assembledContext = assembleContext(msg, repoRoot);
+    const cpoContext = roleName === "cpo" ? await this.withExpertRosterSection(assembledContext, this.companyId) : assembledContext;
     console.log(`[executor] Assembled context for jobId=${jobId}:
-${assembledContext}`);
+${cpoContext}`);
     let ephemeralWorkspaceDir;
     let worktreePath;
     let repoDir;
     let jobBranch;
     let startingCommit;
-    const roleName = msg.role ?? "senior-engineer";
     const requiresCodeContext = !NO_CODE_CONTEXT_ROLES.has(roleName);
     const cleanupPreparedWorkspace = async () => {
       if (worktreePath && repoDir) {
+        await this.repoManager.removeJobWorktree(repoDir, worktreePath);
       } else if (ephemeralWorkspaceDir) {
         cleanupJobWorkspace(jobId, ephemeralWorkspaceDir);
       }
@@ -17219,12 +17432,13 @@ ${assembledContext}`);
         jobId,
         companyId: this.companyId,
         role: roleName,
-        claudeMdContent: assembledContext,
-        skills: msg.roleSkills,
+        claudeMdContent: cpoContext,
+        skills: roleSkills,
         repoSkillsDir: join4(repoRoot, "projects", "skills"),
         repoInteractiveSkillsDir: join4(repoRoot, ".claude", "skills"),
         mcpTools: msg.roleMcpTools,
-        tmuxSession: `${this.machineId}-${jobId}`
+        tmuxSession: `${this.machineId}-${jobId}`,
+        machineId: this.machineId
       });
       console.log(`[executor] Workspace overlay written to ${ephemeralWorkspaceDir} for jobId=${jobId}`);
     } catch (err) {
@@ -17244,7 +17458,7 @@ ${assembledContext}`);
     }
     const sessionName = `${this.machineId}-${jobId}`;
     mkdirSync2(ephemeralWorkspaceDir, { recursive: true });
-    writeFileSync2(promptFilePath, assembledContext);
+    writeFileSync2(promptFilePath, cpoContext);
     const reportPath = `${process.env["HOME"] ?? "/tmp"}/${reportRelativePath(msg.role)}`;
     try {
       unlinkSync(reportPath);
@@ -17278,7 +17492,7 @@ ${assembledContext}`);
           try {
             const promptText = readFileSync3(promptFilePath, "utf8");
             await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "-l", promptText]);
-            await new Promise((resolve2) => setTimeout(resolve2, 2e3));
+            await new Promise((resolve3) => setTimeout(resolve3, 2e3));
             await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "Enter"]);
             jobLog(jobId, `Injected prompt into interactive session (${promptText.length} chars)`);
           } catch (err) {
@@ -17374,7 +17588,8 @@ ${assembledContext}`);
       role: job.role,
       promptStackMinusSkills: job.prompt_stack_minus_skills,
       roleSkills: job.skills?.length ? job.skills : void 0,
-      roleMcpTools: job.mcp_tools?.length ? job.mcp_tools : void 0
+      roleMcpTools: job.mcp_tools?.length ? job.mcp_tools : void 0,
+      companyProjects: job.projects?.length ? job.projects : void 0
     };
     await this.handlePersistentJob(`persistent-${job.role}`, syntheticMsg, syntheticMsg.slotType, companyId);
   }
@@ -17482,11 +17697,16 @@ ${msg.text}`;
       clearInterval(this.prMonitorTimer);
       this.prMonitorTimer = null;
     }
+    if (this.repoRefreshTimer !== null) {
+      clearInterval(this.repoRefreshTimer);
+      this.repoRefreshTimer = null;
+    }
     this.clearPersistentAgent();
     for (const [, job] of this.activeJobs) {
       this.clearJobTimers(job);
       await killTmuxSession(job.sessionName);
       if (job.worktreePath && job.repoDir) {
+        await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
       } else {
         cleanupJobWorkspace(job.jobId, job.workspaceDir);
       }
@@ -17524,6 +17744,15 @@ ${msg.text}`;
           }
         }
       } catch {
+      }
+    }
+  }
+  async refreshCompanyProjectWorktrees() {
+    for (const project of this.companyProjects) {
+      try {
+        await this.repoManager.ensureWorktree(project.name);
+      } catch (err) {
+        console.error(`[repo-refresh] Failed to refresh ${project.name}:`, err);
       }
     }
   }
@@ -17597,11 +17826,14 @@ ${msg.text}`;
    */
   async handlePersistentJob(jobId, msg, slotType, companyId) {
     const role = msg.role ?? "agent";
+    const roleSkills = ensureRoleSkills(role, msg.roleSkills);
     const resolvedCompanyId = companyId ?? process.env["ZAZIG_COMPANY_ID"] ?? "";
     const workspaceDir = resolvedCompanyId ? join4(homedir2(), ".zazigv2", `${resolvedCompanyId}-${role}-workspace`) : join4(homedir2(), ".zazigv2", `${role}-workspace`);
     try {
       const repoRoot = resolveRepoRoot();
       const mcpServerPath = resolveMcpServerPath();
+      const assembledContext = assembleContext(msg, repoRoot);
+      const claudeMdContent = role === "cpo" ? await this.withExpertRosterSection(assembledContext, resolvedCompanyId) : assembledContext;
       setupJobWorkspace({
         workspaceDir,
         mcpServerPath,
@@ -17610,16 +17842,37 @@ ${msg.text}`;
         jobId,
         companyId: resolvedCompanyId,
         role,
-        claudeMdContent: assembleContext(msg, repoRoot),
-        skills: msg.roleSkills,
+        claudeMdContent,
+        skills: roleSkills,
         repoSkillsDir: join4(repoRoot, "projects", "skills"),
         repoInteractiveSkillsDir: join4(repoRoot, ".claude", "skills"),
         useSymlinks: true,
         mcpTools: msg.roleMcpTools,
-        tmuxSession: `${this.machineId}-${this.companyId ? this.companyId.slice(0, 8) + "-" : ""}${role}`
+        tmuxSession: `${this.machineId}-${this.companyId ? this.companyId.slice(0, 8) + "-" : ""}${role}`,
+        machineId: this.machineId
       });
       if (role === "cpo") {
         await writeSubagentsConfig(workspaceDir);
+      }
+      const projects = await this.resolvePersistentProjects(msg, resolvedCompanyId);
+      const reposDir = join4(workspaceDir, "repos");
+      mkdirSync2(reposDir, { recursive: true });
+      console.log(`[executor] Persistent agent repo symlink dir ready: ${reposDir}`);
+      for (const project of projects) {
+        try {
+          if (!project.repo_url) {
+            console.warn(`[executor] Persistent agent repo link skipped for project=${project.name}: missing repo_url`);
+            continue;
+          }
+          await this.repoManager.ensureRepo(project.repo_url, project.name);
+          const worktreeDir = await this.repoManager.ensureWorktree(project.name);
+          const projectLinkPath = join4(reposDir, project.name);
+          rmSync3(projectLinkPath, { force: true, recursive: true });
+          symlinkSync2(worktreeDir, projectLinkPath);
+          console.log(`[executor] Persistent agent repo symlinked: ${project.name} -> ${worktreeDir}`);
+        } catch (err) {
+          console.error(`[executor] Persistent agent repo link failed for project=${project.name}:`, err);
+        }
       }
       let rolePromptForHash = msg.rolePrompt ?? "";
       if (!rolePromptForHash) {
@@ -17769,6 +18022,7 @@ ${msg.text}`;
       }
     }
     if (job.worktreePath && job.repoDir) {
+      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
@@ -17855,6 +18109,7 @@ ${msg.text}`;
       }
     }
     if (job.worktreePath && job.repoDir) {
+      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
@@ -18194,8 +18449,8 @@ ${msg.text}`;
   // Private: Message injection queue (ported from SlackChatRouter)
   // ---------------------------------------------------------------------------
   enqueueMessage(message, sessionName, startedAt, type = "human") {
-    return new Promise((resolve2, reject) => {
-      enqueueWithCap(this.messageQueue, { text: message, sessionName, startedAt, type, resolve: resolve2, reject }, MAX_QUEUE_SIZE);
+    return new Promise((resolve3, reject) => {
+      enqueueWithCap(this.messageQueue, { text: message, sessionName, startedAt, type, resolve: resolve3, reject }, MAX_QUEUE_SIZE);
       if (!this.processingQueue) {
         void this.processMessageQueue();
       }
@@ -18589,7 +18844,7 @@ async function isTmuxSessionAlive(sessionName) {
   }
 }
 function sleep(ms) {
-  return new Promise((resolve2) => setTimeout(resolve2, ms));
+  return new Promise((resolve3) => setTimeout(resolve3, ms));
 }
 function jobLogPath(jobId) {
   return `${JOB_LOG_DIR}/${jobId}-pipe-pane.log`;
@@ -18619,7 +18874,7 @@ function readLogFileFrom(logPath2, offsetBytes) {
 function cleanupJobWorkspace(jobId, workspaceDir) {
   try {
     const target = workspaceDir && workspaceDir.trim().length > 0 ? workspaceDir : join4(homedir2(), ".zazigv2", `job-${jobId}`);
-    rmSync2(target, { recursive: true });
+    rmSync3(target, { recursive: true });
   } catch {
   }
 }
@@ -18891,6 +19146,14 @@ var AgentConnection = class {
         console.error(`[local-agent] Broadcast handler crashed (event=job_unblocked):`, err);
       }
     });
+    this.channel.on("broadcast", { event: "start_expert" }, (payload) => {
+      try {
+        console.log(`[local-agent][DEBUG] Matched event=start_expert`);
+        this.handleIncomingPayload(payload.payload);
+      } catch (err) {
+        console.error(`[local-agent] Broadcast handler crashed (event=start_expert):`, err);
+      }
+    });
     this.channel.on("broadcast", { event: "message_inbound" }, (payload) => {
       try {
         console.log(`[local-agent][DEBUG] Matched event=message_inbound`);
@@ -19125,10 +19388,495 @@ var AgentConnection = class {
   }
 };
 
-// ../local-agent/dist/fix-agent.js
+// ../local-agent/dist/expert-session-manager.js
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync5, writeFileSync as writeFileSync4, existsSync as existsSync5, rmSync as rmSync4 } from "node:fs";
+import { join as join6, dirname as dirname2, resolve as resolve2 } from "node:path";
+import { homedir as homedir4 } from "node:os";
 import { execFile as execFile3 } from "node:child_process";
 import { promisify as promisify3 } from "node:util";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 var execFileAsync3 = promisify3(execFile3);
+function shellEscape2(parts) {
+  return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
+}
+function resolveMcpServerPath2() {
+  const thisDir = dirname2(fileURLToPath2(import.meta.url));
+  const mjsPath = join6(thisDir, "agent-mcp-server.mjs");
+  if (existsSync5(mjsPath))
+    return mjsPath;
+  return join6(thisDir, "agent-mcp-server.js");
+}
+function resolveRepoRoot2() {
+  const thisDir = dirname2(fileURLToPath2(import.meta.url));
+  const candidates = [
+    resolve2(thisDir, "..", "..", ".."),
+    process.cwd()
+  ];
+  for (const c of candidates) {
+    if (existsSync5(join6(c, "packages")))
+      return c;
+  }
+  return process.cwd();
+}
+function viewerSessionName(companyName) {
+  return `zazig-view-${companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
+async function killTmuxSession2(sessionName) {
+  try {
+    await execFileAsync3("tmux", ["kill-session", "-t", sessionName]);
+    console.log(`[expert] Killed stale tmux session: ${sessionName}`);
+  } catch {
+  }
+}
+async function isTmuxSessionAlive2(sessionName) {
+  try {
+    await execFileAsync3("tmux", ["has-session", "-t", sessionName]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+var ExpertSessionManager = class {
+  machineId;
+  companyId;
+  supabase;
+  supabaseUrl;
+  supabaseAnonKey;
+  activeSessions = /* @__PURE__ */ new Map();
+  activePollers = /* @__PURE__ */ new Map();
+  exitingSessions = /* @__PURE__ */ new Set();
+  constructor(opts) {
+    this.machineId = opts.machineId;
+    this.companyId = opts.companyId;
+    this.supabase = opts.supabase;
+    this.supabaseUrl = opts.supabaseUrl;
+    this.supabaseAnonKey = opts.supabaseAnonKey;
+  }
+  async handleStartExpert(msg) {
+    if (msg.machine_id !== this.machineId) {
+      console.log(`[expert] Ignoring start_expert for machine ${msg.machine_id} (this is ${this.machineId})`);
+      return;
+    }
+    const sessionId = msg.session_id;
+    const shortId = sessionId.slice(0, 8);
+    const tmuxSessionName = `expert-${shortId}`;
+    const displayName = msg.display_name ?? `Expert ${shortId}`;
+    console.log(`[expert] Starting expert session ${sessionId} (${displayName})`);
+    const workspaceDir = join6(homedir4(), ".zazigv2", `expert-${sessionId}`);
+    mkdirSync4(workspaceDir, { recursive: true });
+    let repoDir;
+    let bareRepoDir;
+    if (msg.project_id && msg.repo_url) {
+      try {
+        const projectName = msg.repo_url.split("/").pop()?.replace(/\.git$/, "") ?? msg.project_id;
+        bareRepoDir = join6(homedir4(), ".zazigv2", "repos", projectName);
+        const worktreeTarget = join6(workspaceDir, "repo");
+        const branch = msg.branch ?? "master";
+        if (!existsSync5(bareRepoDir)) {
+          console.log(`[expert] Cloning bare repo for ${projectName}...`);
+          await execFileAsync3("git", ["clone", "--bare", msg.repo_url, bareRepoDir]);
+        }
+        await execFileAsync3("git", ["-C", bareRepoDir, "fetch", "origin"]);
+        try {
+          await execFileAsync3("git", [
+            "-C",
+            bareRepoDir,
+            "worktree",
+            "add",
+            "--detach",
+            worktreeTarget,
+            `origin/${branch}`
+          ]);
+        } catch {
+          await execFileAsync3("git", [
+            "-C",
+            bareRepoDir,
+            "worktree",
+            "add",
+            "--detach",
+            worktreeTarget,
+            branch
+          ]);
+        }
+        repoDir = worktreeTarget;
+        console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${branch})`);
+      } catch (err) {
+        console.error(`[expert] Failed to create git worktree:`, err);
+      }
+    }
+    const effectiveWorkspaceDir = repoDir ?? workspaceDir;
+    try {
+      const mcpServerPath = resolveMcpServerPath2();
+      const repoRoot = resolveRepoRoot2();
+      const claudeMdParts = [];
+      if (msg.role.prompt) {
+        claudeMdParts.push(msg.role.prompt);
+      }
+      claudeMdParts.push(`
+## Expert Session Instructions
+
+You are working as an interactive expert. Your task brief is in \`.claude/expert-brief.md\`.
+
+### Workflow
+1. Read and understand the brief in \`.claude/expert-brief.md\`
+2. Work through the brief methodically
+3. Show diffs before merging any changes
+4. When done, merge your work to master
+5. Write a 2-3 sentence summary to \`.claude/expert-report.md\`
+`);
+      claudeMdParts.push(`## Brief
+
+See \`.claude/expert-brief.md\` for the full task brief.`);
+      const claudeMdContent = claudeMdParts.join("\n\n");
+      setupJobWorkspace({
+        workspaceDir: effectiveWorkspaceDir,
+        mcpServerPath,
+        supabaseUrl: this.supabaseUrl,
+        supabaseAnonKey: this.supabaseAnonKey,
+        jobId: sessionId,
+        companyId: this.companyId,
+        role: "expert",
+        claudeMdContent,
+        skills: msg.role.skills,
+        repoSkillsDir: join6(repoRoot, "projects", "skills"),
+        repoInteractiveSkillsDir: join6(repoRoot, ".claude", "skills"),
+        mcpTools: msg.role.mcp_tools,
+        tmuxSession: tmuxSessionName
+      });
+      const claudeDir = join6(effectiveWorkspaceDir, ".claude");
+      mkdirSync4(claudeDir, { recursive: true });
+      writeFileSync4(join6(claudeDir, "expert-brief.md"), msg.brief);
+      const settingsPath = join6(claudeDir, "settings.json");
+      const existingSettings = JSON.parse(readFileSync5(settingsPath, "utf8"));
+      if (msg.role.settings_overrides) {
+        const overrides = msg.role.settings_overrides;
+        for (const [key, value] of Object.entries(overrides)) {
+          if (key === "hooks" || key === "permissions")
+            continue;
+          existingSettings[key] = value;
+        }
+      }
+      existingSettings.hooks = {
+        ...existingSettings.hooks ?? {},
+        ...msg.role.settings_overrides?.hooks ?? {},
+        SessionStart: [
+          ...msg.role.settings_overrides?.hooks?.SessionStart ?? [],
+          { matcher: "", hooks: [{ type: "command", command: `cat ${shellEscape2([join6(claudeDir, "expert-brief.md")])}` }] }
+        ]
+      };
+      if (msg.role.settings_overrides?.permissions) {
+        const overridePerms = msg.role.settings_overrides.permissions;
+        if (Array.isArray(overridePerms.allow)) {
+          const existingAllow = existingSettings.permissions?.allow ?? [];
+          existingSettings.permissions = {
+            ...existingSettings.permissions,
+            allow: [.../* @__PURE__ */ new Set([...existingAllow, ...overridePerms.allow])]
+          };
+        }
+      }
+      writeFileSync4(settingsPath, JSON.stringify(existingSettings, null, 2));
+      console.log(`[expert] Workspace configured at ${effectiveWorkspaceDir}`);
+    } catch (err) {
+      console.error(`[expert] Failed to set up workspace:`, err);
+      await this.updateSessionStatus(sessionId, "failed");
+      return;
+    }
+    try {
+      if (await isTmuxSessionAlive2(tmuxSessionName)) {
+        await killTmuxSession2(tmuxSessionName);
+      }
+      const claudeCmd = shellEscape2(["claude", "--model", msg.model]);
+      const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
+      await execFileAsync3("tmux", [
+        "new-session",
+        "-d",
+        "-s",
+        tmuxSessionName,
+        "-c",
+        effectiveWorkspaceDir,
+        shellCmd
+      ]);
+      console.log(`[expert] Spawned tmux session: ${tmuxSessionName} (cwd=${effectiveWorkspaceDir})`);
+    } catch (err) {
+      console.error(`[expert] Failed to spawn tmux session:`, err);
+      await this.updateSessionStatus(sessionId, "failed");
+      return;
+    }
+    await this.updateSessionStatus(sessionId, "running");
+    const viewerLink = await this.linkToViewerTui(msg, tmuxSessionName, displayName);
+    const sessionState = {
+      sessionId,
+      workspaceDir,
+      effectiveWorkspaceDir,
+      repoDir,
+      bareRepoDir,
+      displayName,
+      tmuxSession: tmuxSessionName,
+      viewerSession: viewerLink?.viewerSession,
+      viewerWindowName: viewerLink?.viewerWindowName
+    };
+    this.activeSessions.set(sessionId, sessionState);
+    this.startExitPolling(sessionState);
+    console.log(`[expert] Expert session ${sessionId} is running (tmux=${tmuxSessionName})`);
+  }
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+  async updateSessionStatus(sessionId, status) {
+    try {
+      const update = { status };
+      if (status === "running") {
+        update.started_at = (/* @__PURE__ */ new Date()).toISOString();
+      }
+      const { error } = await this.supabase.from("expert_sessions").update(update).eq("id", sessionId);
+      if (error) {
+        console.warn(`[expert] DB update failed for session ${sessionId}: ${error.message}`);
+      }
+    } catch (err) {
+      console.error(`[expert] DB update error for session ${sessionId}:`, err);
+    }
+  }
+  async linkToViewerTui(msg, tmuxSessionName, displayName) {
+    let viewerSession;
+    if (msg.company_name) {
+      viewerSession = viewerSessionName(msg.company_name);
+    } else {
+      try {
+        const { stdout } = await execFileAsync3("tmux", [
+          "list-sessions",
+          "-F",
+          "#{session_name}"
+        ]);
+        const sessions = stdout.trim().split("\n");
+        viewerSession = sessions.find((s) => s.startsWith("zazig-view-"));
+      } catch {
+      }
+    }
+    if (!viewerSession) {
+      console.log(`[expert] No viewer session found \u2014 expert window not linked to TUI`);
+      return null;
+    }
+    if (!await isTmuxSessionAlive2(viewerSession)) {
+      console.log(`[expert] Viewer session ${viewerSession} not alive \u2014 skipping TUI linking`);
+      return null;
+    }
+    try {
+      const { stdout: windowId } = await execFileAsync3("tmux", [
+        "list-windows",
+        "-t",
+        tmuxSessionName,
+        "-F",
+        "#{window_id}"
+      ]);
+      const expertWindowId = windowId.trim().split("\n")[0];
+      if (!expertWindowId) {
+        console.warn(`[expert] Could not determine window ID for ${tmuxSessionName}`);
+        return null;
+      }
+      const viewerWindowName = displayName.toUpperCase().replace(/\s+/g, "-");
+      await execFileAsync3("tmux", [
+        "link-window",
+        "-s",
+        expertWindowId,
+        "-t",
+        `${viewerSession}:`
+      ]);
+      await execFileAsync3("tmux", [
+        "rename-window",
+        "-t",
+        expertWindowId,
+        viewerWindowName
+      ]);
+      try {
+        await execFileAsync3("tmux", [
+          "select-window",
+          "-t",
+          `${viewerSession}:${viewerWindowName}`
+        ]);
+      } catch {
+      }
+      console.log(`[expert] Linked expert window to viewer session ${viewerSession}`);
+      return { viewerSession, viewerWindowName };
+    } catch (err) {
+      console.warn(`[expert] Failed to link expert window to viewer TUI:`, err);
+      return null;
+    }
+  }
+  startExitPolling(session) {
+    const existing = this.activePollers.get(session.sessionId);
+    if (existing) {
+      clearInterval(existing);
+    }
+    const interval = setInterval(() => {
+      void (async () => {
+        try {
+          if (this.exitingSessions.has(session.sessionId))
+            return;
+          const alive = await isTmuxSessionAlive2(session.tmuxSession);
+          if (!alive) {
+            clearInterval(interval);
+            this.activePollers.delete(session.sessionId);
+            await this.handleSessionExit(session);
+          }
+        } catch (err) {
+          console.error("[expert] Poll error:", err);
+        }
+      })();
+    }, 1e4);
+    this.activePollers.set(session.sessionId, interval);
+  }
+  async handleSessionExit(session) {
+    if (this.exitingSessions.has(session.sessionId))
+      return;
+    this.exitingSessions.add(session.sessionId);
+    const poller = this.activePollers.get(session.sessionId);
+    if (poller) {
+      clearInterval(poller);
+      this.activePollers.delete(session.sessionId);
+    }
+    let summary = null;
+    const reportPath = join6(session.effectiveWorkspaceDir, ".claude", "expert-report.md");
+    try {
+      if (existsSync5(reportPath)) {
+        summary = readFileSync5(reportPath, "utf8");
+      }
+    } catch (err) {
+      console.warn(`[expert] Failed to read report for session ${session.sessionId}:`, err);
+    }
+    try {
+      const { error } = await this.supabase.from("expert_sessions").update({
+        status: "completed",
+        summary,
+        completed_at: (/* @__PURE__ */ new Date()).toISOString()
+      }).eq("id", session.sessionId);
+      if (error) {
+        console.warn(`[expert] Failed to mark session ${session.sessionId} completed: ${error.message}`);
+      }
+    } catch (err) {
+      console.warn(`[expert] Error updating expert session ${session.sessionId}:`, err);
+    }
+    await this.injectSummaryIntoCpo(session, summary);
+    await this.switchViewerToCpo(session);
+    await this.cleanupWorktree(session);
+    try {
+      rmSync4(session.workspaceDir, { recursive: true, force: true });
+    } catch (err) {
+      console.warn(`[expert] Failed to remove workspace ${session.workspaceDir}:`, err);
+    }
+    this.activeSessions.delete(session.sessionId);
+    this.exitingSessions.delete(session.sessionId);
+    console.log(`[expert] Session ${session.sessionId} exited and cleaned up`);
+  }
+  async injectSummaryIntoCpo(session, summary) {
+    const companyPrefix = this.companyId ? `${this.companyId.slice(0, 8)}-` : "";
+    const cpoSessionName = `${this.machineId}-${companyPrefix}cpo`;
+    if (!await isTmuxSessionAlive2(cpoSessionName)) {
+      console.warn(`[expert] CPO session ${cpoSessionName} not found; skipping summary injection`);
+      return;
+    }
+    const message = summary ? `[Expert Report - ${session.displayName}] ${summary}` : "[Expert session ended - no report written]";
+    const singleLine = message.replace(/\r?\n/g, " ").trim();
+    if (!singleLine)
+      return;
+    try {
+      await execFileAsync3("tmux", ["send-keys", "-t", cpoSessionName, "-l", singleLine]);
+      await execFileAsync3("tmux", ["send-keys", "-t", cpoSessionName, "Enter"]);
+      console.log(`[expert] Injected expert summary into CPO session ${cpoSessionName}`);
+    } catch (err) {
+      console.warn(`[expert] Failed to inject summary into CPO session ${cpoSessionName}:`, err);
+    }
+  }
+  async switchViewerToCpo(session) {
+    if (!session.viewerSession)
+      return;
+    if (!await isTmuxSessionAlive2(session.viewerSession))
+      return;
+    if (session.viewerWindowName) {
+      try {
+        await execFileAsync3("tmux", [
+          "unlink-window",
+          "-k",
+          "-t",
+          `${session.viewerSession}:${session.viewerWindowName}`
+        ]);
+      } catch (err) {
+        console.warn(`[expert] Failed to unlink expert window ${session.viewerWindowName} from ${session.viewerSession}:`, err);
+      }
+    }
+    const directTargets = [
+      `${session.viewerSession}:CPO`,
+      `${session.viewerSession}:cpo`
+    ];
+    for (const target of directTargets) {
+      try {
+        await execFileAsync3("tmux", ["select-window", "-t", target]);
+        return;
+      } catch {
+      }
+    }
+    try {
+      const { stdout } = await execFileAsync3("tmux", [
+        "list-windows",
+        "-t",
+        session.viewerSession,
+        "-F",
+        "#{window_index}:#{window_name}"
+      ]);
+      const lines = stdout.trim().split("\n").filter(Boolean);
+      const cpoLine = lines.find((line) => line.split(":")[1]?.toLowerCase() === "cpo");
+      const cpoIndex = cpoLine?.split(":")[0];
+      if (!cpoIndex) {
+        console.warn(`[expert] Could not find CPO window in viewer session ${session.viewerSession}`);
+        return;
+      }
+      await execFileAsync3("tmux", ["select-window", "-t", `${session.viewerSession}:${cpoIndex}`]);
+    } catch (err) {
+      console.warn(`[expert] Failed to switch viewer ${session.viewerSession} back to CPO:`, err);
+    }
+  }
+  async cleanupWorktree(session) {
+    if (!session.repoDir)
+      return;
+    try {
+      if (session.bareRepoDir) {
+        await execFileAsync3("git", [
+          "-C",
+          session.bareRepoDir,
+          "worktree",
+          "remove",
+          "--force",
+          session.repoDir
+        ]);
+        await execFileAsync3("git", [
+          "-C",
+          session.bareRepoDir,
+          "worktree",
+          "prune"
+        ]);
+      } else {
+        await execFileAsync3("git", ["worktree", "remove", "--force", session.repoDir]);
+      }
+      console.log(`[expert] Removed git worktree ${session.repoDir}`);
+    } catch (err) {
+      console.warn(`[expert] Failed to remove git worktree ${session.repoDir}:`, err);
+    }
+  }
+  cleanup() {
+    for (const poller of this.activePollers.values()) {
+      clearInterval(poller);
+    }
+    this.activePollers.clear();
+  }
+  /** Returns active session state (for exit detection poller). */
+  getActiveSessions() {
+    return this.activeSessions;
+  }
+};
+
+// ../local-agent/dist/fix-agent.js
+import { execFile as execFile4 } from "node:child_process";
+import { promisify as promisify4 } from "node:util";
+var execFileAsync4 = promisify4(execFile4);
 var FixAgentManager = class {
   activeAgents = /* @__PURE__ */ new Map();
   repoDir;
@@ -19160,8 +19908,8 @@ var FixAgentManager = class {
       `Slack channel: ${safeChannel}`,
       `Thread: ${safeThread}`
     ].join(" ");
-    const shellCmd = `unset CLAUDECODE; ${shellEscape2(["claude", "-p", prompt])}`;
-    await execFileAsync3("tmux", [
+    const shellCmd = `unset CLAUDECODE; ${shellEscape3(["claude", "-p", prompt])}`;
+    await execFileAsync4("tmux", [
       "new-session",
       "-d",
       "-s",
@@ -19186,7 +19934,7 @@ var FixAgentManager = class {
     if (!agent)
       return;
     try {
-      await execFileAsync3("tmux", ["kill-session", "-t", agent.sessionName]);
+      await execFileAsync4("tmux", ["kill-session", "-t", agent.sessionName]);
       console.log(`[fix-agent] Killed tmux session: ${agent.sessionName}`);
     } catch {
     }
@@ -19202,14 +19950,14 @@ var FixAgentManager = class {
 function sanitizeSlackField(s) {
   return s.replace(/[`$\\"'\n\r]/g, "").slice(0, 200);
 }
-function shellEscape2(parts) {
+function shellEscape3(parts) {
   return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
 }
 
 // ../local-agent/dist/verifier.js
-import { execFile as execFile4 } from "node:child_process";
-import { promisify as promisify4 } from "node:util";
-var execFileAsync4 = promisify4(execFile4);
+import { execFile as execFile5 } from "node:child_process";
+import { promisify as promisify5 } from "node:util";
+var execFileAsync5 = promisify5(execFile5);
 function getErrorOutput(error) {
   if (typeof error !== "object" || error === null) {
     return String(error);
@@ -19220,7 +19968,7 @@ function getErrorOutput(error) {
   return [message, stdout, stderr].filter((part) => part.trim().length > 0).join("\n");
 }
 var defaultRunCommand = async (file, args, options) => {
-  const { stdout, stderr } = await execFileAsync4(file, args, options);
+  const { stdout, stderr } = await execFileAsync5(file, args, options);
   return {
     stdout: typeof stdout === "string" ? stdout : String(stdout ?? ""),
     stderr: typeof stderr === "string" ? stderr : String(stderr ?? "")
@@ -19316,7 +20064,7 @@ ${typecheckStep.output}`,
 
 // ../local-agent/dist/index.js
 var companySlug = process.env["ZAZIG_COMPANY_ID"]?.slice(0, 8) ?? "default";
-var logPath = join6(homedir4(), ".zazigv2", `local-agent-${companySlug}.log`);
+var logPath = join7(homedir5(), ".zazigv2", `local-agent-${companySlug}.log`);
 var logStream = createWriteStream(logPath, { flags: "a" });
 var origLog = console.log;
 var origErr = console.error;
@@ -19359,6 +20107,13 @@ async function main() {
     machineId: config.name,
     send: (msg) => conn.sendMessage(msg)
   });
+  const expertManager = new ExpertSessionManager({
+    machineId: config.name,
+    companyId: config.company_id ?? "",
+    supabase: conn.dbClient,
+    supabaseUrl: config.supabase.url,
+    supabaseAnonKey: config.supabase.anon_key
+  });
   const _fixAgentManager = new FixAgentManager(process.cwd());
   conn.onMessage((msg) => {
     switch (msg.type) {
@@ -19392,6 +20147,12 @@ async function main() {
       case "verify_job":
         console.log(`[local-agent] Received verify_job \u2014 jobId=${msg.jobId}, featureBranch=${msg.featureBranch}, jobBranch=${msg.jobBranch}`);
         void verifier.verify(msg);
+        break;
+      case "start_expert":
+        console.log(`[local-agent] Received start_expert \u2014 sessionId=${msg.session_id}, machineId=${msg.machine_id}`);
+        expertManager.handleStartExpert(msg).catch((err) => {
+          console.error(`[local-agent] FATAL: handleStartExpert crashed for session=${msg.session_id}:`, err);
+        });
         break;
       // Legacy message types — orchestrator no longer sends these but they remain
       // in the OrchestratorMessage union for backward compatibility during rollout.
@@ -19460,13 +20221,14 @@ async function main() {
     } catch (err) {
       console.error("[local-agent] SHUTDOWN: Failed to send DaemonShutdownNotification:", err);
     }
-    await new Promise((resolve2) => setTimeout(resolve2, gracePeriodMs));
+    await new Promise((resolve3) => setTimeout(resolve3, gracePeriodMs));
     console.log("[local-agent] SHUTDOWN: Grace period wait complete");
     console.log("[local-agent] SHUTDOWN: Force-kill phase start");
+    expertManager.cleanup();
     await executor.stopAll();
     console.log("[local-agent] SHUTDOWN: Channel closure");
     const stopPromise = conn.stop();
-    const timeoutPromise = new Promise((resolve2) => setTimeout(resolve2, 5e3));
+    const timeoutPromise = new Promise((resolve3) => setTimeout(resolve3, 5e3));
     await Promise.race([stopPromise, timeoutPromise]);
     console.log("[local-agent] SHUTDOWN: Exit");
     process.exit(0);
@@ -19484,19 +20246,47 @@ async function fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId) 
     }
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Failed to fetch persistent jobs: HTTP ${res.status} \u2014 body: ${body.slice(0, 500)}`);
+    const body2 = await res.text().catch(() => "");
+    throw new Error(`Failed to fetch persistent jobs: HTTP ${res.status} \u2014 body: ${body2.slice(0, 500)}`);
   }
-  const jobs = await res.json();
-  if (!Array.isArray(jobs)) {
-    throw new Error("Persistent jobs endpoint returned non-array JSON");
+  const payload = await res.json();
+  if (Array.isArray(payload)) {
+    return { jobs: payload, companyProjects: [] };
   }
-  return jobs;
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Persistent jobs endpoint returned invalid JSON payload");
+  }
+  const body = payload;
+  const jobs = Array.isArray(body["jobs"]) ? body["jobs"] : Array.isArray(body["persistent_jobs"]) ? body["persistent_jobs"] : Array.isArray(body["persistentJobs"]) ? body["persistentJobs"] : [];
+  const projects = Array.isArray(body["company_projects"]) ? body["company_projects"] : Array.isArray(body["companyProjects"]) ? body["companyProjects"] : Array.isArray(body["projects"]) ? body["projects"] : [];
+  const companyProjects = [];
+  for (const project of projects) {
+    if (!project || typeof project !== "object")
+      continue;
+    const record = project;
+    const name = typeof record["name"] === "string" ? record["name"] : "";
+    const repoUrl = typeof record["repo_url"] === "string" ? record["repo_url"] : typeof record["repoUrl"] === "string" ? record["repoUrl"] : "";
+    if (!name || !repoUrl)
+      continue;
+    companyProjects.push({ name, repo_url: repoUrl });
+  }
+  return { jobs, companyProjects };
 }
 async function discoverAndSpawnPersistentAgents(supabaseUrl, anonKey, companyId, executor) {
   try {
-    const jobs = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+    const { jobs, companyProjects } = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
     console.log(`[local-agent] Discovered ${jobs.length} persistent agent(s) for company ${companyId}`);
+    console.log(`[local-agent] Discovered ${companyProjects.length} project repo(s) for company ${companyId}`);
+    const repoManager = new RepoManager();
+    for (const project of companyProjects) {
+      try {
+        await repoManager.ensureRepo(project.repo_url, project.name);
+        await repoManager.ensureWorktree(project.name);
+      } catch (err) {
+        console.error(`[local-agent] Failed to initialize worktree for project ${project.name}:`, err);
+      }
+    }
+    executor.setCompanyProjects(companyProjects);
     for (const job of jobs) {
       await executor.spawnPersistentAgent(job, companyId);
     }
@@ -19525,7 +20315,7 @@ function subscribeToRolePromptHotReload(conn, machineId, supabaseUrl, anonKey, c
       }
       inFlightRoles.add(role);
       try {
-        const jobs = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+        const { jobs } = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
         const refreshed = jobs.find((job) => job.role === role);
         if (!refreshed) {
           console.log(`[local-agent] role prompt update ignored for role=${role} \u2014 role is not active/persistent in company ${companyId}`);

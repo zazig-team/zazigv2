@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchPipelineSnapshot, getAccessToken } from "../lib/queries";
+import { supabase } from "../lib/supabase";
 
 export type PipelineStatus =
   | "proposal"
@@ -24,7 +25,17 @@ export interface PipelineFeature {
   jobsDone: number;
   jobsTotal: number;
   assignee: string | null;
+  capability_id: string | null;
+  capability_icon: string | null;
+  capability_title: string | null;
 }
+
+interface CapabilityLookupEntry {
+  icon: string | null;
+  title: string | null;
+}
+
+type CapabilityLookup = Record<string, CapabilityLookupEntry>;
 
 export interface NormalizedPipelineSnapshot {
   updatedAt: string | null;
@@ -114,7 +125,56 @@ function ageInHours(isoValue: string | null): number | null {
   return Math.max(0, Math.floor((Date.now() - timestamp) / (1000 * 60 * 60)));
 }
 
-function parseFeature(raw: Record<string, unknown>, fallbackStatus: PipelineStatus): PipelineFeature {
+function isMissingRelationError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeError = error as { code?: unknown; message?: unknown };
+  const code = typeof maybeError.code === "string" ? maybeError.code : "";
+  const message = typeof maybeError.message === "string" ? maybeError.message.toLowerCase() : "";
+
+  return (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    (message.includes("relation") && message.includes("does not exist"))
+  );
+}
+
+async function fetchCapabilityLookup(companyId: string): Promise<CapabilityLookup> {
+  const { data, error } = await supabase
+    .from("capabilities")
+    .select("id, icon, title")
+    .eq("company_id", companyId);
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      return {};
+    }
+    throw error;
+  }
+
+  const lookup: CapabilityLookup = {};
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    const capabilityId = stringValue(row.id);
+    if (!capabilityId) {
+      continue;
+    }
+
+    lookup[capabilityId] = {
+      icon: stringValue(row.icon),
+      title: stringValue(row.title),
+    };
+  }
+
+  return lookup;
+}
+
+function parseFeature(
+  raw: Record<string, unknown>,
+  fallbackStatus: PipelineStatus,
+  capabilityLookup: CapabilityLookup,
+): PipelineFeature {
   const fromStatus = toPipelineStatus(stringValue(raw.status));
   const status = fromStatus ?? fallbackStatus;
 
@@ -158,6 +218,15 @@ function parseFeature(raw: Record<string, unknown>, fallbackStatus: PipelineStat
     stringValue(raw.title) ?? stringValue(raw.name) ?? stringValue(raw.feature_title) ?? "Untitled";
   const description =
     stringValue(raw.description) ?? stringValue(raw.summary) ?? stringValue(raw.context) ?? "";
+  const capabilityId = stringValue(raw.capability_id) ?? stringValue(raw.capabilityId);
+  const capability = capabilityId ? capabilityLookup[capabilityId] : null;
+  const capabilityIcon =
+    stringValue(raw.capability_icon) ?? stringValue(raw.capabilityIcon) ?? capability?.icon ?? null;
+  const capabilityTitle =
+    stringValue(raw.capability_title) ??
+    stringValue(raw.capabilityTitle) ??
+    capability?.title ??
+    null;
 
   return {
     id,
@@ -171,10 +240,17 @@ function parseFeature(raw: Record<string, unknown>, fallbackStatus: PipelineStat
     jobsTotal,
     assignee:
       stringValue(raw.owner_id) ?? stringValue(raw.owner) ?? stringValue(raw.originator),
+    capability_id: capabilityId,
+    capability_icon: capabilityIcon,
+    capability_title: capabilityTitle,
   };
 }
 
-function normalizeSnapshot(snapshot: unknown, updatedAt: string | null): NormalizedPipelineSnapshot {
+function normalizeSnapshot(
+  snapshot: unknown,
+  updatedAt: string | null,
+  capabilityLookup: CapabilityLookup,
+): NormalizedPipelineSnapshot {
   const byStatus: Record<PipelineStatus, PipelineFeature[]> = {
     proposal: [],
     ready: [],
@@ -206,7 +282,9 @@ function normalizeSnapshot(snapshot: unknown, updatedAt: string | null): Normali
           if (!rawFeature || typeof rawFeature !== "object") {
             continue;
           }
-          byStatus[status].push(parseFeature(rawFeature as Record<string, unknown>, status));
+          byStatus[status].push(
+            parseFeature(rawFeature as Record<string, unknown>, status, capabilityLookup),
+          );
         }
       }
     } else {
@@ -219,7 +297,9 @@ function normalizeSnapshot(snapshot: unknown, updatedAt: string | null): Normali
           const status =
             toPipelineStatus(stringValue((rawFeature as Record<string, unknown>).status)) ??
             "breaking_down";
-          byStatus[status].push(parseFeature(rawFeature as Record<string, unknown>, status));
+          byStatus[status].push(
+            parseFeature(rawFeature as Record<string, unknown>, status, capabilityLookup),
+          );
         }
       }
     }
@@ -232,7 +312,11 @@ function normalizeSnapshot(snapshot: unknown, updatedAt: string | null): Normali
     if (Array.isArray(completedFeatures)) {
       for (const rawFeature of completedFeatures) {
         if (!rawFeature || typeof rawFeature !== "object") continue;
-        const parsed = parseFeature(rawFeature as Record<string, unknown>, "shipped");
+        const parsed = parseFeature(
+          rawFeature as Record<string, unknown>,
+          "shipped",
+          capabilityLookup,
+        );
         byStatus[parsed.status].push(parsed);
       }
     }
@@ -265,8 +349,13 @@ export function usePipelineSnapshot(companyId: string | null): {
 
     try {
       await getAccessToken();
-      const response = await fetchPipelineSnapshot(companyId);
-      setSnapshot(normalizeSnapshot(response.snapshot, response.updated_at ?? null));
+      const [response, capabilityLookup] = await Promise.all([
+        fetchPipelineSnapshot(companyId),
+        fetchCapabilityLookup(companyId),
+      ]);
+      setSnapshot(
+        normalizeSnapshot(response.snapshot, response.updated_at ?? null, capabilityLookup),
+      );
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
       setSnapshot(EMPTY_SNAPSHOT);

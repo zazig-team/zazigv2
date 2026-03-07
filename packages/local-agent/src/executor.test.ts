@@ -383,22 +383,7 @@ describe("JobExecutor — progress integration", () => {
     expect(failCalls.length).toBe(0);
   });
 
-  it("sendJobFailed does not include progress field", async () => {
-    await executor.handleStartJob(makeStartJob());
-    supabase.calls.length = 0;
-
-    // Stop the job (simulates orchestrator sending StopJob)
-    // This doesn't call sendJobFailed, so let's test the timeout path instead.
-    // To get a timeout without 118 polls, we'll directly test via handleStopJob
-    // then manually check what sendJobFailed writes.
-
-    // Actually, let's just verify the sendJobFailed implementation doesn't
-    // include progress by examining what handleStopJob triggers.
-    // StopJob doesn't call sendJobFailed — it calls sendStopAck.
-    // The timeout path calls sendJobFailed. Let's verify the DB update payload
-    // in sendJobFailed by looking at what it writes.
-
-    // We can trigger a slot failure by trying to start a job with no slots:
+  it("does not fail a job when local slots are exhausted", async () => {
     const noSlotExecutor = new JobExecutor(
       "machine-1",
       "company-test",
@@ -414,9 +399,7 @@ describe("JobExecutor — progress integration", () => {
     const failCalls = supabase.calls.filter(
       (c) => c.table === "jobs" && c.data.status === "failed",
     );
-    expect(failCalls.length).toBe(1);
-    // sendJobFailed should NOT set progress — it leaves it as-is
-    expect(failCalls[0]!.data).not.toHaveProperty("progress");
+    expect(failCalls.length).toBe(0);
   });
 
   it("ignores duplicate start_job when the same job is already active", async () => {

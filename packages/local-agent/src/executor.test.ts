@@ -133,7 +133,6 @@ function makeMockSupabase() {
         if (table === "expert_roles" && columns === "name, display_name, description") {
           return Promise.resolve(expertRolesResult);
         }
-
         return {
           eq: vi.fn(() => ({
             eq: vi.fn(() => ({

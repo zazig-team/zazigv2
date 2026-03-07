@@ -1144,16 +1144,22 @@ export class JobExecutor {
       const projects = await this.resolvePersistentProjects(msg, resolvedCompanyId);
       const reposDir = join(workspaceDir, "repos");
       mkdirSync(reposDir, { recursive: true });
+      console.log(`[executor] Persistent agent repo symlink dir ready: ${reposDir}`);
       for (const project of projects) {
-        if (!project.repo_url) {
-          console.warn(`[executor] Persistent agent repo link skipped for project=${project.name}: missing repo_url`);
-          continue;
+        try {
+          if (!project.repo_url) {
+            console.warn(`[executor] Persistent agent repo link skipped for project=${project.name}: missing repo_url`);
+            continue;
+          }
+          await this.repoManager.ensureRepo(project.repo_url, project.name);
+          const worktreeDir = await this.repoManager.ensureWorktree(project.name);
+          const projectLinkPath = join(reposDir, project.name);
+          rmSync(projectLinkPath, { force: true, recursive: true });
+          symlinkSync(worktreeDir, projectLinkPath);
+          console.log(`[executor] Persistent agent repo symlinked: ${project.name} -> ${worktreeDir}`);
+        } catch (err) {
+          console.error(`[executor] Persistent agent repo link failed for project=${project.name}:`, err);
         }
-        await this.repoManager.ensureRepo(project.repo_url, project.name);
-        const worktreeDir = await this.repoManager.ensureWorktree(project.name);
-        const projectLinkPath = join(reposDir, project.name);
-        rmSync(projectLinkPath, { force: true, recursive: true });
-        symlinkSync(worktreeDir, projectLinkPath);
       }
 
       // --- Write prompt freshness metadata for SessionStart hook ---

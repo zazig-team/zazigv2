@@ -631,7 +631,7 @@ export class JobExecutor {
       cmd = "claude";
       cmdArgs = ["--model", resolvedModel];
     } else {
-      const built = buildCommand(slotType, complexity, model, worktreePath, promptFilePath);
+      const built = buildCommand(slotType, complexity, model, worktreePath, promptFilePath, repoDir);
       cmd = built.cmd;
       cmdArgs = built.args;
     }
@@ -1534,6 +1534,7 @@ export class JobExecutor {
               job.model ?? "codex",
               job.worktreePath,
               fixPromptPath,
+              job.repoDir,
             );
 
             if (await isTmuxSessionAlive(job.sessionName)) {
@@ -2377,6 +2378,7 @@ function buildCommand(
   model: string,
   worktreePath?: string,
   promptFilePath?: string,
+  repoDir?: string,
 ): { cmd: string; args: string[] } {
   const resolvedModel =
     model && model !== "codex"
@@ -2390,6 +2392,11 @@ function buildCommand(
   if (slotType === "codex") {
     // Native Codex execution — prompt is passed as a positional CLI arg (not stdin).
     const args = ["exec", "-m", resolvedModel, "--full-auto", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
+    // Worktrees store their git index inside the parent bare repo dir.
+    // The sandbox must be able to write there for git add/commit to work.
+    if (repoDir) {
+      args.push("--add-dir", repoDir);
+    }
     if (complexity === "medium") {
       args.push("-c", "model_reasoning_effort=xhigh");
     }

@@ -164,7 +164,7 @@ export async function promote(args: string[]): Promise<void> {
 
   console.log(`Creating worktree on ${defaultBranch}...`);
   try {
-    execSync(`git worktree add "${worktreePath}" ${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
+    execSync(`git worktree add --force "${worktreePath}" ${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
   } catch (err) {
     console.error(`Failed to create worktree: ${String(err)}`);
     process.exitCode = 1;

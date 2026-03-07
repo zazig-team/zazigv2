@@ -1686,13 +1686,14 @@ input {
 .card {
   background: var(--white);
   border: 1px solid var(--chalk);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   overflow: hidden;
+  display: flex;
 }
 
 .card-accent {
-  height: 3px;
-  width: 100%;
+  width: 3px;
+  flex-shrink: 0;
 }
 
 .card-body {
@@ -1781,10 +1782,22 @@ input {
 .card-jobs {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 6px;
   margin-top: var(--sp-2);
-  padding-top: var(--sp-2);
-  border-top: 1px solid var(--chalk-light);
+}
+
+.card-jobs-bar {
+  flex: 1;
+  height: 2px;
+  background: var(--chalk);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.card-jobs-bar-fill {
+  height: 100%;
+  border-radius: 1px;
+  background: var(--positive);
 }
 
 .card-job-pip {
@@ -1797,7 +1810,7 @@ input {
   font-family: var(--font-mono);
   font-size: 9px;
   color: var(--dust);
-  margin-left: 4px;
+  white-space: nowrap;
 }
 
 .parked-toggle {
@@ -2539,11 +2552,25 @@ input {
 
 .card--clickable {
   cursor: pointer;
-  transition: box-shadow 0.15s ease;
+  transition: all 0.15s ease;
 }
 
 .card--clickable:hover {
   box-shadow: var(--shadow-md);
+  border-color: var(--dust);
+}
+
+.card-progress {
+  height: 2px;
+  background: var(--chalk);
+  border-radius: 1px;
+  overflow: hidden;
+  margin-top: var(--sp-2);
+}
+
+.card-progress-fill {
+  height: 100%;
+  border-radius: 1px;
 }
 
 .goal-card--clickable {

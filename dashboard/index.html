@@ -1297,6 +1297,8 @@
       let lastFeatures = [];
       let lastIdeas = [];
       let parkedExpanded = false;
+      let archiveExpandedComplete = false;
+      let archiveExpandedFailed = false;
       let actionInFlight = false;
 
       // ── Helpers ──────────────────────────────
@@ -1776,6 +1778,24 @@
       function renderColumn(colDef, items, parkedIdeas) {
         var col = el('div', 'column');
         col.style.background = 'var(--col-' + colDef.key + '-bg, var(--bg))';
+        var isArchiveColumn = colDef.key === 'complete' || colDef.key === 'failed';
+        var now = Date.now();
+        var DAY_MS = 24 * 60 * 60 * 1000;
+        var recentItems = items;
+        var archivedItems = [];
+
+        if (isArchiveColumn) {
+          recentItems = [];
+          archivedItems = [];
+          for (var ri = 0; ri < items.length; ri++) {
+            var updatedAt = new Date(items[ri]?.updated_at).getTime();
+            if (Number.isFinite(updatedAt) && (now - updatedAt) <= DAY_MS) {
+              recentItems.push(items[ri]);
+            } else {
+              archivedItems.push(items[ri]);
+            }
+          }
+        }
 
         var hdr = el('div', 'column-header');
         var titleGroup = el('div', 'column-title');
@@ -1784,23 +1804,65 @@
         titleGroup.appendChild(dot);
         titleGroup.appendChild(el('span', 'column-name', colDef.label));
         hdr.appendChild(titleGroup);
-        hdr.appendChild(el('span', 'column-count', String(items.length)));
+        hdr.appendChild(el('span', 'column-count', String(recentItems.length)));
         col.appendChild(hdr);
 
         var body = el('div', 'column-body');
-        if (items.length === 0 && (!parkedIdeas || parkedIdeas.length === 0)) {
+        if (recentItems.length === 0 && archivedItems.length === 0 && (!parkedIdeas || parkedIdeas.length === 0)) {
           body.appendChild(el('div', 'column-empty', 'No items'));
         } else {
-          for (var i = 0; i < items.length; i++) {
+          for (var i = 0; i < recentItems.length; i++) {
             if (colDef.source === 'ideas') {
-              var ageDays = getAgeDays(items[i]?.created_at);
-              body.appendChild(renderIdeaCard(items[i], colDef, i * 50, {
+              var ageDays = getAgeDays(recentItems[i]?.created_at);
+              body.appendChild(renderIdeaCard(recentItems[i], colDef, i * 50, {
                 warnStale: colDef.key === 'new' && ageDays > 7
               }));
             } else {
-              body.appendChild(renderFeatureCard(items[i], colDef, i * 50));
+              body.appendChild(renderFeatureCard(recentItems[i], colDef, i * 50));
             }
           }
+        }
+
+        if (isArchiveColumn && archivedItems.length > 0) {
+          var archiveExpanded = colDef.key === 'complete' ? archiveExpandedComplete : archiveExpandedFailed;
+          var archiveWrap = el('div', 'parked-section');
+          var archiveToggle = el('button', 'parked-toggle');
+          archiveToggle.type = 'button';
+          archiveToggle.setAttribute('aria-expanded', archiveExpanded ? 'true' : 'false');
+          archiveToggle.textContent = (archiveExpanded ? '\u25be' : '\u25b8') + ' Archive (' + archivedItems.length + ')';
+          archiveToggle.addEventListener('click', function() {
+            if (colDef.key === 'complete') {
+              archiveExpandedComplete = !archiveExpandedComplete;
+            } else {
+              archiveExpandedFailed = !archiveExpandedFailed;
+            }
+            renderBoard(lastFeatures, lastIdeas);
+          });
+          archiveWrap.appendChild(archiveToggle);
+
+          if (archiveExpanded) {
+            var archiveGroups = buildArchivedFeatureGroups(archivedItems);
+            var archiveContent = el('div', 'parked-content');
+            var renderIdx = 0;
+            for (var ag = 0; ag < archiveGroups.length; ag++) {
+              if (archiveGroups[ag].items.length === 0) continue;
+              var archiveGroupWrap = document.createElement('div');
+              var archiveHeading = el(
+                'div',
+                archiveGroups[ag].stale ? 'parked-group-title stale' : 'parked-group-title',
+                archiveGroups[ag].label + ' (' + archiveGroups[ag].items.length + ')'
+              );
+              archiveGroupWrap.appendChild(archiveHeading);
+              for (var ai = 0; ai < archiveGroups[ag].items.length; ai++) {
+                archiveGroupWrap.appendChild(renderFeatureCard(archiveGroups[ag].items[ai], colDef, renderIdx * 35));
+                renderIdx++;
+              }
+              archiveContent.appendChild(archiveGroupWrap);
+            }
+            archiveWrap.appendChild(archiveContent);
+          }
+
+          body.appendChild(archiveWrap);
         }
 
         // Collapsible parked section inside the column
@@ -1866,6 +1928,34 @@
             stale.push(idea);
           } else {
             older.push(idea);
+          }
+        }
+
+        return [
+          { label: 'This week', items: week },
+          { label: 'This month', items: month },
+          { label: 'Older', items: older },
+          { label: '\u26a0 Stale \u2014 over 90 days', items: stale, stale: true },
+        ];
+      }
+
+      function buildArchivedFeatureGroups(archivedFeatures) {
+        var week = [];
+        var month = [];
+        var older = [];
+        var stale = [];
+
+        for (var i = 0; i < archivedFeatures.length; i++) {
+          var feature = archivedFeatures[i];
+          var age = getAgeDays(feature?.updated_at);
+          if (age <= 7) {
+            week.push(feature);
+          } else if (age <= 30) {
+            month.push(feature);
+          } else if (age > 90) {
+            stale.push(feature);
+          } else {
+            older.push(feature);
           }
         }
 

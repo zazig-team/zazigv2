@@ -10,7 +10,7 @@
  */
 
 import { writeFileSync, mkdirSync, existsSync, copyFileSync, readFileSync, appendFileSync, symlinkSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 type SubagentRoleConfig = {
   name: string;
@@ -218,10 +218,15 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
   mkdirSync(claudeDir, { recursive: true });
 
   // 5. Write .claude/settings.json with role-scoped permissions
+  const worktreeMetadataDir = resolveGitWorktreeMetadataDir(config.workspaceDir);
+  const permissions = {
+    allow: generateAllowedTools(config.role, config.mcpTools),
+    ...(worktreeMetadataDir ? { additionalDirectories: [worktreeMetadataDir] } : {}),
+  };
   writeFileSync(
     join(claudeDir, "settings.json"),
     JSON.stringify(
-      { permissions: { allow: generateAllowedTools(config.role, config.mcpTools) } },
+      { permissions },
       null,
       2,
     ),
@@ -292,5 +297,22 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     if (!existingContent.includes(GITIGNORE_MARKER)) {
       appendFileSync(gitignorePath, (existingContent.endsWith("\n") || existingContent === "" ? "" : "\n") + GITIGNORE_BLOCK);
     }
+  }
+}
+
+function resolveGitWorktreeMetadataDir(workspaceDir: string): string | null {
+  const gitMarker = join(workspaceDir, ".git");
+  if (!existsSync(gitMarker)) return null;
+
+  try {
+    const gitMarkerContent = readFileSync(gitMarker, "utf8").trim();
+    const match = gitMarkerContent.match(/^gitdir:\s*(.+)\s*$/i);
+    if (!match?.[1]) return null;
+
+    const gitDirPath = match[1].trim();
+    return resolve(dirname(gitMarker), gitDirPath);
+  } catch {
+    // Not a worktree .git file (e.g. normal repo with .git directory) or unreadable.
+    return null;
   }
 }

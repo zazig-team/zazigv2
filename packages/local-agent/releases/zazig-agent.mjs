@@ -159,11 +159,11 @@ function __metadata(metadataKey, metadataValue) {
 }
 function __awaiter(thisArg, _arguments, P, generator) {
   function adopt(value) {
-    return value instanceof P ? value : new P(function(resolve3) {
-      resolve3(value);
+    return value instanceof P ? value : new P(function(resolve4) {
+      resolve4(value);
     });
   }
-  return new (P || (P = Promise))(function(resolve3, reject) {
+  return new (P || (P = Promise))(function(resolve4, reject) {
     function fulfilled(value) {
       try {
         step(generator.next(value));
@@ -179,7 +179,7 @@ function __awaiter(thisArg, _arguments, P, generator) {
       }
     }
     function step(result) {
-      result.done ? resolve3(result.value) : adopt(result.value).then(fulfilled, rejected);
+      result.done ? resolve4(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
     step((generator = generator.apply(thisArg, _arguments || [])).next());
   });
@@ -370,14 +370,14 @@ function __asyncValues(o) {
   }, i);
   function verb(n) {
     i[n] = o[n] && function(v) {
-      return new Promise(function(resolve3, reject) {
-        v = o[n](v), settle(resolve3, reject, v.done, v.value);
+      return new Promise(function(resolve4, reject) {
+        v = o[n](v), settle(resolve4, reject, v.done, v.value);
       });
     };
   }
-  function settle(resolve3, reject, d, v) {
+  function settle(resolve4, reject, d, v) {
     Promise.resolve(v).then(function(v2) {
-      resolve3({ value: v2, done: d });
+      resolve4({ value: v2, done: d });
     }, reject);
   }
 }
@@ -2019,15 +2019,15 @@ var require_RealtimeChannel = __commonJS({
             }
           }
         } else {
-          return new Promise((resolve3) => {
+          return new Promise((resolve4) => {
             var _a2, _b2, _c;
             const push = this._push(args.type, args, opts.timeout || this.timeout);
             if (args.type === "broadcast" && !((_c = (_b2 = (_a2 = this.params) === null || _a2 === void 0 ? void 0 : _a2.config) === null || _b2 === void 0 ? void 0 : _b2.broadcast) === null || _c === void 0 ? void 0 : _c.ack)) {
-              resolve3("ok");
+              resolve4("ok");
             }
-            push.receive("ok", () => resolve3("ok"));
-            push.receive("error", () => resolve3("error"));
-            push.receive("timeout", () => resolve3("timed out"));
+            push.receive("ok", () => resolve4("ok"));
+            push.receive("error", () => resolve4("error"));
+            push.receive("timeout", () => resolve4("timed out"));
           });
         }
       }
@@ -2055,16 +2055,16 @@ var require_RealtimeChannel = __commonJS({
         };
         this.joinPush.destroy();
         let leavePush = null;
-        return new Promise((resolve3) => {
+        return new Promise((resolve4) => {
           leavePush = new push_1.default(this, constants_1.CHANNEL_EVENTS.leave, {}, timeout);
           leavePush.receive("ok", () => {
             onClose();
-            resolve3("ok");
+            resolve4("ok");
           }).receive("timeout", () => {
             onClose();
-            resolve3("timed out");
+            resolve4("timed out");
           }).receive("error", () => {
-            resolve3("error");
+            resolve4("error");
           });
           leavePush.send();
           if (!this._canPush()) {
@@ -14006,7 +14006,7 @@ var _getRequestParams = (method, options, parameters, body) => {
   return _objectSpread22(_objectSpread22({}, params), parameters);
 };
 async function _handleRequest(fetcher, method, url, options, parameters, body, namespace) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
       if (!result.ok) throw result;
       if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
@@ -14016,7 +14016,7 @@ async function _handleRequest(fetcher, method, url, options, parameters, body, n
         if (!contentType || !contentType.includes("application/json")) return {};
       }
       return result.json();
-    }).then((data) => resolve3(data)).catch((error) => handleError(error, reject, options, namespace));
+    }).then((data) => resolve4(data)).catch((error) => handleError(error, reject, options, namespace));
   });
 }
 function createFetchApi(namespace = "storage") {
@@ -16565,14 +16565,14 @@ import { execFile as execFile2 } from "node:child_process";
 import { existsSync as existsSync4, readFileSync as readFileSync3, renameSync, unlinkSync, mkdirSync as mkdirSync2, rmSync as rmSync3, symlinkSync as symlinkSync2, appendFileSync as appendFileSync2 } from "node:fs";
 import { promisify as promisify2 } from "node:util";
 import { homedir as homedir2 } from "node:os";
-import { dirname, join as join4, resolve } from "node:path";
+import { dirname as dirname2, join as join4, resolve as resolve2 } from "node:path";
 import { writeFileSync as writeFileSync2 } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 // ../local-agent/dist/workspace.js
 import { writeFileSync, mkdirSync, existsSync as existsSync2, copyFileSync, readFileSync as readFileSync2, appendFileSync, symlinkSync, rmSync } from "node:fs";
-import { join as join2 } from "node:path";
+import { dirname, join as join2, resolve } from "node:path";
 var SUBAGENT_CONFIGS = {
   roles: {
     "code-investigator": {
@@ -16661,7 +16661,12 @@ function setupJobWorkspace(config) {
   writeFileSync(join2(config.workspaceDir, "CLAUDE.md"), config.claudeMdContent);
   const claudeDir = join2(config.workspaceDir, ".claude");
   mkdirSync(claudeDir, { recursive: true });
-  writeFileSync(join2(claudeDir, "settings.json"), JSON.stringify({ permissions: { allow: generateAllowedTools(config.role, config.mcpTools) } }, null, 2));
+  const worktreeMetadataDir = resolveGitWorktreeMetadataDir(config.workspaceDir);
+  const permissions = {
+    allow: generateAllowedTools(config.role, config.mcpTools),
+    ...worktreeMetadataDir ? { additionalDirectories: [worktreeMetadataDir] } : {}
+  };
+  writeFileSync(join2(claudeDir, "settings.json"), JSON.stringify({ permissions }, null, 2));
   writeFileSync(join2(claudeDir, "workspace-config.json"), JSON.stringify({
     machineId: config.machineId ?? null,
     companyId: config.companyId ?? null,
@@ -16708,6 +16713,21 @@ function setupJobWorkspace(config) {
     if (!existingContent.includes(GITIGNORE_MARKER)) {
       appendFileSync(gitignorePath, (existingContent.endsWith("\n") || existingContent === "" ? "" : "\n") + GITIGNORE_BLOCK);
     }
+  }
+}
+function resolveGitWorktreeMetadataDir(workspaceDir) {
+  const gitMarker = join2(workspaceDir, ".git");
+  if (!existsSync2(gitMarker))
+    return null;
+  try {
+    const gitMarkerContent = readFileSync2(gitMarker, "utf8").trim();
+    const match = gitMarkerContent.match(/^gitdir:\s*(.+)\s*$/i);
+    if (!match?.[1])
+      return null;
+    const gitDirPath = match[1].trim();
+    return resolve(dirname(gitMarker), gitDirPath);
+  } catch {
+    return null;
   }
 }
 
@@ -16786,16 +16806,16 @@ var RepoManager = class {
   /** Serialise all git operations for a given repo dir. */
   async withLock(repoDir, fn) {
     const prev = this.locks.get(repoDir) ?? Promise.resolve();
-    let resolve3;
+    let resolve4;
     const next = new Promise((r) => {
-      resolve3 = r;
+      resolve4 = r;
     });
     this.locks.set(repoDir, next);
     await prev;
     try {
       return await fn();
     } finally {
-      resolve3();
+      resolve4();
       if (this.locks.get(repoDir) === next) {
         this.locks.delete(repoDir);
       }
@@ -17117,7 +17137,7 @@ var RepoManager = class {
 
 // ../local-agent/dist/executor.js
 function resolveMcpServerPath() {
-  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const thisDir = dirname2(fileURLToPath(import.meta.url));
   const mjsPath = join4(thisDir, "agent-mcp-server.mjs");
   if (existsSync4(mjsPath))
     return mjsPath;
@@ -17155,9 +17175,9 @@ function clearJobLogs(jobId) {
   }
 }
 function resolveRepoRoot() {
-  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const thisDir = dirname2(fileURLToPath(import.meta.url));
   const candidates = [
-    resolve(thisDir, "..", "..", ".."),
+    resolve2(thisDir, "..", "..", ".."),
     process.cwd()
   ];
   for (const candidate of candidates) {
@@ -17274,12 +17294,10 @@ var JobExecutor = class {
     this.machineUuid = data.id;
     return data.id;
   }
-  async withExpertRosterSection(claudeMdContent, companyId) {
-    if (!companyId)
-      return claudeMdContent;
-    const { data, error } = await this.supabase.from("expert_roles").select("name, display_name, description").eq("company_id", companyId);
+  async withExpertRosterSection(claudeMdContent) {
+    const { data, error } = await this.supabase.from("expert_roles").select("name, display_name, description");
     if (error) {
-      console.warn(`[executor] Failed to load expert_roles for company ${companyId}: ${error.message}`);
+      console.warn(`[executor] Failed to load expert_roles: ${error.message}`);
       return claudeMdContent;
     }
     const expertRoles = data ?? [];
@@ -17367,7 +17385,7 @@ var JobExecutor = class {
     const roleSkills = ensureRoleSkills(roleName, msg.roleSkills);
     const repoRoot = resolveRepoRoot();
     const assembledContext = assembleContext(msg, repoRoot);
-    const cpoContext = roleName === "cpo" ? await this.withExpertRosterSection(assembledContext, this.companyId) : assembledContext;
+    const cpoContext = roleName === "cpo" ? await this.withExpertRosterSection(assembledContext) : assembledContext;
     console.log(`[executor] Assembled context for jobId=${jobId}:
 ${cpoContext}`);
     let ephemeralWorkspaceDir;
@@ -17452,7 +17470,7 @@ ${cpoContext}`);
       cmd = "claude";
       cmdArgs = ["--model", resolvedModel];
     } else {
-      const built = buildCommand(slotType, complexity, model, worktreePath, promptFilePath);
+      const built = buildCommand(slotType, complexity, model, worktreePath, promptFilePath, repoDir);
       cmd = built.cmd;
       cmdArgs = built.args;
     }
@@ -17492,7 +17510,7 @@ ${cpoContext}`);
           try {
             const promptText = readFileSync3(promptFilePath, "utf8");
             await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "-l", promptText]);
-            await new Promise((resolve3) => setTimeout(resolve3, 2e3));
+            await new Promise((resolve4) => setTimeout(resolve4, 2e3));
             await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "Enter"]);
             jobLog(jobId, `Injected prompt into interactive session (${promptText.length} chars)`);
           } catch (err) {
@@ -17833,7 +17851,7 @@ ${msg.text}`;
       const repoRoot = resolveRepoRoot();
       const mcpServerPath = resolveMcpServerPath();
       const assembledContext = assembleContext(msg, repoRoot);
-      const claudeMdContent = role === "cpo" ? await this.withExpertRosterSection(assembledContext, resolvedCompanyId) : assembledContext;
+      const claudeMdContent = role === "cpo" ? await this.withExpertRosterSection(assembledContext) : assembledContext;
       setupJobWorkspace({
         workspaceDir,
         mcpServerPath,
@@ -18152,7 +18170,7 @@ ${msg.text}`;
           jobLog(jobId, `Codex review failed \u2014 retrying attempt ${job.attempt}/${job.maxAttempts}. reason="${reviewResult.reason}"`);
           try {
             const fixPromptPath = buildFixPrompt(job);
-            const built = buildCommand(job.slotType, job.complexity ?? "medium", job.model ?? "codex", job.worktreePath, fixPromptPath);
+            const built = buildCommand(job.slotType, job.complexity ?? "medium", job.model ?? "codex", job.worktreePath, fixPromptPath, job.repoDir);
             if (await isTmuxSessionAlive(job.sessionName)) {
               await killTmuxSession(job.sessionName);
             }
@@ -18449,8 +18467,8 @@ ${msg.text}`;
   // Private: Message injection queue (ported from SlackChatRouter)
   // ---------------------------------------------------------------------------
   enqueueMessage(message, sessionName, startedAt, type = "human") {
-    return new Promise((resolve3, reject) => {
-      enqueueWithCap(this.messageQueue, { text: message, sessionName, startedAt, type, resolve: resolve3, reject }, MAX_QUEUE_SIZE);
+    return new Promise((resolve4, reject) => {
+      enqueueWithCap(this.messageQueue, { text: message, sessionName, startedAt, type, resolve: resolve4, reject }, MAX_QUEUE_SIZE);
       if (!this.processingQueue) {
         void this.processMessageQueue();
       }
@@ -18794,10 +18812,13 @@ function buildFixPrompt(job) {
   writeFileSync2(fixPromptPath, fixPrompt, "utf-8");
   return fixPromptPath;
 }
-function buildCommand(slotType, complexity, model, worktreePath, promptFilePath) {
+function buildCommand(slotType, complexity, model, worktreePath, promptFilePath, repoDir) {
   const resolvedModel = model && model !== "codex" ? model : slotType === "codex" ? "gpt-5.3-codex" : complexity === "complex" ? "claude-opus-4-6" : "claude-sonnet-4-6";
   if (slotType === "codex") {
     const args = ["exec", "-m", resolvedModel, "--full-auto", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
+    if (repoDir) {
+      args.push("--add-dir", repoDir);
+    }
     if (complexity === "medium") {
       args.push("-c", "model_reasoning_effort=xhigh");
     }
@@ -18844,7 +18865,7 @@ async function isTmuxSessionAlive(sessionName) {
   }
 }
 function sleep(ms) {
-  return new Promise((resolve3) => setTimeout(resolve3, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function jobLogPath(jobId) {
   return `${JOB_LOG_DIR}/${jobId}-pipe-pane.log`;
@@ -19390,7 +19411,7 @@ var AgentConnection = class {
 
 // ../local-agent/dist/expert-session-manager.js
 import { mkdirSync as mkdirSync4, readFileSync as readFileSync5, writeFileSync as writeFileSync4, existsSync as existsSync5, rmSync as rmSync4 } from "node:fs";
-import { join as join6, dirname as dirname2, resolve as resolve2 } from "node:path";
+import { join as join6, dirname as dirname3, resolve as resolve3 } from "node:path";
 import { homedir as homedir4 } from "node:os";
 import { execFile as execFile3 } from "node:child_process";
 import { promisify as promisify3 } from "node:util";
@@ -19400,16 +19421,16 @@ function shellEscape2(parts) {
   return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
 }
 function resolveMcpServerPath2() {
-  const thisDir = dirname2(fileURLToPath2(import.meta.url));
+  const thisDir = dirname3(fileURLToPath2(import.meta.url));
   const mjsPath = join6(thisDir, "agent-mcp-server.mjs");
   if (existsSync5(mjsPath))
     return mjsPath;
   return join6(thisDir, "agent-mcp-server.js");
 }
 function resolveRepoRoot2() {
-  const thisDir = dirname2(fileURLToPath2(import.meta.url));
+  const thisDir = dirname3(fileURLToPath2(import.meta.url));
   const candidates = [
-    resolve2(thisDir, "..", "..", ".."),
+    resolve3(thisDir, "..", "..", ".."),
     process.cwd()
   ];
   for (const c of candidates) {
@@ -20221,14 +20242,14 @@ async function main() {
     } catch (err) {
       console.error("[local-agent] SHUTDOWN: Failed to send DaemonShutdownNotification:", err);
     }
-    await new Promise((resolve3) => setTimeout(resolve3, gracePeriodMs));
+    await new Promise((resolve4) => setTimeout(resolve4, gracePeriodMs));
     console.log("[local-agent] SHUTDOWN: Grace period wait complete");
     console.log("[local-agent] SHUTDOWN: Force-kill phase start");
     expertManager.cleanup();
     await executor.stopAll();
     console.log("[local-agent] SHUTDOWN: Channel closure");
     const stopPromise = conn.stop();
-    const timeoutPromise = new Promise((resolve3) => setTimeout(resolve3, 5e3));
+    const timeoutPromise = new Promise((resolve4) => setTimeout(resolve4, 5e3));
     await Promise.race([stopPromise, timeoutPromise]);
     console.log("[local-agent] SHUTDOWN: Exit");
     process.exit(0);

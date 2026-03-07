@@ -1744,17 +1744,7 @@ export class JobExecutor {
       }
     }
 
-    // If the verify report had no verdict, treat as a job failure (not completion)
-    if (result === "VERDICT_MISSING") {
-      jobLog(jobId, `Sending JobFailed (no verdict) — result="${result}"`);
-      try {
-        await this.sendJobFailed(jobId, result, "unknown");
-        jobLog(jobId, `JobFailed sent successfully`);
-      } catch (sendErr) {
-        jobLog(jobId, `sendJobFailed FAILED: ${String(sendErr)}`);
-        console.error(`[executor] sendJobFailed failed for jobId=${jobId}:`, sendErr);
-      }
-    } else {
+    if (result === "PASSED" || result.startsWith("PASSED:")) {
       jobLog(jobId, `Sending JobComplete — result="${result}", hasReport=${!!report}`);
       try {
         await this.sendJobComplete(jobId, result, report);
@@ -1762,6 +1752,15 @@ export class JobExecutor {
       } catch (sendErr) {
         jobLog(jobId, `sendJobComplete FAILED: ${String(sendErr)}`);
         console.error(`[executor] sendJobComplete failed for jobId=${jobId}:`, sendErr);
+      }
+    } else {
+      jobLog(jobId, `Sending JobFailed — result="${result}"`);
+      try {
+        await this.sendJobFailed(jobId, result, "unknown");
+        jobLog(jobId, `JobFailed sent successfully`);
+      } catch (sendErr) {
+        jobLog(jobId, `sendJobFailed FAILED: ${String(sendErr)}`);
+        console.error(`[executor] sendJobFailed failed for jobId=${jobId}:`, sendErr);
       }
     }
 
@@ -2094,7 +2093,7 @@ export class JobExecutor {
     if (!jobId.startsWith("persistent-")) {
       const { error: dbErr } = await this.supabase
         .from("jobs")
-        .update({ status: "failed", result: "FAILED" })
+        .update({ status: "failed", result: error })
         .eq("id", jobId);
 
       if (dbErr) {

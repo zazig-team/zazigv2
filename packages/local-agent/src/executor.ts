@@ -206,6 +206,8 @@ interface ActiveJob {
   logPath: string;
   /** Byte offset of the last chunk sent to raw_log — enables append-only writes. */
   lastBytesSent: number;
+  /** Byte offset for lifecycle log. */
+  lastLifecycleBytesSent: number;
   /** Ephemeral workspace directory (if created). Used for report lookup + cleanup. */
   workspaceDir?: string;
   /** Git worktree path for this job — agent CWD and workspace root. */
@@ -710,6 +712,7 @@ export class JobExecutor {
       startedAt: Date.now(),
       logPath,
       lastBytesSent: 0,
+      lastLifecycleBytesSent: 0,
       workspaceDir: ephemeralWorkspaceDir,
       worktreePath,
       repoDir,
@@ -1284,6 +1287,7 @@ export class JobExecutor {
       startedAt: spawnedAt,
       logPath: "",
       lastBytesSent: 0,
+      lastLifecycleBytesSent: 0,
       role: msg.role,
       attempt: 1,
       maxAttempts: 3,
@@ -1336,12 +1340,27 @@ export class JobExecutor {
     // Final log flush before cleanup
     const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
     if (logChunk !== null) {
-      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-        job_id: jobId,
-        chunk: logChunk.chunk,
+      const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "tmux",
+        p_chunk: logChunk.chunk,
       });
       if (appendErr) {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+
+    // Lifecycle log flush
+    const lifecycleLogPath1 = join(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const lifecycleChunk1 = readLogFileFrom(lifecycleLogPath1, job.lastLifecycleBytesSent);
+    if (lifecycleChunk1 !== null) {
+      const { error } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "lifecycle",
+        p_chunk: lifecycleChunk1.chunk,
+      });
+      if (!error) {
+        job.lastLifecycleBytesSent = lifecycleChunk1.newOffset;
       }
     }
 
@@ -1402,9 +1421,10 @@ export class JobExecutor {
       // Append any new log bytes since the last poll (append-only — avoids resending full log)
       const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
       if (logChunk !== null) {
-        const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-          job_id: jobId,
-          chunk: logChunk.chunk,
+        const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+          p_job_id: jobId,
+          p_type: "tmux",
+          p_chunk: logChunk.chunk,
         });
         if (appendErr) {
           console.warn(`[executor] Log append failed for jobId=${jobId}: ${appendErr.message}`);
@@ -1412,6 +1432,21 @@ export class JobExecutor {
           job.lastBytesSent = logChunk.newOffset;
         }
       }
+
+      // Lifecycle log flush
+      const lifecycleLogPath2 = join(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+      const lifecycleChunk2 = readLogFileFrom(lifecycleLogPath2, job.lastLifecycleBytesSent);
+      if (lifecycleChunk2 !== null) {
+        const { error } = await this.supabase.rpc("append_job_log", {
+          p_job_id: jobId,
+          p_type: "lifecycle",
+          p_chunk: lifecycleChunk2.chunk,
+        });
+        if (!error) {
+          job.lastLifecycleBytesSent = lifecycleChunk2.newOffset;
+        }
+      }
+
       jobLog(jobId, `Still running — progress=${progress}`);
       console.log(`[executor] Job still running — jobId=${jobId}, session=${job.sessionName}, progress=${progress}`);
       return;
@@ -1450,14 +1485,30 @@ export class JobExecutor {
     // Final log flush before marking failed
     const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
     if (logChunk !== null) {
-      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-        job_id: jobId,
-        chunk: logChunk.chunk,
+      const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "tmux",
+        p_chunk: logChunk.chunk,
       });
       if (appendErr) {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
       }
     }
+
+    // Lifecycle log flush
+    const lifecycleLogPath3 = join(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const lifecycleChunk3 = readLogFileFrom(lifecycleLogPath3, job.lastLifecycleBytesSent);
+    if (lifecycleChunk3 !== null) {
+      const { error } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "lifecycle",
+        p_chunk: lifecycleChunk3.chunk,
+      });
+      if (!error) {
+        job.lastLifecycleBytesSent = lifecycleChunk3.newOffset;
+      }
+    }
+
     // Best-effort push: capture partial work on timeout
     if (job.worktreePath && job.jobBranch) {
       try {
@@ -1589,8 +1640,25 @@ export class JobExecutor {
         // Flush log before failing
         const failLogChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
         if (failLogChunk !== null) {
-          try { await this.supabase.rpc("append_raw_log", { job_id: jobId, chunk: failLogChunk.chunk }); } catch { /* best-effort */ }
+          try { await this.supabase.rpc("append_job_log", { p_job_id: jobId, p_type: "tmux", p_chunk: failLogChunk.chunk }); } catch { /* best-effort */ }
         }
+
+        // Lifecycle log flush (best-effort)
+        const lifecycleLogPath4 = join(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+        const lifecycleChunk4 = readLogFileFrom(lifecycleLogPath4, job.lastLifecycleBytesSent);
+        if (lifecycleChunk4 !== null) {
+          try {
+            const { error } = await this.supabase.rpc("append_job_log", {
+              p_job_id: jobId,
+              p_type: "lifecycle",
+              p_chunk: lifecycleChunk4.chunk,
+            });
+            if (!error) {
+              job.lastLifecycleBytesSent = lifecycleChunk4.newOffset;
+            }
+          } catch { /* best-effort */ }
+        }
+
         await this.sendJobFailed(jobId, job.fixReasons.join(" | "), "unknown");
         return;
       }
@@ -1693,14 +1761,30 @@ export class JobExecutor {
     // Final log flush — capture anything written after the last poll tick
     const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
     if (logChunk !== null) {
-      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-        job_id: jobId,
-        chunk: logChunk.chunk,
+      const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "tmux",
+        p_chunk: logChunk.chunk,
       });
       if (appendErr) {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
       }
     }
+
+    // Lifecycle log flush
+    const lifecycleLogPath5 = join(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const lifecycleChunk5 = readLogFileFrom(lifecycleLogPath5, job.lastLifecycleBytesSent);
+    if (lifecycleChunk5 !== null) {
+      const { error } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "lifecycle",
+        p_chunk: lifecycleChunk5.chunk,
+      });
+      if (!error) {
+        job.lastLifecycleBytesSent = lifecycleChunk5.newOffset;
+      }
+    }
+
     // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
 
     // Push job branch and record in DB before sending JobComplete

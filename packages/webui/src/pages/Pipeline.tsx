@@ -45,6 +45,17 @@ function ageLabel(ageHours: number | null): string {
   return `${Math.floor(ageHours / 24)}d`;
 }
 
+function truncateCapabilityTitle(title: string | null | undefined): string {
+  const normalized = (title ?? "").trim();
+  if (!normalized) {
+    return "Capability";
+  }
+  if (normalized.length <= 16) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 13)}...`;
+}
+
 function priorityDotClass(priority: string | null | undefined): string {
   const normalized = (priority ?? "medium").toLowerCase();
   if (normalized === "urgent") {
@@ -506,11 +517,21 @@ export default function Pipeline(): JSX.Element {
                     <article className="card card--clickable" key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
                       <div className="card-accent" style={{ background: `var(${column.colorVar})` }} />
                       <div className="card-body">
+                        <div className="card-title">{feature.title}</div>
+                        {feature.capability_id ? (
+                          <div className="card-capability-badge">
+                            <span className="card-capability-icon" aria-hidden="true">
+                              {feature.capability_icon ?? "⚙️"}
+                            </span>
+                            <span className="card-capability-title">
+                              {truncateCapabilityTitle(feature.capability_title)}
+                            </span>
+                          </div>
+                        ) : null}
                         <div className="card-meta">
                           <span className={priorityDotClass(feature.priority)} />
                           {feature.priority.toLowerCase()} · {ageLabel(feature.ageHours)}
                         </div>
-                        <div className="card-title">{feature.title}</div>
                         <div className="card-desc">{feature.description}</div>
                         {feature.jobsTotal > 0 ? (
                           <div className="card-jobs">

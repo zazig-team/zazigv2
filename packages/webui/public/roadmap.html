@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zazig Roadmap</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #f7f6f2; --white: #ffffff; --chalk: #e9e6de; --chalk-light: #f0eee9;
+  --dust: #b5b0a2; --stone: #7c7868; --graphite: #52504a; --ink: #1c1b17;
+  --ember: #c54b2a; --ember-hover: #a83d22; --ember-dim: rgba(197,75,42,0.1); --ember-glow: rgba(197,75,42,0.25); --ember-wash: #fdf0ec;
+  --positive: #2b7a4b; --positive-dim: rgba(43,122,75,0.1);
+  --caution: #b8860b; --caution-dim: rgba(184,134,11,0.1);
+  --negative: #c53030; --negative-dim: rgba(197,48,48,0.1);
+  --info: #4a6fa5; --info-dim: rgba(74,111,165,0.1);
+  --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", monospace;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
+  --radius-sm:6px; --radius-md:10px; --radius-lg:14px;
+  --shadow-sm: 0 1px 2px rgba(28,27,23,0.05);
+  --shadow-md: 0 2px 8px rgba(28,27,23,0.06), 0 0 0 1px rgba(28,27,23,0.04);
+  --shadow-lg: 0 8px 24px rgba(28,27,23,0.08), 0 0 0 1px rgba(28,27,23,0.04);
+}
+[data-theme="dark"] {
+  --paper: #0c0d10; --white: #16181d; --chalk: #252830; --chalk-light: #1d2026;
+  --dust: #505660; --stone: #868c98; --graphite: #b0b6c3; --ink: #eaecf1;
+  --ember: #e8553a; --ember-hover: #d14830; --ember-dim: rgba(232,85,58,0.12); --ember-glow: rgba(232,85,58,0.25); --ember-wash: rgba(232,85,58,0.08);
+  --positive: #3ecf71; --positive-dim: rgba(62,207,113,0.1);
+  --caution: #e5b835; --caution-dim: rgba(229,184,53,0.1);
+  --negative: #ef5454; --negative-dim: rgba(239,84,84,0.1);
+  --info: #6b9fd4; --info-dim: rgba(107,159,212,0.1);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+body { font-family: var(--font-sans); background: var(--paper); color: var(--ink); min-height: 100vh; }
+::selection { background: var(--ember-dim); }
+
+/* ─── Nav ─── */
+.nav { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--sp-5); height: 52px; background: var(--white); border-bottom: 1px solid var(--chalk); }
+.nav-left { display: flex; align-items: center; gap: var(--sp-5); }
+.nav-brand { display: flex; align-items: baseline; gap: 2px; font-weight: 800; font-size: 17px; letter-spacing: -0.03em; color: var(--ink); }
+.nav-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--positive); box-shadow: 0 0 8px color-mix(in srgb, var(--positive) 55%, transparent); animation: breathe 4s ease-in-out infinite; }
+@keyframes breathe { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.65; transform:scale(0.88); } }
+.nav-links { display: flex; gap: var(--sp-4); font-size: 13px; font-weight: 500; color: var(--stone); }
+.nav-links span { padding: 16px 0; border-bottom: 2px solid transparent; cursor: default; }
+.nav-links span.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--ember); }
+.nav-right { display: flex; align-items: center; gap: var(--sp-3); }
+.theme-toggle { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--chalk); background: var(--paper); color: var(--stone); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; transition: all 0.2s; }
+.theme-toggle:hover { border-color: var(--dust); color: var(--ink); background: var(--chalk-light); }
+
+/* ─── Page ─── */
+.roadmap-page { padding: var(--sp-5); max-width: 100%; }
+.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-5); flex-wrap: wrap; gap: var(--sp-3); }
+.page-header-left { display: flex; align-items: baseline; gap: var(--sp-4); }
+.page-title { font-size: 18px; font-weight: 700; }
+.page-stats { display: flex; gap: var(--sp-4); font-size: 12px; color: var(--stone); }
+.page-stat-value { font-weight: 700; margin-left: 4px; }
+.section-label { font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--stone); display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-3); }
+.section-label-count { font-size: 10px; font-weight: 500; color: var(--dust); background: var(--chalk-light); padding: 2px 8px; border-radius: 99px; }
+
+/* Legend */
+.roadmap-legend { display: flex; gap: var(--sp-4); font-size: 11px; color: var(--stone); }
+.roadmap-legend-item { display: flex; align-items: center; gap: 5px; }
+.roadmap-legend-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+/* Build Next */
+.roadmap-next { margin-bottom: var(--sp-5); }
+.roadmap-next-cards { display: flex; gap: var(--sp-3); overflow-x: auto; padding-bottom: var(--sp-2); }
+.roadmap-next-card { display: flex; align-items: center; gap: var(--sp-3); background: var(--white); border: 1px solid var(--chalk); border-radius: var(--radius-md); padding: var(--sp-3) var(--sp-4); cursor: pointer; white-space: nowrap; transition: all 0.15s; min-width: 180px; text-align: left; font-family: var(--font-sans); font-size: 13px; }
+.roadmap-next-card:hover { border-color: var(--ember); box-shadow: var(--shadow-md); }
+.roadmap-next-icon { font-size: 18px; flex-shrink: 0; }
+.roadmap-next-text { flex: 1; min-width: 0; }
+.roadmap-next-title { font-size: 13px; font-weight: 600; color: var(--ink); }
+.roadmap-next-unlocks { font-size: 10px; color: var(--stone); overflow: hidden; text-overflow: ellipsis; }
+
+/* Scroll container */
+.roadmap-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--chalk); border-radius: var(--radius-lg); background: var(--white); }
+.roadmap-grid { position: relative; }
+.roadmap-lane-labels { position: absolute; left: 0; top: 0; width: 150px; z-index: 10; height: 100%; background: linear-gradient(90deg, var(--white) 85%, transparent); }
+.roadmap-lane-label { position: absolute; left: 0; width: 140px; padding: 8px 12px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; text-align: right; color: var(--stone); border-right: 2px solid var(--chalk); }
+.roadmap-lane-stripe { position: absolute; height: 76px; border-radius: var(--radius-sm); background: var(--chalk-light); }
+.roadmap-connections { position: absolute; top: 0; left: 0; pointer-events: none; }
+
+/* Node cards */
+.roadmap-node { position: absolute; border-radius: var(--radius-md); cursor: pointer; transition: all 0.15s; background: var(--white); border: 1px solid var(--chalk); overflow: hidden; display: flex; }
+.roadmap-node:hover { box-shadow: var(--shadow-md); border-color: var(--dust); z-index: 5; }
+.roadmap-node--dimmed { opacity: 0.2; transition: opacity 0.15s; }
+.roadmap-node-accent { width: 3px; flex-shrink: 0; }
+.roadmap-node--shipped .roadmap-node-accent { background: var(--positive); }
+.roadmap-node--active .roadmap-node-accent { background: var(--ember); }
+.roadmap-node--draft .roadmap-node-accent { background: var(--info); }
+.roadmap-node--locked .roadmap-node-accent { background: var(--dust); }
+.roadmap-node--locked { opacity: 0.5; }
+.roadmap-node--locked:hover { opacity: 0.75; }
+.roadmap-node--locked.roadmap-node--dimmed { opacity: 0.15; }
+.roadmap-node--next { border-color: var(--ember); box-shadow: 0 0 0 1px var(--ember-dim); }
+.roadmap-node--next:hover { box-shadow: var(--shadow-md), 0 0 0 1px var(--ember-dim); }
+.roadmap-node-body { padding: 7px 10px; flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.roadmap-node-header { display: flex; align-items: center; gap: 5px; }
+.roadmap-node-icon { font-size: 13px; flex-shrink: 0; }
+.roadmap-node-title { font-size: 12px; font-weight: 600; color: var(--ink); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
+.roadmap-node--locked .roadmap-node-title { color: var(--stone); }
+.roadmap-next-badge { font-size: 8px; font-weight: 700; letter-spacing: 0.08em; color: var(--ember); background: var(--ember-dim); padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
+.roadmap-node-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.roadmap-node-dot--shipped { background: var(--positive); }
+.roadmap-node-dot--active { background: var(--ember); }
+.roadmap-node-dot--draft { background: var(--info); }
+.roadmap-node-dot--locked { background: var(--dust); }
+.roadmap-node-progress { margin-top: 5px; height: 2px; background: var(--chalk); border-radius: 1px; overflow: hidden; }
+.roadmap-node-progress-fill { height: 100%; border-radius: 1px; }
+.roadmap-node-progress-fill--shipped { background: var(--positive); }
+.roadmap-node-progress-fill--active { background: var(--ember); }
+.roadmap-node-progress-fill--draft { background: var(--info); }
+.roadmap-node-deps { margin-top: 3px; font-size: 9px; color: var(--dust); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; }
+.roadmap-dep-indicator--shipped { color: var(--positive); }
+.roadmap-dep-indicator--active { color: var(--ember); }
+.roadmap-dep-indicator--draft { color: var(--info); }
+.roadmap-dep-indicator--locked { color: var(--dust); }
+
+/* Detail panel */
+.roadmap-detail-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.2); z-index: 200; }
+[data-theme="dark"] .roadmap-detail-overlay { background: rgba(0,0,0,0.5); }
+.roadmap-detail-panel { position: fixed; top: 0; right: 0; width: 520px; max-width: 90vw; height: 100vh; background: var(--white); border-left: 1px solid var(--chalk); z-index: 201; display: flex; flex-direction: column; box-shadow: var(--shadow-lg); }
+.roadmap-detail-header { padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--chalk); display: flex; align-items: flex-start; gap: var(--sp-3); flex-shrink: 0; }
+.roadmap-detail-icon { font-size: 24px; }
+.roadmap-detail-header-text { flex: 1; }
+.roadmap-detail-title { font-size: 16px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+.roadmap-detail-meta { display: flex; align-items: center; gap: var(--sp-2); }
+.roadmap-detail-badge { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: var(--radius-sm); }
+.roadmap-detail-badge--shipped { color: var(--positive); background: var(--positive-dim); }
+.roadmap-detail-badge--active { color: var(--ember); background: var(--ember-dim); }
+.roadmap-detail-badge--draft { color: var(--info); background: var(--info-dim); }
+.roadmap-detail-badge--locked { color: var(--dust); background: var(--chalk); }
+.roadmap-detail-progress { font-size: 11px; color: var(--stone); }
+.roadmap-detail-close { background: none; border: none; color: var(--stone); font-size: 18px; cursor: pointer; padding: 4px; border-radius: var(--radius-sm); line-height: 1; }
+.roadmap-detail-close:hover { color: var(--ink); background: var(--chalk-light); }
+.roadmap-detail-body { flex: 1; overflow-y: auto; padding: var(--sp-5); user-select: text; }
+.roadmap-detail-body h2 { font-size: 14px; font-weight: 700; color: var(--ink); margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--chalk); }
+.roadmap-detail-body h2:first-child { margin-top: 0; }
+.roadmap-detail-body h3 { font-size: 13px; font-weight: 600; color: var(--ink); margin: 14px 0 6px; }
+.roadmap-detail-body p { font-size: 12px; color: var(--graphite); line-height: 1.65; margin-bottom: 8px; }
+.roadmap-detail-body ul,.roadmap-detail-body ol { font-size: 12px; color: var(--graphite); line-height: 1.65; margin: 0 0 8px 18px; }
+.roadmap-detail-body li { margin-bottom: 3px; }
+.roadmap-detail-body strong { color: var(--ink); }
+.roadmap-detail-body code { background: var(--chalk-light); border: 1px solid var(--chalk); padding: 1px 5px; border-radius: 3px; font-size: 11px; font-family: var(--font-mono); color: var(--ember); }
+.roadmap-detail-body pre { background: var(--chalk-light); border: 1px solid var(--chalk); border-radius: var(--radius-sm); padding: 10px; margin: 8px 0; overflow-x: auto; }
+.roadmap-detail-body pre code { background: none; border: none; padding: 0; font-size: 11px; color: var(--graphite); }
+.roadmap-detail-body table { border-collapse: collapse; margin: 8px 0; font-size: 11px; width: 100%; }
+.roadmap-detail-body th { text-align: left; padding: 5px 10px; border-bottom: 2px solid var(--chalk); color: var(--ink); font-weight: 600; }
+.roadmap-detail-body td { padding: 4px 10px; border-bottom: 1px solid var(--chalk); }
+.roadmap-detail-footer { padding: var(--sp-4) var(--sp-5); border-top: 1px solid var(--chalk); display: flex; flex-direction: column; gap: var(--sp-3); flex-shrink: 0; max-height: 40vh; overflow-y: auto; }
+.roadmap-build-path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.roadmap-build-step { display: inline-flex; align-items: center; gap: 4px; }
+.roadmap-build-arrow { color: var(--dust); font-size: 12px; }
+.roadmap-dep-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.roadmap-dep-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-family: var(--font-sans); padding: 3px 8px; border-radius: var(--radius-sm); border: 1px solid var(--chalk); color: var(--graphite); cursor: pointer; transition: all 0.15s; background: var(--white); }
+.roadmap-dep-chip:hover { border-color: var(--dust); background: var(--chalk-light); }
+.roadmap-dep-chip--shipped { border-color: var(--positive-dim); }
+.roadmap-dep-chip--active { border-color: var(--ember-dim); }
+.roadmap-dep-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.roadmap-dep-dot--shipped { background: var(--positive); }
+.roadmap-dep-dot--active { background: var(--ember); }
+.roadmap-dep-dot--draft { background: var(--info); }
+.roadmap-dep-dot--locked { background: var(--dust); }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-left">
+    <div class="nav-brand">zazig<span class="nav-dot"></span></div>
+    <div class="nav-links">
+      <span>Dashboard</span>
+      <span>Pipeline</span>
+      <span class="active">Roadmap</span>
+      <span>Team</span>
+    </div>
+  </div>
+  <div class="nav-right">
+    <button class="theme-toggle" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'" title="Toggle theme">&#9681;</button>
+  </div>
+</nav>
+
+<div id="app"></div>
+<div id="detail"></div>
+
+<script>
+const LANE_H=86, LANE_TOP=16, COL_W=230, COL_LEFT=160, NODE_W=200, NODE_H=68;
+const LANES=[
+  {id:'brain',label:'Agent Brain'},{id:'identity',label:'Agent Identity'},{id:'infra',label:'Infrastructure'},
+  {id:'pipeline',label:'Pipeline'},{id:'interface',label:'Interface'},{id:'platform',label:'Platform'},{id:'strategy',label:'Strategy'}
+];
+const laneIdx={}; LANES.forEach((l,i)=>laneIdx[l.id]=i);
+const STATUS_ICON={shipped:'\u2713',active:'\u25D1',draft:'\u25CB',locked:'\u25CB'};
+
+const NODES=[
+  {id:'personality',lane:'brain',col:0,icon:'\u{1F9EC}',title:'Personality',status:'shipped',progress:85,deps:[],unlocks:['memory-p1'],tooltip:'9 numeric dimensions per archetype. Compiled into prompt at dispatch.',
+    details:`## What It Is\n\nPersonality as **bounded numeric coordinates**, not prose. Each exec archetype has 9 dimensions with min/max bounds:\n\n- Verbosity (10-40), Formality (60-90), Risk tolerance (20-50), etc.\n- Compiled into a natural-language prompt snippet at dispatch time\n- Agent never sees raw numbers — only the compiled personality description\n\n## Three-Layer Stack\n\n1. **Archetype Philosophy** (immutable) — "The Pragmatist values shipping over perfection"\n2. **Personality Dimensions** (numeric bounds per archetype)\n3. **Per-user Contextual Modifiers** — small offset on one dimension based on who's talking\n\n## What's Built\n\n- Archetype definitions in DB (exec_archetypes table)\n- Dimension compilation logic\n- Prompt injection at dispatch time\n- Archetype picker in WebUI with write-back\n\n## Key Decision\n\nPersonality is **anti-SOUL.md**. We use coordinates that the orchestrator controls — deterministic, bounded, not vulnerable to prompt injection.\n\n## Design Doc\n\n\`docs/plans/shipped/2026-02-20-exec-personality-system-design.md\``},
+
+  {id:'memory-p1',lane:'brain',col:1,icon:'\u{1F9E0}',title:'Memory P1',status:'active',progress:35,deps:['personality'],unlocks:['doctrines-p1'],nextUp:true,tooltip:'9-type taxonomy. Schema deployed. Next: orchestrator bulletin injection.',
+    details:`## What It Is\n\nA **9-type memory taxonomy** inspired by Google's always-on-memory-agent research. Every memory chunk is typed, scored, and retrieved by relevance:\n\n| Type | Example |\n|------|--------|\n| Identity | "I am the CPO of zazig-dev" |\n| Decision | "We chose coordinates over prose for personality" |\n| Gotcha | "GoTrue reads redirect_to as a query param, not body" |\n| Fact | "Staging Supabase ref is ciksoitqfwkgnxxtkscq" |\n| Preference | "Tom prefers TypeScript for everything" |\n| Observation | "Codex jobs fail silently when job_type not in CardType" |\n| Procedure | "Deploy edge functions: SUPABASE_ACCESS_TOKEN=..." |\n\n## Architecture\n\n- **Tier-specific budgets**: Persistent agents ~1500 tokens, contractors ~400 tokens\n- **Mandatory slot reservation** for memory retrieval in every job\n- **LLM rerank**: Retrieve top 20 by vector similarity, rerank to top 5\n\n## What's Next (Phase 1)\n\n- **Bulletin injection**: Orchestrator assembles a "memory bulletin" at dispatch time\n- **Write path**: Agents can store memories via MCP tool during execution\n\n## Design Doc\n\n\`docs/plans/active/2026-03-03-memory-system-design.md\``},
+
+  {id:'doctrines-p1',lane:'brain',col:2,icon:'\u{1F4DC}',title:'Doctrines',status:'draft',progress:15,deps:['memory-p1'],unlocks:['memory-p2'],tooltip:'Role-specific heuristics, proactively injected.',
+    details:`## What It Is\n\n**Doctrines** are role-specific heuristics and policies injected proactively into every prompt.\n\nExamples:\n- CPO: "Never create features directly — commission a Project Architect"\n- CTO: "Frame rules as beliefs — agents adhere to beliefs more reliably than rules"\n- Senior Eng: "Every PR must have tests that exercise the acceptance criteria"\n\n## How It Works\n\n- ~500 tokens per role, cached across jobs (static prefix)\n- Stored in DB as structured entries per role\n- Orchestrator injects at Layer 4 of the prompt stack\n- Different roles can have **contradictory** doctrines\n\n## Doctrines vs Canons\n\n| | Doctrines | Canons |\n|---|---|---|\n| Scope | Per-role | Company-wide |\n| Injection | Proactive | Reactive (searched) |\n| Size | ~500 tokens | Unlimited |\n\n## Design Doc\n\n\`docs/plans/active/2026-02-22-exec-knowledge-architecture-v5.md\``},
+
+  {id:'memory-p2',lane:'brain',col:3,icon:'\u{1F9E0}',title:'Memory P2',status:'locked',progress:0,deps:['doctrines-p1'],unlocks:['canons'],tooltip:'Active consolidation sleep cycles.',
+    details:`## What It Is\n\nPhase 2 adds **active consolidation** — the system actively maintains and improves memories.\n\n## Key Capabilities\n\n- **Consolidation sleep cycles**: Periodic background job that:\n  - Merges near-duplicate memories\n  - Promotes recurring observations to facts (3+ times = fact)\n  - Decays stale memories\n  - Cross-references with new context\n\n- **Memory quality scoring** based on:\n  - Source reliability (human > exec > contractor)\n  - Confirmation count\n  - Recency`},
+
+  {id:'canons',lane:'brain',col:4,icon:'\u{1F4DA}',title:'Canons',status:'locked',progress:0,deps:['memory-p2'],unlocks:['auto-spec'],tooltip:'Shared reference knowledge. Hybrid search.',
+    details:`## What It Is\n\n**Canons** are shared reference knowledge — books, playbooks, regulations. Unlike doctrines (per-role, proactive), canons are company-wide and retrieved on demand.\n\n## How It Works\n\n- Stored as chunked documents with embeddings\n- **Hybrid retrieval**: Vector similarity + BM25 keyword search\n- **LLM rerank**: Top 20 candidates reranked to top 5\n- Any role can search canons, retrieval is context-aware`},
+
+  {id:'auto-spec',lane:'brain',col:5,icon:'\u{1F916}',title:'Auto-Spec',status:'locked',progress:0,deps:['canons','auto-greenlight'],unlocks:['strategy-sim'],tooltip:'CPO auto-specs triaged ideas when pipeline quiet.',
+    details:`## What It Is\n\nThe culmination of the Agent Brain lane. CPO operates **autonomously** — when the pipeline is quiet and triaged ideas are waiting, CPO automatically:\n\n1. Picks the highest-priority triaged idea\n2. Promotes it to a feature\n3. Writes a full spec with acceptance criteria\n4. Pushes it to ready_for_breakdown\n\n## Prerequisites\n\nEverything in the brain lane must be online: Memory, Doctrines, Canons, Auto-Greenlight.`},
+
+  {id:'roles',lane:'identity',col:0,icon:'\u{1F3AD}',title:'Roles & Prompts',status:'shipped',progress:100,deps:[],unlocks:['persistent-id'],tooltip:'Role table, prompt injection, skills system.',
+    details:`## What It Is\n\nEvery agent has a **role** that defines prompt, skills, model, and persistence.\n\n## Current Roles\n\n| Role | Model | Persistent | Type |\n|------|-------|-----------|------|\n| CPO | Opus | Yes | Executive |\n| CTO | Sonnet | Yes | Executive |\n| Senior Engineer | Sonnet | No | Employee |\n| Reviewer | Sonnet | No | Employee |\n| Junior Engineer | Codex | No | Employee |\n| Breakdown Specialist | Sonnet | No | Contractor |\n| Project Architect | Sonnet | No | Contractor |\n| Verification Specialist | Sonnet | No | Contractor |`},
+
+  {id:'persistent-id',lane:'identity',col:1,icon:'\u{1FAAA}',title:'Persistent Identity',status:'active',progress:60,deps:['roles'],unlocks:['bootstrap-parity'],nextUp:true,tooltip:'Role-agnostic executor, prompt stack from DB.',
+    details:`## What It Is\n\nThe shift from **role-specific executor code** to a **role-agnostic system** where all identity comes from the database.\n\n## 6-Layer Prompt Stack\n\n1. **Personality** — compiled from archetype dimensions\n2. **Role Prompt** — operational scope, responsibilities\n3. **Doctrines** — role-specific heuristics\n4. **Canon pointers** — relevant reference knowledge\n5. **Skills** — procedural capability files\n6. **Task context** — job spec + memory bulletin\n\nLayers 1-3 are cached (static prefix). Layers 4-6 are per-job.`},
+
+  {id:'bootstrap-parity',lane:'identity',col:2,icon:'\u{1F504}',title:'Bootstrap Parity',status:'locked',progress:0,deps:['persistent-id'],unlocks:['future-roles'],tooltip:'All persistent agents bootstrap identically.',
+    details:`## What It Is\n\nEnsure every persistent agent role bootstraps with **identical infrastructure**:\n\n- Same workspace setup process\n- Same MCP tools (role-scoped via .mcp.json)\n- Same CLAUDE.md assembly logic\n- No special cases in executor code\n\nAdding a new persistent role should be: create the role in DB, set is_persistent: true, done.`},
+
+  {id:'future-roles',lane:'identity',col:4,icon:'\u{1F465}',title:'Future Roles',status:'locked',progress:0,deps:['bootstrap-parity','canons','model-flex'],unlocks:['strategy-sim'],tooltip:'CMO, CEO, VP-Eng, specialized researchers.',
+    details:`## What It Is\n\nExpanding the exec team beyond CPO and CTO.\n\n| Role | Type | Purpose |\n|------|------|--------|\n| CMO | Persistent | Marketing strategy, content, brand |\n| CEO | Persistent | Vision, fundraising, board relations |\n| VP-Eng | Persistent | Technical strategy, architecture |\n| Market Researcher | Ephemeral | Competitive scanning |`},
+
+  {id:'data-model',lane:'infra',col:0,icon:'\u{1F5C3}\u{FE0F}',title:'Data Model',status:'shipped',progress:100,deps:[],unlocks:['orchestrator'],tooltip:'Multi-tenant schema. 17+ tables.',
+    details:`## What It Is\n\nThe core multi-tenant database schema. 17+ tables in Supabase Postgres.\n\n## Key Tables\n\n| Table | Purpose |\n|-------|--------|\n| companies | Multi-tenant company records |\n| roles | Agent role definitions |\n| machines | Physical machines with slot capacity |\n| features | Product features with pipeline status |\n| jobs | Individual work units (DAG with depends_on) |\n| ideas | Inbox items (ideas, briefs, bugs, tests) |\n| memory_chunks | Agent memory storage |`},
+
+  {id:'orchestrator',lane:'infra',col:1,icon:'\u{2699}\u{FE0F}',title:'Orchestrator',status:'shipped',progress:100,deps:['data-model'],unlocks:['deep-heartbeat'],tooltip:'Supabase Edge Function. Deterministic dispatch.',
+    details:`## What It Is\n\nThe **deterministic** orchestrator — a Supabase Edge Function that runs pure logic, no LLM.\n\n## Key Behaviors\n\n- **DAG dispatch**: Respects depends_on arrays\n- **Slot tracking**: Available = total - in-use per machine\n- **Complexity routing**: simple/medium/complex mapped to roles\n- **Machine recovery**: 2-min heartbeat timeout`},
+
+  {id:'deep-heartbeat',lane:'infra',col:2,icon:'\u{1F493}',title:'Deep Heartbeat',status:'active',progress:45,deps:['orchestrator'],unlocks:['triggers'],nextUp:true,tooltip:'Per-job health, stuck detection.',
+    details:`## What It Is\n\nGoes beyond "machine alive/dead" to **per-job health reporting**:\n\n- Job progress indicators\n- Context health (is the context window filling up?)\n- Stuck detection (no progress for N minutes)\n- Resource usage (token consumption rate)\n\n## What's Next\n\n- Event queue consumer for health alerts\n- Lifecycle hook callbacks\n- Automatic stuck job recovery`},
+
+  {id:'triggers',lane:'infra',col:3,icon:'\u{26A1}',title:'Triggers & Events',status:'active',progress:25,deps:['deep-heartbeat'],unlocks:['auto-greenlight'],tooltip:'9 subsystems. Cron scheduler partial.',
+    details:`## What It Is\n\nThe nervous system of zazig — **9 subsystems**:\n\n1. **Deep Health Heartbeat** — per-job health (partial)\n2. **Cron/Scheduler** — pg_cron + run_scheduler()\n3. **Agent Wake System** — universal poke\n4. **System Events Queue** — claim/ack pattern\n5. **Lifecycle Hooks** — callbacks on job events\n6. **Concurrency Lanes** — main + background per job\n7. **External Triggers** — webhooks from Slack/GitHub\n8. **Emergency Stop** — kill all agents\n9. **Daemon Restart Recovery** — persist in-flight work`},
+
+  {id:'auto-greenlight',lane:'infra',col:4,icon:'\u{1F7E2}',title:'Auto-Greenlight',status:'locked',progress:0,deps:['triggers'],unlocks:['auto-spec'],tooltip:'Promotes specced features when capacity exists.',
+    details:`## What It Is\n\n**Mechanical** (no LLM) autonomous behavior. On the orchestrator heartbeat:\n\n1. Are there features in created with a spec?\n2. Is there pipeline capacity?\n3. Is the pipeline healthy?\n\nIf all yes — automatically promote to ready_for_breakdown.`},
+
+  {id:'pipeline-engine',lane:'pipeline',col:0,icon:'\u{1F504}',title:'Pipeline Engine',status:'shipped',progress:100,deps:[],unlocks:['contractors'],tooltip:'Feature + job state machines. DAG dispatch. 8/8 tests.',
+    details:`## What It Is\n\nThe execution pipeline with two levels:\n\n### Feature Level\n\ncreated, ready_for_breakdown, breakdown, building, combining, verifying, complete\n\n### Job Level\n\nqueued, dispatched, running, complete, failed, cancelled\n\n## Key Features\n\n- **DAG dispatch**: Jobs have depends_on UUID arrays\n- **8/8 infrastructure tests pass**\n\n## Three Entry Points\n\n- **A**: Human to CPO to features to jobs\n- **B**: Standalone quick fix\n- **C**: Agent-initiated`},
+
+  {id:'contractors',lane:'pipeline',col:1,icon:'\u{1F528}',title:'Contractors',status:'shipped',progress:100,deps:['pipeline-engine'],unlocks:['verification'],tooltip:'Skill + MCP pattern. Jobify, featurify, verify-feature.',
+    details:`## What It Is\n\nThe **Contractor Pattern**: a reasoning skill (the brain) wrapping role-scoped MCP tools (the hands).\n\n## Shipped Contractors\n\n| Contractor | Skill | Purpose |\n|-----------|-------|--------|\n| Breakdown Specialist | jobify | Feature spec to jobs with Gherkin AC |\n| Project Architect | featurify | Project plan to feature outlines |\n| Verification Specialist | verify-feature | AC to active system tests |`},
+
+  {id:'verification',lane:'pipeline',col:2,icon:'\u{2705}',title:'Verification',status:'shipped',progress:80,deps:['contractors'],unlocks:['monitoring'],tooltip:'Active AC testing. Orchestrator branches on verification_type.',
+    details:`## What It Is\n\nTwo verification paths:\n\n- **Passive** (default): Existing reviewer does code review\n- **Active** (verification_type: active): Specialist exercises system against Gherkin AC\n\n## How Active Verification Works\n\n1. All jobs in a feature complete\n2. Orchestrator checks features.verification_type\n3. If active: commissions Verification Specialist\n4. Specialist reads AC, exercises system, reports pass/fail`},
+
+  {id:'monitoring',lane:'pipeline',col:3,icon:'\u{1F441}\u{FE0F}',title:'Monitoring Agent',status:'locked',progress:0,deps:['verification','triggers'],unlocks:['product-intel'],tooltip:'Signal collection, anomaly detection.',
+    details:`## What It Is\n\nA dedicated contractor that scans for signals and anomalies on a cron schedule.\n\n- Scan external sources (GitHub, HN, Reddit, Twitter)\n- Monitor internal pipeline health\n- Surface anomalies to CPO\n- File agent-initiated proposals (Entry Point C)\n\nMonitoring is **separate from CPO** — different cognitive mode.`},
+
+  {id:'product-intel',lane:'pipeline',col:4,icon:'\u{1F52C}',title:'Product Intelligence',status:'locked',progress:0,deps:['monitoring'],unlocks:['strategy-sim'],tooltip:'Market Researcher, PM pipeline.',
+    details:`## What It Is\n\nTwo ephemeral agent roles for market intelligence:\n\n1. **Market Researcher** — daily cron, scans external sources\n2. **Product Manager** — on-demand deep research commissioned by CPO`},
+
+  {id:'cli',lane:'interface',col:0,icon:'\u{1F5A5}\u{FE0F}',title:'CLI & Agent',status:'shipped',progress:100,deps:[],unlocks:['terminal-cpo'],tooltip:'zazig start/stop/status/chat.',
+    details:`## What It Is\n\nThe zazig CLI binary and local agent daemon.\n\n| Command | Purpose |\n|---------|---------|\n| zazig login | Authenticate via Supabase |\n| zazig start | Start daemon, register machine |\n| zazig stop | Gracefully stop daemon |\n| zazig status | Show machine status, running jobs |\n| zazig chat | Reconnect to running TUI |`},
+
+  {id:'terminal-cpo',lane:'interface',col:1,icon:'\u{1F4FA}',title:'Terminal CPO',status:'shipped',progress:90,deps:['cli'],unlocks:['gateway-p1'],tooltip:'Split-screen TUI. CPO output + user input.',
+    details:`## What It Is\n\nA split-screen terminal UI:\n\n- **Top pane**: Live CPO Claude Code session output\n- **Bottom pane**: User input line\n\nSlack is async and lossy — you miss tool calls, thinking steps, errors. The terminal gives the full picture.`},
+
+  {id:'gateway-p1',lane:'interface',col:2,icon:'\u{1F4AC}',title:'Gateway (Slack)',status:'active',progress:40,deps:['terminal-cpo','persistent-id'],unlocks:['interactive'],nextUp:true,tooltip:'Socket Mode receiver built.',
+    details:`## What It Is\n\nBidirectional Slack integration.\n\n- **Inbound**: Socket Mode listener, ~100ms latency (push, not polling)\n- **Outbound**: MCP tools (send_message, post_thread, etc.)\n\n## What's Next\n\n1. Slack MCP tool integration\n2. Busy-detection for CPO session\n3. Queue/inject message routing`},
+
+  {id:'interactive',lane:'interface',col:3,icon:'\u{1F91D}',title:'Interactive Jobs',status:'draft',progress:5,deps:['gateway-p1','triggers'],unlocks:['gateway-p2'],tooltip:'Remote control, TUI mode.',
+    details:`## What It Is\n\nReal-time human-agent collaboration via Claude Code's /remote-control.\n\n- Interactive jobs spawn Claude Code in TUI mode\n- Longer timeout (30 min vs 10 min)\n- Agent generates /remote-control URL\n- URL posted to Slack, human clicks, real-time collaboration`},
+
+  {id:'gateway-p2',lane:'interface',col:4,icon:'\u{1F310}',title:'Multi-Channel',status:'locked',progress:0,deps:['interactive'],unlocks:[],tooltip:'Telegram, Discord, universal routing.',
+    details:`## What It Is\n\nExtending the Gateway beyond Slack:\n\n- Telegram Bot API adapter\n- Discord Bot adapter\n- Universal platform-agnostic message format`},
+
+  {id:'webui',lane:'platform',col:0,icon:'\u{1F4CA}',title:'WebUI',status:'active',progress:55,deps:[],unlocks:['model-flex'],tooltip:'Auth, pipeline board, team, Realtime.',
+    details:`## What It Is\n\nThe web dashboard at **www.zazig.com**. React + Vite, hosted on Vercel.\n\n## What's Built\n\n- Google OAuth + magic link auth\n- Pipeline board (kanban-style)\n- Team page (archetype picker with write-back)\n- Realtime subscriptions\n- Theme persistence, goal progress, focus area health\n- Intake columns (Ideas, Triage)`},
+
+  {id:'model-flex',lane:'platform',col:1,icon:'\u{1F500}',title:'Model Flexibility',status:'draft',progress:10,deps:['webui','orchestrator','cli'],unlocks:['roles-market'],tooltip:'Dynamic backends, model preferences, runtime probing.',
+    details:`## What It Is\n\nDecouples roles from hardcoded models. Three layers:\n\n1. **Backends** — execution environments (claude-code, codex-cli, gemini-cli, ollama)\n2. **Role Model Preferences** — ordered fallback list per role\n3. **Runtime Probing** — local agent discovers models by testing\n\n## Key Changes\n\n- New machine_backends table\n- model_preferences text[] replaces default_model on roles\n- Backend interface: detect(), authenticate(), probeModels(), execute()`},
+
+  {id:'roles-market',lane:'platform',col:2,icon:'\u{1F3EA}',title:'Roles Marketplace',status:'locked',progress:0,deps:['model-flex'],unlocks:['local-models','future-roles'],tooltip:'Activate roles via connections.',
+    details:`## What It Is\n\nThe WebUI where users discover and activate roles.\n\n### Path A: "I got a new tool"\nUser connects Codex. WebUI shows: "Codex unlocks Junior Engineer. Activate?"\n\n### Path B: "I want a capability"\nUser browses available roles, sees "Deep Researcher", clicks it.`},
+
+  {id:'local-models',lane:'platform',col:3,icon:'\u{1F4BB}',title:'Local Models',status:'locked',progress:0,deps:['roles-market'],unlocks:[],tooltip:'Ollama, LM Studio, Qwen on Mac Mini.',
+    details:`## What It Is\n\nSupport for locally-hosted models as backends.\n\n- **Privacy**: Sensitive tasks never leave the machine\n- **Cost**: Free after hardware investment\n- **Experimentation**: Try new models without subscription\n- **Offline**: Work without internet`},
+
+  {id:'goals',lane:'strategy',col:0,icon:'\u{1F3AF}',title:'Goals & Focus',status:'shipped',progress:70,deps:[],unlocks:['health'],tooltip:'Measurable goals, focus area themes.',
+    details:`## What It Is\n\n### Goals\nMeasurable end-states. Example: "Ship MVP by March 2026".\n\n### Focus Areas\nCurrent work themes. Example: "Agent Reliability".\n\n## How They Connect\n\n- Every feature links to a focus area\n- Every decision references which goal it serves\n- CPO uses focus areas to prioritize`},
+
+  {id:'health',lane:'strategy',col:1,icon:'\u{1F4C8}',title:'Health Scoring',status:'draft',progress:10,deps:['goals'],unlocks:['strategy-sim'],tooltip:'Automated health across 6 dimensions.',
+    details:`## What It Is\n\nAutomated health assessment scored across 6 dimensions:\n\n1. **Velocity** — are features shipping?\n2. **Blocking** — how many items are stuck?\n3. **Quality** — failure rate, rejection rate\n4. **Learning** — are agents getting better?\n5. **Direction confidence** — is the goal still clear?\n6. **Team morale** — proxy signals (cycle time, rework rate)`},
+
+  {id:'strategy-sim',lane:'strategy',col:5,icon:'\u{1F3DB}\u{FE0F}',title:'Strategy Sim',status:'locked',progress:0,deps:['health','product-intel','auto-spec','future-roles'],unlocks:[],tooltip:'The endgame. Consequence tracking, Civ-style advisor.',
+    details:`## What It Is\n\nThe **endgame**. A Civilization-style strategy interface where:\n\n- Every decision is logged with predicted consequences\n- Consequences are tracked over time\n- CPO acts as an advisor recommending next moves\n- **This tech tree becomes a live, data-driven feature**`},
+];
+
+const nodeMap={}; NODES.forEach(n=>nodeMap[n.id]=n);
+const nodeX=n=>COL_LEFT+n.col*COL_W;
+const nodeY=n=>LANE_TOP+laneIdx[n.lane]*LANE_H;
+const maxCol=Math.max(...NODES.map(n=>n.col));
+const totalWidth=COL_LEFT+(maxCol+1)*COL_W+80;
+const totalHeight=LANE_TOP+LANES.length*LANE_H+40;
+
+const buildNext=NODES.filter(n=>n.status!=='shipped'&&n.deps.every(d=>{const dep=nodeMap[d];return dep&&(dep.status==='shipped'||dep.status==='active');})).sort((a,b)=>{if(a.status==='active'&&b.status!=='active')return -1;if(b.status==='active'&&a.status!=='active')return 1;return 0;}).slice(0,6);
+const counts={shipped:0,active:0,draft:0,locked:0}; NODES.forEach(n=>counts[n.status]++);
+
+let hoveredId=null;
+
+function getHighlightSet(id){
+  if(!id)return null;
+  const set=new Set([id]);
+  const node=nodeMap[id];if(!node)return set;
+  function up(i){const n=nodeMap[i];if(!n||set.has(i))return;set.add(i);n.deps.forEach(up);}
+  function down(i){const n=nodeMap[i];if(!n||set.has(i))return;set.add(i);n.unlocks.forEach(down);}
+  node.deps.forEach(up);node.unlocks.forEach(down);
+  return set;
+}
+
+function buildPath(targetId){
+  const visited=new Set(),path=[];
+  function walk(id){if(visited.has(id))return;visited.add(id);const n=nodeMap[id];if(!n)return;n.deps.forEach(walk);path.push(n);}
+  walk(targetId);return path;
+}
+
+function render(){
+  let h=`<div class="roadmap-page">
+  <div class="page-header">
+    <div class="page-header-left"><div class="page-title">Roadmap</div>
+      <div class="page-stats">
+        <div class="page-stat">Shipped <span class="page-stat-value" style="color:var(--positive)">${counts.shipped}</span></div>
+        <div class="page-stat">Active <span class="page-stat-value" style="color:var(--ember)">${counts.active}</span></div>
+        <div class="page-stat">Designed <span class="page-stat-value" style="color:var(--info)">${counts.draft}</span></div>
+        <div class="page-stat">Locked <span class="page-stat-value" style="color:var(--dust)">${counts.locked}</span></div>
+      </div></div>
+    <div class="page-header-right"><div class="roadmap-legend">
+      <span class="roadmap-legend-item"><span class="roadmap-legend-dot" style="background:var(--positive)"></span>Shipped</span>
+      <span class="roadmap-legend-item"><span class="roadmap-legend-dot" style="background:var(--ember)"></span>Active</span>
+      <span class="roadmap-legend-item"><span class="roadmap-legend-dot" style="background:var(--info)"></span>Designed</span>
+      <span class="roadmap-legend-item"><span class="roadmap-legend-dot" style="background:var(--dust)"></span>Locked</span>
+    </div></div>
+  </div>
+  <section class="roadmap-next"><div class="section-label">Build Next <span class="section-label-count">${buildNext.length} items</span></div>
+    <div class="roadmap-next-cards">`;
+  buildNext.forEach(n=>{
+    const ul=n.unlocks.map(id=>nodeMap[id]?.title).filter(Boolean).join(', ')||'Endgame';
+    h+=`<button class="roadmap-next-card" onclick="openDetail('${n.id}')"><span class="roadmap-next-icon">${n.icon}</span><div class="roadmap-next-text"><div class="roadmap-next-title">${n.title}</div><div class="roadmap-next-unlocks">Unlocks: ${ul}</div></div><span class="roadmap-node-dot roadmap-node-dot--${n.status}"></span></button>`;
+  });
+  h+=`</div></section><div class="roadmap-scroll"><div class="roadmap-grid" style="width:${totalWidth}px;height:${totalHeight}px"><div class="roadmap-lane-labels">`;
+  LANES.forEach((l,i)=>{h+=`<div class="roadmap-lane-label" style="top:${LANE_TOP+i*LANE_H+12}px">${l.label}</div>`;});
+  h+=`</div>`;
+  LANES.forEach((_,i)=>{h+=`<div class="roadmap-lane-stripe" style="top:${LANE_TOP+i*LANE_H-4}px;left:${COL_LEFT-10}px;width:${totalWidth-COL_LEFT}px;opacity:${i%2===0?0:0.4}"></div>`;});
+
+  h+=`<svg class="roadmap-connections" width="${totalWidth}" height="${totalHeight}">`;
+  NODES.forEach(node=>{
+    node.unlocks.forEach(tid=>{
+      const t=nodeMap[tid];if(!t)return;
+      const x1=nodeX(node)+NODE_W+3,y1=nodeY(node)+NODE_H/2,x2=nodeX(t)-3,y2=nodeY(t)+NODE_H/2;
+      let color,opacity,dash='';
+      if(node.status==='shipped'&&t.status==='shipped'){color='var(--positive)';opacity=0.45;}
+      else if(node.status==='shipped'||node.status==='active'){color='var(--ember)';opacity=0.35;}
+      else{color='var(--dust)';opacity=0.25;dash='stroke-dasharray="4,4"';}
+      
+      const gap=x2-x1;
+      if(node.lane===t.lane&&gap>0&&gap<COL_W+20){
+        h+=`<line class="roadmap-conn" data-from="${node.id}" data-to="${tid}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="2" ${dash}/>`;
+      }else{
+        const cp=Math.max(30,Math.abs(gap)*0.35);
+        h+=`<path class="roadmap-conn" data-from="${node.id}" data-to="${tid}" d="M${x1},${y1} C${x1+cp},${y1} ${x2-cp},${y2} ${x2},${y2}" fill="none" stroke="${color}" stroke-opacity="${opacity}" stroke-width="2" ${dash}/>`;
+      }
+      h+=`<polygon class="roadmap-conn" data-from="${node.id}" data-to="${tid}" points="${x2},${y2} ${x2-5},${y2-3} ${x2-5},${y2+3}" fill="${color}" fill-opacity="${opacity}"/>`;
+    });
+  });
+  h+=`</svg>`;
+
+  NODES.forEach(node=>{
+    const deps=node.deps.map(id=>({title:nodeMap[id]?.title||id,status:nodeMap[id]?.status||'locked'}));
+    const allDepsMet=deps.length>0&&deps.every(d=>d.status==='shipped'||d.status==='active');
+    const isNext=node.nextUp||(node.status!=='shipped'&&allDepsMet);
+    const cls=`roadmap-node roadmap-node--${node.status}${isNext?' roadmap-node--next':''}`;
+    h+=`<div class="${cls}" data-node-id="${node.id}" style="left:${nodeX(node)}px;top:${nodeY(node)}px;width:${NODE_W}px;height:${NODE_H}px" onmouseenter="onHover('${node.id}')" onmouseleave="onHover(null)" onclick="openDetail('${node.id}')">
+      <div class="roadmap-node-accent"></div><div class="roadmap-node-body">
+        <div class="roadmap-node-header"><span class="roadmap-node-icon">${node.icon}</span><span class="roadmap-node-title">${node.title}</span>${isNext&&node.status!=='shipped'?'<span class="roadmap-next-badge">NEXT</span>':''}<span class="roadmap-node-dot roadmap-node-dot--${node.status}"></span></div>
+        ${node.progress>0&&node.progress<100?`<div class="roadmap-node-progress"><div class="roadmap-node-progress-fill roadmap-node-progress-fill--${node.status}" style="width:${node.progress}%"></div></div>`:''}
+        ${deps.length>0?`<div class="roadmap-node-deps">${deps.map(d=>`<span class="roadmap-dep-indicator roadmap-dep-indicator--${d.status}">${STATUS_ICON[d.status]}</span> ${d.title}`).join(' ')}</div>`:''}
+      </div></div>`;
+  });
+  h+=`</div></div></div>`;
+  document.getElementById('app').innerHTML=h;
+}
+
+function onHover(id){
+  hoveredId=id;
+  const hl=getHighlightSet(id);
+  document.querySelectorAll('.roadmap-node').forEach(el=>{
+    const nid=el.dataset.nodeId;
+    if(!nid)return;
+    if(hl&&!hl.has(nid)){el.classList.add('roadmap-node--dimmed');}
+    else{el.classList.remove('roadmap-node--dimmed');}
+  });
+  // dim/undim SVG connections
+  document.querySelectorAll('.roadmap-conn').forEach(el=>{
+    const from=el.dataset.from,to=el.dataset.to;
+    if(hl){
+      if(hl.has(from)&&hl.has(to)){el.style.opacity='';}
+      else{el.style.opacity='0.06';}
+    }else{el.style.opacity='';}
+  });
+}
+
+function openDetail(id){
+  const node=nodeMap[id];if(!node)return;
+  const path=buildPath(id);
+  let h=`<div class="roadmap-detail-overlay" onclick="closeDetail()"></div>
+  <aside class="roadmap-detail-panel">
+    <header class="roadmap-detail-header"><span class="roadmap-detail-icon">${node.icon}</span>
+      <div class="roadmap-detail-header-text"><div class="roadmap-detail-title">${node.title}</div>
+        <div class="roadmap-detail-meta"><span class="roadmap-detail-badge roadmap-detail-badge--${node.status}">${node.status}</span>
+          ${node.progress>0&&node.progress<100?`<span class="roadmap-detail-progress">${node.progress}% complete</span>`:''}
+          ${node.progress===100?`<span class="roadmap-detail-progress">Complete</span>`:''}
+        </div></div>
+      <button class="roadmap-detail-close" onclick="closeDetail()">&times;</button>
+    </header>
+    <div class="roadmap-detail-body">${typeof marked!=='undefined'?marked.parse(node.details):node.details.replace(/\n/g,'<br>')}</div>
+    <footer class="roadmap-detail-footer">`;
+  if(node.deps.length>0){
+    h+=`<div><div class="section-label" style="margin-bottom:6px">Build Path</div><div class="roadmap-build-path">`;
+    path.forEach((step,i)=>{
+      h+=`<span class="roadmap-build-step"><span class="roadmap-dep-chip roadmap-dep-chip--${step.status}" onclick="event.stopPropagation();openDetail('${step.id}')"><span class="roadmap-dep-dot roadmap-dep-dot--${step.status}"></span>${step.icon} ${step.title}</span>${i<path.length-1?'<span class="roadmap-build-arrow">&rarr;</span>':''}</span>`;
+    });
+    h+=`</div></div>`;
+  }
+  if(node.unlocks.length>0){
+    h+=`<div><div class="section-label" style="margin-bottom:6px">Unlocks</div><div class="roadmap-dep-chips">`;
+    node.unlocks.forEach(uid=>{const t=nodeMap[uid];if(!t)return;
+      h+=`<span class="roadmap-dep-chip roadmap-dep-chip--${t.status}" onclick="event.stopPropagation();openDetail('${uid}')"><span class="roadmap-dep-dot roadmap-dep-dot--${t.status}"></span>${t.icon} ${t.title}</span>`;
+    });
+    h+=`</div></div>`;
+  }
+  h+=`</footer></aside>`;
+  document.getElementById('detail').innerHTML=h;
+}
+
+function closeDetail(){document.getElementById('detail').innerHTML='';}
+render();
+</script>
+</body>
+</html>

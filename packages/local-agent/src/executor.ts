@@ -233,6 +233,11 @@ interface ActivePersistentAgent {
   startedAt: number;
 }
 
+export interface CompanyProject {
+  name: string;
+  repo_url: string;
+}
+
 export interface PersistentAgentJobDefinition {
   role: string;
   prompt_stack_minus_skills: string;
@@ -318,6 +323,8 @@ export class JobExecutor {
   private processingQueue = false;
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
   private prMonitorTimer: ReturnType<typeof setInterval> | null = null;
+  private repoRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  private companyProjects: CompanyProject[] = [];
 
   constructor(
     machineId: string,
@@ -345,6 +352,14 @@ export class JobExecutor {
     this.prMonitorTimer = setInterval(() => {
       void this.monitorMergedPRs();
     }, PR_MONITOR_INTERVAL_MS);
+
+    this.repoRefreshTimer = setInterval(() => {
+      void this.refreshCompanyProjectWorktrees();
+    }, SLOT_RECONCILE_INTERVAL_MS);
+  }
+
+  setCompanyProjects(projects: CompanyProject[]): void {
+    this.companyProjects = [...projects];
   }
 
   /** Resolve the machine UUID from the machines table (cached after first call). */
@@ -875,6 +890,10 @@ export class JobExecutor {
       clearInterval(this.prMonitorTimer);
       this.prMonitorTimer = null;
     }
+    if (this.repoRefreshTimer !== null) {
+      clearInterval(this.repoRefreshTimer);
+      this.repoRefreshTimer = null;
+    }
 
     // Clear all persistent agents (fires DB status updates + stops heartbeat timers)
     this.clearPersistentAgent();
@@ -933,6 +952,16 @@ export class JobExecutor {
         }
       } catch {
         // gh CLI failed — skip, will retry next cycle
+      }
+    }
+  }
+
+  private async refreshCompanyProjectWorktrees(): Promise<void> {
+    for (const project of this.companyProjects) {
+      try {
+        await this.repoManager.ensureWorktree(project.name);
+      } catch (err) {
+        console.error(`[repo-refresh] Failed to refresh ${project.name}:`, err);
       }
     }
   }

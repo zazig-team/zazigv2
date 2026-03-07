@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -145,6 +145,10 @@ const REPOS_BASE = join(process.env.HOME ?? "~", ".zazigv2/repos");
 export class RepoManager {
   private locks = new Map<string, Promise<void>>();
 
+  private async git(repoDir: string, ...args: string[]): Promise<string> {
+    return git(repoDir, ...args);
+  }
+
   /** Serialise all git operations for a given repo dir. */
   private async withLock<T>(repoDir: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.locks.get(repoDir) ?? Promise.resolve();
@@ -180,12 +184,12 @@ export class RepoManager {
       // git fetch refuses to overwrite branches that have diverged from
       // the remote, which protects job branches with active worktrees from
       // being clobbered by a concurrent job's fetch.
-      await git(repoDir, "config", "remote.origin.fetch", "refs/heads/*:refs/heads/*");
+      await this.git(repoDir, "config", "remote.origin.fetch", "refs/heads/*:refs/heads/*");
       // Check if repo is empty. NOTE: rev-parse HEAD without --verify returns
       // the literal string "HEAD" with exit 0 in an empty repo, so --verify
       // is required to actually detect emptiness.
       try {
-        await git(repoDir, "rev-parse", "--verify", "HEAD");
+        await this.git(repoDir, "rev-parse", "--verify", "HEAD");
       } catch {
         // Empty repo — clone from the remote URL, create an initial commit,
         // push it to GitHub, then fetch into our bare repo.
@@ -201,11 +205,44 @@ export class RepoManager {
         // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
       // That's expected — diverged branches are intentionally protected. The other
       // branches are still updated, so we log and continue.
-      try { await git(repoDir, "fetch", "origin"); } catch (e) {
+      try { await this.git(repoDir, "fetch", "origin"); } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
       }
       return repoDir;
+    });
+  }
+
+  /**
+   * Ensure a shared worktree for the project exists and is checked out on master.
+   * If an existing worktree is corrupted, remove and recreate it.
+   */
+  async ensureWorktree(projectName: string): Promise<string> {
+    const bareDir = join(REPOS_BASE, projectName);
+    const worktreeDir = join(REPOS_BASE, `${projectName}-worktree`);
+
+    return this.withLock(bareDir, async () => {
+      if (existsSync(worktreeDir)) {
+        const isValid = await this.isValidWorktree(worktreeDir);
+        if (!isValid) {
+          rmSync(worktreeDir, { recursive: true, force: true });
+          await this.git(bareDir, "worktree", "prune");
+        }
+      }
+
+      if (!existsSync(worktreeDir)) {
+        await this.git(bareDir, "worktree", "add", worktreeDir, "master");
+      } else {
+        // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
+        // That's expected — diverged branches are intentionally protected. The other
+        // branches are still updated, so we log and continue.
+        try { await this.git(bareDir, "fetch", "origin"); } catch (e) {
+          console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
+        }
+        await this.git(worktreeDir, "reset", "--hard", "origin/master");
+      }
+
+      return worktreeDir;
     });
   }
 
@@ -216,10 +253,10 @@ export class RepoManager {
   private async resolveDefaultBranch(repoDir: string): Promise<string> {
     // In a bare repo, HEAD is a symbolic ref like "refs/heads/main"
     try {
-      const ref = await git(repoDir, "symbolic-ref", "HEAD");
+      const ref = await this.git(repoDir, "symbolic-ref", "HEAD");
       const branchName = ref.replace(/^refs\/heads\//, "");
       // Verify the branch actually has commits
-      await git(repoDir, "rev-parse", "--verify", `refs/heads/${branchName}`);
+      await this.git(repoDir, "rev-parse", "--verify", `refs/heads/${branchName}`);
       return branchName;
     } catch {
       // HEAD symbolic ref missing or points to nonexistent branch
@@ -227,13 +264,22 @@ export class RepoManager {
     // Fallback: try common default branch names
     for (const name of ["main", "master"]) {
       try {
-        await git(repoDir, "rev-parse", "--verify", `refs/heads/${name}`);
+        await this.git(repoDir, "rev-parse", "--verify", `refs/heads/${name}`);
         return name;
       } catch {
         continue;
       }
     }
     throw new Error(`Cannot resolve default branch in ${repoDir} — repo may be empty`);
+  }
+
+  private async isValidWorktree(dir: string): Promise<boolean> {
+    try {
+      await this.git(dir, "rev-parse", "--git-dir");
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -247,19 +293,19 @@ export class RepoManager {
       // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
       // That's expected — diverged branches are intentionally protected. The other
       // branches are still updated, so we log and continue.
-      try { await git(repoDir, "fetch", "origin"); } catch (e) {
+      try { await this.git(repoDir, "fetch", "origin"); } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
 
       // Check if branch already exists (covers both local and fetched-from-remote)
       try {
-        await git(repoDir, "rev-parse", "--verify", `refs/heads/${featureBranch}`);
+        await this.git(repoDir, "rev-parse", "--verify", `refs/heads/${featureBranch}`);
         return; // Already exists
       } catch {
         // Not found — create off default branch
       }
       const defaultBranch = await this.resolveDefaultBranch(repoDir);
-      await git(repoDir, "branch", featureBranch, defaultBranch);
+      await this.git(repoDir, "branch", featureBranch, defaultBranch);
     });
   }
 
@@ -277,7 +323,7 @@ export class RepoManager {
       // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
       // That's expected — diverged branches are intentionally protected. The other
       // branches are still updated, so we log and continue.
-      try { await git(repoDir, "fetch", "origin"); } catch (e) {
+      try { await this.git(repoDir, "fetch", "origin"); } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
 
@@ -286,13 +332,13 @@ export class RepoManager {
       await mkdir(WORKTREE_BASE, { recursive: true });
       // Find and remove any existing worktree for this job branch (may be at old/different path)
       try {
-        const wtList = await git(repoDir, "worktree", "list", "--porcelain");
+        const wtList = await this.git(repoDir, "worktree", "list", "--porcelain");
         const entries = wtList.split("\n\n");
         for (const entry of entries) {
           if (entry.includes(`branch refs/heads/${jobBranch}`)) {
             const wtPath = entry.match(/^worktree (.+)$/m)?.[1];
             if (wtPath) {
-              try { await git(repoDir, "worktree", "remove", "--force", wtPath); } catch {}
+              try { await this.git(repoDir, "worktree", "remove", "--force", wtPath); } catch {}
               try { await rm(wtPath, { recursive: true, force: true }); } catch {}
             }
           }
@@ -300,12 +346,12 @@ export class RepoManager {
       } catch { /* worktree list failed — continue with best-effort cleanup below */ }
       // Also clean up the expected path in case it exists without git tracking it
       try { await rm(worktreePath, { recursive: true, force: true }); } catch {}
-      try { await git(repoDir, "worktree", "prune"); } catch {}
-      try { await git(repoDir, "branch", "-D", jobBranch); } catch {}
+      try { await this.git(repoDir, "worktree", "prune"); } catch {}
+      try { await this.git(repoDir, "branch", "-D", jobBranch); } catch {}
       // Create branch off feature branch
-      await git(repoDir, "branch", jobBranch, featureBranch);
+      await this.git(repoDir, "branch", jobBranch, featureBranch);
       // Add worktree for the job branch
-      await git(repoDir, "worktree", "add", worktreePath, jobBranch);
+      await this.git(repoDir, "worktree", "add", worktreePath, jobBranch);
       return { worktreePath, jobBranch };
     });
   }
@@ -328,7 +374,7 @@ export class RepoManager {
       // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
       // That's expected — diverged branches are intentionally protected. The other
       // branches are still updated, so we log and continue.
-      try { await git(repoDir, "fetch", "origin"); } catch (e) {
+      try { await this.git(repoDir, "fetch", "origin"); } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
 
@@ -374,13 +420,13 @@ export class RepoManager {
 
       // Find and remove any existing worktree for this job branch (may be at old/different path)
       try {
-        const wtList = await git(repoDir, "worktree", "list", "--porcelain");
+        const wtList = await this.git(repoDir, "worktree", "list", "--porcelain");
         const entries = wtList.split("\n\n");
         for (const entry of entries) {
           if (entry.includes(`branch refs/heads/${jobBranch}`)) {
             const wtPath = entry.match(/^worktree (.+)$/m)?.[1];
             if (wtPath) {
-              try { await git(repoDir, "worktree", "remove", "--force", wtPath); } catch {}
+              try { await this.git(repoDir, "worktree", "remove", "--force", wtPath); } catch {}
               try { await rm(wtPath, { recursive: true, force: true }); } catch {}
             }
           }
@@ -388,11 +434,11 @@ export class RepoManager {
       } catch { /* worktree list failed — continue with best-effort cleanup below */ }
       // Also clean up the expected path in case it exists without git tracking it
       try { await rm(worktreePath, { recursive: true, force: true }); } catch {}
-      try { await git(repoDir, "worktree", "prune"); } catch {}
-      try { await git(repoDir, "branch", "-D", jobBranch); } catch {}
+      try { await this.git(repoDir, "worktree", "prune"); } catch {}
+      try { await this.git(repoDir, "branch", "-D", jobBranch); } catch {}
 
-      await git(repoDir, "branch", jobBranch, baseBranch);
-      await git(repoDir, "worktree", "add", worktreePath, jobBranch);
+      await this.git(repoDir, "branch", jobBranch, baseBranch);
+      await this.git(repoDir, "worktree", "add", worktreePath, jobBranch);
 
       // Fan-in: merge additional dep branches into the worktree
       for (const branch of validBranches.slice(1)) {
@@ -407,8 +453,8 @@ export class RepoManager {
           } catch {
             // ignore abort failure
           }
-          await git(repoDir, "worktree", "remove", "--force", worktreePath);
-          try { await git(repoDir, "branch", "-D", jobBranch); } catch { /* ignore */ }
+          await this.git(repoDir, "worktree", "remove", "--force", worktreePath);
+          try { await this.git(repoDir, "branch", "-D", jobBranch); } catch { /* ignore */ }
           throw new Error(`Fan-in merge of "${branch}" into job/${jobId} failed: ${String(mergeErr)}`);
         }
       }
@@ -432,7 +478,7 @@ export class RepoManager {
    */
   async removeJobWorktree(repoDir: string, worktreePath: string): Promise<void> {
     try {
-      await git(repoDir, "worktree", "remove", "--force", worktreePath);
+      await this.git(repoDir, "worktree", "remove", "--force", worktreePath);
     } catch {
       // Worktree may already be removed; ignore.
     }

@@ -153,6 +153,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         prompt_stack_minus_skills: parts.join("\n\n---\n\n"),
         skills: role.skills ?? [],
         mcp_tools: role.mcp_tools ?? [],
+        projects: projects ?? [],
         model: role.default_model ?? "claude-opus-4-6",
         slot_type: role.slot_type ?? "claude_code",
       };

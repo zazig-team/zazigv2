@@ -125,6 +125,17 @@ export function isStartJob(v: unknown): v is StartJob {
     if (!Array.isArray(v.roleMcpTools)) return false;
     if (!v.roleMcpTools.every((t: unknown) => isString(t) && (t as string).length > 0)) return false;
   }
+  // companyProjects is optional; if present it must be an array of { name, repo_url } objects
+  if (v.companyProjects !== undefined) {
+    if (!Array.isArray(v.companyProjects)) return false;
+    if (!v.companyProjects.every((p: unknown) =>
+      isObject(p)
+      && isString(p.name) && p.name.length > 0
+      && (p.repo_url === null || (isString(p.repo_url) && p.repo_url.length > 0))
+    )) {
+      return false;
+    }
+  }
   return true;
 }
 

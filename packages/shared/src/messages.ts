@@ -181,6 +181,14 @@ export interface StartJob {
   spec?: string;
   /** Acceptance criteria text — forwarded to Haiku for post-execution code review of codex jobs. */
   acceptanceCriteria?: string;
+  /**
+   * Company project metadata for persistent agent workspace repo links.
+   * Populated by company-persistent-jobs for synthetic persistent StartJob payloads.
+   */
+  companyProjects?: Array<{
+    name: string;
+    repo_url: string | null;
+  }>;
 }
 
 /**

@@ -201,3 +201,27 @@ describe("removeWorktree", () => {
     await expect(branches.removeWorktree(repoDir, missingWorktreePath)).resolves.toBeUndefined();
   });
 });
+
+describe("RepoManager.ensureWorktree", () => {
+  it("creates the shared worktree on main when master is absent", async () => {
+    const sourceDir = mkdtempSync(join(tmpdir(), "branch-source-"));
+    try {
+      git(sourceDir, "init");
+      git(sourceDir, "config", "user.email", "test@test.com");
+      git(sourceDir, "config", "user.name", "Test");
+      writeFileSync(join(sourceDir, "README.md"), "source\n");
+      git(sourceDir, "add", ".");
+      git(sourceDir, "commit", "-m", "init source");
+      git(sourceDir, "branch", "-M", "main");
+
+      const manager = new branches.RepoManager();
+      await manager.ensureRepo(sourceDir, "main-only-project");
+      const worktreePath = await manager.ensureWorktree("main-only-project");
+
+      expect(existsSync(worktreePath)).toBe(true);
+      expect(git(worktreePath, "branch", "--show-current")).toBe("main");
+    } finally {
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+});

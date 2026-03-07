@@ -214,7 +214,8 @@ export class RepoManager {
   }
 
   /**
-   * Ensure a shared worktree for the project exists and is checked out on master.
+   * Ensure a shared worktree for the project exists and is checked out on
+   * a stable default branch (prefers master when available).
    * If an existing worktree is corrupted, remove and recreate it.
    */
   async ensureWorktree(projectName: string): Promise<string> {
@@ -222,27 +223,46 @@ export class RepoManager {
     const worktreeDir = join(REPOS_BASE, `${projectName}-worktree`);
 
     return this.withLock(bareDir, async () => {
-      if (existsSync(worktreeDir)) {
-        const isValid = await this.isValidWorktree(worktreeDir);
-        if (!isValid) {
-          rmSync(worktreeDir, { recursive: true, force: true });
-          await this.git(bareDir, "worktree", "prune");
+      try {
+        if (!existsSync(bareDir)) {
+          throw new Error(`Bare repo missing: ${bareDir}`);
         }
-      }
 
-      if (!existsSync(worktreeDir)) {
-        await this.git(bareDir, "worktree", "add", worktreeDir, "master");
-      } else {
         // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
         // That's expected — diverged branches are intentionally protected. The other
         // branches are still updated, so we log and continue.
         try { await this.git(bareDir, "fetch", "origin"); } catch (e) {
           console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
         }
-        await this.git(worktreeDir, "reset", "--hard", "origin/master");
+
+        const targetBranch = await this.resolveSharedWorktreeBranch(bareDir);
+        console.log(`[RepoManager] ensureWorktree project=${projectName} branch=${targetBranch} path=${worktreeDir}`);
+
+        if (existsSync(worktreeDir)) {
+          const isValid = await this.isValidWorktree(worktreeDir);
+          if (!isValid) {
+            console.warn(`[RepoManager] ensureWorktree found invalid worktree at ${worktreeDir}; recreating`);
+            rmSync(worktreeDir, { recursive: true, force: true });
+            await this.git(bareDir, "worktree", "prune");
+          }
+        }
+
+        if (!existsSync(worktreeDir)) {
+          await this.git(bareDir, "worktree", "add", worktreeDir, targetBranch);
+          console.log(`[RepoManager] ensureWorktree created ${worktreeDir} on ${targetBranch}`);
+        } else {
+          await this.git(worktreeDir, "checkout", targetBranch);
+          await this.git(worktreeDir, "reset", "--hard", targetBranch);
+          console.log(`[RepoManager] ensureWorktree refreshed ${worktreeDir} on ${targetBranch}`);
+        }
+
+        return worktreeDir;
+      } catch (error) {
+        const message = getErrorMessage(error);
+        console.error(`[RepoManager] ensureWorktree failed for ${projectName}: ${message}`);
+        throw new Error(`ensureWorktree(${projectName}) failed: ${message}`);
       }
 
-      return worktreeDir;
     });
   }
 
@@ -271,6 +291,19 @@ export class RepoManager {
       }
     }
     throw new Error(`Cannot resolve default branch in ${repoDir} — repo may be empty`);
+  }
+
+  /**
+   * Shared worktrees historically use "master". If absent, fall back to
+   * the repo's actual default branch.
+   */
+  private async resolveSharedWorktreeBranch(repoDir: string): Promise<string> {
+    try {
+      await this.git(repoDir, "rev-parse", "--verify", "refs/heads/master");
+      return "master";
+    } catch {
+      return this.resolveDefaultBranch(repoDir);
+    }
   }
 
   private async isValidWorktree(dir: string): Promise<boolean> {

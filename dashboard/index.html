@@ -1237,7 +1237,7 @@
       const ALL_COMPANIES_URL =
         SUPABASE_URL + '/rest/v1/companies?select=id,name&order=name';
       const JOB_DETAIL_BASE =
-        SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,raw_log,model,role,progress,created_at,started_at,completed_at&limit=1&id=eq.';
+        SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,model,role,progress,created_at,started_at,completed_at&limit=1&id=eq.';
 
       const AUTH_HEADERS = { apikey: ANON_KEY, Authorization: 'Bearer ' + ANON_KEY };
 
@@ -2389,7 +2389,14 @@
             return;
           }
 
-          applyJobToPanel(job);
+          var logRes = await fetch(
+            SUPABASE_URL + '/rest/v1/job_logs?select=content&job_id=eq.' + jobId + '&type=eq.tmux&limit=1',
+            { headers: AUTH_HEADERS }
+          );
+          var logData = await logRes.json();
+          var rawLog = logData && logData[0] ? logData[0].content : null;
+
+          applyJobToPanel(job, rawLog);
 
           var terminal = TERMINAL_JOB_STATUSES.has(normalizeStatus(job.status));
           if (!terminal) {
@@ -2399,7 +2406,13 @@
                 var updated = await apiFetch(JOB_DETAIL_BASE + encodeURIComponent(jobId));
                 updated = Array.isArray(updated) && updated.length > 0 ? updated[0] : null;
                 if (openDetailId !== jobId || !updated) return;
-                applyJobToPanel(updated);
+                var updatedLogRes = await fetch(
+                  SUPABASE_URL + '/rest/v1/job_logs?select=content&job_id=eq.' + jobId + '&type=eq.tmux&limit=1',
+                  { headers: AUTH_HEADERS }
+                );
+                var updatedLogData = await updatedLogRes.json();
+                var updatedRawLog = updatedLogData && updatedLogData[0] ? updatedLogData[0].content : null;
+                applyJobToPanel(updated, updatedRawLog);
                 if (TERMINAL_JOB_STATUSES.has(normalizeStatus(updated.status))) {
                   stopDetailPoll();
                 }
@@ -2413,7 +2426,7 @@
         }
       }
 
-      function applyJobToPanel(job) {
+      function applyJobToPanel(job, rawLog) {
         var status = normalizeStatus(job.status);
         var terminal = TERMINAL_JOB_STATUSES.has(status);
         var failed = status === 'failed';
@@ -2469,9 +2482,9 @@
         // Log
         detailContentEl.appendChild(el('div', 'detail-section-title', 'Log'));
         var logArea = el('div', 'detail-log-area');
-        var logPre = el('pre', typeof job.raw_log === 'string' && job.raw_log ? 'detail-log' : 'detail-log empty');
-        logPre.textContent = typeof job.raw_log === 'string' && job.raw_log
-          ? job.raw_log : 'No log output yet\u2026';
+        var logPre = el('pre', typeof rawLog === 'string' && rawLog ? 'detail-log' : 'detail-log empty');
+        logPre.textContent = typeof rawLog === 'string' && rawLog
+          ? rawLog : 'No log output yet\u2026';
         logArea.appendChild(logPre);
         detailContentEl.appendChild(logArea);
 

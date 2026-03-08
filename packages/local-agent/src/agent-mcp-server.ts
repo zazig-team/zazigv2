@@ -1128,9 +1128,17 @@ server.tool(
   guardedHandler("start_expert_session", async ({ role_name, brief, machine_id, project_id }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
 
     if (!supabaseUrl || !supabaseAnonKey) {
       throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required");
+    }
+
+    if (!companyId) {
+      return {
+        content: [{ type: "text" as const, text: "Error: ZAZIG_COMPANY_ID is required for start_expert_session" }],
+        isError: true,
+      };
     }
 
     const response = await fetch(`${supabaseUrl}/functions/v1/start-expert-session`, {
@@ -1138,6 +1146,7 @@ server.tool(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
+        "x-company-id": companyId,
       },
       body: JSON.stringify({ role_name, brief, machine_id, project_id }),
     });

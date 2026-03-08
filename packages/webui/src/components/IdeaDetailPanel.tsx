@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { fetchIdeaDetail, type IdeaDetail } from "../lib/queries";
+import { fetchIdeaDetail, fetchProjects, promoteIdea, type IdeaDetail, type Project } from "../lib/queries";
+import { useCompany } from "../hooks/useCompany";
 import FormattedProse from "./FormattedProse";
 
 interface IdeaDetailPanelProps {
@@ -18,14 +19,44 @@ function statusBadgeClass(status: string): string {
 }
 
 function formatDate(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "\u2014";
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+type ReadinessItem = { label: string; ok: boolean; hint?: string };
+
+function getReadiness(data: IdeaDetail): ReadinessItem[] {
+  return [
+    {
+      label: "Has title",
+      ok: Boolean(data.title && data.title.trim()),
+      hint: "Needs a clear title",
+    },
+    {
+      label: "Has description",
+      ok: Boolean(data.description && data.description.trim()) || Boolean(data.raw_text && data.raw_text.length > 20),
+      hint: "Needs description or detailed raw text",
+    },
+    {
+      label: "Has project",
+      ok: Boolean(data.project_id),
+      hint: "Select a project below",
+    },
+  ];
+}
+
 export default function IdeaDetailPanel({ ideaId, colorVar, onClose }: IdeaDetailPanelProps): JSX.Element {
+  const { activeCompanyId } = useCompany();
   const [data, setData] = useState<IdeaDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Promote state
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [promoting, setPromoting] = useState(false);
+  const [promoteError, setPromoteError] = useState<string | null>(null);
+  const [promoted, setPromoted] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,7 +64,10 @@ export default function IdeaDetailPanel({ ideaId, colorVar, onClose }: IdeaDetai
     async function load(): Promise<void> {
       try {
         const result = await fetchIdeaDetail(ideaId);
-        if (!cancelled) setData(result);
+        if (!cancelled) {
+          setData(result);
+          if (result.project_id) setSelectedProjectId(result.project_id);
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -45,6 +79,24 @@ export default function IdeaDetailPanel({ ideaId, colorVar, onClose }: IdeaDetai
     return () => { cancelled = true; };
   }, [ideaId]);
 
+  // Load projects when we have a triaged idea
+  useEffect(() => {
+    if (!activeCompanyId || !data || data.status !== "triaged") return;
+    let cancelled = false;
+
+    fetchProjects(activeCompanyId).then((result) => {
+      if (!cancelled) {
+        setProjects(result);
+        // Auto-select if only one project or if idea already has one
+        if (!selectedProjectId && result.length === 1) {
+          setSelectedProjectId(result[0].id);
+        }
+      }
+    }).catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [activeCompanyId, data?.status]);
+
   useEffect(() => {
     function handleKey(e: KeyboardEvent): void {
       if (e.key === "Escape") onClose();
@@ -52,6 +104,33 @@ export default function IdeaDetailPanel({ ideaId, colorVar, onClose }: IdeaDetai
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
+
+  async function handlePromote(): Promise<void> {
+    if (!data || !selectedProjectId) return;
+    setPromoting(true);
+    setPromoteError(null);
+
+    try {
+      await promoteIdea({
+        ideaId: data.id,
+        promoteTo: "feature",
+        projectId: selectedProjectId,
+        title: data.title ?? undefined,
+      });
+      setPromoted(true);
+    } catch (err) {
+      setPromoteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPromoting(false);
+    }
+  }
+
+  const canPromote = data?.status === "triaged" && !promoted;
+  const readiness = data ? getReadiness({
+    ...data,
+    project_id: selectedProjectId ?? data.project_id,
+  }) : [];
+  const allReady = readiness.every((r) => r.ok);
 
   return (
     <>
@@ -67,7 +146,9 @@ export default function IdeaDetailPanel({ ideaId, colorVar, onClose }: IdeaDetai
               <span className="detail-dot" style={{ background: `var(${colorVar})` }} />
               <div className="detail-header-text">
                 <div className="detail-title">{data.title ?? data.raw_text}</div>
-                <span className={statusBadgeClass(data.status)}>{data.status}</span>
+                <span className={statusBadgeClass(promoted ? "promoted" : data.status)}>
+                  {promoted ? "promoted" : data.status}
+                </span>
               </div>
               <button className="detail-close" type="button" onClick={onClose}>×</button>
             </div>
@@ -123,6 +204,61 @@ export default function IdeaDetailPanel({ ideaId, colorVar, onClose }: IdeaDetai
                     <div className="detail-linked-title">{data.promotedFeature.title}</div>
                     <div className="detail-linked-meta">{data.promotedFeature.status.replace(/_/g, " ")}</div>
                   </div>
+                </div>
+              ) : null}
+
+              {/* --- Promote to Pipeline --- */}
+              {canPromote ? (
+                <div className="detail-section promote-section">
+                  <div className="detail-section-title">Push to Pipeline</div>
+
+                  <div className="promote-readiness">
+                    {readiness.map((r) => (
+                      <div className="promote-check" key={r.label}>
+                        <span className={`promote-check-icon ${r.ok ? "promote-check--ok" : "promote-check--missing"}`}>
+                          {r.ok ? "\u2713" : "\u2717"}
+                        </span>
+                        <span className="promote-check-label">{r.label}</span>
+                        {!r.ok && r.hint ? <span className="promote-check-hint">{r.hint}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+
+                  {projects.length > 0 ? (
+                    <div className="promote-project-picker">
+                      <label className="promote-label" htmlFor="promote-project">Project</label>
+                      <select
+                        id="promote-project"
+                        className="promote-select"
+                        value={selectedProjectId ?? ""}
+                        onChange={(e) => setSelectedProjectId(e.target.value || null)}
+                      >
+                        <option value="">Select project...</option>
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+
+                  {promoteError ? (
+                    <div className="promote-error">{promoteError}</div>
+                  ) : null}
+
+                  <button
+                    className="promote-btn"
+                    type="button"
+                    disabled={!allReady || promoting}
+                    onClick={handlePromote}
+                  >
+                    {promoting ? "Promoting..." : "Promote to Feature"}
+                  </button>
+                </div>
+              ) : null}
+
+              {promoted ? (
+                <div className="detail-section">
+                  <div className="promote-success">Idea promoted to feature and pushed into the pipeline.</div>
                 </div>
               ) : null}
             </div>

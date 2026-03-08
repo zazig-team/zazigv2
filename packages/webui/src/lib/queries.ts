@@ -593,6 +593,7 @@ export interface IdeaDetail {
   updated_at: string | null;
   item_type: string | null;
   horizon: string | null;
+  project_id: string | null;
   promotedFeature: { title: string; status: string } | null;
 }
 
@@ -655,7 +656,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
 export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
   const { data: idea, error: ideaError } = await supabase
     .from("ideas")
-    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon")
+    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon, project_id")
     .eq("id", ideaId)
     .single();
 
@@ -696,6 +697,7 @@ export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
     updated_at: (row.updated_at as string | null) ?? null,
     item_type: (row.item_type as string | null) ?? null,
     horizon: (row.horizon as string | null) ?? null,
+    project_id: (row.project_id as string | null) ?? null,
     promotedFeature,
   };
 }
@@ -953,6 +955,37 @@ export async function fetchTeamPageData(companyId: string): Promise<TeamPageData
     machines,
     contractors,
   };
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
+export async function fetchProjects(companyId: string): Promise<Project[]> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id, name, description")
+    .eq("company_id", companyId)
+    .order("name");
+
+  if (error) throw error;
+  return (data ?? []) as Project[];
+}
+
+export async function promoteIdea(params: {
+  ideaId: string;
+  promoteTo: "feature" | "job";
+  projectId: string;
+  title?: string;
+}): Promise<{ promoted_to_id: string }> {
+  return invokePost<{ promoted_to_id: string }>("promote-idea", {
+    idea_id: params.ideaId,
+    promote_to: params.promoteTo,
+    project_id: params.projectId,
+    title: params.title,
+  });
 }
 
 export async function updateExecArchetype(

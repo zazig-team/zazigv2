@@ -113,6 +113,12 @@ interface MachineRow {
   name: string;
 }
 
+interface ProjectLookupRow {
+  id: string;
+  name: string;
+  repo_url: string | null;
+}
+
 interface StartExpertPayload {
   type: "start_expert";
   protocolVersion: number;
@@ -294,12 +300,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: `Project not found: ${projectId}` }, 400);
     }
 
-    if (!projectData.repo_url) {
-      return jsonResponse({ error: `Project ${projectData.name} has no repo_url configured` }, 400);
+    const project = projectData as ProjectLookupRow;
+
+    if (!project.repo_url) {
+      return jsonResponse({ error: `Project ${project.name} has no repo_url configured` }, 400);
     }
 
-    const resolvedProjectId = projectData.id;
-    const repoUrl = projectData.repo_url;
+    const resolvedProjectId = project.id;
+    const resolvedRepoUrl = project.repo_url;
 
     const { data: sessionData, error: sessionErr } = await supabase
       .from("expert_sessions")
@@ -334,7 +342,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         settings_overrides: role.settings_overrides,
       },
       project_id: resolvedProjectId,
-      repo_url: repoUrl,
+      repo_url: resolvedRepoUrl,
     };
 
     const broadcastResult = await broadcastStartExpert(

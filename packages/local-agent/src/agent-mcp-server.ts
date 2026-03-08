@@ -704,6 +704,7 @@ server.tool(
     scope: z.string().optional().describe("Scope of the idea"),
     complexity: z.string().optional().describe("Estimated complexity"),
     domain: z.enum(["product", "engineering", "marketing", "cross-cutting", "unknown"]).optional().describe("Domain this idea belongs to"),
+    item_type: z.enum(["idea", "brief", "bug", "test"]).optional().describe("Type of inbox item (default: idea)"),
     autonomy: z.string().optional().describe("Autonomy level"),
     tags: z.array(z.string()).optional().describe("Tags for the idea"),
     flags: z.array(z.string()).optional().describe("Flags for the idea"),
@@ -714,7 +715,7 @@ server.tool(
     priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("Idea priority"),
     suggested_exec: z.string().optional().describe("Suggested executor for this idea"),
   },
-  async ({ raw_text, originator, source, title, description, scope, complexity, domain, autonomy, tags, flags, clarification_notes, processed_by, source_ref, project_id, priority, suggested_exec }) => {
+  async ({ raw_text, originator, source, title, description, scope, complexity, domain, item_type, autonomy, tags, flags, clarification_notes, processed_by, source_ref, project_id, priority, suggested_exec }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -733,7 +734,7 @@ server.tool(
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ raw_text, originator, source, title, description, scope, complexity, domain, autonomy, tags, flags, clarification_notes, processed_by, source_ref, project_id, priority, suggested_exec, job_id: jobId, company_id: companyId }),
+      body: JSON.stringify({ raw_text, originator, source, title, description, scope, complexity, domain, item_type, autonomy, tags, flags, clarification_notes, processed_by, source_ref, project_id, priority, suggested_exec, job_id: jobId, company_id: companyId }),
     });
 
     if (response.ok) {
@@ -759,12 +760,13 @@ server.tool(
     status: z.string().optional().describe("Filter by status (e.g. 'new', 'triaged', 'parked', 'rejected')"),
     domain: z.string().optional().describe("Filter by domain"),
     source: z.string().optional().describe("Filter by source channel"),
+    item_type: z.string().optional().describe("Filter by item type (idea, brief, bug, test)"),
     priority: z.string().optional().describe("Filter by priority"),
     project_id: z.string().optional().describe("Filter by project ID"),
     search: z.string().optional().describe("Full-text search across idea content"),
     limit: z.number().optional().describe("Maximum number of ideas to return"),
   },
-  async ({ idea_id, status, domain, source, priority, project_id, search, limit }) => {
+  async ({ idea_id, status, domain, source, item_type, priority, project_id, search, limit }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -783,7 +785,7 @@ server.tool(
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ idea_id, status, domain, source, priority, project_id, search, limit, job_id: jobId, company_id: companyId }),
+      body: JSON.stringify({ idea_id, status, domain, source, item_type, priority, project_id, search, limit, job_id: jobId, company_id: companyId }),
     });
 
     if (response.ok) {
@@ -850,6 +852,7 @@ server.tool(
     title: z.string().optional().describe("New title"),
     description: z.string().optional().describe("New description"),
     status: z.enum(["new", "triaged", "parked", "rejected", "done"]).optional().describe("New status"),
+    item_type: z.enum(["idea", "brief", "bug", "test"]).optional().describe("Updated item type"),
     priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("New priority"),
     suggested_exec: z.string().optional().describe("Suggested executor"),
     tags: z.array(z.string()).optional().describe("Updated tags"),
@@ -858,7 +861,7 @@ server.tool(
     triage_notes: z.string().optional().describe("Notes from triage"),
     project_id: z.string().optional().describe("Associated project ID"),
   },
-  async ({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id }) => {
+  async ({ idea_id, title, description, status, item_type, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -877,7 +880,7 @@ server.tool(
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id, job_id: jobId, company_id: companyId }),
+      body: JSON.stringify({ idea_id, title, description, status, item_type, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id, job_id: jobId, company_id: companyId }),
     });
 
     if (response.ok) {
@@ -953,6 +956,7 @@ server.tool(
       scope: z.string().optional().describe("Scope of the idea"),
       complexity: z.string().optional().describe("Estimated complexity"),
       domain: z.enum(["product", "engineering", "marketing", "cross-cutting", "unknown"]).optional().describe("Domain this idea belongs to"),
+      item_type: z.enum(["idea", "brief", "bug", "test"]).optional().describe("Type of inbox item (default: idea)"),
       autonomy: z.string().optional().describe("Autonomy level"),
       tags: z.array(z.string()).optional().describe("Tags"),
       flags: z.array(z.string()).optional().describe("Flags"),

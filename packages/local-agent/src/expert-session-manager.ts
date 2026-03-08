@@ -132,12 +132,6 @@ export class ExpertSessionManager {
   }
 
   async handleStartExpert(msg: StartExpertMessage): Promise<void> {
-    // 1. Check if this message is for this machine
-    if (msg.machine_id !== this.machineId) {
-      console.log(`[expert] Ignoring start_expert for machine ${msg.machine_id} (this is ${this.machineId})`);
-      return;
-    }
-
     const sessionId = msg.session_id;
     const shortId = sessionId.slice(0, 8);
     const tmuxSessionName = `expert-${shortId}`;

@@ -27,6 +27,7 @@ import {
 const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN");
 const TELEGRAM_ALLOWED_USERS = Deno.env.get("TELEGRAM_ALLOWED_USERS");
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
@@ -37,6 +38,10 @@ if (!TELEGRAM_BOT_TOKEN || !OPENAI_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE
   throw new Error(
     "Missing required env vars: TELEGRAM_BOT_TOKEN, OPENAI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY",
   );
+}
+
+if (!ANTHROPIC_API_KEY) {
+  console.warn("[telegram-bot] ANTHROPIC_API_KEY not set — bot will fall back to static messages");
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +127,7 @@ async function processUpdate(update: TelegramUpdate): Promise<void> {
     supabase: makeSupabaseClient(),
     token: TELEGRAM_BOT_TOKEN!,
     openaiKey: OPENAI_API_KEY!,
+    anthropicKey: ANTHROPIC_API_KEY ?? "",
   };
 
   // Route by message type

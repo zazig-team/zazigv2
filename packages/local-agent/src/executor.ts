@@ -264,6 +264,7 @@ export interface CompanyProject {
 export interface PersistentAgentJobDefinition {
   role: string;
   prompt_stack_minus_skills: string;
+  sub_agent_prompt?: string;
   skills: string[];
   model: string;
   slot_type: string;
@@ -798,6 +799,7 @@ export class JobExecutor {
       model: job.model,
       role: job.role,
       promptStackMinusSkills: job.prompt_stack_minus_skills,
+      ...(job.sub_agent_prompt ? { subAgentPrompt: job.sub_agent_prompt } : {}),
       roleSkills: job.skills?.length ? job.skills : undefined,
       roleMcpTools: job.mcp_tools?.length ? job.mcp_tools : undefined,
       companyProjects: job.projects?.length ? job.projects : undefined,

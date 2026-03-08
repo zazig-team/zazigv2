@@ -988,6 +988,19 @@ export async function promoteIdea(params: {
   });
 }
 
+export async function commissionProjectArchitect(params: {
+  companyId: string;
+  projectId: string;
+  context: string;
+}): Promise<{ job_id?: string }> {
+  return invokePost<{ job_id?: string }>("request-work", {
+    company_id: params.companyId,
+    project_id: params.projectId,
+    role: "project-architect",
+    context: params.context,
+  });
+}
+
 export async function updateExecArchetype(
   personalityId: string,
   archetypeId: string,

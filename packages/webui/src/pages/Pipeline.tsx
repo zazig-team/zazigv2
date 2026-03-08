@@ -19,8 +19,6 @@ interface ColumnDefinition {
   colorVar: string;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 const COLUMN_DEFINITIONS: ColumnDefinition[] = [
   { key: "proposal", label: "Proposal", colorVar: "--col-proposal" },
   { key: "ready", label: "Ready", colorVar: "--col-ready" },
@@ -115,8 +113,6 @@ export default function Pipeline(): JSX.Element {
   const [inboxTypeFilter, setInboxTypeFilter] = useState<string>("all");
   const [showReviewSoon, setShowReviewSoon] = useState(false);
   const [showLongTerm, setShowLongTerm] = useState(false);
-  const [showFailedArchive, setShowFailedArchive] = useState(false);
-  const [showCompleteArchive, setShowCompleteArchive] = useState(false);
   const [selectedFeature, setSelectedFeature] = useState<{ id: string; colorVar: string } | null>(null);
   const [selectedIdea, setSelectedIdea] = useState<{ id: string; colorVar: string } | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
@@ -324,8 +320,6 @@ export default function Pipeline(): JSX.Element {
     };
   }, [filteredByStatus, filteredIdeas.length, filteredTriagedIdeas.length, allFeatures.length]);
 
-  const now = Date.now();
-
   return (
     <div className="pipeline-page">
       <div className="page-header">
@@ -505,49 +499,6 @@ export default function Pipeline(): JSX.Element {
 
         {COLUMN_DEFINITIONS.map((column) => {
           const features = filteredByStatus[column.key];
-          const isArchivedColumn = column.key === "failed" || column.key === "complete";
-          const recentFeatures = isArchivedColumn
-            ? features.filter((feature) => {
-              const updatedAtMs = Date.parse(feature.updated_at);
-              if (Number.isNaN(updatedAtMs)) {
-                return false;
-              }
-              return now - updatedAtMs <= DAY_MS;
-            })
-            : features;
-          const archivedFeatures = isArchivedColumn
-            ? features.filter((feature) => {
-              const updatedAtMs = Date.parse(feature.updated_at);
-              if (Number.isNaN(updatedAtMs)) {
-                return true;
-              }
-              return now - updatedAtMs > DAY_MS;
-            })
-            : [];
-          const showArchive = column.key === "failed" ? showFailedArchive : showCompleteArchive;
-
-          const archivedThisWeek = archivedFeatures.filter((feature) => {
-            const updatedAtMs = Date.parse(feature.updated_at);
-            if (Number.isNaN(updatedAtMs)) {
-              return false;
-            }
-            return now - updatedAtMs <= 7 * DAY_MS;
-          });
-          const archivedThisMonth = archivedFeatures.filter((feature) => {
-            const updatedAtMs = Date.parse(feature.updated_at);
-            if (Number.isNaN(updatedAtMs)) {
-              return false;
-            }
-            const age = now - updatedAtMs;
-            return age > 7 * DAY_MS && age <= 30 * DAY_MS;
-          });
-          const archivedOlder = archivedFeatures.filter((feature) => {
-            const updatedAtMs = Date.parse(feature.updated_at);
-            if (Number.isNaN(updatedAtMs)) {
-              return true;
-            }
-            return now - updatedAtMs > 30 * DAY_MS;
-          });
 
           const renderFeatureCard = (feature: PipelineFeature) => (
             <article className="card card--clickable" key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
@@ -586,12 +537,6 @@ export default function Pipeline(): JSX.Element {
             </article>
           );
 
-          const archiveGroups = [
-            { label: "This week", items: archivedThisWeek },
-            { label: "This month", items: archivedThisMonth },
-            { label: "Older", items: archivedOlder },
-          ].filter((group) => group.items.length > 0);
-
           return (
             <section className="pipeline-col" key={column.key}>
               <header className="pipeline-col-header">
@@ -599,40 +544,15 @@ export default function Pipeline(): JSX.Element {
                   <span className="col-dot" style={{ background: `var(${column.colorVar})` }} />
                   <span className="col-name">{column.label}</span>
                 </div>
-                <span className="col-count">{recentFeatures.length}</span>
+                <span className="col-count">{features.length}</span>
               </header>
 
               <div className="pipeline-col-body">
-                {recentFeatures.length === 0 ? (
+                {features.length === 0 ? (
                   <div className="col-empty">No items</div>
                 ) : (
-                  recentFeatures.map((feature) => renderFeatureCard(feature))
+                  features.map((feature) => renderFeatureCard(feature))
                 )}
-
-                {archivedFeatures.length > 0 ? (
-                  <button
-                    className="parked-toggle"
-                    type="button"
-                    onClick={() => {
-                      if (column.key === "failed") {
-                        setShowFailedArchive((value) => !value);
-                      } else if (column.key === "complete") {
-                        setShowCompleteArchive((value) => !value);
-                      }
-                    }}
-                  >
-                    {showArchive ? "▼" : "▶"} Archive ({archivedFeatures.length})
-                  </button>
-                ) : null}
-
-                {showArchive ? (
-                  archiveGroups.map((group) => (
-                    <div key={group.label}>
-                      <div className="section-label">{group.label}</div>
-                      {group.items.map((feature) => renderFeatureCard(feature))}
-                    </div>
-                  ))
-                ) : null}
               </div>
             </section>
           );

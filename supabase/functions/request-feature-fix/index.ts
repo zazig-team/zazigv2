@@ -1,8 +1,9 @@
 /**
  * zazigv2 — request-feature-fix Edge Function
  *
- * Cancels stale combine/verify jobs for a feature, moves it back to "building",
- * and queues a senior-engineer code job that inherits the feature branch.
+ * Re-queues only the failed jobs for a feature, moves it back to "building",
+ * and clears the feature error so the orchestrator can continue from the
+ * existing completed work.
  *
  * Called by: orchestrator (handleVerificationFailed) and CPO (via MCP tool).
  */
@@ -18,12 +19,35 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   );
 }
 
-const ALLOWED_STATUSES = ["building", "combining", "verifying", "pr_ready", "failed"];
+const ALLOWED_STATUSES = [
+  "building",
+  "combining",
+  "verifying",
+  "pr_ready",
+  "failed",
+];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
+
+interface FailedJobRow {
+  id: string;
+  company_id: string;
+  project_id: string | null;
+  feature_id: string | null;
+  title: string | null;
+  role: string;
+  job_type: string;
+  complexity: string | null;
+  slot_type: string | null;
+  context: string | null;
+  branch: string | null;
+  depends_on: string[] | null;
+  model: string | null;
+}
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -58,8 +82,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
       reason?: string;
     };
 
-    if (!company_id) return jsonResponse({ error: "company_id is required" }, 400);
-    if (!feature_id) return jsonResponse({ error: "feature_id is required" }, 400);
+    if (!company_id) {
+      return jsonResponse({ error: "company_id is required" }, 400);
+    }
+    if (!feature_id) {
+      return jsonResponse({ error: "feature_id is required" }, 400);
+    }
     if (!reason || reason.trim().length === 0) {
       return jsonResponse({ error: "reason is required" }, 400);
     }
@@ -74,7 +102,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (fetchErr || !feature) {
       return jsonResponse(
-        { error: `Failed to fetch feature ${feature_id}: ${fetchErr?.message ?? "not found"}` },
+        {
+          error: `Failed to fetch feature ${feature_id}: ${
+            fetchErr?.message ?? "not found"
+          }`,
+        },
         404,
       );
     }
@@ -82,57 +114,153 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // 2. Validate status
     if (!ALLOWED_STATUSES.includes(feature.status)) {
       return jsonResponse(
-        { error: `Feature status is '${feature.status}', must be one of: ${ALLOWED_STATUSES.join(", ")}` },
+        {
+          error: `Feature status is '${feature.status}', must be one of: ${
+            ALLOWED_STATUSES.join(", ")
+          }`,
+        },
         409,
       );
     }
 
     const previousStatus = feature.status;
 
-    // 3a. Cancel all combine/verify/review jobs for this feature (including completed ones).
-    // Without this, the pipeline creates duplicate combine/verify jobs after the fix.
-    const cancelStatuses = ["queued", "dispatched", "executing", "complete", "reviewing", "verifying"];
-    const { error: cancelErr } = await supabase
+    // 3. Find the failed jobs for this feature. Only these jobs get retried.
+    const { data: failedJobs, error: failedJobsErr } = await supabase
       .from("jobs")
-      .update({ status: "cancelled" })
-      .eq("feature_id", feature_id)
-      .in("job_type", ["combine", "review", "verify"])
-      .in("status", cancelStatuses);
-
-    if (cancelErr) {
-      console.error(`[request-feature-fix] failed to cancel jobs for ${feature_id}:`, cancelErr.message);
-    }
-
-    // 3b. Cancel all failed jobs for this feature.
-    // Without this, the orchestrator's catch-up (Task 0) sees old failed jobs
-    // and immediately reverts the feature back to "failed".
-    const { error: cancelFailedErr } = await supabase
-      .from("jobs")
-      .update({ status: "cancelled" })
+      .select(
+        "id, company_id, project_id, feature_id, title, role, job_type, complexity, slot_type, context, branch, depends_on, model",
+      )
       .eq("feature_id", feature_id)
       .eq("status", "failed");
 
-    if (cancelFailedErr) {
-      console.error(`[request-feature-fix] failed to cancel failed jobs for ${feature_id}:`, cancelFailedErr.message);
+    if (failedJobsErr) {
+      return jsonResponse(
+        {
+          error:
+            `Failed to fetch failed jobs for feature ${feature_id}: ${failedJobsErr.message}`,
+        },
+        500,
+      );
     }
 
-    // 4. Move feature to building (CAS guard on current status)
+    if (!failedJobs || failedJobs.length === 0) {
+      return jsonResponse(
+        { error: `No failed jobs found for feature ${feature_id}` },
+        409,
+      );
+    }
+
+    const retryJobs = (failedJobs as FailedJobRow[]).map((job) => {
+      let originalContext: unknown = job.context;
+      if (typeof job.context === "string" && job.context.trim().length > 0) {
+        try {
+          originalContext = JSON.parse(job.context);
+        } catch {
+          originalContext = job.context;
+        }
+      }
+
+      return {
+        company_id: job.company_id,
+        project_id: job.project_id,
+        feature_id: job.feature_id,
+        title: job.title,
+        role: job.role,
+        job_type: job.job_type,
+        complexity: job.complexity,
+        slot_type: job.slot_type,
+        status: "queued",
+        context: JSON.stringify({
+          type: "retry",
+          originalContext,
+          failureDiagnosis: reason,
+        }),
+        branch: job.branch,
+        depends_on: job.depends_on ?? [],
+        model: job.model,
+      };
+    });
+
+    const { data: insertedRetryRows, error: insertErr } = await supabase
+      .from("jobs")
+      .insert(retryJobs)
+      .select("id");
+
+    if (insertErr) {
+      return jsonResponse(
+        { error: `Failed to queue retry jobs: ${insertErr.message}` },
+        500,
+      );
+    }
+
+    const insertedRetryIds = (insertedRetryRows ?? []).map((
+      row: { id: string },
+    ) => row.id);
+
+    // 4. Cancel the old failed jobs so Task 0 does not immediately fail the feature again.
+    const failedJobIds = (failedJobs as FailedJobRow[]).map((job) => job.id);
+    const { error: cancelFailedErr } = await supabase
+      .from("jobs")
+      .update({ status: "cancelled" })
+      .in("id", failedJobIds)
+      .eq("status", "failed");
+
+    if (cancelFailedErr) {
+      await supabase
+        .from("jobs")
+        .update({
+          status: "cancelled",
+          result: "rollback_request_feature_fix_cancel_failed_jobs",
+        })
+        .in("id", insertedRetryIds);
+      return jsonResponse(
+        {
+          error:
+            `Failed to cancel failed jobs for feature ${feature_id}: ${cancelFailedErr.message}`,
+        },
+        500,
+      );
+    }
+
+    // 5. Move feature to building (CAS guard on current status) and clear the error.
     const { data: updated, error: updateErr } = await supabase
       .from("features")
-      .update({ status: "building", error: null, updated_at: new Date().toISOString() })
+      .update({
+        status: "building",
+        error: null,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", feature_id)
       .eq("status", previousStatus)
       .select("id");
 
     if (updateErr) {
+      await supabase
+        .from("jobs")
+        .update({
+          status: "cancelled",
+          result: "rollback_request_feature_fix_feature_update_failed",
+        })
+        .in("id", insertedRetryIds);
       return jsonResponse(
         { error: `Failed to reset feature to building: ${updateErr.message}` },
         500,
       );
     }
     if (!updated || updated.length === 0) {
+      await supabase
+        .from("jobs")
+        .update({
+          status: "cancelled",
+          result: "rollback_request_feature_fix_feature_cas_failed",
+        })
+        .in("id", insertedRetryIds);
       return jsonResponse(
-        { error: `Feature ${feature_id} status changed concurrently — CAS failed` },
+        {
+          error:
+            `Feature ${feature_id} status changed concurrently — CAS failed`,
+        },
         409,
       );
     }
@@ -149,38 +277,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       },
     });
 
-    // 6. Insert a new code job
-    const fixContext = JSON.stringify({
-      type: "feature_fix",
-      failureDetails: reason,
-      featureBranch: feature.branch,
-      originalSpec: feature.spec ?? "",
-    });
-
-    const { data: insertedRows, error: insertErr } = await supabase.from("jobs").insert({
-      company_id: feature.company_id,
-      project_id: feature.project_id,
-      feature_id: feature_id,
-      title: "Feature fix",
-      role: "senior-engineer",
-      job_type: "code",
-      complexity: "medium",
-      slot_type: "claude_code",
-      status: "queued",
-      context: fixContext,
-      branch: feature.branch,
-    }).select("id");
-
-    if (insertErr) {
-      return jsonResponse(
-        { error: `Failed to queue fix job: ${insertErr.message}` },
-        500,
-      );
-    }
-
-    const jobId = insertedRows?.[0]?.id;
-
-    return jsonResponse({ job_id: jobId, feature_id });
+    return jsonResponse({ retried_job_ids: insertedRetryIds, feature_id });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

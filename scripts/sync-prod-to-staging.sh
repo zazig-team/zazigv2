@@ -182,9 +182,9 @@ batch_insert_rows() {
     jq '[.[] | .text //= ""]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
   fi
 
-  # Clean up jobs for staging: null machine_id, truncate large fields
+  # Clean up jobs for staging: null machine_id, strip raw_log (column removed from staging)
   if [[ "${table}" == "jobs" ]]; then
-    jq '[.[] | .machine_id = null | .raw_log = null]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
+    jq '[.[] | .machine_id = null | del(.raw_log)]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
   fi
 
   # Jobs have large context/raw_log fields — use smaller batches

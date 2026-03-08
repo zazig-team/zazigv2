@@ -87,6 +87,61 @@ async function sendMessage(token: string, chatId: number, text: string): Promise
   }
 }
 
+export async function sendMessageDraft(token: string, chatId: number, text: string): Promise<void> {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessageDraft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(`[telegram-bot] sendMessageDraft failed (${res.status}): ${err}`);
+    }
+  } catch (err) {
+    console.error("[telegram-bot] sendMessageDraft threw:", err);
+  }
+}
+
+export async function streamToTelegram(
+  token: string,
+  chatId: number,
+  chunks: AsyncIterable<string>,
+  throttleMs = 600,
+): Promise<void> {
+  const growthThreshold = 50;
+  const errorSuffix = "\n\n(Response interrupted due to an error.)";
+  let buffer = "";
+  let lastDraftAt = Date.now();
+  let lastDraftLength = 0;
+
+  try {
+    for await (const chunk of chunks) {
+      if (!chunk) continue;
+
+      buffer += chunk;
+      const now = Date.now();
+      const shouldSendByTime = now - lastDraftAt >= throttleMs;
+      const shouldSendByGrowth = buffer.length - lastDraftLength >= growthThreshold;
+
+      if (shouldSendByTime || shouldSendByGrowth) {
+        await sendMessageDraft(token, chatId, buffer);
+        lastDraftAt = now;
+        lastDraftLength = buffer.length;
+      }
+    }
+
+    if (!buffer) return;
+    await sendMessage(token, chatId, buffer);
+  } catch (err) {
+    console.error("[telegram-bot] streamToTelegram threw:", err);
+    const fallback = buffer
+      ? `${buffer}${errorSuffix}`
+      : "Response interrupted due to an error.";
+    await sendMessage(token, chatId, fallback);
+  }
+}
+
 async function getFileDownloadUrl(token: string, fileId: string): Promise<string | null> {
   try {
     const res = await fetch(

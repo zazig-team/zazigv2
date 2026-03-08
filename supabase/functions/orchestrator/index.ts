@@ -119,6 +119,7 @@ interface MachineRow {
   slots_codex: number;
   last_heartbeat: string | null;
   status: string;
+  agent_version: string | null;
 }
 
 interface DecisionResolved {
@@ -626,7 +627,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     if (!machines) {
       const { data: m, error: mErr } = await supabase
         .from("machines")
-        .select("id, company_id, name, slots_claude_code, slots_codex, last_heartbeat, status, enabled")
+        .select("id, company_id, name, slots_claude_code, slots_codex, last_heartbeat, status, enabled, agent_version")
         .eq("company_id", job.company_id)
         .eq("status", "online")
         .neq("enabled", false);
@@ -652,8 +653,21 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       machineCache.set(job.company_id, machines);
     }
 
+    const env = Deno.env.get("ZAZIG_ENV") ?? "production";
+    const { data: latestVersion } = await supabase
+      .from("agent_versions")
+      .select("version")
+      .eq("env", env)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const eligibleMachines = machines.filter(
+      (m) => !latestVersion || m.agent_version === latestVersion.version,
+    );
+
     // Find a machine with an available slot of the required type.
-    let candidate = machines.find((m) => availableSlots(m, slotType) > 0);
+    let candidate = eligibleMachines.find((m) => availableSlots(m, slotType) > 0);
 
     // For jobs preferring codex, fall back to claude_code if no codex slots available.
     if (!candidate && slotType === "codex") {
@@ -663,7 +677,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         const mediumEntry = routing.get("medium");
         model = mediumEntry?.model ?? "claude-sonnet-4-6";
       }
-      candidate = machines.find((m) => availableSlots(m, slotType) > 0);
+      candidate = eligibleMachines.find((m) => availableSlots(m, slotType) > 0);
     }
 
     if (!candidate) {

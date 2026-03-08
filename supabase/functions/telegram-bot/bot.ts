@@ -321,6 +321,22 @@ function formatUtcTimestamp(iso: string): string {
   return date.toISOString().replace("T", " ").slice(0, 16) + " UTC";
 }
 
+function formatTextCaptureConfirmation(rawText: string): string {
+  const preview = rawText.length > 200 ? rawText.slice(0, 200) + "..." : rawText;
+  return `Got it. Captured as an idea.\n\n"${preview}"\n\nYour CPO will triage it soon.`;
+}
+
+function formatVoiceCaptureConfirmation(
+  transcript: string,
+  durationSeconds?: number,
+): string {
+  const durationNote = durationSeconds ? ` (${durationSeconds}s)` : "";
+  const preview = transcript.length > 200
+    ? transcript.slice(0, 200) + "..."
+    : transcript;
+  return `Got it. Captured your voice note${durationNote} as an idea.\n\n"${preview}"\n\nYour CPO will triage it soon.`;
+}
+
 // ---------------------------------------------------------------------------
 // Claude AI streaming response generation
 // ---------------------------------------------------------------------------
@@ -584,7 +600,7 @@ export async function handleVoice(
   }
   const originator = resolveOriginator(message, mapping);
 
-  await sendMessage(ctx.token, chatId, "Got it. Transcribing your voice note...");
+  await sendMessageDraft(ctx.token, chatId, "Got it. Transcribing your voice note...");
 
   // Download audio from Telegram
   const fileUrl = await getFileDownloadUrl(ctx.token, voice.file_id);
@@ -656,16 +672,22 @@ export async function handleVoice(
     return;
   }
 
-  const durationNote = voice.duration ? ` (${voice.duration}s)` : "";
-  const preview = transcript.length > 200
-    ? transcript.slice(0, 200) + "..."
-    : transcript;
+  const fallbackText = formatVoiceCaptureConfirmation(transcript, voice.duration);
 
-  await sendMessage(
-    ctx.token,
-    chatId,
-    `Got it. Captured your voice note${durationNote} as an idea.\n\n"${preview}"\n\nYour CPO will triage it soon.`,
-  );
+  if (!ctx.anthropicKey) {
+    await sendMessage(ctx.token, chatId, fallbackText);
+    return;
+  }
+
+  try {
+    const chunkIterator = await generateStreamingIdeaResponse(transcript, ctx.anthropicKey);
+    await streamToTelegram(ctx.token, chatId, chunkIterator);
+    return;
+  } catch (err) {
+    console.error("[telegram-bot] handleVoice: Claude streaming failed:", err);
+  }
+
+  await sendMessage(ctx.token, chatId, fallbackText);
 }
 
 // ---------------------------------------------------------------------------
@@ -725,10 +747,20 @@ export async function handleText(
     return;
   }
 
-  const preview = text.length > 200 ? text.slice(0, 200) + "..." : text;
-  await sendMessage(
-    ctx.token,
-    chatId,
-    `Got it. Captured as an idea:\n\n"${preview}"\n\nYour CPO will triage it soon.`,
-  );
+  const fallbackText = formatTextCaptureConfirmation(text);
+
+  if (!ctx.anthropicKey) {
+    await sendMessage(ctx.token, chatId, fallbackText);
+    return;
+  }
+
+  try {
+    const chunkIterator = await generateStreamingIdeaResponse(text, ctx.anthropicKey);
+    await streamToTelegram(ctx.token, chatId, chunkIterator);
+    return;
+  } catch (err) {
+    console.error("[telegram-bot] handleText: Claude streaming failed:", err);
+  }
+
+  await sendMessage(ctx.token, chatId, fallbackText);
 }

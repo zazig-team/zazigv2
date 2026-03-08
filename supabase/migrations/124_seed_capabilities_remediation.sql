@@ -1,36 +1,9 @@
--- 122_seed_capabilities.sql
--- Seed capability lanes and capabilities audited on 2026-03-07.
--- NOTE: This migration originally used a single CTE for lanes + capabilities,
--- which failed due to PostgreSQL CTE snapshot isolation (capabilities INSERT
--- couldn't see lanes inserted in the same WITH statement). Fixed by splitting
--- into two separate statements. See 124_seed_capabilities_remediation.sql for
--- the remediation migration that backfills on databases where this already ran.
+-- 124_seed_capabilities_remediation.sql
+-- Remediation: backfill capabilities that 122 failed to insert due to CTE
+-- snapshot isolation. The lanes already exist, so this standalone INSERT works.
+-- Idempotent via NOT EXISTS — safe on fresh, partial, or fully seeded databases.
 
--- Statement 1: Seed lanes
-INSERT INTO public.capability_lanes (company_id, name, sort_order)
-SELECT
-    company.id,
-    lane.lane_name,
-    lane.sort_order
-FROM (SELECT id FROM public.companies LIMIT 1) company
-CROSS JOIN (
-    VALUES
-        ('Agent Brain', 1),
-        ('Agent Identity', 2),
-        ('Infrastructure', 3),
-        ('Pipeline', 4),
-        ('Interface', 5),
-        ('Platform', 6),
-        ('Strategy', 7)
-) AS lane(lane_name, sort_order)
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM public.capability_lanes existing
-    WHERE existing.company_id = company.id
-      AND existing.name = lane.lane_name
-);
-
--- Statement 2: Seed capabilities (runs after lanes are committed)
+-- Insert capabilities (lanes already committed and visible)
 WITH company AS (
     SELECT id FROM public.companies LIMIT 1
 ),
@@ -116,7 +89,7 @@ WHERE NOT EXISTS (
       AND existing.title = cs.title
 );
 
--- Statement 3: Wire up depends_on references
+-- Wire up depends_on references
 WITH company AS (
     SELECT id FROM public.companies LIMIT 1
 ),

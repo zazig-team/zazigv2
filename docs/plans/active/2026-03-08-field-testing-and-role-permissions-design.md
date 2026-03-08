@@ -34,6 +34,23 @@ Claude Code workers (not Codex — they can't run `/loop` or Playwright) run vis
 - **Natural role split**: Claude Code workers take front-end/visual work (better at UI + have Playwright), Codex workers take backend/pipeline work (API-verifiable, no browser needed)
 - **Not every feature needs this** — `field_test` is nullable. Backend-only features skip it.
 
+#### The Screenshot-and-Review Loop
+
+Core pattern (credit: Leo @ Factory): **"Take screenshots and videos of everything you've built, then review it."**
+
+The builder's final step before marking a job complete is a visual self-review:
+
+1. **Navigate** — Playwright opens the relevant page/screen
+2. **Screenshot** — capture the current state (full page + key sections)
+3. **Review** — the builder (Claude Code) examines its own screenshots against the spec and field_test instructions
+4. **Fix or pass** — if the screenshot shows something wrong, fix it and re-screenshot. If it matches expectations, attach the evidence and complete.
+
+This is not QA — it's the builder checking its own work before handing off. The time savings are massive: catches visual regressions, layout bugs, missing elements, and "it renders but looks wrong" issues that code-level tests miss entirely.
+
+The loop is self-contained within the build job. No new infrastructure needed — just Playwright MCP (already available) and a convention in the builder's prompt that says "screenshot your work and review it before completing."
+
+Combined with Tier 2's automated QA via the Field Tester contractor, this creates a semi-autonomous verification system: builder self-checks → Field Tester independently verifies → human only intervenes on failures.
+
 ### Tier 2: Post-Ship Field Testing (per-idea)
 
 Once all features for an idea are deployed, a **Field Tester** contractor runs the end-to-end user journey across the combined features.
@@ -280,7 +297,7 @@ Two new columns on the pipeline board: **Deployed** and **Field Testing** (betwe
 
 2. **`field_test` column + featurify changes** — start writing field test instructions into features during breakdown. Small scope: one migration + skill update.
 
-3. **Build-time Playwright loop for Claude Code workers** — Tier 1 visual verification. No new pipeline stages. Just the builder using `/loop` + Playwright guided by `field_test` instructions. Needs Playwright permissions pre-allowed for Claude Code roles.
+3. **Screenshot-and-review convention for Claude Code builders** — Tier 1 visual verification. No new pipeline stages or infrastructure. Add to builder prompt: "Before completing any job with a `field_test`, use Playwright to navigate to the relevant page, take screenshots, review them against the spec, and fix anything that doesn't match." Needs Playwright permissions pre-allowed for Claude Code roles. This single convention — builder screenshots its own work — catches the majority of visual/integration bugs before they reach human review.
 
 4. **`deployed` + `field_testing` pipeline stages + Field Tester contractor** — Tier 2 post-ship automation. Larger scope: migrations, orchestrator changes, new contractor role + skill, WebUI pipeline columns.
 

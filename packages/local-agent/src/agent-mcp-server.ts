@@ -1125,7 +1125,7 @@ server.tool(
     role_name: z.string().describe("The expert role identifier, e.g. \"test-deployment-expert\""),
     brief: z.string().describe("Structured handoff context for the expert: what needs to be done, relevant background, expected output"),
     machine_name: z.string().describe("Which machine to spawn the expert on. Read the machine name from ~/.zazigv2/config.json — use the 'name' field."),
-    project_id: z.string().optional().describe("Optional project ID for repo access in the expert workspace"),
+    project_id: z.string().describe("Project ID or name — required. The expert needs a repo to work in."),
   },
   guardedHandler("start_expert_session", async ({ role_name, brief, machine_name, project_id }) => {
     const supabaseUrl = process.env.SUPABASE_URL;

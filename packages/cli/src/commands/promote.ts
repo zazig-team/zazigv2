@@ -2,7 +2,7 @@
  * promote.ts — Push tested staging build to production.
  *
  * Flow: authenticate → pick company → pick project → resolve repo →
- * create temp worktree → build → bundle CLI + agent → commit → fast-forward
+ * create temp worktree → build → bump versions → bundle CLI + agent → commit → fast-forward
  * production → pin build → cleanup.
  *
  * Supabase migrations and edge functions are deployed by GitHub Actions
@@ -10,11 +10,12 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
-import { getValidCredentials } from "../lib/credentials.js";
+import { createClient } from "@supabase/supabase-js";
+import { getValidCredentials, type Credentials } from "../lib/credentials.js";
 import { fetchUserCompanies, pickCompany } from "../lib/company-picker.js";
 import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 import { pinCurrentBuild, rollback as rollbackBuild } from "../lib/builds.js";
@@ -25,6 +26,11 @@ interface Project {
   id: string;
   name: string;
   repo_url: string;
+}
+
+interface PackageJson {
+  version?: string;
+  [key: string]: unknown;
 }
 
 async function fetchProjects(
@@ -87,6 +93,86 @@ function resolveDefaultBranch(repoDir: string): string {
     } catch { continue; }
   }
   throw new Error(`Cannot resolve default branch in ${repoDir}`);
+}
+
+function readJsonFile<T>(path: string): T {
+  return JSON.parse(readFileSync(path, "utf-8")) as T;
+}
+
+function writeJsonFile(path: string, data: unknown): void {
+  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
+}
+
+function bumpMinorVersion(version: string): string {
+  const parts = version.split(".");
+  if (parts.length !== 3) {
+    throw new Error(`Invalid semver '${version}'. Expected format major.minor.patch.`);
+  }
+
+  const major = Number.parseInt(parts[0]!, 10);
+  const minor = Number.parseInt(parts[1]!, 10);
+  const patch = Number.parseInt(parts[2]!, 10);
+
+  if (
+    Number.isNaN(major) ||
+    Number.isNaN(minor) ||
+    Number.isNaN(patch) ||
+    major < 0 ||
+    minor < 0 ||
+    patch < 0
+  ) {
+    throw new Error(`Invalid semver '${version}'. Expected numeric major.minor.patch.`);
+  }
+
+  return `${major}.${minor + 1}.0`;
+}
+
+function bumpAgentPackageVersions(repoRoot: string): string {
+  const cliPackagePath = join(repoRoot, "packages", "cli", "package.json");
+  const localAgentPackagePath = join(repoRoot, "packages", "local-agent", "package.json");
+
+  const cliPackage = readJsonFile<PackageJson>(cliPackagePath);
+  if (typeof cliPackage.version !== "string") {
+    throw new Error("packages/cli/package.json is missing a valid version field.");
+  }
+
+  const newVersion = bumpMinorVersion(cliPackage.version);
+  const localAgentPackage = readJsonFile<PackageJson>(localAgentPackagePath);
+
+  cliPackage.version = newVersion;
+  localAgentPackage.version = newVersion;
+
+  writeJsonFile(cliPackagePath, cliPackage);
+  writeJsonFile(localAgentPackagePath, localAgentPackage);
+
+  return newVersion;
+}
+
+async function registerAgentVersion(
+  creds: Credentials,
+  anonKey: string,
+  env: "production" | "staging",
+  version: string,
+  commitSha: string
+): Promise<void> {
+  const supabase = createClient(creds.supabaseUrl, anonKey);
+  const { error: sessionError } = await supabase.auth.setSession({
+    access_token: creds.accessToken,
+    refresh_token: creds.refreshToken,
+  });
+  if (sessionError) {
+    throw new Error(`Authentication failed: ${sessionError.message}`);
+  }
+
+  const { error } = await supabase.from("agent_versions").insert({
+    env,
+    version,
+    commit_sha: commitSha,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
 }
 
 export async function promote(args: string[]): Promise<void> {
@@ -174,7 +260,7 @@ export async function promote(args: string[]): Promise<void> {
   const repoRoot = worktreePath;
 
   try {
-    await runPromote(repoRoot, defaultBranch);
+    await runPromote(repoRoot, defaultBranch, creds, anonKey);
   } finally {
     // Cleanup worktree
     console.log("\nCleaning up temporary worktree...");
@@ -184,7 +270,12 @@ export async function promote(args: string[]): Promise<void> {
   }
 }
 
-async function runPromote(repoRoot: string, defaultBranch: string): Promise<void> {
+async function runPromote(
+  repoRoot: string,
+  defaultBranch: string,
+  creds: Credentials,
+  anonKey: string
+): Promise<void> {
   // 1. Safety checks — verify worktree is on the default branch
   try {
     const branch = execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
@@ -233,7 +324,19 @@ async function runPromote(repoRoot: string, defaultBranch: string): Promise<void
     return;
   }
 
-  // 3. Bundle CLI
+  // 3. Bump package versions before bundle so bundled artifacts embed the new version
+  console.log("\nBumping package versions...");
+  let newVersion: string;
+  try {
+    newVersion = bumpAgentPackageVersions(repoRoot);
+    console.log(`Bumped packages/cli and packages/local-agent to ${newVersion}.`);
+  } catch (err) {
+    console.error(`Version bump failed: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // 4. Bundle CLI + local-agent with the bumped package version
   console.log("\nBundling CLI...");
   try {
     execSync("node scripts/bundle.js", { cwd: join(repoRoot, "packages", "cli"), stdio: "inherit" });
@@ -243,25 +346,42 @@ async function runPromote(repoRoot: string, defaultBranch: string): Promise<void
     return;
   }
 
-  // 4. Commit bundles to master if changed, push
-  console.log("\nCommitting bundles...");
+  // 5. Commit bundles + version bump to default branch and push
+  let commitSha: string;
+  console.log("\nCommitting bundles and version bump...");
   try {
-    execSync("git add packages/cli/releases/zazig.mjs packages/local-agent/releases/zazig-agent.mjs packages/local-agent/releases/agent-mcp-server.mjs", { cwd: repoRoot, stdio: "pipe" });
+    execSync(
+      "git add " +
+        [
+          "packages/cli/releases/zazig.mjs",
+          "packages/local-agent/releases/zazig-agent.mjs",
+          "packages/local-agent/releases/agent-mcp-server.mjs",
+          "packages/cli/package.json",
+          "packages/local-agent/package.json",
+        ].join(" "),
+      { cwd: repoRoot, stdio: "pipe" }
+    );
     const diff = execSync("git diff --cached --name-only", { encoding: "utf-8", cwd: repoRoot }).trim();
     if (diff) {
-      execSync('git commit -m "chore: update production bundles"', { cwd: repoRoot, stdio: "pipe" });
+      execSync(
+        `git commit -m "chore: update production bundles and bump version to ${newVersion}"`,
+        { cwd: repoRoot, stdio: "pipe" }
+      );
+      commitSha = execSync("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
       execSync(`git push origin ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
-      console.log("Bundles committed and pushed.");
+      console.log(`Bundles and version bump committed and pushed (${commitSha.slice(0, 7)}).`);
     } else {
-      console.log("Bundles unchanged, skipping commit.");
+      console.error("No staged changes detected after bundle/version bump; promote cannot continue.");
+      process.exitCode = 1;
+      return;
     }
   } catch (err) {
-    console.error(`Bundle commit/push failed: ${String(err)}`);
+    console.error(`Bundle/version commit or push failed: ${String(err)}`);
     process.exitCode = 1;
     return;
   }
 
-  // 5. Fast-forward production branch (triggers production CI)
+  // 6. Fast-forward production branch (triggers production CI)
   console.log("\nUpdating production branch...");
   try {
     // Ensure production branch exists locally
@@ -298,12 +418,23 @@ async function runPromote(repoRoot: string, defaultBranch: string): Promise<void
     return;
   }
 
-  // 6. Pin local agent build
+  // 7. Register promoted version in agent_versions
+  console.log("\nRegistering production version...");
+  try {
+    await registerAgentVersion(creds, anonKey, "production", newVersion, commitSha);
+    console.log(`Registered production agent version ${newVersion} (${commitSha.slice(0, 7)}).`);
+  } catch (err) {
+    console.error(`Version registration failed: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // 8. Pin local agent build
   console.log("\nPinning local agent build...");
   pinCurrentBuild(repoRoot);
 
-  const sha = execSync("git rev-parse --short HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-  console.log(`\nPromoted to production (${sha}).`);
+  const sha = commitSha.slice(0, 7);
+  console.log(`\nPromoted to production ${newVersion} (${sha}).`);
   console.log("CI will deploy Supabase migrations and edge functions.");
   console.log("Restart your production agent to use the new build: zazig stop && zazig start");
 }

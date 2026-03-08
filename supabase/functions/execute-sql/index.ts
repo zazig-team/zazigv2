@@ -2,8 +2,8 @@
  * zazigv2 — execute-sql Edge Function
  *
  * Executes scoped SQL statements against the pipeline database.
- * Restricted to jobs, features, agent_events, machines tables.
- * Used by the pipeline-technician contractor for prescribed operations.
+ * Restricted to jobs, features, agent_events, machines, capabilities, capability_lanes tables.
+ * Used by pipeline-technician for operations and CPO for roadmap management.
  *
  * Runtime: Deno / Supabase Edge Functions
  */
@@ -43,7 +43,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 // Safety checks
 // ---------------------------------------------------------------------------
 
-const TABLE_ALLOWLIST = ["jobs", "features", "agent_events", "machines"];
+const TABLE_ALLOWLIST = ["jobs", "features", "agent_events", "machines", "capabilities", "capability_lanes"];
 const SYNTAX_BLOCKLIST = /\b(DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|DO|COPY|CALL)\b/i;
 
 /** Matches an unquoted identifier (\w+) or a double-quoted identifier ("...") */

@@ -216,7 +216,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
     const roleName = toTrimmedString(body.role_name);
     const brief = toTrimmedString(body.brief);
-    const machineName = toTrimmedString(body.machine_id);
+    const machineName = toTrimmedString(body.machine_name);
     const projectId = toTrimmedString(body.project_id);
 
     if (!roleName) {
@@ -226,7 +226,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: "brief is required" }, 400);
     }
     if (!machineName) {
-      return jsonResponse({ error: "machine_id is required" }, 400);
+      return jsonResponse({ error: "machine_name is required" }, 400);
     }
 
     const { data: roleData, error: roleErr } = await supabase

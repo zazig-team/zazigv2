@@ -553,6 +553,7 @@ export interface FeatureDetailJob {
   status: string;
   role: string;
   model: string | null;
+  result: string | null;
 }
 
 export interface FeatureDetail {
@@ -561,6 +562,7 @@ export interface FeatureDetail {
   status: string;
   priority: string | null;
   description: string | null;
+  error: string | null;
   spec: string | null;
   acceptance_tests: string | null;
   branch: string | null;
@@ -600,7 +602,7 @@ export interface IdeaDetail {
 export async function fetchFeatureDetail(featureId: string): Promise<FeatureDetail> {
   const { data: feature, error: featureError } = await supabase
     .from("features")
-    .select("id, title, status, priority, description, spec, acceptance_tests, branch, pr_url, created_by, verification_type, created_at, updated_at, completed_at, source_idea_id")
+    .select("id, title, status, priority, description, error, spec, acceptance_tests, branch, pr_url, created_by, verification_type, created_at, updated_at, completed_at, source_idea_id")
     .eq("id", featureId)
     .single();
 
@@ -608,7 +610,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
 
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("id, title, status, role, model")
+    .select("id, title, status, role, model, result")
     .eq("feature_id", featureId);
 
   let sourceIdea: FeatureDetail["sourceIdea"] = null;
@@ -633,6 +635,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
     status: f.status as string,
     priority: (f.priority as string | null) ?? null,
     description: (f.description as string | null) ?? null,
+    error: (f.error as string | null) ?? null,
     spec: (f.spec as string | null) ?? null,
     acceptance_tests: (f.acceptance_tests as string | null) ?? null,
     branch: (f.branch as string | null) ?? null,
@@ -648,6 +651,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
       status: j.status,
       role: j.role,
       model: j.model ?? null,
+      result: j.result ?? null,
     })),
     sourceIdea,
   };
@@ -998,6 +1002,18 @@ export async function commissionProjectArchitect(params: {
     project_id: params.projectId,
     role: "project-architect",
     context: params.context,
+  });
+}
+
+export async function requestFeatureFix(params: {
+  companyId: string;
+  featureId: string;
+  reason: string;
+}): Promise<{ job_id: string; feature_id: string }> {
+  return invokePost<{ job_id: string; feature_id: string }>("request-feature-fix", {
+    company_id: params.companyId,
+    feature_id: params.featureId,
+    reason: params.reason,
   });
 }
 

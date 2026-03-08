@@ -114,6 +114,17 @@
 - Features have unused columns: `error` (failure reason), `human_checklist`
 - Jobs have unused columns: `rejection_feedback`, `blocked_reason`, `verify_context`
 
+## WebUI Pipeline Actions (2026-03-08)
+- Ideas detail panel: "Promote to Feature" button for triaged/workshop ideas. Readiness checks: title, description, project. Calls `promote-idea` edge function.
+- Roadmap detail panel: "Plan & Build" button for active/draft capabilities. Gated on deps satisfied. Calls `request-work` with role=project-architect. PA runs featurify skill to decompose into features.
+- Both reuse `promote-section` CSS classes (promote-readiness, promote-check, promote-btn, promote-success, promote-error).
+- `fetchProjects()` and `commissionProjectArchitect()` in queries.ts.
+- Capabilities map to the zazigv2 project (not separate projects per capability).
+- PA job picked up in seconds when daemon is running — pipeline is fast.
+- Pipeline detail panel: "Diagnose & Retry" section for failed features. Shows feature `error` + failed job `result` fields. Retry calls `request-feature-fix` with diagnosis as reason. Edge function now accepts `failed` status (added alongside building/combining/verifying/pr_ready).
+- `requestFeatureFix()` in queries.ts. `FeatureDetailJob` now includes `result`, `FeatureDetail` includes `error`.
+- **Critical**: `request-feature-fix` must cancel old failed jobs (step 3b) AND clear feature `error` column. Without this, orchestrator catch-up (Task 0) sees old failed jobs on the now-`building` feature and immediately re-fails it. Pipeline snapshot is cached server-side — needs `refresh_pipeline_snapshot` RPC call or orchestrator cycle to update.
+
 ## Active Design Docs
 - Model & Subscription Flexibility: `docs/plans/active/2026-03-06-model-flexibility-design.md` — decouples roles from hardcoded models, introduces `machine_backends` table, Backend interface, runtime probing, model preference chains
 - Dynamic Roadmap: `docs/plans/active/2026-03-07-dynamic-roadmap-design.md` — DB-driven tech tree, Phase 1 shipped (read-only), Phases 2-4 (CPO management, automated audit, generative roadmap) captured as idea

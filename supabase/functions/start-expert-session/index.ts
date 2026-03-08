@@ -249,7 +249,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .from("machines")
       .select("id, name")
       .eq("company_id", companyId)
-      .eq("id", machineId)
+      .eq("name", machineId)
       .maybeSingle();
 
     if (machineErr) {

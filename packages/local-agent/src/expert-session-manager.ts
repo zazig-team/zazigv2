@@ -213,11 +213,14 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
 2. Work through the brief methodically
 3. Show diffs before merging any changes
 4. When done, merge your work to master
-5. Write a 2-3 sentence summary to \`.claude/expert-report.md\`
-`);
 
-      // Include brief reference
-      claudeMdParts.push(`## Brief\n\nSee \`.claude/expert-brief.md\` for the full task brief.`);
+### Ending the Session
+When the user says "wrap up", "I'm done", "finish up", or similar:
+1. Write a 2-3 sentence summary of what was accomplished to \`.claude/expert-report.md\`
+2. Tell the user: "Report written. You can type /exit to close this session."
+
+**Always write the report before the session ends.** The report is read by the CPO after the session closes.
+`);
 
       const claudeMdContent = claudeMdParts.join("\n\n");
 
@@ -262,7 +265,13 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
         ...(msg.role.settings_overrides?.hooks as Record<string, unknown> ?? {}),
         SessionStart: [
           ...(((msg.role.settings_overrides?.hooks as Record<string, unknown> | undefined)?.SessionStart as unknown[]) ?? []),
-          { matcher: "", hooks: [{ type: "command", command: `cat ${shellEscape([join(claudeDir, "expert-brief.md")])}` }] },
+          {
+            matcher: "",
+            hooks: [{
+              type: "command",
+              command: `cat ${shellEscape([join(claudeDir, "expert-brief.md")])} && echo "" && echo "---" && echo "When you're finished, say 'wrap up' — the expert will write a summary report. Then type /exit to close."`,
+            }],
+          },
         ],
       };
 

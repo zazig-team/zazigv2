@@ -29,6 +29,8 @@
 - Credential scrubbing must be built in from day one
 - Very visual — prefers interactive visualizations (tech trees, diagrams) over text-based status reports
 - Prefers relational tables over JSONB columns for queryable data (chose `machine_backends` table over JSONB on machines)
+- Detail panel text should be compact — body text at 11.5px not 12px. Don't let large paragraphs dominate the panel. Structured bullets > prose.
+- Wants to see "what was built" — Shipped section on Ideas page, feature status badges on promoted ideas. The trail from idea → feature → completion matters.
 
 ## Codebase Gotchas
 - Spelling: "canons" not "cannons", "Zazig" not "ZeZig/Zezig", "pillar" not "lens", "Supabase" not "SuperBase/super base"
@@ -48,6 +50,11 @@
 - `assembled_context` column doesn't exist on jobs table yet — the executor's DB write fails silently (non-blocking)
 
 ## Patterns That Work
+- Capability detail panel content: don't repeat the panel title as a `## Heading` in the markdown body (redundant). Don't end with a large status summary paragraph — the tooltip + badges handle that. Just structured bullet points.
+- Populating DB content at scale: write a Python script with `urllib.request` to PATCH via Supabase REST API. Faster than individual curl commands. Use `Prefer: return=minimal` header.
+- Parallel subagent research: dispatch 4 Explore agents covering 7-8 items each, then batch-write results. Research agents find design docs, migrations, and code; main agent synthesizes into concise summaries.
+- Ideas page: separate fetch for promoted ideas (`fetchIdeas(companyId, ['promoted'])`) ensures shipped section always populated regardless of main query limit.
+- Idea interface TypeScript fields must match what `query-ideas` returns (`SELECT *`). If the DB has columns the TS interface lacks, extend the interface — don't assume missing fields don't exist.
 - Running migrations: Use Supabase Management API (`POST https://api.supabase.com/v1/projects/jmussmwglgbwncgygzbz/database/query`) with `SUPABASE_ACCESS_TOKEN` from Doppler. `supabase db push` doesn't work due to migration history mismatch with numbered naming convention.
 - Documentation reconciliation as an explicit planning activity — iterating across existing docs to build clarity before structuring into features
 - Contractor Pattern: skill (reasoning/decomposition brain) + role-scoped MCP (typed DB writes hands) — replicable across contractor roles
@@ -86,6 +93,10 @@
 - As of 2026-03-06: all 84 features are terminal (45 failed, 33 complete, 6 cancelled). Zero in proposal/building/verifying on both prod and staging.
 - Staging ref: `ciksoitqfwkgnxxtkscq`, Doppler config: `stg`. Management API returns "Forbidden resource" — use REST API with service role key instead.
 
+## Playwright MCP Gotchas
+- Chrome singleton lock: if Chrome is already open, Playwright MCP fails with "Opening in existing browser session" + exit. User must close Chrome first, or remove the SingletonLock file at `~/Library/Caches/ms-playwright/mcp-chrome-*/SingletonLock`.
+- Staging Vercel previews may not have auth cookies — navigate to prod (`zazig.com`) for authenticated page testing.
+
 ## WebUI Codebase Gotchas
 - CSS Grid overflow: always use `minmax(0, 1fr)` not bare `1fr` — bare `1fr` defaults to `minmax(min-content, 1fr)` and prevents columns from shrinking below content width
 - `.main` needs `overflow: hidden` + `min-width: 0` to clip content within grid cell
@@ -93,7 +104,9 @@
 - Pipeline statuses in DB: `created`, `ready_for_breakdown`, `breakdown`, `building`, `combining`, `verifying`, `pr_ready`, `complete`, `cancelled`, `failed`
 - `refresh_pipeline_snapshot` RPC: `features_by_status` excludes `complete` and `cancelled` — complete goes to `completed_features` (maps to Shipped in UI), cancelled is omitted entirely. The `complete` pipeline column will always be empty by design.
 - Pipeline color scheme (dark mode): ideas=amber, briefs=blue, bugs=red, tests=purple, triage=sage green. Defined in `tokens.css`, no longer overridden in `global.css`.
-- Idea statuses in DB: `new`, `triaged`, `parked`, `promoted`, `rejected`, `done`
+- Idea statuses in DB: `new`, `triaged`, `workshop`, `parked`, `promoted`, `rejected`, `done`
+- Ideas page sections: Workshop (status=workshop), Triaged (status=triaged), Inbox (status=new), Parked (status=parked, split by horizon), Shipped (status=promoted, fetched separately with linked feature statuses)
+- Idea `Idea` TS interface includes `promoted_to_type`, `promoted_to_id`, `promoted_at` — must keep in sync with DB columns
 - Idea-to-feature linking: lives on the **ideas** table — `promoted_to_type` ("feature"|"job"|"research"), `promoted_to_id` (UUID), `promoted_at` (timestamp). No FK on features table. Reverse lookup: `SELECT FROM ideas WHERE promoted_to_type='feature' AND promoted_to_id=<featureId>`
 - Features have `pr_url` column (migration 072) — use this as primary PR link, fall back to job `pr_url`
 - Features have `spec` and `acceptance_tests` text columns (migration 008) — check `spec` to determine "Specced" vs "Needs spec" badge
@@ -103,7 +116,15 @@
 
 ## Active Design Docs
 - Model & Subscription Flexibility: `docs/plans/active/2026-03-06-model-flexibility-design.md` — decouples roles from hardcoded models, introduces `machine_backends` table, Backend interface, runtime probing, model preference chains
-- Tech tree visualization: `packages/webui/public/tech-tree.html` — static Civ-style tech tree showing all mega-projects, dependencies, swim lanes. Needs manual update when projects change.
+- Dynamic Roadmap: `docs/plans/active/2026-03-07-dynamic-roadmap-design.md` — DB-driven tech tree, Phase 1 shipped (read-only), Phases 2-4 (CPO management, automated audit, generative roadmap) captured as idea
+- Tech tree visualization: `packages/webui/public/tech-tree.html` — static Civ-style tech tree showing all mega-projects, dependencies, swim lanes. Superseded by DB-driven Roadmap page.
+
+## Capabilities Table (2026-03-08)
+- 32 capabilities in `capabilities` table, all with `details` markdown populated
+- All `details` fields: structured bullet points only (no redundant headings, no trailing summary paragraphs)
+- `details` updated via Supabase REST API PATCH (`/rest/v1/capabilities?id=eq.{id}`)
+- Roadmap detail panel renders details via custom `renderMarkdown()` function (HTML string, not React components)
+- Roadmap detail panel also shows: lane, progress bar, deps summary, tooltip as description, status notes for locked/draft
 
 ## Doc Reorganization (2026-03-07)
 - Shipped: idea-to-job-pipeline-design, terminal-first-cpo (design + plan + cards), dashboard-intake-pipeline-spec, detail-panels-reimplementation

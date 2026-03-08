@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCompany } from "../hooks/useCompany";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
 import { fetchIdeas, type Idea } from "../lib/queries";
+import { supabase } from "../lib/supabase";
 import IdeaDetailPanel from "../components/IdeaDetailPanel";
 
 type TypeFilter = "all" | "idea" | "brief" | "bug" | "test";
@@ -29,16 +30,23 @@ function ageLabel(createdAt: string): string {
   return `${days}d`;
 }
 
-function priorityDotClass(priority: string | null): string {
+function priorityLabel(priority: string | null): string {
   const p = (priority ?? "medium").toLowerCase();
-  if (p === "urgent") return "ideas-priority urgent";
-  if (p === "high") return "ideas-priority high";
-  if (p === "low") return "ideas-priority low";
-  return "ideas-priority medium";
+  if (p === "urgent") return "urgent";
+  if (p === "high") return "high";
+  if (p === "low") return "low";
+  return "med";
+}
+
+function priorityClass(priority: string | null): string {
+  const p = (priority ?? "medium").toLowerCase();
+  if (p === "urgent") return "ideas-priority-badge urgent";
+  if (p === "high") return "ideas-priority-badge high";
+  if (p === "low") return "ideas-priority-badge low";
+  return "ideas-priority-badge medium";
 }
 
 function sourceLabel(idea: Idea): string {
-  // Use originator or infer source from data
   if (idea.originator) {
     const lower = idea.originator.toLowerCase();
     if (lower.includes("slack")) return "slack";
@@ -47,6 +55,15 @@ function sourceLabel(idea: Idea): string {
     if (lower.includes("web")) return "web";
   }
   return "terminal";
+}
+
+function featureStatusBadgeClass(status: string): string {
+  const s = status.toLowerCase();
+  if (s === "complete" || s === "shipped") return "detail-badge detail-badge--positive";
+  if (s === "failed" || s === "cancelled") return "detail-badge detail-badge--negative";
+  if (s === "building" || s === "breaking_down" || s === "verifying") return "detail-badge detail-badge--active";
+  if (s === "proposal" || s === "ready") return "detail-badge detail-badge--caution";
+  return "detail-badge";
 }
 
 interface IdeaNodeProps {
@@ -71,7 +88,7 @@ function IdeaNode({ idea, variant, onClick, selected }: IdeaNodeProps): JSX.Elem
         <div className="ideas-node-title">{idea.title ?? idea.raw_text}</div>
         <div className="ideas-node-meta">
           <span className="ideas-node-type" style={{ color: `var(${colorVar})` }}>{type}</span>
-          <span className={priorityDotClass(idea.priority)} />
+          <span className={priorityClass(idea.priority)}>{priorityLabel(idea.priority)}</span>
           <span className="ideas-node-source">{sourceLabel(idea)}</span>
           <span className="ideas-node-age">{ageLabel(idea.created_at)}</span>
         </div>
@@ -83,21 +100,87 @@ function IdeaNode({ idea, variant, onClick, selected }: IdeaNodeProps): JSX.Elem
   );
 }
 
+interface ShippedIdeaNodeProps {
+  idea: Idea;
+  featureInfo: { title: string; status: string } | null;
+  onClick: () => void;
+  selected: boolean;
+}
+
+function ShippedIdeaNode({ idea, featureInfo, onClick, selected }: ShippedIdeaNodeProps): JSX.Element {
+  const type = idea.item_type ?? "idea";
+  const colorVar = TYPE_COLOR_VAR[type] ?? "--col-ideas";
+
+  return (
+    <div
+      className={`ideas-node ideas-node--shipped${selected ? " ideas-node--selected" : ""}`}
+      onClick={onClick}
+    >
+      <div className="ideas-node-accent" style={{ background: `var(${colorVar})` }} />
+      <div className="ideas-node-icon">{TYPE_ICON[type] ?? "\u{1F4A1}"}</div>
+      <div className="ideas-node-body">
+        <div className="ideas-node-title">{idea.title ?? idea.raw_text}</div>
+        <div className="ideas-node-meta">
+          <span className="ideas-node-type" style={{ color: `var(${colorVar})` }}>{type}</span>
+          {featureInfo ? (
+            <span className={featureStatusBadgeClass(featureInfo.status)}>
+              {featureInfo.status.replace(/_/g, " ")}
+            </span>
+          ) : (
+            <span className="ideas-node-source">{idea.promoted_to_type ?? "promoted"}</span>
+          )}
+          {idea.promoted_at && (
+            <span className="ideas-node-age">{ageLabel(idea.promoted_at)}</span>
+          )}
+        </div>
+        {featureInfo && (
+          <div className="ideas-node-desc">{featureInfo.title}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Ideas(): JSX.Element {
   const { activeCompanyId } = useCompany();
   const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [promotedIdeas, setPromotedIdeas] = useState<Idea[]>([]);
+  const [featureStatuses, setFeatureStatuses] = useState<Map<string, { title: string; status: string }>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [parkedCollapsed, setParkedCollapsed] = useState(false);
+  const [shippedCollapsed, setShippedCollapsed] = useState(false);
 
   const loadIdeas = useCallback(async () => {
     if (!activeCompanyId) return;
     try {
-      const data = await fetchIdeas(activeCompanyId);
-      setIdeas(data);
+      const [activeData, promotedData] = await Promise.all([
+        fetchIdeas(activeCompanyId),
+        fetchIdeas(activeCompanyId, ["promoted"]),
+      ]);
+      setIdeas(activeData);
+      setPromotedIdeas(promotedData);
       setError(null);
+
+      // Fetch linked feature statuses for promoted ideas
+      const featureIds = promotedData
+        .filter((i) => i.promoted_to_type === "feature" && i.promoted_to_id)
+        .map((i) => i.promoted_to_id as string);
+
+      if (featureIds.length > 0) {
+        const { data } = await supabase
+          .from("features")
+          .select("id, title, status")
+          .in("id", featureIds);
+
+        const map = new Map<string, { title: string; status: string }>();
+        for (const f of (data ?? []) as Array<{ id: string; title: string; status: string }>) {
+          map.set(f.id, { title: f.title, status: f.status });
+        }
+        setFeatureStatuses(map);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -111,17 +194,37 @@ export default function Ideas(): JSX.Element {
 
   // Realtime updates
   const handleInsert = useCallback((row: Record<string, unknown>) => {
-    setIdeas((prev) => [row as unknown as Idea, ...prev]);
+    const idea = row as unknown as Idea;
+    if (idea.status === "promoted") {
+      setPromotedIdeas((prev) => [idea, ...prev]);
+    } else {
+      setIdeas((prev) => [idea, ...prev]);
+    }
   }, []);
 
   const handleUpdate = useCallback((row: Record<string, unknown>) => {
     const updated = row as unknown as Idea;
-    setIdeas((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+    if (updated.status === "promoted") {
+      setIdeas((prev) => prev.filter((i) => i.id !== updated.id));
+      setPromotedIdeas((prev) => {
+        const exists = prev.some((i) => i.id === updated.id);
+        return exists ? prev.map((i) => (i.id === updated.id ? updated : i)) : [updated, ...prev];
+      });
+    } else {
+      setPromotedIdeas((prev) => prev.filter((i) => i.id !== updated.id));
+      setIdeas((prev) => {
+        const exists = prev.some((i) => i.id === updated.id);
+        return exists ? prev.map((i) => (i.id === updated.id ? updated : i)) : [updated, ...prev];
+      });
+    }
   }, []);
 
   const handleDelete = useCallback((row: Record<string, unknown>) => {
     const id = (row as { id?: string }).id;
-    if (id) setIdeas((prev) => prev.filter((i) => i.id !== id));
+    if (id) {
+      setIdeas((prev) => prev.filter((i) => i.id !== id));
+      setPromotedIdeas((prev) => prev.filter((i) => i.id !== id));
+    }
   }, []);
 
   useRealtimeTable({
@@ -138,6 +241,11 @@ export default function Ideas(): JSX.Element {
     if (typeFilter === "all") return ideas;
     return ideas.filter((i) => i.item_type === typeFilter);
   }, [ideas, typeFilter]);
+
+  const filteredPromoted = useMemo(() => {
+    if (typeFilter === "all") return promotedIdeas;
+    return promotedIdeas.filter((i) => i.item_type === typeFilter);
+  }, [promotedIdeas, typeFilter]);
 
   // Group by section
   const workshop = useMemo(() => filtered.filter((i) => i.status === "workshop"), [filtered]);
@@ -158,22 +266,24 @@ export default function Ideas(): JSX.Element {
     const t = ideas.filter((i) => i.status === "triaged").length;
     const n = ideas.filter((i) => i.status === "new").length;
     const p = ideas.filter((i) => i.status === "parked").length;
-    return { workshop: w, triaged: t, new: n, parked: p, total: ideas.length };
-  }, [ideas]);
+    const s = promotedIdeas.length;
+    return { workshop: w, triaged: t, new: n, parked: p, shipped: s, total: ideas.length + s };
+  }, [ideas, promotedIdeas]);
 
   // Type counts for filter tabs
   const typeCounts = useMemo(() => {
-    const c = { all: ideas.length, idea: 0, brief: 0, bug: 0, test: 0 };
-    for (const i of ideas) {
+    const allIdeas = [...ideas, ...promotedIdeas];
+    const c = { all: allIdeas.length, idea: 0, brief: 0, bug: 0, test: 0 };
+    for (const i of allIdeas) {
       if (i.item_type in c) c[i.item_type as keyof typeof c]++;
     }
     return c;
-  }, [ideas]);
+  }, [ideas, promotedIdeas]);
 
-  const selectedIdea = useMemo(
-    () => (selectedId ? ideas.find((i) => i.id === selectedId) : null),
-    [ideas, selectedId],
-  );
+  const selectedIdea = useMemo(() => {
+    if (!selectedId) return null;
+    return ideas.find((i) => i.id === selectedId) ?? promotedIdeas.find((i) => i.id === selectedId) ?? null;
+  }, [ideas, promotedIdeas, selectedId]);
 
   if (loading) {
     return (
@@ -225,6 +335,11 @@ export default function Ideas(): JSX.Element {
         <div className={`ideas-flow-stage${counts.parked === 0 ? " dimmed" : ""}`}>
           <span className="ideas-flow-label">Parked</span>
           <span className="ideas-flow-count">{counts.parked}</span>
+        </div>
+        <span className="ideas-flow-arrow">{"\u25B8"}</span>
+        <div className={`ideas-flow-stage${counts.shipped === 0 ? " dimmed" : ""}`}>
+          <span className="ideas-flow-label">Shipped</span>
+          <span className="ideas-flow-count">{counts.shipped}</span>
         </div>
       </div>
 
@@ -361,8 +476,37 @@ export default function Ideas(): JSX.Element {
         </div>
       )}
 
+      {/* Shipped section — promoted ideas with linked feature status */}
+      {filteredPromoted.length > 0 && (
+        <div className="ideas-section">
+          <div
+            className="ideas-section-header"
+            onClick={() => setShippedCollapsed(!shippedCollapsed)}
+            style={{ cursor: "pointer" }}
+          >
+            <span className={`ideas-section-toggle${shippedCollapsed ? " collapsed" : ""}`}>{"\u25BE"}</span>
+            <span className="ideas-section-label">Shipped</span>
+            <span className="ideas-section-count">{filteredPromoted.length}</span>
+            <div className="ideas-section-line" />
+          </div>
+          {!shippedCollapsed && (
+            <div className="ideas-node-grid">
+              {filteredPromoted.map((idea) => (
+                <ShippedIdeaNode
+                  key={idea.id}
+                  idea={idea}
+                  featureInfo={idea.promoted_to_id ? featureStatuses.get(idea.promoted_to_id) ?? null : null}
+                  onClick={() => setSelectedId(idea.id)}
+                  selected={selectedId === idea.id}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Empty state */}
-      {filtered.length === 0 && (
+      {filtered.length === 0 && filteredPromoted.length === 0 && (
         <div className="ideas-empty">No ideas found.</div>
       )}
 

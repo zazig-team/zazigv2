@@ -6,6 +6,7 @@ import Dashboard from "./pages/Dashboard";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Pipeline from "./pages/Pipeline";
+import Ideas from "./pages/Ideas";
 import Roadmap from "./pages/Roadmap";
 import Team from "./pages/Team";
 import AuthCallback from "./pages/AuthCallback";
@@ -63,6 +64,7 @@ export default function App(): JSX.Element {
       <Route element={<ProtectedLayout />}>
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/pipeline" element={<Pipeline />} />
+        <Route path="/ideas" element={<Ideas />} />
         <Route path="/roadmap" element={<Roadmap />} />
         <Route path="/team" element={<Team />} />
       </Route>

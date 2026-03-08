@@ -117,7 +117,6 @@ interface StartExpertPayload {
   type: "start_expert";
   protocolVersion: number;
   session_id: string;
-  machine_id: string;
   model: string;
   brief: string;
   display_name?: string;
@@ -284,7 +283,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
       type: "start_expert",
       protocolVersion: 1,
       session_id: sessionId,
-      machine_id: machine.id,
       model: role.model,
       brief,
       display_name: role.display_name,

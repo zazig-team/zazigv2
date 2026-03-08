@@ -2703,6 +2703,28 @@ input {
   background: rgba(239, 68, 68, 0.08);
 }
 
+.diagnosis-running {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--stone);
+  background: rgba(239, 68, 68, 0.04);
+  border: 1px solid rgba(239, 68, 68, 0.1);
+  border-radius: var(--radius-sm);
+}
+
+.diagnosis-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--chalk);
+  border-top-color: var(--negative, #ef4444);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
 .diagnosis-box {
   background: rgba(239, 68, 68, 0.06);
   border: 1px solid rgba(239, 68, 68, 0.15);

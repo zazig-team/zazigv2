@@ -65,6 +65,7 @@ export interface BotContext {
   supabase: SupabaseClient;
   token: string;
   openaiKey: string;
+  anthropicKey: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +85,61 @@ async function sendMessage(token: string, chatId: number, text: string): Promise
     }
   } catch (err) {
     console.error("[telegram-bot] sendMessage threw:", err);
+  }
+}
+
+export async function sendMessageDraft(token: string, chatId: number, text: string): Promise<void> {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessageDraft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(`[telegram-bot] sendMessageDraft failed (${res.status}): ${err}`);
+    }
+  } catch (err) {
+    console.error("[telegram-bot] sendMessageDraft threw:", err);
+  }
+}
+
+export async function streamToTelegram(
+  token: string,
+  chatId: number,
+  chunks: AsyncIterable<string>,
+  throttleMs = 600,
+): Promise<void> {
+  const growthThreshold = 50;
+  const errorSuffix = "\n\n(Response interrupted due to an error.)";
+  let buffer = "";
+  let lastDraftAt = Date.now();
+  let lastDraftLength = 0;
+
+  try {
+    for await (const chunk of chunks) {
+      if (!chunk) continue;
+
+      buffer += chunk;
+      const now = Date.now();
+      const shouldSendByTime = now - lastDraftAt >= throttleMs;
+      const shouldSendByGrowth = buffer.length - lastDraftLength >= growthThreshold;
+
+      if (shouldSendByTime || shouldSendByGrowth) {
+        await sendMessageDraft(token, chatId, buffer);
+        lastDraftAt = now;
+        lastDraftLength = buffer.length;
+      }
+    }
+
+    if (!buffer) return;
+    await sendMessage(token, chatId, buffer);
+  } catch (err) {
+    console.error("[telegram-bot] streamToTelegram threw:", err);
+    const fallback = buffer
+      ? `${buffer}${errorSuffix}`
+      : "Response interrupted due to an error.";
+    await sendMessage(token, chatId, fallback);
   }
 }
 
@@ -265,6 +321,107 @@ function formatUtcTimestamp(iso: string): string {
   return date.toISOString().replace("T", " ").slice(0, 16) + " UTC";
 }
 
+function formatTextCaptureConfirmation(rawText: string): string {
+  const preview = rawText.length > 200 ? rawText.slice(0, 200) + "..." : rawText;
+  return `Got it. Captured as an idea.\n\n"${preview}"\n\nYour CPO will triage it soon.`;
+}
+
+function formatVoiceCaptureConfirmation(
+  transcript: string,
+  durationSeconds?: number,
+): string {
+  const durationNote = durationSeconds ? ` (${durationSeconds}s)` : "";
+  const preview = transcript.length > 200
+    ? transcript.slice(0, 200) + "..."
+    : transcript;
+  return `Got it. Captured your voice note${durationNote} as an idea.\n\n"${preview}"\n\nYour CPO will triage it soon.`;
+}
+
+// ---------------------------------------------------------------------------
+// Claude AI streaming response generation
+// ---------------------------------------------------------------------------
+
+const ANTHROPIC_SYSTEM_PROMPT =
+  "You are a helpful assistant that briefly acknowledges and insightfully comments on ideas captured via the Zazig pipeline. Be concise (2-4 sentences), encouraging, and actionable.";
+
+export async function generateStreamingIdeaResponse(
+  rawText: string,
+  anthropicKey: string,
+): Promise<AsyncIterable<string>> {
+  if (!anthropicKey) {
+    throw new Error("Anthropic API key is not configured");
+  }
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": anthropicKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 300,
+      stream: true,
+      system: ANTHROPIC_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: rawText }],
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    console.error(`[telegram-bot] Anthropic API error (${res.status}): ${errBody}`);
+    throw new Error(`Anthropic API returned ${res.status}`);
+  }
+
+  const body = res.body;
+  if (!body) {
+    throw new Error("Anthropic API returned no response body");
+  }
+
+  async function* parseSSEStream(stream: ReadableStream<Uint8Array>): AsyncIterable<string> {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // Keep the last potentially incomplete line in the buffer
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === "[DONE]") return;
+
+          try {
+            const event = JSON.parse(jsonStr);
+            if (event.type === "message_stop") return;
+            if (
+              event.type === "content_block_delta" &&
+              event.delta?.type === "text_delta" &&
+              event.delta.text
+            ) {
+              yield event.delta.text;
+            }
+          } catch {
+            // Skip malformed JSON lines
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  return parseSSEStream(body);
+}
+
 // ---------------------------------------------------------------------------
 // handleCommand — /start, /help, and unknown commands
 // ---------------------------------------------------------------------------
@@ -443,7 +600,7 @@ export async function handleVoice(
   }
   const originator = resolveOriginator(message, mapping);
 
-  await sendMessage(ctx.token, chatId, "Got it. Transcribing your voice note...");
+  await sendMessageDraft(ctx.token, chatId, "Got it. Transcribing your voice note...");
 
   // Download audio from Telegram
   const fileUrl = await getFileDownloadUrl(ctx.token, voice.file_id);
@@ -515,16 +672,22 @@ export async function handleVoice(
     return;
   }
 
-  const durationNote = voice.duration ? ` (${voice.duration}s)` : "";
-  const preview = transcript.length > 200
-    ? transcript.slice(0, 200) + "..."
-    : transcript;
+  const fallbackText = formatVoiceCaptureConfirmation(transcript, voice.duration);
 
-  await sendMessage(
-    ctx.token,
-    chatId,
-    `Got it. Captured your voice note${durationNote} as an idea.\n\n"${preview}"\n\nYour CPO will triage it soon.`,
-  );
+  if (!ctx.anthropicKey) {
+    await sendMessage(ctx.token, chatId, fallbackText);
+    return;
+  }
+
+  try {
+    const chunkIterator = await generateStreamingIdeaResponse(transcript, ctx.anthropicKey);
+    await streamToTelegram(ctx.token, chatId, chunkIterator);
+    return;
+  } catch (err) {
+    console.error("[telegram-bot] handleVoice: Claude streaming failed:", err);
+  }
+
+  await sendMessage(ctx.token, chatId, fallbackText);
 }
 
 // ---------------------------------------------------------------------------
@@ -584,10 +747,20 @@ export async function handleText(
     return;
   }
 
-  const preview = text.length > 200 ? text.slice(0, 200) + "..." : text;
-  await sendMessage(
-    ctx.token,
-    chatId,
-    `Got it. Captured as an idea:\n\n"${preview}"\n\nYour CPO will triage it soon.`,
-  );
+  const fallbackText = formatTextCaptureConfirmation(text);
+
+  if (!ctx.anthropicKey) {
+    await sendMessage(ctx.token, chatId, fallbackText);
+    return;
+  }
+
+  try {
+    const chunkIterator = await generateStreamingIdeaResponse(text, ctx.anthropicKey);
+    await streamToTelegram(ctx.token, chatId, chunkIterator);
+    return;
+  } catch (err) {
+    console.error("[telegram-bot] handleText: Claude streaming failed:", err);
+  }
+
+  await sendMessage(ctx.token, chatId, fallbackText);
 }

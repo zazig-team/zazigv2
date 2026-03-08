@@ -113,6 +113,12 @@ interface MachineRow {
   name: string;
 }
 
+interface ProjectLookupRow {
+  id: string;
+  name: string;
+  repo_url: string | null;
+}
+
 interface StartExpertPayload {
   type: "start_expert";
   protocolVersion: number;
@@ -123,11 +129,11 @@ interface StartExpertPayload {
   role: {
     prompt: string;
     skills?: string[];
-    mcp_tools?: unknown;
-    settings_overrides?: unknown;
+      mcp_tools?: unknown;
+      settings_overrides?: unknown;
   };
-  project_id: string | null;
-  repo_url?: string | null;
+  project_id: string;
+  repo_url: string;
 }
 
 async function broadcastStartExpert(
@@ -227,6 +233,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!machineName) {
       return jsonResponse({ error: "machine_name is required" }, 400);
     }
+    if (!projectId) {
+      return jsonResponse({ error: "project_id is required — experts need a repo to work in" }, 400);
+    }
 
     const { data: roleData, error: roleErr } = await supabase
       .from("expert_roles")
@@ -260,45 +269,45 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const machine = machineData as MachineRow;
-    let resolvedProjectId: string | null = null;
-    let repoUrl: string | null = null;
 
-    if (projectId) {
-      // Try UUID first, then name.
-      const uuidRegex =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-      let projectQuery;
-      if (uuidRegex.test(projectId)) {
-        projectQuery = supabase
-          .from("projects")
-          .select("id, name, repo_url")
-          .eq("id", projectId)
-          .eq("company_id", companyId)
-          .maybeSingle();
-      } else {
-        projectQuery = supabase
-          .from("projects")
-          .select("id, name, repo_url")
-          .eq("company_id", companyId)
-          .ilike("name", projectId)
-          .maybeSingle();
-      }
-
-      const { data: projectData, error: projectErr } = await projectQuery;
-
-      if (projectErr) {
-        console.warn(`Failed to look up project: ${projectErr.message}`);
-      }
-
-      if (projectData) {
-        resolvedProjectId = projectData.id;
-        repoUrl = projectData.repo_url ?? null;
-      } else {
-        // Project not found — preserve original input for backward compatibility.
-        resolvedProjectId = projectId;
-      }
+    let projectQuery;
+    if (uuidRegex.test(projectId)) {
+      projectQuery = supabase
+        .from("projects")
+        .select("id, name, repo_url")
+        .eq("id", projectId)
+        .eq("company_id", companyId)
+        .maybeSingle();
+    } else {
+      projectQuery = supabase
+        .from("projects")
+        .select("id, name, repo_url")
+        .eq("company_id", companyId)
+        .ilike("name", projectId)
+        .maybeSingle();
     }
+
+    const { data: projectData, error: projectErr } = await projectQuery;
+
+    if (projectErr) {
+      return jsonResponse({ error: `Failed to look up project: ${projectErr.message}` }, 500);
+    }
+
+    if (!projectData) {
+      return jsonResponse({ error: `Project not found: ${projectId}` }, 400);
+    }
+
+    const project = projectData as ProjectLookupRow;
+
+    if (!project.repo_url) {
+      return jsonResponse({ error: `Project ${project.name} has no repo_url configured` }, 400);
+    }
+
+    const resolvedProjectId = project.id;
+    const resolvedRepoUrl = project.repo_url;
 
     const { data: sessionData, error: sessionErr } = await supabase
       .from("expert_sessions")
@@ -333,7 +342,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         settings_overrides: role.settings_overrides,
       },
       project_id: resolvedProjectId,
-      repo_url: repoUrl,
+      repo_url: resolvedRepoUrl,
     };
 
     const broadcastResult = await broadcastStartExpert(

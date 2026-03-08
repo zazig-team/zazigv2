@@ -2,7 +2,7 @@
  * promote.ts — Push tested staging build to production.
  *
  * Flow: authenticate → pick company → pick project → resolve repo →
- * create temp worktree → build → bundle CLI + agent → commit → fast-forward
+ * create temp worktree → build → bump versions → bundle CLI + agent → commit → fast-forward
  * production → pin build → cleanup.
  *
  * Supabase migrations and edge functions are deployed by GitHub Actions
@@ -324,17 +324,7 @@ async function runPromote(
     return;
   }
 
-  // 3. Bundle CLI
-  console.log("\nBundling CLI...");
-  try {
-    execSync("node scripts/bundle.js", { cwd: join(repoRoot, "packages", "cli"), stdio: "inherit" });
-  } catch {
-    console.error("Bundle failed.");
-    process.exitCode = 1;
-    return;
-  }
-
-  // 4. Bump package versions after successful bundle
+  // 3. Bump package versions before bundle so bundled artifacts embed the new version
   console.log("\nBumping package versions...");
   let newVersion: string;
   try {
@@ -342,6 +332,16 @@ async function runPromote(
     console.log(`Bumped packages/cli and packages/local-agent to ${newVersion}.`);
   } catch (err) {
     console.error(`Version bump failed: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // 4. Bundle CLI + local-agent with the bumped package version
+  console.log("\nBundling CLI...");
+  try {
+    execSync("node scripts/bundle.js", { cwd: join(repoRoot, "packages", "cli"), stdio: "inherit" });
+  } catch {
+    console.error("Bundle failed.");
     process.exitCode = 1;
     return;
   }

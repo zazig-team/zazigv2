@@ -21,6 +21,7 @@ export interface PipelineFeature {
   status: PipelineStatus;
   priority: string;
   createdAt: string | null;
+  updatedAt: string | null;
   ageHours: number | null;
   jobsDone: number;
   jobsTotal: number;
@@ -180,6 +181,7 @@ function parseFeature(
 
   const createdAt =
     stringValue(raw.created_at) ?? stringValue(raw.createdAt) ?? stringValue(raw.since);
+  const updatedAt = stringValue(raw.updated_at) ?? stringValue(raw.updatedAt) ?? null;
 
   let jobsTotal =
     numericValue(raw.jobs_total) ??
@@ -235,6 +237,7 @@ function parseFeature(
     status,
     priority: stringValue(raw.priority) ?? "medium",
     createdAt,
+    updatedAt,
     ageHours: ageInHours(createdAt),
     jobsDone,
     jobsTotal,

@@ -97,9 +97,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: `Idea not found: ${idea_id}` }, 404);
     }
 
-    if (idea.status !== "triaged") {
+    const promotableStatuses = ["triaged", "workshop"];
+    if (!promotableStatuses.includes(idea.status)) {
       return jsonResponse(
-        { error: `Idea status is '${idea.status}' — must be 'triaged' to promote` },
+        { error: `Idea status is '${idea.status}' — must be 'triaged' or 'workshop' to promote` },
         400,
       );
     }

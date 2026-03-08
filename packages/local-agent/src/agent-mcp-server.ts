@@ -14,6 +14,8 @@
  */
 
 import { execFile } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -1122,7 +1124,7 @@ server.tool(
   {
     role_name: z.string().describe("The expert role identifier, e.g. \"test-deployment-expert\""),
     brief: z.string().describe("Structured handoff context for the expert: what needs to be done, relevant background, expected output"),
-    machine_id: z.string().describe("Which machine to spawn the expert on"),
+    machine_id: z.string().optional().describe("Optional machine name. If omitted, reads from ~/.zazigv2/config.json"),
     project_id: z.string().optional().describe("Optional project ID for repo access in the expert workspace"),
   },
   guardedHandler("start_expert_session", async ({ role_name, brief, machine_id, project_id }) => {
@@ -1141,6 +1143,28 @@ server.tool(
       };
     }
 
+    let resolvedMachineId = machine_id;
+    if (!resolvedMachineId) {
+      const configPath = path.join(process.env.HOME || "", ".zazigv2", "config.json");
+      try {
+        const config = JSON.parse(fs.readFileSync(configPath, "utf-8")) as { name?: string };
+        resolvedMachineId = config.name;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [{ type: "text" as const, text: `Error: failed to read ${configPath}: ${message}` }],
+          isError: true,
+        };
+      }
+    }
+
+    if (!resolvedMachineId) {
+      return {
+        content: [{ type: "text" as const, text: "Error: machine_id missing and ~/.zazigv2/config.json has no name" }],
+        isError: true,
+      };
+    }
+
     const response = await fetch(`${supabaseUrl}/functions/v1/start-expert-session`, {
       method: "POST",
       headers: {
@@ -1148,7 +1172,7 @@ server.tool(
         Authorization: `Bearer ${supabaseAnonKey}`,
         "x-company-id": companyId,
       },
-      body: JSON.stringify({ role_name, brief, machine_id, project_id }),
+      body: JSON.stringify({ role_name, brief, machine_id: resolvedMachineId, project_id }),
     });
     if (!response.ok) {
       const error = await response.text();

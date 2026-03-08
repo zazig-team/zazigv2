@@ -65,6 +65,7 @@ export interface BotContext {
   supabase: SupabaseClient;
   token: string;
   openaiKey: string;
+  anthropicKey: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,6 +319,91 @@ function formatUtcTimestamp(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   return date.toISOString().replace("T", " ").slice(0, 16) + " UTC";
+}
+
+// ---------------------------------------------------------------------------
+// Claude AI streaming response generation
+// ---------------------------------------------------------------------------
+
+const ANTHROPIC_SYSTEM_PROMPT =
+  "You are a helpful assistant that briefly acknowledges and insightfully comments on ideas captured via the Zazig pipeline. Be concise (2-4 sentences), encouraging, and actionable.";
+
+export async function generateStreamingIdeaResponse(
+  rawText: string,
+  anthropicKey: string,
+): Promise<AsyncIterable<string>> {
+  if (!anthropicKey) {
+    throw new Error("Anthropic API key is not configured");
+  }
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": anthropicKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 300,
+      stream: true,
+      system: ANTHROPIC_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: rawText }],
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    console.error(`[telegram-bot] Anthropic API error (${res.status}): ${errBody}`);
+    throw new Error(`Anthropic API returned ${res.status}`);
+  }
+
+  const body = res.body;
+  if (!body) {
+    throw new Error("Anthropic API returned no response body");
+  }
+
+  async function* parseSSEStream(stream: ReadableStream<Uint8Array>): AsyncIterable<string> {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // Keep the last potentially incomplete line in the buffer
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === "[DONE]") return;
+
+          try {
+            const event = JSON.parse(jsonStr);
+            if (event.type === "message_stop") return;
+            if (
+              event.type === "content_block_delta" &&
+              event.delta?.type === "text_delta" &&
+              event.delta.text
+            ) {
+              yield event.delta.text;
+            }
+          } catch {
+            // Skip malformed JSON lines
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  return parseSSEStream(body);
 }
 
 // ---------------------------------------------------------------------------

@@ -257,7 +257,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     if (!machineData) {
-      return jsonResponse({ error: `Unknown machine_id for company: ${machineId}` }, 400);
+      return jsonResponse({ error: `Unknown machine for company: ${machineId}` }, 400);
     }
 
     const machine = machineData as MachineRow;

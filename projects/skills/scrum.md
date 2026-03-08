@@ -36,6 +36,48 @@ through reviewing). Count from `capacity.active`.
 
 ---
 
+## Phase 1.5: Failed Feature Hygiene
+
+Before any scheduling decisions, clean up stale failed features.
+This prevents the failed list from growing unbounded and cluttering
+every future scrum session.
+
+**Step 1: Cross-reference failed vs completed.**
+For each failed feature, check whether a completed feature exists with
+a matching or very similar title/description. Common patterns:
+- Exact duplicate (same fix shipped as a separate feature)
+- Manual fix (human or agent fixed it outside the pipeline)
+- Superseded (a broader feature absorbed this one)
+
+**Step 2: Check CPO memory.**
+Consult MEMORY.md and napkin for features known to have been fixed
+manually, shipped via different commits, or rendered obsolete by
+architectural changes.
+
+**Step 3: Classify each failed feature:**
+
+| Disposition | Criteria | Action |
+|-------------|----------|--------|
+| **Already shipped** | Completed duplicate exists, or memory confirms fixed | `update_feature(status: 'complete')` — no human approval needed |
+| **Operational debris** | "Pipeline operations" or throwaway test features | `update_feature(status: 'complete')` — no human approval needed |
+| **Still relevant** | No duplicate, feature intent still needed | Keep in failed — passes to Phase 2 triage |
+| **Uncertain** | Can't determine from available data | Flag for human in Phase 3 |
+
+**Step 4: Execute auto-cleanups and report.**
+```
+### Failed Feature Hygiene
+Cleaned up {N} stale failures:
+- {feature title} — shipped via {other feature / manual fix}
+- {feature title} — operational debris
+
+Remaining {M} failed features passed to triage below.
+```
+
+Auto-cleanup is safe because it only marks features `complete` that
+are genuinely already done. When uncertain, always defer to human.
+
+---
+
 ## Phase 2: CPO Triage
 
 Sort every backlog and failed feature into exactly one bucket:

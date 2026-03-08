@@ -82,6 +82,9 @@ const NO_CODE_CONTEXT_ROLES = new Set([
 /** Delay after CPO session spawn before allowing message injection (Claude Code startup). */
 const CPO_STARTUP_DELAY_MS = 15_000;
 
+const DEFAULT_PERSISTENT_BOOT_PROMPT =
+  "Read your state files. If .claude/{role}-report.md exists, review it for continuity. Check for pending work via your MCP tools. Orient yourself and begin.";
+
 /** Maximum number of messages held in the injection queue.
  *  When exceeded, the oldest notification-type message is dropped.
  *  Human messages are never dropped. */
@@ -185,6 +188,13 @@ function normalizeCompanyProjects(raw: unknown): CompanyProjectContext[] {
     normalized.push({ name: name.trim(), repo_url: repoUrl ?? null });
   }
   return normalized;
+}
+
+function resolvePersistentBootPrompt(role: string, roleBootPrompt?: string | null): string {
+  if (roleBootPrompt && roleBootPrompt.trim().length > 0) {
+    return roleBootPrompt.trim().replaceAll("{role}", role);
+  }
+  return DEFAULT_PERSISTENT_BOOT_PROMPT.replaceAll("{role}", role);
 }
 
 
@@ -1110,6 +1120,8 @@ export class JobExecutor {
       ? join(homedir(), ".zazigv2", `${resolvedCompanyId}-${role}-workspace`)
       : join(homedir(), ".zazigv2", `${role}-workspace`);
 
+    let resolvedBootPrompt: string | null = null;
+
     // --- Create agent workspace with .mcp.json ---
     try {
       const repoRoot = resolveRepoRoot();
@@ -1166,14 +1178,15 @@ export class JobExecutor {
       // Fetch the raw role prompt to hash — msg.rolePrompt may not be set on
       // persistent agents (synthetic StartJob messages carry promptStackMinusSkills).
       let rolePromptForHash = msg.rolePrompt ?? "";
+      const { data: roleRow } = await this.supabase
+        .from("roles")
+        .select("prompt, boot_prompt")
+        .eq("name", role)
+        .single();
       if (!rolePromptForHash) {
-        const { data: roleRow } = await this.supabase
-          .from("roles")
-          .select("prompt")
-          .eq("name", role)
-          .single();
         rolePromptForHash = roleRow?.prompt ?? "";
       }
+      resolvedBootPrompt = resolvePersistentBootPrompt(role, roleRow?.boot_prompt);
       const promptHash = createHash("sha256").update(rolePromptForHash).digest("hex");
       writeFileSync(join(workspaceDir, ".role"), role);
       writeFileSync(join(workspaceDir, ".prompt-hash"), promptHash);
@@ -1248,6 +1261,7 @@ export class JobExecutor {
     }
 
     const spawnedAt = Date.now();
+    const bootPrompt = resolvedBootPrompt ?? resolvePersistentBootPrompt(role);
 
     // Register persistent agent in map keyed by role
     const persistentAgent: ActivePersistentAgent = {
@@ -1259,6 +1273,8 @@ export class JobExecutor {
       startedAt: spawnedAt,
     };
     this.persistentAgents.set(role, persistentAgent);
+
+    void this.enqueueMessage(bootPrompt, sessionName, spawnedAt, "notification");
 
     // Start heartbeat timer for persistent_agents table
     if (resolvedCompanyId && this.machineUuid) {

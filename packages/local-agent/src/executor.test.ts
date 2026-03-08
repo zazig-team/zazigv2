@@ -116,6 +116,10 @@ function makeMockSupabase() {
     data: [],
     error: null,
   };
+  let roleResult: { data: { prompt?: string | null; boot_prompt?: string | null } | null; error: { message: string } | null } = {
+    data: null,
+    error: null,
+  };
 
   const makeChainable = (table: string) => {
     const chain = {
@@ -132,6 +136,13 @@ function makeMockSupabase() {
       select: vi.fn((columns: string) => {
         if (table === "expert_roles" && columns === "name, display_name, description") {
           return Promise.resolve(expertRolesResult);
+        }
+        if (table === "roles" && columns === "prompt, boot_prompt") {
+          return {
+            eq: vi.fn(() => ({
+              single: vi.fn(() => Promise.resolve(roleResult)),
+            })),
+          };
         }
         return {
           eq: vi.fn(() => ({
@@ -167,6 +178,9 @@ function makeMockSupabase() {
     },
     setExpertRolesResult: (next: { data: unknown; error: { message: string } | null }) => {
       expertRolesResult = next;
+    },
+    setRoleResult: (next: { data: { prompt?: string | null; boot_prompt?: string | null } | null; error: { message: string } | null }) => {
+      roleResult = next;
     },
   };
 }
@@ -603,6 +617,60 @@ describe("JobExecutor — slot reconciliation", () => {
     );
 
     consoleErrorSpy.mockRestore();
+  });
+
+  it("injects default persistent boot prompt after startup delay", async () => {
+    await executor.handleStartJob(makeStartJob({
+      jobId: "persistent-cpo-boot-default",
+      role: "cpo",
+      cardType: "persistent_agent",
+    }));
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    const sendLiteralCalls = mockExecFileAsync.mock.calls.filter((call: unknown[]) =>
+      call[0] === "tmux"
+      && Array.isArray(call[1])
+      && (call[1] as string[])[0] === "send-keys"
+      && (call[1] as string[]).includes("-l")
+    );
+    expect(sendLiteralCalls.length).toBeGreaterThan(0);
+    const bootPromptCall = sendLiteralCalls.find((call: unknown[]) => {
+      const args = call[1] as string[];
+      return args.some((arg) => typeof arg === "string" && arg.includes("Read your state files."));
+    });
+    expect(bootPromptCall).toBeDefined();
+    expect((bootPromptCall![1] as string[]).join(" ")).toContain(".claude/cpo-report.md");
+  });
+
+  it("injects role-specific boot prompt from roles.boot_prompt", async () => {
+    supabase.setRoleResult({
+      data: {
+        prompt: "base prompt",
+        boot_prompt: "Custom boot for {role}: check queues now.",
+      },
+      error: null,
+    });
+
+    await executor.handleStartJob(makeStartJob({
+      jobId: "persistent-cpo-boot-custom",
+      role: "cpo",
+      cardType: "persistent_agent",
+    }));
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    const sendLiteralCalls = mockExecFileAsync.mock.calls.filter((call: unknown[]) =>
+      call[0] === "tmux"
+      && Array.isArray(call[1])
+      && (call[1] as string[])[0] === "send-keys"
+      && (call[1] as string[]).includes("-l")
+    );
+    const customPromptCall = sendLiteralCalls.find((call: unknown[]) => {
+      const args = call[1] as string[];
+      return args.some((arg) => typeof arg === "string" && arg.includes("Custom boot for cpo: check queues now."));
+    });
+    expect(customPromptCall).toBeDefined();
   });
 
   it("handles reconciliation query failures without releasing slots", async () => {

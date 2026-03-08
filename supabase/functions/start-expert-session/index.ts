@@ -216,7 +216,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
     const roleName = toTrimmedString(body.role_name);
     const brief = toTrimmedString(body.brief);
-    const machineId = toTrimmedString(body.machine_id);
+    const machineName = toTrimmedString(body.machine_id);
     const projectId = toTrimmedString(body.project_id);
 
     if (!roleName) {
@@ -225,7 +225,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!brief) {
       return jsonResponse({ error: "brief is required" }, 400);
     }
-    if (!machineId) {
+    if (!machineName) {
       return jsonResponse({ error: "machine_id is required" }, 400);
     }
 
@@ -249,7 +249,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .from("machines")
       .select("id, name")
       .eq("company_id", companyId)
-      .eq("name", machineId)
+      .eq("name", machineName)
       .maybeSingle();
 
     if (machineErr) {
@@ -257,7 +257,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     if (!machineData) {
-      return jsonResponse({ error: `Unknown machine_id for company: ${machineId}` }, 400);
+      return jsonResponse({ error: `Unknown machine name for company: ${machineName}` }, 400);
     }
 
     const machine = machineData as MachineRow;

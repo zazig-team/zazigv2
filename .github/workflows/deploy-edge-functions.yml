@@ -84,26 +84,17 @@ jobs:
         with:
           version: latest
 
-      - name: Deploy changed edge functions to STAGING
+      - name: Deploy all edge functions to STAGING
         run: |
-          BEFORE_SHA="${{ github.event.before }}"
-          ZERO_SHA="0000000000000000000000000000000000000000"
-
-          if [ "$BEFORE_SHA" = "$ZERO_SHA" ] || [ -z "$BEFORE_SHA" ]; then
-            echo "First push detected (github.event.before is zero hash). Deploying all edge functions."
-            changed_functions=$(find supabase/functions -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | grep -v '^_shared$' | sort)
-          else
-            DIFF_RANGE="$BEFORE_SHA..HEAD"
-            echo "Detecting changed edge functions from diff range: $DIFF_RANGE"
-            changed_functions=$(git diff --name-only "$DIFF_RANGE" | awk -F/ '/^supabase\/functions\/[^/]+\// {print $3}' | sort -u | grep -v '^_shared$' || true)
-          fi
+          echo "Deploying all edge functions to staging..."
+          changed_functions=$(find supabase/functions -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | grep -v '^_shared$' | sort)
 
           if [ -z "$changed_functions" ]; then
-            echo "No changed edge functions detected. Skipping deploy."
+            echo "No edge functions found. Skipping."
             exit 0
           fi
 
-          echo "Changed edge functions:"
+          echo "Edge functions to deploy:"
           echo "$changed_functions"
 
           while IFS= read -r fn; do

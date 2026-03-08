@@ -115,19 +115,18 @@ interface MachineRow {
 
 interface StartExpertPayload {
   type: "start_expert";
+  protocolVersion: number;
   session_id: string;
   machine_id: string;
-  role: {
-    id: string;
-    name: string;
-    display_name: string;
-    model: string;
-    prompt: string;
-    skills: string[];
-    mcp_tools: unknown;
-    settings_overrides: unknown;
-  };
+  model: string;
   brief: string;
+  display_name?: string;
+  role: {
+    prompt: string;
+    skills?: string[];
+    mcp_tools?: unknown;
+    settings_overrides?: unknown;
+  };
   project_id: string | null;
 }
 
@@ -283,19 +282,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const payload: StartExpertPayload = {
       type: "start_expert",
+      protocolVersion: 1,
       session_id: sessionId,
       machine_id: machine.id,
+      model: role.model,
+      brief,
+      display_name: role.display_name,
       role: {
-        id: role.id,
-        name: role.name,
-        display_name: role.display_name,
-        model: role.model,
         prompt: role.prompt,
-        skills: role.skills,
+        skills: role.skills ?? [],
         mcp_tools: role.mcp_tools,
         settings_overrides: role.settings_overrides,
       },
-      brief,
       project_id: projectId,
     };
 

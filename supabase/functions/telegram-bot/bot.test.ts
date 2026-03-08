@@ -7,6 +7,8 @@ import {
   handleCommand,
   handleText,
   handleVoice,
+  sendMessageDraft,
+  streamToTelegram,
   type BotContext,
   type TelegramMessage,
 } from "./bot.ts";
@@ -141,6 +143,12 @@ function extractMessageText(init: unknown): string {
   const maybeInit = init as { body?: BodyInit | null } | undefined;
   const body = JSON.parse(String(maybeInit?.body ?? "{}")) as { text?: string };
   return body.text ?? "";
+}
+
+async function* toAsyncChunks(chunks: string[]): AsyncIterable<string> {
+  for (const chunk of chunks) {
+    yield chunk;
+  }
 }
 
 Deno.test("handleCommand /help includes /status and /recent", async () => {
@@ -389,4 +397,93 @@ Deno.test("handleVoice downloads, transcribes, inserts, and confirms", async () 
   assertEquals(sentTexts.length, 2);
   assertStringIncludes(sentTexts[0], "Transcribing your voice note");
   assertStringIncludes(sentTexts[1], "Captured your voice note");
+});
+
+Deno.test("sendMessageDraft calls Telegram sendMessageDraft endpoint", async () => {
+  let calledUrl = "";
+  let bodyChatId = 0;
+  let bodyText = "";
+
+  const restoreFetch = installFetchMock(async (input, init) => {
+    calledUrl = String(input);
+    const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? "{}")) as
+      { chat_id?: number; text?: string };
+    bodyChatId = body.chat_id ?? 0;
+    bodyText = body.text ?? "";
+
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  });
+
+  try {
+    await sendMessageDraft("telegram-token", 456, "Draft reply");
+  } finally {
+    restoreFetch();
+  }
+
+  assertEquals(calledUrl, "https://api.telegram.org/bottelegram-token/sendMessageDraft");
+  assertEquals(bodyChatId, 456);
+  assertEquals(bodyText, "Draft reply");
+});
+
+Deno.test("streamToTelegram sends draft updates then final message", async () => {
+  const calls: Array<{ url: string; text: string }> = [];
+
+  const restoreFetch = installFetchMock(async (input, init) => {
+    calls.push({ url: String(input), text: extractMessageText(init) });
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  });
+
+  try {
+    await streamToTelegram("telegram-token", 123, toAsyncChunks(["Hello ", "world"]), 0);
+  } finally {
+    restoreFetch();
+  }
+
+  const draftCalls = calls.filter((call) => call.url.endsWith("/sendMessageDraft"));
+  const finalCalls = calls.filter((call) => call.url.endsWith("/sendMessage"));
+
+  assertEquals(draftCalls.length, 2);
+  assertEquals(draftCalls[0].text, "Hello ");
+  assertEquals(draftCalls[1].text, "Hello world");
+  assertEquals(finalCalls.length, 1);
+  assertEquals(finalCalls[0].text, "Hello world");
+});
+
+Deno.test("streamToTelegram batches close chunks before draft update", async () => {
+  const calls: Array<{ url: string; text: string }> = [];
+
+  const restoreFetch = installFetchMock(async (input, init) => {
+    calls.push({ url: String(input), text: extractMessageText(init) });
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  });
+
+  const chunks = [
+    "a".repeat(20),
+    "b".repeat(20),
+    "c".repeat(20),
+  ];
+
+  try {
+    await streamToTelegram("telegram-token", 123, toAsyncChunks(chunks), 60_000);
+  } finally {
+    restoreFetch();
+  }
+
+  const draftCalls = calls.filter((call) => call.url.endsWith("/sendMessageDraft"));
+  const finalCalls = calls.filter((call) => call.url.endsWith("/sendMessage"));
+  const combined = chunks.join("");
+
+  assertEquals(draftCalls.length, 1);
+  assertEquals(draftCalls[0].text, combined);
+  assertEquals(finalCalls.length, 1);
+  assertEquals(finalCalls[0].text, combined);
 });

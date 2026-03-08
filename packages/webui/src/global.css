@@ -2571,6 +2571,121 @@ input {
   margin-left: 6px;
 }
 
+/* --- Promote to Pipeline --- */
+
+.promote-section {
+  border-top: 1px solid var(--chalk);
+  padding-top: var(--sp-4);
+  margin-top: var(--sp-2);
+}
+
+.promote-readiness {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: var(--sp-3);
+}
+
+.promote-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.promote-check-icon {
+  width: 16px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.promote-check--ok {
+  color: var(--green, #4ade80);
+}
+
+.promote-check--missing {
+  color: var(--dust);
+}
+
+.promote-check-label {
+  color: var(--stone);
+}
+
+.promote-check-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dust);
+  margin-left: auto;
+}
+
+.promote-project-picker {
+  margin-bottom: var(--sp-3);
+}
+
+.promote-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--dust);
+  margin-bottom: 4px;
+}
+
+.promote-select {
+  width: 100%;
+  background: var(--chalk-light);
+  border: 1px solid var(--chalk);
+  border-radius: var(--radius-sm);
+  color: var(--stone);
+  font-size: 12px;
+  padding: 6px 8px;
+  outline: none;
+}
+
+.promote-select:focus {
+  border-color: var(--amber, #f59e0b);
+}
+
+.promote-btn {
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--amber, #f59e0b);
+  color: var(--night, #0a0a0a);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.promote-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.promote-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.promote-error {
+  font-size: 11px;
+  color: var(--red, #ef4444);
+  margin-bottom: var(--sp-2);
+}
+
+.promote-success {
+  font-size: 12px;
+  color: var(--green, #4ade80);
+  font-weight: 600;
+  padding: 8px;
+  background: rgba(74, 222, 128, 0.08);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
 .card--clickable {
   cursor: pointer;
   transition: all 0.15s ease;

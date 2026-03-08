@@ -209,7 +209,6 @@ export function isStartExpert(v: unknown): v is StartExpertMessage {
   if (!isObject(v) || v.type !== "start_expert") return false;
   if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.session_id) || v.session_id.length === 0) return false;
-  if (!isString(v.machine_id) || v.machine_id.length === 0) return false;
   if (!isString(v.model) || v.model.length === 0) return false;
   if (!isString(v.brief)) return false;
   if (!isObject(v.role)) return false;

@@ -151,7 +151,7 @@ async function main(): Promise<void> {
 
       case "start_expert":
         console.log(
-          `[local-agent] Received start_expert — sessionId=${msg.session_id}, machineId=${msg.machine_id}`
+          `[local-agent] Received start_expert — sessionId=${msg.session_id}`
         );
         expertManager.handleStartExpert(msg).catch((err) => {
           console.error(`[local-agent] FATAL: handleStartExpert crashed for session=${msg.session_id}:`, err);

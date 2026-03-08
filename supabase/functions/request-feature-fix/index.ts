@@ -18,7 +18,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   );
 }
 
-const ALLOWED_STATUSES = ["building", "combining", "verifying", "pr_ready"];
+const ALLOWED_STATUSES = ["building", "combining", "verifying", "pr_ready", "failed"];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -89,7 +89,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const previousStatus = feature.status;
 
-    // 3. Cancel all combine/verify/review jobs for this feature (including completed ones).
+    // 3a. Cancel all combine/verify/review jobs for this feature (including completed ones).
     // Without this, the pipeline creates duplicate combine/verify jobs after the fix.
     const cancelStatuses = ["queued", "dispatched", "executing", "complete", "reviewing", "verifying"];
     const { error: cancelErr } = await supabase
@@ -103,10 +103,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
       console.error(`[request-feature-fix] failed to cancel jobs for ${feature_id}:`, cancelErr.message);
     }
 
+    // 3b. Cancel all failed jobs for this feature.
+    // Without this, the orchestrator's catch-up (Task 0) sees old failed jobs
+    // and immediately reverts the feature back to "failed".
+    const { error: cancelFailedErr } = await supabase
+      .from("jobs")
+      .update({ status: "cancelled" })
+      .eq("feature_id", feature_id)
+      .eq("status", "failed");
+
+    if (cancelFailedErr) {
+      console.error(`[request-feature-fix] failed to cancel failed jobs for ${feature_id}:`, cancelFailedErr.message);
+    }
+
     // 4. Move feature to building (CAS guard on current status)
     const { data: updated, error: updateErr } = await supabase
       .from("features")
-      .update({ status: "building", updated_at: new Date().toISOString() })
+      .update({ status: "building", error: null, updated_at: new Date().toISOString() })
       .eq("id", feature_id)
       .eq("status", previousStatus)
       .select("id");

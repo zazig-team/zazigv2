@@ -1017,6 +1017,28 @@ export async function requestFeatureFix(params: {
   });
 }
 
+export async function diagnoseFeature(params: {
+  companyId: string;
+  featureId: string;
+}): Promise<{ job_id: string }> {
+  return invokePost<{ job_id: string }>("diagnose-feature", {
+    company_id: params.companyId,
+    feature_id: params.featureId,
+  });
+}
+
+export async function fetchJobResult(jobId: string): Promise<{ status: string; result: string | null }> {
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("status, result")
+    .eq("id", jobId)
+    .single();
+
+  if (error) throw error;
+  const row = data as { status: string; result: string | null };
+  return { status: row.status, result: row.result };
+}
+
 export async function updateExecArchetype(
   personalityId: string,
   archetypeId: string,

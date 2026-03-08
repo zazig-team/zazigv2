@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { fetchFeatureDetail, requestFeatureFix, type FeatureDetail } from "../lib/queries";
+import { useEffect, useRef, useState } from "react";
+import { fetchFeatureDetail, diagnoseFeature, fetchJobResult, requestFeatureFix, type FeatureDetail } from "../lib/queries";
 import { useCompany } from "../hooks/useCompany";
 import FormattedProse from "./FormattedProse";
 
@@ -31,39 +31,23 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function buildDiagnosis(data: FeatureDetail): string {
-  const parts: string[] = [];
-
-  if (data.error) {
-    parts.push(`Feature error: ${data.error}`);
-  }
-
-  const failedJobs = data.jobs.filter((j) => j.status === "failed");
-  for (const job of failedJobs) {
-    const header = `Failed job: ${job.title} (${job.role})`;
-    if (job.result) {
-      parts.push(`${header}\n${job.result}`);
-    } else {
-      parts.push(`${header} — no result recorded`);
-    }
-  }
-
-  if (parts.length === 0) {
-    parts.push("No specific error details found. The feature may have been manually set to failed.");
-  }
-
-  return parts.join("\n\n");
-}
+type DiagnosisState =
+  | { phase: "idle" }
+  | { phase: "commissioning" }
+  | { phase: "running"; jobId: string; dots: number }
+  | { phase: "done"; report: string }
+  | { phase: "error"; message: string };
 
 export default function FeatureDetailPanel({ featureId, colorVar, onClose }: FeatureDetailPanelProps): JSX.Element {
   const [data, setData] = useState<FeatureDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showDiagnosis, setShowDiagnosis] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<DiagnosisState>({ phase: "idle" });
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [retried, setRetried] = useState(false);
   const { activeCompanyId } = useCompany();
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,11 +68,18 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
   }, [featureId]);
 
   useEffect(() => {
-    setShowDiagnosis(false);
+    setDiagnosis({ phase: "idle" });
     setRetrying(false);
     setRetryError(null);
     setRetried(false);
   }, [featureId]);
+
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent): void {
@@ -97,6 +88,52 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
+
+  async function startDiagnosis(): Promise<void> {
+    if (!activeCompanyId || !data) return;
+
+    setDiagnosis({ phase: "commissioning" });
+
+    try {
+      const { job_id } = await diagnoseFeature({
+        companyId: activeCompanyId,
+        featureId: data.id,
+      });
+
+      setDiagnosis({ phase: "running", jobId: job_id, dots: 0 });
+
+      // Poll for completion
+      let dotCount = 0;
+      pollRef.current = setInterval(async () => {
+        try {
+          const { status, result } = await fetchJobResult(job_id);
+
+          if (status === "complete" && result) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+            setDiagnosis({ phase: "done", report: result });
+          } else if (status === "failed") {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+            setDiagnosis({ phase: "done", report: result ?? "Diagnosis agent failed — no report produced." });
+          } else {
+            dotCount = (dotCount + 1) % 4;
+            setDiagnosis({ phase: "running", jobId: job_id, dots: dotCount });
+          }
+        } catch {
+          // Polling error — keep trying
+        }
+      }, 4000);
+    } catch (err) {
+      setDiagnosis({ phase: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  function diagnosisLabel(state: DiagnosisState): string {
+    if (state.phase === "commissioning") return "Commissioning diagnostician...";
+    if (state.phase === "running") return `Agent diagnosing${".".repeat(state.dots + 1)}`;
+    return "";
+  }
 
   return (
     <>
@@ -194,54 +231,63 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
 
                   {retried ? (
                     <div className="promote-success">Fix job queued — feature moved back to building</div>
-                  ) : (
+                  ) : diagnosis.phase === "idle" ? (
+                    <button
+                      className="diagnose-btn"
+                      type="button"
+                      disabled={!activeCompanyId}
+                      onClick={startDiagnosis}
+                    >
+                      Diagnose Failure
+                    </button>
+                  ) : diagnosis.phase === "commissioning" || diagnosis.phase === "running" ? (
+                    <div className="diagnosis-running">
+                      <div className="diagnosis-spinner" />
+                      <span>{diagnosisLabel(diagnosis)}</span>
+                    </div>
+                  ) : diagnosis.phase === "error" ? (
                     <>
-                      {!showDiagnosis ? (
-                        <button
-                          className="diagnose-btn"
-                          type="button"
-                          onClick={() => setShowDiagnosis(true)}
-                        >
-                          Diagnose Failure
-                        </button>
-                      ) : (
-                        <>
-                          <div className="diagnosis-box">
-                            <FormattedProse text={buildDiagnosis(data)} preformatted />
-                          </div>
-
-                          {retryError ? (
-                            <div className="promote-error">{retryError}</div>
-                          ) : null}
-
-                          <button
-                            className="promote-btn"
-                            type="button"
-                            disabled={retrying || !activeCompanyId}
-                            onClick={async () => {
-                              if (!activeCompanyId) return;
-                              setRetrying(true);
-                              setRetryError(null);
-                              try {
-                                await requestFeatureFix({
-                                  companyId: activeCompanyId,
-                                  featureId: data.id,
-                                  reason: buildDiagnosis(data),
-                                });
-                                setRetried(true);
-                              } catch (err) {
-                                setRetryError(err instanceof Error ? err.message : String(err));
-                              } finally {
-                                setRetrying(false);
-                              }
-                            }}
-                          >
-                            {retrying ? "Retrying..." : "Retry with Fix"}
-                          </button>
-                        </>
-                      )}
+                      <div className="promote-error">{diagnosis.message}</div>
+                      <button className="diagnose-btn" type="button" onClick={startDiagnosis}>
+                        Try Again
+                      </button>
                     </>
-                  )}
+                  ) : diagnosis.phase === "done" ? (
+                    <>
+                      <div className="diagnosis-box">
+                        <FormattedProse text={diagnosis.report} preformatted />
+                      </div>
+
+                      {retryError ? (
+                        <div className="promote-error">{retryError}</div>
+                      ) : null}
+
+                      <button
+                        className="promote-btn"
+                        type="button"
+                        disabled={retrying || !activeCompanyId}
+                        onClick={async () => {
+                          if (!activeCompanyId) return;
+                          setRetrying(true);
+                          setRetryError(null);
+                          try {
+                            await requestFeatureFix({
+                              companyId: activeCompanyId,
+                              featureId: data.id,
+                              reason: diagnosis.report,
+                            });
+                            setRetried(true);
+                          } catch (err) {
+                            setRetryError(err instanceof Error ? err.message : String(err));
+                          } finally {
+                            setRetrying(false);
+                          }
+                        }}
+                      >
+                        {retrying ? "Retrying..." : "Retry with Fix"}
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               ) : null}
             </div>

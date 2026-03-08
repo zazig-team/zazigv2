@@ -1124,10 +1124,10 @@ server.tool(
   {
     role_name: z.string().describe("The expert role identifier, e.g. \"test-deployment-expert\""),
     brief: z.string().describe("Structured handoff context for the expert: what needs to be done, relevant background, expected output"),
-    machine_id: z.string().describe("Machine name — read from ~/.zazigv2/config.json 'name' field"),
+    machine_name: z.string().describe("Which machine to spawn the expert on. Read the machine name from ~/.zazigv2/config.json — use the 'name' field."),
     project_id: z.string().optional().describe("Optional project ID for repo access in the expert workspace"),
   },
-  guardedHandler("start_expert_session", async ({ role_name, brief, machine_id, project_id }) => {
+  guardedHandler("start_expert_session", async ({ role_name, brief, machine_name, project_id }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
@@ -1150,7 +1150,7 @@ server.tool(
         Authorization: `Bearer ${supabaseAnonKey}`,
         "x-company-id": companyId,
       },
-      body: JSON.stringify({ role_name, brief, machine_id, project_id }),
+      body: JSON.stringify({ role_name, brief, machine_name, project_id }),
     });
     if (!response.ok) {
       const error = await response.text();

@@ -5,6 +5,9 @@
  *
  * Identical to zazig but forces ZAZIG_ENV=staging and uses
  * staging Doppler config for Supabase credentials.
+ *
+ * TODO: If a dedicated staging promote/push flow is added, register pushed
+ * versions in agent_versions with env: "staging" to mirror production promote.
  */
 
 // Set environment before any imports

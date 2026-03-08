@@ -612,7 +612,52 @@ export default function Roadmap(): JSX.Element {
               <button className="roadmap-detail-close" type="button" onClick={() => setSelectedNode(null)}>&times;</button>
             </header>
 
-            <div className="roadmap-detail-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(selectedNode.details) }} />
+            <div className="roadmap-detail-body">
+              {/* Lane & summary info */}
+              <div className="roadmap-detail-summary">
+                <div className="roadmap-detail-lane">
+                  <span className="roadmap-detail-lane-label">Lane</span>
+                  <span className="roadmap-detail-lane-value">{selectedNode.lane}</span>
+                </div>
+                {selectedNode.progress > 0 && (
+                  <div className="roadmap-detail-progress-bar">
+                    <div className="roadmap-detail-progress-track">
+                      <div
+                        className={`roadmap-detail-progress-fill roadmap-detail-progress-fill--${selectedNode.status}`}
+                        style={{ width: `${selectedNode.progress}%` }}
+                      />
+                    </div>
+                    <span className="roadmap-detail-progress-text">{selectedNode.progress}%</span>
+                  </div>
+                )}
+                {selectedNode.deps.length > 0 && (() => {
+                  const ds = depsStatus(selectedNode, nodeMap);
+                  return (
+                    <div className="roadmap-detail-deps-summary">
+                      <span className="roadmap-detail-deps-count">{ds.done}/{ds.total}</span> dependencies shipped
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Tooltip as description */}
+              {selectedNode.tooltip && (
+                <p className="roadmap-detail-tooltip">{selectedNode.tooltip}</p>
+              )}
+
+              {/* Status explanation */}
+              {selectedNode.status === "locked" && (
+                <p className="roadmap-detail-status-note">Blocked — waiting on dependencies to ship before work can begin.</p>
+              )}
+              {selectedNode.status === "draft" && selectedNode.progress === 0 && (
+                <p className="roadmap-detail-status-note">Designed but not yet started.</p>
+              )}
+
+              {/* Markdown details */}
+              {selectedNode.details && (
+                <div dangerouslySetInnerHTML={{ __html: renderMarkdown(selectedNode.details) }} />
+              )}
+            </div>
 
             <footer className="roadmap-detail-footer">
               {selectedNode.deps.length > 0 ? (

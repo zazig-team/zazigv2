@@ -22,3 +22,5 @@ ALTER TABLE machines ADD COLUMN IF NOT EXISTS agent_version text;
 INSERT INTO agent_versions (env, version, commit_sha) VALUES
   ('staging', '0.1.0', 'initial'),
   ('production', '0.1.0', 'initial');
+
+  

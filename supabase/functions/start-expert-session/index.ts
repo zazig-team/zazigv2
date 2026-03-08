@@ -127,6 +127,7 @@ interface StartExpertPayload {
     settings_overrides?: unknown;
   };
   project_id: string | null;
+  repo_url?: string | null;
 }
 
 async function broadcastStartExpert(
@@ -259,6 +260,45 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const machine = machineData as MachineRow;
+    let resolvedProjectId: string | null = null;
+    let repoUrl: string | null = null;
+
+    if (projectId) {
+      // Try UUID first, then name.
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+      let projectQuery;
+      if (uuidRegex.test(projectId)) {
+        projectQuery = supabase
+          .from("projects")
+          .select("id, name, repo_url")
+          .eq("id", projectId)
+          .eq("company_id", companyId)
+          .maybeSingle();
+      } else {
+        projectQuery = supabase
+          .from("projects")
+          .select("id, name, repo_url")
+          .eq("company_id", companyId)
+          .ilike("name", projectId)
+          .maybeSingle();
+      }
+
+      const { data: projectData, error: projectErr } = await projectQuery;
+
+      if (projectErr) {
+        console.warn(`Failed to look up project: ${projectErr.message}`);
+      }
+
+      if (projectData) {
+        resolvedProjectId = projectData.id;
+        repoUrl = projectData.repo_url ?? null;
+      } else {
+        // Project not found — preserve original input for backward compatibility.
+        resolvedProjectId = projectId;
+      }
+    }
 
     const { data: sessionData, error: sessionErr } = await supabase
       .from("expert_sessions")
@@ -292,7 +332,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
         mcp_tools: role.mcp_tools,
         settings_overrides: role.settings_overrides,
       },
-      project_id: projectId,
+      project_id: resolvedProjectId,
+      repo_url: repoUrl,
     };
 
     const broadcastResult = await broadcastStartExpert(

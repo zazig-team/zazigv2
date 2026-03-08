@@ -25,7 +25,7 @@ import type { OrchestratorMessage, Heartbeat, AgentMessage } from "@zazigv2/shar
 import type { MachineConfig } from "./config.js";
 import type { SlotTracker } from "./slots.js";
 import { recoverDispatchedJobs } from "./job-recovery.js";
-import pkg from "../package.json" assert { type: "json" };
+import pkg from "../package.json" with { type: "json" };
 
 const CREDENTIALS_PATH = join(homedir(), ".zazigv2", "credentials.json");
 const execFileAsync = promisify(execFile);

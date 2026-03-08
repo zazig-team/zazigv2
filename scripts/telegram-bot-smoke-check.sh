@@ -14,6 +14,9 @@ fi
 SUPABASE_URL="https://${SUPABASE_PROJECT_REF}.supabase.co"
 FUNCTION_URL="${SUPABASE_URL}/functions/v1/telegram-bot"
 TELEGRAM_API_BASE="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
+# Streaming responses vary by prompt/model output, so smoke checks should avoid exact
+# static-message assertions. This pattern accepts both legacy/static and streamed replies.
+EXPECTED_CONFIRMATION_PATTERN="${TELEGRAM_EXPECTED_CONFIRMATION_PATTERN:-(Got it\\..*Captured.*idea.*|.{20,})}"
 
 echo "==> 1) Telegram webhook info"
 WEBHOOK_JSON="$(curl -sS "${TELEGRAM_API_BASE}/getWebhookInfo")"
@@ -64,6 +67,20 @@ else
     -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
     -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}"
   echo
+fi
+
+echo
+echo "==> 4) Optional bot confirmation pattern check"
+if [[ -z "${TELEGRAM_LAST_CONFIRMATION_TEXT:-}" ]]; then
+  echo "Skipped (set TELEGRAM_LAST_CONFIRMATION_TEXT to validate a real bot reply)."
+else
+  if [[ "${TELEGRAM_LAST_CONFIRMATION_TEXT}" =~ ${EXPECTED_CONFIRMATION_PATTERN} ]]; then
+    echo "Confirmation text matches expected pattern."
+  else
+    echo "Confirmation text did not match expected pattern."
+    echo "  pattern: ${EXPECTED_CONFIRMATION_PATTERN}"
+    exit 1
+  fi
 fi
 
 echo

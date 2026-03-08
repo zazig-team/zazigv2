@@ -182,9 +182,12 @@ Check the current production database to determine which schema is active.
 ```
 TELEGRAM_BOT_TOKEN          # Telegram bot token from @BotFather
 OPENAI_API_KEY              # OpenAI API key for Whisper transcription
+ANTHROPIC_API_KEY           # Anthropic API key for streaming Claude acknowledgements
 SUPABASE_URL                # Supabase project URL
 SUPABASE_SERVICE_ROLE_KEY   # Service role key for server-side auth
 ```
+
+If `ANTHROPIC_API_KEY` is missing, the bot still captures ideas and falls back to static confirmation messages instead of streaming AI replies.
 
 ### Optional
 ```
@@ -212,6 +215,7 @@ Check if these keys exist in Doppler. If not, they must be added before deployme
 - [ ] Add/verify environment variables in Supabase (project settings → Edge Functions)
   - TELEGRAM_BOT_TOKEN
   - OPENAI_API_KEY
+  - ANTHROPIC_API_KEY (if missing, bot falls back to static confirmations)
   - SUPABASE_URL (usually auto-populated)
   - SUPABASE_SERVICE_ROLE_KEY (usually auto-populated)
   - TELEGRAM_ALLOWED_USERS (optional, e.g., "123456789,987654321")
@@ -358,4 +362,3 @@ Manual build doc should focus on:
 3. Deployment steps (supabase CLI, webhook registration)
 4. Testing (curl Telegram message, check ideas table)
 5. Troubleshooting (logs, rate limits, duplicate handling)
-

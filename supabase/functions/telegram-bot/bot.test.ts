@@ -120,12 +120,14 @@ function makeMessage(partial: Partial<TelegramMessage>): TelegramMessage {
 function makeContext(
   // deno-lint-ignore no-explicit-any
   supabase: any,
+  overrides: Partial<Pick<BotContext, "token" | "openaiKey" | "anthropicKey">> = {},
 ): BotContext {
   return {
     // deno-lint-ignore no-explicit-any
     supabase: supabase as any,
-    token: "telegram-token",
-    openaiKey: "openai-test-key",
+    token: overrides.token ?? "telegram-token",
+    openaiKey: overrides.openaiKey ?? "openai-test-key",
+    anthropicKey: overrides.anthropicKey ?? "",
   };
 }
 
@@ -323,13 +325,122 @@ Deno.test("handleText inserts idea row with source_ref", async () => {
   assertStringIncludes(sentTexts[0], "Captured as an idea");
 });
 
-Deno.test("handleVoice downloads, transcribes, inserts, and confirms", async () => {
+Deno.test("handleText streams Claude response when anthropic key is set", async () => {
+  const draftTexts: string[] = [];
+  const finalTexts: string[] = [];
+  const streamedChunkA = "A".repeat(60);
+  const streamedChunkB = " Follow-up.";
+
+  const restoreFetch = installFetchMock(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/sendMessageDraft")) {
+      draftTexts.push(extractMessageText(init));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.endsWith("/sendMessage")) {
+      finalTexts.push(extractMessageText(init));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url === "https://api.anthropic.com/v1/messages") {
+      const streamBody = [
+        `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"${streamedChunkA}"}}\n\n`,
+        `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"${streamedChunkB}"}}\n\n`,
+        "data: {\"type\":\"message_stop\"}\n\n",
+      ].join("");
+      return new Response(streamBody, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }
+
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  });
+
+  const { supabase, insertCalls } = createMockSupabase();
+  try {
+    await handleText(
+      makeMessage({
+        message_id: 66,
+        chat: { id: 321, type: "private" },
+        text: "Claude-stream this",
+      }),
+      makeContext(supabase, { anthropicKey: "anthropic-test-key" }),
+    );
+  } finally {
+    restoreFetch();
+  }
+
+  assertEquals(insertCalls.length, 1);
+  assertEquals(draftTexts.length, 1);
+  assertEquals(finalTexts.length, 1);
+  assertEquals(draftTexts[0], streamedChunkA);
+  assertEquals(finalTexts[0], `${streamedChunkA}${streamedChunkB}`);
+});
+
+Deno.test("handleText falls back to static confirmation on Claude error", async () => {
   const sentTexts: string[] = [];
 
   const restoreFetch = installFetchMock(async (input, init) => {
     const url = String(input);
 
-    if (url.includes("/sendMessage")) {
+    if (url.endsWith("/sendMessage")) {
+      sentTexts.push(extractMessageText(init));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url === "https://api.anthropic.com/v1/messages") {
+      return new Response("anthropic failure", { status: 500 });
+    }
+
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  });
+
+  const { supabase, insertCalls } = createMockSupabase();
+  try {
+    await handleText(
+      makeMessage({
+        text: "Fallback text idea",
+      }),
+      makeContext(supabase, { anthropicKey: "anthropic-test-key" }),
+    );
+  } finally {
+    restoreFetch();
+  }
+
+  assertEquals(insertCalls.length, 1);
+  assertEquals(sentTexts.length, 1);
+  assertStringIncludes(sentTexts[0], "Captured as an idea.");
+  assertStringIncludes(sentTexts[0], "\"Fallback text idea\"");
+});
+
+Deno.test("handleVoice downloads, transcribes, inserts, and confirms", async () => {
+  const draftTexts: string[] = [];
+  const sentTexts: string[] = [];
+
+  const restoreFetch = installFetchMock(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/sendMessageDraft")) {
+      draftTexts.push(extractMessageText(init));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.endsWith("/sendMessage")) {
       sentTexts.push(extractMessageText(init));
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
@@ -393,10 +504,107 @@ Deno.test("handleVoice downloads, transcribes, inserts, and confirms", async () 
   assertEquals(insertCalls[0]["source_ref"], "telegram:888:9");
   assertEquals(insertCalls[0]["originator"], "voicecreator");
 
-  // One progress message + one success confirmation
-  assertEquals(sentTexts.length, 2);
-  assertStringIncludes(sentTexts[0], "Transcribing your voice note");
-  assertStringIncludes(sentTexts[1], "Captured your voice note");
+  assertEquals(draftTexts.length, 1);
+  assertStringIncludes(draftTexts[0], "Transcribing your voice note");
+  assertEquals(sentTexts.length, 1);
+  assertStringIncludes(sentTexts[0], "Captured your voice note");
+});
+
+Deno.test("handleVoice streams Claude response after save when anthropic key is set", async () => {
+  const draftTexts: string[] = [];
+  const sentTexts: string[] = [];
+  const streamedChunk = "B".repeat(64);
+  let insertCountAtGeneratedDraft = 0;
+
+  const { supabase, insertCalls } = createMockSupabase();
+
+  const restoreFetch = installFetchMock(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/sendMessageDraft")) {
+      const text = extractMessageText(init);
+      draftTexts.push(text);
+      if (text !== "Got it. Transcribing your voice note...") {
+        insertCountAtGeneratedDraft = insertCalls.length;
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.endsWith("/sendMessage")) {
+      sentTexts.push(extractMessageText(init));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.includes("/getFile?")) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          result: { file_path: "voice/file.ogg" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    if (url.includes("/file/bot")) {
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { "Content-Type": "audio/ogg" },
+      });
+    }
+
+    if (url === "https://api.openai.com/v1/audio/transcriptions") {
+      return new Response(
+        JSON.stringify({ text: "Transcribed voice idea text" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    if (url === "https://api.anthropic.com/v1/messages") {
+      const streamBody = [
+        `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"${streamedChunk}"}}\n\n`,
+        "data: {\"type\":\"message_stop\"}\n\n",
+      ].join("");
+      return new Response(streamBody, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }
+
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  });
+
+  try {
+    await handleVoice(
+      makeMessage({
+        message_id: 10,
+        chat: { id: 889, type: "private" },
+        from: { id: 445, is_bot: false, first_name: "Tom", username: "voicecreator" },
+        voice: {
+          file_id: "voice-file-id",
+          file_unique_id: "voice-unique-id",
+          duration: 6,
+          mime_type: "audio/ogg",
+        },
+      }),
+      makeContext(supabase, { anthropicKey: "anthropic-test-key" }),
+    );
+  } finally {
+    restoreFetch();
+  }
+
+  assertEquals(insertCalls.length, 1);
+  assertEquals(draftTexts.length, 2);
+  assertEquals(draftTexts[0], "Got it. Transcribing your voice note...");
+  assertEquals(draftTexts[1], streamedChunk);
+  assertEquals(insertCountAtGeneratedDraft, 1);
+  assertEquals(sentTexts.length, 1);
+  assertEquals(sentTexts[0], streamedChunk);
 });
 
 Deno.test("sendMessageDraft calls Telegram sendMessageDraft endpoint", async () => {

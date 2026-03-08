@@ -34,6 +34,9 @@ export interface Idea {
   horizon: "soon" | "later" | null;
   created_at: string;
   originator: string | null;
+  promoted_to_type: string | null;
+  promoted_to_id: string | null;
+  promoted_at: string | null;
 }
 
 export interface DecisionOption {

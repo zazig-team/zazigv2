@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useCompany } from "../hooks/useCompany";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
+import { commissionProjectArchitect, fetchProjects } from "../lib/queries";
 import FeatureDetailPanel from "../components/FeatureDetailPanel";
 
 // ─── Types ─────────────────────────────────────────
@@ -161,6 +162,27 @@ export default function Roadmap(): JSX.Element {
   const [featuresLoading, setFeaturesLoading] = useState(false);
   const [selectedFeature, setSelectedFeature] = useState<{ id: string; colorVar: string } | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
+
+  // Plan & Build state
+  const [commissioning, setCommissioning] = useState(false);
+  const [commissionError, setCommissionError] = useState<string | null>(null);
+  const [commissioned, setCommissioned] = useState(false);
+  const [zazigProjectId, setZazigProjectId] = useState<string | null>(null);
+
+  // Fetch zazigv2 project ID once
+  useEffect(() => {
+    if (!activeCompany?.id) return;
+    fetchProjects(activeCompany.id).then((projects) => {
+      const zazig = projects.find((p) => p.name === "zazigv2");
+      if (zazig) setZazigProjectId(zazig.id);
+    }).catch(() => {});
+  }, [activeCompany?.id]);
+
+  // Reset commission state when selection changes
+  useEffect(() => {
+    setCommissioned(false);
+    setCommissionError(null);
+  }, [selectedNode?.id]);
 
   const fetchData = useCallback(async () => {
     if (!activeCompany?.id) {
@@ -721,6 +743,101 @@ export default function Roadmap(): JSX.Element {
                   </div>
                 )}
               </div>
+
+              {/* Plan & Build action */}
+              {(() => {
+                const isBuildable = selectedNode.status === "active" || selectedNode.status === "draft";
+                const ds = selectedNode.deps.length > 0 ? depsStatus(selectedNode, nodeMap) : null;
+                const depsOk = !ds || ds.done === ds.total;
+
+                if (!isBuildable) return null;
+
+                return (
+                  <div className="promote-section">
+                    <div className="section-label" style={{ marginBottom: 8 }}>Plan & Build</div>
+
+                    {!depsOk ? (
+                      <p className="roadmap-detail-status-note">
+                        Blocked — {ds!.total - ds!.done} dependenc{ds!.total - ds!.done === 1 ? "y" : "ies"} not yet shipped.
+                      </p>
+                    ) : commissioned ? (
+                      <div className="promote-success" style={{ marginTop: 8 }}>
+                        Project Architect commissioned. Features will appear here as they're created.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="promote-readiness">
+                          <div className="promote-check">
+                            <span className={`promote-check-icon ${depsOk ? "promote-check--ok" : "promote-check--missing"}`}>
+                              {depsOk ? "\u2713" : "\u2717"}
+                            </span>
+                            <span className="promote-check-label">Dependencies satisfied</span>
+                          </div>
+                          <div className="promote-check">
+                            <span className={`promote-check-icon ${selectedNode.details ? "promote-check--ok" : "promote-check--missing"}`}>
+                              {selectedNode.details ? "\u2713" : "\u2717"}
+                            </span>
+                            <span className="promote-check-label">Has details</span>
+                          </div>
+                          <div className="promote-check">
+                            <span className={`promote-check-icon ${zazigProjectId ? "promote-check--ok" : "promote-check--missing"}`}>
+                              {zazigProjectId ? "\u2713" : "\u2717"}
+                            </span>
+                            <span className="promote-check-label">Project available</span>
+                          </div>
+                        </div>
+
+                        {commissionError ? (
+                          <div className="promote-error">{commissionError}</div>
+                        ) : null}
+
+                        <button
+                          className="promote-btn"
+                          type="button"
+                          disabled={!depsOk || !selectedNode.details || !zazigProjectId || !activeCompany?.id || commissioning}
+                          onClick={async () => {
+                            if (!zazigProjectId || !activeCompany?.id || !selectedNode.details) return;
+                            setCommissioning(true);
+                            setCommissionError(null);
+                            try {
+                              const context = [
+                                `## Capability: ${selectedNode.title}`,
+                                "",
+                                `**Status:** ${selectedNode.status} (${selectedNode.progress}% complete)`,
+                                selectedNode.tooltip ? `**Summary:** ${selectedNode.tooltip}` : "",
+                                "",
+                                "## Details",
+                                selectedNode.details,
+                                "",
+                                "## Instructions",
+                                "Decompose this capability into features using the featurify skill.",
+                                `Use project_id: ${zazigProjectId}`,
+                                "Create features that represent the remaining unbuilt work.",
+                                linkedFeatures.length > 0
+                                  ? `Note: ${linkedFeatures.length} features already exist for this capability. Review them before creating duplicates.`
+                                  : "",
+                              ].filter(Boolean).join("\n");
+
+                              await commissionProjectArchitect({
+                                companyId: activeCompany.id,
+                                projectId: zazigProjectId,
+                                context,
+                              });
+                              setCommissioned(true);
+                            } catch (err) {
+                              setCommissionError(err instanceof Error ? err.message : String(err));
+                            } finally {
+                              setCommissioning(false);
+                            }
+                          }}
+                        >
+                          {commissioning ? "Commissioning..." : "Plan & Build"}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
             </footer>
           </aside>
         </>

@@ -96,6 +96,12 @@
 ## Playwright MCP Gotchas
 - Chrome singleton lock: if Chrome is already open, Playwright MCP fails with "Opening in existing browser session" + exit. User must close Chrome first, or remove the SingletonLock file at `~/Library/Caches/ms-playwright/mcp-chrome-*/SingletonLock`.
 - Staging Vercel previews may not have auth cookies — navigate to prod (`zazig.com`) for authenticated page testing.
+- Daemon crash logs can be stale — check job status in DB before concluding daemon is down. If jobs are executing, daemon is alive.
+
+## Daemon Deployment Process
+- Executor/daemon code changes need to be shipped to master, then promoted (1x daily promote cycle), then daemon restarted.
+- Edge function changes deploy immediately via `supabase functions deploy`.
+- Don't confuse "built locally" with "live on daemon" — local build + bundle is NOT deployed until promote.
 
 ## WebUI Codebase Gotchas
 - CSS Grid overflow: always use `minmax(0, 1fr)` not bare `1fr` — bare `1fr` defaults to `minmax(min-content, 1fr)` and prevents columns from shrinking below content width
@@ -121,9 +127,11 @@
 - `fetchProjects()` and `commissionProjectArchitect()` in queries.ts.
 - Capabilities map to the zazigv2 project (not separate projects per capability).
 - PA job picked up in seconds when daemon is running — pipeline is fast.
-- Pipeline detail panel: "Diagnose & Retry" section for failed features. Shows feature `error` + failed job `result` fields. Retry calls `request-feature-fix` with diagnosis as reason. Edge function now accepts `failed` status (added alongside building/combining/verifying/pr_ready).
-- `requestFeatureFix()` in queries.ts. `FeatureDetailJob` now includes `result`, `FeatureDetail` includes `error`.
+- Pipeline detail panel: "Diagnose & Retry" section for failed features. Async agent-based diagnosis: `diagnose-feature` edge function gathers all data (feature, jobs, job_logs), commissions Sonnet agent. UI polls `fetchJobResult` every 4s.
+- `requestFeatureFix()`, `diagnoseFeature()`, `fetchJobResult()` in queries.ts. `FeatureDetailJob` now includes `result`, `FeatureDetail` includes `error`.
 - **Critical**: `request-feature-fix` must cancel old failed jobs (step 3b) AND clear feature `error` column. Without this, orchestrator catch-up (Task 0) sees old failed jobs on the now-`building` feature and immediately re-fails it. Pipeline snapshot is cached server-side — needs `refresh_pipeline_snapshot` RPC call or orchestrator cycle to update.
+- **Critical**: Diagnosis jobs must instruct the agent to write report to `.claude/{role}-report.md` with `status: pass` prefix. Without this, executor defaults to `NO_REPORT`. The executor looks for report files at specific paths based on role name.
+- **Executor result storage**: `sendJobComplete` now stores full report text (not just verdict string) in `jobs.result`. Changed in executor.ts — `report ?? result` ensures the full report is available for UI polling.
 
 ## Active Design Docs
 - Model & Subscription Flexibility: `docs/plans/active/2026-03-06-model-flexibility-design.md` — decouples roles from hardcoded models, introduces `machine_backends` table, Backend interface, runtime probing, model preference chains

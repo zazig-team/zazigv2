@@ -2140,12 +2140,15 @@ export class JobExecutor {
     // Primary: write directly to DB.
     // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).
     if (!jobId.startsWith("persistent-")) {
-      jobLog(jobId, `DB write: status=complete, result="${result.slice(0, 100)}"`);
+      // Store the full report text when available (e.g. diagnosis reports);
+      // fall back to the short verdict string.
+      const storedResult = report ?? result;
+      jobLog(jobId, `DB write: status=complete, result="${storedResult.slice(0, 100)}"`);
       const { error: dbErr } = await this.supabase
         .from("jobs")
         .update({
           status: "complete",
-          result,
+          result: storedResult,
           completed_at: new Date().toISOString(),
           progress: 100,
         })

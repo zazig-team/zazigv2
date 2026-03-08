@@ -16564,9 +16564,11 @@ var import_websocket_server = __toESM(require_websocket_server(), 1);
 var wrapper_default = import_websocket.default;
 
 // ../local-agent/dist/connection.js
+import { execFile as execFile3 } from "node:child_process";
 import { readFileSync as readFileSync4, writeFileSync as writeFileSync3, mkdirSync as mkdirSync3, appendFileSync as appendFileSync3 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join5 } from "node:path";
+import { promisify as promisify3 } from "node:util";
 
 // ../local-agent/dist/executor.js
 import { execFile as execFile2 } from "node:child_process";
@@ -17615,6 +17617,7 @@ ${cpoContext}`);
       model: job.model,
       role: job.role,
       promptStackMinusSkills: job.prompt_stack_minus_skills,
+      ...job.sub_agent_prompt ? { subAgentPrompt: job.sub_agent_prompt } : {},
       roleSkills: job.skills?.length ? job.skills : void 0,
       roleMcpTools: job.mcp_tools?.length ? job.mcp_tools : void 0,
       companyProjects: job.projects?.length ? job.projects : void 0
@@ -18669,10 +18672,11 @@ ${msg.text}`;
   }
   async sendJobComplete(jobId, result, report) {
     if (!jobId.startsWith("persistent-")) {
-      jobLog(jobId, `DB write: status=complete, result="${result.slice(0, 100)}"`);
+      const storedResult = report ?? result;
+      jobLog(jobId, `DB write: status=complete, result="${storedResult.slice(0, 100)}"`);
       const { error: dbErr } = await this.supabase.from("jobs").update({
         status: "complete",
-        result,
+        result: storedResult,
         completed_at: (/* @__PURE__ */ new Date()).toISOString(),
         progress: 100
       }).eq("id", jobId);
@@ -19037,8 +19041,50 @@ async function recoverDispatchedJobs(dbClient, machineName, options) {
   }
 }
 
+// ../local-agent/package.json
+var package_default = {
+  name: "@zazigv2/local-agent",
+  version: "0.1.0",
+  private: true,
+  description: "Local agent daemon \u2014 connects to Supabase Realtime, executes tmux sessions",
+  type: "module",
+  main: "./dist/index.js",
+  bin: {
+    "zazig-agent-mcp": "./dist/agent-mcp-server.js"
+  },
+  exports: {
+    ".": {
+      import: "./dist/index.js",
+      types: "./dist/index.d.ts"
+    }
+  },
+  scripts: {
+    build: "tsc -b tsconfig.build.json && chmod +x dist/agent-mcp-server.js",
+    typecheck: "tsc -p tsconfig.json --noEmit",
+    clean: "rm -rf dist tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo",
+    test: "vitest run",
+    "test:coverage": "vitest run --coverage",
+    start: "node dist/index.js"
+  },
+  dependencies: {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@supabase/supabase-js": "^2.49.1",
+    "@zazigv2/shared": "*"
+  },
+  devDependencies: {
+    "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    typescript: "5.8",
+    vitest: "^4.0.18"
+  },
+  engines: {
+    node: ">=20.0.0"
+  }
+};
+
 // ../local-agent/dist/connection.js
 var CREDENTIALS_PATH = join5(homedir3(), ".zazigv2", "credentials.json");
+var execFileAsync3 = promisify3(execFile3);
 var BACKOFF_BASE_MS = 1e3;
 var BACKOFF_MAX_MS = 3e4;
 var BACKOFF_MULTIPLIER = 2;
@@ -19062,6 +19108,9 @@ var AgentConnection = class {
   reconnectAttempts = 0;
   stopped = false;
   isRecoveryRunning = false;
+  outdated = false;
+  outdatedWarningTimer = null;
+  outdatedExitPollTimer = null;
   constructor(config, slots) {
     this.config = config;
     this.machineId = config.name;
@@ -19199,6 +19248,8 @@ var AgentConnection = class {
     this.stopped = true;
     this.clearReconnectTimer();
     this.clearHeartbeatTimer();
+    this.clearOutdatedWarningTimer();
+    this.clearOutdatedExitPollTimer();
     if (this.outChannel) {
       await this.supabase.removeChannel(this.outChannel);
       this.outChannel = null;
@@ -19329,6 +19380,10 @@ var AgentConnection = class {
       }
       return;
     }
+    if (this.outdated && (payload.type === "start_job" || payload.type === "start_expert")) {
+      console.warn(`[local-agent] Ignoring ${payload.type} while agent is outdated and awaiting upgrade`);
+      return;
+    }
     console.log(`[local-agent] Received message: type=${payload.type}`, JSON.stringify(payload));
     if ("jobId" in payload && typeof payload.jobId === "string") {
       const msg = payload;
@@ -19371,7 +19426,8 @@ var AgentConnection = class {
       status: "online",
       last_heartbeat: (/* @__PURE__ */ new Date()).toISOString(),
       slots_claude_code: slotsAvailable.claude_code,
-      slots_codex: slotsAvailable.codex
+      slots_codex: slotsAvailable.codex,
+      agent_version: package_default.version
     };
     let failures = 0;
     for (const companyId of this.companyIds) {
@@ -19395,7 +19451,8 @@ var AgentConnection = class {
       last_heartbeat: (/* @__PURE__ */ new Date()).toISOString(),
       status: "online",
       slots_claude_code: slotsAvailable.claude_code,
-      slots_codex: slotsAvailable.codex
+      slots_codex: slotsAvailable.codex,
+      agent_version: package_default.version
     };
     let dbErr = null;
     if (this.companyIds.length > 0) {
@@ -19409,6 +19466,17 @@ var AgentConnection = class {
     }
     if (dbErr) {
       console.warn(`[local-agent] Heartbeat DB write failed: ${dbErr.message}`);
+    }
+    const env = process.env["ZAZIG_ENV"] ?? "production";
+    try {
+      const { data: latestVersion, error: latestVersionErr } = await this.dbClient.from("agent_versions").select("version").eq("env", env).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (latestVersionErr) {
+        console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${latestVersionErr.message}`);
+      } else if (latestVersion && latestVersion.version !== package_default.version) {
+        this.onOutdatedDetected(package_default.version, latestVersion.version);
+      }
+    } catch (err) {
+      console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${String(err)}`);
     }
     if (this.outChannel) {
       const heartbeat = {
@@ -19437,6 +19505,98 @@ var AgentConnection = class {
         console.warn(`[local-agent] Job recovery poll failed:`, err);
       } finally {
         this.isRecoveryRunning = false;
+      }
+    }
+  }
+  onOutdatedDetected(currentVersion, requiredVersion) {
+    if (this.outdated)
+      return;
+    this.outdated = true;
+    const warningMessage = `
+\u26A0\uFE0F  UPDATE REQUIRED: running v${currentVersion}, latest is v${requiredVersion}. Run 'zazig update' to update.
+`;
+    const emitWarning = () => {
+      process.stderr.write(warningMessage);
+    };
+    emitWarning();
+    this.outdatedWarningTimer = setInterval(() => {
+      emitWarning();
+    }, 6e4);
+    void this.closeOutdatedInteractiveSessions();
+    this.startOutdatedExitPolling();
+  }
+  clearOutdatedWarningTimer() {
+    if (this.outdatedWarningTimer !== null) {
+      clearInterval(this.outdatedWarningTimer);
+      this.outdatedWarningTimer = null;
+    }
+  }
+  clearOutdatedExitPollTimer() {
+    if (this.outdatedExitPollTimer !== null) {
+      clearInterval(this.outdatedExitPollTimer);
+      this.outdatedExitPollTimer = null;
+    }
+  }
+  getActiveJobCount() {
+    const available = this.slots.getAvailable();
+    const activeClaudeJobs = Math.max(0, this.config.slots.claude_code - available.claude_code);
+    const activeCodexJobs = Math.max(0, this.config.slots.codex - available.codex);
+    return activeClaudeJobs + activeCodexJobs;
+  }
+  startOutdatedExitPolling() {
+    if (this.outdatedExitPollTimer !== null)
+      return;
+    if (process.env["ZAZIG_EXIT_ON_OUTDATED"] !== "1") {
+      console.warn("[local-agent] Outdated agent detected; auto-exit disabled (set ZAZIG_EXIT_ON_OUTDATED=1 to enable)");
+      return;
+    }
+    const maybeExit = () => {
+      const activeJobs = this.getActiveJobCount();
+      if (activeJobs > 0) {
+        console.warn(`[local-agent] Outdated agent waiting for ${activeJobs} active job(s) to complete`);
+        return;
+      }
+      this.clearOutdatedExitPollTimer();
+      console.warn("[local-agent] Outdated agent has no active jobs \u2014 exiting for update");
+      void this.stop().finally(() => {
+        process.exit(0);
+      });
+    };
+    maybeExit();
+    this.outdatedExitPollTimer = setInterval(maybeExit, 15e3);
+  }
+  async closeOutdatedInteractiveSessions() {
+    let sessions = [];
+    try {
+      const { stdout } = await execFileAsync3("tmux", ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
+      sessions = stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+    } catch (err) {
+      console.warn(`[local-agent] Could not enumerate tmux sessions while outdated: ${String(err)}`);
+      return;
+    }
+    const companyPrefixes = /* @__PURE__ */ new Set();
+    if (this.primaryCompanyId)
+      companyPrefixes.add(this.primaryCompanyId.slice(0, 8));
+    for (const companyId of this.companyIds) {
+      companyPrefixes.add(companyId.slice(0, 8));
+    }
+    const targets = sessions.filter((sessionName) => {
+      if (sessionName.startsWith("expert-"))
+        return true;
+      if (sessionName === `${this.machineId}-cpo`)
+        return true;
+      for (const prefix of companyPrefixes) {
+        if (sessionName === `${this.machineId}-${prefix}-cpo`)
+          return true;
+      }
+      return false;
+    });
+    for (const sessionName of targets) {
+      try {
+        await execFileAsync3("tmux", ["kill-session", "-t", sessionName], { encoding: "utf8" });
+        console.warn(`[local-agent] Closed interactive tmux session while outdated: ${sessionName}`);
+      } catch (err) {
+        console.warn(`[local-agent] Failed to close tmux session ${sessionName}: ${String(err)}`);
       }
     }
   }
@@ -19499,10 +19659,10 @@ var AgentConnection = class {
 import { mkdirSync as mkdirSync4, readFileSync as readFileSync5, writeFileSync as writeFileSync4, existsSync as existsSync5, rmSync as rmSync4 } from "node:fs";
 import { join as join6, dirname as dirname3, resolve as resolve3 } from "node:path";
 import { homedir as homedir4 } from "node:os";
-import { execFile as execFile3 } from "node:child_process";
-import { promisify as promisify3 } from "node:util";
+import { execFile as execFile4 } from "node:child_process";
+import { promisify as promisify4 } from "node:util";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
-var execFileAsync3 = promisify3(execFile3);
+var execFileAsync4 = promisify4(execFile4);
 function shellEscape2(parts) {
   return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
 }
@@ -19530,14 +19690,14 @@ function viewerSessionName(companyName) {
 }
 async function killTmuxSession2(sessionName) {
   try {
-    await execFileAsync3("tmux", ["kill-session", "-t", sessionName]);
+    await execFileAsync4("tmux", ["kill-session", "-t", sessionName]);
     console.log(`[expert] Killed stale tmux session: ${sessionName}`);
   } catch {
   }
 }
 async function isTmuxSessionAlive2(sessionName) {
   try {
-    await execFileAsync3("tmux", ["has-session", "-t", sessionName]);
+    await execFileAsync4("tmux", ["has-session", "-t", sessionName]);
     return true;
   } catch {
     return false;
@@ -19581,11 +19741,11 @@ var ExpertSessionManager = class {
         const branch = msg.branch ?? "master";
         if (!existsSync5(bareRepoDir)) {
           console.log(`[expert] Cloning bare repo for ${projectName}...`);
-          await execFileAsync3("git", ["clone", "--bare", msg.repo_url, bareRepoDir]);
+          await execFileAsync4("git", ["clone", "--bare", msg.repo_url, bareRepoDir]);
         }
-        await execFileAsync3("git", ["-C", bareRepoDir, "fetch", "origin"]);
+        await execFileAsync4("git", ["-C", bareRepoDir, "fetch", "origin"]);
         try {
-          await execFileAsync3("git", [
+          await execFileAsync4("git", [
             "-C",
             bareRepoDir,
             "worktree",
@@ -19595,7 +19755,7 @@ var ExpertSessionManager = class {
             `origin/${branch}`
           ]);
         } catch {
-          await execFileAsync3("git", [
+          await execFileAsync4("git", [
             "-C",
             bareRepoDir,
             "worktree",
@@ -19694,7 +19854,7 @@ See \`.claude/expert-brief.md\` for the full task brief.`);
       }
       const claudeCmd = shellEscape2(["claude", "--model", msg.model]);
       const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
-      await execFileAsync3("tmux", [
+      await execFileAsync4("tmux", [
         "new-session",
         "-d",
         "-s",
@@ -19749,7 +19909,7 @@ See \`.claude/expert-brief.md\` for the full task brief.`);
       viewerSession = viewerSessionName(msg.company_name);
     } else {
       try {
-        const { stdout } = await execFileAsync3("tmux", [
+        const { stdout } = await execFileAsync4("tmux", [
           "list-sessions",
           "-F",
           "#{session_name}"
@@ -19768,7 +19928,7 @@ See \`.claude/expert-brief.md\` for the full task brief.`);
       return null;
     }
     try {
-      const { stdout: windowId } = await execFileAsync3("tmux", [
+      const { stdout: windowId } = await execFileAsync4("tmux", [
         "list-windows",
         "-t",
         tmuxSessionName,
@@ -19781,21 +19941,21 @@ See \`.claude/expert-brief.md\` for the full task brief.`);
         return null;
       }
       const viewerWindowName = displayName.toUpperCase().replace(/\s+/g, "-");
-      await execFileAsync3("tmux", [
+      await execFileAsync4("tmux", [
         "link-window",
         "-s",
         expertWindowId,
         "-t",
         `${viewerSession}:`
       ]);
-      await execFileAsync3("tmux", [
+      await execFileAsync4("tmux", [
         "rename-window",
         "-t",
         expertWindowId,
         viewerWindowName
       ]);
       try {
-        await execFileAsync3("tmux", [
+        await execFileAsync4("tmux", [
           "select-window",
           "-t",
           `${viewerSession}:${viewerWindowName}`
@@ -19886,8 +20046,8 @@ See \`.claude/expert-brief.md\` for the full task brief.`);
     if (!singleLine)
       return;
     try {
-      await execFileAsync3("tmux", ["send-keys", "-t", cpoSessionName, "-l", singleLine]);
-      await execFileAsync3("tmux", ["send-keys", "-t", cpoSessionName, "Enter"]);
+      await execFileAsync4("tmux", ["send-keys", "-t", cpoSessionName, "-l", singleLine]);
+      await execFileAsync4("tmux", ["send-keys", "-t", cpoSessionName, "Enter"]);
       console.log(`[expert] Injected expert summary into CPO session ${cpoSessionName}`);
     } catch (err) {
       console.warn(`[expert] Failed to inject summary into CPO session ${cpoSessionName}:`, err);
@@ -19900,7 +20060,7 @@ See \`.claude/expert-brief.md\` for the full task brief.`);
       return;
     if (session.viewerWindowName) {
       try {
-        await execFileAsync3("tmux", [
+        await execFileAsync4("tmux", [
           "unlink-window",
           "-k",
           "-t",
@@ -19916,13 +20076,13 @@ See \`.claude/expert-brief.md\` for the full task brief.`);
     ];
     for (const target of directTargets) {
       try {
-        await execFileAsync3("tmux", ["select-window", "-t", target]);
+        await execFileAsync4("tmux", ["select-window", "-t", target]);
         return;
       } catch {
       }
     }
     try {
-      const { stdout } = await execFileAsync3("tmux", [
+      const { stdout } = await execFileAsync4("tmux", [
         "list-windows",
         "-t",
         session.viewerSession,
@@ -19936,7 +20096,7 @@ See \`.claude/expert-brief.md\` for the full task brief.`);
         console.warn(`[expert] Could not find CPO window in viewer session ${session.viewerSession}`);
         return;
       }
-      await execFileAsync3("tmux", ["select-window", "-t", `${session.viewerSession}:${cpoIndex}`]);
+      await execFileAsync4("tmux", ["select-window", "-t", `${session.viewerSession}:${cpoIndex}`]);
     } catch (err) {
       console.warn(`[expert] Failed to switch viewer ${session.viewerSession} back to CPO:`, err);
     }
@@ -19946,7 +20106,7 @@ See \`.claude/expert-brief.md\` for the full task brief.`);
       return;
     try {
       if (session.bareRepoDir) {
-        await execFileAsync3("git", [
+        await execFileAsync4("git", [
           "-C",
           session.bareRepoDir,
           "worktree",
@@ -19954,14 +20114,14 @@ See \`.claude/expert-brief.md\` for the full task brief.`);
           "--force",
           session.repoDir
         ]);
-        await execFileAsync3("git", [
+        await execFileAsync4("git", [
           "-C",
           session.bareRepoDir,
           "worktree",
           "prune"
         ]);
       } else {
-        await execFileAsync3("git", ["worktree", "remove", "--force", session.repoDir]);
+        await execFileAsync4("git", ["worktree", "remove", "--force", session.repoDir]);
       }
       console.log(`[expert] Removed git worktree ${session.repoDir}`);
     } catch (err) {
@@ -19981,9 +20141,9 @@ See \`.claude/expert-brief.md\` for the full task brief.`);
 };
 
 // ../local-agent/dist/fix-agent.js
-import { execFile as execFile4 } from "node:child_process";
-import { promisify as promisify4 } from "node:util";
-var execFileAsync4 = promisify4(execFile4);
+import { execFile as execFile5 } from "node:child_process";
+import { promisify as promisify5 } from "node:util";
+var execFileAsync5 = promisify5(execFile5);
 var FixAgentManager = class {
   activeAgents = /* @__PURE__ */ new Map();
   repoDir;
@@ -20016,7 +20176,7 @@ var FixAgentManager = class {
       `Thread: ${safeThread}`
     ].join(" ");
     const shellCmd = `unset CLAUDECODE; ${shellEscape3(["claude", "-p", prompt])}`;
-    await execFileAsync4("tmux", [
+    await execFileAsync5("tmux", [
       "new-session",
       "-d",
       "-s",
@@ -20041,7 +20201,7 @@ var FixAgentManager = class {
     if (!agent)
       return;
     try {
-      await execFileAsync4("tmux", ["kill-session", "-t", agent.sessionName]);
+      await execFileAsync5("tmux", ["kill-session", "-t", agent.sessionName]);
       console.log(`[fix-agent] Killed tmux session: ${agent.sessionName}`);
     } catch {
     }
@@ -20062,9 +20222,9 @@ function shellEscape3(parts) {
 }
 
 // ../local-agent/dist/verifier.js
-import { execFile as execFile5 } from "node:child_process";
-import { promisify as promisify5 } from "node:util";
-var execFileAsync5 = promisify5(execFile5);
+import { execFile as execFile6 } from "node:child_process";
+import { promisify as promisify6 } from "node:util";
+var execFileAsync6 = promisify6(execFile6);
 function getErrorOutput(error) {
   if (typeof error !== "object" || error === null) {
     return String(error);
@@ -20075,7 +20235,7 @@ function getErrorOutput(error) {
   return [message, stdout, stderr].filter((part) => part.trim().length > 0).join("\n");
 }
 var defaultRunCommand = async (file, args, options) => {
-  const { stdout, stderr } = await execFileAsync5(file, args, options);
+  const { stdout, stderr } = await execFileAsync6(file, args, options);
   return {
     stdout: typeof stdout === "string" ? stdout : String(stdout ?? ""),
     stderr: typeof stderr === "string" ? stderr : String(stderr ?? "")

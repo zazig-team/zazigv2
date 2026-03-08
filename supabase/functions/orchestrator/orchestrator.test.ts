@@ -5,7 +5,10 @@
  * without hitting a real database.
  */
 
-import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import {
+  assertEquals,
+  assertStringIncludes,
+} from "https://deno.land/std@0.208.0/assert/mod.ts";
 
 // ---------------------------------------------------------------------------
 // Set required env vars BEFORE importing index.ts (which reads them at top level)
@@ -20,7 +23,12 @@ const originalServe = (Deno as any).serve;
 // deno-lint-ignore no-explicit-any
 (Deno as any).serve = (_handler: unknown) => {
   // no-op: prevent actual server from starting during tests
-  return { finished: Promise.resolve(), ref: () => {}, unref: () => {}, addr: { hostname: "localhost", port: 0, transport: "tcp" as const } };
+  return {
+    finished: Promise.resolve(),
+    ref: () => {},
+    unref: () => {},
+    addr: { hostname: "localhost", port: 0, transport: "tcp" as const },
+  };
 };
 
 // Now import the functions under test after stubbing Deno.serve.
@@ -33,6 +41,7 @@ const {
   checkUnblockedJobs,
   notifyCPO,
   handleDeployComplete,
+  resolveModelAndSlot,
 } = await import("./index.ts");
 
 // Restore Deno.serve after import.
@@ -172,7 +181,25 @@ function createSmartMockSupabase() {
     // deno-lint-ignore no-explicit-any
     const chain: any = {};
 
-    for (const method of ["select", "update", "insert", "eq", "in", "single", "maybeSingle", "filter", "order", "gt", "not", "limit", "neq", "contains", "head"]) {
+    for (
+      const method of [
+        "select",
+        "update",
+        "insert",
+        "eq",
+        "in",
+        "single",
+        "maybeSingle",
+        "filter",
+        "order",
+        "gt",
+        "not",
+        "limit",
+        "neq",
+        "contains",
+        "head",
+      ]
+    ) {
       // deno-lint-ignore no-explicit-any
       chain[method] = (...args: any[]) => {
         ops.push({ method, args });
@@ -193,7 +220,10 @@ function createSmartMockSupabase() {
     },
     // deno-lint-ignore no-explicit-any
     rpc(name: string, args: any) {
-      const call: ChainedCall = { table: "_rpc", operations: [{ method: "rpc", args: [name, args] }] };
+      const call: ChainedCall = {
+        table: "_rpc",
+        operations: [{ method: "rpc", args: [name, args] }],
+      };
       chainedCalls.push(call);
       const pattern = `rpc:${name}`;
       return responseMap.get(pattern) ?? { data: null, error: null };
@@ -207,10 +237,16 @@ function createSmartMockSupabase() {
           if (callback) callback("SUBSCRIBED");
           return ch;
         },
-        send() { return Promise.resolve("ok"); },
-        unsubscribe() { return Promise.resolve(); },
+        send() {
+          return Promise.resolve("ok");
+        },
+        unsubscribe() {
+          return Promise.resolve();
+        },
         // deno-lint-ignore no-explicit-any
-        on() { return ch; },
+        on() {
+          return ch;
+        },
       };
       return ch;
     },
@@ -222,6 +258,93 @@ function createSmartMockSupabase() {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+Deno.test("resolveModelAndSlot — simple feature with retry_count 0 stays on junior-engineer codex", () => {
+  const routing = new Map([
+    ["simple", {
+      complexity: "simple",
+      role: "junior-engineer",
+      model: "codex",
+      slotType: "codex",
+    }],
+    ["medium", {
+      complexity: "medium",
+      role: "senior-engineer",
+      model: "claude-sonnet-4-6",
+      slotType: "claude_code",
+    }],
+  ]);
+
+  const resolved = resolveModelAndSlot(
+    routing,
+    "simple",
+    null,
+    0,
+    "job-simple-no-retry",
+  );
+
+  assertEquals(resolved.role, "junior-engineer");
+  assertEquals(resolved.model, "codex");
+  assertEquals(resolved.slotType, "codex");
+});
+
+Deno.test("resolveModelAndSlot — simple feature with retry_count 1 escalates to junior-engineer-cc", () => {
+  const routing = new Map([
+    ["simple", {
+      complexity: "simple",
+      role: "junior-engineer",
+      model: "codex",
+      slotType: "codex",
+    }],
+    ["medium", {
+      complexity: "medium",
+      role: "senior-engineer",
+      model: "claude-sonnet-4-6",
+      slotType: "claude_code",
+    }],
+  ]);
+
+  const resolved = resolveModelAndSlot(
+    routing,
+    "simple",
+    null,
+    1,
+    "job-simple-retry",
+  );
+
+  assertEquals(resolved.role, "junior-engineer-cc");
+  assertEquals(resolved.model, "claude-sonnet-4-6");
+  assertEquals(resolved.slotType, "claude_code");
+});
+
+Deno.test("resolveModelAndSlot — medium feature with retry_count 1 stays on senior-engineer", () => {
+  const routing = new Map([
+    ["simple", {
+      complexity: "simple",
+      role: "junior-engineer",
+      model: "codex",
+      slotType: "codex",
+    }],
+    ["medium", {
+      complexity: "medium",
+      role: "senior-engineer",
+      model: "claude-sonnet-4-6",
+      slotType: "claude_code",
+    }],
+  ]);
+
+  const resolved = resolveModelAndSlot(
+    routing,
+    "medium",
+    null,
+    1,
+    "job-medium-retry",
+  );
+
+  assertEquals(resolved.role, "senior-engineer");
+  assertEquals(resolved.model, "claude-sonnet-4-6");
+  assertEquals(resolved.slotType, "claude_code");
+});
 
 Deno.test("handleJobComplete — marks a completed job and releases its slot", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
@@ -254,17 +377,28 @@ Deno.test("handleJobComplete — marks a completed job and releases its slot", a
   await handleJobComplete(client as any, msg);
 
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  const updateChain = jobsChains.find((c) => c.operations[0].method === "update");
+  const updateChain = jobsChains.find((c) =>
+    c.operations[0].method === "update"
+  );
   assertEquals(updateChain !== undefined, true, "Should update the job row");
   // deno-lint-ignore no-explicit-any
   const updatePayload = updateChain!.operations[0].args[0] as any;
   assertEquals(updatePayload.status, "complete");
-  assertEquals(updatePayload.result, "Test failed: assertion error in auth module");
+  assertEquals(
+    updatePayload.result,
+    "Test failed: assertion error in auth module",
+  );
   assertEquals(updatePayload.machine_id, null);
 
   const rpcCalls = chainedCalls.filter((c) => c.table === "_rpc");
-  const releaseCall = rpcCalls.find((c) => c.operations[0].args[0] === "release_machine_slot");
-  assertEquals(releaseCall !== undefined, true, "release_machine_slot should be called");
+  const releaseCall = rpcCalls.find((c) =>
+    c.operations[0].args[0] === "release_machine_slot"
+  );
+  assertEquals(
+    releaseCall !== undefined,
+    true,
+    "release_machine_slot should be called",
+  );
 });
 
 Deno.test("handleJobComplete — feature-linked completion does not auto-deploy without verification context", async () => {
@@ -302,7 +436,9 @@ Deno.test("handleJobComplete — feature-linked completion does not auto-deploy 
   await handleJobComplete(client as any, msg);
 
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  const updateChain = jobsChains.find((c) => c.operations[0].method === "update");
+  const updateChain = jobsChains.find((c) =>
+    c.operations[0].method === "update"
+  );
   assertEquals(updateChain !== undefined, true, "Should mark job complete");
 
   // deno-lint-ignore no-explicit-any
@@ -310,7 +446,9 @@ Deno.test("handleJobComplete — feature-linked completion does not auto-deploy 
 
   // No legacy verify-result RPC path
   const rpcCalls = chainedCalls.filter((c) => c.table === "_rpc");
-  const allDoneCall = rpcCalls.find((c) => c.operations[0].args[0] === "all_feature_jobs_complete");
+  const allDoneCall = rpcCalls.find((c) =>
+    c.operations[0].args[0] === "all_feature_jobs_complete"
+  );
   assertEquals(allDoneCall === undefined, true);
 
   // No feature deploy transition for non-verification context
@@ -326,7 +464,7 @@ Deno.test("handleJobComplete — passive verification completion initiates test 
   setResponse("jobs:select.eq.single", {
     data: {
       job_type: "verify",
-      context: "{\"type\":\"feature_verification\"}",
+      context: '{"type":"feature_verification"}',
       feature_id: "feature-99",
       company_id: "company-1",
       project_id: "proj-1",
@@ -350,8 +488,14 @@ Deno.test("handleJobComplete — passive verification completion initiates test 
     },
     error: null,
   });
-  setResponse("features:update.eq.eq.select", { data: [{ id: "feature-99" }], error: null });
-  setResponse("projects:select.eq.single", { data: { repo_url: "" }, error: null });
+  setResponse("features:update.eq.eq.select", {
+    data: [{ id: "feature-99" }],
+    error: null,
+  });
+  setResponse("projects:select.eq.single", {
+    data: { repo_url: "" },
+    error: null,
+  });
   setResponse("jobs:insert", { error: null });
   setResponse("rpc:release_machine_slot", { data: null, error: null });
 
@@ -368,21 +512,34 @@ Deno.test("handleJobComplete — passive verification completion initiates test 
 
   // Feature table should be accessed (select details + update status)
   const featureChains = chainedCalls.filter((c) => c.table === "features");
-  assertEquals(featureChains.length >= 2, true, "Should have feature update + select chains");
+  assertEquals(
+    featureChains.length >= 2,
+    true,
+    "Should have feature update + select chains",
+  );
 
   // First feature chain: select details
   assertEquals(featureChains[0].operations[0].method, "select");
   // Second feature chain: CAS update status to verifying
   assertEquals(featureChains[1].operations[0].method, "update");
   // deno-lint-ignore no-explicit-any
-  assertEquals((featureChains[1].operations[0].args[0] as any).status, "deploying_to_test");
+  assertEquals(
+    (featureChains[1].operations[0].args[0] as any).status,
+    "deploying_to_test",
+  );
 
   // Jobs should include completion update and deploy job insertion
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length >= 4, true, "Should include select, update, release-slot select, and deploy insert");
+  assertEquals(
+    jobsChains.length >= 4,
+    true,
+    "Should include select, update, release-slot select, and deploy insert",
+  );
 
   // Deploy job should be queued
-  const insertChain = jobsChains.find((c) => c.operations.some((o) => o.method === "insert"));
+  const insertChain = jobsChains.find((c) =>
+    c.operations.some((o) => o.method === "insert")
+  );
   assertEquals(insertChain !== undefined, true, "Should insert a deploy job");
   // deno-lint-ignore no-explicit-any
   const insertPayload = insertChain!.operations[0].args[0] as any;
@@ -401,11 +558,13 @@ Deno.test("handleJobComplete — reviewer NO_REPORT triggers request-feature-fix
   const { client, setResponse } = createSmartMockSupabase();
 
   const originalFetch = globalThis.fetch;
-  const fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    fetchCalls.push({ input, init });
-    return Promise.resolve(new Response("ok", { status: 200 }));
-  }) as typeof fetch;
+  const fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> =
+    [];
+  globalThis.fetch =
+    ((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      fetchCalls.push({ input, init });
+      return Promise.resolve(new Response("ok", { status: 200 }));
+    }) as typeof fetch;
 
   try {
     setResponse("jobs:update.eq", { error: null });
@@ -440,11 +599,15 @@ Deno.test("handleJobComplete — reviewer NO_REPORT triggers request-feature-fix
     // deno-lint-ignore no-explicit-any
     await handleJobComplete(client as any, msg);
 
-    assertEquals(fetchCalls.length, 1, "Should delegate NO_REPORT to request-feature-fix");
+    assertEquals(
+      fetchCalls.length,
+      1,
+      "Should delegate NO_REPORT to request-feature-fix",
+    );
     const fetchUrl = String(fetchCalls[0].input);
     assertStringIncludes(fetchUrl, "/functions/v1/request-feature-fix");
     const fetchBody = String(fetchCalls[0].init?.body ?? "");
-    assertStringIncludes(fetchBody, "\"feature_id\":\"feature-no-report\"");
+    assertStringIncludes(fetchBody, '"feature_id":"feature-no-report"');
     assertStringIncludes(fetchBody, "NO_REPORT");
   } finally {
     globalThis.fetch = originalFetch;
@@ -467,22 +630,35 @@ Deno.test("triggerFeatureVerification — sets feature to verifying and inserts 
   });
 
   // insert verification job
-  setResponse("jobs:insert.select", { data: [{ id: "verify-job-2" }], error: null });
-  setResponse("features:update.eq.eq.select", { data: [{ id: "feature-42" }], error: null });
+  setResponse("jobs:insert.select", {
+    data: [{ id: "verify-job-2" }],
+    error: null,
+  });
+  setResponse("features:update.eq.eq.select", {
+    data: [{ id: "feature-42" }],
+    error: null,
+  });
 
   // deno-lint-ignore no-explicit-any
   await triggerFeatureVerification(client as any, "feature-42");
 
   // Feature update chain
   const featureChains = chainedCalls.filter((c) => c.table === "features");
-  assertEquals(featureChains.length, 2, "Should select and then update features");
+  assertEquals(
+    featureChains.length,
+    2,
+    "Should select and then update features",
+  );
 
   // First: select feature details
   assertEquals(featureChains[0].operations[0].method, "select");
   // Second: CAS update to verifying
   assertEquals(featureChains[1].operations[0].method, "update");
   // deno-lint-ignore no-explicit-any
-  assertEquals((featureChains[1].operations[0].args[0] as any).status, "verifying");
+  assertEquals(
+    (featureChains[1].operations[0].args[0] as any).status,
+    "verifying",
+  );
 
   // Job insert
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
@@ -532,7 +708,11 @@ Deno.test("triggerFeatureVerification — insert failure leaves feature status u
   const featureUpdates = chainedCalls.filter((c) =>
     c.table === "features" && c.operations.some((o) => o.method === "update")
   );
-  assertEquals(featureUpdates.length, 0, "Feature must not be moved to verifying when insert fails");
+  assertEquals(
+    featureUpdates.length,
+    0,
+    "Feature must not be moved to verifying when insert fails",
+  );
 });
 
 Deno.test("handleJobComplete — always releases slot via RPC", async () => {
@@ -555,8 +735,14 @@ Deno.test("handleJobComplete — always releases slot via RPC", async () => {
   });
 
   const rpcCalls = chainedCalls.filter((c) => c.table === "_rpc");
-  const releaseCall = rpcCalls.find((c) => c.operations[0].args[0] === "release_machine_slot");
-  assertEquals(releaseCall !== undefined, true, "release_machine_slot RPC should be called");
+  const releaseCall = rpcCalls.find((c) =>
+    c.operations[0].args[0] === "release_machine_slot"
+  );
+  assertEquals(
+    releaseCall !== undefined,
+    true,
+    "release_machine_slot RPC should be called",
+  );
 });
 
 Deno.test("handleDeployComplete — stale CAS match skips Slack/event side effects", async () => {
@@ -588,7 +774,11 @@ Deno.test("handleDeployComplete — stale CAS match skips Slack/event side effec
   });
 
   const eventsChains = chainedCalls.filter((c) => c.table === "events");
-  assertEquals(eventsChains.length, 0, "No feature_status_changed event should be inserted on stale CAS");
+  assertEquals(
+    eventsChains.length,
+    0,
+    "No feature_status_changed event should be inserted on stale CAS",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -630,7 +820,11 @@ Deno.test("handleFeatureApproved — feature in ready_to_test → marks deployin
 
   // Verify feature was updated to deploying_to_prod
   const featureChains = chainedCalls.filter((c) => c.table === "features");
-  assertEquals(featureChains.length >= 2, true, "Should have select + update on features");
+  assertEquals(
+    featureChains.length >= 2,
+    true,
+    "Should have select + update on features",
+  );
 
   // First chain: select feature details
   assertEquals(featureChains[0].operations[0].method, "select");
@@ -638,11 +832,18 @@ Deno.test("handleFeatureApproved — feature in ready_to_test → marks deployin
   // Second chain: CAS update to deploying_to_prod
   assertEquals(featureChains[1].operations[0].method, "update");
   // deno-lint-ignore no-explicit-any
-  assertEquals((featureChains[1].operations[0].args[0] as any).status, "deploying_to_prod");
+  assertEquals(
+    (featureChains[1].operations[0].args[0] as any).status,
+    "deploying_to_prod",
+  );
 
   // Jobs table: mark jobs complete + enqueue prod deploy job
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 2, "Should update jobs and insert deploy job");
+  assertEquals(
+    jobsChains.length,
+    2,
+    "Should update jobs and insert deploy job",
+  );
   // deno-lint-ignore no-explicit-any
   assertEquals((jobsChains[0].operations[0].args[0] as any).status, "complete");
   // deno-lint-ignore no-explicit-any
@@ -692,7 +893,11 @@ Deno.test("handleFeatureApproved — feature NOT in ready_to_test (CAS guard) �
   assertEquals(jobsChains.length, 0, "Should not update jobs when CAS fails");
 
   const eventsChains = chainedCalls.filter((c) => c.table === "events");
-  assertEquals(eventsChains.length, 0, "Should not insert event when CAS fails");
+  assertEquals(
+    eventsChains.length,
+    0,
+    "Should not insert event when CAS fails",
+  );
 });
 
 Deno.test("handleFeatureApproved — queues a prod deployer job after approval", async () => {
@@ -702,7 +907,10 @@ Deno.test("handleFeatureApproved — queues a prod deployer job after approval",
     data: { project_id: "proj-1", company_id: "co-1", branch: "feat/prod" },
     error: null,
   });
-  setResponse("features:update.eq.eq.select", { data: [{ id: "feat-prod" }], error: null });
+  setResponse("features:update.eq.eq.select", {
+    data: [{ id: "feat-prod" }],
+    error: null,
+  });
   setResponse("jobs:update.eq.not", { error: null });
   setResponse("events:insert", { error: null });
   setResponse("jobs:insert", { data: [{ id: "deploy-job-2" }], error: null });
@@ -717,7 +925,9 @@ Deno.test("handleFeatureApproved — queues a prod deployer job after approval",
 
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
   assertEquals(jobsChains.length, 2);
-  const deployInsert = jobsChains.find((c) => c.operations[0].method === "insert");
+  const deployInsert = jobsChains.find((c) =>
+    c.operations[0].method === "insert"
+  );
   assertEquals(deployInsert !== undefined, true);
   // deno-lint-ignore no-explicit-any
   const payload = deployInsert!.operations[0].args[0] as any;
@@ -769,10 +979,18 @@ Deno.test("handleFeatureRejected — severity=small → logs event, no feature u
   const featureUpdates = chainedCalls.filter((c) =>
     c.table === "features" && c.operations.some((o) => o.method === "update")
   );
-  assertEquals(featureUpdates.length, 0, "Should not update feature status for small rejection");
+  assertEquals(
+    featureUpdates.length,
+    0,
+    "Should not update feature status for small rejection",
+  );
 
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 0, "Should not insert fix job for small rejection");
+  assertEquals(
+    jobsChains.length,
+    0,
+    "Should not insert fix job for small rejection",
+  );
 });
 
 Deno.test("handleFeatureRejected — severity=big + in ready_to_test → resets to building, inserts fix job", async () => {
@@ -780,7 +998,12 @@ Deno.test("handleFeatureRejected — severity=big + in ready_to_test → resets 
 
   // Fetch feature details
   setResponse("features:select.eq.single", {
-    data: { company_id: "co-1", project_id: "proj-1", branch: "feat/auth", spec: "Build auth" },
+    data: {
+      company_id: "co-1",
+      project_id: "proj-1",
+      branch: "feat/auth",
+      spec: "Build auth",
+    },
     error: null,
   });
 
@@ -794,7 +1017,10 @@ Deno.test("handleFeatureRejected — severity=big + in ready_to_test → resets 
   setResponse("events:insert", { error: null });
 
   // Insert fix job
-  setResponse("jobs:insert.select", { data: [{ id: "fix-job-1" }], error: null });
+  setResponse("jobs:insert.select", {
+    data: [{ id: "fix-job-1" }],
+    error: null,
+  });
 
   // Queue check → empty
   setResponse("features:select.eq.eq.order.limit", { data: [], error: null });
@@ -818,11 +1044,19 @@ Deno.test("handleFeatureRejected — severity=big + in ready_to_test → resets 
     // deno-lint-ignore no-explicit-any
     return (c.operations[0].args[0] as any).status === "building";
   });
-  assertEquals(buildingUpdate !== undefined, true, "Should reset feature to building");
+  assertEquals(
+    buildingUpdate !== undefined,
+    true,
+    "Should reset feature to building",
+  );
 
   // Event should be logged
   const eventsChains = chainedCalls.filter((c) => c.table === "events");
-  assertEquals(eventsChains.length, 1, "Should insert feature_status_changed event");
+  assertEquals(
+    eventsChains.length,
+    1,
+    "Should insert feature_status_changed event",
+  );
   // deno-lint-ignore no-explicit-any
   const eventPayload = eventsChains[0].operations[0].args[0] as any;
   assertEquals(eventPayload.event_type, "feature_status_changed");
@@ -848,7 +1082,12 @@ Deno.test("handleFeatureRejected — severity=big + NOT in ready_to_test (CAS gu
 
   // Fetch feature
   setResponse("features:select.eq.single", {
-    data: { company_id: "co-1", project_id: "proj-1", branch: "feat/x", spec: "" },
+    data: {
+      company_id: "co-1",
+      project_id: "proj-1",
+      branch: "feat/x",
+      spec: "",
+    },
     error: null,
   });
 
@@ -869,59 +1108,86 @@ Deno.test("handleFeatureRejected — severity=big + NOT in ready_to_test (CAS gu
 
   // Should NOT insert events or jobs
   const eventsChains = chainedCalls.filter((c) => c.table === "events");
-  assertEquals(eventsChains.length, 0, "Should not insert event when CAS fails");
+  assertEquals(
+    eventsChains.length,
+    0,
+    "Should not insert event when CAS fails",
+  );
 
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 0, "Should not insert fix job when CAS fails");
+  assertEquals(
+    jobsChains.length,
+    0,
+    "Should not insert fix job when CAS fails",
+  );
 });
 
-Deno.test.ignore("handleFeatureRejected — severity=big + queue exists → promotes next feature", async () => {
-  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+Deno.test.ignore(
+  "handleFeatureRejected — severity=big + queue exists → promotes next feature",
+  async () => {
+    const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
-  // Fetch feature
-  setResponse("features:select.eq.single", {
-    data: { company_id: "co-1", project_id: "proj-1", branch: "feat/y", spec: "spec", human_checklist: "" },
-    error: null,
-  });
+    // Fetch feature
+    setResponse("features:select.eq.single", {
+      data: {
+        company_id: "co-1",
+        project_id: "proj-1",
+        branch: "feat/y",
+        spec: "spec",
+        human_checklist: "",
+      },
+      error: null,
+    });
 
-  // CAS update → success
-  setResponse("features:update.eq.eq.select", { data: [{ id: "feat-5" }], error: null });
+    // CAS update → success
+    setResponse("features:update.eq.eq.select", {
+      data: [{ id: "feat-5" }],
+      error: null,
+    });
 
-  // Insert event
-  setResponse("events:insert", { error: null });
+    // Insert event
+    setResponse("events:insert", { error: null });
 
-  // Insert fix job
-  setResponse("jobs:insert", { error: null });
+    // Insert fix job
+    setResponse("jobs:insert", { error: null });
 
-  // Queue check → next feature waiting
-  setResponse("features:select.eq.eq.order.limit", { data: [{ id: "next-feat" }], error: null });
+    // Queue check → next feature waiting
+    setResponse("features:select.eq.eq.order.limit", {
+      data: [{ id: "next-feat" }],
+      error: null,
+    });
 
-  // promoteToTesting internals:
-  setResponse("features:select.eq.eq.limit", { data: [], error: null });
-  setResponse("features:update.eq", { error: null });
+    // promoteToTesting internals:
+    setResponse("features:select.eq.eq.limit", { data: [], error: null });
+    setResponse("features:update.eq", { error: null });
 
-  const msg = {
-    type: "feature_rejected" as const,
-    protocolVersion: 1,
-    featureId: "feat-5",
-    feedback: "Major rework needed",
-    severity: "big" as const,
-    machineId: "machine-1",
-  };
+    const msg = {
+      type: "feature_rejected" as const,
+      protocolVersion: 1,
+      featureId: "feat-5",
+      feedback: "Major rework needed",
+      severity: "big" as const,
+      machineId: "machine-1",
+    };
 
-  // deno-lint-ignore no-explicit-any
-  await handleFeatureRejected(client as any, msg);
-
-  // Should promote next feature — look for update to "deploying_to_test"
-  const featureChains = chainedCalls.filter((c) => c.table === "features");
-  const promoteUpdate = featureChains.find((c) => {
-    if (c.operations[0].method !== "update") return false;
     // deno-lint-ignore no-explicit-any
-    const payload = c.operations[0].args[0] as any;
-    return payload.status === "deploying_to_test";
-  });
-  assertEquals(promoteUpdate !== undefined, true, "Should promote next feature to deploying_to_test after big rejection");
-});
+    await handleFeatureRejected(client as any, msg);
+
+    // Should promote next feature — look for update to "deploying_to_test"
+    const featureChains = chainedCalls.filter((c) => c.table === "features");
+    const promoteUpdate = featureChains.find((c) => {
+      if (c.operations[0].method !== "update") return false;
+      // deno-lint-ignore no-explicit-any
+      const payload = c.operations[0].args[0] as any;
+      return payload.status === "deploying_to_test";
+    });
+    assertEquals(
+      promoteUpdate !== undefined,
+      true,
+      "Should promote next feature to deploying_to_test after big rejection",
+    );
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Standalone job tests (jobs with no feature_id)
@@ -961,10 +1227,20 @@ Deno.test("handleJobComplete — standalone completion marks complete and skips 
   await handleJobComplete(client as any, msg);
 
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 3, "Should have fetch + update + release-slot lookup");
+  assertEquals(
+    jobsChains.length,
+    3,
+    "Should have fetch + update + release-slot lookup",
+  );
 
-  const updateChain = jobsChains.find((c) => c.operations[0].method === "update");
-  assertEquals(updateChain !== undefined, true, "Should update job to complete");
+  const updateChain = jobsChains.find((c) =>
+    c.operations[0].method === "update"
+  );
+  assertEquals(
+    updateChain !== undefined,
+    true,
+    "Should update job to complete",
+  );
   // deno-lint-ignore no-explicit-any
   assertEquals((updateChain!.operations[0].args[0] as any).status, "complete");
 
@@ -1006,7 +1282,9 @@ Deno.test("handleJobComplete — standalone completion writes result payload", a
   await handleJobComplete(client as any, msg);
 
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  const updateChain = jobsChains.find((c) => c.operations[0].method === "update");
+  const updateChain = jobsChains.find((c) =>
+    c.operations[0].method === "update"
+  );
   assertEquals(updateChain !== undefined, true, "Should update job");
 
   // deno-lint-ignore no-explicit-any
@@ -1050,9 +1328,15 @@ Deno.test("handleJobComplete — job with no feature_id → marks complete and r
 
   // Should have 3 jobs chains: fetch row, update complete, release-slot lookup
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 3, "Should have fetch + update + release-slot lookup");
+  assertEquals(
+    jobsChains.length,
+    3,
+    "Should have fetch + update + release-slot lookup",
+  );
 
-  const updateChain = jobsChains.find((c) => c.operations[0].method === "update");
+  const updateChain = jobsChains.find((c) =>
+    c.operations[0].method === "update"
+  );
   assertEquals(updateChain !== undefined, true, "Should update job");
   // deno-lint-ignore no-explicit-any
   assertEquals((updateChain!.operations[0].args[0] as any).status, "complete");
@@ -1111,18 +1395,31 @@ Deno.test("triggerBreakdown — creates queued breakdown job with correct contex
   // Second chain: CAS update to breakdown
   assertEquals(featureChains[1].operations[0].method, "update");
   // deno-lint-ignore no-explicit-any
-  assertEquals((featureChains[1].operations[0].args[0] as any).status, "breakdown");
+  assertEquals(
+    (featureChains[1].operations[0].args[0] as any).status,
+    "breakdown",
+  );
 
   // Verify breakdown job was inserted
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 3, "Should have idempotency check + stale scan + insert on jobs");
+  assertEquals(
+    jobsChains.length,
+    3,
+    "Should have idempotency check + stale scan + insert on jobs",
+  );
 
   // First jobs chain: idempotency check (select)
   assertEquals(jobsChains[0].operations[0].method, "select");
 
   // Insert chain: breakdown job
-  const insertChain = jobsChains.find((c) => c.operations[0].method === "insert");
-  assertEquals(insertChain !== undefined, true, "Should insert a breakdown job");
+  const insertChain = jobsChains.find((c) =>
+    c.operations[0].method === "insert"
+  );
+  assertEquals(
+    insertChain !== undefined,
+    true,
+    "Should insert a breakdown job",
+  );
   // deno-lint-ignore no-explicit-any
   const payload = insertChain!.operations[0].args[0] as any;
   assertEquals(payload.company_id, "co-1");
@@ -1167,14 +1464,27 @@ Deno.test("triggerBreakdown — idempotent: skips if active breakdown job exists
 
   // Should NOT insert a new job or update feature
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 1, "Should only have the idempotency check, no insert");
-  assertEquals(jobsChains[0].operations[0].method, "select", "Should be the select for idempotency check");
+  assertEquals(
+    jobsChains.length,
+    1,
+    "Should only have the idempotency check, no insert",
+  );
+  assertEquals(
+    jobsChains[0].operations[0].method,
+    "select",
+    "Should be the select for idempotency check",
+  );
 
   // Should NOT update feature status
   const featureUpdates = chainedCalls.filter(
-    (c) => c.table === "features" && c.operations.some((o) => o.method === "update")
+    (c) =>
+      c.table === "features" && c.operations.some((o) => o.method === "update"),
   );
-  assertEquals(featureUpdates.length, 0, "Should not update feature when breakdown already exists");
+  assertEquals(
+    featureUpdates.length,
+    0,
+    "Should not update feature when breakdown already exists",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1204,12 +1514,22 @@ Deno.test("checkUnblockedJobs — all deps complete → logs unblocked", async (
 
   // Verify candidate query was made
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 2, "Should have candidate query + dep status query");
+  assertEquals(
+    jobsChains.length,
+    2,
+    "Should have candidate query + dep status query",
+  );
 
   // First chain: select candidates with contains
   assertEquals(jobsChains[0].operations[0].method, "select");
-  const containsOp = jobsChains[0].operations.find((o) => o.method === "contains");
-  assertEquals(containsOp !== undefined, true, "Should have contains filter for depends_on");
+  const containsOp = jobsChains[0].operations.find((o) =>
+    o.method === "contains"
+  );
+  assertEquals(
+    containsOp !== undefined,
+    true,
+    "Should have contains filter for depends_on",
+  );
 
   // Second chain: select dep statuses with in
   assertEquals(jobsChains[1].operations[0].method, "select");
@@ -1240,12 +1560,22 @@ Deno.test("checkUnblockedJobs — partial deps incomplete → stays blocked", as
 
   // Both queries should still be made
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(jobsChains.length, 2, "Should have candidate query + dep status query");
+  assertEquals(
+    jobsChains.length,
+    2,
+    "Should have candidate query + dep status query",
+  );
 
   // Candidate query
   assertEquals(jobsChains[0].operations[0].method, "select");
-  const containsOp = jobsChains[0].operations.find((o) => o.method === "contains");
-  assertEquals(containsOp !== undefined, true, "Should query candidates with contains");
+  const containsOp = jobsChains[0].operations.find((o) =>
+    o.method === "contains"
+  );
+  assertEquals(
+    containsOp !== undefined,
+    true,
+    "Should query candidates with contains",
+  );
 
   // Dep check query
   assertEquals(jobsChains[1].operations[0].method, "select");
@@ -1269,8 +1599,14 @@ Deno.test("checkUnblockedJobs — no candidates → early return", async () => {
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
   assertEquals(jobsChains.length, 1, "Should only have the candidate query");
   assertEquals(jobsChains[0].operations[0].method, "select");
-  const containsOp = jobsChains[0].operations.find((o) => o.method === "contains");
-  assertEquals(containsOp !== undefined, true, "Should query candidates with contains");
+  const containsOp = jobsChains[0].operations.find((o) =>
+    o.method === "contains"
+  );
+  assertEquals(
+    containsOp !== undefined,
+    true,
+    "Should query candidates with contains",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1304,7 +1640,11 @@ Deno.test("notifyCPO — sends MessageInbound to CPO machine", async () => {
 
   // Verify machines query was made
   const machineChains = chainedCalls.filter((c) => c.table === "machines");
-  assertEquals(machineChains.length, 1, "Should query machines for CPO machine name");
+  assertEquals(
+    machineChains.length,
+    1,
+    "Should query machines for CPO machine name",
+  );
   assertEquals(machineChains[0].operations[0].method, "select");
 });
 
@@ -1326,7 +1666,11 @@ Deno.test("notifyCPO — no active CPO → no channel operations", async () => {
 
   // No machines query should be made
   const machineChains = chainedCalls.filter((c) => c.table === "machines");
-  assertEquals(machineChains.length, 0, "Should not query machines when no CPO found");
+  assertEquals(
+    machineChains.length,
+    0,
+    "Should not query machines when no CPO found",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1368,12 +1712,22 @@ Deno.test("triggerBreakdown — uses breakdown-specialist role", async () => {
 
   // Find the insert chain and verify role
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  const insertChain = jobsChains.find((c) => c.operations.some((o) => o.method === "insert"));
-  assertEquals(insertChain !== undefined, true, "Should insert a breakdown job");
+  const insertChain = jobsChains.find((c) =>
+    c.operations.some((o) => o.method === "insert")
+  );
+  assertEquals(
+    insertChain !== undefined,
+    true,
+    "Should insert a breakdown job",
+  );
 
   // deno-lint-ignore no-explicit-any
   const payload = insertChain!.operations[0].args[0] as any;
-  assertEquals(payload.role, "breakdown-specialist", "Should use breakdown-specialist role, not tech-lead or feature-breakdown-expert");
+  assertEquals(
+    payload.role,
+    "breakdown-specialist",
+    "Should use breakdown-specialist role, not tech-lead or feature-breakdown-expert",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1387,7 +1741,7 @@ Deno.test("handleJobComplete — active verification failure triggers CPO notifi
   setResponse("jobs:select.eq.single", {
     data: {
       job_type: "verify",
-      context: "{\"type\":\"active_feature_verification\"}",
+      context: '{"type":"active_feature_verification"}',
       feature_id: "feat-notify",
       company_id: "co-notify",
       project_id: "proj-1",
@@ -1420,7 +1774,9 @@ Deno.test("handleJobComplete — active verification failure triggers CPO notifi
   await handleJobComplete(client as any, msg);
 
   const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  const updateChain = jobsChains.find((c) => c.operations[0].method === "update");
+  const updateChain = jobsChains.find((c) =>
+    c.operations[0].method === "update"
+  );
   assertEquals(updateChain !== undefined, true, "Should update completed job");
   // deno-lint-ignore no-explicit-any
   const updatePayload = updateChain!.operations[0].args[0] as any;
@@ -1428,7 +1784,12 @@ Deno.test("handleJobComplete — active verification failure triggers CPO notifi
   assertEquals(updatePayload.result, "Tests failed: timeout in auth module");
 
   const cpoLookup = jobsChains.find((c) =>
-    c.operations.some((o) => o.method === "in") && c.operations.some((o) => o.method === "maybeSingle")
+    c.operations.some((o) => o.method === "in") &&
+    c.operations.some((o) => o.method === "maybeSingle")
   );
-  assertEquals(cpoLookup !== undefined, true, "Should query for active CPO job");
+  assertEquals(
+    cpoLookup !== undefined,
+    true,
+    "Should query for active CPO job",
+  );
 });

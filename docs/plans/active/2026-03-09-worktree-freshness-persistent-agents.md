@@ -1,7 +1,7 @@
 # Worktree Freshness for Persistent Agents
 
 **Date:** 2026-03-09
-**Status:** Implemented (Codex, 2026-03-09) — pending test runner fix + staging validation
+**Status:** Implemented (2026-03-09) — merged to master, pending staging validation
 **Authors:** Tom Weaver, Claude
 **Implemented by:** Codex (gpt-5.3-codex)
 **Source:** Chris Evans staging report — CPO worktree behind current master
@@ -229,7 +229,8 @@ Add a HEARTBEAT.md task telling the exec to `git pull` in their repos/ directory
 - Persistent agent startup now initialises repos/worktrees through the executor's RepoManager
 - Tests added in branches.test.ts:237 (refreshWorktree cases + fetchBranchForExpert locking) and expert-session-manager.test.ts:232 (shared RepoManager expert flow)
 - `npm run typecheck` passes
-- **Blocker:** Vitest cannot run due to mixed-architecture Rollup/esbuild install — tests need runner fix before validation
+- **Vitest blocker resolved** — all 20 branches tests pass (including 4 refreshWorktree cases)
+- **Critical bug found and fixed post-Codex (Claude, PR #220):** Git refuses to update `refs/heads/{branch}` via fetch when that branch is checked out in a linked worktree — even with `+` force prefix. The configured refspec `refs/heads/*:refs/heads/*` (set by `ensureRepo` at branches.ts:187) also runs alongside any explicit CLI refspec, causing the same protection to trigger. Fix: `--refmap=""` suppresses the configured refspec, temp ref namespace `refs/zazig-refresh/{branch}` avoids checkout protection, and reset uses the resolved commit hash (not the ref name).
 
 ---
 

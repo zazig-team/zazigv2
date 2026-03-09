@@ -1,11 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCompany } from "../hooks/useCompany";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
-import { fetchIdeas, type Idea } from "../lib/queries";
+import {
+  fetchIdeas,
+  fetchIdeaDetail,
+  fetchProjects,
+  promoteIdea,
+  type Idea,
+  type IdeaDetail,
+  type Project,
+} from "../lib/queries";
 import { supabase } from "../lib/supabase";
-import IdeaDetailPanel from "../components/IdeaDetailPanel";
+import FormattedProse from "../components/FormattedProse";
 
 type TypeFilter = "all" | "idea" | "brief" | "bug" | "test";
+type SectionTab = "inbox" | "triaged" | "workshop" | "parked" | "shipped";
 
 const TYPE_ICON: Record<string, string> = {
   idea: "\u{1F4A1}",
@@ -40,10 +49,10 @@ function priorityLabel(priority: string | null): string {
 
 function priorityClass(priority: string | null): string {
   const p = (priority ?? "medium").toLowerCase();
-  if (p === "urgent") return "ideas-priority-badge urgent";
-  if (p === "high") return "ideas-priority-badge high";
-  if (p === "low") return "ideas-priority-badge low";
-  return "ideas-priority-badge medium";
+  if (p === "urgent") return "il-priority urgent";
+  if (p === "high") return "il-priority high";
+  if (p === "low") return "il-priority low";
+  return "il-priority medium";
 }
 
 function sourceLabel(idea: Idea): string {
@@ -57,89 +66,257 @@ function sourceLabel(idea: Idea): string {
   return "terminal";
 }
 
-function featureStatusBadgeClass(status: string): string {
+function formatDate(iso: string | null): string {
+  if (!iso) return "\u2014";
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function featureStatusLabel(status: string): string {
+  return status.replace(/_/g, " ");
+}
+
+function featureStatusClass(status: string): string {
   const s = status.toLowerCase();
-  if (s === "complete" || s === "shipped") return "detail-badge detail-badge--positive";
-  if (s === "failed" || s === "cancelled") return "detail-badge detail-badge--negative";
-  if (s === "building" || s === "breaking_down" || s === "verifying") return "detail-badge detail-badge--active";
-  if (s === "proposal" || s === "ready") return "detail-badge detail-badge--caution";
-  return "detail-badge";
+  if (s === "complete" || s === "shipped") return "il-feature-status positive";
+  if (s === "failed" || s === "cancelled") return "il-feature-status negative";
+  if (s === "building" || s === "verifying") return "il-feature-status active";
+  return "il-feature-status";
 }
 
-interface IdeaNodeProps {
-  idea: Idea;
-  variant: "workshop" | "inbox" | "parked";
-  onClick: () => void;
-  selected: boolean;
+/* ── Inline Detail (expanded row content) ── */
+
+interface InlineDetailProps {
+  ideaId: string;
+  colorVar: string;
+  isShipped: boolean;
+  onAction: () => void;
 }
 
-function IdeaNode({ idea, variant, onClick, selected }: IdeaNodeProps): JSX.Element {
-  const type = idea.item_type ?? "idea";
-  const colorVar = TYPE_COLOR_VAR[type] ?? "--col-ideas";
+function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailProps): JSX.Element {
+  const { activeCompanyId } = useCompany();
+  const [data, setData] = useState<IdeaDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Promote state
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [promoting, setPromoting] = useState(false);
+  const [promoteError, setPromoteError] = useState<string | null>(null);
+  const [promoted, setPromoted] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setPromoted(false);
+
+    fetchIdeaDetail(ideaId).then((result) => {
+      if (!cancelled) {
+        setData(result);
+        if (result.project_id) setSelectedProjectId(result.project_id);
+      }
+    }).catch((err) => {
+      if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [ideaId]);
+
+  // Load projects for triaged ideas
+  useEffect(() => {
+    if (!activeCompanyId || !data || data.status !== "triaged") return;
+    let cancelled = false;
+
+    fetchProjects(activeCompanyId).then((result) => {
+      if (!cancelled) {
+        setProjects(result);
+        if (!selectedProjectId && result.length === 1) {
+          setSelectedProjectId(result[0].id);
+        }
+      }
+    }).catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [activeCompanyId, data?.status]);
+
+  async function handlePromote(): Promise<void> {
+    if (!data || !selectedProjectId) return;
+    setPromoting(true);
+    setPromoteError(null);
+
+    try {
+      await promoteIdea({
+        ideaId: data.id,
+        promoteTo: "feature",
+        projectId: selectedProjectId,
+        title: data.title ?? undefined,
+      });
+      setPromoted(true);
+      onAction();
+    } catch (err) {
+      setPromoteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPromoting(false);
+    }
+  }
+
+  if (loading) return <div className="il-detail-loading">Loading...</div>;
+  if (error) return <div className="il-detail-error">{error}</div>;
+  if (!data) return <div className="il-detail-loading">No data</div>;
+
+  const canPromote = data.status === "triaged" && !promoted && !isShipped;
+  const readiness = canPromote ? [
+    { label: "Has title", ok: Boolean(data.title?.trim()), hint: "Needs a clear title" },
+    { label: "Has description", ok: Boolean(data.description?.trim()) || Boolean(data.raw_text && data.raw_text.length > 20), hint: "Needs description or detailed raw text" },
+    { label: "Has project", ok: Boolean(selectedProjectId ?? data.project_id), hint: "Select a project below" },
+  ] : [];
+  const allReady = readiness.every((r) => r.ok);
 
   return (
-    <div
-      className={`ideas-node ideas-node--${variant}${selected ? " ideas-node--selected" : ""}`}
-      onClick={onClick}
-    >
-      <div className="ideas-node-accent" style={{ background: `var(${colorVar})` }} />
-      <div className="ideas-node-icon">{TYPE_ICON[type] ?? "\u{1F4A1}"}</div>
-      <div className="ideas-node-body">
-        <div className="ideas-node-title">{idea.title ?? idea.raw_text}</div>
-        <div className="ideas-node-meta">
-          <span className="ideas-node-type" style={{ color: `var(${colorVar})` }}>{type}</span>
-          <span className={priorityClass(idea.priority)}>{priorityLabel(idea.priority)}</span>
-          <span className="ideas-node-source">{sourceLabel(idea)}</span>
-          <span className="ideas-node-age">{ageLabel(idea.created_at)}</span>
+    <div className="il-detail">
+      <div className="il-detail-divider" />
+
+      {/* Description / Raw text */}
+      <div className="il-detail-text">
+        <FormattedProse text={data.description && data.description !== data.raw_text ? data.description : data.raw_text} />
+      </div>
+
+      {/* Metadata */}
+      <div className="il-detail-meta-row">
+        {data.source && (
+          <div className="il-detail-meta-item">
+            <span className="il-detail-meta-key">Source</span>
+            <span className="il-detail-meta-val">{data.source}</span>
+          </div>
+        )}
+        {data.originator && (
+          <div className="il-detail-meta-item">
+            <span className="il-detail-meta-key">Originator</span>
+            <span className="il-detail-meta-val">{data.originator}</span>
+          </div>
+        )}
+        <div className="il-detail-meta-item">
+          <span className="il-detail-meta-key">Created</span>
+          <span className="il-detail-meta-val">{formatDate(data.created_at)}</span>
         </div>
-        {variant === "workshop" && idea.description && (
-          <div className="ideas-node-desc">{idea.description}</div>
+        {data.item_type && (
+          <div className="il-detail-meta-item">
+            <span className="il-detail-meta-key">Type</span>
+            <span className="il-detail-meta-val">{data.item_type}</span>
+          </div>
+        )}
+        {data.priority && (
+          <div className="il-detail-meta-item">
+            <span className="il-detail-meta-key">Priority</span>
+            <span className="il-detail-meta-val">{data.priority}</span>
+          </div>
+        )}
+        {data.horizon && (
+          <div className="il-detail-meta-item">
+            <span className="il-detail-meta-key">Horizon</span>
+            <span className="il-detail-meta-val">{data.horizon}</span>
+          </div>
+        )}
+        {data.promoted_at && (
+          <div className="il-detail-meta-item">
+            <span className="il-detail-meta-key">Promoted</span>
+            <span className="il-detail-meta-val">{formatDate(data.promoted_at)}</span>
+          </div>
         )}
       </div>
+
+      {/* Tags */}
+      {data.tags && data.tags.length > 0 && (
+        <div className="il-detail-tags">
+          {data.tags.map((tag) => <span className="il-detail-tag" key={tag}>{tag}</span>)}
+        </div>
+      )}
+
+      {/* Clarification notes */}
+      {data.clarification_notes && (
+        <div className="il-detail-section">
+          <div className="il-detail-section-label">Clarification Notes</div>
+          <div className="il-detail-text">
+            <FormattedProse text={data.clarification_notes} />
+          </div>
+        </div>
+      )}
+
+      {/* Promoted feature link */}
+      {data.promotedFeature && (
+        <div className="il-detail-section">
+          <div className="il-detail-section-label">Promoted To</div>
+          <div className="il-detail-linked">
+            <span className="il-detail-linked-title">{data.promotedFeature.title}</span>
+            <span className="il-detail-linked-status">{data.promotedFeature.status.replace(/_/g, " ")}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Promote to pipeline */}
+      {canPromote && (
+        <div className="il-detail-section">
+          <div className="il-detail-section-label">Push to Pipeline</div>
+          <div className="il-promote-readiness">
+            {readiness.map((r) => (
+              <div className="il-promote-check" key={r.label}>
+                <span className={r.ok ? "il-promote-icon ok" : "il-promote-icon missing"}>
+                  {r.ok ? "\u2713" : "\u2717"}
+                </span>
+                <span>{r.label}</span>
+                {!r.ok && r.hint && <span className="il-promote-hint">{r.hint}</span>}
+              </div>
+            ))}
+          </div>
+
+          {projects.length > 0 && (
+            <div className="il-promote-project">
+              <label className="il-promote-label" htmlFor={`promote-project-${ideaId}`}>Project</label>
+              <select
+                id={`promote-project-${ideaId}`}
+                className="il-promote-select"
+                value={selectedProjectId ?? ""}
+                onChange={(e) => setSelectedProjectId(e.target.value || null)}
+              >
+                <option value="">Select project...</option>
+                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          {promoteError && <div className="il-promote-error">{promoteError}</div>}
+
+          <button
+            className="il-action-primary"
+            type="button"
+            disabled={!allReady || promoting}
+            onClick={handlePromote}
+          >
+            {promoting ? "Promoting..." : "Promote to Feature"}
+          </button>
+        </div>
+      )}
+
+      {promoted && (
+        <div className="il-promote-success">Idea promoted to feature and pushed into the pipeline.</div>
+      )}
+
+      {/* Actions row for non-triaged items */}
+      {!canPromote && !isShipped && !promoted && (
+        <div className="il-detail-actions">
+          {data.status === "new" && <button className="il-action-secondary" type="button">Triage</button>}
+          {data.status !== "parked" && <button className="il-action-secondary" type="button">Park</button>}
+          {data.status !== "rejected" && <button className="il-action-secondary" type="button">Reject</button>}
+        </div>
+      )}
     </div>
   );
 }
 
-interface ShippedIdeaNodeProps {
-  idea: Idea;
-  featureInfo: { title: string; status: string } | null;
-  onClick: () => void;
-  selected: boolean;
-}
-
-function ShippedIdeaNode({ idea, featureInfo, onClick, selected }: ShippedIdeaNodeProps): JSX.Element {
-  const type = idea.item_type ?? "idea";
-  const colorVar = TYPE_COLOR_VAR[type] ?? "--col-ideas";
-
-  return (
-    <div
-      className={`ideas-node ideas-node--shipped${selected ? " ideas-node--selected" : ""}`}
-      onClick={onClick}
-    >
-      <div className="ideas-node-accent" style={{ background: `var(${colorVar})` }} />
-      <div className="ideas-node-icon">{TYPE_ICON[type] ?? "\u{1F4A1}"}</div>
-      <div className="ideas-node-body">
-        <div className="ideas-node-title">{idea.title ?? idea.raw_text}</div>
-        <div className="ideas-node-meta">
-          <span className="ideas-node-type" style={{ color: `var(${colorVar})` }}>{type}</span>
-          {featureInfo ? (
-            <span className={featureStatusBadgeClass(featureInfo.status)}>
-              {featureInfo.status.replace(/_/g, " ")}
-            </span>
-          ) : (
-            <span className="ideas-node-source">{idea.promoted_to_type ?? "promoted"}</span>
-          )}
-          {idea.promoted_at && (
-            <span className="ideas-node-age">{ageLabel(idea.promoted_at)}</span>
-          )}
-        </div>
-        {featureInfo && (
-          <div className="ideas-node-desc">{featureInfo.title}</div>
-        )}
-      </div>
-    </div>
-  );
-}
+/* ── Main Ideas Page ── */
 
 export default function Ideas(): JSX.Element {
   const { activeCompanyId } = useCompany();
@@ -149,9 +326,9 @@ export default function Ideas(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [parkedCollapsed, setParkedCollapsed] = useState(false);
-  const [shippedCollapsed, setShippedCollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState<SectionTab>("inbox");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const loadIdeas = useCallback(async () => {
     if (!activeCompanyId) return;
@@ -164,7 +341,6 @@ export default function Ideas(): JSX.Element {
       setPromotedIdeas(promotedData);
       setError(null);
 
-      // Fetch linked feature statuses for promoted ideas
       const featureIds = promotedData
         .filter((i) => i.promoted_to_type === "feature" && i.promoted_to_id)
         .map((i) => i.promoted_to_id as string);
@@ -192,7 +368,7 @@ export default function Ideas(): JSX.Element {
     void loadIdeas();
   }, [loadIdeas]);
 
-  // Realtime updates
+  // Realtime
   const handleInsert = useCallback((row: Record<string, unknown>) => {
     const idea = row as unknown as Idea;
     if (idea.status === "promoted") {
@@ -248,29 +424,26 @@ export default function Ideas(): JSX.Element {
   }, [promotedIdeas, typeFilter]);
 
   // Group by section
-  const workshop = useMemo(() => filtered.filter((i) => i.status === "workshop"), [filtered]);
-  const triaged = useMemo(() => filtered.filter((i) => i.status === "triaged"), [filtered]);
-  const newItems = useMemo(() => filtered.filter((i) => i.status === "new"), [filtered]);
-  const parkedSoon = useMemo(
-    () => filtered.filter((i) => i.status === "parked" && i.horizon === "soon"),
-    [filtered],
-  );
-  const parkedLater = useMemo(
-    () => filtered.filter((i) => i.status === "parked" && (i.horizon === "later" || !i.horizon)),
-    [filtered],
-  );
+  const sections = useMemo(() => ({
+    inbox: filtered.filter((i) => i.status === "new"),
+    triaged: filtered.filter((i) => i.status === "triaged"),
+    workshop: filtered.filter((i) => i.status === "workshop"),
+    parked: filtered.filter((i) => i.status === "parked"),
+    shipped: filteredPromoted,
+  }), [filtered, filteredPromoted]);
 
-  // Counts for flow bar (unfiltered)
-  const counts = useMemo(() => {
-    const w = ideas.filter((i) => i.status === "workshop").length;
-    const t = ideas.filter((i) => i.status === "triaged").length;
-    const n = ideas.filter((i) => i.status === "new").length;
-    const p = ideas.filter((i) => i.status === "parked").length;
-    const s = promotedIdeas.length;
-    return { workshop: w, triaged: t, new: n, parked: p, shipped: s, total: ideas.length + s };
-  }, [ideas, promotedIdeas]);
+  const activeItems = sections[activeTab];
 
-  // Type counts for filter tabs
+  // Section counts (unfiltered for tab badges)
+  const tabCounts = useMemo(() => ({
+    inbox: ideas.filter((i) => i.status === "new").length,
+    triaged: ideas.filter((i) => i.status === "triaged").length,
+    workshop: ideas.filter((i) => i.status === "workshop").length,
+    parked: ideas.filter((i) => i.status === "parked").length,
+    shipped: promotedIdeas.length,
+  }), [ideas, promotedIdeas]);
+
+  // Type counts
   const typeCounts = useMemo(() => {
     const allIdeas = [...ideas, ...promotedIdeas];
     const c = { all: allIdeas.length, idea: 0, brief: 0, bug: 0, test: 0 };
@@ -280,10 +453,43 @@ export default function Ideas(): JSX.Element {
     return c;
   }, [ideas, promotedIdeas]);
 
-  const selectedIdea = useMemo(() => {
-    if (!selectedId) return null;
-    return ideas.find((i) => i.id === selectedId) ?? promotedIdeas.find((i) => i.id === selectedId) ?? null;
-  }, [ideas, promotedIdeas, selectedId]);
+  // Toggle expand
+  function toggleExpand(id: string): void {
+    setExpandedId((prev) => prev === id ? null : id);
+  }
+
+  // Keyboard navigation
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent): void {
+      if (!activeItems.length) return;
+      const idx = expandedId ? activeItems.findIndex((i) => i.id === expandedId) : -1;
+
+      if (e.key === "ArrowDown" || e.key === "j") {
+        e.preventDefault();
+        const next = activeItems[Math.min(idx + 1, activeItems.length - 1)];
+        if (next) {
+          setExpandedId(next.id);
+          setTimeout(() => {
+            document.getElementById(`il-row-${next.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }, 50);
+        }
+      } else if (e.key === "ArrowUp" || e.key === "k") {
+        e.preventDefault();
+        const prev = activeItems[Math.max(idx - 1, 0)];
+        if (prev) {
+          setExpandedId(prev.id);
+          setTimeout(() => {
+            document.getElementById(`il-row-${prev.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }, 50);
+        }
+      } else if (e.key === "Escape") {
+        setExpandedId(null);
+      }
+    }
+
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [activeItems, expandedId]);
 
   if (loading) {
     return (
@@ -301,223 +507,96 @@ export default function Ideas(): JSX.Element {
     );
   }
 
+  const isShippedTab = activeTab === "shipped";
+
   return (
     <main className="ideas-page">
-      {/* Page header */}
-      <div className="ideas-header">
-        <div className="ideas-header-left">
-          <h1 className="ideas-title">Ideas</h1>
-          <div className="ideas-stats">
-            <span className="ideas-stat">
-              <span className="ideas-stat-count">{counts.total}</span> total
-            </span>
-          </div>
-        </div>
+      {/* Header */}
+      <div className="il-header">
+        <h1 className="il-title">Ideas</h1>
       </div>
 
-      {/* Flow bar */}
-      <div className="ideas-flow-bar">
-        <div className="ideas-flow-stage">
-          <span className="ideas-flow-label">New</span>
-          <span className="ideas-flow-count">{counts.new}</span>
-        </div>
-        <span className="ideas-flow-arrow">{"\u25B8"}</span>
-        <div className="ideas-flow-stage">
-          <span className="ideas-flow-label">Triaged</span>
-          <span className="ideas-flow-count">{counts.triaged}</span>
-        </div>
-        <span className="ideas-flow-arrow">{"\u25B8"}</span>
-        <div className="ideas-flow-stage">
-          <span className="ideas-flow-label">Workshop</span>
-          <span className="ideas-flow-count">{counts.workshop}</span>
-        </div>
-        <span className="ideas-flow-arrow">{"\u25B8"}</span>
-        <div className={`ideas-flow-stage${counts.parked === 0 ? " dimmed" : ""}`}>
-          <span className="ideas-flow-label">Parked</span>
-          <span className="ideas-flow-count">{counts.parked}</span>
-        </div>
-        <span className="ideas-flow-arrow">{"\u25B8"}</span>
-        <div className={`ideas-flow-stage${counts.shipped === 0 ? " dimmed" : ""}`}>
-          <span className="ideas-flow-label">Shipped</span>
-          <span className="ideas-flow-count">{counts.shipped}</span>
-        </div>
-      </div>
-
-      {/* Type filter tabs */}
-      <div className="ideas-filter-bar">
-        {(["all", "idea", "brief", "bug", "test"] as TypeFilter[]).map((t) => (
+      {/* Section tabs */}
+      <div className="il-tabs">
+        {(["inbox", "triaged", "workshop", "parked", "shipped"] as SectionTab[]).map((tab) => (
           <button
-            key={t}
-            className={`ideas-filter-tab${typeFilter === t ? " active" : ""}`}
-            onClick={() => setTypeFilter(t)}
+            key={tab}
+            className={`il-tab${activeTab === tab ? " active" : ""}`}
+            onClick={() => { setActiveTab(tab); setExpandedId(null); }}
             type="button"
           >
-            {t === "all" ? "All" : t.charAt(0).toUpperCase() + t.slice(1)}s
-            <span className="ideas-filter-count">{typeCounts[t]}</span>
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            <span className="il-tab-count">{tabCounts[tab]}</span>
           </button>
         ))}
       </div>
 
-      {/* Workshop section */}
-      {workshop.length > 0 && (
-        <div className="ideas-section">
-          <div className="ideas-section-header">
-            <span className="ideas-section-label">Workshop</span>
-            <span className="ideas-section-count">{workshop.length}</span>
-            <div className="ideas-section-line" />
-          </div>
-          <div className="ideas-node-grid">
-            {workshop.map((idea) => (
-              <IdeaNode
-                key={idea.id}
-                idea={idea}
-                variant="workshop"
-                onClick={() => setSelectedId(idea.id)}
-                selected={selectedId === idea.id}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Inbox: Triaged */}
-      {triaged.length > 0 && (
-        <div className="ideas-section">
-          <div className="ideas-section-header">
-            <span className="ideas-section-label">Triaged</span>
-            <span className="ideas-section-count">{triaged.length}</span>
-            <div className="ideas-section-line" />
-          </div>
-          <div className="ideas-node-grid">
-            {triaged.map((idea) => (
-              <IdeaNode
-                key={idea.id}
-                idea={idea}
-                variant="inbox"
-                onClick={() => setSelectedId(idea.id)}
-                selected={selectedId === idea.id}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Inbox: New */}
-      {newItems.length > 0 && (
-        <div className="ideas-section">
-          <div className="ideas-section-header">
-            <span className="ideas-section-label">Inbox</span>
-            <span className="ideas-section-count">{newItems.length}</span>
-            <div className="ideas-section-line" />
-          </div>
-          <div className="ideas-node-grid">
-            {newItems.map((idea) => (
-              <IdeaNode
-                key={idea.id}
-                idea={idea}
-                variant="inbox"
-                onClick={() => setSelectedId(idea.id)}
-                selected={selectedId === idea.id}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Parked section */}
-      {(parkedSoon.length > 0 || parkedLater.length > 0) && (
-        <div className="ideas-section">
-          <div
-            className="ideas-section-header"
-            onClick={() => setParkedCollapsed(!parkedCollapsed)}
-            style={{ cursor: "pointer" }}
+      {/* Type filter (secondary) */}
+      <div className="il-type-filters">
+        {(["all", "idea", "brief", "bug", "test"] as TypeFilter[]).map((t) => (
+          <button
+            key={t}
+            className={`il-type-btn${typeFilter === t ? " active" : ""}`}
+            onClick={() => setTypeFilter(t)}
+            type="button"
           >
-            <span className={`ideas-section-toggle${parkedCollapsed ? " collapsed" : ""}`}>{"\u25BE"}</span>
-            <span className="ideas-section-label">Parked</span>
-            <span className="ideas-section-count">{parkedSoon.length + parkedLater.length}</span>
-            <div className="ideas-section-line" />
-          </div>
-          {!parkedCollapsed && (
-            <>
-              {parkedSoon.length > 0 && (
-                <div className="ideas-sub-section">
-                  <div className="ideas-sub-label">Review Soon</div>
-                  <div className="ideas-node-grid">
-                    {parkedSoon.map((idea) => (
-                      <IdeaNode
-                        key={idea.id}
-                        idea={idea}
-                        variant="parked"
-                        onClick={() => setSelectedId(idea.id)}
-                        selected={selectedId === idea.id}
-                      />
-                    ))}
+            {t === "all" ? "All" : `${t.charAt(0).toUpperCase() + t.slice(1)}s`}
+            <span className="il-type-count">{typeCounts[t]}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* List */}
+      <div className="il-list" ref={listRef}>
+        {activeItems.length === 0 && (
+          <div className="il-empty">No {activeTab} ideas{typeFilter !== "all" ? ` of type "${typeFilter}"` : ""}.</div>
+        )}
+        {activeItems.map((idea, idx) => {
+          const type = idea.item_type ?? "idea";
+          const colorVar = TYPE_COLOR_VAR[type] ?? "--col-ideas";
+          const isExpanded = expandedId === idea.id;
+          const fInfo = isShippedTab && idea.promoted_to_id ? featureStatuses.get(idea.promoted_to_id) ?? null : null;
+
+          return (
+            <div
+              key={idea.id}
+              id={`il-row-${idea.id}`}
+              className={`il-row${isExpanded ? " expanded" : ""}`}
+              style={{ animationDelay: `${Math.min(idx * 0.02, 0.3)}s` }}
+            >
+              <div className="il-row-summary" onClick={() => toggleExpand(idea.id)}>
+                <div className="il-row-accent" style={{ background: `var(${colorVar})` }} />
+                <div className="il-row-icon">{TYPE_ICON[type] ?? "\u{1F4A1}"}</div>
+                <div className="il-row-body">
+                  <div className="il-row-title">{idea.title ?? idea.raw_text}</div>
+                  <div className="il-row-desc">
+                    {idea.description ?? idea.raw_text}
                   </div>
                 </div>
-              )}
-              {parkedLater.length > 0 && (
-                <div className="ideas-sub-section">
-                  <div className="ideas-sub-label">Long Term</div>
-                  <div className="ideas-node-grid">
-                    {parkedLater.map((idea) => (
-                      <IdeaNode
-                        key={idea.id}
-                        idea={idea}
-                        variant="parked"
-                        onClick={() => setSelectedId(idea.id)}
-                        selected={selectedId === idea.id}
-                      />
-                    ))}
-                  </div>
+                <div className="il-row-meta">
+                  {isShippedTab && fInfo ? (
+                    <span className={featureStatusClass(fInfo.status)}>{featureStatusLabel(fInfo.status)}</span>
+                  ) : (
+                    <span className={priorityClass(idea.priority)}>{priorityLabel(idea.priority)}</span>
+                  )}
+                  <span className="il-source">{sourceLabel(idea)}</span>
+                  <span className="il-age">{ageLabel(isShippedTab && idea.promoted_at ? idea.promoted_at : idea.created_at)}</span>
                 </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
+                <div className="il-chevron">{"\u25B6"}</div>
+              </div>
 
-      {/* Shipped section — promoted ideas with linked feature status */}
-      {filteredPromoted.length > 0 && (
-        <div className="ideas-section">
-          <div
-            className="ideas-section-header"
-            onClick={() => setShippedCollapsed(!shippedCollapsed)}
-            style={{ cursor: "pointer" }}
-          >
-            <span className={`ideas-section-toggle${shippedCollapsed ? " collapsed" : ""}`}>{"\u25BE"}</span>
-            <span className="ideas-section-label">Shipped</span>
-            <span className="ideas-section-count">{filteredPromoted.length}</span>
-            <div className="ideas-section-line" />
-          </div>
-          {!shippedCollapsed && (
-            <div className="ideas-node-grid">
-              {filteredPromoted.map((idea) => (
-                <ShippedIdeaNode
-                  key={idea.id}
-                  idea={idea}
-                  featureInfo={idea.promoted_to_id ? featureStatuses.get(idea.promoted_to_id) ?? null : null}
-                  onClick={() => setSelectedId(idea.id)}
-                  selected={selectedId === idea.id}
+              {isExpanded && (
+                <InlineDetail
+                  ideaId={idea.id}
+                  colorVar={colorVar}
+                  isShipped={isShippedTab}
+                  onAction={loadIdeas}
                 />
-              ))}
+              )}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Empty state */}
-      {filtered.length === 0 && filteredPromoted.length === 0 && (
-        <div className="ideas-empty">No ideas found.</div>
-      )}
-
-      {/* Detail panel */}
-      {selectedId && selectedIdea && (
-        <IdeaDetailPanel
-          ideaId={selectedId}
-          colorVar={TYPE_COLOR_VAR[selectedIdea.item_type] ?? "--col-ideas"}
-          onClose={() => setSelectedId(null)}
-        />
-      )}
+          );
+        })}
+      </div>
     </main>
   );
 }

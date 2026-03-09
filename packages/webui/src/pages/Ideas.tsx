@@ -93,11 +93,19 @@ function featureStatusClass(status: string): string {
 
 /* ── Inline Detail (expanded row content) ── */
 
+const STATUS_LABELS: Record<string, string> = {
+  triaged: "Triaged",
+  parked: "Parked",
+  rejected: "Rejected",
+  promoted: "Promoted",
+  workshop: "Workshop",
+};
+
 interface InlineDetailProps {
   ideaId: string;
   colorVar: string;
   isShipped: boolean;
-  onAction: () => void;
+  onAction: (ideaId: string, newStatus: string) => void;
 }
 
 function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailProps): JSX.Element {
@@ -168,7 +176,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
         title: data.title ?? undefined,
       });
       setPromoted(true);
-      onAction();
+      onAction(ideaId, "promoted");
     } catch (err) {
       setPromoteError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -182,7 +190,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
     try {
       await updateIdeaStatus(ideaId, newStatus);
       setActionDone(label);
-      onAction();
+      onAction(ideaId, newStatus);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -371,6 +379,7 @@ export default function Ideas(): JSX.Element {
   const [activeTab, setActiveTab] = useState<SectionTab>("inbox");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("newest");
+  const [dismissedIdeas, setDismissedIdeas] = useState<Map<string, string>>(new Map());
   const listRef = useRef<HTMLDivElement>(null);
 
   const loadIdeas = useCallback(async () => {
@@ -511,6 +520,25 @@ export default function Ideas(): JSX.Element {
     setExpandedId((prev) => prev === id ? null : id);
   }
 
+  // Handle idea action (triage/park/reject/promote) — remove from local state with toast
+  function handleIdeaAction(ideaId: string, newStatus: string): void {
+    const label = STATUS_LABELS[newStatus] ?? newStatus;
+    setDismissedIdeas((prev) => new Map(prev).set(ideaId, `Moved to ${label}`));
+    setExpandedId(null);
+
+    // Remove from local state immediately
+    setIdeas((prev) => prev.map((i) => i.id === ideaId ? { ...i, status: newStatus } : i));
+
+    // Auto-dismiss toast after 3s
+    setTimeout(() => {
+      setDismissedIdeas((prev) => {
+        const next = new Map(prev);
+        next.delete(ideaId);
+        return next;
+      });
+    }, 3000);
+  }
+
   // Keyboard navigation
   useEffect(() => {
     function handleKey(e: KeyboardEvent): void {
@@ -623,6 +651,16 @@ export default function Ideas(): JSX.Element {
           <div className="il-empty">No {activeTab} ideas{typeFilter !== "all" ? ` of type "${typeFilter}"` : ""}.</div>
         )}
         {activeItems.map((idea, idx) => {
+          const dismissMsg = dismissedIdeas.get(idea.id);
+          if (dismissMsg) {
+            return (
+              <div key={idea.id} className="il-row-dismissed">
+                <span className="il-dismissed-text">{dismissMsg}</span>
+                <span className="il-dismissed-title">{idea.title ?? idea.raw_text}</span>
+              </div>
+            );
+          }
+
           const type = idea.item_type ?? "idea";
           const colorVar = TYPE_COLOR_VAR[type] ?? "--col-ideas";
           const isExpanded = expandedId === idea.id;
@@ -661,7 +699,7 @@ export default function Ideas(): JSX.Element {
                   ideaId={idea.id}
                   colorVar={colorVar}
                   isShipped={isShippedTab}
-                  onAction={loadIdeas}
+                  onAction={handleIdeaAction}
                 />
               )}
             </div>

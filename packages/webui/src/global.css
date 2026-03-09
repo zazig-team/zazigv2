@@ -3433,6 +3433,39 @@ input {
   color: var(--ink);
 }
 
+/* Dismissed row toast */
+.il-row-dismissed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: color-mix(in srgb, var(--positive) 8%, var(--white));
+  border: 1px solid color-mix(in srgb, var(--positive) 20%, transparent);
+  border-radius: var(--radius-sm);
+  animation: ilDismiss 3s ease both;
+}
+
+.il-dismissed-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--positive);
+  white-space: nowrap;
+}
+
+.il-dismissed-title {
+  font-size: 12px;
+  color: var(--stone);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes ilDismiss {
+  0% { opacity: 1; max-height: 50px; }
+  70% { opacity: 1; max-height: 50px; }
+  100% { opacity: 0; max-height: 0; padding: 0 16px; margin: 0; border-width: 0; }
+}
+
 /* Animations */
 @keyframes ilRowIn {
   from {

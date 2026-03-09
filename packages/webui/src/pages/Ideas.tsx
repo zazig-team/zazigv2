@@ -7,6 +7,7 @@ import {
   fetchProjects,
   promoteIdea,
   updateIdeaStatus,
+  requestTriageJob,
   type Idea,
   type IdeaDetail,
   type Project,
@@ -94,6 +95,7 @@ function featureStatusClass(status: string): string {
 /* ── Inline Detail (expanded row content) ── */
 
 const STATUS_LABELS: Record<string, string> = {
+  triaging: "Analysing",
   triaged: "Triaged",
   parked: "Parked",
   rejected: "Rejected",
@@ -146,9 +148,9 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
     return () => { cancelled = true; };
   }, [ideaId]);
 
-  // Load projects for triaged ideas
+  // Load projects for triaged ideas (promote) and new ideas (triage job needs project_id)
   useEffect(() => {
-    if (!activeCompanyId || !data || data.status !== "triaged") return;
+    if (!activeCompanyId || !data || !["triaged", "new"].includes(data.status)) return;
     let cancelled = false;
 
     fetchProjects(activeCompanyId).then((result) => {
@@ -191,6 +193,27 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
       await updateIdeaStatus(ideaId, newStatus);
       setActionDone(label);
       onAction(ideaId, newStatus);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setActionInProgress(null);
+    }
+  }
+
+  async function handleBackgroundTriage(): Promise<void> {
+    if (!activeCompanyId) return;
+    const projectId = selectedProjectId ?? projects[0]?.id;
+    if (!projectId) {
+      setActionError("No project available for triage job");
+      return;
+    }
+    setActionInProgress("Triage");
+    setActionError(null);
+    try {
+      await updateIdeaStatus(ideaId, "triaging");
+      await requestTriageJob({ companyId: activeCompanyId, projectId, ideaId });
+      setActionDone("Triage");
+      onAction(ideaId, "triaging");
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -270,6 +293,22 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
         </div>
       )}
 
+      {/* Triage notes (from background triage agent) */}
+      {data.triage_notes && (
+        <div className="il-detail-section">
+          <div className="il-detail-section-label">Triage Notes</div>
+          <div className="il-detail-text">
+            <FormattedProse text={data.triage_notes} />
+          </div>
+          {data.suggested_exec && (
+            <div className="il-detail-meta-item" style={{ marginTop: 6 }}>
+              <span className="il-detail-meta-key">Suggested exec</span>
+              <span className="il-detail-meta-val">{data.suggested_exec}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Clarification notes */}
       {data.clarification_notes && (
         <div className="il-detail-section">
@@ -343,8 +382,8 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
       {!canPromote && !isShipped && !promoted && !actionDone && (
         <div className="il-detail-actions">
           {data.status === "new" && (
-            <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={() => handleAction("triaged", "Triage")}>
-              {actionInProgress === "Triage" ? "Triaging..." : "Triage"}
+            <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleBackgroundTriage}>
+              {actionInProgress === "Triage" ? "Commissioning..." : "Triage"}
             </button>
           )}
           {data.status !== "parked" && (
@@ -477,7 +516,7 @@ export default function Ideas(): JSX.Element {
 
   // Group by section
   const sections = useMemo(() => ({
-    inbox: filtered.filter((i) => i.status === "new"),
+    inbox: filtered.filter((i) => i.status === "new" || i.status === "triaging"),
     triaged: filtered.filter((i) => i.status === "triaged"),
     workshop: filtered.filter((i) => i.status === "workshop"),
     parked: filtered.filter((i) => i.status === "parked"),
@@ -498,7 +537,7 @@ export default function Ideas(): JSX.Element {
 
   // Section counts (unfiltered for tab badges)
   const tabCounts = useMemo(() => ({
-    inbox: ideas.filter((i) => i.status === "new").length,
+    inbox: ideas.filter((i) => i.status === "new" || i.status === "triaging").length,
     triaged: ideas.filter((i) => i.status === "triaged").length,
     workshop: ideas.filter((i) => i.status === "workshop").length,
     parked: ideas.filter((i) => i.status === "parked").length,
@@ -662,26 +701,33 @@ export default function Ideas(): JSX.Element {
           const type = idea.item_type ?? "idea";
           const colorVar = TYPE_COLOR_VAR[type] ?? "--col-ideas";
           const isExpanded = expandedId === idea.id;
+          const isTriaging = idea.status === "triaging";
           const fInfo = isShippedTab && idea.promoted_to_id ? featureStatuses.get(idea.promoted_to_id) ?? null : null;
 
           return (
             <div
               key={idea.id}
               id={`il-row-${idea.id}`}
-              className={`il-row${isExpanded ? " expanded" : ""}`}
+              className={`il-row${isExpanded ? " expanded" : ""}${isTriaging ? " triaging" : ""}`}
               style={{ animationDelay: `${Math.min(idx * 0.02, 0.3)}s` }}
             >
-              <div className="il-row-summary" onClick={() => toggleExpand(idea.id)}>
+              <div className="il-row-summary" onClick={() => !isTriaging && toggleExpand(idea.id)}>
                 <div className="il-row-accent" style={{ background: `var(${colorVar})` }} />
                 <div className="il-row-icon">{TYPE_ICON[type] ?? "\u{1F4A1}"}</div>
                 <div className="il-row-body">
                   <div className="il-row-title">{idea.title ?? idea.raw_text}</div>
-                  <div className="il-row-desc">
-                    {idea.description ?? idea.raw_text}
-                  </div>
+                  {isTriaging ? (
+                    <div className="il-row-analysing">Analysing... an agent is triaging this idea</div>
+                  ) : (
+                    <div className="il-row-desc">
+                      {idea.description ?? idea.raw_text}
+                    </div>
+                  )}
                 </div>
                 <div className="il-row-meta">
-                  {isShippedTab && fInfo ? (
+                  {isTriaging ? (
+                    <span className="il-triaging-badge">triaging</span>
+                  ) : isShippedTab && fInfo ? (
                     <span className={featureStatusClass(fInfo.status)}>{featureStatusLabel(fInfo.status)}</span>
                   ) : (
                     <span className={priorityClass(idea.priority)}>{priorityLabel(idea.priority)}</span>
@@ -689,7 +735,7 @@ export default function Ideas(): JSX.Element {
                   <span className="il-source">{sourceLabel(idea)}</span>
                   <span className="il-age">{ageLabel(isShippedTab && idea.promoted_at ? idea.promoted_at : idea.created_at)}</span>
                 </div>
-                <div className="il-chevron"><span className="il-chevron-icon">{"\u25B6"}</span></div>
+                <div className="il-chevron">{!isTriaging && <span className="il-chevron-icon">{"\u25B6"}</span>}</div>
               </div>
 
               {isExpanded && (

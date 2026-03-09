@@ -3504,6 +3504,36 @@ input {
   100% { opacity: 0; max-height: 0; padding: 0 16px; margin: 0; border-width: 0; }
 }
 
+/* Triaging state — subtle pulse animation */
+.il-row.triaging {
+  opacity: 0.7;
+  animation: ilTriagingPulse 2s ease-in-out infinite;
+}
+.il-row.triaging .il-row-summary {
+  cursor: default;
+}
+.il-row-analysing {
+  font-size: 11px;
+  color: var(--positive);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.il-triaging-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--positive);
+  background: color-mix(in srgb, var(--positive) 12%, transparent);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+@keyframes ilTriagingPulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.85; }
+}
+
 /* Animations */
 @keyframes ilRowIn {
   from {

@@ -596,6 +596,8 @@ export interface IdeaDetail {
   item_type: string | null;
   horizon: string | null;
   project_id: string | null;
+  suggested_exec: string | null;
+  triage_notes: string | null;
   promotedFeature: { title: string; status: string } | null;
 }
 
@@ -660,7 +662,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
 export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
   const { data: idea, error: ideaError } = await supabase
     .from("ideas")
-    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon, project_id")
+    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon, project_id, suggested_exec, triage_notes")
     .eq("id", ideaId)
     .single();
 
@@ -702,6 +704,8 @@ export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
     item_type: (row.item_type as string | null) ?? null,
     horizon: (row.horizon as string | null) ?? null,
     project_id: (row.project_id as string | null) ?? null,
+    suggested_exec: (row.suggested_exec as string | null) ?? null,
+    triage_notes: (row.triage_notes as string | null) ?? null,
     promotedFeature,
   };
 }
@@ -1011,6 +1015,19 @@ export async function commissionProjectArchitect(params: {
     project_id: params.projectId,
     role: "project-architect",
     context: params.context,
+  });
+}
+
+export async function requestTriageJob(params: {
+  companyId: string;
+  projectId: string;
+  ideaId: string;
+}): Promise<{ job_id?: string }> {
+  return invokePost<{ job_id?: string }>("request-work", {
+    company_id: params.companyId,
+    project_id: params.projectId,
+    role: "triage-analyst",
+    context: params.ideaId,
   });
 }
 

@@ -1,6 +1,6 @@
 # Zazig Org Model
 
-**Date:** 2026-02-22 (updated 2026-03-03: Memory layer)
+**Date:** 2026-02-22 (updated 2026-03-09: Expert Sessions)
 **Status:** reference document
 **Authors:** Tom (owner), Chris (co-founder), CPO (agent)
 
@@ -23,6 +23,7 @@ Every other design doc handles one layer in depth. This doc is the map that show
 | Pipeline + Job Lifecycle | [`software-development-pipeline-design.md`](plans/2026-02-24-software-development-pipeline-design.md) |
 | Messaging | [`agent-messaging-bidirectional.md`](plans/2026-02-22-agent-messaging-bidirectional.md) |
 | Memory | [`memory-system-design.md`](plans/active/2026-03-03-memory-system-design.md) |
+| Expert Sessions | Covered in this document ([Expert Sessions](#expert-sessions-interactive-pair-programming)) — implementation in `expert-session-manager.ts` |
 | Model Routing | Covered in this document ([Model Routing](#model-routing)) — may graduate to own design doc when local model support lands |
 
 ---
@@ -206,6 +207,131 @@ Zazig Contractor Marketplace (future)
 | **Lifecycle** | Persistent (always-on) | Recurring (heartbeat cycles) | Ephemeral (spin up, execute, gone) |
 | **Model routing** | Per-role config (default: Opus) | Per-role config (default: Sonnet) | Per-role config (default: varies) |
 | **Identity continuity** | Strong | Moderate | None |
+
+---
+
+## Expert Sessions: Interactive Pair Programming
+
+Expert sessions are a **fourth interaction mode** that cuts across the three tiers. Where executives run autonomously, employees run on heartbeats, and contractors execute fire-and-forget jobs, experts are **interactive** — a human (or exec) and a specialist agent work together in real-time.
+
+### The Concept
+
+The pipeline handles autonomous work well. But some tasks need a human in the loop — deploying to staging, debugging a live issue, writing a migration with someone watching, pair-coding a tricky feature. Expert sessions fill this gap.
+
+An executive (typically the CPO) or a human triggers an expert session by saying "I need a Supabase expert to help with this migration." The system:
+
+1. Creates a fully scaffolded workspace (git worktree, CLAUDE.md, MCP tools, skills)
+2. Writes a brief to `.claude/expert-brief.md`
+3. Spawns an **interactive Claude tmux session** with the role's model and prompt
+4. Links the tmux window into the viewer TUI as a new tab — the human sees it appear
+5. The expert reads its brief on startup (via SessionStart hook) and begins working
+6. Human and expert pair-program interactively
+7. When done, the expert writes a summary to `.claude/expert-report.md`
+8. On session exit: report is written to DB, injected into the CPO's tmux session, viewer switches back to CPO, worktree is cleaned up
+
+### Expert Roles
+
+Expert roles are **global templates** — not tied to a company. They define the specialist persona:
+
+| Field | Purpose |
+|-------|---------|
+| `name` | Unique identifier (e.g., `supabase-expert`) |
+| `display_name` | Human-readable (e.g., "Supabase Expert") |
+| `prompt` | Role-specific system prompt — domain knowledge, workflow guidance |
+| `model` | Which model to use (default: `claude-sonnet-4-6`) |
+| `skills` | Skill files loaded into the workspace |
+| `mcp_tools` | MCP tool configuration |
+| `settings_overrides` | Claude settings (hooks, permissions, etc.) |
+
+Current seeded roles:
+
+- **Test Deployment Expert** — guides staging deploys, verifies they work, troubleshoots
+- **Supabase Expert** — writes/debugs migrations, RLS policies, edge functions, realtime channels
+- **Hotfix Engineer** — rapid interactive code changes, pair coding with human
+
+### How Experts Differ from Other Tiers
+
+Experts are not a fourth tier — they're a **session mode** that any specialist role can operate in. The key differences:
+
+| | Pipeline Jobs | Expert Sessions |
+|---|---|---|
+| **Interaction** | Fire-and-forget | Interactive, real-time |
+| **Slot consumption** | Yes — consumes a job slot | No — doesn't consume slots |
+| **Lifecycle** | Dispatched → executing → complete | Requested → running → completed |
+| **Output** | Job result + report file | Expert report → injected into CPO |
+| **Workspace** | Ephemeral job workspace | Git worktree with full repo context |
+| **Visibility** | Background (logs only) | Foreground (tmux tab in viewer TUI) |
+| **Triggered by** | Orchestrator dispatch | CPO, human, or `start_expert_session` MCP tool |
+
+### The CPO ↔ Expert Loop
+
+The most powerful pattern is the CPO commissioning experts. When the CPO hits something outside its competence — a complex migration, a deployment issue, a security audit — it commissions an expert session:
+
+```
+CPO encounters complex migration issue
+    │
+    ▼
+CPO calls start_expert_session MCP tool
+  → role: supabase-expert
+  → brief: "Migration 118 fails on staging — pipeline_snapshot function
+            references columns that don't exist yet. Need to fix the
+            migration ordering and verify on staging."
+    │
+    ▼
+Expert session spawns in viewer TUI
+  → Human sees new tab, can interact
+  → Expert reads brief, starts working
+    │
+    ▼
+Expert completes work, writes report
+    │
+    ▼
+Session exits → report injected into CPO's context
+  → CPO absorbs the outcome: "Migration fixed, deployed to staging,
+     verified working. Changed execution order to create columns
+     before the function that references them."
+    │
+    ▼
+CPO continues with full awareness of what happened
+```
+
+This creates a **knowledge loop** — the CPO delegates specialized work, gets the result back, and maintains continuity without having done the work itself. The expert is ephemeral but the knowledge persists through the CPO.
+
+### Expert Sessions and the Six Layers
+
+Experts use a subset of the six layers, assembled differently from pipeline workers:
+
+| Layer | Expert Sessions |
+|-------|----------------|
+| **Personality** | None — task-focused, not identity-focused |
+| **Role prompt** | From `expert_roles.prompt` — domain knowledge + workflow guidance |
+| **Skills** | From `expert_roles.skills` — specialist capabilities |
+| **Doctrines** | Not currently injected (future: specialist doctrines) |
+| **Canons** | Not currently injected (future: domain reference material) |
+| **Memory** | Not currently injected (future: expert learns from past sessions) |
+
+Expert sessions are deliberately lightweight on identity layers — personality, doctrines, and canons are omitted because the session is interactive and short-lived. The human provides the judgment that these layers would normally supply. As the system matures, doctrine and memory injection may be added to make experts more capable without human steering.
+
+### Storage
+
+- **`expert_roles`** — Global role templates. No `company_id` — roles are shared across all companies.
+- **`expert_sessions`** — Session lifecycle tracking. Company-scoped. Has `brief` (input), `summary` (output), `triggered_by`, `status`, timestamps.
+
+### Future: Expert Marketplace
+
+Expert roles are the natural unit for a marketplace alongside contractors. Where contractors execute autonomously, experts provide interactive specialist assistance:
+
+```
+Zazig Expert Marketplace (future)
+├── Supabase Expert           Interactive DB, migration, RLS help
+├── Deployment Expert         Guided staging/production deploys
+├── Security Auditor          Interactive security review with human
+├── Performance Profiler      Guided performance investigation
+├── Hotfix Engineer           Rapid pair-coding for urgent fixes
+└── Architecture Consultant   Interactive design session with CTO
+```
+
+The distinction from the contractor marketplace: contractors are **autonomous specialists** (give them a job, they execute). Experts are **interactive specialists** (work alongside a human or exec in real-time). Some roles may exist in both modes — a Security Auditor could run as a contractor (autonomous scan) or as an expert (guided review with a human watching).
 
 ---
 
@@ -728,4 +854,4 @@ Source: Garry Tan's engineering preferences for AI coding agents. Strong candida
 
 ---
 
-*Executives lead. Employees specialize. Contractors execute. The six layers — personality, role prompt, skills, doctrines, canons, memory — compose differently for each tier, but the orchestrator assembles them all the same way: compile at dispatch, inject as prompt, agent never sees the config. Model routing sits alongside this as an orchestrator-level concern — the right model for the right task, enforced at dispatch, invisible to the worker. This is zazig's organizational model.*
+*Executives lead. Employees specialize. Contractors execute. Experts pair. The six layers — personality, role prompt, skills, doctrines, canons, memory — compose differently for each tier and mode, but the orchestrator assembles them all the same way: compile at dispatch, inject as prompt, agent never sees the config. Expert sessions add a fourth interaction mode — interactive, real-time, human-in-the-loop — that complements the autonomous pipeline. Model routing sits alongside this as an orchestrator-level concern — the right model for the right task, enforced at dispatch, invisible to the worker. This is zazig's organizational model.*

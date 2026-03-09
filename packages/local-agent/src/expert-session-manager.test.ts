@@ -10,6 +10,10 @@ vi.mock("node:util", () => ({
   promisify: vi.fn(() => (...args: unknown[]) => mockExecFileAsync(...args)),
 }));
 
+vi.mock("./workspace.js", () => ({
+  setupJobWorkspace: vi.fn(),
+}));
+
 vi.mock("node:fs", () => ({
   mkdirSync: vi.fn(),
   readFileSync: vi.fn(() => "status: pass\nsummary: expert result"),
@@ -19,6 +23,7 @@ vi.mock("node:fs", () => ({
 }));
 
 import * as fsModule from "node:fs";
+import { setupJobWorkspace } from "./workspace.js";
 
 function makeSupabaseClient() {
   const updates: Array<{ table: string; data: Record<string, unknown>; eqColumn: string; eqValue: string }> = [];
@@ -78,6 +83,58 @@ describe("ExpertSessionManager", () => {
 
     expect(exitSpy).toHaveBeenCalledWith(session);
     expect((manager as any).activePollers.has(session.sessionId)).toBe(false);
+  });
+
+  it("starts expert session with Claude permission-bypass flag", async () => {
+    const supabase = makeSupabaseClient();
+    const { ExpertSessionManager } = await import("./expert-session-manager.js");
+    const manager = new ExpertSessionManager({
+      machineId: "machine-1",
+      companyId: "company-12345678",
+      supabase: supabase.client as any,
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "anon-key",
+    });
+
+    const fsReadMock = vi.mocked(fsModule.readFileSync);
+    fsReadMock.mockImplementation((path: unknown) =>
+      String(path).endsWith("settings.json")
+        ? JSON.stringify({ permissions: { allow: ["Read"] } })
+        : "status: pass\nsummary: expert result",
+    );
+
+    await manager.handleStartExpert({
+      type: "start_expert",
+      session_id: "session-12345678",
+      display_name: "Research Expert",
+      role: {
+        name: "expert",
+        prompt: "You are an expert.",
+        mcp_tools: [],
+        settings_overrides: null,
+        skills: [],
+      },
+      model: "claude-sonnet-4-6",
+      brief: "Investigate and fix issue.",
+      branch: null,
+      company_name: null,
+      company_id: "company-12345678",
+      project_id: null,
+      repo_url: null,
+    } as any);
+
+    expect(setupJobWorkspace).toHaveBeenCalled();
+
+    const tmuxNewSessionCall = mockExecFileAsync.mock.calls.find((call) =>
+      call[0] === "tmux"
+      && Array.isArray(call[1])
+      && call[1][0] === "new-session"
+    );
+    expect(tmuxNewSessionCall).toBeDefined();
+    const shellCmd = tmuxNewSessionCall?.[1][6];
+    expect(shellCmd).toContain("--dangerously-skip-permissions");
+    expect(shellCmd).toContain("--model");
+    expect(shellCmd).toContain("claude-sonnet-4-6");
   });
 
   it("handleSessionExit writes summary, injects into CPO, and cleans resources", async () => {

@@ -217,7 +217,9 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
 ### Ending the Session
 When the user says "wrap up", "I'm done", "finish up", or similar:
 1. Write a 2-3 sentence summary of what was accomplished to \`.claude/expert-report.md\`
-2. Tell the user: "Report written. You can type /exit to close this session."
+2. Tell the user: "Report written. Type /quit (or press Ctrl+C) to close this session."
+
+When greeting the user, always include: "When you're done, say 'wrap up' and I'll write a summary report. Then type /quit (or press Ctrl+C) to close the session."
 
 **Always write the report before the session ends.** The report is read by the CPO after the session closes.
 `);
@@ -269,7 +271,7 @@ When the user says "wrap up", "I'm done", "finish up", or similar:
             matcher: "",
             hooks: [{
               type: "command",
-              command: `cat ${shellEscape([join(claudeDir, "expert-brief.md")])} && echo "" && echo "---" && echo "When you're finished, say 'wrap up' — the expert will write a summary report. Then type /exit to close."`,
+              command: `cat ${shellEscape([join(claudeDir, "expert-brief.md")])} && echo "" && echo "---" && echo "When you're finished, say 'wrap up' — the expert will write a summary report. Then type /quit (or press Ctrl+C) to close."`,
             }],
           },
         ],
@@ -303,7 +305,12 @@ When the user says "wrap up", "I'm done", "finish up", or similar:
         await killTmuxSession(tmuxSessionName);
       }
 
-      const claudeCmd = shellEscape(["claude", "--model", msg.model]);
+      const claudeCmd = shellEscape([
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        msg.model,
+      ]);
       const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
 
       await execFileAsync("tmux", [

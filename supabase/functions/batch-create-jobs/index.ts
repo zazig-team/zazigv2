@@ -98,6 +98,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
+    // Breakdown retries are idempotent: clear queued jobs from prior partial runs.
+    const { data: deletedQueuedJobs, error: deleteQueuedErr } = await supabase
+      .from("jobs")
+      .delete()
+      .eq("feature_id", feature_id)
+      .eq("status", "queued")
+      .select("id");
+
+    if (deleteQueuedErr) {
+      return jsonResponse(
+        { error: `Failed to clear queued jobs for feature ${feature_id}: ${deleteQueuedErr.message}` },
+        500,
+      );
+    }
+
+    console.log(
+      `[batch-create-jobs] Deleted ${deletedQueuedJobs?.length ?? 0} queued job(s) for feature ${feature_id} before insert`,
+    );
+
     // --- Validate each job ---
 
     for (let i = 0; i < jobs.length; i++) {

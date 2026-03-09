@@ -1493,51 +1493,16 @@ export async function handleJobComplete(
     await triggerFeatureVerification(supabase, jobRow.feature_id);
   }
 
-  // Handle reviewer verify job completion: check pass/fail and advance or notify CPO
+  // Handle reviewer verify job completion: job_complete means verification passed.
+  // (Failed verification arrives via job_failed broadcast → handleJobFailed)
   if (
     jobRow?.job_type === "verify" && jobRow?.role === "reviewer" &&
     jobRow?.feature_id
   ) {
-    const normalizedResult = result?.toUpperCase() ?? "";
-    const passed = normalizedResult.startsWith("PASSED");
-    const failed = normalizedResult.startsWith("FAILED") ||
-      normalizedResult.startsWith("NO_REPORT") ||
-      normalizedResult.startsWith("VERDICT_MISSING");
-    if (passed) {
-      console.log(
-        `[orchestrator] Verification PASSED for feature ${jobRow.feature_id} — triggering merge`,
-      );
-      await triggerMerging(supabase, jobRow.feature_id);
-    } else if (failed) {
-      const failureResult = normalizedResult.startsWith("NO_REPORT")
-        ? "FAILED: NO_REPORT (reviewer report file missing)"
-        : normalizedResult.startsWith("VERDICT_MISSING")
-        ? "FAILED: VERDICT_MISSING (reviewer report has no machine-parseable verdict)"
-        : (result ?? "FAILED");
-      console.log(
-        `[orchestrator] Verification FAILED for feature ${jobRow.feature_id} — triggering retry (result=${failureResult})`,
-      );
-      await handleVerificationFailed(
-        supabase,
-        jobRow.feature_id,
-        jobRow.company_id,
-        failureResult,
-      );
-    } else {
-      // INCONCLUSIVE or unexpected result — notify CPO for manual triage
-      console.log(
-        `[orchestrator] Verification INCONCLUSIVE for feature ${jobRow.feature_id}: result=${
-          result ?? "unknown"
-        }`,
-      );
-      await notifyCPO(
-        supabase,
-        jobRow.company_id,
-        `Verification inconclusive for feature ${jobRow.feature_id}: result=${
-          result ?? "unknown"
-        }. Needs manual triage.`,
-      );
-    }
+    console.log(
+      `[orchestrator] Verification PASSED for feature ${jobRow.feature_id} — triggering merge`,
+    );
+    await triggerMerging(supabase, jobRow.feature_id);
   }
 
   // Handle test deploy job completion: extract URL and advance feature
@@ -1574,57 +1539,34 @@ export async function handleJobComplete(
     await handleProdDeployComplete(supabase, jobRow.feature_id);
   }
 
-  // Handle merge job completion: advance feature to complete or failed
+  // Handle merge job completion: job_complete means merge succeeded.
+  // (Failed merge arrives via job_failed broadcast → handleJobFailed)
   if (jobRow?.job_type === "merge" && jobRow?.feature_id) {
-    const normalizedResult = result?.toUpperCase() ?? "";
-    const passed = normalizedResult.startsWith("PASSED");
-    if (passed) {
-      console.log(
-        `[orchestrator] Merge PASSED for feature ${jobRow.feature_id} — advancing to complete`,
-      );
-      const { data: completedUpdated } = await supabase
-        .from("features")
-        .update({
-          status: "complete",
-          completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", jobRow.feature_id)
-        .eq("status", "merging")
-        .select("id, pr_url, title");
-      if (completedUpdated?.length) {
-        const prUrl = (completedUpdated[0] as { pr_url?: string }).pr_url ??
-          null;
-        const featureTitle =
-          (completedUpdated[0] as { title?: string }).title ??
-            jobRow.feature_id;
-        await notifyCPO(
-          supabase,
-          jobRow.company_id,
-          prUrl
-            ? `Feature "${featureTitle}" merged and complete: ${prUrl}`
-            : `Feature "${featureTitle}" merged and complete.`,
-        );
-      }
-    } else {
-      console.log(
-        `[orchestrator] Merge FAILED for feature ${jobRow.feature_id} — marking failed`,
-      );
-      await supabase
-        .from("features")
-        .update({
-          status: "failed",
-          error: `Merge failed: ${(result ?? "unknown").slice(0, 200)}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", jobRow.feature_id)
-        .eq("status", "merging");
+    console.log(
+      `[orchestrator] Merge PASSED for feature ${jobRow.feature_id} — advancing to complete`,
+    );
+    const { data: completedUpdated } = await supabase
+      .from("features")
+      .update({
+        status: "complete",
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", jobRow.feature_id)
+      .eq("status", "merging")
+      .select("id, pr_url, title");
+    if (completedUpdated?.length) {
+      const prUrl = (completedUpdated[0] as { pr_url?: string }).pr_url ??
+        null;
+      const featureTitle =
+        (completedUpdated[0] as { title?: string }).title ??
+          jobRow.feature_id;
       await notifyCPO(
         supabase,
         jobRow.company_id,
-        `Merge failed for feature ${jobRow.feature_id}: ${
-          (result ?? "unknown").slice(0, 200)
-        }`,
+        prUrl
+          ? `Feature "${featureTitle}" merged and complete: ${prUrl}`
+          : `Feature "${featureTitle}" merged and complete.`,
       );
     }
   }
@@ -4035,49 +3977,24 @@ async function processFeatureLifecycle(
       context: string;
       result: string | null;
     };
-    if (job.status !== "complete") continue;
 
-    const normalizedResult = job.result?.toUpperCase() ?? "";
-    const passed = normalizedResult.startsWith("PASSED");
-    const failed = normalizedResult.startsWith("FAILED") ||
-      normalizedResult.startsWith("NO_REPORT") ||
-      normalizedResult.startsWith("VERDICT_MISSING");
-
-    if (passed) {
+    if (job.status === "complete") {
       console.log(
         `[orchestrator] processFeatureLifecycle: verify PASSED for feature ${feature.id} — triggering merge (catch-up)`,
       );
       await triggerMerging(supabase, feature.id);
-    } else if (failed) {
-      const failureResult = normalizedResult.startsWith("NO_REPORT")
-        ? "FAILED: NO_REPORT (reviewer report file missing)"
-        : normalizedResult.startsWith("VERDICT_MISSING")
-        ? "FAILED: VERDICT_MISSING (reviewer report has no machine-parseable verdict)"
-        : (job.result ?? "FAILED");
+    } else if (job.status === "failed") {
       console.log(
-        `[orchestrator] processFeatureLifecycle: verify FAILED for feature ${feature.id} — triggering retry (catch-up, result=${failureResult})`,
+        `[orchestrator] processFeatureLifecycle: verify FAILED for feature ${feature.id} — triggering retry (catch-up)`,
       );
       await handleVerificationFailed(
         supabase,
         feature.id,
         feature.company_id,
-        failureResult,
-      );
-    } else {
-      // INCONCLUSIVE — notify CPO but don't retry (catch-up)
-      console.log(
-        `[orchestrator] processFeatureLifecycle: verify INCONCLUSIVE for feature ${feature.id} (catch-up): result=${
-          job.result ?? "unknown"
-        }`,
-      );
-      await notifyCPO(
-        supabase,
-        feature.company_id,
-        `Verification inconclusive for feature ${feature.id}: result=${
-          job.result ?? "unknown"
-        }. Needs manual triage.`,
+        job.result ?? "FAILED",
       );
     }
+    // if still 'executing', 'queued', or 'dispatched', do nothing — let it run
   }
 
   // --- 6. merging → complete (catch-up) ---
@@ -4115,12 +4032,8 @@ async function processFeatureLifecycle(
       status: string;
       result: string | null;
     };
-    if (job.status !== "complete") continue;
 
-    const normalizedResult = job.result?.toUpperCase() ?? "";
-    const passed = normalizedResult.startsWith("PASSED");
-
-    if (passed) {
+    if (job.status === "complete") {
       console.log(
         `[orchestrator] processFeatureLifecycle: merge PASSED for feature ${feature.id} — advancing to complete (catch-up)`,
       );
@@ -4147,7 +4060,7 @@ async function processFeatureLifecycle(
             : `Feature "${featureTitle}" merged and complete.`,
         );
       }
-    } else {
+    } else if (job.status === "failed") {
       // Merge failed — mark feature as failed (catch-up)
       console.log(
         `[orchestrator] processFeatureLifecycle: merge FAILED for feature ${feature.id} — marking failed (catch-up)`,
@@ -4162,6 +4075,7 @@ async function processFeatureLifecycle(
         .eq("id", feature.id)
         .eq("status", "merging");
     }
+    // if still 'executing', 'queued', or 'dispatched', do nothing — let it run
   }
 
   // Feature pipeline ends at 'complete'.

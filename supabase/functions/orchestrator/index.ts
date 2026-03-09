@@ -6,9 +6,6 @@
  * Responsibilities:
  *   1. Poll `jobs` for queued work and dispatch to machines with capacity.
  *   2. Detect dead machines (no heartbeat for 2 min) and re-queue their jobs.
- *   3. Listen on Realtime channel `orchestrator:commands` for agent messages
- *      (Heartbeat, JobAck, JobStatusMessage, JobComplete, JobFailed) and
- *      apply the appropriate DB updates / slot adjustments.
  *
  * Runtime: Deno / Supabase Edge Functions
  * Auth: service_role key — never exposed to the client.
@@ -16,17 +13,6 @@
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import {
-  isDeployComplete,
-  isFeatureApproved,
-  isFeatureRejected,
-  isHeartbeat,
-  isJobAck,
-  isJobBlocked,
-  isJobComplete,
-  isJobFailed,
-  isJobStatusMessage,
-  isStopAck,
-  isVerifyResult,
   MACHINE_DEAD_THRESHOLD_MS,
   PROTOCOL_VERSION,
   RECOVERY_COOLDOWN_MS,
@@ -1154,7 +1140,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
 // Agent message handlers (called from the Realtime subscription)
 // ---------------------------------------------------------------------------
 
-async function handleHeartbeat(
+export async function handleHeartbeat(
   supabase: SupabaseClient,
   msg: Heartbeat,
 ): Promise<void> {
@@ -1224,7 +1210,7 @@ async function handleHeartbeat(
   }
 }
 
-function handleJobAck(
+export function handleJobAck(
   _supabase: SupabaseClient,
   msg: { jobId: string; machineId: string },
 ): void {
@@ -1234,7 +1220,7 @@ function handleJobAck(
   );
 }
 
-async function handleJobStatus(
+export async function handleJobStatus(
   supabase: SupabaseClient,
   msg: JobStatusMessage,
 ): Promise<void> {
@@ -1559,7 +1545,7 @@ export async function handleJobComplete(
   }
 }
 
-async function handleJobFailed(
+export async function handleJobFailed(
   supabase: SupabaseClient,
   msg: JobFailed,
 ): Promise<void> {
@@ -4055,84 +4041,6 @@ async function releaseSlot(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Realtime listener — subscribe to agent messages
-// ---------------------------------------------------------------------------
-
-/**
- * Subscribes to `orchestrator:commands` channel and processes one batch of
- * messages for up to `listenDurationMs` before returning.
- *
- * In a scheduled invocation (10 s window) we listen briefly to drain any
- * pending messages, then let the function exit.
- */
-async function listenForAgentMessages(
-  supabase: SupabaseClient,
-  listenDurationMs = 5_000,
-): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const channel = supabase.channel("orchestrator:commands");
-
-    const timer = setTimeout(async () => {
-      await channel.unsubscribe();
-      resolve();
-    }, listenDurationMs);
-
-    channel
-      .on(
-        "broadcast",
-        { event: "*" },
-        async ({ payload }: { payload: unknown }) => {
-          const msg = payload;
-
-          if (isHeartbeat(msg)) {
-            await handleHeartbeat(supabase, msg);
-          } else if (isJobAck(msg)) {
-            handleJobAck(supabase, msg);
-          } else if (isJobStatusMessage(msg)) {
-            await handleJobStatus(supabase, msg);
-          } else if (isJobComplete(msg)) {
-            await handleJobComplete(supabase, msg);
-          } else if (isJobFailed(msg)) {
-            await handleJobFailed(supabase, msg);
-          } else if (isVerifyResult(msg)) {
-            await handleVerifyResult(supabase, msg);
-          } else if (isFeatureApproved(msg)) {
-            await handleFeatureApproved(supabase, msg);
-          } else if (isFeatureRejected(msg)) {
-            await handleFeatureRejected(supabase, msg);
-          } else if (isDeployComplete(msg)) {
-            await handleDeployComplete(supabase, msg);
-          } else if (isJobBlocked(msg)) {
-            await handleJobBlocked(supabase, msg);
-          } else if (isDecisionResolved(msg)) {
-            await handleDecisionResolved(supabase, msg);
-          } else if (isStopAck(msg)) {
-            console.log(
-              `[orchestrator] StopAck received — job ${
-                (msg as { jobId: string }).jobId
-              }`,
-            );
-          } else {
-            console.warn(
-              "[orchestrator] Unknown or invalid agent message received:",
-              JSON.stringify(payload),
-            );
-          }
-        },
-      )
-      .subscribe((status) => {
-        if (status === "CHANNEL_ERROR") {
-          console.error(
-            "[orchestrator] Realtime channel error on orchestrator:commands",
-          );
-          clearTimeout(timer);
-          resolve();
-        }
-      });
-  });
-}
-
 /**
  * Refreshes the pipeline snapshot cache for each company.
  *
@@ -4186,30 +4094,24 @@ Deno.serve(async (_req: Request): Promise<Response> => {
   const supabase = makeAdminClient();
 
   try {
-    // 1. Drain any pending agent messages from the Realtime channel.
-    //    Listen for 4 s to collect messages (heartbeats, job updates).
-    //    Must run BEFORE reap so freshly-received heartbeats prevent
-    //    machines from being incorrectly marked dead.
-    await listenForAgentMessages(supabase, 4_000);
-
-    // 2a. Mark dead machines offline (prevents dispatch to them).
+    // 1a. Mark dead machines offline (prevents dispatch to them).
     await reapDeadMachines(supabase);
 
-    // 2b. Re-queue jobs stuck in dispatched/executing with stale updated_at.
+    // 1b. Re-queue jobs stuck in dispatched/executing with stale updated_at.
     await reapStaleJobs(supabase);
 
-    // 3. Process breaking_down features → create breakdown jobs.
+    // 2. Process breaking_down features → create breakdown jobs.
     await processReadyForBreakdown(supabase);
 
-    // 4. Catch missed feature lifecycle transitions (breakdown→building, building→combining).
+    // 3. Catch missed feature lifecycle transitions (breakdown→building, building→combining).
     //    The executor writes job status directly to DB — if the Realtime broadcast was
     //    missed during the 4s listen window, these transitions would never fire.
     await processFeatureLifecycle(supabase);
 
-    // 5. Dispatch queued jobs to available machines.
+    // 4. Dispatch queued jobs to available machines.
     await dispatchQueuedJobs(supabase);
 
-    // 6. Refresh pipeline snapshot cache after all state mutations.
+    // 5. Refresh pipeline snapshot cache after all state mutations.
     await refreshPipelineSnapshotCache(supabase);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

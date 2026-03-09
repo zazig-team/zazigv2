@@ -385,6 +385,16 @@ const TERMINAL_FEATURE_STATUSES_FOR_DEPLOY = new Set([
   "complete",
   "cancelled",
 ]);
+const EXECUTING_JOB_INVESTIGATION_THRESHOLD_MS = 30 * 60 * 1000;
+const MACHINE_HEARTBEAT_STALE_FOR_TIMEOUT_MS = 5 * 60 * 1000;
+const EXECUTING_JOB_TIMEOUT_RESULT =
+  "Timeout: machine heartbeat lost after 30+ min in executing";
+const EXECUTING_JOB_STARTED_AT_COLUMN_CANDIDATES = [
+  "dispatched_at",
+  "updated_at",
+  "started_at",
+  "assigned_at",
+] as const;
 
 console.log(
   "[orchestrator] Cold start — in-memory recoveryTimestamps reset (anti-flap cooldown not durable across restarts)",
@@ -3489,24 +3499,202 @@ async function processReadyForBreakdown(
 // Feature lifecycle polling — catch transitions missed by Realtime
 // ---------------------------------------------------------------------------
 
+function extractMachineLastHeartbeat(machineRelation: unknown): string | null {
+  if (!machineRelation) return null;
+
+  if (Array.isArray(machineRelation)) {
+    const firstMachine = machineRelation[0] as
+      | { last_heartbeat?: unknown }
+      | undefined;
+    return typeof firstMachine?.last_heartbeat === "string"
+      ? firstMachine.last_heartbeat
+      : null;
+  }
+
+  const machine = machineRelation as { last_heartbeat?: unknown };
+  return typeof machine.last_heartbeat === "string"
+    ? machine.last_heartbeat
+    : null;
+}
+
+async function jobsColumnExists(
+  supabase: SupabaseClient,
+  columnName: string,
+): Promise<boolean> {
+  const { error } = await supabase
+    .from("jobs")
+    .select(`id, ${columnName}`)
+    .limit(1);
+
+  if (!error) return true;
+
+  const message = error.message.toLowerCase();
+  if (
+    message.includes("column") &&
+    message.includes(columnName.toLowerCase()) &&
+    message.includes("does not exist")
+  ) {
+    return false;
+  }
+
+  console.error(
+    `[orchestrator] processFeatureLifecycle: unexpected error probing jobs.${columnName}:`,
+    error.message,
+  );
+  return false;
+}
+
+async function getExecutingStartColumn(
+  supabase: SupabaseClient,
+): Promise<string | null> {
+  for (const columnName of EXECUTING_JOB_STARTED_AT_COLUMN_CANDIDATES) {
+    if (await jobsColumnExists(supabase, columnName)) {
+      if (columnName !== "dispatched_at") {
+        console.warn(
+          `[orchestrator] processFeatureLifecycle: jobs.dispatched_at not found, using jobs.${columnName} as executing start time`,
+        );
+      }
+      return columnName;
+    }
+  }
+
+  console.error(
+    "[orchestrator] processFeatureLifecycle: no suitable executing start timestamp column found on jobs (checked dispatched_at, updated_at, started_at, assigned_at)",
+  );
+  return null;
+}
+
+async function checkExecutingJobsForHeartbeatTimeout(
+  supabase: SupabaseClient,
+): Promise<void> {
+  const executingStartColumn = await getExecutingStartColumn(supabase);
+  if (!executingStartColumn) return;
+
+  const hasStuckAtColumn = await jobsColumnExists(supabase, "stuck_at");
+  const selectClause = hasStuckAtColumn
+    ? `id, machine_id, ${executingStartColumn}, stuck_at, machines(last_heartbeat)`
+    : `id, machine_id, ${executingStartColumn}, machines(last_heartbeat)`;
+
+  const pageSize = 200;
+  const nowMs = Date.now();
+  let lastSeenId: string | null = null;
+
+  while (true) {
+    let query = supabase
+      .from("jobs")
+      .select(selectClause)
+      .eq("status", "executing")
+      .order("id", { ascending: true })
+      .limit(pageSize);
+
+    if (lastSeenId) {
+      query = query.gt("id", lastSeenId);
+    }
+
+    const { data: executingJobs, error: executingErr } = await query;
+
+    if (executingErr) {
+      console.error(
+        "[orchestrator] processFeatureLifecycle: error querying executing jobs for heartbeat timeout check:",
+        executingErr.message,
+      );
+      return;
+    }
+
+    if (!executingJobs || executingJobs.length === 0) break;
+
+    for (const rawJob of executingJobs as Record<string, unknown>[]) {
+      const jobId = typeof rawJob.id === "string" ? rawJob.id : null;
+      if (!jobId) continue;
+
+      const executingStartRaw = rawJob[executingStartColumn];
+      if (typeof executingStartRaw !== "string") continue;
+
+      const executingStartMs = Date.parse(executingStartRaw);
+      if (Number.isNaN(executingStartMs)) continue;
+
+      if (
+        nowMs - executingStartMs <= EXECUTING_JOB_INVESTIGATION_THRESHOLD_MS
+      ) {
+        continue;
+      }
+
+      if (hasStuckAtColumn && rawJob.stuck_at) {
+        console.warn(
+          `[orchestrator] processFeatureLifecycle: job ${jobId} already has stuck_at marker — skipping duplicate timeout handling`,
+        );
+        continue;
+      }
+
+      const machineHeartbeat = extractMachineLastHeartbeat(rawJob.machines);
+      const machineHeartbeatMs = machineHeartbeat
+        ? Date.parse(machineHeartbeat)
+        : Number.NaN;
+      const machineLooksDead = !machineHeartbeat ||
+        Number.isNaN(machineHeartbeatMs) ||
+        nowMs - machineHeartbeatMs > MACHINE_HEARTBEAT_STALE_FOR_TIMEOUT_MS;
+
+      if (machineLooksDead) {
+        const nowIso = new Date().toISOString();
+        const { data: updated, error: updateErr } = await supabase
+          .from("jobs")
+          .update({
+            status: "failed",
+            result: EXECUTING_JOB_TIMEOUT_RESULT,
+            machine_id: null,
+            completed_at: nowIso,
+            updated_at: nowIso,
+          })
+          .eq("id", jobId)
+          .eq("status", "executing")
+          .select("id");
+
+        if (updateErr) {
+          console.error(
+            `[orchestrator] processFeatureLifecycle: failed to auto-fail timed-out executing job ${jobId}:`,
+            updateErr.message,
+          );
+        } else if (updated && updated.length > 0) {
+          console.warn(
+            `[orchestrator] processFeatureLifecycle: auto-failed job ${jobId} after >30 min in executing because machine heartbeat is stale or missing`,
+          );
+        }
+      } else {
+        console.warn(
+          `[orchestrator] processFeatureLifecycle: Job ${jobId} has been executing for >30 min on live machine — investigate`,
+        );
+      }
+    }
+
+    if (executingJobs.length < pageSize) break;
+    const tailId = executingJobs[executingJobs.length - 1]?.id;
+    if (typeof tailId !== "string") break;
+    lastSeenId = tailId;
+  }
+}
+
 /**
  * Polls for features whose lifecycle transitions were missed because the
  * executor writes job status directly to the DB and the orchestrator's 4s
  * Realtime window may not catch the broadcast.
  *
  * Handles:
- *   0. Failed job catch-up: marks features failed when JobFailed broadcast was missed
- *   0b. deploy_to_test guard: fails queued/dispatched/executing deploy jobs for terminal features
- *   1. breaking_down → building: all breakdown jobs for the feature are complete
- *   2. building → combining_and_pr: all implementation jobs are complete
- *   3. combining_and_pr → verifying: the latest combine job is complete
- *   4. verifying → merging: the latest verify job is complete and passed
- *   5. merging → complete: the latest merge job is complete and passed
+ *   0. Executing-job heartbeat timeout check for long-running jobs
+ *   1. Failed job catch-up: marks features failed when JobFailed broadcast was missed
+ *   1b. deploy_to_test guard: fails queued/dispatched/executing deploy jobs for terminal features
+ *   2. breaking_down → building: all breakdown jobs for the feature are complete
+ *   3. building → combining_and_pr: all implementation jobs are complete
+ *   4. combining_and_pr → verifying: the latest combine job is complete
+ *   5. verifying → merging: the latest verify job is complete and passed
+ *   6. merging → complete: the latest merge job is complete and passed
  */
 async function processFeatureLifecycle(
   supabase: SupabaseClient,
 ): Promise<void> {
-  // --- 0. Failed job catch-up (all stages) ---
+  // --- 0. Long-running executing jobs heartbeat timeout check ---
+  await checkExecutingJobsForHeartbeatTimeout(supabase);
+
+  // --- 1. Failed job catch-up (all stages) ---
   // If the JobFailed broadcast was missed, the feature is stuck forever because
   // handleJobFailed (line 1085) is the only path that marks features as failed.
   // This catch-up finds features with failed jobs that weren't marked failed.
@@ -3558,7 +3746,7 @@ async function processFeatureLifecycle(
     }
   }
 
-  // --- 0b. deploy_to_test cleanup for terminal features ---
+  // --- 1b. deploy_to_test cleanup for terminal features ---
   // If a feature is terminal, deploy_to_test must never be queued/dispatched/executing.
   const { data: terminalFeatures, error: terminalErr } = await supabase
     .from("features")
@@ -3621,7 +3809,7 @@ async function processFeatureLifecycle(
     }
   }
 
-  // --- 1. breaking_down → building ---
+  // --- 2. breaking_down → building ---
   // Features stuck in 'breaking_down' where the breakdown job is complete
   const { data: breakdownFeatures, error: bErr } = await supabase
     .from("features")
@@ -3734,7 +3922,7 @@ async function processFeatureLifecycle(
     }
   }
 
-  // --- 2. building → combining ---
+  // --- 3. building → combining ---
   // Features stuck in 'building' where all implementation jobs are complete
   const { data: buildingFeatures, error: buildErr } = await supabase
     .from("features")
@@ -3772,7 +3960,7 @@ async function processFeatureLifecycle(
     }
   }
 
-  // --- 3. combining_and_pr → verifying ---
+  // --- 4. combining_and_pr → verifying ---
   // Features stuck in 'combining_and_pr' where the latest combine job is already complete.
   // Uses latest job by created_at to avoid advancing on stale jobs from prior rejection cycles.
   const { data: combiningFeatures, error: combineErr } = await supabase
@@ -3809,7 +3997,7 @@ async function processFeatureLifecycle(
     // Failed combine jobs are handled by Task 0's central catch-up — no action needed here.
   }
 
-  // --- 4. verifying → merging (catch-up) ---
+  // --- 5. verifying → merging (catch-up) ---
   // Features stuck in 'verifying' where the latest verify job is already complete and passed.
   // The live path (handleJobComplete) triggers merging on receipt of the job_complete message.
   // This catch-up handles cases where that message was missed.
@@ -3892,7 +4080,7 @@ async function processFeatureLifecycle(
     }
   }
 
-  // --- 5. merging → complete (catch-up) ---
+  // --- 6. merging → complete (catch-up) ---
   // Features stuck in 'merging' where the latest merge job is already complete.
   const { data: mergingFeatures, error: mergeErr } = await supabase
     .from("features")

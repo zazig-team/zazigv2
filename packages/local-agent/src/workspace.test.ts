@@ -123,8 +123,8 @@ describe("setupJobWorkspace", () => {
     // Verify mkdirSync called with workspaceDir (recursive)
     expect(mkdirSyncMock).toHaveBeenCalledWith("/tmp/test-workspace", { recursive: true });
 
-    // Verify writeFileSync called 4 times (mcp.json, CLAUDE.md, settings.json, workspace-config.json)
-    expect(writeFileSyncMock).toHaveBeenCalledTimes(4);
+    // Verify writeFileSync called 5 times (.mcp.json, CLAUDE.md, settings.json, workspace-config.json, settings.local.json)
+    expect(writeFileSyncMock).toHaveBeenCalledTimes(5);
 
     // 1. .mcp.json
     const mcpCall = writeFileSyncMock.mock.calls.find(
@@ -162,6 +162,17 @@ describe("setupJobWorkspace", () => {
     const workspaceConfigContent = JSON.parse(workspaceConfigCall![1] as string);
     expect(workspaceConfigContent.machineId).toBe("machine-123");
     expect(workspaceConfigContent.role).toBe("breakdown-specialist");
+
+    // 5. .claude/settings.local.json
+    const settingsLocalCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("settings.local.json"),
+    );
+    expect(settingsLocalCall).toBeDefined();
+    const settingsLocalContent = JSON.parse(settingsLocalCall![1] as string);
+    expect(settingsLocalContent).toEqual({
+      enableAllProjectMcpServers: true,
+      enabledMcpjsonServers: ["zazig-messaging"],
+    });
   });
 
   it("adds worktree metadata path to settings permissions when .git points to an absolute gitdir", () => {

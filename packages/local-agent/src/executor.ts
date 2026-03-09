@@ -1790,7 +1790,8 @@ export class JobExecutor {
 
     // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
 
-    // Push job branch and record in DB before sending JobComplete
+    // Push job branch before sending JobComplete.
+    let pr: string | undefined;
     if (job.worktreePath && job.jobBranch) {
       jobLog(jobId, `Pushing branch ${job.jobBranch} from ${job.worktreePath}`);
       try {
@@ -1801,7 +1802,6 @@ export class JobExecutor {
         jobLog(jobId, `Push FAILED for ${job.jobBranch}: ${String(pushErr)}`);
         console.warn(`[executor] onJobEnded: push failed for jobId=${jobId}: ${String(pushErr)}`);
       }
-      await this.supabase.from("jobs").update({ branch: job.jobBranch }).eq("id", jobId);
       try {
         await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
       } catch (worktreeErr) {
@@ -1811,7 +1811,7 @@ export class JobExecutor {
 
       // Create GitHub PR for combine jobs (after branch push succeeds)
       if (job.cardType === "combine" && job.repoUrl && job.featureBranch) {
-        await this.createPRForCombineJob(jobId, job);
+        pr = await this.createPRForCombineJob(jobId, job);
       }
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
@@ -1820,7 +1820,7 @@ export class JobExecutor {
     if (result === "PASSED" || result.startsWith("PASSED:")) {
       jobLog(jobId, `Sending JobComplete — result="${result}", hasReport=${!!report}`);
       try {
-        await this.sendJobComplete(jobId, result, report);
+        await this.sendJobComplete(jobId, result, report, job.jobBranch, pr);
         jobLog(jobId, `JobComplete sent successfully`);
       } catch (sendErr) {
         jobLog(jobId, `sendJobComplete FAILED: ${String(sendErr)}`);
@@ -1853,7 +1853,7 @@ export class JobExecutor {
   // Private: PR creation for combine jobs
   // ---------------------------------------------------------------------------
 
-  private async createPRForCombineJob(jobId: string, job: ActiveJob): Promise<void> {
+  private async createPRForCombineJob(jobId: string, job: ActiveJob): Promise<string | undefined> {
     const repoUrl = job.repoUrl!;
     const featureBranch = job.featureBranch!;
 
@@ -1879,7 +1879,7 @@ export class JobExecutor {
     const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
     if (!match) {
       jobLog(jobId, `PR skipped — cannot parse owner/repo from "${repoUrl}"`);
-      return;
+      return undefined;
     }
     const ownerRepo = match[1];
     const prTitle = `feat: ${featureTitle ?? featureId ?? jobId}`;
@@ -1919,6 +1919,7 @@ export class JobExecutor {
       }
       jobLog(jobId, `PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);
       console.log(`[executor] PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);
+      return prUrl || undefined;
     } catch (prErr: unknown) {
       jobLog(jobId, `PR creation failed: ${String(prErr)} — checking for existing PR`);
       console.warn(`[executor] PR creation failed for jobId=${jobId}: ${String(prErr)}`);
@@ -1943,8 +1944,10 @@ export class JobExecutor {
             jobLog(jobId, `Found existing PR for feature ${featureId}: ${prs[0].url}`);
           }
           console.log(`[executor] Found existing PR for feature ${featureId}: ${prs[0].url}`);
+          return prs[0].url;
         }
       } catch { /* best-effort */ }
+      return undefined;
     }
   }
 
@@ -2120,40 +2123,20 @@ export class JobExecutor {
   private async sendJobComplete(
     jobId: string,
     result: string,
-    report?: string
+    report?: string,
+    branch?: string,
+    pr?: string,
   ): Promise<void> {
-    // Primary: write directly to DB.
-    // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).
-    if (!jobId.startsWith("persistent-")) {
-      // Store the full report text when available (e.g. diagnosis reports);
-      // fall back to the short verdict string.
-      const storedResult = report ?? result;
-      jobLog(jobId, `DB write: status=complete, result="${storedResult.slice(0, 100)}"`);
-      const { error: dbErr } = await this.supabase
-        .from("jobs")
-        .update({
-          status: "complete",
-          result: storedResult,
-          completed_at: new Date().toISOString(),
-          progress: 100,
-        })
-        .eq("id", jobId);
-
-      if (dbErr) {
-        jobLog(jobId, `DB write FAILED: ${dbErr.message}`);
-        console.warn(`[executor] sendJobComplete DB write failed for jobId=${jobId}: ${dbErr.message}`);
-      } else {
-        jobLog(jobId, `DB write succeeded`);
-      }
-    }
-
-    // Secondary: broadcast via Realtime
+    // Broadcast via Realtime (single writer pattern: orchestrator persists terminal state).
     await this.send({
       type: "job_complete",
       protocolVersion: PROTOCOL_VERSION,
       jobId,
       machineId: this.machineId,
       result,
+      branch: branch ?? undefined,
+      pr_url: pr ?? undefined,
+      ...(pr !== undefined ? { pr } : {}),
       ...(report !== undefined ? { report } : {}),
     });
   }
@@ -2164,21 +2147,7 @@ export class JobExecutor {
     failureReason: FailureReason
   ): Promise<void> {
     jobLog(jobId, `FAILED — reason=${failureReason}, error="${result.slice(0, 200)}"`);
-    // Primary: write directly to DB — persist error detail in result column.
-    // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).
-    if (!jobId.startsWith("persistent-")) {
-      const { error: dbErr } = await this.supabase
-        .from("jobs")
-        .update({ status: "failed", result })
-        .eq("id", jobId);
-
-      if (dbErr) {
-        jobLog(jobId, `DB write FAILED: ${dbErr.message}`);
-        console.warn(`[executor] sendJobFailed DB write failed for jobId=${jobId}: ${dbErr.message}`);
-      }
-    }
-
-    // Secondary: broadcast via Realtime
+    // Broadcast via Realtime (single writer pattern: orchestrator persists terminal state).
     await this.send({
       type: "job_failed",
       protocolVersion: PROTOCOL_VERSION,

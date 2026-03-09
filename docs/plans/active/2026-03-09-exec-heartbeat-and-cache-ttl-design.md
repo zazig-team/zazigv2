@@ -1,7 +1,7 @@
 # Exec Heartbeat & Cache-TTL — Autonomous Recurring Work for Persistent Agents
 
 **Date:** 2026-03-09
-**Status:** Draft
+**Status:** Implemented (Codex, Phase 1, 2026-03-09) — pending migration deploy + live daemon validation
 **Authors:** Tom Weaver, Claude
 **Focus Areas:** Autonomous Organisation, The Full Loop
 **Depends on:** Persistent Identity (Phase 1 has no other dependencies — see Section 8)
@@ -550,6 +550,19 @@ UPDATE roles SET cache_ttl_minutes = 60, heartbeat_md = '' WHERE name = 'cto';
 2. **Generate exec skill** during persistent agent setup:
    - Create `.claude/skills/as-{role}/SKILL.md` in exec workspace only (Phase 1)
    - Phase 2: optionally publish to repo's `.claude/skills/` with allowlist gating
+
+### Implementation Notes (2026-03-09, Codex)
+
+- `ActivePersistentAgent` expanded at executor.ts:257 with TTL/activity metadata (`lastActivityAt`, `lastOutputHash`, `cacheTtlMinutes`, `hardTtlMinutes`, `heartbeatTasksRun`, `consecutiveResetFailures`, `lastResetAt`, `originalJob`)
+- Startup loads `heartbeat_md`, `cache_ttl_minutes`, `hard_ttl_minutes` from roles table
+- Existing 30s heartbeat timer now: captures tmux output → compares hash → checks idle/hard TTLs → suppresses idle reset when tmux client attached
+- Reset sequence: preserves workspace, clears in-memory/session state, replays stored `StartJob` with refreshed role prompt in prompt stack
+- SessionStart hook wiring adds HEARTBEAT context alongside existing prompt-freshness hook
+- `workspace.ts:46` — `WorkspaceConfig.heartbeatMd`, `setupJobWorkspace()` writes HEARTBEAT.md, seeds heartbeat-state.json (only if absent), `generateExecSkill()` writes exec-local as-{role} skill
+- Migration: `supabase/migrations/129_exec_heartbeat.sql` (3 columns on roles)
+- Tests: executor.test.ts:658 (cache-TTL behavior), workspace.test.ts:373 (HEARTBEAT.md + skill generation)
+- `npm run build` passes, unit tests pass
+- **Not yet validated:** live tmux end-to-end reset, migration against live Supabase
 
 ### HEARTBEAT.md Authoring
 

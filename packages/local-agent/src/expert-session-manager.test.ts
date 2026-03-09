@@ -89,7 +89,7 @@ describe("ExpertSessionManager", () => {
     expect((manager as any).activePollers.has(session.sessionId)).toBe(false);
   });
 
-  it("starts expert session with Claude permission-bypass flag", async () => {
+  it("starts expert session without Claude permission-bypass flag", async () => {
     const supabase = makeSupabaseClient();
     const { ExpertSessionManager } = await import("./expert-session-manager.js");
     const manager = new ExpertSessionManager({
@@ -136,9 +136,8 @@ describe("ExpertSessionManager", () => {
     );
     expect(tmuxNewSessionCall).toBeDefined();
     const shellCmd = tmuxNewSessionCall?.[1][6];
-    expect(shellCmd).toContain("--dangerously-skip-permissions");
-    expect(shellCmd).toContain("--model");
-    expect(shellCmd).toContain("claude-sonnet-4-6");
+    expect(shellCmd).toContain("claude --model claude-sonnet-4-6");
+    expect(shellCmd).not.toContain("dangerously");
   });
 
   it("handleSessionExit writes summary, injects into CPO, and cleans resources", async () => {

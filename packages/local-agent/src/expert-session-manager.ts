@@ -146,6 +146,14 @@ export class ExpertSessionManager {
     // 3. Git worktree setup if project_id + repo_url provided
     let repoDir: string | undefined;
     let bareRepoDir: string | undefined;
+    if ((msg.project_id && !msg.repo_url) || (!msg.project_id && msg.repo_url)) {
+      console.error(
+        `[expert] Invalid start_expert payload for ${sessionId}: project_id and repo_url must both be set together`,
+      );
+      await this.updateSessionStatus(sessionId, "failed");
+      return;
+    }
+
     if (msg.project_id && msg.repo_url) {
       try {
         const projectName = msg.repo_url.split("/").pop()?.replace(/\.git$/, "") ?? msg.project_id;
@@ -159,8 +167,33 @@ export class ExpertSessionManager {
           await execFileAsync("git", ["clone", "--bare", msg.repo_url, bareRepoDir]);
         }
 
-        // Fetch latest
-        await execFileAsync("git", ["-C", bareRepoDir, "fetch", "origin"]);
+        // Remove stale metadata/dir from interrupted sessions so each start gets a fresh worktree.
+        try {
+          await execFileAsync("git", [
+            "-C", bareRepoDir,
+            "worktree", "remove", "--force", worktreeTarget,
+          ]);
+        } catch {
+          // No pre-existing worktree at this path — that's fine.
+        }
+        rmSync(worktreeTarget, { recursive: true, force: true });
+        await execFileAsync("git", ["-C", bareRepoDir, "worktree", "prune"]);
+
+        // Fetch latest refs. If a full fetch is rejected due diverged local refs,
+        // retry a branch-targeted fetch so we still refresh the branch we need.
+        try {
+          await execFileAsync("git", ["-C", bareRepoDir, "fetch", "origin"]);
+        } catch (fetchErr) {
+          console.warn(
+            `[expert] git fetch origin failed for ${projectName}; retrying branch-only fetch for ${branch}`,
+            fetchErr,
+          );
+          await execFileAsync("git", [
+            "-C", bareRepoDir,
+            "fetch", "--force", "origin",
+            `+refs/heads/${branch}:refs/remotes/origin/${branch}`,
+          ]);
+        }
 
         // Create worktree — use detached HEAD from the target branch to avoid
         // "already checked out" errors on shared branches
@@ -182,7 +215,8 @@ export class ExpertSessionManager {
         console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${branch})`);
       } catch (err) {
         console.error(`[expert] Failed to create git worktree:`, err);
-        // Continue without repo — expert can still work
+        await this.updateSessionStatus(sessionId, "failed");
+        return;
       }
     }
 

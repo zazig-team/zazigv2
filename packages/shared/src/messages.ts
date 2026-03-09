@@ -370,7 +370,7 @@ export interface StartExpertMessage {
   project_id?: string;
   /** GitHub HTTPS URL for the project repo. Required when project_id is set. */
   repo_url?: string;
-  /** Branch to base the worktree on (defaults to master). */
+  /** Branch to base the worktree on (defaults to master when omitted). */
   branch?: string;
   /** Model identifier for the Claude session. */
   model: string;

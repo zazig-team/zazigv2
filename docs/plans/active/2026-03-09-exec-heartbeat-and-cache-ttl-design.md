@@ -1,7 +1,7 @@
 # Exec Heartbeat & Cache-TTL — Autonomous Recurring Work for Persistent Agents
 
 **Date:** 2026-03-09
-**Status:** Implemented (Codex, Phase 1, 2026-03-09) — pending migration deploy + live daemon validation
+**Status:** Implemented (Phase 1, 2026-03-09) — merged to master, migration 129 deployed, pending live daemon validation
 **Authors:** Tom Weaver, Claude
 **Focus Areas:** Autonomous Organisation, The Full Loop
 **Depends on:** Persistent Identity (Phase 1 has no other dependencies — see Section 8)
@@ -561,8 +561,11 @@ UPDATE roles SET cache_ttl_minutes = 60, heartbeat_md = '' WHERE name = 'cto';
 - `workspace.ts:46` — `WorkspaceConfig.heartbeatMd`, `setupJobWorkspace()` writes HEARTBEAT.md, seeds heartbeat-state.json (only if absent), `generateExecSkill()` writes exec-local as-{role} skill
 - Migration: `supabase/migrations/129_exec_heartbeat.sql` (3 columns on roles)
 - Tests: executor.test.ts:658 (cache-TTL behavior), workspace.test.ts:373 (HEARTBEAT.md + skill generation)
-- `npm run build` passes, unit tests pass
-- **Not yet validated:** live tmux end-to-end reset, migration against live Supabase
+- `npm run build` passes, all 72 executor + workspace tests pass
+- **Migration 129 deployed** (2026-03-09) via Supabase Management API (`POST /v1/projects/{ref}/database/query`)
+- **CPO and CTO heartbeat_md populated** in DB with initial task lists (see HEARTBEAT.md Authoring below)
+- **Exec context skills Phase 2 shipped** (PR #220) — `publishSharedExecSkill()` writes sanitized skill to repo `.claude/skills/as-{role}/` on every persistent agent startup. Finding #4 (shared publication deferred to Phase 2) is now resolved.
+- **Not yet validated:** live tmux end-to-end reset cycle, heartbeat task execution on daemon restart
 
 ### HEARTBEAT.md Authoring
 

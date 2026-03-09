@@ -76,6 +76,7 @@ const NO_CODE_CONTEXT_ROLES = new Set([
   "pipeline-technician",
   "monitoring-agent",
   "project-architect",
+  "triage-analyst",
 ]);
 
 

@@ -3175,9 +3175,10 @@ input {
 .il-chevron {
   width: 28px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 13px 0;
+  padding-top: 16px;
+  padding-bottom: 13px;
   color: var(--dust);
   font-size: 8px;
   flex-shrink: 0;

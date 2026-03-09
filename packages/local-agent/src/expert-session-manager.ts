@@ -341,7 +341,6 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
 
       const claudeCmd = shellEscape([
         "claude",
-        "--dangerously-skip-permissions",
         "--model",
         msg.model,
       ]);

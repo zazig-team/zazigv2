@@ -146,6 +146,14 @@ export class ExpertSessionManager {
     // 3. Git worktree setup if project_id + repo_url provided
     let repoDir: string | undefined;
     let bareRepoDir: string | undefined;
+    if ((msg.project_id && !msg.repo_url) || (!msg.project_id && msg.repo_url)) {
+      console.error(
+        `[expert] Invalid start_expert payload for ${sessionId}: project_id and repo_url must both be set together`,
+      );
+      await this.updateSessionStatus(sessionId, "failed");
+      return;
+    }
+
     if (msg.project_id && msg.repo_url) {
       try {
         const projectName = msg.repo_url.split("/").pop()?.replace(/\.git$/, "") ?? msg.project_id;
@@ -159,8 +167,33 @@ export class ExpertSessionManager {
           await execFileAsync("git", ["clone", "--bare", msg.repo_url, bareRepoDir]);
         }
 
-        // Fetch latest
-        await execFileAsync("git", ["-C", bareRepoDir, "fetch", "origin"]);
+        // Remove stale metadata/dir from interrupted sessions so each start gets a fresh worktree.
+        try {
+          await execFileAsync("git", [
+            "-C", bareRepoDir,
+            "worktree", "remove", "--force", worktreeTarget,
+          ]);
+        } catch {
+          // No pre-existing worktree at this path — that's fine.
+        }
+        rmSync(worktreeTarget, { recursive: true, force: true });
+        await execFileAsync("git", ["-C", bareRepoDir, "worktree", "prune"]);
+
+        // Fetch latest refs. If a full fetch is rejected due diverged local refs,
+        // retry a branch-targeted fetch so we still refresh the branch we need.
+        try {
+          await execFileAsync("git", ["-C", bareRepoDir, "fetch", "origin"]);
+        } catch (fetchErr) {
+          console.warn(
+            `[expert] git fetch origin failed for ${projectName}; retrying branch-only fetch for ${branch}`,
+            fetchErr,
+          );
+          await execFileAsync("git", [
+            "-C", bareRepoDir,
+            "fetch", "--force", "origin",
+            `+refs/heads/${branch}:refs/remotes/origin/${branch}`,
+          ]);
+        }
 
         // Create worktree — use detached HEAD from the target branch to avoid
         // "already checked out" errors on shared branches
@@ -182,7 +215,8 @@ export class ExpertSessionManager {
         console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${branch})`);
       } catch (err) {
         console.error(`[expert] Failed to create git worktree:`, err);
-        // Continue without repo — expert can still work
+        await this.updateSessionStatus(sessionId, "failed");
+        return;
       }
     }
 
@@ -217,7 +251,9 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
 ### Ending the Session
 When the user says "wrap up", "I'm done", "finish up", or similar:
 1. Write a 2-3 sentence summary of what was accomplished to \`.claude/expert-report.md\`
-2. Tell the user: "Report written. You can type /exit to close this session."
+2. Tell the user: "Report written. Type /quit (or press Ctrl+C) to close this session."
+
+When greeting the user, always include: "When you're done, say 'wrap up' and I'll write a summary report. Then type /quit (or press Ctrl+C) to close the session."
 
 **Always write the report before the session ends.** The report is read by the CPO after the session closes.
 `);
@@ -269,7 +305,7 @@ When the user says "wrap up", "I'm done", "finish up", or similar:
             matcher: "",
             hooks: [{
               type: "command",
-              command: `cat ${shellEscape([join(claudeDir, "expert-brief.md")])} && echo "" && echo "---" && echo "When you're finished, say 'wrap up' — the expert will write a summary report. Then type /exit to close."`,
+              command: `cat ${shellEscape([join(claudeDir, "expert-brief.md")])} && echo "" && echo "---" && echo "When you're finished, say 'wrap up' — the expert will write a summary report. Then type /quit (or press Ctrl+C) to close."`,
             }],
           },
         ],
@@ -303,7 +339,12 @@ When the user says "wrap up", "I'm done", "finish up", or similar:
         await killTmuxSession(tmuxSessionName);
       }
 
-      const claudeCmd = shellEscape(["claude", "--model", msg.model]);
+      const claudeCmd = shellEscape([
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        msg.model,
+      ]);
       const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
 
       await execFileAsync("tmux", [

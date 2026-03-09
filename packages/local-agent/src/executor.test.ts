@@ -47,7 +47,9 @@ vi.mock("./branches.js", () => {
   class MockRepoManager {
     ensureRepo = vi.fn().mockResolvedValue("/tmp/mock-repo");
     ensureWorktree = vi.fn().mockResolvedValue("/tmp/mock-worktree-shared");
+    refreshWorktree = vi.fn().mockResolvedValue(undefined);
     ensureFeatureBranch = vi.fn().mockResolvedValue(undefined);
+    fetchBranchForExpert = vi.fn().mockResolvedValue(undefined);
     createJobWorktree = vi.fn().mockResolvedValue({
       worktreePath: "/tmp/mock-worktree",
       jobBranch: "job/job-001",
@@ -637,7 +639,7 @@ describe("JobExecutor — slot reconciliation", () => {
   });
 });
 
-describe("JobExecutor — repo refresh heartbeat", () => {
+describe("JobExecutor — company project accessors", () => {
   let send: ReturnType<typeof vi.fn>;
   let slots: SlotTracker;
   let supabase: ReturnType<typeof makeMockSupabase>;
@@ -666,51 +668,21 @@ describe("JobExecutor — repo refresh heartbeat", () => {
     vi.useRealTimers();
   });
 
-  it("refreshes each configured company project on heartbeat", async () => {
-    executor.setCompanyProjects([
+  it("returns a defensive copy of configured company projects", () => {
+    const projects = [
       { name: "project-alpha", repo_url: "https://github.com/test/project-alpha.git" },
       { name: "project-beta", repo_url: "https://github.com/test/project-beta.git" },
-    ]);
+    ];
 
-    await vi.advanceTimersByTimeAsync(60_000);
+    executor.setCompanyProjects(projects);
+    const readBack = executor.getCompanyProjects();
+    readBack.pop();
 
-    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenCalledTimes(2);
-    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenNthCalledWith(1, "project-alpha");
-    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenNthCalledWith(2, "project-beta");
+    expect(executor.getCompanyProjects()).toEqual(projects);
   });
 
-  it("logs and continues when one project refresh fails", async () => {
-    const refreshErr = new Error("refresh failed");
-    lastRepoManagerInstance.ensureWorktree
-      .mockRejectedValueOnce(refreshErr)
-      .mockResolvedValueOnce("/tmp/mock-repo-worktree");
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    executor.setCompanyProjects([
-      { name: "project-alpha", repo_url: "https://github.com/test/project-alpha.git" },
-      { name: "project-beta", repo_url: "https://github.com/test/project-beta.git" },
-    ]);
-
-    await vi.advanceTimersByTimeAsync(60_000);
-
-    expect(consoleErrorSpy).toHaveBeenCalledWith("[repo-refresh] Failed to refresh project-alpha:", refreshErr);
-    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenCalledTimes(2);
-    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenNthCalledWith(2, "project-beta");
-
-    consoleErrorSpy.mockRestore();
-  });
-
-  it("stops repo refresh timer during stopAll", async () => {
-    executor.setCompanyProjects([
-      { name: "project-alpha", repo_url: "https://github.com/test/project-alpha.git" },
-    ]);
-
-    await executor.stopAll();
-    lastRepoManagerInstance.ensureWorktree.mockClear();
-
-    await vi.advanceTimersByTimeAsync(60_000);
-
-    expect(lastRepoManagerInstance.ensureWorktree).not.toHaveBeenCalled();
+  it("exposes the shared repoManager instance", () => {
+    expect(executor.repoManager).toBe(lastRepoManagerInstance);
   });
 });
 

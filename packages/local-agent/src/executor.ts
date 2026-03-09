@@ -339,7 +339,7 @@ export class JobExecutor {
   /** Jobs that have been attempted (including failures) — prevents duplicate dispatch. */
 
   /** Manages bare repo clones and job worktrees for all dispatched jobs. */
-  private readonly repoManager = new RepoManager();
+  public readonly repoManager = new RepoManager();
 
   /** Map of role → active persistent agent state. Supports simultaneous CPO, CTO, etc. */
   private readonly persistentAgents = new Map<string, ActivePersistentAgent>();
@@ -352,7 +352,6 @@ export class JobExecutor {
   private processingQueue = false;
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
   private prMonitorTimer: ReturnType<typeof setInterval> | null = null;
-  private repoRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private companyProjects: CompanyProject[] = [];
 
   constructor(
@@ -382,13 +381,14 @@ export class JobExecutor {
       void this.monitorMergedPRs();
     }, PR_MONITOR_INTERVAL_MS);
 
-    this.repoRefreshTimer = setInterval(() => {
-      void this.refreshCompanyProjectWorktrees();
-    }, SLOT_RECONCILE_INTERVAL_MS);
   }
 
   setCompanyProjects(projects: CompanyProject[]): void {
     this.companyProjects = [...projects];
+  }
+
+  getCompanyProjects(): CompanyProject[] {
+    return [...this.companyProjects];
   }
 
   /** Resolve the machine UUID from the machines table (cached after first call). */
@@ -941,11 +941,6 @@ export class JobExecutor {
       clearInterval(this.prMonitorTimer);
       this.prMonitorTimer = null;
     }
-    if (this.repoRefreshTimer !== null) {
-      clearInterval(this.repoRefreshTimer);
-      this.repoRefreshTimer = null;
-    }
-
     // Clear all persistent agents (fires DB status updates + stops heartbeat timers)
     this.clearPersistentAgent();
 
@@ -1003,16 +998,6 @@ export class JobExecutor {
         }
       } catch {
         // gh CLI failed — skip, will retry next cycle
-      }
-    }
-  }
-
-  private async refreshCompanyProjectWorktrees(): Promise<void> {
-    for (const project of this.companyProjects) {
-      try {
-        await this.repoManager.ensureWorktree(project.name);
-      } catch (err) {
-        console.error(`[repo-refresh] Failed to refresh ${project.name}:`, err);
       }
     }
   }

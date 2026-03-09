@@ -20,6 +20,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartExpertMessage } from "@zazigv2/shared";
+import type { RepoManager } from "./branches.js";
 import { setupJobWorkspace } from "./workspace.js";
 
 const execFileAsync = promisify(execFile);
@@ -53,6 +54,7 @@ interface ExpertSessionManagerOpts {
   supabase: SupabaseClient;
   supabaseUrl: string;
   supabaseAnonKey: string;
+  repoManager: RepoManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +121,7 @@ export class ExpertSessionManager {
   private readonly supabase: SupabaseClient;
   private readonly supabaseUrl: string;
   private readonly supabaseAnonKey: string;
+  private readonly repoManager: RepoManager;
   private readonly activeSessions = new Map<string, ExpertSessionState>();
   private readonly activePollers = new Map<string, ReturnType<typeof setInterval>>();
   private readonly exitingSessions = new Set<string>();
@@ -129,6 +132,7 @@ export class ExpertSessionManager {
     this.supabase = opts.supabase;
     this.supabaseUrl = opts.supabaseUrl;
     this.supabaseAnonKey = opts.supabaseAnonKey;
+    this.repoManager = opts.repoManager;
   }
 
   async handleStartExpert(msg: StartExpertMessage): Promise<void> {
@@ -157,15 +161,9 @@ export class ExpertSessionManager {
     if (msg.project_id && msg.repo_url) {
       try {
         const projectName = msg.repo_url.split("/").pop()?.replace(/\.git$/, "") ?? msg.project_id;
-        bareRepoDir = join(homedir(), ".zazigv2", "repos", projectName);
+        bareRepoDir = await this.repoManager.ensureRepo(msg.repo_url, projectName);
         const worktreeTarget = join(workspaceDir, "repo");
         const branch = msg.branch ?? "master";
-
-        // Ensure bare repo exists
-        if (!existsSync(bareRepoDir)) {
-          console.log(`[expert] Cloning bare repo for ${projectName}...`);
-          await execFileAsync("git", ["clone", "--bare", msg.repo_url, bareRepoDir]);
-        }
 
         // Remove stale metadata/dir from interrupted sessions so each start gets a fresh worktree.
         try {
@@ -179,40 +177,20 @@ export class ExpertSessionManager {
         rmSync(worktreeTarget, { recursive: true, force: true });
         await execFileAsync("git", ["-C", bareRepoDir, "worktree", "prune"]);
 
-        // Fetch latest refs. If a full fetch is rejected due diverged local refs,
-        // retry a branch-targeted fetch so we still refresh the branch we need.
-        try {
-          await execFileAsync("git", ["-C", bareRepoDir, "fetch", "origin"]);
-        } catch (fetchErr) {
-          console.warn(
-            `[expert] git fetch origin failed for ${projectName}; retrying branch-only fetch for ${branch}`,
-            fetchErr,
-          );
-          await execFileAsync("git", [
-            "-C", bareRepoDir,
-            "fetch", "--force", "origin",
-            `+refs/heads/${branch}:refs/remotes/origin/${branch}`,
-          ]);
-        }
+        await this.repoManager.fetchBranchForExpert(projectName, branch);
 
         // Create worktree — use detached HEAD from the target branch to avoid
         // "already checked out" errors on shared branches
-        try {
-          await execFileAsync("git", [
-            "-C", bareRepoDir,
-            "worktree", "add", "--detach", worktreeTarget,
-            `origin/${branch}`,
-          ]);
-        } catch {
-          // Fallback: try without origin/ prefix (local branch)
-          await execFileAsync("git", [
-            "-C", bareRepoDir,
-            "worktree", "add", "--detach", worktreeTarget, branch,
-          ]);
-        }
+        await execFileAsync("git", [
+          "-C", bareRepoDir,
+          "worktree", "add", "--detach", worktreeTarget,
+          `refs/heads/${branch}`,
+        ]);
+        const { stdout } = await execFileAsync("git", ["-C", worktreeTarget, "rev-parse", "HEAD"]);
 
         repoDir = worktreeTarget;
         console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${branch})`);
+        console.log(`[expert] Worktree at commit: ${stdout.trim().slice(0, 8)}`);
       } catch (err) {
         console.error(`[expert] Failed to create git worktree:`, err);
         await this.updateSessionStatus(sessionId, "failed");

@@ -266,6 +266,50 @@ export class RepoManager {
     });
   }
 
+  async refreshWorktree(projectName: string): Promise<void> {
+    const bareDir = join(REPOS_BASE, projectName);
+    const worktreeDir = join(REPOS_BASE, `${projectName}-worktree`);
+
+    if (!existsSync(worktreeDir)) {
+      return;
+    }
+
+    await this.withLock(bareDir, async () => {
+      if (!existsSync(worktreeDir)) {
+        return;
+      }
+
+      try {
+        await this.git(bareDir, "fetch", "origin");
+      } catch (error) {
+        console.warn(
+          `[RepoManager] refreshWorktree fetch warning for ${projectName} (non-fatal): ${getErrorMessage(error)}`,
+        );
+      }
+
+      const targetBranch = await this.resolveSharedWorktreeBranch(bareDir);
+      const targetRef = `refs/heads/${targetBranch}`;
+      const worktreeHead = await this.git(worktreeDir, "rev-parse", "HEAD");
+      const targetHead = await this.git(bareDir, "rev-parse", targetRef);
+
+      if (worktreeHead === targetHead) {
+        return;
+      }
+
+      try {
+        await this.git(worktreeDir, "merge-base", "--is-ancestor", worktreeHead, targetHead);
+      } catch {
+        console.error(
+          `[RepoManager] CRITICAL: refusing to refresh diverged ${projectName} worktree (${worktreeHead} vs ${targetHead})`,
+        );
+        return;
+      }
+
+      await this.git(worktreeDir, "reset", "--hard", targetRef);
+      console.log(`[RepoManager] refreshed ${projectName} worktree: ${worktreeHead} → ${targetHead}`);
+    });
+  }
+
   /**
    * Resolve the default branch in a bare repo.
    * Tries symbolic-ref HEAD first, then falls back to common names.
@@ -339,6 +383,19 @@ export class RepoManager {
       }
       const defaultBranch = await this.resolveDefaultBranch(repoDir);
       await this.git(repoDir, "branch", featureBranch, defaultBranch);
+    });
+  }
+
+  async fetchBranchForExpert(projectName: string, branch: string): Promise<void> {
+    const bareDir = join(REPOS_BASE, projectName);
+    return this.withLock(bareDir, async () => {
+      await this.git(
+        bareDir,
+        "fetch",
+        "--force",
+        "origin",
+        `+refs/heads/${branch}:refs/heads/${branch}`,
+      );
     });
   }
 

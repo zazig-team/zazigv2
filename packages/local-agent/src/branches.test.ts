@@ -14,11 +14,27 @@ function git(repoDirPath: string, ...args: string[]): string {
   return execFileSync("git", ["-C", repoDirPath, ...args], { encoding: "utf8" }).trim();
 }
 
+function commitFileInRepo(repoDirPath: string, fileName: string, content: string, message: string): string {
+  writeFileSync(join(repoDirPath, fileName), content);
+  git(repoDirPath, "add", ".");
+  git(repoDirPath, "commit", "-m", message);
+  return git(repoDirPath, "rev-parse", "HEAD");
+}
+
 function commitFile(fileName: string, content: string, message: string): string {
-  writeFileSync(join(repoDir, fileName), content);
-  git(repoDir, "add", ".");
-  git(repoDir, "commit", "-m", message);
-  return git(repoDir, "rev-parse", "HEAD");
+  return commitFileInRepo(repoDir, fileName, content, message);
+}
+
+function createSourceRepo(): string {
+  const sourceDir = mkdtempSync(join(tmpdir(), "branch-source-"));
+  git(sourceDir, "init");
+  git(sourceDir, "config", "user.email", "test@test.com");
+  git(sourceDir, "config", "user.name", "Test");
+  writeFileSync(join(sourceDir, "README.md"), "source\n");
+  git(sourceDir, "add", ".");
+  git(sourceDir, "commit", "-m", "init source");
+  git(sourceDir, "branch", "-M", "main");
+  return sourceDir;
 }
 
 beforeEach(async () => {
@@ -204,16 +220,8 @@ describe("removeWorktree", () => {
 
 describe("RepoManager.ensureWorktree", () => {
   it("creates the shared worktree on main when master is absent", async () => {
-    const sourceDir = mkdtempSync(join(tmpdir(), "branch-source-"));
+    const sourceDir = createSourceRepo();
     try {
-      git(sourceDir, "init");
-      git(sourceDir, "config", "user.email", "test@test.com");
-      git(sourceDir, "config", "user.name", "Test");
-      writeFileSync(join(sourceDir, "README.md"), "source\n");
-      git(sourceDir, "add", ".");
-      git(sourceDir, "commit", "-m", "init source");
-      git(sourceDir, "branch", "-M", "main");
-
       const manager = new branches.RepoManager();
       await manager.ensureRepo(sourceDir, "main-only-project");
       const worktreePath = await manager.ensureWorktree("main-only-project");
@@ -223,5 +231,169 @@ describe("RepoManager.ensureWorktree", () => {
     } finally {
       rmSync(sourceDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("RepoManager.refreshWorktree", () => {
+  it("is a no-op when the shared worktree is already up to date", async () => {
+    const sourceDir = createSourceRepo();
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const manager = new branches.RepoManager();
+      const bareDir = await manager.ensureRepo(sourceDir, "refresh-noop-project");
+      const worktreePath = await manager.ensureWorktree("refresh-noop-project");
+      const beforeHead = git(worktreePath, "rev-parse", "HEAD");
+
+      consoleLogSpy.mockClear();
+      await manager.refreshWorktree("refresh-noop-project");
+
+      expect(git(worktreePath, "rev-parse", "HEAD")).toBe(beforeHead);
+      expect(consoleLogSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("[RepoManager] refreshed refresh-noop-project worktree:"),
+      );
+      expect(git(bareDir, "rev-parse", "refs/heads/main")).toBe(beforeHead);
+    } finally {
+      consoleLogSpy.mockRestore();
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("resets the shared worktree when it is behind the bare repo branch", async () => {
+    const sourceDir = createSourceRepo();
+    try {
+      const manager = new branches.RepoManager();
+      await manager.ensureRepo(sourceDir, "refresh-behind-project");
+      const worktreePath = await manager.ensureWorktree("refresh-behind-project");
+      const oldHead = git(worktreePath, "rev-parse", "HEAD");
+      const newHead = commitFileInRepo(sourceDir, "behind.txt", "remote change\n", "remote advance");
+
+      await manager.refreshWorktree("refresh-behind-project");
+
+      expect(git(worktreePath, "rev-parse", "HEAD")).toBe(newHead);
+      expect(git(worktreePath, "merge-base", oldHead, newHead)).toBe(oldHead);
+    } finally {
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips refresh and logs CRITICAL when the shared worktree has diverged", async () => {
+    const sourceDir = createSourceRepo();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const manager = new branches.RepoManager();
+      await manager.ensureRepo(sourceDir, "refresh-diverged-project");
+      const worktreePath = await manager.ensureWorktree("refresh-diverged-project");
+
+      git(worktreePath, "config", "user.email", "test@test.com");
+      git(worktreePath, "config", "user.name", "Test");
+      git(worktreePath, "checkout", "--detach");
+      const detachedHead = commitFileInRepo(worktreePath, "local-only.txt", "local change\n", "local detached commit");
+      const remoteHead = commitFileInRepo(sourceDir, "remote-only.txt", "remote change\n", "remote commit");
+
+      await manager.refreshWorktree("refresh-diverged-project");
+
+      expect(git(worktreePath, "rev-parse", "HEAD")).toBe(detachedHead);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        `[RepoManager] CRITICAL: refusing to refresh diverged refresh-diverged-project worktree (${detachedHead} vs ${remoteHead})`,
+      );
+    } finally {
+      consoleErrorSpy.mockRestore();
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("handles bare repo fetch failures gracefully", async () => {
+    const sourceDir = createSourceRepo();
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const manager = new branches.RepoManager();
+      await manager.ensureRepo(sourceDir, "refresh-fetch-warning-project");
+      const worktreePath = await manager.ensureWorktree("refresh-fetch-warning-project");
+      const initialHead = git(worktreePath, "rev-parse", "HEAD");
+      commitFileInRepo(sourceDir, "remote-warning.txt", "remote warning\n", "remote warning commit");
+
+      const originalGit = (manager as any).git.bind(manager);
+      const bareDir = join(tempHomeDir, ".zazigv2", "repos", "refresh-fetch-warning-project");
+      const gitSpy = vi.spyOn(manager as any, "git").mockImplementation(async (repoDirPath: unknown, ...args: unknown[]) => {
+        const repoDirPathStr = String(repoDirPath);
+        const gitArgs = args.map(String);
+        if (repoDirPathStr === bareDir && gitArgs[0] === "fetch" && gitArgs[1] === "origin") {
+          throw new Error("simulated fetch failure");
+        }
+        return originalGit(repoDirPathStr, ...gitArgs);
+      });
+
+      await expect(manager.refreshWorktree("refresh-fetch-warning-project")).resolves.toBeUndefined();
+
+      expect(git(worktreePath, "rev-parse", "HEAD")).toBe(initialHead);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        "[RepoManager] refreshWorktree fetch warning for refresh-fetch-warning-project (non-fatal): simulated fetch failure",
+      );
+      gitSpy.mockRestore();
+    } finally {
+      consoleWarnSpy.mockRestore();
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("RepoManager.fetchBranchForExpert", () => {
+  it("force-fetches the requested branch into refs/heads", async () => {
+    const sourceDir = createSourceRepo();
+    try {
+      git(sourceDir, "checkout", "-b", "expert/review");
+      const expertHead = commitFileInRepo(sourceDir, "expert.txt", "expert branch\n", "expert branch commit");
+      git(sourceDir, "checkout", "main");
+
+      const manager = new branches.RepoManager();
+      await manager.ensureRepo(sourceDir, "expert-fetch-project");
+      await manager.fetchBranchForExpert("expert-fetch-project", "expert/review");
+
+      const bareDir = join(tempHomeDir, ".zazigv2", "repos", "expert-fetch-project");
+      expect(git(bareDir, "rev-parse", "refs/heads/expert/review")).toBe(expertHead);
+    } finally {
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("serializes concurrent branch fetches through the repo lock", async () => {
+    const manager = new branches.RepoManager();
+    const started: string[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let releaseFirst!: () => void;
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    const gitSpy = vi.spyOn(manager as any, "git").mockImplementation(async (_repoDirPath: unknown, ...args: unknown[]) => {
+      const branchArg = String(args[3] ?? "");
+      started.push(branchArg);
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      if (started.length === 1) {
+        await firstBlocked;
+      }
+      inFlight -= 1;
+      return "";
+    });
+
+    const firstFetch = manager.fetchBranchForExpert("locked-project", "branch-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const secondFetch = manager.fetchBranchForExpert("locked-project", "branch-b");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(started).toHaveLength(1);
+
+    releaseFirst();
+    await Promise.all([firstFetch, secondFetch]);
+
+    expect(maxInFlight).toBe(1);
+    expect(started).toEqual([
+      "+refs/heads/branch-a:refs/heads/branch-a",
+      "+refs/heads/branch-b:refs/heads/branch-b",
+    ]);
+
+    gitSpy.mockRestore();
   });
 });

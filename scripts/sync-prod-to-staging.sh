@@ -190,7 +190,7 @@ batch_insert_rows() {
   # Jobs have large context/raw_log fields — use smaller batches
   local effective_batch=${BATCH_SIZE}
   if [[ "${table}" == "jobs" ]]; then
-    effective_batch=5
+    effective_batch=4
   fi
 
   types_map="$(fetch_column_types_map "${table}")"

@@ -52,6 +52,7 @@ export interface WorkspaceConfig {
   companyId?: string;
   role: string;
   claudeMdContent: string;
+  heartbeatMd?: string;
   skills?: string[];
   repoSkillsDir?: string;
   repoInteractiveSkillsDir?: string;
@@ -178,6 +179,41 @@ export async function writeSubagentsConfig(
   writeFileSync(subagentsPath, JSON.stringify(subagentsConfig, null, 2));
 }
 
+export function generateExecSkill(
+  role: { name: string; prompt: string; heartbeat_md?: string },
+  workspacePath: string,
+): void {
+  const skillDir = join(workspacePath, ".claude", "skills", `as-${role.name}`);
+  mkdirSync(skillDir, { recursive: true });
+
+  const displayName = role.name.toUpperCase();
+  const sections = [
+    "---",
+    `name: as-${role.name}`,
+    `description: Load ${displayName}'s context into this session`,
+    "---",
+    "",
+    `# Operating as ${displayName}`,
+    "",
+    "## Role Context",
+    role.prompt,
+    "",
+    "## Workspace",
+    `- Memory: ${workspacePath}/.claude/memory/`,
+    `- Repos: ${workspacePath}/repos/`,
+  ];
+
+  if (role.heartbeat_md?.trim()) {
+    sections.push(
+      "",
+      "## Current Heartbeat Tasks",
+      role.heartbeat_md,
+    );
+  }
+
+  writeFileSync(join(skillDir, "SKILL.md"), `${sections.join("\n")}\n`);
+}
+
 // ---------------------------------------------------------------------------
 // Workspace setup
 // ---------------------------------------------------------------------------
@@ -190,6 +226,10 @@ export async function writeSubagentsConfig(
 export function setupJobWorkspace(config: WorkspaceConfig): void {
   // 1. Ensure workspace directory exists
   mkdirSync(config.workspaceDir, { recursive: true });
+
+  // 1b. Create .claude/ directory early so generated files can live under it.
+  const claudeDir = join(config.workspaceDir, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
 
   // 2. Write .mcp.json
   const mcpConfig = generateMcpConfig(config.mcpServerPath, {
@@ -213,9 +253,34 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     config.claudeMdContent,
   );
 
-  // 4. Create .claude/ directory
-  const claudeDir = join(config.workspaceDir, ".claude");
-  mkdirSync(claudeDir, { recursive: true });
+  // 3b. Write HEARTBEAT.md for persistent execs, even when blank, so resets
+  // can clear stale task files when the DB value changes.
+  if (config.heartbeatMd !== undefined) {
+    writeFileSync(
+      join(claudeDir, "HEARTBEAT.md"),
+      config.heartbeatMd,
+    );
+  }
+
+  // 3c. Seed heartbeat-state.json once so recurring tasks can dedupe across resets.
+  if (config.heartbeatMd !== undefined) {
+    const memoryDir = join(claudeDir, "memory");
+    mkdirSync(memoryDir, { recursive: true });
+    const heartbeatStatePath = join(memoryDir, "heartbeat-state.json");
+    if (!existsSync(heartbeatStatePath)) {
+      writeFileSync(
+        heartbeatStatePath,
+        JSON.stringify(
+          {
+            lastWakeAt: null,
+            taskCompletions: {},
+          },
+          null,
+          2,
+        ),
+      );
+    }
+  }
 
   // 5. Write .claude/settings.json with role-scoped permissions
   const worktreeMetadataDir = resolveGitWorktreeMetadataDir(config.workspaceDir);

@@ -1817,21 +1817,6 @@ export class JobExecutor {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
 
-    // Verify PASSED → merge the PR to master before reporting completion.
-    if (job.cardType === "verify" && result.startsWith("PASSED") && job.featureBranch) {
-      jobLog(jobId, `Verify passed — merging PR for feature branch ${job.featureBranch}`);
-      try {
-        const { stdout: mergeOut } = await execFileAsync("gh", [
-          "pr", "merge", job.featureBranch, "--squash", "--delete-branch",
-        ], { encoding: "utf8" });
-        jobLog(jobId, `PR merge succeeded: ${mergeOut.trim()}`);
-        console.log(`[executor] PR merged for jobId=${jobId}, branch=${job.featureBranch}`);
-      } catch (mergeErr) {
-        jobLog(jobId, `PR merge FAILED: ${String(mergeErr)}`);
-        console.error(`[executor] PR merge failed for jobId=${jobId}:`, mergeErr);
-      }
-    }
-
     if (result === "PASSED" || result.startsWith("PASSED:")) {
       jobLog(jobId, `Sending JobComplete — result="${result}", hasReport=${!!report}`);
       try {

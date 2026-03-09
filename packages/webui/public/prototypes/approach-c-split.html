@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Approach C — Split View</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+  :root {
+    --paper: #0c0d10;
+    --white: #16181d;
+    --chalk: #252830;
+    --chalk-light: #1d2026;
+    --dust: #505660;
+    --stone: #868c98;
+    --graphite: #b0b6c3;
+    --ink: #eaecf1;
+    --ember: #e8553a;
+    --positive: #3ecf71;
+    --caution: #e5b835;
+    --negative: #ef5454;
+    --col-ideas: #e5b835;
+    --col-bug: #ef5454;
+    --col-brief: #6b9fd4;
+    --col-test: #a78bfa;
+    --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", "SF Mono", monospace;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--paper);
+    color: var(--ink);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .top-bar {
+    padding: 20px 28px 0;
+    flex-shrink: 0;
+  }
+  .page-header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+  .page-title { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+  .page-subtitle { font-family: var(--font-mono); font-size: 11px; color: var(--dust); }
+
+  /* Split Layout */
+  .split {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* Left Panel */
+  .left-panel {
+    width: 420px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--chalk);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--chalk);
+    padding: 0 16px;
+    flex-shrink: 0;
+  }
+  .tab {
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--stone);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .tab:hover { color: var(--graphite); }
+  .tab.active {
+    color: var(--ink);
+    border-bottom-color: var(--col-ideas);
+  }
+  .tab-count {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--dust);
+  }
+  .tab.active .tab-count { color: var(--col-ideas); }
+
+  .list-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+
+  .list-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    padding: 0;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.1s ease;
+    overflow: hidden;
+    margin-bottom: 2px;
+    border: 1px solid transparent;
+  }
+  .list-item:hover {
+    background: var(--chalk-light);
+  }
+  .list-item.selected {
+    background: rgba(229, 184, 53, 0.06);
+    border-color: rgba(229, 184, 53, 0.2);
+  }
+
+  .item-accent {
+    width: 3px;
+    align-self: stretch;
+    flex-shrink: 0;
+    border-radius: 3px 0 0 3px;
+  }
+  .item-accent.idea { background: var(--col-ideas); }
+  .item-accent.bug { background: var(--col-bug); }
+
+  .item-icon {
+    width: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+    padding-top: 11px;
+  }
+
+  .item-body {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 12px 10px 0;
+  }
+  .item-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--ink);
+    margin-bottom: 3px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .item-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .priority-badge {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 500;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+  }
+  .priority-badge.urgent { background: rgba(239, 84, 84, 0.15); color: var(--negative); }
+  .priority-badge.high { background: rgba(232, 85, 58, 0.15); color: var(--ember); }
+  .priority-badge.med { background: rgba(80, 86, 96, 0.3); color: var(--stone); }
+  .priority-badge.low { background: rgba(80, 86, 96, 0.15); color: var(--dust); }
+
+  .meta-text {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--dust);
+  }
+
+  /* Right Panel — Detail */
+  .right-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 28px 36px;
+    background: var(--paper);
+  }
+
+  .detail-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--dust);
+    font-size: 13px;
+  }
+
+  .detail-header {
+    margin-bottom: 28px;
+  }
+  .detail-type-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .detail-type-badge {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+    background: rgba(229, 184, 53, 0.12);
+    color: var(--col-ideas);
+  }
+  .detail-status-badge {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+    background: rgba(80, 86, 96, 0.2);
+    color: var(--stone);
+  }
+  .detail-title {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.3px;
+    margin-bottom: 8px;
+  }
+  .detail-priority-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .detail-section {
+    margin-bottom: 24px;
+  }
+  .detail-section-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--dust);
+    margin-bottom: 8px;
+  }
+  .detail-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--graphite);
+  }
+
+  .detail-meta-grid {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 6px 16px;
+    font-size: 12px;
+  }
+  .detail-meta-key {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dust);
+  }
+  .detail-meta-val {
+    color: var(--stone);
+    font-size: 12px;
+  }
+
+  .detail-divider {
+    height: 1px;
+    background: var(--chalk);
+    margin: 24px 0;
+  }
+
+  .promote-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: rgba(229, 184, 53, 0.12);
+    border: 1px solid rgba(229, 184, 53, 0.25);
+    border-radius: var(--radius-sm);
+    color: var(--col-ideas);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .promote-btn:hover {
+    background: rgba(229, 184, 53, 0.2);
+    border-color: rgba(229, 184, 53, 0.4);
+  }
+
+  .action-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .action-btn {
+    padding: 8px 16px;
+    background: var(--chalk);
+    border: 1px solid var(--dust);
+    border-radius: var(--radius-sm);
+    color: var(--stone);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .action-btn:hover {
+    background: var(--chalk-light);
+    color: var(--ink);
+  }
+
+  .approach-label {
+    position: fixed;
+    top: 16px;
+    right: 24px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--dust);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    opacity: 0.5;
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
+
+<div class="approach-label">Approach C &mdash; Split View</div>
+
+<div class="top-bar">
+  <div class="page-header">
+    <div class="page-title">Ideas</div>
+    <div class="page-subtitle">triage workflow</div>
+  </div>
+</div>
+
+<div class="split">
+
+  <!-- Left: List -->
+  <div class="left-panel">
+    <div class="tabs">
+      <div class="tab active">Inbox <span class="tab-count">25</span></div>
+      <div class="tab">Triaged <span class="tab-count">12</span></div>
+      <div class="tab">Workshop <span class="tab-count">3</span></div>
+      <div class="tab">Parked <span class="tab-count">14</span></div>
+      <div class="tab">Shipped <span class="tab-count">22</span></div>
+    </div>
+    <div class="list-scroll">
+
+      <div class="list-item">
+        <div class="item-accent idea"></div>
+        <div class="item-icon">💡</div>
+        <div class="item-body">
+          <div class="item-title">Idea Hardening Pipeline — Port fragile bash scripts to typed Node modules</div>
+          <div class="item-meta">
+            <span class="priority-badge med">MED</span>
+            <span class="meta-text">terminal</span>
+            <span class="meta-text">2h</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="list-item">
+        <div class="item-accent idea"></div>
+        <div class="item-icon">💡</div>
+        <div class="item-body">
+          <div class="item-title">Promote-to-Capability transition flow for graduated ideas</div>
+          <div class="item-meta">
+            <span class="priority-badge med">MED</span>
+            <span class="meta-text">terminal</span>
+            <span class="meta-text">2h</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="list-item">
+        <div class="item-accent idea"></div>
+        <div class="item-icon">💡</div>
+        <div class="item-body">
+          <div class="item-title">Exec Context Skills — Portable knowledge packs for agent specialization</div>
+          <div class="item-meta">
+            <span class="priority-badge med">MED</span>
+            <span class="meta-text">terminal</span>
+            <span class="meta-text">2h</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="list-item selected">
+        <div class="item-accent idea"></div>
+        <div class="item-icon">💡</div>
+        <div class="item-body">
+          <div class="item-title">CI-Gated Pipeline: PR gate enforcement before merge</div>
+          <div class="item-meta">
+            <span class="priority-badge high">HIGH</span>
+            <span class="meta-text">agent</span>
+            <span class="meta-text">7h</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="list-item">
+        <div class="item-accent idea"></div>
+        <div class="item-icon">💡</div>
+        <div class="item-body">
+          <div class="item-title">PAI hardening: prompt frequency limits and token budgets</div>
+          <div class="item-meta">
+            <span class="priority-badge low">LOW</span>
+            <span class="meta-text">terminal</span>
+            <span class="meta-text">1d</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="list-item">
+        <div class="item-accent idea"></div>
+        <div class="item-icon">💡</div>
+        <div class="item-body">
+          <div class="item-title">Spec validation: file path assertions in acceptance tests</div>
+          <div class="item-meta">
+            <span class="priority-badge high">HIGH</span>
+            <span class="meta-text">agent</span>
+            <span class="meta-text">1d</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="list-item">
+        <div class="item-accent bug"></div>
+        <div class="item-icon">🐛</div>
+        <div class="item-body">
+          <div class="item-title">Fix: min(uuid) error in 121_seed migration on fresh installs</div>
+          <div class="item-meta">
+            <span class="priority-badge urgent">URGENT</span>
+            <span class="meta-text">agent</span>
+            <span class="meta-text">1d</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="list-item">
+        <div class="item-accent idea"></div>
+        <div class="item-icon">💡</div>
+        <div class="item-body">
+          <div class="item-title">Auto-Triage: Automated inbox scoring with configurable rules</div>
+          <div class="item-meta">
+            <span class="priority-badge med">MED</span>
+            <span class="meta-text">terminal</span>
+            <span class="meta-text">2d</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="list-item">
+        <div class="item-accent idea"></div>
+        <div class="item-icon">💡</div>
+        <div class="item-body">
+          <div class="item-title">Model & Subscription Flexibility — decouple roles from hardcoded models</div>
+          <div class="item-meta">
+            <span class="priority-badge high">HIGH</span>
+            <span class="meta-text">terminal</span>
+            <span class="meta-text">2d</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="list-item">
+        <div class="item-accent idea"></div>
+        <div class="item-icon">💡</div>
+        <div class="item-body">
+          <div class="item-title">Symlinked ARCHITECTURE.md for consistent project context</div>
+          <div class="item-meta">
+            <span class="priority-badge med">MED</span>
+            <span class="meta-text">terminal</span>
+            <span class="meta-text">2d</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="list-item">
+        <div class="item-accent bug"></div>
+        <div class="item-icon">🐛</div>
+        <div class="item-body">
+          <div class="item-title">BUG: Persistent agent spawn race condition on cold start</div>
+          <div class="item-meta">
+            <span class="priority-badge med">MED</span>
+            <span class="meta-text">terminal</span>
+            <span class="meta-text">3d</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="list-item">
+        <div class="item-accent bug"></div>
+        <div class="item-icon">🐛</div>
+        <div class="item-body">
+          <div class="item-title">BUG: Persistent agent tmux session not cleaned up on graceful shutdown</div>
+          <div class="item-meta">
+            <span class="priority-badge high">HIGH</span>
+            <span class="meta-text">terminal</span>
+            <span class="meta-text">3d</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="list-item">
+        <div class="item-accent idea"></div>
+        <div class="item-icon">💡</div>
+        <div class="item-body">
+          <div class="item-title">Codex fallback and graceful degradation when API quota exceeded</div>
+          <div class="item-meta">
+            <span class="priority-badge high">HIGH</span>
+            <span class="meta-text">terminal</span>
+            <span class="meta-text">4d</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="list-item">
+        <div class="item-accent idea"></div>
+        <div class="item-icon">💡</div>
+        <div class="item-body">
+          <div class="item-title">Differentiate slot value by model tier for capacity planning</div>
+          <div class="item-meta">
+            <span class="priority-badge high">HIGH</span>
+            <span class="meta-text">terminal</span>
+            <span class="meta-text">4d</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Right: Detail -->
+  <div class="right-panel">
+    <div class="detail-header">
+      <div class="detail-type-row">
+        <span class="detail-type-badge">IDEA</span>
+        <span class="detail-status-badge">NEW</span>
+      </div>
+      <div class="detail-title">CI-Gated Pipeline: PR gate enforcement before merge</div>
+      <div class="detail-priority-row">
+        <span class="priority-badge high">HIGH</span>
+        <span class="meta-text">agent &middot; 7h ago</span>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-label">Description</div>
+      <div class="detail-text">
+        Block merge to main unless CI pipeline passes all required checks including type-check, lint, and integration tests. Currently, PRs can be merged without any automated verification, which has led to several broken builds landing on main.
+        <br><br>
+        This should integrate with the existing GitHub Actions workflow and enforce branch protection rules. Required checks should include: TypeScript compilation, ESLint, unit tests, and the integration test suite. Failed checks should block the merge button and post a clear status comment.
+        <br><br>
+        Consider also adding a "bypass" mechanism for emergency hotfixes that requires explicit approval from a designated reviewer, so we don't get stuck when CI is flaky.
+      </div>
+    </div>
+
+    <div class="detail-divider"></div>
+
+    <div class="detail-section">
+      <div class="detail-section-label">Metadata</div>
+      <div class="detail-meta-grid">
+        <div class="detail-meta-key">Source</div>
+        <div class="detail-meta-val">agent</div>
+        <div class="detail-meta-key">Originator</div>
+        <div class="detail-meta-val">cpo-agent</div>
+        <div class="detail-meta-key">Created</div>
+        <div class="detail-meta-val">2026-03-09 07:12 UTC</div>
+        <div class="detail-meta-key">Type</div>
+        <div class="detail-meta-val">Idea</div>
+        <div class="detail-meta-key">Priority</div>
+        <div class="detail-meta-val">High</div>
+      </div>
+    </div>
+
+    <div class="detail-divider"></div>
+
+    <div class="detail-section">
+      <div class="detail-section-label">Actions</div>
+      <div class="action-row">
+        <button class="promote-btn">Promote to Feature</button>
+        <button class="action-btn">Park</button>
+        <button class="action-btn">Reject</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

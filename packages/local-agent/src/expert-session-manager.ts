@@ -67,6 +67,25 @@ function shellEscape(parts: string[]): string {
     .join(" ");
 }
 
+const AVAILABLE_CONTEXT_HEADING = "## Available Context";
+const AVAILABLE_CONTEXT_SECTION = `${AVAILABLE_CONTEXT_HEADING}
+
+Exec context skills are available in this session. To load an exec's current priorities, decisions, and working context:
+
+- \`/as-cpo\` — CPO's context: product priorities, active decisions, strategic direction
+- \`/as-cto\` — CTO's context: architecture decisions, technical constraints, infra state
+
+Use these if you need to understand why your task was commissioned. Read the exec's memory files — do not modify them.`;
+
+function assembleExpertBrief(brief: string): string {
+  if (brief.includes(AVAILABLE_CONTEXT_HEADING)) {
+    return brief;
+  }
+
+  const trimmedBrief = brief.trimEnd();
+  return `${trimmedBrief}\n\n${AVAILABLE_CONTEXT_SECTION}`;
+}
+
 /** Resolve the MCP server entry point from the executor's dist directory. */
 function resolveMcpServerPath(): string {
   const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -258,7 +277,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       // 8. Write brief to .claude/expert-brief.md
       const claudeDir = join(effectiveWorkspaceDir, ".claude");
       mkdirSync(claudeDir, { recursive: true });
-      writeFileSync(join(claudeDir, "expert-brief.md"), msg.brief);
+      writeFileSync(join(claudeDir, "expert-brief.md"), assembleExpertBrief(msg.brief));
 
       // 9. Inject SessionStart hook to display brief on session start
       const settingsPath = join(claudeDir, "settings.json");

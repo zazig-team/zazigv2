@@ -51,6 +51,7 @@ export interface WorkspaceConfig {
   jobId: string;
   companyId?: string;
   role: string;
+  roleDisplayName?: string;
   claudeMdContent: string;
   heartbeatMd?: string;
   skills?: string[];
@@ -156,6 +157,18 @@ const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
   "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "request_work", "start_expert_session"],
   "breakdown-specialist": ["query_features", "batch_create_jobs"],
 };
+
+const MEMORY_MAINTENANCE_SECTION = `## Memory Maintenance
+
+At the end of every work session, update your memory files in \`.claude/memory/\`:
+
+- **priorities.md** — Reflect current P0-P3 items
+- **decisions.md** — Add new open decisions; mark resolved ones
+- **context.md** — Update what's in flight, what happened, what's blocked
+- **handoff.md** — Write notes for cross-session consumers (expert sessions, diagnostics)
+
+These files are read by other sessions via the exec context skill. Keep them current.
+`;
 
 /**
  * Returns the fully-prefixed MCP tool names that a given role is allowed to
@@ -291,6 +304,105 @@ export function publishSharedExecSkill(
   writeFileSync(join(skillDir, "SKILL.md"), `${sections.join("\n")}\n`);
 }
 
+function defaultRoleDisplayName(role: string): string {
+  return role
+    .split("-")
+    .map((part) => {
+      if (part.length <= 3) return part.toUpperCase();
+      if (part.toUpperCase() === part) return part;
+      return `${part.charAt(0).toUpperCase()}${part.slice(1)}`;
+    })
+    .join(" ");
+}
+
+function seedMemoryFiles(claudeDir: string, roleDisplayName: string): void {
+  const memoryDir = join(claudeDir, "memory");
+  mkdirSync(memoryDir, { recursive: true });
+
+  const fileTemplates: Array<{ name: string; content: string }> = [
+    {
+      name: "priorities.md",
+      content: [
+        `_Updated by ${roleDisplayName} on each wake._`,
+        "",
+        "# Priorities",
+        "",
+        "## P0 - Critical This Wake",
+        "- [ ]",
+        "",
+        "## P1 - Active This Week",
+        "- [ ]",
+        "",
+        "## P2 - Important, Not Urgent",
+        "- [ ]",
+        "",
+        "## P3 - Parked / Backlog",
+        "- [ ]",
+        "",
+      ].join("\n"),
+    },
+    {
+      name: "decisions.md",
+      content: [
+        `_Updated by ${roleDisplayName} on each wake._`,
+        "",
+        "# Open Decisions",
+        "",
+        "## Decision",
+        "- Summary:",
+        "- Options:",
+        "- Owner:",
+        "- Needed by:",
+        "- Status: Open",
+        "",
+      ].join("\n"),
+    },
+    {
+      name: "context.md",
+      content: [
+        `_Updated by ${roleDisplayName} on each wake._`,
+        "",
+        "# Working Context",
+        "",
+        "## What's In Flight",
+        "-",
+        "",
+        "## Recent Events",
+        "-",
+        "",
+        "## Blocked On",
+        "-",
+        "",
+      ].join("\n"),
+    },
+    {
+      name: "handoff.md",
+      content: [
+        `_Updated by ${roleDisplayName} on each wake._`,
+        "",
+        "# Handoff Notes",
+        "",
+        "## If You're Picking Up My Work",
+        "-",
+        "",
+        "## Active Decisions Waiting on Human",
+        "-",
+        "",
+        "## Known Issues",
+        "-",
+        "",
+      ].join("\n"),
+    },
+  ];
+
+  for (const template of fileTemplates) {
+    const filePath = join(memoryDir, template.name);
+    if (!existsSync(filePath)) {
+      writeFileSync(filePath, template.content);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Workspace setup
 // ---------------------------------------------------------------------------
@@ -333,10 +445,15 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
   // 3b. Write HEARTBEAT.md for persistent execs, even when blank, so resets
   // can clear stale task files when the DB value changes.
   if (config.heartbeatMd !== undefined) {
+    const hasMemoryMaintenance = config.heartbeatMd.includes("## Memory Maintenance");
+    const heartbeatContent = hasMemoryMaintenance
+      ? config.heartbeatMd
+      : `${config.heartbeatMd}${config.heartbeatMd.endsWith("\n") || config.heartbeatMd.length === 0 ? "" : "\n\n"}${MEMORY_MAINTENANCE_SECTION}`;
     writeFileSync(
       join(claudeDir, "HEARTBEAT.md"),
-      config.heartbeatMd,
+      heartbeatContent,
     );
+    seedMemoryFiles(claudeDir, config.roleDisplayName ?? defaultRoleDisplayName(config.role));
   }
 
   // 3c. Seed heartbeat-state.json once so recurring tasks can dedupe across resets.

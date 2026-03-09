@@ -154,6 +154,71 @@ describe("ExpertSessionManager", () => {
     expect(shellCmd).toContain("'--model'");
     expect(shellCmd).toContain("'claude-sonnet-4-6'");
     expect(shellCmd).not.toContain("dangerously");
+
+    const briefWriteCall = vi.mocked(fsModule.writeFileSync).mock.calls.find((call) =>
+      String(call[0]).endsWith("expert-brief.md"),
+    );
+    expect(briefWriteCall).toBeDefined();
+    expect(String(briefWriteCall?.[1])).toContain("## Available Context");
+    expect(String(briefWriteCall?.[1])).toContain("/as-cpo");
+    expect(String(briefWriteCall?.[1])).toContain("/as-cto");
+  });
+
+  it("does not duplicate Available Context section if already present in brief", async () => {
+    const supabase = makeSupabaseClient();
+    const repoManager = makeRepoManager();
+    const { ExpertSessionManager } = await import("./expert-session-manager.js");
+    const manager = new ExpertSessionManager({
+      machineId: "machine-1",
+      companyId: "company-12345678",
+      supabase: supabase.client as any,
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "anon-key",
+      repoManager: repoManager as any,
+    });
+
+    const fsReadMock = vi.mocked(fsModule.readFileSync);
+    fsReadMock.mockImplementation((path: unknown) =>
+      String(path).endsWith("settings.json")
+        ? JSON.stringify({ permissions: { allow: ["Read"] } })
+        : "status: pass\nsummary: expert result",
+    );
+
+    const existingContextBrief = [
+      "Investigate and fix issue.",
+      "",
+      "## Available Context",
+      "",
+      "Exec context skills are available in this session.",
+    ].join("\n");
+
+    await manager.handleStartExpert({
+      type: "start_expert",
+      session_id: "session-abcdef12",
+      display_name: "Research Expert",
+      role: {
+        name: "expert",
+        prompt: "You are an expert.",
+        mcp_tools: [],
+        settings_overrides: null,
+        skills: [],
+      },
+      model: "claude-sonnet-4-6",
+      brief: existingContextBrief,
+      branch: null,
+      company_name: null,
+      company_id: "company-12345678",
+      project_id: null,
+      repo_url: null,
+    } as any);
+
+    const briefWriteCall = vi.mocked(fsModule.writeFileSync).mock.calls.find((call) =>
+      String(call[0]).endsWith("expert-brief.md"),
+    );
+    expect(briefWriteCall).toBeDefined();
+    const briefContent = String(briefWriteCall?.[1] ?? "");
+    const sectionMatches = briefContent.match(/## Available Context/g) ?? [];
+    expect(sectionMatches).toHaveLength(1);
   });
 
   it("handleSessionExit writes summary, injects into CPO, and cleans resources", async () => {

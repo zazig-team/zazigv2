@@ -15,7 +15,7 @@ vi.mock("node:fs", () => ({
   appendFileSync: vi.fn(),
 }));
 
-import { generateAllowedTools, generateMcpConfig, setupJobWorkspace } from "./workspace.js";
+import { generateAllowedTools, generateExecSkill, generateMcpConfig, setupJobWorkspace } from "./workspace.js";
 import * as fsModule from "node:fs";
 
 // ---------------------------------------------------------------------------
@@ -368,5 +368,96 @@ describe("setupJobWorkspace", () => {
     });
 
     expect(copyFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("writes HEARTBEAT.md and seeds heartbeat-state.json for persistent exec workspaces", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+
+    existsSyncMock.mockImplementation((p: string) =>
+      p === "/tmp/test-workspace/.claude/HEARTBEAT.md" ? false : false,
+    );
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-heartbeat",
+      role: "cpo",
+      claudeMdContent: "# Test",
+      heartbeatMd: "# Heartbeat tasks",
+    });
+
+    const heartbeatCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => call[0] === "/tmp/test-workspace/.claude/HEARTBEAT.md",
+    );
+    expect(heartbeatCall).toBeDefined();
+    expect(heartbeatCall![1]).toBe("# Heartbeat tasks");
+
+    const stateCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => call[0] === "/tmp/test-workspace/.claude/memory/heartbeat-state.json",
+    );
+    expect(stateCall).toBeDefined();
+    expect(JSON.parse(stateCall![1] as string)).toEqual({
+      lastWakeAt: null,
+      taskCompletions: {},
+    });
+  });
+
+  it("preserves existing heartbeat-state.json across resets", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+
+    existsSyncMock.mockImplementation((p: string) =>
+      p === "/tmp/test-workspace/.claude/memory/heartbeat-state.json",
+    );
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-heartbeat-existing",
+      role: "cpo",
+      claudeMdContent: "# Test",
+      heartbeatMd: "# Heartbeat tasks",
+    });
+
+    expect(writeFileSyncMock).not.toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/memory/heartbeat-state.json",
+      expect.anything(),
+    );
+  });
+});
+
+describe("generateExecSkill", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("writes an exec-local skill with role context and heartbeat tasks", () => {
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+
+    generateExecSkill(
+      {
+        name: "cpo",
+        prompt: "# Role prompt",
+        heartbeat_md: "1. Check pipeline",
+      },
+      "/tmp/test-workspace",
+    );
+
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/skills/as-cpo/SKILL.md",
+      expect.stringContaining("# Operating as CPO"),
+    );
+    const content = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => call[0] === "/tmp/test-workspace/.claude/skills/as-cpo/SKILL.md",
+    )?.[1] as string;
+    expect(content).toContain("## Role Context");
+    expect(content).toContain("# Role prompt");
+    expect(content).toContain("## Current Heartbeat Tasks");
+    expect(content).toContain("1. Check pipeline");
   });
 });

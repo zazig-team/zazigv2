@@ -27,7 +27,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageInbound, JobUnblocked } from "@zazigv2/shared";
 import { PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
-import { setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
+import { generateExecSkill, setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
 
 /**
  * Resolve the MCP server path — prefers the bundled .mjs (production),
@@ -81,6 +81,15 @@ const NO_CODE_CONTEXT_ROLES = new Set([
 
 /** Delay after CPO session spawn before allowing message injection (Claude Code startup). */
 const CPO_STARTUP_DELAY_MS = 15_000;
+
+/** Minimum session age before Cache-TTL may reset a persistent exec. */
+const MIN_SESSION_AGE_MS = 5 * 60_000;
+
+/** Circuit-breaker window for repeated reset failures. */
+const RESET_FAILURE_WINDOW_MS = 10 * 60_000;
+
+/** Pause auto-reset after this many consecutive failures within the window. */
+const MAX_RESET_FAILURES = 3;
 
 /** Maximum number of messages held in the injection queue.
  *  When exceeded, the oldest notification-type message is dropped.
@@ -254,6 +263,16 @@ interface ActivePersistentAgent {
   heartbeatTimer: ReturnType<typeof setInterval> | null;
   /** Timestamp (ms) when the session was spawned — used to gate startup delay. */
   startedAt: number;
+  lastActivityAt: number;
+  lastOutputHash: string;
+  cacheTtlMinutes: number;
+  hardTtlMinutes: number;
+  heartbeatTasksRun: boolean;
+  consecutiveResetFailures: number;
+  lastResetAt: number | null;
+  rolePromptSnapshot: string;
+  originalJob: PersistentStartJob;
+  resetInProgress: boolean;
 }
 
 export interface CompanyProject {
@@ -274,6 +293,13 @@ export interface PersistentAgentJobDefinition {
 
 type PersistentStartJob = StartJob & {
   companyProjects?: CompanyProjectContext[];
+};
+
+type PersistentRoleConfig = {
+  prompt: string;
+  heartbeatMd: string;
+  cacheTtlMinutes: number;
+  hardTtlMinutes: number;
 };
 
 export interface QueuedMessage {
@@ -406,6 +432,53 @@ export class JobExecutor {
     }
     this.machineUuid = data.id;
     return data.id;
+  }
+
+  private async loadPersistentRoleConfig(role: string): Promise<PersistentRoleConfig> {
+    const { data, error } = await this.supabase
+      .from("roles")
+      .select("prompt, heartbeat_md, cache_ttl_minutes, hard_ttl_minutes")
+      .eq("name", role)
+      .single();
+
+    if (error) {
+      throw new Error(`Failed to load role config for ${role}: ${error.message}`);
+    }
+    if (!data) {
+      throw new Error(`Role ${role} not found in DB`);
+    }
+
+    return {
+      prompt: data.prompt ?? "",
+      heartbeatMd: data.heartbeat_md ?? "",
+      cacheTtlMinutes: data.cache_ttl_minutes ?? 30,
+      hardTtlMinutes: data.hard_ttl_minutes ?? 240,
+    };
+  }
+
+  private buildHeartbeatSessionStartCommand(): string {
+    return [
+      "cat <<'HEARTBEAT_EOF'",
+      "Read .claude/HEARTBEAT.md for your recurring tasks.",
+      "Read .claude/memory/heartbeat-state.json for what you've already completed.",
+      "Skip any Daily task completed today. Skip any Weekly task completed this week.",
+      "After completing tasks, update heartbeat-state.json with new timestamps.",
+      "HEARTBEAT_EOF",
+    ].join("\n");
+  }
+
+  private refreshPersistentPromptStack(
+    promptStackMinusSkills: string | undefined,
+    previousRolePrompt: string,
+    nextRolePrompt: string,
+  ): string | undefined {
+    if (!promptStackMinusSkills) {
+      return promptStackMinusSkills;
+    }
+    if (previousRolePrompt && promptStackMinusSkills.includes(previousRolePrompt)) {
+      return promptStackMinusSkills.replace(previousRolePrompt, nextRolePrompt);
+    }
+    return promptStackMinusSkills;
   }
 
   private async withExpertRosterSection(claudeMdContent: string): Promise<string> {
@@ -1096,10 +1169,12 @@ export class JobExecutor {
     const workspaceDir = resolvedCompanyId
       ? join(homedir(), ".zazigv2", `${resolvedCompanyId}-${role}-workspace`)
       : join(homedir(), ".zazigv2", `${role}-workspace`);
+    let roleConfig: PersistentRoleConfig;
 
     // --- Create agent workspace with .mcp.json ---
     try {
       const repoRoot = resolveRepoRoot();
+      roleConfig = await this.loadPersistentRoleConfig(role);
       const mcpServerPath = resolveMcpServerPath();
       const assembledContext = assembleContext(msg, repoRoot);
       const claudeMdContent = role === "cpo"
@@ -1115,6 +1190,7 @@ export class JobExecutor {
         companyId: resolvedCompanyId,
         role,
         claudeMdContent,
+        heartbeatMd: roleConfig.heartbeatMd,
         skills: roleSkills,
         repoSkillsDir: join(repoRoot, "projects", "skills"),
         repoInteractiveSkillsDir: join(repoRoot, ".claude", "skills"),
@@ -1149,18 +1225,17 @@ export class JobExecutor {
         }
       }
 
+      generateExecSkill(
+        {
+          name: role,
+          prompt: claudeMdContent,
+          heartbeat_md: roleConfig.heartbeatMd,
+        },
+        workspaceDir,
+      );
+
       // --- Write prompt freshness metadata for SessionStart hook ---
-      // Fetch the raw role prompt to hash — msg.rolePrompt may not be set on
-      // persistent agents (synthetic StartJob messages carry promptStackMinusSkills).
-      let rolePromptForHash = msg.rolePrompt ?? "";
-      if (!rolePromptForHash) {
-        const { data: roleRow } = await this.supabase
-          .from("roles")
-          .select("prompt")
-          .eq("name", role)
-          .single();
-        rolePromptForHash = roleRow?.prompt ?? "";
-      }
+      const rolePromptForHash = msg.rolePrompt ?? roleConfig.prompt;
       const promptHash = createHash("sha256").update(rolePromptForHash).digest("hex");
       writeFileSync(join(workspaceDir, ".role"), role);
       writeFileSync(join(workspaceDir, ".prompt-hash"), promptHash);
@@ -1172,11 +1247,22 @@ export class JobExecutor {
       const freshnessScript = join(repoRoot, "packages", "local-agent", "scripts", "check-prompt-freshness.sh");
       const settingsPath = join(workspaceDir, ".claude", "settings.json");
       const existingSettings = JSON.parse(readFileSync(settingsPath, "utf8"));
+      const existingSessionStartHooks = Array.isArray(existingSettings.hooks?.SessionStart)
+        ? existingSettings.hooks.SessionStart
+        : [];
+      const sessionStartHooks = [
+        ...existingSessionStartHooks,
+        { matcher: "", hooks: [{ type: "command", command: `bash ${freshnessScript}` }] },
+      ];
+      if (roleConfig.heartbeatMd.trim().length > 0) {
+        sessionStartHooks.push({
+          matcher: "",
+          hooks: [{ type: "command", command: this.buildHeartbeatSessionStartCommand() }],
+        });
+      }
       existingSettings.hooks = {
         ...existingSettings.hooks,
-        SessionStart: [
-          { matcher: "", hooks: [{ type: "command", command: `bash ${freshnessScript}` }] },
-        ],
+        SessionStart: sessionStartHooks,
       };
       writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2));
 
@@ -1235,6 +1321,13 @@ export class JobExecutor {
     }
 
     const spawnedAt = Date.now();
+    let initialOutputHash = "";
+    try {
+      const output = await capturePane(sessionName);
+      initialOutputHash = createHash("sha256").update(output).digest("hex");
+    } catch {
+      // Session may still be rendering its first frame; heartbeat will retry.
+    }
 
     // Register persistent agent in map keyed by role
     const persistentAgent: ActivePersistentAgent = {
@@ -1244,24 +1337,63 @@ export class JobExecutor {
       companyId: resolvedCompanyId,
       heartbeatTimer: null,
       startedAt: spawnedAt,
+      lastActivityAt: spawnedAt,
+      lastOutputHash: initialOutputHash,
+      cacheTtlMinutes: roleConfig.cacheTtlMinutes,
+      hardTtlMinutes: roleConfig.hardTtlMinutes,
+      heartbeatTasksRun: roleConfig.heartbeatMd.trim().length > 0,
+      consecutiveResetFailures: 0,
+      lastResetAt: null,
+      rolePromptSnapshot: roleConfig.prompt,
+      originalJob: { ...msg, companyProjects: msg.companyProjects ? [...msg.companyProjects] : undefined },
+      resetInProgress: false,
     };
     this.persistentAgents.set(role, persistentAgent);
 
-    // Start heartbeat timer for persistent_agents table
-    if (resolvedCompanyId && this.machineUuid) {
-      const uuid = this.machineUuid;
-      persistentAgent.heartbeatTimer = setInterval(() => {
-        this.supabase
-          .from("persistent_agents")
-          .update({ last_heartbeat: new Date().toISOString() })
-          .eq("company_id", resolvedCompanyId)
-          .eq("machine_id", uuid)
-          .eq("status", "running")
-          .then(({ error }) => {
-            if (error) console.warn(`[executor] Heartbeat update failed for persistent_agents: ${error.message}`);
-          });
-      }, HEARTBEAT_INTERVAL_MS);
-    }
+    const uuid = this.machineUuid;
+    persistentAgent.heartbeatTimer = setInterval(() => {
+      void (async () => {
+        if (persistentAgent.resetInProgress) {
+          return;
+        }
+
+        try {
+          const captureOutput = await capturePane(persistentAgent.tmuxSession);
+          const outputHash = createHash("sha256").update(captureOutput).digest("hex");
+          const changed = outputHash !== persistentAgent.lastOutputHash;
+          if (changed) {
+            persistentAgent.lastOutputHash = outputHash;
+            persistentAgent.lastActivityAt = Date.now();
+          }
+          console.log(
+            `[executor] Persistent heartbeat ${persistentAgent.role}: changed=${changed} idle=${Math.floor((Date.now() - persistentAgent.lastActivityAt) / 1000)}s`,
+          );
+        } catch (err) {
+          console.warn(`[executor] Failed to capture pane for ${persistentAgent.role}: ${String(err)}`);
+        }
+
+        if (Date.now() - persistentAgent.startedAt >= MIN_SESSION_AGE_MS && persistentAgent.consecutiveResetFailures > 0) {
+          persistentAgent.consecutiveResetFailures = 0;
+          persistentAgent.lastResetAt = null;
+        }
+
+        await this.checkCacheTtl(persistentAgent);
+
+        if (resolvedCompanyId && uuid) {
+          this.supabase
+            .from("persistent_agents")
+            .update({ last_heartbeat: new Date().toISOString() })
+            .eq("company_id", resolvedCompanyId)
+            .eq("machine_id", uuid)
+            .eq("status", "running")
+            .then(({ error }) => {
+              if (error) console.warn(`[executor] Heartbeat update failed for persistent_agents: ${error.message}`);
+            });
+        }
+      })().catch((err) => {
+        console.error(`[executor] Persistent heartbeat crashed for ${persistentAgent.role}:`, err);
+      });
+    }, HEARTBEAT_INTERVAL_MS);
 
     // Track in activeJobs (no poll/timeout timers — persistent agent runs indefinitely)
     this.activeJobs.set(jobId, {
@@ -1286,6 +1418,125 @@ export class JobExecutor {
 
     await this.sendJobStatus(jobId, "executing");
     console.log(`[executor] Persistent ${role} session=${sessionName} ready — jobId=${jobId}`);
+  }
+
+  // ---------------------------------------------------------------------------
+
+  private async checkCacheTtl(agent: ActivePersistentAgent): Promise<void> {
+    if (agent.resetInProgress) return;
+    if (agent.cacheTtlMinutes <= 0 && agent.hardTtlMinutes <= 0) return;
+
+    const now = Date.now();
+    const idleMs = now - agent.lastActivityAt;
+    const sessionAgeMs = now - agent.startedAt;
+
+    if (sessionAgeMs < MIN_SESSION_AGE_MS) {
+      return;
+    }
+
+    let humanAttached = false;
+    try {
+      const { stdout } = await execFileAsync("tmux", ["list-clients", "-t", agent.tmuxSession]);
+      humanAttached = stdout.trim().length > 0;
+    } catch {
+      humanAttached = false;
+    }
+
+    if (humanAttached) {
+      agent.lastActivityAt = now;
+    }
+
+    const idleTtlExpired = agent.cacheTtlMinutes > 0 && idleMs > agent.cacheTtlMinutes * 60_000;
+    const hardTtlExpired = agent.hardTtlMinutes > 0 && sessionAgeMs > agent.hardTtlMinutes * 60_000;
+
+    if (!hardTtlExpired && (!idleTtlExpired || humanAttached)) {
+      if (idleTtlExpired && humanAttached) {
+        console.log(`[executor] Cache-TTL suppressed for ${agent.role}: human attached`);
+      }
+      return;
+    }
+
+    const reason = hardTtlExpired ? "hard-TTL" : "idle-TTL";
+    console.log(
+      `[executor] Cache-TTL reset triggered for ${agent.role}: ${reason} (idle=${Math.floor(idleMs / 1000)}s, age=${Math.floor(sessionAgeMs / 1000)}s)`,
+    );
+    await this.resetPersistentSession(agent, reason);
+  }
+
+  private async resetPersistentSession(
+    agent: ActivePersistentAgent,
+    reason: string,
+  ): Promise<void> {
+    if (agent.resetInProgress) {
+      return;
+    }
+
+    agent.resetInProgress = true;
+
+    try {
+      await execFileAsync("tmux", ["send-keys", "-t", agent.tmuxSession, "exit", "Enter"]);
+      await sleep(5_000);
+
+      try {
+        await execFileAsync("tmux", ["has-session", "-t", agent.tmuxSession]);
+        await execFileAsync("tmux", ["send-keys", "-t", agent.tmuxSession, "C-c"]);
+        await sleep(3_000);
+        try {
+          await execFileAsync("tmux", ["kill-session", "-t", agent.tmuxSession]);
+        } catch {
+          // Session already exited.
+        }
+      } catch {
+        // Session is already gone.
+      }
+
+      const refreshedRoleConfig = await this.loadPersistentRoleConfig(agent.role);
+
+      const activeJob = this.activeJobs.get(agent.jobId);
+      if (activeJob) {
+        activeJob.settled = true;
+        this.clearJobTimers(activeJob);
+        this.activeJobs.delete(agent.jobId);
+      }
+
+      const replayJob: PersistentStartJob = {
+        ...agent.originalJob,
+        promptStackMinusSkills: this.refreshPersistentPromptStack(
+          agent.originalJob.promptStackMinusSkills,
+          agent.rolePromptSnapshot,
+          refreshedRoleConfig.prompt,
+        ),
+        rolePrompt: refreshedRoleConfig.prompt,
+      };
+
+      this.clearPersistentAgent(agent.role, { updateDbStatus: false });
+      await this.handlePersistentJob(agent.jobId, replayJob, replayJob.slotType, agent.companyId);
+
+      const restartedAgent = this.persistentAgents.get(agent.role);
+      if (restartedAgent) {
+        restartedAgent.consecutiveResetFailures = 0;
+        restartedAgent.lastResetAt = Date.now();
+      }
+
+      console.log(`[executor] Cache-TTL reset complete for ${agent.role} (reason: ${reason})`);
+    } catch (err) {
+      agent.consecutiveResetFailures += 1;
+      const now = Date.now();
+      const lastResetAt = agent.lastResetAt;
+      agent.lastResetAt = now;
+      agent.resetInProgress = false;
+
+      console.error(`[executor] Cache-TTL reset FAILED for ${agent.role} (attempt ${agent.consecutiveResetFailures}):`, err);
+
+      if (
+        agent.consecutiveResetFailures >= MAX_RESET_FAILURES
+        && lastResetAt !== null
+        && now - lastResetAt <= RESET_FAILURE_WINDOW_MS
+      ) {
+        console.error(`[executor] CIRCUIT BREAKER: ${agent.role} reset loop detected — pausing auto-reset`);
+        agent.cacheTtlMinutes = 0;
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1999,10 +2250,11 @@ export class JobExecutor {
    *
    * @param role - The role key to look up in persistentAgents. If omitted, clears ALL agents.
    */
-  private clearPersistentAgent(role?: string): void {
+  private clearPersistentAgent(role?: string, options?: { updateDbStatus?: boolean }): void {
     const agentsToClear = role
       ? (this.persistentAgents.has(role) ? [this.persistentAgents.get(role)!] : [])
       : [...this.persistentAgents.values()];
+    const updateDbStatus = options?.updateDbStatus ?? true;
 
     for (const agent of agentsToClear) {
       if (agent.heartbeatTimer) {
@@ -2010,7 +2262,7 @@ export class JobExecutor {
         agent.heartbeatTimer = null;
       }
 
-      if (agent.companyId && this.machineUuid) {
+      if (updateDbStatus && agent.companyId && this.machineUuid) {
         this.supabase
           .from("persistent_agents")
           .update({ status: "stopped" })
@@ -2500,6 +2752,11 @@ async function killTmuxSession(sessionName: string): Promise<void> {
     // Session may already be dead — that's fine
     console.warn(`[executor] Could not kill tmux session ${sessionName}:`, err);
   }
+}
+
+async function capturePane(sessionName: string): Promise<string> {
+  const { stdout } = await execFileAsync("tmux", ["capture-pane", "-t", sessionName, "-p"]);
+  return stdout;
 }
 
 /**

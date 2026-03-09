@@ -5,7 +5,7 @@ import * as fsModule from "node:fs";
 import { JobExecutor, type SendFn, enqueueWithCap, MAX_QUEUE_SIZE, type QueuedMessage } from "./executor.js";
 import { SlotTracker } from "./slots.js";
 import { RepoManager } from "./branches.js";
-import { setupJobWorkspace } from "./workspace.js";
+import { generateExecSkill, setupJobWorkspace } from "./workspace.js";
 
 // ---------------------------------------------------------------------------
 // Mock child_process + fs + util at module level
@@ -66,6 +66,7 @@ vi.mock("./branches.js", () => {
 
 vi.mock("./workspace.js", () => ({
   setupJobWorkspace: vi.fn(),
+  generateExecSkill: vi.fn(),
   writeSubagentsConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -118,6 +119,19 @@ function makeMockSupabase() {
     data: [],
     error: null,
   };
+  let roleRowResult: { data: Record<string, unknown> | null; error: { message: string } | null } = {
+    data: {
+      prompt: "Persistent role prompt",
+      heartbeat_md: "",
+      cache_ttl_minutes: 30,
+      hard_ttl_minutes: 240,
+    },
+    error: null,
+  };
+  let machineResult: { data: Record<string, unknown> | null; error: { message: string } | null } = {
+    data: null,
+    error: null,
+  };
 
   const makeChainable = (table: string) => {
     const chain = {
@@ -136,15 +150,33 @@ function makeMockSupabase() {
           return Promise.resolve(expertRolesResult);
         }
         return {
-          eq: vi.fn(() => ({
-            eq: vi.fn(() => ({
+          eq: vi.fn((col: string) => {
+            if (table === "roles" && col === "name") {
+              return {
+                single: vi.fn(() => Promise.resolve(roleRowResult)),
+              };
+            }
+            if (table === "machines" && col === "company_id") {
+              return {
+                eq: vi.fn((innerCol: string) => ({
+                  single: vi.fn(() => Promise.resolve(
+                    innerCol === "name"
+                      ? machineResult
+                      : { data: null, error: null },
+                  )),
+                })),
+              };
+            }
+            return {
+              eq: vi.fn(() => ({
+                single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+              })),
               single: vi.fn(() => Promise.resolve({ data: null, error: null })),
-            })),
-            single: vi.fn(() => Promise.resolve({ data: null, error: null })),
-            not: vi.fn(() => ({
-              limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
-            })),
-          })),
+              not: vi.fn(() => ({
+                limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
+              })),
+            };
+          }),
           in: vi.fn((inColumn: string, inValues: string[]) => {
             selectInCalls.push({ table, columns, inColumn, inValues: [...inValues] });
             return Promise.resolve(inResult);
@@ -169,6 +201,12 @@ function makeMockSupabase() {
     },
     setExpertRolesResult: (next: { data: unknown; error: { message: string } | null }) => {
       expertRolesResult = next;
+    },
+    setRoleRowResult: (next: { data: Record<string, unknown> | null; error: { message: string } | null }) => {
+      roleRowResult = next;
+    },
+    setMachineResult: (next: { data: Record<string, unknown> | null; error: { message: string } | null }) => {
+      machineResult = next;
     },
   };
 }
@@ -617,6 +655,97 @@ describe("JobExecutor — slot reconciliation", () => {
     );
 
     consoleErrorSpy.mockRestore();
+  });
+
+  it("writes heartbeat config into the persistent workspace and SessionStart hooks", async () => {
+    const setupMock = setupJobWorkspace as unknown as Mock;
+    const execSkillMock = generateExecSkill as unknown as Mock;
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as Mock;
+
+    supabase.setRoleRowResult({
+      data: {
+        prompt: "Persistent role prompt",
+        heartbeat_md: "# Heartbeat tasks",
+        cache_ttl_minutes: 30,
+        hard_ttl_minutes: 240,
+      },
+      error: null,
+    });
+
+    await executor.handleStartJob(makeStartJob({
+      jobId: "persistent-cpo-heartbeat",
+      role: "cpo",
+      cardType: "persistent_agent",
+    }));
+
+    const workspaceConfig = setupMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(workspaceConfig.heartbeatMd).toBe("# Heartbeat tasks");
+
+    expect(execSkillMock).toHaveBeenCalledWith(
+      {
+        name: "cpo",
+        prompt: expect.any(String),
+        heartbeat_md: "# Heartbeat tasks",
+      },
+      expect.stringContaining("cpo-workspace"),
+    );
+
+    const settingsWrite = writeFileSyncMock.mock.calls.find((call: unknown[]) =>
+      typeof call[0] === "string" && (call[0] as string).endsWith(".claude/settings.json"),
+    );
+    expect(settingsWrite).toBeDefined();
+    const settings = JSON.parse(settingsWrite![1] as string);
+    expect(settings.hooks.SessionStart).toHaveLength(2);
+  });
+
+  it("resets an idle persistent agent by replaying the stored StartJob", async () => {
+    const setupMock = setupJobWorkspace as unknown as Mock;
+    const execSkillMock = generateExecSkill as unknown as Mock;
+
+    supabase.setRoleRowResult({
+      data: {
+        prompt: "Persistent role prompt",
+        heartbeat_md: "# Heartbeat tasks",
+        cache_ttl_minutes: 1,
+        hard_ttl_minutes: 240,
+      },
+      error: null,
+    });
+
+    mockExecFileAsync = vi.fn(async (file: string, args: string[]) => {
+      if (file !== "tmux") {
+        return { stdout: "", stderr: "" };
+      }
+
+      switch (args[0]) {
+        case "capture-pane":
+          return { stdout: "stable output", stderr: "" };
+        case "list-clients":
+          return { stdout: "", stderr: "" };
+        default:
+          return { stdout: "", stderr: "" };
+      }
+    });
+
+    await executor.handleStartJob(makeStartJob({
+      jobId: "persistent-cpo-reset",
+      role: "cpo",
+      cardType: "persistent_agent",
+    }));
+
+    setupMock.mockClear();
+    execSkillMock.mockClear();
+
+    await vi.advanceTimersByTimeAsync((5 * 60_000) + 10_000);
+
+    expect(setupMock).toHaveBeenCalledTimes(1);
+    expect(execSkillMock).toHaveBeenCalledTimes(1);
+    expect(mockExecFileAsync.mock.calls.some((call: unknown[]) =>
+      call[0] === "tmux"
+      && Array.isArray(call[1])
+      && (call[1] as string[])[0] === "send-keys"
+      && (call[1] as string[])[3] === "exit"
+    )).toBe(true);
   });
 
   it("handles reconciliation query failures without releasing slots", async () => {

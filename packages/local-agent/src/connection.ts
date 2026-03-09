@@ -1,12 +1,12 @@
 /**
  * connection.ts — Supabase Realtime connection manager
  *
- * Manages two Realtime channels for bidirectional orchestrator communication:
- *   - Inbound:  `agent:${machineId}:${companyId}` — receives StartJob/StopJob/HealthCheck from orchestrator
- *   - Outbound: `orchestrator:commands`   — sends Heartbeat/JobAck/JobComplete/JobFailed to orchestrator
+ * Manages inbound Realtime communication and outbound HTTP delivery:
+ *   - Inbound Realtime: `agent:${machineId}:${companyId}` — receives StartJob/StopJob/HealthCheck from orchestrator
+ *   - Outbound HTTP:    `functions/v1/agent-event`        — sends Heartbeat/JobAck/JobComplete/JobFailed to orchestrator
  *
  * Handles:
- *   - Dual-channel subscription with coordinated readiness
+ *   - Inbound channel subscription with reconnect/backoff
  *   - Exponential backoff on disconnect (capped at 30 s)
  *   - Heartbeat every HEARTBEAT_INTERVAL_MS (30 s)
  *   - Incoming OrchestratorMessage validation + dispatch to handlers
@@ -34,6 +34,8 @@ const execFileAsync = promisify(execFile);
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
 const BACKOFF_MULTIPLIER = 2;
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 export type MessageHandler = (msg: OrchestratorMessage) => void;
 
@@ -51,8 +53,6 @@ export class AgentConnection {
 
   /** Inbound channel: `agent:{machineId}:{companyId}` — receives commands from orchestrator. */
   private channel: RealtimeChannel | null = null;
-  /** Outbound channel: `orchestrator:commands` — sends messages to orchestrator. */
-  private outChannel: RealtimeChannel | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
@@ -107,24 +107,42 @@ export class AgentConnection {
   }
 
   /**
-   * Send an AgentMessage to the orchestrator via the `orchestrator:commands` channel.
-   * The orchestrator subscribes to this channel and dispatches by message type.
+   * Send an AgentMessage to the orchestrator via the `agent-event` edge function.
    */
   async sendMessage(msg: AgentMessage): Promise<void> {
-    if (!this.outChannel || this.stopped) {
-      console.warn("[local-agent] sendMessage called but outbound channel is not connected; message dropped:", msg.type);
+    if (this.stopped) {
+      console.warn("[local-agent] sendMessage called while stopped; message dropped:", msg.type);
       return;
     }
-    const result = await this.outChannel.send({
-      type: "broadcast",
-      event: "message",
-      payload: msg,
-    });
-    if (result !== "ok") {
-      console.warn(`[local-agent] sendMessage returned: ${result} for type=${msg.type}`);
-    } else {
-      console.log(`[local-agent] Sent ${msg.type} for jobId=${"jobId" in msg ? msg.jobId : "n/a"}`);
+    await this.sendToOrchestrator(msg);
+  }
+
+  private async sendToOrchestrator(msg: AgentMessage): Promise<void> {
+    const url = `${this.config.supabase.url}/functions/v1/agent-event`;
+    const { data: { session } } = await this.dbClient.auth.getSession();
+    const token = session?.access_token ?? this.config.supabase.anon_key;
+
+    for (const delay of [0, 1000, 5000, 15000]) {
+      if (delay > 0) await sleep(delay);
+
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(msg),
+        });
+
+        if (res.ok) return;
+        console.warn(`[local-agent] agent-event failed (${res.status}), retrying...`);
+      } catch (e) {
+        console.warn(`[local-agent] agent-event error: ${e}, retrying...`);
+      }
     }
+
+    console.error("[local-agent] agent-event failed after 3 retries");
   }
 
   /**
@@ -229,10 +247,6 @@ export class AgentConnection {
     this.clearHeartbeatTimer();
     this.clearOutdatedWarningTimer();
     this.clearOutdatedExitPollTimer();
-    if (this.outChannel) {
-      await this.supabase.removeChannel(this.outChannel);
-      this.outChannel = null;
-    }
     if (this.channel) {
       await this.supabase.removeChannel(this.channel);
       this.channel = null;
@@ -251,8 +265,7 @@ export class AgentConnection {
       throw new Error("Cannot connect without company_id — set ZAZIG_COMPANY_ID");
     }
     const channelName = `agent:${this.machineId}:${this.primaryCompanyId}`;
-    const outChannelName = "orchestrator:commands";
-    console.log(`[local-agent] Connecting to channels: ${channelName} (in), ${outChannelName} (out)`);
+    console.log(`[local-agent] Connecting to inbound channel: ${channelName}`);
 
     // Inbound channel: receives commands from orchestrator
     this.channel = this.supabase.channel(channelName, {
@@ -314,35 +327,15 @@ export class AgentConnection {
       }
     });
 
-    // Outbound channel: sends heartbeats/job updates to orchestrator
-    this.outChannel = this.supabase.channel(outChannelName, {
-      config: {
-        broadcast: { ack: false },
-      },
-    });
-
-    // Subscribe to both channels; start heartbeat once both are ready
+    // Subscribe to inbound channel and start heartbeat once ready.
     let inReady = false;
-    let outReady = false;
 
     const onBothReady = (): void => {
-      if (inReady && outReady) {
+      if (inReady) {
         this.reconnectAttempts = 0;
         this.startHeartbeat();
       }
     };
-
-    this.outChannel.subscribe((status, err) => {
-      if (status === "SUBSCRIBED") {
-        console.log(`[local-agent] Connected to outbound channel: ${outChannelName}`);
-        outReady = true;
-        onBothReady();
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        console.error(`[local-agent] Outbound channel error (status=${status}):`, err ?? "unknown error");
-        this.clearHeartbeatTimer();
-        this.scheduleReconnect();
-      }
-    });
 
     this.channel.subscribe((status, err) => {
       if (status === "SUBSCRIBED") {
@@ -524,21 +517,14 @@ export class AgentConnection {
       console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${String(err)}`);
     }
 
-    // Secondary: also broadcast via Realtime (for orchestrator live monitoring)
-    if (this.outChannel) {
-      const heartbeat: Heartbeat = {
-        type: "heartbeat",
-        protocolVersion: PROTOCOL_VERSION,
-        machineId: this.machineId,
-        slotsAvailable,
-      };
-
-      await this.outChannel.send({
-        type: "broadcast",
-        event: "message",
-        payload: heartbeat,
-      });
-    }
+    // Secondary: send heartbeat event to orchestrator via edge function.
+    const heartbeat: Heartbeat = {
+      type: "heartbeat",
+      protocolVersion: PROTOCOL_VERSION,
+      machineId: this.machineId,
+      slotsAvailable,
+    };
+    await this.sendToOrchestrator(heartbeat);
 
     if (dbErr) {
       console.warn(
@@ -695,10 +681,6 @@ export class AgentConnection {
       conn.on("error", swallowErr);
     }
 
-    if (this.outChannel) {
-      try { await this.supabase.removeChannel(this.outChannel); } catch { /* best-effort */ }
-      this.outChannel = null;
-    }
     if (this.channel) {
       try { await this.supabase.removeChannel(this.channel); } catch { /* best-effort */ }
       this.channel = null;

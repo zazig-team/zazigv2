@@ -91,7 +91,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Fetch personalities for this company
     const { data: personalities, error: persError } = await supabase
       .from("exec_personalities")
-      .select("role_id, compiled_prompt, roles!inner(name)")
+      .select("role_id, compiled_prompt, compiled_sub_agent_prompt, roles!inner(name)")
       .eq("company_id", companyId);
 
     if (persError) {
@@ -168,6 +168,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return {
         role: role.name,
         prompt_stack_minus_skills: parts.join("\n\n---\n\n"),
+        sub_agent_prompt: personality?.compiled_sub_agent_prompt
+          ? String(personality.compiled_sub_agent_prompt)
+          : undefined,
         skills: role.skills ?? [],
         mcp_tools: role.mcp_tools ?? [],
         projects: projects ?? [],

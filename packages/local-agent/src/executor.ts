@@ -27,7 +27,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageInbound, JobUnblocked } from "@zazigv2/shared";
 import { PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
-import { setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
+import { generateExecSkill, publishSharedExecSkill, setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
 
 /**
  * Resolve the MCP server path — prefers the bundled .mjs (production),
@@ -76,11 +76,21 @@ const NO_CODE_CONTEXT_ROLES = new Set([
   "pipeline-technician",
   "monitoring-agent",
   "project-architect",
+  "triage-analyst",
 ]);
 
 
 /** Delay after CPO session spawn before allowing message injection (Claude Code startup). */
 const CPO_STARTUP_DELAY_MS = 15_000;
+
+/** Minimum session age before Cache-TTL may reset a persistent exec. */
+const MIN_SESSION_AGE_MS = 5 * 60_000;
+
+/** Circuit-breaker window for repeated reset failures. */
+const RESET_FAILURE_WINDOW_MS = 10 * 60_000;
+
+/** Pause auto-reset after this many consecutive failures within the window. */
+const MAX_RESET_FAILURES = 3;
 
 /** Maximum number of messages held in the injection queue.
  *  When exceeded, the oldest notification-type message is dropped.
@@ -195,6 +205,7 @@ function normalizeCompanyProjects(raw: unknown): CompanyProjectContext[] {
 interface ActiveJob {
   jobId: string;
   slotType: SlotType;
+  slotAcquired: boolean;
   sessionName: string;
   pollTimer: ReturnType<typeof setInterval> | null;
   timeoutTimer: ReturnType<typeof setTimeout> | null;
@@ -206,6 +217,8 @@ interface ActiveJob {
   logPath: string;
   /** Byte offset of the last chunk sent to raw_log — enables append-only writes. */
   lastBytesSent: number;
+  /** Byte offset for lifecycle log. */
+  lastLifecycleBytesSent: number;
   /** Ephemeral workspace directory (if created). Used for report lookup + cleanup. */
   workspaceDir?: string;
   /** Git worktree path for this job — agent CWD and workspace root. */
@@ -251,6 +264,16 @@ interface ActivePersistentAgent {
   heartbeatTimer: ReturnType<typeof setInterval> | null;
   /** Timestamp (ms) when the session was spawned — used to gate startup delay. */
   startedAt: number;
+  lastActivityAt: number;
+  lastOutputHash: string;
+  cacheTtlMinutes: number;
+  hardTtlMinutes: number;
+  heartbeatTasksRun: boolean;
+  consecutiveResetFailures: number;
+  lastResetAt: number | null;
+  rolePromptSnapshot: string;
+  originalJob: PersistentStartJob;
+  resetInProgress: boolean;
 }
 
 export interface CompanyProject {
@@ -261,6 +284,7 @@ export interface CompanyProject {
 export interface PersistentAgentJobDefinition {
   role: string;
   prompt_stack_minus_skills: string;
+  sub_agent_prompt?: string;
   skills: string[];
   model: string;
   slot_type: string;
@@ -270,6 +294,13 @@ export interface PersistentAgentJobDefinition {
 
 type PersistentStartJob = StartJob & {
   companyProjects?: CompanyProjectContext[];
+};
+
+type PersistentRoleConfig = {
+  prompt: string;
+  heartbeatMd: string;
+  cacheTtlMinutes: number;
+  hardTtlMinutes: number;
 };
 
 export interface QueuedMessage {
@@ -335,7 +366,7 @@ export class JobExecutor {
   /** Jobs that have been attempted (including failures) — prevents duplicate dispatch. */
 
   /** Manages bare repo clones and job worktrees for all dispatched jobs. */
-  private readonly repoManager = new RepoManager();
+  public readonly repoManager = new RepoManager();
 
   /** Map of role → active persistent agent state. Supports simultaneous CPO, CTO, etc. */
   private readonly persistentAgents = new Map<string, ActivePersistentAgent>();
@@ -348,7 +379,6 @@ export class JobExecutor {
   private processingQueue = false;
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
   private prMonitorTimer: ReturnType<typeof setInterval> | null = null;
-  private repoRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private companyProjects: CompanyProject[] = [];
 
   constructor(
@@ -378,13 +408,14 @@ export class JobExecutor {
       void this.monitorMergedPRs();
     }, PR_MONITOR_INTERVAL_MS);
 
-    this.repoRefreshTimer = setInterval(() => {
-      void this.refreshCompanyProjectWorktrees();
-    }, SLOT_RECONCILE_INTERVAL_MS);
   }
 
   setCompanyProjects(projects: CompanyProject[]): void {
     this.companyProjects = [...projects];
+  }
+
+  getCompanyProjects(): CompanyProject[] {
+    return [...this.companyProjects];
   }
 
   /** Resolve the machine UUID from the machines table (cached after first call). */
@@ -404,16 +435,60 @@ export class JobExecutor {
     return data.id;
   }
 
-  private async withExpertRosterSection(claudeMdContent: string, companyId?: string): Promise<string> {
-    if (!companyId) return claudeMdContent;
-
+  private async loadPersistentRoleConfig(role: string): Promise<PersistentRoleConfig> {
     const { data, error } = await this.supabase
-      .from("expert_roles")
-      .select("name, display_name, description")
-      .eq("company_id", companyId);
+      .from("roles")
+      .select("prompt, heartbeat_md, cache_ttl_minutes, hard_ttl_minutes")
+      .eq("name", role)
+      .single();
 
     if (error) {
-      console.warn(`[executor] Failed to load expert_roles for company ${companyId}: ${error.message}`);
+      throw new Error(`Failed to load role config for ${role}: ${error.message}`);
+    }
+    if (!data) {
+      throw new Error(`Role ${role} not found in DB`);
+    }
+
+    return {
+      prompt: data.prompt ?? "",
+      heartbeatMd: data.heartbeat_md ?? "",
+      cacheTtlMinutes: data.cache_ttl_minutes ?? 30,
+      hardTtlMinutes: data.hard_ttl_minutes ?? 240,
+    };
+  }
+
+  private buildHeartbeatSessionStartCommand(): string {
+    return [
+      "cat <<'HEARTBEAT_EOF'",
+      "Read .claude/HEARTBEAT.md for your recurring tasks.",
+      "Read .claude/memory/heartbeat-state.json for what you've already completed.",
+      "Skip any Daily task completed today. Skip any Weekly task completed this week.",
+      "After completing tasks, update heartbeat-state.json with new timestamps.",
+      "HEARTBEAT_EOF",
+    ].join("\n");
+  }
+
+  private refreshPersistentPromptStack(
+    promptStackMinusSkills: string | undefined,
+    previousRolePrompt: string,
+    nextRolePrompt: string,
+  ): string | undefined {
+    if (!promptStackMinusSkills) {
+      return promptStackMinusSkills;
+    }
+    if (previousRolePrompt && promptStackMinusSkills.includes(previousRolePrompt)) {
+      return promptStackMinusSkills.replace(previousRolePrompt, nextRolePrompt);
+    }
+    return promptStackMinusSkills;
+  }
+
+  private async withExpertRosterSection(claudeMdContent: string): Promise<string> {
+    const { data, error } = await this.supabase
+      .from("expert_roles")
+      .select("name, display_name, description");
+
+    if (error) {
+      console.warn(`[executor] Failed to load expert_roles: ${error.message}`);
       return claudeMdContent;
     }
 
@@ -504,15 +579,13 @@ export class JobExecutor {
       return;
     }
 
-    // --- 1. Acquire slot (throws if none available) ---
-    try {
-      this.slots.acquire(slotType);
+    // --- 1. Acquire slot (soft — never reject a dispatched job) ---
+    const slotAcquired = this.slots.tryAcquire(slotType);
+    if (slotAcquired) {
       jobLog(jobId, `Slot acquired: ${slotType}`);
-    } catch (err) {
-      jobLog(jobId, `FAILED no slot available: ${String(err)}`);
-      console.error(`[executor] No slot available for jobId=${jobId}:`, err);
-      await this.sendJobFailed(jobId, `No available slot: ${String(err)}`, "unknown");
-      return;
+    } else {
+      jobLog(jobId, `WARN slot overcommit: running despite no free ${slotType} slot`);
+      console.warn(`[executor] Slot overcommit for jobId=${jobId} — running anyway (${slotType})`);
     }
 
     // --- 2. Send JobAck immediately to confirm delivery ---
@@ -529,7 +602,7 @@ export class JobExecutor {
     // We insert skill file content at the marker position.
     const assembledContext = assembleContext(msg, repoRoot);
     const cpoContext = roleName === "cpo"
-      ? await this.withExpertRosterSection(assembledContext, this.companyId)
+      ? await this.withExpertRosterSection(assembledContext)
       : assembledContext;
 
     console.log(`[executor] Assembled context for jobId=${jobId}:\n${cpoContext}`);
@@ -593,7 +666,7 @@ export class JobExecutor {
     } catch (err) {
       jobLog(jobId, `FAILED to prepare workspace: ${String(err)}`);
       console.error(`[executor] Failed to prepare workspace for jobId=${jobId}:`, err);
-      this.slots.release(slotType);
+      if (slotAcquired) this.slots.release(slotType);
       await this.sendJobFailed(jobId, `Failed to prepare workspace: ${String(err)}`, "agent_crash");
       return;
     }
@@ -634,7 +707,7 @@ export class JobExecutor {
       cmd = "claude";
       cmdArgs = ["--model", resolvedModel];
     } else {
-      const built = buildCommand(slotType, complexity, model, worktreePath, promptFilePath);
+      const built = buildCommand(slotType, complexity, model, worktreePath, promptFilePath, repoDir);
       cmd = built.cmd;
       cmdArgs = built.args;
     }
@@ -697,7 +770,7 @@ export class JobExecutor {
     } catch (err) {
       console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
       await cleanupPreparedWorkspace();
-      this.slots.release(slotType);
+      if (slotAcquired) this.slots.release(slotType);
       await this.sendJobFailed(jobId, `Failed to start tmux session: ${String(err)}`, "agent_crash");
       return;
     }
@@ -706,6 +779,7 @@ export class JobExecutor {
     const activeJob: ActiveJob = {
       jobId,
       slotType,
+      slotAcquired,
       sessionName,
       pollTimer: null,
       timeoutTimer: null,
@@ -713,6 +787,7 @@ export class JobExecutor {
       startedAt: Date.now(),
       logPath,
       lastBytesSent: 0,
+      lastLifecycleBytesSent: 0,
       workspaceDir: ephemeralWorkspaceDir,
       worktreePath,
       repoDir,
@@ -798,6 +873,7 @@ export class JobExecutor {
       model: job.model,
       role: job.role,
       promptStackMinusSkills: job.prompt_stack_minus_skills,
+      ...(job.sub_agent_prompt ? { subAgentPrompt: job.sub_agent_prompt } : {}),
       roleSkills: job.skills?.length ? job.skills : undefined,
       roleMcpTools: job.mcp_tools?.length ? job.mcp_tools : undefined,
       companyProjects: job.projects?.length ? job.projects : undefined,
@@ -939,11 +1015,6 @@ export class JobExecutor {
       clearInterval(this.prMonitorTimer);
       this.prMonitorTimer = null;
     }
-    if (this.repoRefreshTimer !== null) {
-      clearInterval(this.repoRefreshTimer);
-      this.repoRefreshTimer = null;
-    }
-
     // Clear all persistent agents (fires DB status updates + stops heartbeat timers)
     this.clearPersistentAgent();
 
@@ -956,7 +1027,7 @@ export class JobExecutor {
       } else {
         cleanupJobWorkspace(job.jobId, job.workspaceDir);
       }
-      this.slots.release(job.slotType);
+      if (job.slotAcquired) this.slots.release(job.slotType);
     }
     this.activeJobs.clear();
   }
@@ -1001,16 +1072,6 @@ export class JobExecutor {
         }
       } catch {
         // gh CLI failed — skip, will retry next cycle
-      }
-    }
-  }
-
-  private async refreshCompanyProjectWorktrees(): Promise<void> {
-    for (const project of this.companyProjects) {
-      try {
-        await this.repoManager.ensureWorktree(project.name);
-      } catch (err) {
-        console.error(`[repo-refresh] Failed to refresh ${project.name}:`, err);
       }
     }
   }
@@ -1083,7 +1144,7 @@ export class JobExecutor {
       cleanupJobWorkspace(job.jobId, job.workspaceDir);
     }
 
-    this.slots.release(job.slotType);
+    if (job.slotAcquired) this.slots.release(job.slotType);
   }
 
   // ---------------------------------------------------------------------------
@@ -1109,14 +1170,16 @@ export class JobExecutor {
     const workspaceDir = resolvedCompanyId
       ? join(homedir(), ".zazigv2", `${resolvedCompanyId}-${role}-workspace`)
       : join(homedir(), ".zazigv2", `${role}-workspace`);
+    let roleConfig: PersistentRoleConfig;
 
     // --- Create agent workspace with .mcp.json ---
     try {
       const repoRoot = resolveRepoRoot();
+      roleConfig = await this.loadPersistentRoleConfig(role);
       const mcpServerPath = resolveMcpServerPath();
       const assembledContext = assembleContext(msg, repoRoot);
       const claudeMdContent = role === "cpo"
-        ? await this.withExpertRosterSection(assembledContext, resolvedCompanyId)
+        ? await this.withExpertRosterSection(assembledContext)
         : assembledContext;
 
       setupJobWorkspace({
@@ -1128,6 +1191,7 @@ export class JobExecutor {
         companyId: resolvedCompanyId,
         role,
         claudeMdContent,
+        heartbeatMd: roleConfig.heartbeatMd,
         skills: roleSkills,
         repoSkillsDir: join(repoRoot, "projects", "skills"),
         repoInteractiveSkillsDir: join(repoRoot, ".claude", "skills"),
@@ -1144,30 +1208,48 @@ export class JobExecutor {
       const projects = await this.resolvePersistentProjects(msg, resolvedCompanyId);
       const reposDir = join(workspaceDir, "repos");
       mkdirSync(reposDir, { recursive: true });
+      console.log(`[executor] Persistent agent repo symlink dir ready: ${reposDir}`);
       for (const project of projects) {
-        if (!project.repo_url) {
-          console.warn(`[executor] Persistent agent repo link skipped for project=${project.name}: missing repo_url`);
-          continue;
+        try {
+          if (!project.repo_url) {
+            console.warn(`[executor] Persistent agent repo link skipped for project=${project.name}: missing repo_url`);
+            continue;
+          }
+          await this.repoManager.ensureRepo(project.repo_url, project.name);
+          const worktreeDir = await this.repoManager.ensureWorktree(project.name);
+          const projectLinkPath = join(reposDir, project.name);
+          rmSync(projectLinkPath, { force: true, recursive: true });
+          symlinkSync(worktreeDir, projectLinkPath);
+          console.log(`[executor] Persistent agent repo symlinked: ${project.name} -> ${worktreeDir}`);
+        } catch (err) {
+          console.error(`[executor] Persistent agent repo link failed for project=${project.name}:`, err);
         }
-        await this.repoManager.ensureRepo(project.repo_url, project.name);
-        const worktreeDir = await this.repoManager.ensureWorktree(project.name);
-        const projectLinkPath = join(reposDir, project.name);
-        rmSync(projectLinkPath, { force: true, recursive: true });
-        symlinkSync(worktreeDir, projectLinkPath);
       }
 
+      generateExecSkill(
+        {
+          name: role,
+          prompt: claudeMdContent,
+          heartbeat_md: roleConfig.heartbeatMd,
+        },
+        workspaceDir,
+      );
+
+      // Publish sanitized exec skill to shared repo skills directory.
+      // Other sessions (expert sessions, contractors, other execs) can
+      // `/as-{role}` to side-load this exec's context.
+      publishSharedExecSkill(
+        {
+          name: role,
+          prompt: claudeMdContent,
+          heartbeat_md: roleConfig.heartbeatMd,
+        },
+        workspaceDir,
+        repoRoot,
+      );
+
       // --- Write prompt freshness metadata for SessionStart hook ---
-      // Fetch the raw role prompt to hash — msg.rolePrompt may not be set on
-      // persistent agents (synthetic StartJob messages carry promptStackMinusSkills).
-      let rolePromptForHash = msg.rolePrompt ?? "";
-      if (!rolePromptForHash) {
-        const { data: roleRow } = await this.supabase
-          .from("roles")
-          .select("prompt")
-          .eq("name", role)
-          .single();
-        rolePromptForHash = roleRow?.prompt ?? "";
-      }
+      const rolePromptForHash = msg.rolePrompt ?? roleConfig.prompt;
       const promptHash = createHash("sha256").update(rolePromptForHash).digest("hex");
       writeFileSync(join(workspaceDir, ".role"), role);
       writeFileSync(join(workspaceDir, ".prompt-hash"), promptHash);
@@ -1179,11 +1261,22 @@ export class JobExecutor {
       const freshnessScript = join(repoRoot, "packages", "local-agent", "scripts", "check-prompt-freshness.sh");
       const settingsPath = join(workspaceDir, ".claude", "settings.json");
       const existingSettings = JSON.parse(readFileSync(settingsPath, "utf8"));
+      const existingSessionStartHooks = Array.isArray(existingSettings.hooks?.SessionStart)
+        ? existingSettings.hooks.SessionStart
+        : [];
+      const sessionStartHooks = [
+        ...existingSessionStartHooks,
+        { matcher: "", hooks: [{ type: "command", command: `bash ${freshnessScript}` }] },
+      ];
+      if (roleConfig.heartbeatMd.trim().length > 0) {
+        sessionStartHooks.push({
+          matcher: "",
+          hooks: [{ type: "command", command: this.buildHeartbeatSessionStartCommand() }],
+        });
+      }
       existingSettings.hooks = {
         ...existingSettings.hooks,
-        SessionStart: [
-          { matcher: "", hooks: [{ type: "command", command: `bash ${freshnessScript}` }] },
-        ],
+        SessionStart: sessionStartHooks,
       };
       writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2));
 
@@ -1242,6 +1335,13 @@ export class JobExecutor {
     }
 
     const spawnedAt = Date.now();
+    let initialOutputHash = "";
+    try {
+      const output = await capturePane(sessionName);
+      initialOutputHash = createHash("sha256").update(output).digest("hex");
+    } catch {
+      // Session may still be rendering its first frame; heartbeat will retry.
+    }
 
     // Register persistent agent in map keyed by role
     const persistentAgent: ActivePersistentAgent = {
@@ -1251,29 +1351,69 @@ export class JobExecutor {
       companyId: resolvedCompanyId,
       heartbeatTimer: null,
       startedAt: spawnedAt,
+      lastActivityAt: spawnedAt,
+      lastOutputHash: initialOutputHash,
+      cacheTtlMinutes: roleConfig.cacheTtlMinutes,
+      hardTtlMinutes: roleConfig.hardTtlMinutes,
+      heartbeatTasksRun: roleConfig.heartbeatMd.trim().length > 0,
+      consecutiveResetFailures: 0,
+      lastResetAt: null,
+      rolePromptSnapshot: roleConfig.prompt,
+      originalJob: { ...msg, companyProjects: msg.companyProjects ? [...msg.companyProjects] : undefined },
+      resetInProgress: false,
     };
     this.persistentAgents.set(role, persistentAgent);
 
-    // Start heartbeat timer for persistent_agents table
-    if (resolvedCompanyId && this.machineUuid) {
-      const uuid = this.machineUuid;
-      persistentAgent.heartbeatTimer = setInterval(() => {
-        this.supabase
-          .from("persistent_agents")
-          .update({ last_heartbeat: new Date().toISOString() })
-          .eq("company_id", resolvedCompanyId)
-          .eq("machine_id", uuid)
-          .eq("status", "running")
-          .then(({ error }) => {
-            if (error) console.warn(`[executor] Heartbeat update failed for persistent_agents: ${error.message}`);
-          });
-      }, HEARTBEAT_INTERVAL_MS);
-    }
+    const uuid = this.machineUuid;
+    persistentAgent.heartbeatTimer = setInterval(() => {
+      void (async () => {
+        if (persistentAgent.resetInProgress) {
+          return;
+        }
+
+        try {
+          const captureOutput = await capturePane(persistentAgent.tmuxSession);
+          const outputHash = createHash("sha256").update(captureOutput).digest("hex");
+          const changed = outputHash !== persistentAgent.lastOutputHash;
+          if (changed) {
+            persistentAgent.lastOutputHash = outputHash;
+            persistentAgent.lastActivityAt = Date.now();
+          }
+          console.log(
+            `[executor] Persistent heartbeat ${persistentAgent.role}: changed=${changed} idle=${Math.floor((Date.now() - persistentAgent.lastActivityAt) / 1000)}s`,
+          );
+        } catch (err) {
+          console.warn(`[executor] Failed to capture pane for ${persistentAgent.role}: ${String(err)}`);
+        }
+
+        if (Date.now() - persistentAgent.startedAt >= MIN_SESSION_AGE_MS && persistentAgent.consecutiveResetFailures > 0) {
+          persistentAgent.consecutiveResetFailures = 0;
+          persistentAgent.lastResetAt = null;
+        }
+
+        await this.checkCacheTtl(persistentAgent);
+
+        if (resolvedCompanyId && uuid) {
+          this.supabase
+            .from("persistent_agents")
+            .update({ last_heartbeat: new Date().toISOString() })
+            .eq("company_id", resolvedCompanyId)
+            .eq("machine_id", uuid)
+            .eq("status", "running")
+            .then(({ error }) => {
+              if (error) console.warn(`[executor] Heartbeat update failed for persistent_agents: ${error.message}`);
+            });
+        }
+      })().catch((err) => {
+        console.error(`[executor] Persistent heartbeat crashed for ${persistentAgent.role}:`, err);
+      });
+    }, HEARTBEAT_INTERVAL_MS);
 
     // Track in activeJobs (no poll/timeout timers — persistent agent runs indefinitely)
     this.activeJobs.set(jobId, {
       jobId,
       slotType,
+      slotAcquired: false,
       sessionName,
       pollTimer: null,
       timeoutTimer: null,
@@ -1281,6 +1421,7 @@ export class JobExecutor {
       startedAt: spawnedAt,
       logPath: "",
       lastBytesSent: 0,
+      lastLifecycleBytesSent: 0,
       role: msg.role,
       attempt: 1,
       maxAttempts: 3,
@@ -1291,6 +1432,125 @@ export class JobExecutor {
 
     await this.sendJobStatus(jobId, "executing");
     console.log(`[executor] Persistent ${role} session=${sessionName} ready — jobId=${jobId}`);
+  }
+
+  // ---------------------------------------------------------------------------
+
+  private async checkCacheTtl(agent: ActivePersistentAgent): Promise<void> {
+    if (agent.resetInProgress) return;
+    if (agent.cacheTtlMinutes <= 0 && agent.hardTtlMinutes <= 0) return;
+
+    const now = Date.now();
+    const idleMs = now - agent.lastActivityAt;
+    const sessionAgeMs = now - agent.startedAt;
+
+    if (sessionAgeMs < MIN_SESSION_AGE_MS) {
+      return;
+    }
+
+    let humanAttached = false;
+    try {
+      const { stdout } = await execFileAsync("tmux", ["list-clients", "-t", agent.tmuxSession]);
+      humanAttached = stdout.trim().length > 0;
+    } catch {
+      humanAttached = false;
+    }
+
+    if (humanAttached) {
+      agent.lastActivityAt = now;
+    }
+
+    const idleTtlExpired = agent.cacheTtlMinutes > 0 && idleMs > agent.cacheTtlMinutes * 60_000;
+    const hardTtlExpired = agent.hardTtlMinutes > 0 && sessionAgeMs > agent.hardTtlMinutes * 60_000;
+
+    if (!hardTtlExpired && (!idleTtlExpired || humanAttached)) {
+      if (idleTtlExpired && humanAttached) {
+        console.log(`[executor] Cache-TTL suppressed for ${agent.role}: human attached`);
+      }
+      return;
+    }
+
+    const reason = hardTtlExpired ? "hard-TTL" : "idle-TTL";
+    console.log(
+      `[executor] Cache-TTL reset triggered for ${agent.role}: ${reason} (idle=${Math.floor(idleMs / 1000)}s, age=${Math.floor(sessionAgeMs / 1000)}s)`,
+    );
+    await this.resetPersistentSession(agent, reason);
+  }
+
+  private async resetPersistentSession(
+    agent: ActivePersistentAgent,
+    reason: string,
+  ): Promise<void> {
+    if (agent.resetInProgress) {
+      return;
+    }
+
+    agent.resetInProgress = true;
+
+    try {
+      await execFileAsync("tmux", ["send-keys", "-t", agent.tmuxSession, "exit", "Enter"]);
+      await sleep(5_000);
+
+      try {
+        await execFileAsync("tmux", ["has-session", "-t", agent.tmuxSession]);
+        await execFileAsync("tmux", ["send-keys", "-t", agent.tmuxSession, "C-c"]);
+        await sleep(3_000);
+        try {
+          await execFileAsync("tmux", ["kill-session", "-t", agent.tmuxSession]);
+        } catch {
+          // Session already exited.
+        }
+      } catch {
+        // Session is already gone.
+      }
+
+      const refreshedRoleConfig = await this.loadPersistentRoleConfig(agent.role);
+
+      const activeJob = this.activeJobs.get(agent.jobId);
+      if (activeJob) {
+        activeJob.settled = true;
+        this.clearJobTimers(activeJob);
+        this.activeJobs.delete(agent.jobId);
+      }
+
+      const replayJob: PersistentStartJob = {
+        ...agent.originalJob,
+        promptStackMinusSkills: this.refreshPersistentPromptStack(
+          agent.originalJob.promptStackMinusSkills,
+          agent.rolePromptSnapshot,
+          refreshedRoleConfig.prompt,
+        ),
+        rolePrompt: refreshedRoleConfig.prompt,
+      };
+
+      this.clearPersistentAgent(agent.role, { updateDbStatus: false });
+      await this.handlePersistentJob(agent.jobId, replayJob, replayJob.slotType, agent.companyId);
+
+      const restartedAgent = this.persistentAgents.get(agent.role);
+      if (restartedAgent) {
+        restartedAgent.consecutiveResetFailures = 0;
+        restartedAgent.lastResetAt = Date.now();
+      }
+
+      console.log(`[executor] Cache-TTL reset complete for ${agent.role} (reason: ${reason})`);
+    } catch (err) {
+      agent.consecutiveResetFailures += 1;
+      const now = Date.now();
+      const lastResetAt = agent.lastResetAt;
+      agent.lastResetAt = now;
+      agent.resetInProgress = false;
+
+      console.error(`[executor] Cache-TTL reset FAILED for ${agent.role} (attempt ${agent.consecutiveResetFailures}):`, err);
+
+      if (
+        agent.consecutiveResetFailures >= MAX_RESET_FAILURES
+        && lastResetAt !== null
+        && now - lastResetAt <= RESET_FAILURE_WINDOW_MS
+      ) {
+        console.error(`[executor] CIRCUIT BREAKER: ${agent.role} reset loop detected — pausing auto-reset`);
+        agent.cacheTtlMinutes = 0;
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1333,12 +1593,27 @@ export class JobExecutor {
     // Final log flush before cleanup
     const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
     if (logChunk !== null) {
-      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-        job_id: jobId,
-        chunk: logChunk.chunk,
+      const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "tmux",
+        p_chunk: logChunk.chunk,
       });
       if (appendErr) {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+
+    // Lifecycle log flush
+    const lifecycleLogPath1 = join(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const lifecycleChunk1 = readLogFileFrom(lifecycleLogPath1, job.lastLifecycleBytesSent);
+    if (lifecycleChunk1 !== null) {
+      const { error } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "lifecycle",
+        p_chunk: lifecycleChunk1.chunk,
+      });
+      if (!error) {
+        job.lastLifecycleBytesSent = lifecycleChunk1.newOffset;
       }
     }
 
@@ -1360,7 +1635,7 @@ export class JobExecutor {
     }
 
     // Release the slot (persistent agents don't consume slots)
-    if (!stoppedPersistentRole) {
+    if (!stoppedPersistentRole && job.slotAcquired) {
       this.slots.release(job.slotType);
     }
 
@@ -1399,9 +1674,10 @@ export class JobExecutor {
       // Append any new log bytes since the last poll (append-only — avoids resending full log)
       const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
       if (logChunk !== null) {
-        const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-          job_id: jobId,
-          chunk: logChunk.chunk,
+        const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+          p_job_id: jobId,
+          p_type: "tmux",
+          p_chunk: logChunk.chunk,
         });
         if (appendErr) {
           console.warn(`[executor] Log append failed for jobId=${jobId}: ${appendErr.message}`);
@@ -1409,6 +1685,21 @@ export class JobExecutor {
           job.lastBytesSent = logChunk.newOffset;
         }
       }
+
+      // Lifecycle log flush
+      const lifecycleLogPath2 = join(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+      const lifecycleChunk2 = readLogFileFrom(lifecycleLogPath2, job.lastLifecycleBytesSent);
+      if (lifecycleChunk2 !== null) {
+        const { error } = await this.supabase.rpc("append_job_log", {
+          p_job_id: jobId,
+          p_type: "lifecycle",
+          p_chunk: lifecycleChunk2.chunk,
+        });
+        if (!error) {
+          job.lastLifecycleBytesSent = lifecycleChunk2.newOffset;
+        }
+      }
+
       jobLog(jobId, `Still running — progress=${progress}`);
       console.log(`[executor] Job still running — jobId=${jobId}, session=${job.sessionName}, progress=${progress}`);
       return;
@@ -1447,14 +1738,30 @@ export class JobExecutor {
     // Final log flush before marking failed
     const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
     if (logChunk !== null) {
-      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-        job_id: jobId,
-        chunk: logChunk.chunk,
+      const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "tmux",
+        p_chunk: logChunk.chunk,
       });
       if (appendErr) {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
       }
     }
+
+    // Lifecycle log flush
+    const lifecycleLogPath3 = join(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const lifecycleChunk3 = readLogFileFrom(lifecycleLogPath3, job.lastLifecycleBytesSent);
+    if (lifecycleChunk3 !== null) {
+      const { error } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "lifecycle",
+        p_chunk: lifecycleChunk3.chunk,
+      });
+      if (!error) {
+        job.lastLifecycleBytesSent = lifecycleChunk3.newOffset;
+      }
+    }
+
     // Best-effort push: capture partial work on timeout
     if (job.worktreePath && job.jobBranch) {
       try {
@@ -1472,7 +1779,7 @@ export class JobExecutor {
     }
 
     // Only release slot for non-persistent jobs
-    if (!timedOutPersistentRole) {
+    if (!timedOutPersistentRole && job.slotAcquired) {
       this.slots.release(job.slotType);
     }
     await this.sendJobFailed(jobId, "Job exceeded 60-minute timeout", "timeout");
@@ -1531,6 +1838,7 @@ export class JobExecutor {
               job.model ?? "codex",
               job.worktreePath,
               fixPromptPath,
+              job.repoDir,
             );
 
             if (await isTmuxSessionAlive(job.sessionName)) {
@@ -1578,15 +1886,32 @@ export class JobExecutor {
         const exitedPersistentRole = [...this.persistentAgents.values()].find(a => a.jobId === jobId)?.role;
         if (exitedPersistentRole) {
           this.clearPersistentAgent(exitedPersistentRole);
-        } else {
+        } else if (job.slotAcquired) {
           this.slots.release(job.slotType);
         }
 
         // Flush log before failing
         const failLogChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
         if (failLogChunk !== null) {
-          try { await this.supabase.rpc("append_raw_log", { job_id: jobId, chunk: failLogChunk.chunk }); } catch { /* best-effort */ }
+          try { await this.supabase.rpc("append_job_log", { p_job_id: jobId, p_type: "tmux", p_chunk: failLogChunk.chunk }); } catch { /* best-effort */ }
         }
+
+        // Lifecycle log flush (best-effort)
+        const lifecycleLogPath4 = join(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+        const lifecycleChunk4 = readLogFileFrom(lifecycleLogPath4, job.lastLifecycleBytesSent);
+        if (lifecycleChunk4 !== null) {
+          try {
+            const { error } = await this.supabase.rpc("append_job_log", {
+              p_job_id: jobId,
+              p_type: "lifecycle",
+              p_chunk: lifecycleChunk4.chunk,
+            });
+            if (!error) {
+              job.lastLifecycleBytesSent = lifecycleChunk4.newOffset;
+            }
+          } catch { /* best-effort */ }
+        }
+
         await this.sendJobFailed(jobId, job.fixReasons.join(" | "), "unknown");
         return;
       }
@@ -1602,7 +1927,7 @@ export class JobExecutor {
     const exitedPersistentRole = [...this.persistentAgents.values()].find(a => a.jobId === jobId)?.role;
     if (exitedPersistentRole) {
       this.clearPersistentAgent(exitedPersistentRole);
-    } else {
+    } else if (job.slotAcquired) {
       // Only release slot for non-persistent jobs
       this.slots.release(job.slotType);
     }
@@ -1689,17 +2014,34 @@ export class JobExecutor {
     // Final log flush — capture anything written after the last poll tick
     const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
     if (logChunk !== null) {
-      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-        job_id: jobId,
-        chunk: logChunk.chunk,
+      const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "tmux",
+        p_chunk: logChunk.chunk,
       });
       if (appendErr) {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
       }
     }
+
+    // Lifecycle log flush
+    const lifecycleLogPath5 = join(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const lifecycleChunk5 = readLogFileFrom(lifecycleLogPath5, job.lastLifecycleBytesSent);
+    if (lifecycleChunk5 !== null) {
+      const { error } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "lifecycle",
+        p_chunk: lifecycleChunk5.chunk,
+      });
+      if (!error) {
+        job.lastLifecycleBytesSent = lifecycleChunk5.newOffset;
+      }
+    }
+
     // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
 
-    // Push job branch and record in DB before sending JobComplete
+    // Push job branch before sending JobComplete.
+    let pr: string | undefined;
     if (job.worktreePath && job.jobBranch) {
       jobLog(jobId, `Pushing branch ${job.jobBranch} from ${job.worktreePath}`);
       try {
@@ -1710,7 +2052,6 @@ export class JobExecutor {
         jobLog(jobId, `Push FAILED for ${job.jobBranch}: ${String(pushErr)}`);
         console.warn(`[executor] onJobEnded: push failed for jobId=${jobId}: ${String(pushErr)}`);
       }
-      await this.supabase.from("jobs").update({ branch: job.jobBranch }).eq("id", jobId);
       try {
         await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
       } catch (worktreeErr) {
@@ -1720,45 +2061,29 @@ export class JobExecutor {
 
       // Create GitHub PR for combine jobs (after branch push succeeds)
       if (job.cardType === "combine" && job.repoUrl && job.featureBranch) {
-        await this.createPRForCombineJob(jobId, job);
+        pr = await this.createPRForCombineJob(jobId, job);
       }
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
 
-    // Verify PASSED → merge the PR to master before reporting completion.
-    if (job.cardType === "verify" && result.startsWith("PASSED") && job.featureBranch) {
-      jobLog(jobId, `Verify passed — merging PR for feature branch ${job.featureBranch}`);
+    if (result === "PASSED" || result.startsWith("PASSED:")) {
+      jobLog(jobId, `Sending JobComplete — result="${result}", hasReport=${!!report}`);
       try {
-        const { stdout: mergeOut } = await execFileAsync("gh", [
-          "pr", "merge", job.featureBranch, "--squash", "--delete-branch",
-        ], { encoding: "utf8" });
-        jobLog(jobId, `PR merge succeeded: ${mergeOut.trim()}`);
-        console.log(`[executor] PR merged for jobId=${jobId}, branch=${job.featureBranch}`);
-      } catch (mergeErr) {
-        jobLog(jobId, `PR merge FAILED: ${String(mergeErr)}`);
-        console.error(`[executor] PR merge failed for jobId=${jobId}:`, mergeErr);
+        await this.sendJobComplete(jobId, result, report, job.jobBranch, pr);
+        jobLog(jobId, `JobComplete sent successfully`);
+      } catch (sendErr) {
+        jobLog(jobId, `sendJobComplete FAILED: ${String(sendErr)}`);
+        console.error(`[executor] sendJobComplete failed for jobId=${jobId}:`, sendErr);
       }
-    }
-
-    // If the verify report had no verdict, treat as a job failure (not completion)
-    if (result === "VERDICT_MISSING") {
-      jobLog(jobId, `Sending JobFailed (no verdict) — result="${result}"`);
+    } else {
+      jobLog(jobId, `Sending JobFailed — result="${result}"`);
       try {
         await this.sendJobFailed(jobId, result, "unknown");
         jobLog(jobId, `JobFailed sent successfully`);
       } catch (sendErr) {
         jobLog(jobId, `sendJobFailed FAILED: ${String(sendErr)}`);
         console.error(`[executor] sendJobFailed failed for jobId=${jobId}:`, sendErr);
-      }
-    } else {
-      jobLog(jobId, `Sending JobComplete — result="${result}", hasReport=${!!report}`);
-      try {
-        await this.sendJobComplete(jobId, result, report);
-        jobLog(jobId, `JobComplete sent successfully`);
-      } catch (sendErr) {
-        jobLog(jobId, `sendJobComplete FAILED: ${String(sendErr)}`);
-        console.error(`[executor] sendJobComplete failed for jobId=${jobId}:`, sendErr);
       }
     }
 
@@ -1778,7 +2103,7 @@ export class JobExecutor {
   // Private: PR creation for combine jobs
   // ---------------------------------------------------------------------------
 
-  private async createPRForCombineJob(jobId: string, job: ActiveJob): Promise<void> {
+  private async createPRForCombineJob(jobId: string, job: ActiveJob): Promise<string | undefined> {
     const repoUrl = job.repoUrl!;
     const featureBranch = job.featureBranch!;
 
@@ -1804,7 +2129,7 @@ export class JobExecutor {
     const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
     if (!match) {
       jobLog(jobId, `PR skipped — cannot parse owner/repo from "${repoUrl}"`);
-      return;
+      return undefined;
     }
     const ownerRepo = match[1];
     const prTitle = `feat: ${featureTitle ?? featureId ?? jobId}`;
@@ -1844,6 +2169,7 @@ export class JobExecutor {
       }
       jobLog(jobId, `PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);
       console.log(`[executor] PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);
+      return prUrl || undefined;
     } catch (prErr: unknown) {
       jobLog(jobId, `PR creation failed: ${String(prErr)} — checking for existing PR`);
       console.warn(`[executor] PR creation failed for jobId=${jobId}: ${String(prErr)}`);
@@ -1868,8 +2194,10 @@ export class JobExecutor {
             jobLog(jobId, `Found existing PR for feature ${featureId}: ${prs[0].url}`);
           }
           console.log(`[executor] Found existing PR for feature ${featureId}: ${prs[0].url}`);
+          return prs[0].url;
         }
       } catch { /* best-effort */ }
+      return undefined;
     }
   }
 
@@ -1936,10 +2264,11 @@ export class JobExecutor {
    *
    * @param role - The role key to look up in persistentAgents. If omitted, clears ALL agents.
    */
-  private clearPersistentAgent(role?: string): void {
+  private clearPersistentAgent(role?: string, options?: { updateDbStatus?: boolean }): void {
     const agentsToClear = role
       ? (this.persistentAgents.has(role) ? [this.persistentAgents.get(role)!] : [])
       : [...this.persistentAgents.values()];
+    const updateDbStatus = options?.updateDbStatus ?? true;
 
     for (const agent of agentsToClear) {
       if (agent.heartbeatTimer) {
@@ -1947,7 +2276,7 @@ export class JobExecutor {
         agent.heartbeatTimer = null;
       }
 
-      if (agent.companyId && this.machineUuid) {
+      if (updateDbStatus && agent.companyId && this.machineUuid) {
         this.supabase
           .from("persistent_agents")
           .update({ status: "stopped" })
@@ -2045,68 +2374,37 @@ export class JobExecutor {
   private async sendJobComplete(
     jobId: string,
     result: string,
-    report?: string
+    report?: string,
+    branch?: string,
+    pr?: string,
   ): Promise<void> {
-    // Primary: write directly to DB.
-    // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).
-    if (!jobId.startsWith("persistent-")) {
-      jobLog(jobId, `DB write: status=complete, result="${result.slice(0, 100)}"`);
-      const { error: dbErr } = await this.supabase
-        .from("jobs")
-        .update({
-          status: "complete",
-          result,
-          completed_at: new Date().toISOString(),
-          progress: 100,
-        })
-        .eq("id", jobId);
-
-      if (dbErr) {
-        jobLog(jobId, `DB write FAILED: ${dbErr.message}`);
-        console.warn(`[executor] sendJobComplete DB write failed for jobId=${jobId}: ${dbErr.message}`);
-      } else {
-        jobLog(jobId, `DB write succeeded`);
-      }
-    }
-
-    // Secondary: broadcast via Realtime
+    // Broadcast via Realtime (single writer pattern: orchestrator persists terminal state).
     await this.send({
       type: "job_complete",
       protocolVersion: PROTOCOL_VERSION,
       jobId,
       machineId: this.machineId,
       result,
+      branch: branch ?? undefined,
+      pr_url: pr ?? undefined,
+      ...(pr !== undefined ? { pr } : {}),
       ...(report !== undefined ? { report } : {}),
     });
   }
 
   private async sendJobFailed(
     jobId: string,
-    error: string,
+    result: string,
     failureReason: FailureReason
   ): Promise<void> {
-    jobLog(jobId, `FAILED — reason=${failureReason}, error="${error.slice(0, 200)}"`);
-    // Primary: write directly to DB — persist error detail in result column.
-    // Skip for persistent agents — they don't have real job rows (jobId is not a UUID).
-    if (!jobId.startsWith("persistent-")) {
-      const { error: dbErr } = await this.supabase
-        .from("jobs")
-        .update({ status: "failed", result: "FAILED" })
-        .eq("id", jobId);
-
-      if (dbErr) {
-        jobLog(jobId, `DB write FAILED: ${dbErr.message}`);
-        console.warn(`[executor] sendJobFailed DB write failed for jobId=${jobId}: ${dbErr.message}`);
-      }
-    }
-
-    // Secondary: broadcast via Realtime
+    jobLog(jobId, `FAILED — reason=${failureReason}, error="${result.slice(0, 200)}"`);
+    // Broadcast via Realtime (single writer pattern: orchestrator persists terminal state).
     await this.send({
       type: "job_failed",
       protocolVersion: PROTOCOL_VERSION,
       jobId,
       machineId: this.machineId,
-      error,
+      error: result,
       failureReason,
     });
   }
@@ -2342,6 +2640,11 @@ function buildFixPrompt(job: ActiveJob): string {
     throw new Error("buildFixPrompt requires a worktreePath");
   }
 
+  let originalSpec = job.spec;
+  try {
+    originalSpec = readFileSync(join(job.worktreePath, ".zazig-prompt.txt"), "utf-8");
+  } catch { /* fall back to job.spec */ }
+
   const reasons = job.fixReasons.length > 0
     ? job.fixReasons.map((reason, idx) => `${idx + 1}. ${reason}`).join("\n")
     : "1. No review reason recorded.";
@@ -2351,7 +2654,7 @@ function buildFixPrompt(job: ActiveJob): string {
     `Attempt ${job.attempt} of ${job.maxAttempts}.`,
     "",
     "## Original Spec",
-    job.spec?.trim().length ? job.spec : "No spec provided.",
+    originalSpec?.trim().length ? originalSpec : "No spec provided.",
     "",
     "## Acceptance Criteria",
     job.acceptanceCriteria?.trim().length ? job.acceptanceCriteria : "No acceptance criteria provided.",
@@ -2374,6 +2677,7 @@ function buildCommand(
   model: string,
   worktreePath?: string,
   promptFilePath?: string,
+  repoDir?: string,
 ): { cmd: string; args: string[] } {
   const resolvedModel =
     model && model !== "codex"
@@ -2387,6 +2691,11 @@ function buildCommand(
   if (slotType === "codex") {
     // Native Codex execution — prompt is passed as a positional CLI arg (not stdin).
     const args = ["exec", "-m", resolvedModel, "--full-auto", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
+    // Worktrees store their git index inside the parent bare repo dir.
+    // The sandbox must be able to write there for git add/commit to work.
+    if (repoDir) {
+      args.push("--add-dir", repoDir);
+    }
     if (complexity === "medium") {
       args.push("-c", "model_reasoning_effort=xhigh");
     }
@@ -2457,6 +2766,11 @@ async function killTmuxSession(sessionName: string): Promise<void> {
     // Session may already be dead — that's fine
     console.warn(`[executor] Could not kill tmux session ${sessionName}:`, err);
   }
+}
+
+async function capturePane(sessionName: string): Promise<string> {
+  const { stdout } = await execFileAsync("tmux", ["capture-pane", "-t", sessionName, "-p"]);
+  return stdout;
 }
 
 /**

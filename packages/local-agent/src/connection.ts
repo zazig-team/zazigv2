@@ -1,12 +1,12 @@
 /**
  * connection.ts — Supabase Realtime connection manager
  *
- * Manages two Realtime channels for bidirectional orchestrator communication:
- *   - Inbound:  `agent:${machineId}:${companyId}` — receives StartJob/StopJob/HealthCheck from orchestrator
- *   - Outbound: `orchestrator:commands`   — sends Heartbeat/JobAck/JobComplete/JobFailed to orchestrator
+ * Manages inbound Realtime communication and outbound HTTP delivery:
+ *   - Inbound Realtime: `agent:${machineId}:${companyId}` — receives StartJob/StopJob/HealthCheck from orchestrator
+ *   - Outbound HTTP:    `functions/v1/agent-event`        — sends Heartbeat/JobAck/JobComplete/JobFailed to orchestrator
  *
  * Handles:
- *   - Dual-channel subscription with coordinated readiness
+ *   - Inbound channel subscription with reconnect/backoff
  *   - Exponential backoff on disconnect (capped at 30 s)
  *   - Heartbeat every HEARTBEAT_INTERVAL_MS (30 s)
  *   - Incoming OrchestratorMessage validation + dispatch to handlers
@@ -14,22 +14,28 @@
 
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
 import WebSocket from "ws";
+import { execFile } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { HEARTBEAT_INTERVAL_MS, PROTOCOL_VERSION, isOrchestratorMessage } from "@zazigv2/shared";
 import { jobLog } from "./executor.js";
 import type { OrchestratorMessage, Heartbeat, AgentMessage } from "@zazigv2/shared";
 import type { MachineConfig } from "./config.js";
 import type { SlotTracker } from "./slots.js";
 import { recoverDispatchedJobs } from "./job-recovery.js";
+import pkg from "../package.json" with { type: "json" };
 
 const CREDENTIALS_PATH = join(homedir(), ".zazigv2", "credentials.json");
+const execFileAsync = promisify(execFile);
 
 // Backoff constants
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
 const BACKOFF_MULTIPLIER = 2;
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 export type MessageHandler = (msg: OrchestratorMessage) => void;
 
@@ -47,13 +53,14 @@ export class AgentConnection {
 
   /** Inbound channel: `agent:{machineId}:{companyId}` — receives commands from orchestrator. */
   private channel: RealtimeChannel | null = null;
-  /** Outbound channel: `orchestrator:commands` — sends messages to orchestrator. */
-  private outChannel: RealtimeChannel | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private stopped = false;
   private isRecoveryRunning = false;
+  private outdated = false;
+  private outdatedWarningTimer: ReturnType<typeof setInterval> | null = null;
+  private outdatedExitPollTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(config: MachineConfig, slots: SlotTracker) {
     this.config = config;
@@ -100,24 +107,42 @@ export class AgentConnection {
   }
 
   /**
-   * Send an AgentMessage to the orchestrator via the `orchestrator:commands` channel.
-   * The orchestrator subscribes to this channel and dispatches by message type.
+   * Send an AgentMessage to the orchestrator via the `agent-event` edge function.
    */
   async sendMessage(msg: AgentMessage): Promise<void> {
-    if (!this.outChannel || this.stopped) {
-      console.warn("[local-agent] sendMessage called but outbound channel is not connected; message dropped:", msg.type);
+    if (this.stopped) {
+      console.warn("[local-agent] sendMessage called while stopped; message dropped:", msg.type);
       return;
     }
-    const result = await this.outChannel.send({
-      type: "broadcast",
-      event: "message",
-      payload: msg,
-    });
-    if (result !== "ok") {
-      console.warn(`[local-agent] sendMessage returned: ${result} for type=${msg.type}`);
-    } else {
-      console.log(`[local-agent] Sent ${msg.type} for jobId=${"jobId" in msg ? msg.jobId : "n/a"}`);
+    await this.sendToOrchestrator(msg);
+  }
+
+  private async sendToOrchestrator(msg: AgentMessage): Promise<void> {
+    const url = `${this.config.supabase.url}/functions/v1/agent-event`;
+    const { data: { session } } = await this.dbClient.auth.getSession();
+    const token = session?.access_token ?? this.config.supabase.anon_key;
+
+    for (const delay of [0, 1000, 5000, 15000]) {
+      if (delay > 0) await sleep(delay);
+
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(msg),
+        });
+
+        if (res.ok) return;
+        console.warn(`[local-agent] agent-event failed (${res.status}), retrying...`);
+      } catch (e) {
+        console.warn(`[local-agent] agent-event error: ${e}, retrying...`);
+      }
     }
+
+    console.error("[local-agent] agent-event failed after 3 retries");
   }
 
   /**
@@ -220,10 +245,8 @@ export class AgentConnection {
     this.stopped = true;
     this.clearReconnectTimer();
     this.clearHeartbeatTimer();
-    if (this.outChannel) {
-      await this.supabase.removeChannel(this.outChannel);
-      this.outChannel = null;
-    }
+    this.clearOutdatedWarningTimer();
+    this.clearOutdatedExitPollTimer();
     if (this.channel) {
       await this.supabase.removeChannel(this.channel);
       this.channel = null;
@@ -242,8 +265,7 @@ export class AgentConnection {
       throw new Error("Cannot connect without company_id — set ZAZIG_COMPANY_ID");
     }
     const channelName = `agent:${this.machineId}:${this.primaryCompanyId}`;
-    const outChannelName = "orchestrator:commands";
-    console.log(`[local-agent] Connecting to channels: ${channelName} (in), ${outChannelName} (out)`);
+    console.log(`[local-agent] Connecting to inbound channel: ${channelName}`);
 
     // Inbound channel: receives commands from orchestrator
     this.channel = this.supabase.channel(channelName, {
@@ -305,35 +327,15 @@ export class AgentConnection {
       }
     });
 
-    // Outbound channel: sends heartbeats/job updates to orchestrator
-    this.outChannel = this.supabase.channel(outChannelName, {
-      config: {
-        broadcast: { ack: false },
-      },
-    });
-
-    // Subscribe to both channels; start heartbeat once both are ready
+    // Subscribe to inbound channel and start heartbeat once ready.
     let inReady = false;
-    let outReady = false;
 
     const onBothReady = (): void => {
-      if (inReady && outReady) {
+      if (inReady) {
         this.reconnectAttempts = 0;
         this.startHeartbeat();
       }
     };
-
-    this.outChannel.subscribe((status, err) => {
-      if (status === "SUBSCRIBED") {
-        console.log(`[local-agent] Connected to outbound channel: ${outChannelName}`);
-        outReady = true;
-        onBothReady();
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        console.error(`[local-agent] Outbound channel error (status=${status}):`, err ?? "unknown error");
-        this.clearHeartbeatTimer();
-        this.scheduleReconnect();
-      }
-    });
 
     this.channel.subscribe((status, err) => {
       if (status === "SUBSCRIBED") {
@@ -375,6 +377,13 @@ export class AgentConnection {
           );
         } catch { /* best-effort */ }
       }
+      return;
+    }
+
+    if (this.outdated && (payload.type === "start_job" || payload.type === "start_expert")) {
+      console.warn(
+        `[local-agent] Ignoring ${payload.type} while agent is outdated and awaiting upgrade`
+      );
       return;
     }
 
@@ -431,6 +440,7 @@ export class AgentConnection {
       last_heartbeat: new Date().toISOString(),
       slots_claude_code: slotsAvailable.claude_code,
       slots_codex: slotsAvailable.codex,
+      agent_version: pkg.version,
     };
 
     let failures = 0;
@@ -465,6 +475,7 @@ export class AgentConnection {
       status: "online",
       slots_claude_code: slotsAvailable.claude_code,
       slots_codex: slotsAvailable.codex,
+      agent_version: pkg.version,
     };
 
     let dbErr: Error | null = null;
@@ -487,21 +498,33 @@ export class AgentConnection {
       console.warn(`[local-agent] Heartbeat DB write failed: ${dbErr.message}`);
     }
 
-    // Secondary: also broadcast via Realtime (for orchestrator live monitoring)
-    if (this.outChannel) {
-      const heartbeat: Heartbeat = {
-        type: "heartbeat",
-        protocolVersion: PROTOCOL_VERSION,
-        machineId: this.machineId,
-        slotsAvailable,
-      };
+    const env = process.env["ZAZIG_ENV"] ?? "production";
+    try {
+      const { data: latestVersion, error: latestVersionErr } = await this.dbClient
+        .from("agent_versions")
+        .select("version")
+        .eq("env", env)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      await this.outChannel.send({
-        type: "broadcast",
-        event: "message",
-        payload: heartbeat,
-      });
+      if (latestVersionErr) {
+        console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${latestVersionErr.message}`);
+      } else if (latestVersion && latestVersion.version !== pkg.version) {
+        this.onOutdatedDetected(pkg.version, latestVersion.version);
+      }
+    } catch (err) {
+      console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${String(err)}`);
     }
+
+    // Secondary: send heartbeat event to orchestrator via edge function.
+    const heartbeat: Heartbeat = {
+      type: "heartbeat",
+      protocolVersion: PROTOCOL_VERSION,
+      machineId: this.machineId,
+      slotsAvailable,
+    };
+    await this.sendToOrchestrator(heartbeat);
 
     if (dbErr) {
       console.warn(
@@ -533,6 +556,109 @@ export class AgentConnection {
     }
   }
 
+  private onOutdatedDetected(currentVersion: string, requiredVersion: string): void {
+    if (this.outdated) return;
+    this.outdated = true;
+
+    const warningMessage =
+      `\n⚠️  UPDATE REQUIRED: running v${currentVersion}, latest is v${requiredVersion}. Run 'zazig update' to update.\n`;
+    const emitWarning = (): void => {
+      process.stderr.write(warningMessage);
+    };
+
+    emitWarning();
+    this.outdatedWarningTimer = setInterval(() => {
+      emitWarning();
+    }, 60_000);
+
+    void this.closeOutdatedInteractiveSessions();
+    this.startOutdatedExitPolling();
+  }
+
+  private clearOutdatedWarningTimer(): void {
+    if (this.outdatedWarningTimer !== null) {
+      clearInterval(this.outdatedWarningTimer);
+      this.outdatedWarningTimer = null;
+    }
+  }
+
+  private clearOutdatedExitPollTimer(): void {
+    if (this.outdatedExitPollTimer !== null) {
+      clearInterval(this.outdatedExitPollTimer);
+      this.outdatedExitPollTimer = null;
+    }
+  }
+
+  private getActiveJobCount(): number {
+    const available = this.slots.getAvailable();
+    const activeClaudeJobs = Math.max(0, this.config.slots.claude_code - available.claude_code);
+    const activeCodexJobs = Math.max(0, this.config.slots.codex - available.codex);
+    return activeClaudeJobs + activeCodexJobs;
+  }
+
+  private startOutdatedExitPolling(): void {
+    if (this.outdatedExitPollTimer !== null) return;
+    if (process.env["ZAZIG_EXIT_ON_OUTDATED"] !== "1") {
+      console.warn("[local-agent] Outdated agent detected; auto-exit disabled (set ZAZIG_EXIT_ON_OUTDATED=1 to enable)");
+      return;
+    }
+
+    const maybeExit = (): void => {
+      const activeJobs = this.getActiveJobCount();
+      if (activeJobs > 0) {
+        console.warn(`[local-agent] Outdated agent waiting for ${activeJobs} active job(s) to complete`);
+        return;
+      }
+
+      this.clearOutdatedExitPollTimer();
+      console.warn("[local-agent] Outdated agent has no active jobs — exiting for update");
+      void this.stop().finally(() => {
+        process.exit(0);
+      });
+    };
+
+    maybeExit();
+    this.outdatedExitPollTimer = setInterval(maybeExit, 15_000);
+  }
+
+  private async closeOutdatedInteractiveSessions(): Promise<void> {
+    let sessions: string[] = [];
+    try {
+      const { stdout } = await execFileAsync("tmux", ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
+      sessions = stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+    } catch (err) {
+      console.warn(`[local-agent] Could not enumerate tmux sessions while outdated: ${String(err)}`);
+      return;
+    }
+
+    const companyPrefixes = new Set<string>();
+    if (this.primaryCompanyId) companyPrefixes.add(this.primaryCompanyId.slice(0, 8));
+    for (const companyId of this.companyIds) {
+      companyPrefixes.add(companyId.slice(0, 8));
+    }
+
+    const targets = sessions.filter((sessionName) => {
+      if (sessionName.startsWith("expert-")) return true;
+      if (sessionName === `${this.machineId}-cpo`) return true;
+      for (const prefix of companyPrefixes) {
+        if (sessionName === `${this.machineId}-${prefix}-cpo`) return true;
+      }
+      return false;
+    });
+
+    for (const sessionName of targets) {
+      try {
+        await execFileAsync("tmux", ["kill-session", "-t", sessionName], { encoding: "utf8" });
+        console.warn(`[local-agent] Closed interactive tmux session while outdated: ${sessionName}`);
+      } catch (err) {
+        console.warn(`[local-agent] Failed to close tmux session ${sessionName}: ${String(err)}`);
+      }
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Reconnection with exponential backoff
   // ---------------------------------------------------------------------------
@@ -555,10 +681,6 @@ export class AgentConnection {
       conn.on("error", swallowErr);
     }
 
-    if (this.outChannel) {
-      try { await this.supabase.removeChannel(this.outChannel); } catch { /* best-effort */ }
-      this.outChannel = null;
-    }
     if (this.channel) {
       try { await this.supabase.removeChannel(this.channel); } catch { /* best-effort */ }
       this.channel = null;

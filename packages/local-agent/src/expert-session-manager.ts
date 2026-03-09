@@ -20,6 +20,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartExpertMessage } from "@zazigv2/shared";
+import type { RepoManager } from "./branches.js";
 import { setupJobWorkspace } from "./workspace.js";
 
 const execFileAsync = promisify(execFile);
@@ -53,6 +54,7 @@ interface ExpertSessionManagerOpts {
   supabase: SupabaseClient;
   supabaseUrl: string;
   supabaseAnonKey: string;
+  repoManager: RepoManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +65,25 @@ function shellEscape(parts: string[]): string {
   return parts
     .map((p) => `'${p.replace(/'/g, "'\"'\"'")}'`)
     .join(" ");
+}
+
+const AVAILABLE_CONTEXT_HEADING = "## Available Context";
+const AVAILABLE_CONTEXT_SECTION = `${AVAILABLE_CONTEXT_HEADING}
+
+Exec context skills are available in this session. To load an exec's current priorities, decisions, and working context:
+
+- \`/as-cpo\` — CPO's context: product priorities, active decisions, strategic direction
+- \`/as-cto\` — CTO's context: architecture decisions, technical constraints, infra state
+
+Use these if you need to understand why your task was commissioned. Read the exec's memory files — do not modify them.`;
+
+function assembleExpertBrief(brief: string): string {
+  if (brief.includes(AVAILABLE_CONTEXT_HEADING)) {
+    return brief;
+  }
+
+  const trimmedBrief = brief.trimEnd();
+  return `${trimmedBrief}\n\n${AVAILABLE_CONTEXT_SECTION}`;
 }
 
 /** Resolve the MCP server entry point from the executor's dist directory. */
@@ -119,6 +140,7 @@ export class ExpertSessionManager {
   private readonly supabase: SupabaseClient;
   private readonly supabaseUrl: string;
   private readonly supabaseAnonKey: string;
+  private readonly repoManager: RepoManager;
   private readonly activeSessions = new Map<string, ExpertSessionState>();
   private readonly activePollers = new Map<string, ReturnType<typeof setInterval>>();
   private readonly exitingSessions = new Set<string>();
@@ -129,15 +151,10 @@ export class ExpertSessionManager {
     this.supabase = opts.supabase;
     this.supabaseUrl = opts.supabaseUrl;
     this.supabaseAnonKey = opts.supabaseAnonKey;
+    this.repoManager = opts.repoManager;
   }
 
   async handleStartExpert(msg: StartExpertMessage): Promise<void> {
-    // 1. Check if this message is for this machine
-    if (msg.machine_id !== this.machineId) {
-      console.log(`[expert] Ignoring start_expert for machine ${msg.machine_id} (this is ${this.machineId})`);
-      return;
-    }
-
     const sessionId = msg.session_id;
     const shortId = sessionId.slice(0, 8);
     const tmuxSessionName = `expert-${shortId}`;
@@ -152,43 +169,51 @@ export class ExpertSessionManager {
     // 3. Git worktree setup if project_id + repo_url provided
     let repoDir: string | undefined;
     let bareRepoDir: string | undefined;
+    if ((msg.project_id && !msg.repo_url) || (!msg.project_id && msg.repo_url)) {
+      console.error(
+        `[expert] Invalid start_expert payload for ${sessionId}: project_id and repo_url must both be set together`,
+      );
+      await this.updateSessionStatus(sessionId, "failed");
+      return;
+    }
+
     if (msg.project_id && msg.repo_url) {
       try {
         const projectName = msg.repo_url.split("/").pop()?.replace(/\.git$/, "") ?? msg.project_id;
-        bareRepoDir = join(homedir(), ".zazigv2", "repos", projectName);
+        bareRepoDir = await this.repoManager.ensureRepo(msg.repo_url, projectName);
         const worktreeTarget = join(workspaceDir, "repo");
         const branch = msg.branch ?? "master";
 
-        // Ensure bare repo exists
-        if (!existsSync(bareRepoDir)) {
-          console.log(`[expert] Cloning bare repo for ${projectName}...`);
-          await execFileAsync("git", ["clone", "--bare", msg.repo_url, bareRepoDir]);
-        }
-
-        // Fetch latest
-        await execFileAsync("git", ["-C", bareRepoDir, "fetch", "origin"]);
-
-        // Create worktree — use detached HEAD from the target branch to avoid
-        // "already checked out" errors on shared branches
+        // Remove stale metadata/dir from interrupted sessions so each start gets a fresh worktree.
         try {
           await execFileAsync("git", [
             "-C", bareRepoDir,
-            "worktree", "add", "--detach", worktreeTarget,
-            `origin/${branch}`,
+            "worktree", "remove", "--force", worktreeTarget,
           ]);
         } catch {
-          // Fallback: try without origin/ prefix (local branch)
-          await execFileAsync("git", [
-            "-C", bareRepoDir,
-            "worktree", "add", "--detach", worktreeTarget, branch,
-          ]);
+          // No pre-existing worktree at this path — that's fine.
         }
+        rmSync(worktreeTarget, { recursive: true, force: true });
+        await execFileAsync("git", ["-C", bareRepoDir, "worktree", "prune"]);
+
+        await this.repoManager.fetchBranchForExpert(projectName, branch);
+
+        // Create worktree — use detached HEAD from the target branch to avoid
+        // "already checked out" errors on shared branches
+        await execFileAsync("git", [
+          "-C", bareRepoDir,
+          "worktree", "add", "--detach", worktreeTarget,
+          `refs/heads/${branch}`,
+        ]);
+        const { stdout } = await execFileAsync("git", ["-C", worktreeTarget, "rev-parse", "HEAD"]);
 
         repoDir = worktreeTarget;
         console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${branch})`);
+        console.log(`[expert] Worktree at commit: ${stdout.trim().slice(0, 8)}`);
       } catch (err) {
         console.error(`[expert] Failed to create git worktree:`, err);
-        // Continue without repo — expert can still work
+        await this.updateSessionStatus(sessionId, "failed");
+        return;
       }
     }
 
@@ -219,11 +244,16 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
 2. Work through the brief methodically
 3. Show diffs before merging any changes
 4. When done, merge your work to master
-5. Write a 2-3 sentence summary to \`.claude/expert-report.md\`
-`);
 
-      // Include brief reference
-      claudeMdParts.push(`## Brief\n\nSee \`.claude/expert-brief.md\` for the full task brief.`);
+### Ending the Session
+When the user says "wrap up", "I'm done", "finish up", or similar:
+1. Write a 2-3 sentence summary of what was accomplished to \`.claude/expert-report.md\`
+2. Tell the user: "Report written. Type /quit (or press Ctrl+C) to close this session."
+
+When greeting the user, always include: "When you're done, say 'wrap up' and I'll write a summary report. Then type /quit (or press Ctrl+C) to close the session."
+
+**Always write the report before the session ends.** The report is read by the CPO after the session closes.
+`);
 
       const claudeMdContent = claudeMdParts.join("\n\n");
 
@@ -247,7 +277,7 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       // 8. Write brief to .claude/expert-brief.md
       const claudeDir = join(effectiveWorkspaceDir, ".claude");
       mkdirSync(claudeDir, { recursive: true });
-      writeFileSync(join(claudeDir, "expert-brief.md"), msg.brief);
+      writeFileSync(join(claudeDir, "expert-brief.md"), assembleExpertBrief(msg.brief));
 
       // 9. Inject SessionStart hook to display brief on session start
       const settingsPath = join(claudeDir, "settings.json");
@@ -268,7 +298,13 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
         ...(msg.role.settings_overrides?.hooks as Record<string, unknown> ?? {}),
         SessionStart: [
           ...(((msg.role.settings_overrides?.hooks as Record<string, unknown> | undefined)?.SessionStart as unknown[]) ?? []),
-          { matcher: "", hooks: [{ type: "command", command: `cat ${shellEscape([join(claudeDir, "expert-brief.md")])}` }] },
+          {
+            matcher: "",
+            hooks: [{
+              type: "command",
+              command: `cat ${shellEscape([join(claudeDir, "expert-brief.md")])} && echo "" && echo "---" && echo "When you're finished, say 'wrap up' — the expert will write a summary report. Then type /quit (or press Ctrl+C) to close."`,
+            }],
+          },
         ],
       };
 
@@ -300,7 +336,11 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
         await killTmuxSession(tmuxSessionName);
       }
 
-      const claudeCmd = shellEscape(["claude", "--model", msg.model]);
+      const claudeCmd = shellEscape([
+        "claude",
+        "--model",
+        msg.model,
+      ]);
       const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
 
       await execFileAsync("tmux", [

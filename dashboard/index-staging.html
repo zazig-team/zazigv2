@@ -179,6 +179,76 @@
       border-bottom: 1px solid rgba(248, 113, 113, 0.15);
     }
 
+    .machines-wrap {
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--surface);
+    }
+
+    .machines-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      gap: 12px;
+    }
+
+    .machines-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+
+    .machines-latest {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      color: var(--text-dim);
+    }
+
+    .machines-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      background: var(--bg);
+    }
+
+    .machines-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      min-width: 640px;
+    }
+
+    .machines-table th,
+    .machines-table td {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      white-space: nowrap;
+    }
+
+    .machines-table th {
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+      font-weight: 600;
+      background: #0b0d11;
+    }
+
+    .machines-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .machine-status-online { color: #22c55e; }
+    .machine-status-offline { color: #ef4444; }
+    .machine-status-unknown { color: var(--text-secondary); }
+    .machine-version-unknown { color: var(--text-dim); }
+    .machine-version-outdated { color: #ef4444; font-weight: 600; }
+
     /* ── Kanban Board ──────────────────────────── */
 
     .dashboard {
@@ -1182,6 +1252,26 @@
     </header>
 
     <div id="message" aria-live="polite" role="status"></div>
+    <section class="machines-wrap" aria-live="polite">
+      <div class="machines-header">
+        <div class="machines-title">Machines</div>
+        <div id="machinesLatestVersion" class="machines-latest">Latest: unknown</div>
+      </div>
+      <div class="machines-table-wrap">
+        <table class="machines-table" aria-label="Machines list">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Last Heartbeat</th>
+              <th>Slots (Claude/Codex)</th>
+              <th>Agent Version</th>
+            </tr>
+          </thead>
+          <tbody id="machinesTableBody"></tbody>
+        </table>
+      </div>
+    </section>
     <main id="dashboard" class="dashboard" aria-live="polite"></main>
   </div>
 
@@ -1210,6 +1300,7 @@
 
       const SUPABASE_URL = 'https://ymgjtrbrvhezxpwjuhbu.supabase.co';
       const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltZ2p0cmJydmhlenhwd2p1aGJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1MzE0ODksImV4cCI6MjA4ODEwNzQ4OX0.tIWVnC87cJMVzZILdkKzfPckTQhx6xt95JPhfwzSWR0';
+      const AGENT_VERSION_ENV = 'staging';
       // WARNING: This key grants full DB access. For local dev only.
       // In production, inject via Netlify environment variable or server-side config.
       const SERVICE_ROLE_KEY = typeof __SERVICE_ROLE_KEY__ !== 'undefined' ? __SERVICE_ROLE_KEY__ : 'YOUR_SERVICE_ROLE_KEY_HERE';
@@ -1224,9 +1315,10 @@
       const ALL_COMPANIES_URL =
         SUPABASE_URL + '/rest/v1/companies?select=id,name&order=name';
       const JOB_DETAIL_BASE =
-        SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,raw_log,model,role,progress,created_at,started_at,completed_at&limit=1&id=eq.';
+        SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,model,role,progress,created_at,started_at,completed_at&limit=1&id=eq.';
 
       const AUTH_HEADERS = { apikey: ANON_KEY, Authorization: 'Bearer ' + ANON_KEY };
+      const supabaseClient = window.supabase.createClient(SUPABASE_URL, ANON_KEY);
 
       // Intake funnel: ideas -> triage -> development (pre-pipeline)
       const INTAKE_COLUMNS = [
@@ -1260,6 +1352,8 @@
       const refreshButton = document.getElementById('refreshButton');
       const companySelect = document.getElementById('companySelect');
       const boardTitleEl  = document.getElementById('boardTitle');
+      const machinesTableBodyEl = document.getElementById('machinesTableBody');
+      const machinesLatestVersionEl = document.getElementById('machinesLatestVersion');
 
       // Detail panel elements
       const detailOverlay  = document.getElementById('detailOverlay');
@@ -1283,6 +1377,8 @@
       // Cache last fetched records for board and detail views
       let lastFeatures = [];
       let lastIdeas = [];
+      let lastMachines = [];
+      let latestAgentVersion = null;
       let parkedExpanded = false;
       let actionInFlight = false;
 
@@ -1345,6 +1441,56 @@
       function setMessage(text, isError) {
         messageEl.textContent = text;
         messageEl.className = isError ? 'error' : '';
+      }
+
+      function renderMachines(machines, latestVersion) {
+        machinesTableBodyEl.textContent = '';
+        machinesLatestVersionEl.textContent = 'Latest: ' + (latestVersion || 'unknown');
+
+        if (!Array.isArray(machines) || machines.length === 0) {
+          var emptyRow = el('tr');
+          var emptyCell = el('td', 'machine-status-unknown', 'No machines found');
+          emptyCell.colSpan = 5;
+          emptyRow.appendChild(emptyCell);
+          machinesTableBodyEl.appendChild(emptyRow);
+          return;
+        }
+
+        for (var i = 0; i < machines.length; i++) {
+          var machine = machines[i] || {};
+          var row = el('tr');
+
+          row.appendChild(el('td', '', String(machine.name || '\u2014')));
+
+          var statusText = normalizeStatus(machine.status) || 'unknown';
+          var statusClass = statusText === 'online'
+            ? 'machine-status-online'
+            : statusText === 'offline'
+              ? 'machine-status-offline'
+              : 'machine-status-unknown';
+          row.appendChild(el('td', statusClass, statusText));
+
+          row.appendChild(el('td', '', formatRelativeTime(machine.last_heartbeat)));
+
+          var slotsText =
+            String(Number(machine.slots_claude_code || 0)) +
+            ' / ' +
+            String(Number(machine.slots_codex || 0));
+          row.appendChild(el('td', '', slotsText));
+
+          var versionCell;
+          if (!machine.agent_version) {
+            versionCell = el('td', 'machine-version-unknown', 'unknown');
+          } else if (latestVersion && machine.agent_version !== latestVersion) {
+            versionCell = el('td', 'machine-version-outdated', '\u26a0\ufe0f ' + String(machine.agent_version));
+            versionCell.title = 'Outdated \u2014 latest is v' + latestVersion;
+          } else {
+            versionCell = el('td', '', String(machine.agent_version));
+          }
+          row.appendChild(versionCell);
+
+          machinesTableBodyEl.appendChild(row);
+        }
       }
 
       function normalizeStatus(s) {
@@ -1959,6 +2105,28 @@
         return sortIdeas(deduped);
       }
 
+      async function fetchMachinesAndVersion() {
+        const { data: machines, error: machinesError } = await supabaseClient
+          .from('machines')
+          .select('name, status, last_heartbeat, slots_claude_code, slots_codex, agent_version')
+          .order('name', { ascending: true });
+        if (machinesError) throw machinesError;
+
+        const { data: latestVersionRow, error: latestVersionError } = await supabaseClient
+          .from('agent_versions')
+          .select('version')
+          .eq('env', AGENT_VERSION_ENV)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (latestVersionError) throw latestVersionError;
+
+        return {
+          machines: Array.isArray(machines) ? machines : [],
+          latestVersion: latestVersionRow?.version || null,
+        };
+      }
+
       async function refreshDashboard() {
         if (companyBlocked) return;
         // Bump epoch so any in-flight fetch from a previous company is discarded.
@@ -1967,7 +2135,7 @@
         isFetching = true;
         refreshButton.disabled = true;
         try {
-          var payload = await Promise.all([fetchFeatures(), fetchIdeas()]);
+          var payload = await Promise.all([fetchFeatures(), fetchIdeas(), fetchMachinesAndVersion()]);
           // Discard if company changed or a newer refresh has already started.
           if (epoch !== fetchEpoch || companyAtStart !== activeCompanyId) return;
           // Client-side safety filter: drop any features that leaked from another company.
@@ -1976,6 +2144,9 @@
           }) : [];
           lastFeatures = safeFeatures;
           lastIdeas = payload[1];
+          lastMachines = payload[2].machines;
+          latestAgentVersion = payload[2].latestVersion;
+          renderMachines(lastMachines, latestAgentVersion);
           renderBoard(lastFeatures, lastIdeas);
           setMessage('');
           lastUpdatedEl.textContent = formatTime(new Date());
@@ -2364,7 +2535,14 @@
             return;
           }
 
-          applyJobToPanel(job);
+          var logRes = await fetch(
+            SUPABASE_URL + '/rest/v1/job_logs?select=content&job_id=eq.' + jobId + '&type=eq.tmux&limit=1',
+            { headers: AUTH_HEADERS }
+          );
+          var logData = await logRes.json();
+          var rawLog = logData && logData[0] ? logData[0].content : null;
+
+          applyJobToPanel(job, rawLog);
 
           var terminal = TERMINAL_JOB_STATUSES.has(normalizeStatus(job.status));
           if (!terminal) {
@@ -2374,7 +2552,13 @@
                 var updated = await apiFetch(JOB_DETAIL_BASE + encodeURIComponent(jobId));
                 updated = Array.isArray(updated) && updated.length > 0 ? updated[0] : null;
                 if (openDetailId !== jobId || !updated) return;
-                applyJobToPanel(updated);
+                var updatedLogRes = await fetch(
+                  SUPABASE_URL + '/rest/v1/job_logs?select=content&job_id=eq.' + jobId + '&type=eq.tmux&limit=1',
+                  { headers: AUTH_HEADERS }
+                );
+                var updatedLogData = await updatedLogRes.json();
+                var updatedRawLog = updatedLogData && updatedLogData[0] ? updatedLogData[0].content : null;
+                applyJobToPanel(updated, updatedRawLog);
                 if (TERMINAL_JOB_STATUSES.has(normalizeStatus(updated.status))) {
                   stopDetailPoll();
                 }
@@ -2388,7 +2572,7 @@
         }
       }
 
-      function applyJobToPanel(job) {
+      function applyJobToPanel(job, rawLog) {
         var status = normalizeStatus(job.status);
         var terminal = TERMINAL_JOB_STATUSES.has(status);
         var failed = status === 'failed';
@@ -2444,9 +2628,9 @@
         // Log
         detailContentEl.appendChild(el('div', 'detail-section-title', 'Log'));
         var logArea = el('div', 'detail-log-area');
-        var logPre = el('pre', typeof job.raw_log === 'string' && job.raw_log ? 'detail-log' : 'detail-log empty');
-        logPre.textContent = typeof job.raw_log === 'string' && job.raw_log
-          ? job.raw_log : 'No log output yet\u2026';
+        var logPre = el('pre', typeof rawLog === 'string' && rawLog ? 'detail-log' : 'detail-log empty');
+        logPre.textContent = typeof rawLog === 'string' && rawLog
+          ? rawLog : 'No log output yet\u2026';
         logArea.appendChild(logPre);
         detailContentEl.appendChild(logArea);
 

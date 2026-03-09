@@ -1,9 +1,20 @@
 # /triage
 
-**Role:** CPO
+**Role:** CPO / triage-analyst
 **Type:** Operational — sweeps the ideas inbox and triages new ideas
 
 Run this skill to clear the ideas inbox, classify new ideas, and prepare explicit promote/park/reject recommendations for human approval.
+
+---
+
+## Single-Idea Mode
+
+If your job context contains a single idea ID, triage only that idea:
+- Skip Phase 1 — use the idea ID from context
+- Run Phase 2 on the single idea
+- Write recommendation to `triage_notes` (not human presentation)
+- Do not call `promote_idea` — the human will act from the WebUI
+- Set `status='triaged'` when complete (not `triaging`)
 
 ---
 

@@ -39,7 +39,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-const VALID_PROMOTE_TO = ["feature", "job", "research"] as const;
+const VALID_PROMOTE_TO = ["feature", "job", "research", "capability"] as const;
 type PromoteToType = typeof VALID_PROMOTE_TO[number];
 
 // ---------------------------------------------------------------------------
@@ -78,7 +78,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    if ((promote_to === "feature" || promote_to === "job") && !project_id) {
+    const requiresProjectId = promote_to === "feature" || promote_to === "job";
+    if (requiresProjectId && !project_id) {
       return jsonResponse(
         { error: `project_id is required when promote_to is '${promote_to}'` },
         400,
@@ -97,9 +98,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: `Idea not found: ${idea_id}` }, 404);
     }
 
-    if (idea.status !== "triaged") {
+    const promotableStatuses = ["triaged", "workshop"];
+    if (!promotableStatuses.includes(idea.status)) {
       return jsonResponse(
-        { error: `Idea status is '${idea.status}' — must be 'triaged' to promote` },
+        { error: `Idea status is '${idea.status}' — must be 'triaged' or 'workshop' to promote` },
         400,
       );
     }
@@ -161,15 +163,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
       promoted_to_id = job.id;
       created_table = "jobs";
+    } else if (promote_to === "research") {
+      // No entity created for research promotions.
+      promoted_to_id = null;
+    } else if (promote_to === "capability") {
+      // Do NOT create a capability entity here.
+      // Set idea status to 'hardening' — the hardening pipeline runs asynchronously.
+      // promoted_to_id remains null (set after hardening completes).
+      promoted_to_id = null;
     }
-    // promote_to === "research": no entity created
 
     // --- Update idea atomically ---
+    const ideaUpdateStatus = promote_to === "capability" ? "hardening" : "promoted";
 
     const { error: updateError } = await supabase
       .from("ideas")
       .update({
-        status: "promoted",
+        status: ideaUpdateStatus,
         promoted_to_type: promote_to as PromoteToType,
         promoted_to_id,
         promoted_at: new Date().toISOString(),
@@ -215,6 +225,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       idea_id,
       promoted_to_type: promote_to,
       promoted_to_id,
+      ...(promote_to === "capability" ? { hardening_queued: true } : {}),
     });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);

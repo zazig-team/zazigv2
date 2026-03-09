@@ -6,9 +6,6 @@
  * Responsibilities:
  *   1. Poll `jobs` for queued work and dispatch to machines with capacity.
  *   2. Detect dead machines (no heartbeat for 2 min) and re-queue their jobs.
- *   3. Listen on Realtime channel `orchestrator:commands` for agent messages
- *      (Heartbeat, JobAck, JobStatusMessage, JobComplete, JobFailed) and
- *      apply the appropriate DB updates / slot adjustments.
  *
  * Runtime: Deno / Supabase Edge Functions
  * Auth: service_role key — never exposed to the client.
@@ -119,6 +116,7 @@ interface MachineRow {
   slots_codex: number;
   last_heartbeat: string | null;
   status: string;
+  agent_version: string | null;
 }
 
 interface DecisionResolved {
@@ -219,6 +217,12 @@ interface RoutingEntry {
   slotType: SlotType;
 }
 
+const RETRY_ESCALATION_ROUTE: Omit<RoutingEntry, "complexity"> = {
+  role: "junior-engineer-cc",
+  model: "claude-sonnet-4-6",
+  slotType: "claude_code",
+};
+
 /** Cached routing table, loaded once per orchestrator invocation. */
 let routingCache: Map<string, RoutingEntry> | null = null;
 
@@ -313,23 +317,40 @@ async function loadRouting(
  *   2. complexity_routing table → company override > global default
  *   3. Hardcoded fallback (medium/sonnet) if nothing else matches
  */
-function resolveModelAndSlot(
+export function resolveModelAndSlot(
   routing: Map<string, RoutingEntry>,
   complexity: string | null,
   existingModel: string | null,
+  retryCount = 0,
   jobId?: string,
 ): { role: string; model: string; slotType: SlotType } {
+  const maybeEscalateRetry = (
+    resolved: { role: string; model: string; slotType: SlotType },
+  ) => {
+    if (retryCount > 0 && resolved.role === "junior-engineer") {
+      console.log(
+        `[orchestrator] Retry escalation: routing job to junior-engineer-cc (feature retry_count=${retryCount}, was junior-engineer/codex)`,
+      );
+      return { ...RETRY_ESCALATION_ROUTE };
+    }
+    return resolved;
+  };
+
   // Explicit model override on the job takes precedence.
   if (existingModel) {
     const entry = routing.get(complexity ?? "medium");
     const slotType = entry?.slotType ?? "claude_code";
     const role = entry?.role ?? "senior-engineer";
-    return { role, model: existingModel, slotType };
+    return maybeEscalateRetry({ role, model: existingModel, slotType });
   }
 
   const entry = routing.get(complexity ?? "medium");
   if (entry) {
-    return { role: entry.role, model: entry.model, slotType: entry.slotType };
+    return maybeEscalateRetry({
+      role: entry.role,
+      model: entry.model,
+      slotType: entry.slotType,
+    });
   }
 
   // Fallback if complexity not in routing table
@@ -338,11 +359,11 @@ function resolveModelAndSlot(
       jobId ?? "?"
     }, defaulting to sonnet`,
   );
-  return {
+  return maybeEscalateRetry({
     role: "senior-engineer",
     model: "claude-sonnet-4-6",
     slotType: "claude_code",
-  };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +390,7 @@ const NO_CODE_CONTEXT_ROLES = new Set([
   "pipeline-technician",
   "monitoring-agent",
   "project-architect",
+  "triage-analyst",
 ]);
 
 const TERMINAL_FEATURE_STATUSES_FOR_DEPLOY = new Set([
@@ -376,6 +398,16 @@ const TERMINAL_FEATURE_STATUSES_FOR_DEPLOY = new Set([
   "complete",
   "cancelled",
 ]);
+const EXECUTING_JOB_INVESTIGATION_THRESHOLD_MS = 30 * 60 * 1000;
+const MACHINE_HEARTBEAT_STALE_FOR_TIMEOUT_MS = 5 * 60 * 1000;
+const EXECUTING_JOB_TIMEOUT_RESULT =
+  "Timeout: machine heartbeat lost after 30+ min in executing";
+const EXECUTING_JOB_STARTED_AT_COLUMN_CANDIDATES = [
+  "dispatched_at",
+  "updated_at",
+  "started_at",
+  "assigned_at",
+] as const;
 
 console.log(
   "[orchestrator] Cold start — in-memory recoveryTimestamps reset (anti-flap cooldown not durable across restarts)",
@@ -577,6 +609,31 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
 
   console.log(`[orchestrator] ${queuedJobs.length} queued job(s) to process.`);
 
+  // Build a feature status cache for code jobs so we can cheaply gate dispatch
+  // while a feature is still in breaking_down.
+  const codeFeatureIds = Array.from(
+    new Set(
+      (queuedJobs as JobRow[])
+        .filter((job) => job.job_type === "code" && Boolean(job.feature_id))
+        .map((job) => job.feature_id as string),
+    ),
+  );
+  const featureStatusById = new Map<string, string>();
+  if (codeFeatureIds.length > 0) {
+    const { data: featureRows, error: featureRowsErr } = await supabase
+      .from("features")
+      .select("id, status")
+      .in("id", codeFeatureIds);
+    if (featureRowsErr) {
+      console.error("[orchestrator] Failed to preload feature statuses for code-job gate:", featureRowsErr.message);
+      return;
+    }
+    for (const row of featureRows ?? []) {
+      const featureRow = row as { id: string; status: string };
+      featureStatusById.set(featureRow.id, featureRow.status);
+    }
+  }
+
   // Cache machines fetched in this pass (keyed by company_id) to avoid redundant queries.
   const machineCache = new Map<string, MachineRow[]>();
 
@@ -672,6 +729,17 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       }
     }
 
+    // Do not dispatch code jobs while the parent feature is still breaking_down.
+    if (job.job_type === "code" && job.feature_id) {
+      const featureStatus = featureStatusById.get(job.feature_id);
+      if (featureStatus === "breaking_down") {
+        console.log(
+          `[orchestrator] Skipping job ${job.id} — feature ${job.feature_id} still breaking_down`,
+        );
+        continue;
+      }
+    }
+
     // DAG check: if this job has dependencies, verify they are all complete before dispatch.
     let depBranches: string[] = [];
     if (job.depends_on && job.depends_on.length > 0) {
@@ -708,11 +776,32 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     // Non-engineer roles use their role's default_model & slot_type from the DB.
     // Engineer roles (senior-engineer, junior-engineer) use complexity routing.
     const ENGINEER_ROLES = new Set(["senior-engineer", "junior-engineer"]);
+    let resolvedRole: string;
     let model: string;
     let slotType: SlotType;
     // Loaded once per company per dispatch pass (cached inside loadRouting).
     // Hoisted here so the codex→claude_code fallback below can always access it.
     const routing = await loadRouting(supabase, job.company_id);
+    let featureRetryCount = 0;
+
+    if (job.feature_id) {
+      const { data: featureRoutingRow, error: featureRoutingErr } =
+        await supabase
+          .from("features")
+          .select("retry_count")
+          .eq("id", job.feature_id)
+          .single();
+
+      if (featureRoutingErr) {
+        console.warn(
+          `[orchestrator] Failed to fetch retry_count for feature ${job.feature_id} while routing job ${job.id}: ${featureRoutingErr.message}`,
+        );
+      } else {
+        featureRetryCount =
+          (featureRoutingRow as { retry_count?: number | null } | null)
+            ?.retry_count ?? 0;
+      }
+    }
 
     if (job.role && !ENGINEER_ROLES.has(job.role)) {
       // Role-based routing: look up the role's defaults from the roles table.
@@ -723,6 +812,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         .single();
 
       if (roleDefaults?.default_model && roleDefaults?.slot_type) {
+        resolvedRole = job.role;
         model = roleDefaults.default_model as string;
         slotType = roleDefaults.slot_type as SlotType;
         console.log(
@@ -733,19 +823,21 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         console.warn(
           `[orchestrator] Role '${job.role}' not found in roles table — falling back to complexity routing for job ${job.id}`,
         );
-        ({ model, slotType } = resolveModelAndSlot(
+        ({ role: resolvedRole, model, slotType } = resolveModelAndSlot(
           routing,
           job.complexity,
           job.model,
+          featureRetryCount,
           job.id,
         ));
       }
     } else {
       // Engineer roles or no role: use complexity routing.
-      ({ model, slotType } = resolveModelAndSlot(
+      ({ role: resolvedRole, model, slotType } = resolveModelAndSlot(
         routing,
         job.complexity,
         job.model,
+        featureRetryCount,
         job.id,
       ));
     }
@@ -756,7 +848,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       const { data: m, error: mErr } = await supabase
         .from("machines")
         .select(
-          "id, company_id, name, slots_claude_code, slots_codex, last_heartbeat, status, enabled",
+          "id, company_id, name, slots_claude_code, slots_codex, last_heartbeat, status, enabled, agent_version",
         )
         .eq("company_id", job.company_id)
         .eq("status", "online")
@@ -783,8 +875,23 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       machineCache.set(job.company_id, machines);
     }
 
+    const env = Deno.env.get("ZAZIG_ENV") ?? "production";
+    const { data: latestVersion } = await supabase
+      .from("agent_versions")
+      .select("version")
+      .eq("env", env)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const eligibleMachines = machines.filter(
+      (m) => !latestVersion || m.agent_version === latestVersion.version,
+    );
+
     // Find a machine with an available slot of the required type.
-    let candidate = machines.find((m) => availableSlots(m, slotType) > 0);
+    let candidate = eligibleMachines.find((m) =>
+      availableSlots(m, slotType) > 0
+    );
 
     // For jobs preferring codex, fall back to claude_code if no codex slots available.
     if (!candidate && slotType === "codex") {
@@ -794,7 +901,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         const mediumEntry = routing.get("medium");
         model = mediumEntry?.model ?? "claude-sonnet-4-6";
       }
-      candidate = machines.find((m) => availableSlots(m, slotType) > 0);
+      candidate = eligibleMachines.find((m) => availableSlots(m, slotType) > 0);
     }
 
     if (!candidate) {
@@ -808,7 +915,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     // Must be resolved before slot decrement so we can skip without side effects.
     let repoUrl: string | null = null;
     let featureBranch: string | null = null;
-    const requiresCodeContext = !NO_CODE_CONTEXT_ROLES.has(job.role);
+    const requiresCodeContext = !NO_CODE_CONTEXT_ROLES.has(resolvedRole);
 
     let projectName: string | null = null;
 
@@ -900,19 +1007,6 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         })
         .eq("id", job.id);
 
-      // Fail the parent feature if applicable (mirrors handleJobFailed logic).
-      if (job.feature_id) {
-        const errorDetail = `${
-          job.role ?? job.job_type
-        } job failed: null context — job was created without a context/spec`;
-        await supabase
-          .from("features")
-          .update({ status: "failed", error: errorDetail })
-          .eq("id", job.feature_id);
-        console.warn(
-          `[orchestrator] Feature ${job.feature_id} marked as failed: ${errorDetail}`,
-        );
-      }
       continue;
     }
 
@@ -950,11 +1044,11 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     let isInteractive = false;
     let personalityPrompt: string | undefined;
     let subAgentPrompt: string | undefined;
-    if (job.role) {
+    if (resolvedRole) {
       const { data: roleRow } = await supabase
         .from("roles")
         .select("id, prompt, skills, mcp_tools, interactive")
-        .eq("name", job.role)
+        .eq("name", resolvedRole)
         .single();
       if (roleRow) {
         const typed = roleRow as {
@@ -996,7 +1090,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     if (rolePrompt) promptParts.push(rolePrompt);
     promptParts.push(SKILLS_MARKER);
     if (dispatchContext) promptParts.push(dispatchContext);
-    promptParts.push(completionInstructions(job.role));
+    promptParts.push(completionInstructions(resolvedRole));
     const promptStackMinusSkills = promptParts.join("\n\n---\n\n");
 
     // Dispatch: update job status → dispatched, assign machine_id.
@@ -1006,6 +1100,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       .update({
         status: "dispatched",
         machine_id: candidate.id,
+        role: resolvedRole,
         model,
         slot_type: slotType,
         started_at: new Date().toISOString(),
@@ -1060,7 +1155,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       ...(featureBranch ? { featureBranch } : {}),
       promptStackMinusSkills,
       // Include role for role-based jobs (specialized reviewers, etc.)
-      ...(job.role ? { role: job.role } : {}),
+      ...(resolvedRole ? { role: resolvedRole } : {}),
       ...(subAgentPrompt ? { subAgentPrompt } : {}),
       ...(roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),
       ...(roleMcpTools !== undefined ? { roleMcpTools } : {}),
@@ -1108,7 +1203,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
 // Agent message handlers (called from the Realtime subscription)
 // ---------------------------------------------------------------------------
 
-async function handleHeartbeat(
+export async function handleHeartbeat(
   supabase: SupabaseClient,
   msg: Heartbeat,
   logContext: LogContext = { caller: "orchestrator" },
@@ -1180,7 +1275,7 @@ async function handleHeartbeat(
   }
 }
 
-function handleJobAck(
+export function handleJobAck(
   _supabase: SupabaseClient,
   msg: { jobId: string; machineId: string },
   logContext: LogContext = { caller: "orchestrator", jobId: msg.jobId },
@@ -1192,7 +1287,7 @@ function handleJobAck(
   );
 }
 
-async function handleJobStatus(
+export async function handleJobStatus(
   supabase: SupabaseClient,
   msg: JobStatusMessage,
   logContext: LogContext = { caller: "orchestrator", jobId: msg.jobId },
@@ -1249,7 +1344,7 @@ export async function handleJobComplete(
   msg: JobComplete,
   logContext: LogContext = { caller: "orchestrator", jobId: msg.jobId },
 ): Promise<void> {
-  const { jobId, machineId, result, pr } = msg;
+  const { jobId, machineId, result, pr, report, branch } = msg;
   const logger = makeLogger(logContext.caller, logContext.jobId ?? jobId);
 
   // Fetch the job to check type, feature_id, context, etc.
@@ -1277,15 +1372,20 @@ export async function handleJobComplete(
     .from("jobs")
     .update({
       status: "complete",
-      result,
+      result: report ?? result,
+      branch: branch ?? null,
       pr_url: pr ?? null,
       completed_at: new Date().toISOString(),
       machine_id: null,
+      progress: 100,
     })
     .eq("id", jobId);
 
   if (jobErr) {
-    logger.error(`Failed to mark job ${jobId} complete:`, jobErr.message);
+    logger.error(
+      `Failed to mark job ${jobId} complete:`,
+      jobErr.message,
+    );
     await releaseSlot(supabase, jobId, machineId);
     return;
   }
@@ -1437,51 +1537,16 @@ export async function handleJobComplete(
     await triggerFeatureVerification(supabase, jobRow.feature_id);
   }
 
-  // Handle reviewer verify job completion: check pass/fail and advance or notify CPO
+  // Handle reviewer verify job completion: job_complete means verification passed.
+  // (Failed verification arrives via job_failed broadcast → handleJobFailed)
   if (
     jobRow?.job_type === "verify" && jobRow?.role === "reviewer" &&
     jobRow?.feature_id
   ) {
-    const normalizedResult = result?.toUpperCase() ?? "";
-    const passed = normalizedResult.startsWith("PASSED");
-    const failed = normalizedResult.startsWith("FAILED") ||
-      normalizedResult.startsWith("NO_REPORT") ||
-      normalizedResult.startsWith("VERDICT_MISSING");
-    if (passed) {
-      logger.info(
-        `Verification PASSED for feature ${jobRow.feature_id} — triggering merge`,
-      );
-      await triggerMerging(supabase, jobRow.feature_id);
-    } else if (failed) {
-      const failureResult = normalizedResult.startsWith("NO_REPORT")
-        ? "FAILED: NO_REPORT (reviewer report file missing)"
-        : normalizedResult.startsWith("VERDICT_MISSING")
-        ? "FAILED: VERDICT_MISSING (reviewer report has no machine-parseable verdict)"
-        : (result ?? "FAILED");
-      logger.info(
-        `Verification FAILED for feature ${jobRow.feature_id} — triggering retry (result=${failureResult})`,
-      );
-      await handleVerificationFailed(
-        supabase,
-        jobRow.feature_id,
-        jobRow.company_id,
-        failureResult,
-      );
-    } else {
-      // INCONCLUSIVE or unexpected result — notify CPO for manual triage
-      logger.info(
-        `Verification INCONCLUSIVE for feature ${jobRow.feature_id}: result=${
-          result ?? "unknown"
-        }`,
-      );
-      await notifyCPO(
-        supabase,
-        jobRow.company_id,
-        `Verification inconclusive for feature ${jobRow.feature_id}: result=${
-          result ?? "unknown"
-        }. Needs manual triage.`,
-      );
-    }
+    logger.info(
+      `Verification PASSED for feature ${jobRow.feature_id} — triggering merge`,
+    );
+    await triggerMerging(supabase, jobRow.feature_id);
   }
 
   // Handle test deploy job completion: extract URL and advance feature
@@ -1495,7 +1560,7 @@ export async function handleJobComplete(
         machineId: jobRow.machine_id ?? "",
         testUrl: urlMatch[0],
         ephemeral: true,
-      }, { caller: logContext.caller, jobId });
+      });
     } else {
       // No URL found — roll back feature so it can retry
       await supabase
@@ -1515,69 +1580,43 @@ export async function handleJobComplete(
 
   // Handle prod deploy job completion: feature transitions deploying_to_prod → complete
   if (jobRow?.job_type === "deploy_to_prod" && jobRow?.feature_id) {
-    await handleProdDeployComplete(supabase, jobRow.feature_id, {
-      caller: logContext.caller,
-      jobId,
-    });
+    await handleProdDeployComplete(supabase, jobRow.feature_id);
   }
 
-  // Handle merge job completion: advance feature to complete or failed
+  // Handle merge job completion: job_complete means merge succeeded.
+  // (Failed merge arrives via job_failed broadcast → handleJobFailed)
   if (jobRow?.job_type === "merge" && jobRow?.feature_id) {
-    const normalizedResult = result?.toUpperCase() ?? "";
-    const passed = normalizedResult.startsWith("PASSED");
-    if (passed) {
-      logger.info(
-        `Merge PASSED for feature ${jobRow.feature_id} — advancing to complete`,
-      );
-      const { data: completedUpdated } = await supabase
-        .from("features")
-        .update({
-          status: "complete",
-          completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", jobRow.feature_id)
-        .eq("status", "merging")
-        .select("id, pr_url, title");
-      if (completedUpdated?.length) {
-        const prUrl = (completedUpdated[0] as { pr_url?: string }).pr_url ??
-          null;
-        const featureTitle =
-          (completedUpdated[0] as { title?: string }).title ??
-            jobRow.feature_id;
-        await notifyCPO(
-          supabase,
-          jobRow.company_id,
-          prUrl
-            ? `Feature "${featureTitle}" merged and complete: ${prUrl}`
-            : `Feature "${featureTitle}" merged and complete.`,
-        );
-      }
-    } else {
-      logger.info(
-        `Merge FAILED for feature ${jobRow.feature_id} — marking failed`,
-      );
-      await supabase
-        .from("features")
-        .update({
-          status: "failed",
-          error: `Merge failed: ${(result ?? "unknown").slice(0, 200)}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", jobRow.feature_id)
-        .eq("status", "merging");
+    logger.info(
+      `Merge PASSED for feature ${jobRow.feature_id} — advancing to complete`,
+    );
+    const { data: completedUpdated } = await supabase
+      .from("features")
+      .update({
+        status: "complete",
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", jobRow.feature_id)
+      .eq("status", "merging")
+      .select("id, pr_url, title");
+    if (completedUpdated?.length) {
+      const prUrl = (completedUpdated[0] as { pr_url?: string }).pr_url ??
+        null;
+      const featureTitle =
+        (completedUpdated[0] as { title?: string }).title ??
+          jobRow.feature_id;
       await notifyCPO(
         supabase,
         jobRow.company_id,
-        `Merge failed for feature ${jobRow.feature_id}: ${
-          (result ?? "unknown").slice(0, 200)
-        }`,
+        prUrl
+          ? `Feature "${featureTitle}" merged and complete: ${prUrl}`
+          : `Feature "${featureTitle}" merged and complete.`,
       );
     }
   }
 }
 
-async function handleJobFailed(
+export async function handleJobFailed(
   supabase: SupabaseClient,
   msg: JobFailed,
   logContext: LogContext = { caller: "orchestrator", jobId: msg.jobId },
@@ -1620,6 +1659,7 @@ async function handleJobFailed(
     .from("jobs")
     .update({
       status: "failed",
+      result: errMsg,
       machine_id: null,
       completed_at: new Date().toISOString(),
     })
@@ -1651,160 +1691,8 @@ async function handleJobFailed(
     return;
   }
 
-  const { data: feature, error: featureErr } = await supabase
-    .from("features")
-    .select(
-      "id, status, retry_count, failure_history, spec, branch, acceptance_tests, company_id, project_id",
-    )
-    .eq("id", job.feature_id)
-    .single();
-
-  if (featureErr || !feature) {
-    logger.error(
-      `handleJobFailed: failed to fetch feature ${job.feature_id}:`,
-      featureErr?.message,
-    );
-    return;
-  }
-
-  if ((feature.retry_count ?? 0) >= 3) {
-    const errorDetail = `${job.role ?? job.job_type} job failed: ${
-      errMsg ?? "unknown error"
-    }`;
-    await supabase
-      .from("features")
-      .update({ status: "failed", error: errorDetail })
-      .eq("id", feature.id);
-    logger.warn(
-      `Feature retry budget exhausted (3/3) — hard-failing feature ${feature.id}`,
-    );
-    return;
-  }
-
-  const nextAttempt = (feature.retry_count ?? 0) + 1;
-  const timestamp = new Date().toISOString();
-  const newEntry = {
-    attempt: nextAttempt,
-    phase: feature.status,
-    job_id: jobId,
-    job_title: job.title ?? null,
-    reason: errMsg ?? failureReason,
-    timestamp,
-  };
-  const currentHistory = Array.isArray(feature.failure_history)
-    ? feature.failure_history as Record<string, unknown>[]
-    : [];
-  const updatedHistory = [...currentHistory, newEntry];
-
-  if (feature.status === "building") {
-    const failureSuffix =
-      `\n\n## Previous Attempt Failure (retry ${nextAttempt} of 3)\nPhase: building\nFailed job: "${job.title}"\nReason: ${
-        errMsg ?? failureReason
-      }`;
-    const { error: featureUpdateErr } = await supabase
-      .from("features")
-      .update({
-        retry_count: nextAttempt,
-        failure_history: updatedHistory,
-        spec: (feature.spec ?? "") + failureSuffix,
-        status: "breaking_down",
-      })
-      .eq("id", feature.id);
-
-    if (featureUpdateErr) {
-      logger.error(
-        `handleJobFailed: failed to reset feature ${feature.id} to breaking_down:`,
-        featureUpdateErr.message,
-      );
-      return;
-    }
-
-    const { error: cancelErr } = await supabase
-      .from("jobs")
-      .update({ status: "cancelled", result: "superseded_by_feature_retry" })
-      .eq("feature_id", feature.id)
-      .in("status", ["queued", "dispatched", "executing", "complete"]);
-
-    if (cancelErr) {
-      logger.error(
-        `handleJobFailed: failed to cancel old jobs for feature ${feature.id}:`,
-        cancelErr.message,
-      );
-    }
-
-    logger.info(
-      `Building phase failure — re-breakdown (retry ${nextAttempt}/3): ${errMsg}`,
-    );
-    return;
-  }
-
-  const { error: featureUpdateErr } = await supabase
-    .from("features")
-    .update({
-      retry_count: nextAttempt,
-      failure_history: updatedHistory,
-      status: "building",
-    })
-    .eq("id", feature.id);
-
-  if (featureUpdateErr) {
-    logger.error(
-      `handleJobFailed: failed to move feature ${feature.id} back to building:`,
-      featureUpdateErr.message,
-    );
-    return;
-  }
-
-  const { error: cancelErr } = await supabase
-    .from("jobs")
-    .update({ status: "cancelled", result: "superseded_by_feature_retry" })
-    .eq("feature_id", feature.id)
-    .in("status", ["queued", "dispatched", "executing"])
-    .in("job_type", ["merge", "verify", "combine"]);
-
-  if (cancelErr) {
-    logger.error(
-      `handleJobFailed: failed to cancel post-build jobs for feature ${feature.id}:`,
-      cancelErr.message,
-    );
-  }
-
-  const featureBranch = (feature as { branch?: string | null }).branch ?? null;
-
-  const { error: insertErr } = await supabase
-    .from("jobs")
-    .insert({
-      company_id: feature.company_id,
-      project_id: feature.project_id,
-      feature_id: feature.id,
-      title: `Fix: ${job.title ?? job.job_type}`,
-      spec: feature.spec ?? "",
-      acceptance_tests:
-        (feature as { acceptance_tests?: string | null }).acceptance_tests ??
-          "",
-      context: JSON.stringify({
-        type: "feature_fix",
-        failureDetails: errMsg ?? failureReason,
-        featureBranch,
-      }),
-      role: "senior-engineer",
-      job_type: "code",
-      complexity: "medium",
-      slot_type: "claude_code",
-      status: "queued",
-      branch: featureBranch,
-    });
-
-  if (insertErr) {
-    logger.error(
-      `handleJobFailed: failed to queue fix job for feature ${feature.id}:`,
-      insertErr.message,
-    );
-    return;
-  }
-
   logger.info(
-    `Post-building failure — fix job created (retry ${nextAttempt}/3): ${errMsg}`,
+    `Feature ${job.feature_id} stays at current status — job ${jobId} failure is the signal`,
   );
 }
 
@@ -2342,10 +2230,7 @@ export async function triggerFeatureVerification(
     .eq("id", featureId)
     .single();
   if (fetchErr || !feature) {
-    console.error(
-      `[orchestrator] Failed to fetch feature ${featureId}:`,
-      fetchErr?.message,
-    );
+    logger.error(`Failed to fetch feature ${featureId}:`, fetchErr?.message);
     return;
   }
 
@@ -2947,7 +2832,7 @@ export async function handleFeatureRejected(
   msg: FeatureRejected,
   logContext: LogContext = { caller: "orchestrator" },
 ): Promise<void> {
-  const { featureId, feedback, severity } = msg;
+  const { featureId, feedback, severity, machineId } = msg;
   const logger = makeLogger(logContext.caller, logContext.jobId);
 
   if (severity === "small") {
@@ -2991,7 +2876,10 @@ export async function handleFeatureRejected(
     .single();
 
   if (fetchErr || !feature) {
-    logger.error(`Failed to fetch feature ${featureId}:`, fetchErr?.message);
+    console.error(
+      `[orchestrator] Failed to fetch feature ${featureId}:`,
+      fetchErr?.message,
+    );
     return;
   }
 
@@ -3446,27 +3334,203 @@ async function processReadyForBreakdown(
 // Feature lifecycle polling — catch transitions missed by Realtime
 // ---------------------------------------------------------------------------
 
+function extractMachineLastHeartbeat(machineRelation: unknown): string | null {
+  if (!machineRelation) return null;
+
+  if (Array.isArray(machineRelation)) {
+    const firstMachine = machineRelation[0] as
+      | { last_heartbeat?: unknown }
+      | undefined;
+    return typeof firstMachine?.last_heartbeat === "string"
+      ? firstMachine.last_heartbeat
+      : null;
+  }
+
+  const machine = machineRelation as { last_heartbeat?: unknown };
+  return typeof machine.last_heartbeat === "string"
+    ? machine.last_heartbeat
+    : null;
+}
+
+async function jobsColumnExists(
+  supabase: SupabaseClient,
+  columnName: string,
+): Promise<boolean> {
+  const { error } = await supabase
+    .from("jobs")
+    .select(`id, ${columnName}`)
+    .limit(1);
+
+  if (!error) return true;
+
+  const message = error.message.toLowerCase();
+  if (
+    message.includes("column") &&
+    message.includes(columnName.toLowerCase()) &&
+    message.includes("does not exist")
+  ) {
+    return false;
+  }
+
+  console.error(
+    `[orchestrator] processFeatureLifecycle: unexpected error probing jobs.${columnName}:`,
+    error.message,
+  );
+  return false;
+}
+
+async function getExecutingStartColumn(
+  supabase: SupabaseClient,
+): Promise<string | null> {
+  for (const columnName of EXECUTING_JOB_STARTED_AT_COLUMN_CANDIDATES) {
+    if (await jobsColumnExists(supabase, columnName)) {
+      if (columnName !== "dispatched_at") {
+        console.warn(
+          `[orchestrator] processFeatureLifecycle: jobs.dispatched_at not found, using jobs.${columnName} as executing start time`,
+        );
+      }
+      return columnName;
+    }
+  }
+
+  console.error(
+    "[orchestrator] processFeatureLifecycle: no suitable executing start timestamp column found on jobs (checked dispatched_at, updated_at, started_at, assigned_at)",
+  );
+  return null;
+}
+
+async function checkExecutingJobsForHeartbeatTimeout(
+  supabase: SupabaseClient,
+): Promise<void> {
+  const executingStartColumn = await getExecutingStartColumn(supabase);
+  if (!executingStartColumn) return;
+
+  const hasStuckAtColumn = await jobsColumnExists(supabase, "stuck_at");
+  const selectClause = hasStuckAtColumn
+    ? `id, machine_id, ${executingStartColumn}, stuck_at, machines(last_heartbeat)`
+    : `id, machine_id, ${executingStartColumn}, machines(last_heartbeat)`;
+
+  const pageSize = 200;
+  const nowMs = Date.now();
+  let lastSeenId: string | null = null;
+
+  while (true) {
+    let query = supabase
+      .from("jobs")
+      .select(selectClause)
+      .eq("status", "executing")
+      .order("id", { ascending: true })
+      .limit(pageSize);
+
+    if (lastSeenId) {
+      query = query.gt("id", lastSeenId);
+    }
+
+    const { data: executingJobs, error: executingErr } = await query;
+
+    if (executingErr) {
+      console.error(
+        "[orchestrator] processFeatureLifecycle: error querying executing jobs for heartbeat timeout check:",
+        executingErr.message,
+      );
+      return;
+    }
+
+    if (!executingJobs || executingJobs.length === 0) break;
+
+    for (const rawJob of executingJobs as Record<string, unknown>[]) {
+      const jobId = typeof rawJob.id === "string" ? rawJob.id : null;
+      if (!jobId) continue;
+
+      const executingStartRaw = rawJob[executingStartColumn];
+      if (typeof executingStartRaw !== "string") continue;
+
+      const executingStartMs = Date.parse(executingStartRaw);
+      if (Number.isNaN(executingStartMs)) continue;
+
+      if (
+        nowMs - executingStartMs <= EXECUTING_JOB_INVESTIGATION_THRESHOLD_MS
+      ) {
+        continue;
+      }
+
+      if (hasStuckAtColumn && rawJob.stuck_at) {
+        console.warn(
+          `[orchestrator] processFeatureLifecycle: job ${jobId} already has stuck_at marker — skipping duplicate timeout handling`,
+        );
+        continue;
+      }
+
+      const machineHeartbeat = extractMachineLastHeartbeat(rawJob.machines);
+      const machineHeartbeatMs = machineHeartbeat
+        ? Date.parse(machineHeartbeat)
+        : Number.NaN;
+      const machineLooksDead = !machineHeartbeat ||
+        Number.isNaN(machineHeartbeatMs) ||
+        nowMs - machineHeartbeatMs > MACHINE_HEARTBEAT_STALE_FOR_TIMEOUT_MS;
+
+      if (machineLooksDead) {
+        const nowIso = new Date().toISOString();
+        const { data: updated, error: updateErr } = await supabase
+          .from("jobs")
+          .update({
+            status: "failed",
+            result: EXECUTING_JOB_TIMEOUT_RESULT,
+            machine_id: null,
+            completed_at: nowIso,
+            updated_at: nowIso,
+          })
+          .eq("id", jobId)
+          .eq("status", "executing")
+          .select("id");
+
+        if (updateErr) {
+          console.error(
+            `[orchestrator] processFeatureLifecycle: failed to auto-fail timed-out executing job ${jobId}:`,
+            updateErr.message,
+          );
+        } else if (updated && updated.length > 0) {
+          console.warn(
+            `[orchestrator] processFeatureLifecycle: auto-failed job ${jobId} after >30 min in executing because machine heartbeat is stale or missing`,
+          );
+        }
+      } else {
+        console.warn(
+          `[orchestrator] processFeatureLifecycle: Job ${jobId} has been executing for >30 min on live machine — investigate`,
+        );
+      }
+    }
+
+    if (executingJobs.length < pageSize) break;
+    const tailId = executingJobs[executingJobs.length - 1]?.id;
+    if (typeof tailId !== "string") break;
+    lastSeenId = tailId;
+  }
+}
+
 /**
  * Polls for features whose lifecycle transitions were missed because the
  * executor writes job status directly to the DB and the orchestrator's 4s
  * Realtime window may not catch the broadcast.
  *
  * Handles:
- *   0. Failed job catch-up: marks features failed when JobFailed broadcast was missed
- *   0b. deploy_to_test guard: fails queued/dispatched/executing deploy jobs for terminal features
- *   1. breaking_down → building: all breakdown jobs for the feature are complete
- *   2. building → combining_and_pr: all implementation jobs are complete
- *   3. combining_and_pr → verifying: the latest combine job is complete
- *   4. verifying → merging: the latest verify job is complete and passed
- *   5. merging → complete: the latest merge job is complete and passed
+ *   0. Executing-job heartbeat timeout check for long-running jobs
+ *   1. Failed job catch-up: logs features with failed jobs for attention
+ *   1b. deploy_to_test guard: fails queued/dispatched/executing deploy jobs for terminal features
+ *   2. breaking_down → building: all breakdown jobs for the feature are complete
+ *   3. building → combining_and_pr: all implementation jobs are complete
+ *   4. combining_and_pr → verifying: the latest combine job is complete
+ *   5. verifying → merging: the latest verify job is complete and passed
+ *   6. merging → complete: the latest merge job is complete and passed
  */
 async function processFeatureLifecycle(
   supabase: SupabaseClient,
 ): Promise<void> {
-  // --- 0. Failed job catch-up (all stages) ---
-  // If the JobFailed broadcast was missed, the feature is stuck forever because
-  // handleJobFailed (line 1085) is the only path that marks features as failed.
-  // This catch-up finds features with failed jobs that weren't marked failed.
+  // --- 0. Long-running executing jobs heartbeat timeout check ---
+  await checkExecutingJobsForHeartbeatTimeout(supabase);
+
+  // --- 1. Failed job catch-up (all stages) ---
+  // If a failed-job event was missed, surface it here for manual attention.
   const { data: activeFeatures, error: activeErr } = await supabase
     .from("features")
     .select("id")
@@ -3483,7 +3547,7 @@ async function processFeatureLifecycle(
   for (const feature of (activeFeatures ?? []) as { id: string }[]) {
     const { data: failedJob } = await supabase
       .from("jobs")
-      .select("id, role, job_type, result")
+      .select("id")
       .eq("feature_id", feature.id)
       .eq("status", "failed")
       .order("created_at", { ascending: false })
@@ -3492,30 +3556,14 @@ async function processFeatureLifecycle(
     if (failedJob && failedJob.length > 0) {
       const job = failedJob[0] as {
         id: string;
-        role: string | null;
-        job_type: string;
-        result: string | null;
       };
-      const errorDetail = `${job.role ?? job.job_type} job failed (catch-up): ${
-        (job.result ?? "unknown error").slice(0, 200)
-      }`;
-
-      const { data: updated } = await supabase
-        .from("features")
-        .update({ status: "failed", error: errorDetail })
-        .eq("id", feature.id)
-        .not("status", "in", '("failed","complete","cancelled")') // CAS guard
-        .select("id");
-
-      if (updated && updated.length > 0) {
-        console.warn(
-          `[orchestrator] processFeatureLifecycle: feature ${feature.id} has failed job ${job.id} — marked feature failed (catch-up)`,
-        );
-      }
+      console.warn(
+        `[orchestrator] Feature ${feature.id} has failed job ${job.id} — needs attention (not changing feature status)`,
+      );
     }
   }
 
-  // --- 0b. deploy_to_test cleanup for terminal features ---
+  // --- 1b. deploy_to_test cleanup for terminal features ---
   // If a feature is terminal, deploy_to_test must never be queued/dispatched/executing.
   const { data: terminalFeatures, error: terminalErr } = await supabase
     .from("features")
@@ -3578,7 +3626,7 @@ async function processFeatureLifecycle(
     }
   }
 
-  // --- 1. breaking_down → building ---
+  // --- 2. breaking_down → building ---
   // Features stuck in 'breaking_down' where the breakdown job is complete
   const { data: breakdownFeatures, error: bErr } = await supabase
     .from("features")
@@ -3613,7 +3661,7 @@ async function processFeatureLifecycle(
         .eq("status", "failed")
         .limit(1);
       if (failedBreakdown && failedBreakdown.length > 0) {
-        continue; // handleJobFailed will mark the feature as failed
+        continue; // Breakdown job failed — feature stays at breaking_down until manually retried
       }
       // Require at least one complete breakdown job — zero jobs means breakdown
       // hasn't run yet (or records were lost), not that it succeeded.
@@ -3691,7 +3739,7 @@ async function processFeatureLifecycle(
     }
   }
 
-  // --- 2. building → combining ---
+  // --- 3. building → combining ---
   // Features stuck in 'building' where all implementation jobs are complete
   const { data: buildingFeatures, error: buildErr } = await supabase
     .from("features")
@@ -3715,7 +3763,7 @@ async function processFeatureLifecycle(
       .eq("status", "failed")
       .limit(1);
     if (failedJobs && failedJobs.length > 0) {
-      continue; // handleJobFailed will mark the feature as failed
+      continue; // Feature has failed job(s) — stays at building until retried
     }
 
     const { data: allDone } = await supabase
@@ -3729,7 +3777,7 @@ async function processFeatureLifecycle(
     }
   }
 
-  // --- 3. combining_and_pr → verifying ---
+  // --- 4. combining_and_pr → verifying ---
   // Features stuck in 'combining_and_pr' where the latest combine job is already complete.
   // Uses latest job by created_at to avoid advancing on stale jobs from prior rejection cycles.
   const { data: combiningFeatures, error: combineErr } = await supabase
@@ -3766,13 +3814,13 @@ async function processFeatureLifecycle(
     // Failed combine jobs are handled by Task 0's central catch-up — no action needed here.
   }
 
-  // --- 4. verifying → merging (catch-up) ---
+  // --- 5. verifying → merging (catch-up) ---
   // Features stuck in 'verifying' where the latest verify job is already complete and passed.
   // The live path (handleJobComplete) triggers merging on receipt of the job_complete message.
   // This catch-up handles cases where that message was missed.
   const { data: verifyingFeatures, error: verifyErr } = await supabase
     .from("features")
-    .select("id, company_id")
+    .select("id")
     .eq("status", "verifying")
     .limit(50);
 
@@ -3786,12 +3834,11 @@ async function processFeatureLifecycle(
   for (
     const feature of (verifyingFeatures ?? []) as {
       id: string;
-      company_id: string;
     }[]
   ) {
     const { data: latestVerify } = await supabase
       .from("jobs")
-      .select("id, status, context, result")
+      .select("id, status")
       .eq("feature_id", feature.id)
       .eq("job_type", "verify")
       .order("created_at", { ascending: false })
@@ -3801,55 +3848,22 @@ async function processFeatureLifecycle(
     const job = latestVerify[0] as {
       id: string;
       status: string;
-      context: string;
-      result: string | null;
     };
-    if (job.status !== "complete") continue;
 
-    const normalizedResult = job.result?.toUpperCase() ?? "";
-    const passed = normalizedResult.startsWith("PASSED");
-    const failed = normalizedResult.startsWith("FAILED") ||
-      normalizedResult.startsWith("NO_REPORT") ||
-      normalizedResult.startsWith("VERDICT_MISSING");
-
-    if (passed) {
+    if (job.status === "complete") {
       console.log(
         `[orchestrator] processFeatureLifecycle: verify PASSED for feature ${feature.id} — triggering merge (catch-up)`,
       );
       await triggerMerging(supabase, feature.id);
-    } else if (failed) {
-      const failureResult = normalizedResult.startsWith("NO_REPORT")
-        ? "FAILED: NO_REPORT (reviewer report file missing)"
-        : normalizedResult.startsWith("VERDICT_MISSING")
-        ? "FAILED: VERDICT_MISSING (reviewer report has no machine-parseable verdict)"
-        : (job.result ?? "FAILED");
-      console.log(
-        `[orchestrator] processFeatureLifecycle: verify FAILED for feature ${feature.id} — triggering retry (catch-up, result=${failureResult})`,
-      );
-      await handleVerificationFailed(
-        supabase,
-        feature.id,
-        feature.company_id,
-        failureResult,
-      );
-    } else {
-      // INCONCLUSIVE — notify CPO but don't retry (catch-up)
-      console.log(
-        `[orchestrator] processFeatureLifecycle: verify INCONCLUSIVE for feature ${feature.id} (catch-up): result=${
-          job.result ?? "unknown"
-        }`,
-      );
-      await notifyCPO(
-        supabase,
-        feature.company_id,
-        `Verification inconclusive for feature ${feature.id}: result=${
-          job.result ?? "unknown"
-        }. Needs manual triage.`,
+    } else if (job.status === "failed") {
+      console.warn(
+        `[orchestrator] processFeatureLifecycle: verify FAILED for feature ${feature.id} — staying at verifying, needs attention`,
       );
     }
+    // if still 'executing', 'queued', or 'dispatched', do nothing — let it run
   }
 
-  // --- 5. merging → complete (catch-up) ---
+  // --- 6. merging → complete (catch-up) ---
   // Features stuck in 'merging' where the latest merge job is already complete.
   const { data: mergingFeatures, error: mergeErr } = await supabase
     .from("features")
@@ -3872,7 +3886,7 @@ async function processFeatureLifecycle(
   ) {
     const { data: latestMerge } = await supabase
       .from("jobs")
-      .select("id, status, result")
+      .select("id, status")
       .eq("feature_id", feature.id)
       .eq("job_type", "merge")
       .order("created_at", { ascending: false })
@@ -3882,14 +3896,9 @@ async function processFeatureLifecycle(
     const job = latestMerge[0] as {
       id: string;
       status: string;
-      result: string | null;
     };
-    if (job.status !== "complete") continue;
 
-    const normalizedResult = job.result?.toUpperCase() ?? "";
-    const passed = normalizedResult.startsWith("PASSED");
-
-    if (passed) {
+    if (job.status === "complete") {
       console.log(
         `[orchestrator] processFeatureLifecycle: merge PASSED for feature ${feature.id} — advancing to complete (catch-up)`,
       );
@@ -3916,21 +3925,12 @@ async function processFeatureLifecycle(
             : `Feature "${featureTitle}" merged and complete.`,
         );
       }
-    } else {
-      // Merge failed — mark feature as failed (catch-up)
-      console.log(
-        `[orchestrator] processFeatureLifecycle: merge FAILED for feature ${feature.id} — marking failed (catch-up)`,
+    } else if (job.status === "failed") {
+      console.warn(
+        `[orchestrator] processFeatureLifecycle: merge FAILED for feature ${feature.id} — staying at merging, needs attention`,
       );
-      await supabase
-        .from("features")
-        .update({
-          status: "failed",
-          error: `Merge failed: ${(job.result ?? "unknown").slice(0, 200)}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", feature.id)
-        .eq("status", "merging");
     }
+    // if still 'executing', 'queued', or 'dispatched', do nothing — let it run
   }
 
   // Feature pipeline ends at 'complete'.
@@ -4115,17 +4115,6 @@ async function releaseSlot(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Realtime listener — subscribe to agent messages
-// ---------------------------------------------------------------------------
-
-/**
- * Subscribes to `orchestrator:commands` channel and processes one batch of
- * messages for up to `listenDurationMs` before returning.
- *
- * In a scheduled invocation (10 s window) we listen briefly to drain any
- * pending messages, then let the function exit.
- */
 async function listenForAgentMessages(
   supabase: SupabaseClient,
   listenDurationMs = 5_000,

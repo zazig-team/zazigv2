@@ -40,7 +40,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// ../../node_modules/tslib/tslib.es6.mjs
+// node_modules/tslib/tslib.es6.mjs
 var tslib_es6_exports = {};
 __export(tslib_es6_exports, {
   __addDisposableResource: () => __addDisposableResource,
@@ -159,11 +159,11 @@ function __metadata(metadataKey, metadataValue) {
 }
 function __awaiter(thisArg, _arguments, P, generator) {
   function adopt(value) {
-    return value instanceof P ? value : new P(function(resolve2) {
-      resolve2(value);
+    return value instanceof P ? value : new P(function(resolve4) {
+      resolve4(value);
     });
   }
-  return new (P || (P = Promise))(function(resolve2, reject) {
+  return new (P || (P = Promise))(function(resolve4, reject) {
     function fulfilled(value) {
       try {
         step(generator.next(value));
@@ -179,7 +179,7 @@ function __awaiter(thisArg, _arguments, P, generator) {
       }
     }
     function step(result) {
-      result.done ? resolve2(result.value) : adopt(result.value).then(fulfilled, rejected);
+      result.done ? resolve4(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
     step((generator = generator.apply(thisArg, _arguments || [])).next());
   });
@@ -370,14 +370,14 @@ function __asyncValues(o) {
   }, i);
   function verb(n) {
     i[n] = o[n] && function(v) {
-      return new Promise(function(resolve2, reject) {
-        v = o[n](v), settle(resolve2, reject, v.done, v.value);
+      return new Promise(function(resolve4, reject) {
+        v = o[n](v), settle(resolve4, reject, v.done, v.value);
       });
     };
   }
-  function settle(resolve2, reject, d, v) {
+  function settle(resolve4, reject, d, v) {
     Promise.resolve(v).then(function(v2) {
-      resolve2({ value: v2, done: d });
+      resolve4({ value: v2, done: d });
     }, reject);
   }
 }
@@ -479,7 +479,7 @@ function __rewriteRelativeImportExtension(path, preserveJsx) {
 }
 var extendStatics, __assign, __createBinding, __setModuleDefault, ownKeys, _SuppressedError, tslib_es6_default;
 var init_tslib_es6 = __esm({
-  "../../node_modules/tslib/tslib.es6.mjs"() {
+  "node_modules/tslib/tslib.es6.mjs"() {
     extendStatics = function(d, b) {
       extendStatics = Object.setPrototypeOf || { __proto__: [] } instanceof Array && function(d2, b2) {
         d2.__proto__ = b2;
@@ -498,7 +498,7 @@ var init_tslib_es6 = __esm({
       };
       return __assign.apply(this, arguments);
     };
-    __createBinding = Object.create ? function(o, m, k, k2) {
+    __createBinding = Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
@@ -507,13 +507,13 @@ var init_tslib_es6 = __esm({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
+    }) : (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    };
-    __setModuleDefault = Object.create ? function(o, v) {
+    });
+    __setModuleDefault = Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     };
     ownKeys = function(o) {
@@ -565,9 +565,9 @@ var init_tslib_es6 = __esm({
   }
 });
 
-// ../../node_modules/@supabase/functions-js/dist/main/helper.js
+// node_modules/@supabase/functions-js/dist/main/helper.js
 var require_helper = __commonJS({
-  "../../node_modules/@supabase/functions-js/dist/main/helper.js"(exports) {
+  "node_modules/@supabase/functions-js/dist/main/helper.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.resolveFetch = void 0;
@@ -581,9 +581,9 @@ var require_helper = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/functions-js/dist/main/types.js
+// node_modules/@supabase/functions-js/dist/main/types.js
 var require_types = __commonJS({
-  "../../node_modules/@supabase/functions-js/dist/main/types.js"(exports) {
+  "node_modules/@supabase/functions-js/dist/main/types.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FunctionRegion = exports.FunctionsHttpError = exports.FunctionsRelayError = exports.FunctionsFetchError = exports.FunctionsError = void 0;
@@ -634,9 +634,9 @@ var require_types = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/functions-js/dist/main/FunctionsClient.js
+// node_modules/@supabase/functions-js/dist/main/FunctionsClient.js
 var require_FunctionsClient = __commonJS({
-  "../../node_modules/@supabase/functions-js/dist/main/FunctionsClient.js"(exports) {
+  "node_modules/@supabase/functions-js/dist/main/FunctionsClient.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FunctionsClient = void 0;
@@ -785,9 +785,9 @@ var require_FunctionsClient = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/functions-js/dist/main/index.js
+// node_modules/@supabase/functions-js/dist/main/index.js
 var require_main = __commonJS({
-  "../../node_modules/@supabase/functions-js/dist/main/index.js"(exports) {
+  "node_modules/@supabase/functions-js/dist/main/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FunctionRegion = exports.FunctionsRelayError = exports.FunctionsHttpError = exports.FunctionsFetchError = exports.FunctionsError = exports.FunctionsClient = void 0;
@@ -814,9 +814,9 @@ var require_main = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js
+// node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js
 var require_websocket_factory = __commonJS({
-  "../../node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js"(exports) {
+  "node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.WebSocketFactory = void 0;
@@ -938,9 +938,9 @@ Suggested solution: ${env.workaround}`;
   }
 });
 
-// ../../node_modules/@supabase/realtime-js/dist/main/lib/version.js
+// node_modules/@supabase/realtime-js/dist/main/lib/version.js
 var require_version = __commonJS({
-  "../../node_modules/@supabase/realtime-js/dist/main/lib/version.js"(exports) {
+  "node_modules/@supabase/realtime-js/dist/main/lib/version.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
@@ -948,9 +948,9 @@ var require_version = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/realtime-js/dist/main/lib/constants.js
+// node_modules/@supabase/realtime-js/dist/main/lib/constants.js
 var require_constants = __commonJS({
-  "../../node_modules/@supabase/realtime-js/dist/main/lib/constants.js"(exports) {
+  "node_modules/@supabase/realtime-js/dist/main/lib/constants.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.CONNECTION_STATE = exports.TRANSPORTS = exports.CHANNEL_EVENTS = exports.CHANNEL_STATES = exports.SOCKET_STATES = exports.MAX_PUSH_BUFFER_SIZE = exports.WS_CLOSE_NORMAL = exports.DEFAULT_TIMEOUT = exports.VERSION = exports.DEFAULT_VSN = exports.VSN_2_0_0 = exports.VSN_1_0_0 = exports.DEFAULT_VERSION = void 0;
@@ -1001,9 +1001,9 @@ var require_constants = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/realtime-js/dist/main/lib/serializer.js
+// node_modules/@supabase/realtime-js/dist/main/lib/serializer.js
 var require_serializer = __commonJS({
-  "../../node_modules/@supabase/realtime-js/dist/main/lib/serializer.js"(exports) {
+  "node_modules/@supabase/realtime-js/dist/main/lib/serializer.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var Serializer = class {
@@ -1148,9 +1148,9 @@ var require_serializer = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/realtime-js/dist/main/lib/timer.js
+// node_modules/@supabase/realtime-js/dist/main/lib/timer.js
 var require_timer = __commonJS({
-  "../../node_modules/@supabase/realtime-js/dist/main/lib/timer.js"(exports) {
+  "node_modules/@supabase/realtime-js/dist/main/lib/timer.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var Timer = class {
@@ -1180,9 +1180,9 @@ var require_timer = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/realtime-js/dist/main/lib/transformers.js
+// node_modules/@supabase/realtime-js/dist/main/lib/transformers.js
 var require_transformers = __commonJS({
-  "../../node_modules/@supabase/realtime-js/dist/main/lib/transformers.js"(exports) {
+  "node_modules/@supabase/realtime-js/dist/main/lib/transformers.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.httpEndpointURL = exports.toTimestampString = exports.toArray = exports.toJson = exports.toNumber = exports.toBoolean = exports.convertCell = exports.convertColumn = exports.convertChangeData = exports.PostgresTypes = void 0;
@@ -1359,9 +1359,9 @@ var require_transformers = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/realtime-js/dist/main/lib/push.js
+// node_modules/@supabase/realtime-js/dist/main/lib/push.js
 var require_push = __commonJS({
-  "../../node_modules/@supabase/realtime-js/dist/main/lib/push.js"(exports) {
+  "node_modules/@supabase/realtime-js/dist/main/lib/push.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var constants_1 = require_constants();
@@ -1466,9 +1466,9 @@ var require_push = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js
+// node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js
 var require_RealtimePresence = __commonJS({
-  "../../node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js"(exports) {
+  "node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.REALTIME_PRESENCE_LISTEN_EVENTS = void 0;
@@ -1706,9 +1706,9 @@ var require_RealtimePresence = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js
+// node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js
 var require_RealtimeChannel = __commonJS({
-  "../../node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js"(exports) {
+  "node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.REALTIME_CHANNEL_STATES = exports.REALTIME_SUBSCRIBE_STATES = exports.REALTIME_LISTEN_TYPES = exports.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = void 0;
@@ -2019,15 +2019,15 @@ var require_RealtimeChannel = __commonJS({
             }
           }
         } else {
-          return new Promise((resolve2) => {
+          return new Promise((resolve4) => {
             var _a2, _b2, _c;
             const push = this._push(args.type, args, opts.timeout || this.timeout);
             if (args.type === "broadcast" && !((_c = (_b2 = (_a2 = this.params) === null || _a2 === void 0 ? void 0 : _a2.config) === null || _b2 === void 0 ? void 0 : _b2.broadcast) === null || _c === void 0 ? void 0 : _c.ack)) {
-              resolve2("ok");
+              resolve4("ok");
             }
-            push.receive("ok", () => resolve2("ok"));
-            push.receive("error", () => resolve2("error"));
-            push.receive("timeout", () => resolve2("timed out"));
+            push.receive("ok", () => resolve4("ok"));
+            push.receive("error", () => resolve4("error"));
+            push.receive("timeout", () => resolve4("timed out"));
           });
         }
       }
@@ -2055,16 +2055,16 @@ var require_RealtimeChannel = __commonJS({
         };
         this.joinPush.destroy();
         let leavePush = null;
-        return new Promise((resolve2) => {
+        return new Promise((resolve4) => {
           leavePush = new push_1.default(this, constants_1.CHANNEL_EVENTS.leave, {}, timeout);
           leavePush.receive("ok", () => {
             onClose();
-            resolve2("ok");
+            resolve4("ok");
           }).receive("timeout", () => {
             onClose();
-            resolve2("timed out");
+            resolve4("timed out");
           }).receive("error", () => {
-            resolve2("error");
+            resolve4("error");
           });
           leavePush.send();
           if (!this._canPush()) {
@@ -2143,8 +2143,8 @@ var require_RealtimeChannel = __commonJS({
       _trigger(type, payload, ref) {
         var _a, _b;
         const typeLower = type.toLocaleLowerCase();
-        const { close, error, leave, join: join7 } = constants_1.CHANNEL_EVENTS;
-        const events = [close, error, leave, join7];
+        const { close, error, leave, join: join8 } = constants_1.CHANNEL_EVENTS;
+        const events = [close, error, leave, join8];
         if (ref && events.indexOf(typeLower) >= 0 && ref !== this._joinRef()) {
           return;
         }
@@ -2318,9 +2318,9 @@ var require_RealtimeChannel = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js
+// node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js
 var require_RealtimeClient = __commonJS({
-  "../../node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js"(exports) {
+  "node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
@@ -3071,17 +3071,17 @@ Option 2: Install and provide the "ws" package:
           this.logLevel = options.logLevel || options.log_level;
           this.params = Object.assign(Object.assign({}, this.params), { log_level: this.logLevel });
         }
-        this.reconnectAfterMs = (_h = options === null || options === void 0 ? void 0 : options.reconnectAfterMs) !== null && _h !== void 0 ? _h : (tries) => {
+        this.reconnectAfterMs = (_h = options === null || options === void 0 ? void 0 : options.reconnectAfterMs) !== null && _h !== void 0 ? _h : ((tries) => {
           return RECONNECT_INTERVALS[tries - 1] || DEFAULT_RECONNECT_FALLBACK;
-        };
+        });
         switch (this.vsn) {
           case constants_1.VSN_1_0_0:
-            this.encode = (_j = options === null || options === void 0 ? void 0 : options.encode) !== null && _j !== void 0 ? _j : (payload, callback) => {
+            this.encode = (_j = options === null || options === void 0 ? void 0 : options.encode) !== null && _j !== void 0 ? _j : ((payload, callback) => {
               return callback(JSON.stringify(payload));
-            };
-            this.decode = (_k = options === null || options === void 0 ? void 0 : options.decode) !== null && _k !== void 0 ? _k : (payload, callback) => {
+            });
+            this.decode = (_k = options === null || options === void 0 ? void 0 : options.decode) !== null && _k !== void 0 ? _k : ((payload, callback) => {
               return callback(JSON.parse(payload));
-            };
+            });
             break;
           case constants_1.VSN_2_0_0:
             this.encode = (_l = options === null || options === void 0 ? void 0 : options.encode) !== null && _l !== void 0 ? _l : this.serializer.encode.bind(this.serializer);
@@ -3102,9 +3102,9 @@ Option 2: Install and provide the "ws" package:
   }
 });
 
-// ../../node_modules/@supabase/realtime-js/dist/main/index.js
+// node_modules/@supabase/realtime-js/dist/main/index.js
 var require_main2 = __commonJS({
-  "../../node_modules/@supabase/realtime-js/dist/main/index.js"(exports) {
+  "node_modules/@supabase/realtime-js/dist/main/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.WebSocketFactory = exports.REALTIME_CHANNEL_STATES = exports.REALTIME_SUBSCRIBE_STATES = exports.REALTIME_PRESENCE_LISTEN_EVENTS = exports.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = exports.REALTIME_LISTEN_TYPES = exports.RealtimeClient = exports.RealtimeChannel = exports.RealtimePresence = void 0;
@@ -3135,9 +3135,9 @@ var require_main2 = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/lib/version.js
+// node_modules/@supabase/auth-js/dist/main/lib/version.js
 var require_version2 = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/lib/version.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/lib/version.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
@@ -3145,9 +3145,9 @@ var require_version2 = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/lib/constants.js
+// node_modules/@supabase/auth-js/dist/main/lib/constants.js
 var require_constants2 = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/lib/constants.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/lib/constants.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.JWKS_TTL = exports.BASE64URL_REGEX = exports.API_VERSIONS = exports.API_VERSION_HEADER_NAME = exports.NETWORK_FAILURE = exports.DEFAULT_HEADERS = exports.AUDIENCE = exports.STORAGE_KEY = exports.GOTRUE_URL = exports.EXPIRY_MARGIN_MS = exports.AUTO_REFRESH_TICK_THRESHOLD = exports.AUTO_REFRESH_TICK_DURATION_MS = void 0;
@@ -3176,9 +3176,9 @@ var require_constants2 = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/lib/errors.js
+// node_modules/@supabase/auth-js/dist/main/lib/errors.js
 var require_errors = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/lib/errors.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/lib/errors.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.AuthInvalidJwtError = exports.AuthWeakPasswordError = exports.AuthRetryableFetchError = exports.AuthPKCECodeVerifierMissingError = exports.AuthPKCEGrantCodeExchangeError = exports.AuthImplicitGrantRedirectError = exports.AuthInvalidCredentialsError = exports.AuthInvalidTokenResponseError = exports.AuthSessionMissingError = exports.CustomAuthError = exports.AuthUnknownError = exports.AuthApiError = exports.AuthError = void 0;
@@ -3323,9 +3323,9 @@ var require_errors = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/lib/base64url.js
+// node_modules/@supabase/auth-js/dist/main/lib/base64url.js
 var require_base64url = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/lib/base64url.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/lib/base64url.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.byteToBase64URL = byteToBase64URL;
@@ -3513,9 +3513,9 @@ var require_base64url = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/lib/helpers.js
+// node_modules/@supabase/auth-js/dist/main/lib/helpers.js
 var require_helpers = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/lib/helpers.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/lib/helpers.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.Deferred = exports.removeItemAsync = exports.getItemAsync = exports.setItemAsync = exports.looksLikeFetchResponse = exports.resolveFetch = exports.supportsLocalStorage = exports.isBrowser = void 0;
@@ -3523,7 +3523,7 @@ var require_helpers = __commonJS({
     exports.generateCallbackId = generateCallbackId;
     exports.parseParametersFromURL = parseParametersFromURL;
     exports.decodeJWT = decodeJWT;
-    exports.sleep = sleep2;
+    exports.sleep = sleep3;
     exports.retryable = retryable;
     exports.generatePKCEVerifier = generatePKCEVerifier;
     exports.generatePKCEChallenge = generatePKCEChallenge;
@@ -3543,7 +3543,7 @@ var require_helpers = __commonJS({
       return timeNow + expiresIn;
     }
     function generateCallbackId() {
-      return Symbol("auth-callback");
+      return /* @__PURE__ */ Symbol("auth-callback");
     }
     var isBrowser = () => typeof window !== "undefined" && typeof document !== "undefined";
     exports.isBrowser = isBrowser;
@@ -3660,7 +3660,7 @@ var require_helpers = __commonJS({
       };
       return data;
     }
-    async function sleep2(time) {
+    async function sleep3(time) {
       return await new Promise((accept) => {
         setTimeout(() => accept(null), time);
       });
@@ -3829,9 +3829,9 @@ var require_helpers = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/lib/fetch.js
+// node_modules/@supabase/auth-js/dist/main/lib/fetch.js
 var require_fetch = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/lib/fetch.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/lib/fetch.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.handleError = handleError2;
@@ -3984,9 +3984,9 @@ var require_fetch = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/lib/types.js
+// node_modules/@supabase/auth-js/dist/main/lib/types.js
 var require_types2 = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/lib/types.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/lib/types.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.SIGN_OUT_SCOPES = void 0;
@@ -3994,9 +3994,9 @@ var require_types2 = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js
+// node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js
 var require_GoTrueAdminApi = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
@@ -4448,9 +4448,9 @@ var require_GoTrueAdminApi = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/lib/local-storage.js
+// node_modules/@supabase/auth-js/dist/main/lib/local-storage.js
 var require_local_storage = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/lib/local-storage.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/lib/local-storage.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.memoryLocalStorageAdapter = memoryLocalStorageAdapter;
@@ -4470,9 +4470,9 @@ var require_local_storage = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/lib/locks.js
+// node_modules/@supabase/auth-js/dist/main/lib/locks.js
 var require_locks = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/lib/locks.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/lib/locks.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ProcessLockAcquireTimeoutError = exports.NavigatorLockAcquireTimeoutError = exports.LockAcquireTimeoutError = exports.internals = void 0;
@@ -4635,9 +4635,9 @@ var require_locks = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/lib/polyfills.js
+// node_modules/@supabase/auth-js/dist/main/lib/polyfills.js
 var require_polyfills = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/lib/polyfills.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/lib/polyfills.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.polyfillGlobalThis = polyfillGlobalThis;
@@ -4662,9 +4662,9 @@ var require_polyfills = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js
+// node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js
 var require_ethereum = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getAddress = getAddress;
@@ -4740,9 +4740,9 @@ ${suffix}`;
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js
+// node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js
 var require_webauthn_errors = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.WebAuthnUnknownError = exports.WebAuthnError = void 0;
@@ -4924,9 +4924,9 @@ var require_webauthn_errors = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/lib/webauthn.js
+// node_modules/@supabase/auth-js/dist/main/lib/webauthn.js
 var require_webauthn = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/lib/webauthn.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/lib/webauthn.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.WebAuthnApi = exports.DEFAULT_REQUEST_OPTIONS = exports.DEFAULT_CREATION_OPTIONS = exports.webAuthnAbortService = exports.WebAuthnAbortService = exports.identifyAuthenticationError = exports.identifyRegistrationError = exports.isWebAuthnError = exports.WebAuthnError = void 0;
@@ -5482,9 +5482,9 @@ var require_webauthn = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/GoTrueClient.js
+// node_modules/@supabase/auth-js/dist/main/GoTrueClient.js
 var require_GoTrueClient = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/GoTrueClient.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/GoTrueClient.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
@@ -8056,9 +8056,9 @@ var require_GoTrueClient = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js
+// node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js
 var require_AuthAdminApi = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
@@ -8068,9 +8068,9 @@ var require_AuthAdminApi = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/AuthClient.js
+// node_modules/@supabase/auth-js/dist/main/AuthClient.js
 var require_AuthClient = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/AuthClient.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/AuthClient.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
@@ -8080,9 +8080,9 @@ var require_AuthClient = __commonJS({
   }
 });
 
-// ../../node_modules/@supabase/auth-js/dist/main/index.js
+// node_modules/@supabase/auth-js/dist/main/index.js
 var require_main3 = __commonJS({
-  "../../node_modules/@supabase/auth-js/dist/main/index.js"(exports) {
+  "node_modules/@supabase/auth-js/dist/main/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.processLock = exports.lockInternals = exports.NavigatorLockAcquireTimeoutError = exports.navigatorLock = exports.AuthClient = exports.AuthAdminApi = exports.GoTrueClient = exports.GoTrueAdminApi = void 0;
@@ -8113,9 +8113,9 @@ var require_main3 = __commonJS({
   }
 });
 
-// ../../node_modules/ws/lib/constants.js
+// node_modules/ws/lib/constants.js
 var require_constants3 = __commonJS({
-  "../../node_modules/ws/lib/constants.js"(exports, module) {
+  "node_modules/ws/lib/constants.js"(exports, module) {
     "use strict";
     var BINARY_TYPES = ["nodebuffer", "arraybuffer", "fragments"];
     var hasBlob = typeof Blob !== "undefined";
@@ -8126,19 +8126,19 @@ var require_constants3 = __commonJS({
       EMPTY_BUFFER: Buffer.alloc(0),
       GUID: "258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
       hasBlob,
-      kForOnEventAttribute: Symbol("kIsForOnEventAttribute"),
-      kListener: Symbol("kListener"),
-      kStatusCode: Symbol("status-code"),
-      kWebSocket: Symbol("websocket"),
+      kForOnEventAttribute: /* @__PURE__ */ Symbol("kIsForOnEventAttribute"),
+      kListener: /* @__PURE__ */ Symbol("kListener"),
+      kStatusCode: /* @__PURE__ */ Symbol("status-code"),
+      kWebSocket: /* @__PURE__ */ Symbol("websocket"),
       NOOP: () => {
       }
     };
   }
 });
 
-// ../../node_modules/ws/lib/buffer-util.js
+// node_modules/ws/lib/buffer-util.js
 var require_buffer_util = __commonJS({
-  "../../node_modules/ws/lib/buffer-util.js"(exports, module) {
+  "node_modules/ws/lib/buffer-util.js"(exports, module) {
     "use strict";
     var { EMPTY_BUFFER } = require_constants3();
     var FastBuffer = Buffer[Symbol.species];
@@ -8211,12 +8211,12 @@ var require_buffer_util = __commonJS({
   }
 });
 
-// ../../node_modules/ws/lib/limiter.js
+// node_modules/ws/lib/limiter.js
 var require_limiter = __commonJS({
-  "../../node_modules/ws/lib/limiter.js"(exports, module) {
+  "node_modules/ws/lib/limiter.js"(exports, module) {
     "use strict";
-    var kDone = Symbol("kDone");
-    var kRun = Symbol("kRun");
+    var kDone = /* @__PURE__ */ Symbol("kDone");
+    var kRun = /* @__PURE__ */ Symbol("kRun");
     var Limiter = class {
       /**
        * Creates a new `Limiter`.
@@ -8261,9 +8261,9 @@ var require_limiter = __commonJS({
   }
 });
 
-// ../../node_modules/ws/lib/permessage-deflate.js
+// node_modules/ws/lib/permessage-deflate.js
 var require_permessage_deflate = __commonJS({
-  "../../node_modules/ws/lib/permessage-deflate.js"(exports, module) {
+  "node_modules/ws/lib/permessage-deflate.js"(exports, module) {
     "use strict";
     var zlib = __require("zlib");
     var bufferUtil = require_buffer_util();
@@ -8271,11 +8271,11 @@ var require_permessage_deflate = __commonJS({
     var { kStatusCode } = require_constants3();
     var FastBuffer = Buffer[Symbol.species];
     var TRAILER = Buffer.from([0, 0, 255, 255]);
-    var kPerMessageDeflate = Symbol("permessage-deflate");
-    var kTotalLength = Symbol("total-length");
-    var kCallback = Symbol("callback");
-    var kBuffers = Symbol("buffers");
-    var kError = Symbol("error");
+    var kPerMessageDeflate = /* @__PURE__ */ Symbol("permessage-deflate");
+    var kTotalLength = /* @__PURE__ */ Symbol("total-length");
+    var kCallback = /* @__PURE__ */ Symbol("callback");
+    var kBuffers = /* @__PURE__ */ Symbol("buffers");
+    var kError = /* @__PURE__ */ Symbol("error");
     var zlibLimiter;
     var PerMessageDeflate = class {
       /**
@@ -8644,9 +8644,9 @@ var require_permessage_deflate = __commonJS({
   }
 });
 
-// ../../node_modules/ws/lib/validation.js
+// node_modules/ws/lib/validation.js
 var require_validation = __commonJS({
-  "../../node_modules/ws/lib/validation.js"(exports, module) {
+  "node_modules/ws/lib/validation.js"(exports, module) {
     "use strict";
     var { isUtf8 } = __require("buffer");
     var { hasBlob } = require_constants3();
@@ -8845,9 +8845,9 @@ var require_validation = __commonJS({
   }
 });
 
-// ../../node_modules/ws/lib/receiver.js
+// node_modules/ws/lib/receiver.js
 var require_receiver = __commonJS({
-  "../../node_modules/ws/lib/receiver.js"(exports, module) {
+  "node_modules/ws/lib/receiver.js"(exports, module) {
     "use strict";
     var { Writable } = __require("stream");
     var PerMessageDeflate = require_permessage_deflate();
@@ -9437,9 +9437,9 @@ var require_receiver = __commonJS({
   }
 });
 
-// ../../node_modules/ws/lib/sender.js
+// node_modules/ws/lib/sender.js
 var require_sender = __commonJS({
-  "../../node_modules/ws/lib/sender.js"(exports, module) {
+  "node_modules/ws/lib/sender.js"(exports, module) {
     "use strict";
     var { Duplex } = __require("stream");
     var { randomFillSync } = __require("crypto");
@@ -9447,7 +9447,7 @@ var require_sender = __commonJS({
     var { EMPTY_BUFFER, kWebSocket, NOOP } = require_constants3();
     var { isBlob, isValidStatusCode } = require_validation();
     var { mask: applyMask, toBuffer } = require_buffer_util();
-    var kByteLength = Symbol("kByteLength");
+    var kByteLength = /* @__PURE__ */ Symbol("kByteLength");
     var maskBuffer = Buffer.alloc(4);
     var RANDOM_POOL_SIZE = 8 * 1024;
     var randomPool;
@@ -9925,19 +9925,19 @@ var require_sender = __commonJS({
   }
 });
 
-// ../../node_modules/ws/lib/event-target.js
+// node_modules/ws/lib/event-target.js
 var require_event_target = __commonJS({
-  "../../node_modules/ws/lib/event-target.js"(exports, module) {
+  "node_modules/ws/lib/event-target.js"(exports, module) {
     "use strict";
     var { kForOnEventAttribute, kListener } = require_constants3();
-    var kCode = Symbol("kCode");
-    var kData = Symbol("kData");
-    var kError = Symbol("kError");
-    var kMessage = Symbol("kMessage");
-    var kReason = Symbol("kReason");
-    var kTarget = Symbol("kTarget");
-    var kType = Symbol("kType");
-    var kWasClean = Symbol("kWasClean");
+    var kCode = /* @__PURE__ */ Symbol("kCode");
+    var kData = /* @__PURE__ */ Symbol("kData");
+    var kError = /* @__PURE__ */ Symbol("kError");
+    var kMessage = /* @__PURE__ */ Symbol("kMessage");
+    var kReason = /* @__PURE__ */ Symbol("kReason");
+    var kTarget = /* @__PURE__ */ Symbol("kTarget");
+    var kType = /* @__PURE__ */ Symbol("kType");
+    var kWasClean = /* @__PURE__ */ Symbol("kWasClean");
     var Event = class {
       /**
        * Create a new `Event`.
@@ -10154,9 +10154,9 @@ var require_event_target = __commonJS({
   }
 });
 
-// ../../node_modules/ws/lib/extension.js
+// node_modules/ws/lib/extension.js
 var require_extension = __commonJS({
-  "../../node_modules/ws/lib/extension.js"(exports, module) {
+  "node_modules/ws/lib/extension.js"(exports, module) {
     "use strict";
     var { tokenChars } = require_validation();
     function push(dest, name, elem) {
@@ -10307,9 +10307,9 @@ var require_extension = __commonJS({
   }
 });
 
-// ../../node_modules/ws/lib/websocket.js
+// node_modules/ws/lib/websocket.js
 var require_websocket = __commonJS({
-  "../../node_modules/ws/lib/websocket.js"(exports, module) {
+  "node_modules/ws/lib/websocket.js"(exports, module) {
     "use strict";
     var EventEmitter = __require("events");
     var https = __require("https");
@@ -10339,7 +10339,7 @@ var require_websocket = __commonJS({
     } = require_event_target();
     var { format, parse } = require_extension();
     var { toBuffer } = require_buffer_util();
-    var kAborted = Symbol("kAborted");
+    var kAborted = /* @__PURE__ */ Symbol("kAborted");
     var protocolVersions = [8, 13];
     var readyStates = ["CONNECTING", "OPEN", "CLOSING", "CLOSED"];
     var subprotocolRegex = /^[!#$%&'*+\-.0-9A-Z^_`|a-z~]+$/;
@@ -11193,9 +11193,9 @@ var require_websocket = __commonJS({
   }
 });
 
-// ../../node_modules/ws/lib/stream.js
+// node_modules/ws/lib/stream.js
 var require_stream = __commonJS({
-  "../../node_modules/ws/lib/stream.js"(exports, module) {
+  "node_modules/ws/lib/stream.js"(exports, module) {
     "use strict";
     var WebSocket3 = require_websocket();
     var { Duplex } = __require("stream");
@@ -11291,9 +11291,9 @@ var require_stream = __commonJS({
   }
 });
 
-// ../../node_modules/ws/lib/subprotocol.js
+// node_modules/ws/lib/subprotocol.js
 var require_subprotocol = __commonJS({
-  "../../node_modules/ws/lib/subprotocol.js"(exports, module) {
+  "node_modules/ws/lib/subprotocol.js"(exports, module) {
     "use strict";
     var { tokenChars } = require_validation();
     function parse(header) {
@@ -11336,9 +11336,9 @@ var require_subprotocol = __commonJS({
   }
 });
 
-// ../../node_modules/ws/lib/websocket-server.js
+// node_modules/ws/lib/websocket-server.js
 var require_websocket_server = __commonJS({
-  "../../node_modules/ws/lib/websocket-server.js"(exports, module) {
+  "node_modules/ws/lib/websocket-server.js"(exports, module) {
     "use strict";
     var EventEmitter = __require("events");
     var http = __require("http");
@@ -11729,17 +11729,17 @@ var require_websocket_server = __commonJS({
   }
 });
 
-// ../local-agent/dist/index.js
+// packages/local-agent/dist/index.js
 import { createWriteStream } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { join as join6 } from "node:path";
+import { homedir as homedir5 } from "node:os";
+import { join as join7 } from "node:path";
 
-// ../local-agent/dist/config.js
+// packages/local-agent/dist/config.js
 import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// ../shared/src/validators.ts
+// packages/shared/src/validators.ts
 var ALLOWED_MODELS = /* @__PURE__ */ new Set([
   "claude-opus-4-6",
   "claude-sonnet-4-6",
@@ -11785,6 +11785,14 @@ function isStartJob(v) {
   if (v.roleMcpTools !== void 0) {
     if (!Array.isArray(v.roleMcpTools)) return false;
     if (!v.roleMcpTools.every((t) => isString(t) && t.length > 0)) return false;
+  }
+  if (v.companyProjects !== void 0) {
+    if (!Array.isArray(v.companyProjects)) return false;
+    if (!v.companyProjects.every(
+      (p) => isObject(p) && isString(p.name) && p.name.length > 0 && (p.repo_url === null || isString(p.repo_url) && p.repo_url.length > 0)
+    )) {
+      return false;
+    }
   }
   return true;
 }
@@ -11845,6 +11853,21 @@ function isJobUnblocked(v) {
   if (!isString(v.answer)) return false;
   return true;
 }
+function isStartExpert(v) {
+  if (!isObject(v) || v.type !== "start_expert") return false;
+  if (!hasValidProtocolVersion(v)) return false;
+  if (!isString(v.session_id) || v.session_id.length === 0) return false;
+  if (!isString(v.model) || v.model.length === 0) return false;
+  if (!isString(v.brief)) return false;
+  if (!isObject(v.role)) return false;
+  if (!isString(v.role.prompt)) return false;
+  if (v.project_id !== void 0 && (!isString(v.project_id) || v.project_id.length === 0)) return false;
+  if (v.repo_url !== void 0 && (!isString(v.repo_url) || v.repo_url.length === 0)) return false;
+  if (v.branch !== void 0 && (!isString(v.branch) || v.branch.length === 0)) return false;
+  if (v.display_name !== void 0 && !isString(v.display_name)) return false;
+  if (v.company_name !== void 0 && !isString(v.company_name)) return false;
+  return true;
+}
 function isOrchestratorMessage(v) {
   if (!isObject(v) || !isString(v.type)) return false;
   switch (v.type) {
@@ -11864,12 +11887,14 @@ function isOrchestratorMessage(v) {
       return isMessageInbound(v);
     case "job_unblocked":
       return isJobUnblocked(v);
+    case "start_expert":
+      return isStartExpert(v);
     default:
       return false;
   }
 }
 
-// ../shared/src/index.ts
+// packages/shared/src/index.ts
 var DEFAULT_SUPABASE_URL = "https://jmussmwglgbwncgygzbz.supabase.co";
 var DEFAULT_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0";
 var PROTOCOL_VERSION = 1;
@@ -11877,7 +11902,7 @@ var HEARTBEAT_INTERVAL_MS = 3e4;
 var MAX_CONTEXT_BYTES = 64e3;
 var MAX_PERSONALITY_PROMPT_BYTES = 16e3;
 
-// ../local-agent/dist/config.js
+// packages/local-agent/dist/config.js
 var CONFIG_PATH = join(homedir(), ".zazigv2", "config.json");
 function loadConfig() {
   const nameFromEnv = process.env["ZAZIG_MACHINE_NAME"];
@@ -11885,6 +11910,7 @@ function loadConfig() {
   const codexFromEnv = process.env["ZAZIG_SLOTS_CODEX"];
   let name;
   let slots;
+  let companyIdFromFile;
   if (nameFromEnv) {
     name = nameFromEnv;
     slots = {
@@ -11898,6 +11924,7 @@ function loadConfig() {
       throw new Error("config.json: missing or invalid 'name' field");
     }
     name = parsed.name;
+    companyIdFromFile = parsed.company_id;
     slots = {
       claude_code: parsed.slots?.claude_code ?? 4,
       codex: parsed.slots?.codex ?? 4
@@ -11910,7 +11937,7 @@ function loadConfig() {
   const serviceRoleKey = process.env["SUPABASE_SERVICE_ROLE_KEY"];
   const accessToken = process.env["SUPABASE_ACCESS_TOKEN"];
   const refreshToken = process.env["SUPABASE_REFRESH_TOKEN"];
-  const companyId = process.env["ZAZIG_COMPANY_ID"];
+  const companyId = process.env["ZAZIG_COMPANY_ID"] ?? companyIdFromFile;
   return {
     name,
     ...companyId ? { company_id: companyId } : {},
@@ -11925,7 +11952,7 @@ function loadConfig() {
   };
 }
 
-// ../local-agent/dist/slots.js
+// packages/local-agent/dist/slots.js
 var SlotTracker = class {
   total;
   inUse;
@@ -11954,6 +11981,14 @@ var SlotTracker = class {
     }
     this.inUse[slotType]++;
   }
+  /** Try to acquire a slot. Returns true if acquired, false if at capacity. */
+  tryAcquire(slotType) {
+    const available = this.total[slotType] - this.inUse[slotType];
+    if (available <= 0)
+      return false;
+    this.inUse[slotType]++;
+    return true;
+  }
   /** Release a slot previously acquired. For future use by job executor. */
   release(slotType) {
     if (this.inUse[slotType] > 0) {
@@ -11962,7 +11997,7 @@ var SlotTracker = class {
   }
 };
 
-// ../../node_modules/@supabase/supabase-js/dist/index.mjs
+// node_modules/@supabase/supabase-js/dist/index.mjs
 var dist_exports = {};
 __export(dist_exports, {
   FunctionRegion: () => import_functions_js.FunctionRegion,
@@ -11976,7 +12011,7 @@ __export(dist_exports, {
 });
 var import_functions_js = __toESM(require_main(), 1);
 
-// ../../node_modules/@supabase/postgrest-js/dist/index.mjs
+// node_modules/@supabase/postgrest-js/dist/index.mjs
 var PostgrestError = class extends Error {
   /**
   * @example
@@ -13288,10 +13323,10 @@ var PostgrestClient = class PostgrestClient2 {
   }
 };
 
-// ../../node_modules/@supabase/supabase-js/dist/index.mjs
+// node_modules/@supabase/supabase-js/dist/index.mjs
 var import_realtime_js = __toESM(require_main2(), 1);
 
-// ../../node_modules/iceberg-js/dist/index.mjs
+// node_modules/iceberg-js/dist/index.mjs
 var IcebergError = class extends Error {
   constructor(message, opts) {
     super(message);
@@ -13824,7 +13859,7 @@ var IcebergRestCatalog = class {
   }
 };
 
-// ../../node_modules/@supabase/storage-js/dist/index.mjs
+// node_modules/@supabase/storage-js/dist/index.mjs
 var StorageError = class extends Error {
   constructor(message, namespace = "storage", status, statusCode) {
     super(message);
@@ -13978,7 +14013,7 @@ var _getRequestParams = (method, options, parameters, body) => {
   return _objectSpread22(_objectSpread22({}, params), parameters);
 };
 async function _handleRequest(fetcher, method, url, options, parameters, body, namespace) {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve4, reject) => {
     fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
       if (!result.ok) throw result;
       if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
@@ -13988,7 +14023,7 @@ async function _handleRequest(fetcher, method, url, options, parameters, body, n
         if (!contentType || !contentType.includes("application/json")) return {};
       }
       return result.json();
-    }).then((data) => resolve2(data)).catch((error) => handleError(error, reject, options, namespace));
+    }).then((data) => resolve4(data)).catch((error) => handleError(error, reject, options, namespace));
   });
 }
 function createFetchApi(namespace = "storage") {
@@ -16177,7 +16212,7 @@ var StorageClient = class extends StorageBucketApi {
   }
 };
 
-// ../../node_modules/@supabase/supabase-js/dist/index.mjs
+// node_modules/@supabase/supabase-js/dist/index.mjs
 var import_auth_js = __toESM(require_main3(), 1);
 __reExport(dist_exports, __toESM(require_main2(), 1));
 __reExport(dist_exports, __toESM(require_main3(), 1));
@@ -16519,7 +16554,7 @@ function shouldShowDeprecationWarning() {
 }
 if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217");
 
-// ../../node_modules/ws/wrapper.mjs
+// node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
 var import_receiver = __toESM(require_receiver(), 1);
 var import_sender = __toESM(require_sender(), 1);
@@ -16527,24 +16562,26 @@ var import_websocket = __toESM(require_websocket(), 1);
 var import_websocket_server = __toESM(require_websocket_server(), 1);
 var wrapper_default = import_websocket.default;
 
-// ../local-agent/dist/connection.js
+// packages/local-agent/dist/connection.js
+import { execFile as execFile3 } from "node:child_process";
 import { readFileSync as readFileSync4, writeFileSync as writeFileSync3, mkdirSync as mkdirSync3, appendFileSync as appendFileSync3 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join5 } from "node:path";
+import { promisify as promisify3 } from "node:util";
 
-// ../local-agent/dist/executor.js
+// packages/local-agent/dist/executor.js
 import { execFile as execFile2 } from "node:child_process";
-import { existsSync as existsSync4, readFileSync as readFileSync3, renameSync, unlinkSync, mkdirSync as mkdirSync2, rmSync as rmSync2, appendFileSync as appendFileSync2 } from "node:fs";
+import { existsSync as existsSync4, readFileSync as readFileSync3, renameSync, unlinkSync, mkdirSync as mkdirSync2, rmSync as rmSync3, symlinkSync as symlinkSync2, appendFileSync as appendFileSync2 } from "node:fs";
 import { promisify as promisify2 } from "node:util";
 import { homedir as homedir2 } from "node:os";
-import { dirname, join as join4, resolve } from "node:path";
+import { dirname as dirname2, join as join4, resolve as resolve2 } from "node:path";
 import { writeFileSync as writeFileSync2 } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-// ../local-agent/dist/workspace.js
+// packages/local-agent/dist/workspace.js
 import { writeFileSync, mkdirSync, existsSync as existsSync2, copyFileSync, readFileSync as readFileSync2, appendFileSync, symlinkSync, rmSync } from "node:fs";
-import { join as join2 } from "node:path";
+import { dirname, join as join2, resolve } from "node:path";
 var SUBAGENT_CONFIGS = {
   roles: {
     "code-investigator": {
@@ -16586,7 +16623,8 @@ function generateMcpConfig(mcpServerPath, env) {
           ...env.companyId ? { ZAZIG_COMPANY_ID: env.companyId } : {},
           ...env.allowedTools ? { ZAZIG_ALLOWED_TOOLS: env.allowedTools.join(",") } : {},
           ...env.tmuxSession ? { ZAZIG_TMUX_SESSION: env.tmuxSession } : {},
-          ...env.role ? { ZAZIG_ROLE: env.role } : {}
+          ...env.role ? { ZAZIG_ROLE: env.role } : {},
+          ...env.machineId ? { ZAZIG_MACHINE_ID: env.machineId } : {}
         }
       }
     }
@@ -16601,9 +16639,20 @@ var STANDARD_TOOLS = [
   "Grep"
 ];
 var ROLE_DEFAULT_MCP_TOOLS = {
-  "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "request_work"],
+  "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "request_work", "start_expert_session"],
   "breakdown-specialist": ["query_features", "batch_create_jobs"]
 };
+var MEMORY_MAINTENANCE_SECTION = `## Memory Maintenance
+
+At the end of every work session, update your memory files in \`.claude/memory/\`:
+
+- **priorities.md** \u2014 Reflect current P0-P3 items
+- **decisions.md** \u2014 Add new open decisions; mark resolved ones
+- **context.md** \u2014 Update what's in flight, what happened, what's blocked
+- **handoff.md** \u2014 Write notes for cross-session consumers (expert sessions, diagnostics)
+
+These files are read by other sessions via the exec context skill. Keep them current.
+`;
 function generateAllowedTools(role, mcpTools) {
   const roleDefaults = ROLE_DEFAULT_MCP_TOOLS[role] ?? [];
   const extra = mcpTools ?? [];
@@ -16616,8 +16665,165 @@ async function writeSubagentsConfig(workspaceDir, subagentsConfig = SUBAGENT_CON
   const subagentsPath = join2(workspaceDir, ".claude", "subagents.json");
   writeFileSync(subagentsPath, JSON.stringify(subagentsConfig, null, 2));
 }
+function generateExecSkill(role, workspacePath) {
+  const skillDir = join2(workspacePath, ".claude", "skills", `as-${role.name}`);
+  mkdirSync(skillDir, { recursive: true });
+  const displayName = role.name.toUpperCase();
+  const sections = [
+    "---",
+    `name: as-${role.name}`,
+    `description: Load ${displayName}'s context into this session`,
+    "---",
+    "",
+    `# Operating as ${displayName}`,
+    "",
+    "## Role Context",
+    role.prompt,
+    "",
+    "## Workspace",
+    `- Memory: ${workspacePath}/.claude/memory/`,
+    `- Repos: ${workspacePath}/repos/`
+  ];
+  if (role.heartbeat_md?.trim()) {
+    sections.push("", "## Current Heartbeat Tasks", role.heartbeat_md);
+  }
+  writeFileSync(join2(skillDir, "SKILL.md"), `${sections.join("\n")}
+`);
+}
+function publishSharedExecSkill(role, workspacePath, repoRoot) {
+  const skillDir = join2(repoRoot, ".claude", "skills", `as-${role.name}`);
+  mkdirSync(skillDir, { recursive: true });
+  const displayName = role.name.toUpperCase();
+  const homedir6 = process.env.HOME ?? "/root";
+  const portablePath = workspacePath.startsWith(homedir6) ? workspacePath.replace(homedir6, "~") : workspacePath;
+  const promptLines = role.prompt.split("\n").filter((l) => l.trim());
+  const summary = promptLines.slice(0, 5).join("\n");
+  const truncated = summary.length < role.prompt.length ? `${summary}
+
+_(Summarised \u2014 full context available in the exec's own workspace)_` : summary;
+  const sections = [
+    "---",
+    `name: as-${role.name}`,
+    `description: |`,
+    `  Load ${displayName}'s context, knowledge, and workspace links into this session.`,
+    `  Use when you need ${role.name}-level awareness in a non-persistent context.`,
+    "---",
+    "",
+    `# Operating as ${displayName}`,
+    "",
+    "## Role Summary",
+    truncated,
+    "",
+    "## Workspace (read-only access)",
+    `- Memory: ${portablePath}/.claude/memory/ _(READ ONLY \u2014 do not modify)_`,
+    `- Repos: ${portablePath}/repos/`,
+    `- State: ${portablePath}/.claude/workspace-config.json`
+  ];
+  if (role.heartbeat_md?.trim()) {
+    sections.push("", "## Current Heartbeat Tasks", role.heartbeat_md);
+  }
+  sections.push("", "## How to Use This Skill", `You are not the ${role.name}. You are a session that has been given ${displayName}'s`, "context and workspace access. Use this to:", `- Make decisions consistent with ${displayName}'s perspective`, `- Read ${displayName}'s memory and state files (do NOT write to them)`, `- Continue work that ${displayName} started`, `- Provide ${role.name}-level analysis without needing the persistent session`, "", `If you need to communicate something to ${displayName}, write a report to your`, "own workspace \u2014 do not modify the exec's memory files directly.");
+  writeFileSync(join2(skillDir, "SKILL.md"), `${sections.join("\n")}
+`);
+}
+function defaultRoleDisplayName(role) {
+  return role.split("-").map((part) => {
+    if (part.length <= 3)
+      return part.toUpperCase();
+    if (part.toUpperCase() === part)
+      return part;
+    return `${part.charAt(0).toUpperCase()}${part.slice(1)}`;
+  }).join(" ");
+}
+function seedMemoryFiles(claudeDir, roleDisplayName) {
+  const memoryDir = join2(claudeDir, "memory");
+  mkdirSync(memoryDir, { recursive: true });
+  const fileTemplates = [
+    {
+      name: "priorities.md",
+      content: [
+        `_Updated by ${roleDisplayName} on each wake._`,
+        "",
+        "# Priorities",
+        "",
+        "## P0 - Critical This Wake",
+        "- [ ]",
+        "",
+        "## P1 - Active This Week",
+        "- [ ]",
+        "",
+        "## P2 - Important, Not Urgent",
+        "- [ ]",
+        "",
+        "## P3 - Parked / Backlog",
+        "- [ ]",
+        ""
+      ].join("\n")
+    },
+    {
+      name: "decisions.md",
+      content: [
+        `_Updated by ${roleDisplayName} on each wake._`,
+        "",
+        "# Open Decisions",
+        "",
+        "## Decision",
+        "- Summary:",
+        "- Options:",
+        "- Owner:",
+        "- Needed by:",
+        "- Status: Open",
+        ""
+      ].join("\n")
+    },
+    {
+      name: "context.md",
+      content: [
+        `_Updated by ${roleDisplayName} on each wake._`,
+        "",
+        "# Working Context",
+        "",
+        "## What's In Flight",
+        "-",
+        "",
+        "## Recent Events",
+        "-",
+        "",
+        "## Blocked On",
+        "-",
+        ""
+      ].join("\n")
+    },
+    {
+      name: "handoff.md",
+      content: [
+        `_Updated by ${roleDisplayName} on each wake._`,
+        "",
+        "# Handoff Notes",
+        "",
+        "## If You're Picking Up My Work",
+        "-",
+        "",
+        "## Active Decisions Waiting on Human",
+        "-",
+        "",
+        "## Known Issues",
+        "-",
+        ""
+      ].join("\n")
+    }
+  ];
+  for (const template of fileTemplates) {
+    const filePath = join2(memoryDir, template.name);
+    if (!existsSync2(filePath)) {
+      writeFileSync(filePath, template.content);
+    }
+  }
+}
 function setupJobWorkspace(config) {
   mkdirSync(config.workspaceDir, { recursive: true });
+  const claudeDir = join2(config.workspaceDir, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
   const mcpConfig = generateMcpConfig(config.mcpServerPath, {
     supabaseUrl: config.supabaseUrl,
     supabaseAnonKey: config.supabaseAnonKey,
@@ -16625,13 +16831,44 @@ function setupJobWorkspace(config) {
     companyId: config.companyId,
     allowedTools: config.mcpTools,
     tmuxSession: config.tmuxSession,
-    role: config.role
+    role: config.role,
+    machineId: config.machineId
   });
   writeFileSync(join2(config.workspaceDir, ".mcp.json"), JSON.stringify(mcpConfig, null, 2));
   writeFileSync(join2(config.workspaceDir, "CLAUDE.md"), config.claudeMdContent);
-  const claudeDir = join2(config.workspaceDir, ".claude");
-  mkdirSync(claudeDir, { recursive: true });
-  writeFileSync(join2(claudeDir, "settings.json"), JSON.stringify({ permissions: { allow: generateAllowedTools(config.role, config.mcpTools) } }, null, 2));
+  if (config.heartbeatMd !== void 0) {
+    const hasMemoryMaintenance = config.heartbeatMd.includes("## Memory Maintenance");
+    const heartbeatContent = hasMemoryMaintenance ? config.heartbeatMd : `${config.heartbeatMd}${config.heartbeatMd.endsWith("\n") || config.heartbeatMd.length === 0 ? "" : "\n\n"}${MEMORY_MAINTENANCE_SECTION}`;
+    writeFileSync(join2(claudeDir, "HEARTBEAT.md"), heartbeatContent);
+    seedMemoryFiles(claudeDir, config.roleDisplayName ?? defaultRoleDisplayName(config.role));
+  }
+  if (config.heartbeatMd !== void 0) {
+    const memoryDir = join2(claudeDir, "memory");
+    mkdirSync(memoryDir, { recursive: true });
+    const heartbeatStatePath = join2(memoryDir, "heartbeat-state.json");
+    if (!existsSync2(heartbeatStatePath)) {
+      writeFileSync(heartbeatStatePath, JSON.stringify({
+        lastWakeAt: null,
+        taskCompletions: {}
+      }, null, 2));
+    }
+  }
+  const worktreeMetadataDir = resolveGitWorktreeMetadataDir(config.workspaceDir);
+  const permissions = {
+    allow: generateAllowedTools(config.role, config.mcpTools),
+    ...worktreeMetadataDir ? { additionalDirectories: [worktreeMetadataDir] } : {}
+  };
+  writeFileSync(join2(claudeDir, "settings.json"), JSON.stringify({ permissions }, null, 2));
+  writeFileSync(join2(claudeDir, "settings.local.json"), JSON.stringify({
+    enableAllProjectMcpServers: true,
+    enabledMcpjsonServers: ["zazig-messaging"]
+  }, null, 2));
+  writeFileSync(join2(claudeDir, "workspace-config.json"), JSON.stringify({
+    machineId: config.machineId ?? null,
+    companyId: config.companyId ?? null,
+    jobId: config.jobId,
+    role: config.role
+  }, null, 2));
   if (config.skills && config.skills.length > 0) {
     for (const skillName of config.skills) {
       const sourcePath = resolveSkillSourcePath(config, skillName);
@@ -16674,10 +16911,25 @@ function setupJobWorkspace(config) {
     }
   }
 }
+function resolveGitWorktreeMetadataDir(workspaceDir) {
+  const gitMarker = join2(workspaceDir, ".git");
+  if (!existsSync2(gitMarker))
+    return null;
+  try {
+    const gitMarkerContent = readFileSync2(gitMarker, "utf8").trim();
+    const match = gitMarkerContent.match(/^gitdir:\s*(.+)\s*$/i);
+    if (!match?.[1])
+      return null;
+    const gitDirPath = match[1].trim();
+    return resolve(dirname(gitMarker), gitDirPath);
+  } catch {
+    return null;
+  }
+}
 
-// ../local-agent/dist/branches.js
+// packages/local-agent/dist/branches.js
 import { execFile } from "node:child_process";
-import { existsSync as existsSync3 } from "node:fs";
+import { existsSync as existsSync3, rmSync as rmSync2 } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join as join3 } from "node:path";
 import { promisify } from "node:util";
@@ -16744,19 +16996,22 @@ async function removeWorktree(repoDir, worktreePath) {
 var REPOS_BASE = join3(process.env.HOME ?? "~", ".zazigv2/repos");
 var RepoManager = class {
   locks = /* @__PURE__ */ new Map();
+  async git(repoDir, ...args) {
+    return git(repoDir, ...args);
+  }
   /** Serialise all git operations for a given repo dir. */
   async withLock(repoDir, fn) {
     const prev = this.locks.get(repoDir) ?? Promise.resolve();
-    let resolve2;
+    let resolve4;
     const next = new Promise((r) => {
-      resolve2 = r;
+      resolve4 = r;
     });
     this.locks.set(repoDir, next);
     await prev;
     try {
       return await fn();
     } finally {
-      resolve2();
+      resolve4();
       if (this.locks.get(repoDir) === next) {
         this.locks.delete(repoDir);
       }
@@ -16776,9 +17031,9 @@ var RepoManager = class {
       if (!existsSync3(repoDir)) {
         await execFileAsync("git", ["clone", "--bare", repoUrl, repoDir], { encoding: "utf8" });
       }
-      await git(repoDir, "config", "remote.origin.fetch", "refs/heads/*:refs/heads/*");
+      await this.git(repoDir, "config", "remote.origin.fetch", "refs/heads/*:refs/heads/*");
       try {
-        await git(repoDir, "rev-parse", "--verify", "HEAD");
+        await this.git(repoDir, "rev-parse", "--verify", "HEAD");
       } catch {
         const tmpDir = join3(REPOS_BASE, `.tmp-init-${projectName}`);
         try {
@@ -16790,7 +17045,7 @@ var RepoManager = class {
           });
         }
         try {
-          await git(repoDir, "fetch", "origin");
+          await this.git(repoDir, "fetch", "origin");
         } catch (e) {
           console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
         }
@@ -16799,26 +17054,127 @@ var RepoManager = class {
     });
   }
   /**
+   * Ensure a shared worktree for the project exists and is checked out on
+   * a stable default branch (prefers master when available).
+   * If an existing worktree is corrupted, remove and recreate it.
+   */
+  async ensureWorktree(projectName) {
+    const bareDir = join3(REPOS_BASE, projectName);
+    const worktreeDir = join3(REPOS_BASE, `${projectName}-worktree`);
+    return this.withLock(bareDir, async () => {
+      try {
+        if (!existsSync3(bareDir)) {
+          throw new Error(`Bare repo missing: ${bareDir}`);
+        }
+        try {
+          await this.git(bareDir, "fetch", "origin");
+        } catch (e) {
+          console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
+        }
+        const targetBranch = await this.resolveSharedWorktreeBranch(bareDir);
+        console.log(`[RepoManager] ensureWorktree project=${projectName} branch=${targetBranch} path=${worktreeDir}`);
+        if (existsSync3(worktreeDir)) {
+          const isValid = await this.isValidWorktree(worktreeDir);
+          if (!isValid) {
+            console.warn(`[RepoManager] ensureWorktree found invalid worktree at ${worktreeDir}; recreating`);
+            rmSync2(worktreeDir, { recursive: true, force: true });
+            await this.git(bareDir, "worktree", "prune");
+          }
+        }
+        if (!existsSync3(worktreeDir)) {
+          await this.git(bareDir, "worktree", "add", worktreeDir, targetBranch);
+          console.log(`[RepoManager] ensureWorktree created ${worktreeDir} on ${targetBranch}`);
+        } else {
+          await this.git(worktreeDir, "checkout", targetBranch);
+          await this.git(worktreeDir, "reset", "--hard", targetBranch);
+          console.log(`[RepoManager] ensureWorktree refreshed ${worktreeDir} on ${targetBranch}`);
+        }
+        return worktreeDir;
+      } catch (error) {
+        const message = getErrorMessage(error);
+        console.error(`[RepoManager] ensureWorktree failed for ${projectName}: ${message}`);
+        throw new Error(`ensureWorktree(${projectName}) failed: ${message}`);
+      }
+    });
+  }
+  async refreshWorktree(projectName) {
+    const bareDir = join3(REPOS_BASE, projectName);
+    const worktreeDir = join3(REPOS_BASE, `${projectName}-worktree`);
+    if (!existsSync3(worktreeDir)) {
+      return;
+    }
+    await this.withLock(bareDir, async () => {
+      if (!existsSync3(worktreeDir)) {
+        return;
+      }
+      const targetBranch = await this.resolveSharedWorktreeBranch(bareDir);
+      const tempRef = `refs/zazig-refresh/${targetBranch}`;
+      try {
+        await this.git(bareDir, "fetch", "--refmap=", "origin", `+refs/heads/${targetBranch}:${tempRef}`);
+      } catch (error) {
+        console.warn(`[RepoManager] refreshWorktree fetch warning for ${projectName} (non-fatal): ${getErrorMessage(error)}`);
+      }
+      const worktreeHead = await this.git(worktreeDir, "rev-parse", "HEAD");
+      let remoteHead;
+      try {
+        remoteHead = await this.git(bareDir, "rev-parse", tempRef);
+      } catch {
+        return;
+      }
+      if (worktreeHead === remoteHead) {
+        return;
+      }
+      try {
+        await this.git(worktreeDir, "merge-base", "--is-ancestor", worktreeHead, remoteHead);
+      } catch {
+        console.error(`[RepoManager] CRITICAL: refusing to refresh diverged ${projectName} worktree (${worktreeHead} vs ${remoteHead})`);
+        return;
+      }
+      await this.git(worktreeDir, "reset", "--hard", remoteHead);
+      console.log(`[RepoManager] refreshed ${projectName} worktree: ${worktreeHead} \u2192 ${remoteHead}`);
+    });
+  }
+  /**
    * Resolve the default branch in a bare repo.
    * Tries symbolic-ref HEAD first, then falls back to common names.
    */
   async resolveDefaultBranch(repoDir) {
     try {
-      const ref = await git(repoDir, "symbolic-ref", "HEAD");
+      const ref = await this.git(repoDir, "symbolic-ref", "HEAD");
       const branchName = ref.replace(/^refs\/heads\//, "");
-      await git(repoDir, "rev-parse", "--verify", `refs/heads/${branchName}`);
+      await this.git(repoDir, "rev-parse", "--verify", `refs/heads/${branchName}`);
       return branchName;
     } catch {
     }
     for (const name of ["main", "master"]) {
       try {
-        await git(repoDir, "rev-parse", "--verify", `refs/heads/${name}`);
+        await this.git(repoDir, "rev-parse", "--verify", `refs/heads/${name}`);
         return name;
       } catch {
         continue;
       }
     }
     throw new Error(`Cannot resolve default branch in ${repoDir} \u2014 repo may be empty`);
+  }
+  /**
+   * Shared worktrees historically use "master". If absent, fall back to
+   * the repo's actual default branch.
+   */
+  async resolveSharedWorktreeBranch(repoDir) {
+    try {
+      await this.git(repoDir, "rev-parse", "--verify", "refs/heads/master");
+      return "master";
+    } catch {
+      return this.resolveDefaultBranch(repoDir);
+    }
+  }
+  async isValidWorktree(dir) {
+    try {
+      await this.git(dir, "rev-parse", "--git-dir");
+      return true;
+    } catch {
+      return false;
+    }
   }
   /**
    * Create feature branch off default branch if not exists. Idempotent.
@@ -16828,17 +17184,23 @@ var RepoManager = class {
   async ensureFeatureBranch(repoDir, featureBranch) {
     return this.withLock(repoDir, async () => {
       try {
-        await git(repoDir, "fetch", "origin");
+        await this.git(repoDir, "fetch", "origin");
       } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
       try {
-        await git(repoDir, "rev-parse", "--verify", `refs/heads/${featureBranch}`);
+        await this.git(repoDir, "rev-parse", "--verify", `refs/heads/${featureBranch}`);
         return;
       } catch {
       }
       const defaultBranch = await this.resolveDefaultBranch(repoDir);
-      await git(repoDir, "branch", featureBranch, defaultBranch);
+      await this.git(repoDir, "branch", featureBranch, defaultBranch);
+    });
+  }
+  async fetchBranchForExpert(projectName, branch) {
+    const bareDir = join3(REPOS_BASE, projectName);
+    return this.withLock(bareDir, async () => {
+      await this.git(bareDir, "fetch", "--force", "origin", `+refs/heads/${branch}:refs/heads/${branch}`);
     });
   }
   /**
@@ -16848,7 +17210,7 @@ var RepoManager = class {
   async createJobWorktree(repoDir, featureBranch, jobId) {
     return this.withLock(repoDir, async () => {
       try {
-        await git(repoDir, "fetch", "origin");
+        await this.git(repoDir, "fetch", "origin");
       } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
@@ -16856,7 +17218,23 @@ var RepoManager = class {
       const worktreePath = join3(WORKTREE_BASE, `job-${jobId}`);
       await mkdir(WORKTREE_BASE, { recursive: true });
       try {
-        await git(repoDir, "worktree", "remove", "--force", worktreePath);
+        const wtList = await this.git(repoDir, "worktree", "list", "--porcelain");
+        const entries = wtList.split("\n\n");
+        for (const entry of entries) {
+          if (entry.includes(`branch refs/heads/${jobBranch}`)) {
+            const wtPath = entry.match(/^worktree (.+)$/m)?.[1];
+            if (wtPath) {
+              try {
+                await this.git(repoDir, "worktree", "remove", "--force", wtPath);
+              } catch {
+              }
+              try {
+                await rm(wtPath, { recursive: true, force: true });
+              } catch {
+              }
+            }
+          }
+        }
       } catch {
       }
       try {
@@ -16864,15 +17242,15 @@ var RepoManager = class {
       } catch {
       }
       try {
-        await git(repoDir, "worktree", "prune");
+        await this.git(repoDir, "worktree", "prune");
       } catch {
       }
       try {
-        await git(repoDir, "branch", "-D", jobBranch);
+        await this.git(repoDir, "branch", "-D", jobBranch);
       } catch {
       }
-      await git(repoDir, "branch", jobBranch, featureBranch);
-      await git(repoDir, "worktree", "add", worktreePath, jobBranch);
+      await this.git(repoDir, "branch", jobBranch, featureBranch);
+      await this.git(repoDir, "worktree", "add", worktreePath, jobBranch);
       return { worktreePath, jobBranch };
     });
   }
@@ -16886,7 +17264,7 @@ var RepoManager = class {
     return this.withLock(repoDir, async () => {
       console.log(`[RepoManager] createDependentJobWorktree: jobId=${jobId}, depBranches=${JSON.stringify(depBranches)}`);
       try {
-        await git(repoDir, "fetch", "origin");
+        await this.git(repoDir, "fetch", "origin");
       } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
@@ -16922,7 +17300,23 @@ var RepoManager = class {
       const baseBranch = validBranches.length > 0 ? validBranches[0] : featureBranch;
       console.log(`[RepoManager] Creating jobBranch="${jobBranch}" from baseBranch="${baseBranch}", validBranches=${JSON.stringify(validBranches)}`);
       try {
-        await git(repoDir, "worktree", "remove", "--force", worktreePath);
+        const wtList = await this.git(repoDir, "worktree", "list", "--porcelain");
+        const entries = wtList.split("\n\n");
+        for (const entry of entries) {
+          if (entry.includes(`branch refs/heads/${jobBranch}`)) {
+            const wtPath = entry.match(/^worktree (.+)$/m)?.[1];
+            if (wtPath) {
+              try {
+                await this.git(repoDir, "worktree", "remove", "--force", wtPath);
+              } catch {
+              }
+              try {
+                await rm(wtPath, { recursive: true, force: true });
+              } catch {
+              }
+            }
+          }
+        }
       } catch {
       }
       try {
@@ -16930,15 +17324,15 @@ var RepoManager = class {
       } catch {
       }
       try {
-        await git(repoDir, "worktree", "prune");
+        await this.git(repoDir, "worktree", "prune");
       } catch {
       }
       try {
-        await git(repoDir, "branch", "-D", jobBranch);
+        await this.git(repoDir, "branch", "-D", jobBranch);
       } catch {
       }
-      await git(repoDir, "branch", jobBranch, baseBranch);
-      await git(repoDir, "worktree", "add", worktreePath, jobBranch);
+      await this.git(repoDir, "branch", jobBranch, baseBranch);
+      await this.git(repoDir, "worktree", "add", worktreePath, jobBranch);
       for (const branch of validBranches.slice(1)) {
         console.log(`[RepoManager] Fan-in merging "${branch}" into worktree at ${worktreePath}`);
         try {
@@ -16949,9 +17343,9 @@ var RepoManager = class {
             await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
           } catch {
           }
-          await git(repoDir, "worktree", "remove", "--force", worktreePath);
+          await this.git(repoDir, "worktree", "remove", "--force", worktreePath);
           try {
-            await git(repoDir, "branch", "-D", jobBranch);
+            await this.git(repoDir, "branch", "-D", jobBranch);
           } catch {
           }
           throw new Error(`Fan-in merge of "${branch}" into job/${jobId} failed: ${String(mergeErr)}`);
@@ -16974,15 +17368,15 @@ var RepoManager = class {
    */
   async removeJobWorktree(repoDir, worktreePath) {
     try {
-      await git(repoDir, "worktree", "remove", "--force", worktreePath);
+      await this.git(repoDir, "worktree", "remove", "--force", worktreePath);
     } catch {
     }
   }
 };
 
-// ../local-agent/dist/executor.js
+// packages/local-agent/dist/executor.js
 function resolveMcpServerPath() {
-  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const thisDir = dirname2(fileURLToPath(import.meta.url));
   const mjsPath = join4(thisDir, "agent-mcp-server.mjs");
   if (existsSync4(mjsPath))
     return mjsPath;
@@ -17002,9 +17396,13 @@ var REPORT_ARCHIVE_DIR = ".claude/job-reports";
 var NO_CODE_CONTEXT_ROLES = /* @__PURE__ */ new Set([
   "pipeline-technician",
   "monitoring-agent",
-  "project-architect"
+  "project-architect",
+  "triage-analyst"
 ]);
 var CPO_STARTUP_DELAY_MS = 15e3;
+var MIN_SESSION_AGE_MS = 5 * 6e4;
+var RESET_FAILURE_WINDOW_MS = 10 * 6e4;
+var MAX_RESET_FAILURES = 3;
 var MAX_QUEUE_SIZE = 20;
 var JOB_LOG_DIR = join4(homedir2(), ".zazigv2", "job-logs");
 function buildScratchWorkspaceDir(companyId, role, jobId) {
@@ -17020,9 +17418,9 @@ function clearJobLogs(jobId) {
   }
 }
 function resolveRepoRoot() {
-  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const thisDir = dirname2(fileURLToPath(import.meta.url));
   const candidates = [
-    resolve(thisDir, "..", "..", ".."),
+    resolve2(thisDir, "..", "..", ".."),
     process.cwd()
   ];
   for (const candidate of candidates) {
@@ -17044,6 +17442,30 @@ function jobLog(jobId, message) {
   }
 }
 var SKILLS_MARKER = "<!-- SKILLS -->";
+function ensureRoleSkills(role, roleSkills) {
+  const normalized = roleSkills ? [...roleSkills] : [];
+  if (role === "cpo" && !normalized.includes("start-expert")) {
+    normalized.push("start-expert");
+  }
+  return normalized.length > 0 ? normalized : void 0;
+}
+function normalizeCompanyProjects(raw) {
+  if (!Array.isArray(raw))
+    return [];
+  const normalized = [];
+  for (const project of raw) {
+    if (!project || typeof project !== "object")
+      continue;
+    const name = project.name;
+    const repoUrl = project.repo_url;
+    if (typeof name !== "string" || name.trim().length === 0)
+      continue;
+    if (repoUrl !== null && (typeof repoUrl !== "string" || repoUrl.trim().length === 0))
+      continue;
+    normalized.push({ name: name.trim(), repo_url: repoUrl ?? null });
+  }
+  return normalized;
+}
 function enqueueWithCap(queue, message, maxSize) {
   queue.push(message);
   if (queue.length > maxSize) {
@@ -17079,6 +17501,7 @@ var JobExecutor = class {
   processingQueue = false;
   reconcileTimer = null;
   prMonitorTimer = null;
+  companyProjects = [];
   constructor(machineId, companyId, slots, send, supabase, supabaseUrl, supabaseAnonKey, afterJobComplete) {
     this.machineId = machineId;
     this.companyId = companyId;
@@ -17095,6 +17518,12 @@ var JobExecutor = class {
       void this.monitorMergedPRs();
     }, PR_MONITOR_INTERVAL_MS);
   }
+  setCompanyProjects(projects) {
+    this.companyProjects = [...projects];
+  }
+  getCompanyProjects() {
+    return [...this.companyProjects];
+  }
   /** Resolve the machine UUID from the machines table (cached after first call). */
   async resolveMachineUuid(companyId) {
     if (this.machineUuid)
@@ -17106,6 +17535,81 @@ var JobExecutor = class {
     }
     this.machineUuid = data.id;
     return data.id;
+  }
+  async loadPersistentRoleConfig(role) {
+    const { data, error } = await this.supabase.from("roles").select("prompt, heartbeat_md, cache_ttl_minutes, hard_ttl_minutes").eq("name", role).single();
+    if (error) {
+      throw new Error(`Failed to load role config for ${role}: ${error.message}`);
+    }
+    if (!data) {
+      throw new Error(`Role ${role} not found in DB`);
+    }
+    return {
+      prompt: data.prompt ?? "",
+      heartbeatMd: data.heartbeat_md ?? "",
+      cacheTtlMinutes: data.cache_ttl_minutes ?? 30,
+      hardTtlMinutes: data.hard_ttl_minutes ?? 240
+    };
+  }
+  buildHeartbeatSessionStartCommand() {
+    return [
+      "cat <<'HEARTBEAT_EOF'",
+      "Read .claude/HEARTBEAT.md for your recurring tasks.",
+      "Read .claude/memory/heartbeat-state.json for what you've already completed.",
+      "Skip any Daily task completed today. Skip any Weekly task completed this week.",
+      "After completing tasks, update heartbeat-state.json with new timestamps.",
+      "HEARTBEAT_EOF"
+    ].join("\n");
+  }
+  refreshPersistentPromptStack(promptStackMinusSkills, previousRolePrompt, nextRolePrompt) {
+    if (!promptStackMinusSkills) {
+      return promptStackMinusSkills;
+    }
+    if (previousRolePrompt && promptStackMinusSkills.includes(previousRolePrompt)) {
+      return promptStackMinusSkills.replace(previousRolePrompt, nextRolePrompt);
+    }
+    return promptStackMinusSkills;
+  }
+  async withExpertRosterSection(claudeMdContent) {
+    const { data, error } = await this.supabase.from("expert_roles").select("name, display_name, description");
+    if (error) {
+      console.warn(`[executor] Failed to load expert_roles: ${error.message}`);
+      return claudeMdContent;
+    }
+    const expertRoles = data ?? [];
+    if (expertRoles.length === 0)
+      return claudeMdContent;
+    const rosterLines = expertRoles.map((role) => {
+      const displayName = role.display_name?.trim() || role.name;
+      const description = role.description?.replace(/\s+/g, " ").trim() || "No description provided.";
+      return `- **${role.name}** (${displayName}): ${description}`;
+    });
+    const rosterSection = [
+      "",
+      "## Expert Agents Available",
+      "",
+      "You can trigger expert agents for specialized work. Call the start_expert_session MCP tool to spawn one.",
+      "",
+      ...rosterLines,
+      "",
+      "Proactively suggest expert sessions when the task requires specialized expertise."
+    ].join("\n");
+    return `${claudeMdContent}${rosterSection}`;
+  }
+  async resolvePersistentProjects(msg, companyId) {
+    const fromMessage = normalizeCompanyProjects(msg.companyProjects);
+    if (fromMessage.length > 0) {
+      return fromMessage;
+    }
+    if (!companyId) {
+      return [];
+    }
+    const { data, error } = await this.supabase.from("projects").select("name, repo_url").eq("company_id", companyId).eq("status", "active");
+    if (error) {
+      console.warn(`[executor] Failed to load projects for persistent agent company ${companyId}: ${error.message}`);
+      return [];
+    }
+    return normalizeCompanyProjects(data);
   }
   // ---------------------------------------------------------------------------
   // Public: StartJob
@@ -17142,30 +17646,31 @@ var JobExecutor = class {
       await this.handlePersistentJob(jobId, msg, slotType);
       return;
     }
-    try {
-      this.slots.acquire(slotType);
+    const slotAcquired = this.slots.tryAcquire(slotType);
+    if (slotAcquired) {
       jobLog(jobId, `Slot acquired: ${slotType}`);
-    } catch (err) {
-      jobLog(jobId, `FAILED no slot available: ${String(err)}`);
-      console.error(`[executor] No slot available for jobId=${jobId}:`, err);
-      await this.sendJobFailed(jobId, `No available slot: ${String(err)}`, "unknown");
-      return;
+    } else {
+      jobLog(jobId, `WARN slot overcommit: running despite no free ${slotType} slot`);
+      console.warn(`[executor] Slot overcommit for jobId=${jobId} \u2014 running anyway (${slotType})`);
     }
     await this.sendJobAck(jobId);
     const isInteractive = msg.interactive === true;
+    const roleName = msg.role ?? "senior-engineer";
+    const roleSkills = ensureRoleSkills(roleName, msg.roleSkills);
     const repoRoot = resolveRepoRoot();
     const assembledContext = assembleContext(msg, repoRoot);
+    const cpoContext = roleName === "cpo" ? await this.withExpertRosterSection(assembledContext) : assembledContext;
     console.log(`[executor] Assembled context for jobId=${jobId}:
-${assembledContext}`);
+${cpoContext}`);
     let ephemeralWorkspaceDir;
     let worktreePath;
     let repoDir;
     let jobBranch;
     let startingCommit;
-    const roleName = msg.role ?? "senior-engineer";
     const requiresCodeContext = !NO_CODE_CONTEXT_ROLES.has(roleName);
     const cleanupPreparedWorkspace = async () => {
       if (worktreePath && repoDir) {
+        await this.repoManager.removeJobWorktree(repoDir, worktreePath);
       } else if (ephemeralWorkspaceDir) {
         cleanupJobWorkspace(jobId, ephemeralWorkspaceDir);
       }
@@ -17205,7 +17710,8 @@ ${assembledContext}`);
     } catch (err) {
       jobLog(jobId, `FAILED to prepare workspace: ${String(err)}`);
       console.error(`[executor] Failed to prepare workspace for jobId=${jobId}:`, err);
-      this.slots.release(slotType);
+      if (slotAcquired)
+        this.slots.release(slotType);
       await this.sendJobFailed(jobId, `Failed to prepare workspace: ${String(err)}`, "agent_crash");
       return;
     }
@@ -17219,12 +17725,13 @@ ${assembledContext}`);
         jobId,
         companyId: this.companyId,
         role: roleName,
-        claudeMdContent: assembledContext,
-        skills: msg.roleSkills,
+        claudeMdContent: cpoContext,
+        skills: roleSkills,
         repoSkillsDir: join4(repoRoot, "projects", "skills"),
         repoInteractiveSkillsDir: join4(repoRoot, ".claude", "skills"),
         mcpTools: msg.roleMcpTools,
-        tmuxSession: `${this.machineId}-${jobId}`
+        tmuxSession: `${this.machineId}-${jobId}`,
+        machineId: this.machineId
       });
       console.log(`[executor] Workspace overlay written to ${ephemeralWorkspaceDir} for jobId=${jobId}`);
     } catch (err) {
@@ -17238,13 +17745,13 @@ ${assembledContext}`);
       cmd = "claude";
       cmdArgs = ["--model", resolvedModel];
     } else {
-      const built = buildCommand(slotType, complexity, model, worktreePath, promptFilePath);
+      const built = buildCommand(slotType, complexity, model, worktreePath, promptFilePath, repoDir);
       cmd = built.cmd;
       cmdArgs = built.args;
     }
     const sessionName = `${this.machineId}-${jobId}`;
     mkdirSync2(ephemeralWorkspaceDir, { recursive: true });
-    writeFileSync2(promptFilePath, assembledContext);
+    writeFileSync2(promptFilePath, cpoContext);
     const reportPath = `${process.env["HOME"] ?? "/tmp"}/${reportRelativePath(msg.role)}`;
     try {
       unlinkSync(reportPath);
@@ -17278,7 +17785,7 @@ ${assembledContext}`);
           try {
             const promptText = readFileSync3(promptFilePath, "utf8");
             await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "-l", promptText]);
-            await new Promise((resolve2) => setTimeout(resolve2, 2e3));
+            await new Promise((resolve4) => setTimeout(resolve4, 2e3));
             await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "Enter"]);
             jobLog(jobId, `Injected prompt into interactive session (${promptText.length} chars)`);
           } catch (err) {
@@ -17291,7 +17798,8 @@ ${assembledContext}`);
     } catch (err) {
       console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
       await cleanupPreparedWorkspace();
-      this.slots.release(slotType);
+      if (slotAcquired)
+        this.slots.release(slotType);
       await this.sendJobFailed(jobId, `Failed to start tmux session: ${String(err)}`, "agent_crash");
       return;
     }
@@ -17299,6 +17807,7 @@ ${assembledContext}`);
     const activeJob = {
       jobId,
       slotType,
+      slotAcquired,
       sessionName,
       pollTimer: null,
       timeoutTimer: null,
@@ -17306,6 +17815,7 @@ ${assembledContext}`);
       startedAt: Date.now(),
       logPath: logPath2,
       lastBytesSent: 0,
+      lastLifecycleBytesSent: 0,
       workspaceDir: ephemeralWorkspaceDir,
       worktreePath,
       repoDir,
@@ -17373,8 +17883,10 @@ ${assembledContext}`);
       model: job.model,
       role: job.role,
       promptStackMinusSkills: job.prompt_stack_minus_skills,
+      ...job.sub_agent_prompt ? { subAgentPrompt: job.sub_agent_prompt } : {},
       roleSkills: job.skills?.length ? job.skills : void 0,
-      roleMcpTools: job.mcp_tools?.length ? job.mcp_tools : void 0
+      roleMcpTools: job.mcp_tools?.length ? job.mcp_tools : void 0,
+      companyProjects: job.projects?.length ? job.projects : void 0
     };
     await this.handlePersistentJob(`persistent-${job.role}`, syntheticMsg, syntheticMsg.slotType, companyId);
   }
@@ -17487,10 +17999,12 @@ ${msg.text}`;
       this.clearJobTimers(job);
       await killTmuxSession(job.sessionName);
       if (job.worktreePath && job.repoDir) {
+        await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
       } else {
         cleanupJobWorkspace(job.jobId, job.workspaceDir);
       }
-      this.slots.release(job.slotType);
+      if (job.slotAcquired)
+        this.slots.release(job.slotType);
     }
     this.activeJobs.clear();
   }
@@ -17578,7 +18092,8 @@ ${msg.text}`;
     } else {
       cleanupJobWorkspace(job.jobId, job.workspaceDir);
     }
-    this.slots.release(job.slotType);
+    if (job.slotAcquired)
+      this.slots.release(job.slotType);
   }
   // ---------------------------------------------------------------------------
   // Private: Persistent agent (role-agnostic)
@@ -17597,11 +18112,16 @@ ${msg.text}`;
    */
   async handlePersistentJob(jobId, msg, slotType, companyId) {
     const role = msg.role ?? "agent";
+    const roleSkills = ensureRoleSkills(role, msg.roleSkills);
     const resolvedCompanyId = companyId ?? process.env["ZAZIG_COMPANY_ID"] ?? "";
     const workspaceDir = resolvedCompanyId ? join4(homedir2(), ".zazigv2", `${resolvedCompanyId}-${role}-workspace`) : join4(homedir2(), ".zazigv2", `${role}-workspace`);
+    let roleConfig;
     try {
       const repoRoot = resolveRepoRoot();
+      roleConfig = await this.loadPersistentRoleConfig(role);
       const mcpServerPath = resolveMcpServerPath();
+      const assembledContext = assembleContext(msg, repoRoot);
+      const claudeMdContent = role === "cpo" ? await this.withExpertRosterSection(assembledContext) : assembledContext;
       setupJobWorkspace({
         workspaceDir,
         mcpServerPath,
@@ -17610,22 +18130,50 @@ ${msg.text}`;
         jobId,
         companyId: resolvedCompanyId,
         role,
-        claudeMdContent: assembleContext(msg, repoRoot),
-        skills: msg.roleSkills,
+        claudeMdContent,
+        heartbeatMd: roleConfig.heartbeatMd,
+        skills: roleSkills,
         repoSkillsDir: join4(repoRoot, "projects", "skills"),
         repoInteractiveSkillsDir: join4(repoRoot, ".claude", "skills"),
         useSymlinks: true,
         mcpTools: msg.roleMcpTools,
-        tmuxSession: `${this.machineId}-${this.companyId ? this.companyId.slice(0, 8) + "-" : ""}${role}`
+        tmuxSession: `${this.machineId}-${this.companyId ? this.companyId.slice(0, 8) + "-" : ""}${role}`,
+        machineId: this.machineId
       });
       if (role === "cpo") {
         await writeSubagentsConfig(workspaceDir);
       }
-      let rolePromptForHash = msg.rolePrompt ?? "";
-      if (!rolePromptForHash) {
-        const { data: roleRow } = await this.supabase.from("roles").select("prompt").eq("name", role).single();
-        rolePromptForHash = roleRow?.prompt ?? "";
+      const projects = await this.resolvePersistentProjects(msg, resolvedCompanyId);
+      const reposDir = join4(workspaceDir, "repos");
+      mkdirSync2(reposDir, { recursive: true });
+      console.log(`[executor] Persistent agent repo symlink dir ready: ${reposDir}`);
+      for (const project of projects) {
+        try {
+          if (!project.repo_url) {
+            console.warn(`[executor] Persistent agent repo link skipped for project=${project.name}: missing repo_url`);
+            continue;
+          }
+          await this.repoManager.ensureRepo(project.repo_url, project.name);
+          const worktreeDir = await this.repoManager.ensureWorktree(project.name);
+          const projectLinkPath = join4(reposDir, project.name);
+          rmSync3(projectLinkPath, { force: true, recursive: true });
+          symlinkSync2(worktreeDir, projectLinkPath);
+          console.log(`[executor] Persistent agent repo symlinked: ${project.name} -> ${worktreeDir}`);
+        } catch (err) {
+          console.error(`[executor] Persistent agent repo link failed for project=${project.name}:`, err);
+        }
       }
+      generateExecSkill({
+        name: role,
+        prompt: claudeMdContent,
+        heartbeat_md: roleConfig.heartbeatMd
+      }, workspaceDir);
+      publishSharedExecSkill({
+        name: role,
+        prompt: claudeMdContent,
+        heartbeat_md: roleConfig.heartbeatMd
+      }, workspaceDir, repoRoot);
+      const rolePromptForHash = msg.rolePrompt ?? roleConfig.prompt;
       const promptHash = createHash("sha256").update(rolePromptForHash).digest("hex");
       writeFileSync2(join4(workspaceDir, ".role"), role);
       writeFileSync2(join4(workspaceDir, ".prompt-hash"), promptHash);
@@ -17635,11 +18183,20 @@ ${msg.text}`;
       const freshnessScript = join4(repoRoot, "packages", "local-agent", "scripts", "check-prompt-freshness.sh");
       const settingsPath = join4(workspaceDir, ".claude", "settings.json");
       const existingSettings = JSON.parse(readFileSync3(settingsPath, "utf8"));
+      const existingSessionStartHooks = Array.isArray(existingSettings.hooks?.SessionStart) ? existingSettings.hooks.SessionStart : [];
+      const sessionStartHooks = [
+        ...existingSessionStartHooks,
+        { matcher: "", hooks: [{ type: "command", command: `bash ${freshnessScript}` }] }
+      ];
+      if (roleConfig.heartbeatMd.trim().length > 0) {
+        sessionStartHooks.push({
+          matcher: "",
+          hooks: [{ type: "command", command: this.buildHeartbeatSessionStartCommand() }]
+        });
+      }
       existingSettings.hooks = {
         ...existingSettings.hooks,
-        SessionStart: [
-          { matcher: "", hooks: [{ type: "command", command: `bash ${freshnessScript}` }] }
-        ]
+        SessionStart: sessionStartHooks
       };
       writeFileSync2(settingsPath, JSON.stringify(existingSettings, null, 2));
       console.log(`[executor] Persistent agent workspace created at ${workspaceDir}`);
@@ -17686,27 +18243,68 @@ ${msg.text}`;
       return;
     }
     const spawnedAt = Date.now();
+    let initialOutputHash = "";
+    try {
+      const output = await capturePane(sessionName);
+      initialOutputHash = createHash("sha256").update(output).digest("hex");
+    } catch {
+    }
     const persistentAgent = {
       role,
       tmuxSession: sessionName,
       jobId,
       companyId: resolvedCompanyId,
       heartbeatTimer: null,
-      startedAt: spawnedAt
+      startedAt: spawnedAt,
+      lastActivityAt: spawnedAt,
+      lastOutputHash: initialOutputHash,
+      cacheTtlMinutes: roleConfig.cacheTtlMinutes,
+      hardTtlMinutes: roleConfig.hardTtlMinutes,
+      heartbeatTasksRun: roleConfig.heartbeatMd.trim().length > 0,
+      consecutiveResetFailures: 0,
+      lastResetAt: null,
+      rolePromptSnapshot: roleConfig.prompt,
+      originalJob: { ...msg, companyProjects: msg.companyProjects ? [...msg.companyProjects] : void 0 },
+      resetInProgress: false
     };
     this.persistentAgents.set(role, persistentAgent);
-    if (resolvedCompanyId && this.machineUuid) {
-      const uuid = this.machineUuid;
-      persistentAgent.heartbeatTimer = setInterval(() => {
-        this.supabase.from("persistent_agents").update({ last_heartbeat: (/* @__PURE__ */ new Date()).toISOString() }).eq("company_id", resolvedCompanyId).eq("machine_id", uuid).eq("status", "running").then(({ error }) => {
-          if (error)
-            console.warn(`[executor] Heartbeat update failed for persistent_agents: ${error.message}`);
-        });
-      }, HEARTBEAT_INTERVAL_MS);
-    }
+    const uuid = this.machineUuid;
+    persistentAgent.heartbeatTimer = setInterval(() => {
+      void (async () => {
+        if (persistentAgent.resetInProgress) {
+          return;
+        }
+        try {
+          const captureOutput = await capturePane(persistentAgent.tmuxSession);
+          const outputHash = createHash("sha256").update(captureOutput).digest("hex");
+          const changed = outputHash !== persistentAgent.lastOutputHash;
+          if (changed) {
+            persistentAgent.lastOutputHash = outputHash;
+            persistentAgent.lastActivityAt = Date.now();
+          }
+          console.log(`[executor] Persistent heartbeat ${persistentAgent.role}: changed=${changed} idle=${Math.floor((Date.now() - persistentAgent.lastActivityAt) / 1e3)}s`);
+        } catch (err) {
+          console.warn(`[executor] Failed to capture pane for ${persistentAgent.role}: ${String(err)}`);
+        }
+        if (Date.now() - persistentAgent.startedAt >= MIN_SESSION_AGE_MS && persistentAgent.consecutiveResetFailures > 0) {
+          persistentAgent.consecutiveResetFailures = 0;
+          persistentAgent.lastResetAt = null;
+        }
+        await this.checkCacheTtl(persistentAgent);
+        if (resolvedCompanyId && uuid) {
+          this.supabase.from("persistent_agents").update({ last_heartbeat: (/* @__PURE__ */ new Date()).toISOString() }).eq("company_id", resolvedCompanyId).eq("machine_id", uuid).eq("status", "running").then(({ error }) => {
+            if (error)
+              console.warn(`[executor] Heartbeat update failed for persistent_agents: ${error.message}`);
+          });
+        }
+      })().catch((err) => {
+        console.error(`[executor] Persistent heartbeat crashed for ${persistentAgent.role}:`, err);
+      });
+    }, HEARTBEAT_INTERVAL_MS);
     this.activeJobs.set(jobId, {
       jobId,
       slotType,
+      slotAcquired: false,
       sessionName,
       pollTimer: null,
       timeoutTimer: null,
@@ -17714,6 +18312,7 @@ ${msg.text}`;
       startedAt: spawnedAt,
       logPath: "",
       lastBytesSent: 0,
+      lastLifecycleBytesSent: 0,
       role: msg.role,
       attempt: 1,
       maxAttempts: 3,
@@ -17723,6 +18322,91 @@ ${msg.text}`;
     });
     await this.sendJobStatus(jobId, "executing");
     console.log(`[executor] Persistent ${role} session=${sessionName} ready \u2014 jobId=${jobId}`);
+  }
+  // ---------------------------------------------------------------------------
+  async checkCacheTtl(agent) {
+    if (agent.resetInProgress)
+      return;
+    if (agent.cacheTtlMinutes <= 0 && agent.hardTtlMinutes <= 0)
+      return;
+    const now = Date.now();
+    const idleMs = now - agent.lastActivityAt;
+    const sessionAgeMs = now - agent.startedAt;
+    if (sessionAgeMs < MIN_SESSION_AGE_MS) {
+      return;
+    }
+    let humanAttached = false;
+    try {
+      const { stdout } = await execFileAsync2("tmux", ["list-clients", "-t", agent.tmuxSession]);
+      humanAttached = stdout.trim().length > 0;
+    } catch {
+      humanAttached = false;
+    }
+    if (humanAttached) {
+      agent.lastActivityAt = now;
+    }
+    const idleTtlExpired = agent.cacheTtlMinutes > 0 && idleMs > agent.cacheTtlMinutes * 6e4;
+    const hardTtlExpired = agent.hardTtlMinutes > 0 && sessionAgeMs > agent.hardTtlMinutes * 6e4;
+    if (!hardTtlExpired && (!idleTtlExpired || humanAttached)) {
+      if (idleTtlExpired && humanAttached) {
+        console.log(`[executor] Cache-TTL suppressed for ${agent.role}: human attached`);
+      }
+      return;
+    }
+    const reason = hardTtlExpired ? "hard-TTL" : "idle-TTL";
+    console.log(`[executor] Cache-TTL reset triggered for ${agent.role}: ${reason} (idle=${Math.floor(idleMs / 1e3)}s, age=${Math.floor(sessionAgeMs / 1e3)}s)`);
+    await this.resetPersistentSession(agent, reason);
+  }
+  async resetPersistentSession(agent, reason) {
+    if (agent.resetInProgress) {
+      return;
+    }
+    agent.resetInProgress = true;
+    try {
+      await execFileAsync2("tmux", ["send-keys", "-t", agent.tmuxSession, "exit", "Enter"]);
+      await sleep(5e3);
+      try {
+        await execFileAsync2("tmux", ["has-session", "-t", agent.tmuxSession]);
+        await execFileAsync2("tmux", ["send-keys", "-t", agent.tmuxSession, "C-c"]);
+        await sleep(3e3);
+        try {
+          await execFileAsync2("tmux", ["kill-session", "-t", agent.tmuxSession]);
+        } catch {
+        }
+      } catch {
+      }
+      const refreshedRoleConfig = await this.loadPersistentRoleConfig(agent.role);
+      const activeJob = this.activeJobs.get(agent.jobId);
+      if (activeJob) {
+        activeJob.settled = true;
+        this.clearJobTimers(activeJob);
+        this.activeJobs.delete(agent.jobId);
+      }
+      const replayJob = {
+        ...agent.originalJob,
+        promptStackMinusSkills: this.refreshPersistentPromptStack(agent.originalJob.promptStackMinusSkills, agent.rolePromptSnapshot, refreshedRoleConfig.prompt),
+        rolePrompt: refreshedRoleConfig.prompt
+      };
+      this.clearPersistentAgent(agent.role, { updateDbStatus: false });
+      await this.handlePersistentJob(agent.jobId, replayJob, replayJob.slotType, agent.companyId);
+      const restartedAgent = this.persistentAgents.get(agent.role);
+      if (restartedAgent) {
+        restartedAgent.consecutiveResetFailures = 0;
+        restartedAgent.lastResetAt = Date.now();
+      }
+      console.log(`[executor] Cache-TTL reset complete for ${agent.role} (reason: ${reason})`);
+    } catch (err) {
+      agent.consecutiveResetFailures += 1;
+      const now = Date.now();
+      const lastResetAt = agent.lastResetAt;
+      agent.lastResetAt = now;
+      agent.resetInProgress = false;
+      console.error(`[executor] Cache-TTL reset FAILED for ${agent.role} (attempt ${agent.consecutiveResetFailures}):`, err);
+      if (agent.consecutiveResetFailures >= MAX_RESET_FAILURES && lastResetAt !== null && now - lastResetAt <= RESET_FAILURE_WINDOW_MS) {
+        console.error(`[executor] CIRCUIT BREAKER: ${agent.role} reset loop detected \u2014 pausing auto-reset`);
+        agent.cacheTtlMinutes = 0;
+      }
+    }
   }
   // ---------------------------------------------------------------------------
   async handleStopJob(msg) {
@@ -17753,12 +18437,25 @@ ${msg.text}`;
     await killTmuxSession(job.sessionName);
     const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
     if (logChunk !== null) {
-      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-        job_id: jobId,
-        chunk: logChunk.chunk
+      const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "tmux",
+        p_chunk: logChunk.chunk
       });
       if (appendErr) {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+    const lifecycleLogPath1 = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const lifecycleChunk1 = readLogFileFrom(lifecycleLogPath1, job.lastLifecycleBytesSent);
+    if (lifecycleChunk1 !== null) {
+      const { error } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "lifecycle",
+        p_chunk: lifecycleChunk1.chunk
+      });
+      if (!error) {
+        job.lastLifecycleBytesSent = lifecycleChunk1.newOffset;
       }
     }
     if (job.worktreePath && job.jobBranch) {
@@ -17769,10 +18466,11 @@ ${msg.text}`;
       }
     }
     if (job.worktreePath && job.repoDir) {
+      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
-    if (!stoppedPersistentRole) {
+    if (!stoppedPersistentRole && job.slotAcquired) {
       this.slots.release(job.slotType);
     }
     await this.sendStopAck(jobId);
@@ -17798,14 +18496,27 @@ ${msg.text}`;
       }
       const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
       if (logChunk !== null) {
-        const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-          job_id: jobId,
-          chunk: logChunk.chunk
+        const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+          p_job_id: jobId,
+          p_type: "tmux",
+          p_chunk: logChunk.chunk
         });
         if (appendErr) {
           console.warn(`[executor] Log append failed for jobId=${jobId}: ${appendErr.message}`);
         } else {
           job.lastBytesSent = logChunk.newOffset;
+        }
+      }
+      const lifecycleLogPath2 = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+      const lifecycleChunk2 = readLogFileFrom(lifecycleLogPath2, job.lastLifecycleBytesSent);
+      if (lifecycleChunk2 !== null) {
+        const { error } = await this.supabase.rpc("append_job_log", {
+          p_job_id: jobId,
+          p_type: "lifecycle",
+          p_chunk: lifecycleChunk2.chunk
+        });
+        if (!error) {
+          job.lastLifecycleBytesSent = lifecycleChunk2.newOffset;
         }
       }
       jobLog(jobId, `Still running \u2014 progress=${progress}`);
@@ -17839,12 +18550,25 @@ ${msg.text}`;
     await killTmuxSession(job.sessionName);
     const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
     if (logChunk !== null) {
-      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-        job_id: jobId,
-        chunk: logChunk.chunk
+      const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "tmux",
+        p_chunk: logChunk.chunk
       });
       if (appendErr) {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
+      }
+    }
+    const lifecycleLogPath3 = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const lifecycleChunk3 = readLogFileFrom(lifecycleLogPath3, job.lastLifecycleBytesSent);
+    if (lifecycleChunk3 !== null) {
+      const { error } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "lifecycle",
+        p_chunk: lifecycleChunk3.chunk
+      });
+      if (!error) {
+        job.lastLifecycleBytesSent = lifecycleChunk3.newOffset;
       }
     }
     if (job.worktreePath && job.jobBranch) {
@@ -17855,10 +18579,11 @@ ${msg.text}`;
       }
     }
     if (job.worktreePath && job.repoDir) {
+      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
-    if (!timedOutPersistentRole) {
+    if (!timedOutPersistentRole && job.slotAcquired) {
       this.slots.release(job.slotType);
     }
     await this.sendJobFailed(jobId, "Job exceeded 60-minute timeout", "timeout");
@@ -17897,7 +18622,7 @@ ${msg.text}`;
           jobLog(jobId, `Codex review failed \u2014 retrying attempt ${job.attempt}/${job.maxAttempts}. reason="${reviewResult.reason}"`);
           try {
             const fixPromptPath = buildFixPrompt(job);
-            const built = buildCommand(job.slotType, job.complexity ?? "medium", job.model ?? "codex", job.worktreePath, fixPromptPath);
+            const built = buildCommand(job.slotType, job.complexity ?? "medium", job.model ?? "codex", job.worktreePath, fixPromptPath, job.repoDir);
             if (await isTmuxSessionAlive(job.sessionName)) {
               await killTmuxSession(job.sessionName);
             }
@@ -17938,13 +18663,28 @@ ${msg.text}`;
         const exitedPersistentRole2 = [...this.persistentAgents.values()].find((a) => a.jobId === jobId)?.role;
         if (exitedPersistentRole2) {
           this.clearPersistentAgent(exitedPersistentRole2);
-        } else {
+        } else if (job.slotAcquired) {
           this.slots.release(job.slotType);
         }
         const failLogChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
         if (failLogChunk !== null) {
           try {
-            await this.supabase.rpc("append_raw_log", { job_id: jobId, chunk: failLogChunk.chunk });
+            await this.supabase.rpc("append_job_log", { p_job_id: jobId, p_type: "tmux", p_chunk: failLogChunk.chunk });
+          } catch {
+          }
+        }
+        const lifecycleLogPath4 = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+        const lifecycleChunk4 = readLogFileFrom(lifecycleLogPath4, job.lastLifecycleBytesSent);
+        if (lifecycleChunk4 !== null) {
+          try {
+            const { error } = await this.supabase.rpc("append_job_log", {
+              p_job_id: jobId,
+              p_type: "lifecycle",
+              p_chunk: lifecycleChunk4.chunk
+            });
+            if (!error) {
+              job.lastLifecycleBytesSent = lifecycleChunk4.newOffset;
+            }
           } catch {
           }
         }
@@ -17959,7 +18699,7 @@ ${msg.text}`;
     const exitedPersistentRole = [...this.persistentAgents.values()].find((a) => a.jobId === jobId)?.role;
     if (exitedPersistentRole) {
       this.clearPersistentAgent(exitedPersistentRole);
-    } else {
+    } else if (job.slotAcquired) {
       this.slots.release(job.slotType);
     }
     const homeDir = process.env["HOME"] ?? "/tmp";
@@ -18027,14 +18767,28 @@ ${msg.text}`;
     }
     const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
     if (logChunk !== null) {
-      const { error: appendErr } = await this.supabase.rpc("append_raw_log", {
-        job_id: jobId,
-        chunk: logChunk.chunk
+      const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "tmux",
+        p_chunk: logChunk.chunk
       });
       if (appendErr) {
         console.warn(`[executor] Final log flush failed for jobId=${jobId}: ${appendErr.message}`);
       }
     }
+    const lifecycleLogPath5 = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const lifecycleChunk5 = readLogFileFrom(lifecycleLogPath5, job.lastLifecycleBytesSent);
+    if (lifecycleChunk5 !== null) {
+      const { error } = await this.supabase.rpc("append_job_log", {
+        p_job_id: jobId,
+        p_type: "lifecycle",
+        p_chunk: lifecycleChunk5.chunk
+      });
+      if (!error) {
+        job.lastLifecycleBytesSent = lifecycleChunk5.newOffset;
+      }
+    }
+    let pr;
     if (job.worktreePath && job.jobBranch) {
       jobLog(jobId, `Pushing branch ${job.jobBranch} from ${job.worktreePath}`);
       try {
@@ -18045,7 +18799,6 @@ ${msg.text}`;
         jobLog(jobId, `Push FAILED for ${job.jobBranch}: ${String(pushErr)}`);
         console.warn(`[executor] onJobEnded: push failed for jobId=${jobId}: ${String(pushErr)}`);
       }
-      await this.supabase.from("jobs").update({ branch: job.jobBranch }).eq("id", jobId);
       try {
         await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
       } catch (worktreeErr) {
@@ -18053,45 +18806,28 @@ ${msg.text}`;
         console.warn(`[executor] Worktree cleanup failed for jobId=${jobId}: ${String(worktreeErr)}`);
       }
       if (job.cardType === "combine" && job.repoUrl && job.featureBranch) {
-        await this.createPRForCombineJob(jobId, job);
+        pr = await this.createPRForCombineJob(jobId, job);
       }
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
     }
-    if (job.cardType === "verify" && result.startsWith("PASSED") && job.featureBranch) {
-      jobLog(jobId, `Verify passed \u2014 merging PR for feature branch ${job.featureBranch}`);
+    if (result === "PASSED" || result.startsWith("PASSED:")) {
+      jobLog(jobId, `Sending JobComplete \u2014 result="${result}", hasReport=${!!report}`);
       try {
-        const { stdout: mergeOut } = await execFileAsync2("gh", [
-          "pr",
-          "merge",
-          job.featureBranch,
-          "--squash",
-          "--delete-branch"
-        ], { encoding: "utf8" });
-        jobLog(jobId, `PR merge succeeded: ${mergeOut.trim()}`);
-        console.log(`[executor] PR merged for jobId=${jobId}, branch=${job.featureBranch}`);
-      } catch (mergeErr) {
-        jobLog(jobId, `PR merge FAILED: ${String(mergeErr)}`);
-        console.error(`[executor] PR merge failed for jobId=${jobId}:`, mergeErr);
+        await this.sendJobComplete(jobId, result, report, job.jobBranch, pr);
+        jobLog(jobId, `JobComplete sent successfully`);
+      } catch (sendErr) {
+        jobLog(jobId, `sendJobComplete FAILED: ${String(sendErr)}`);
+        console.error(`[executor] sendJobComplete failed for jobId=${jobId}:`, sendErr);
       }
-    }
-    if (result === "VERDICT_MISSING") {
-      jobLog(jobId, `Sending JobFailed (no verdict) \u2014 result="${result}"`);
+    } else {
+      jobLog(jobId, `Sending JobFailed \u2014 result="${result}"`);
       try {
         await this.sendJobFailed(jobId, result, "unknown");
         jobLog(jobId, `JobFailed sent successfully`);
       } catch (sendErr) {
         jobLog(jobId, `sendJobFailed FAILED: ${String(sendErr)}`);
         console.error(`[executor] sendJobFailed failed for jobId=${jobId}:`, sendErr);
-      }
-    } else {
-      jobLog(jobId, `Sending JobComplete \u2014 result="${result}", hasReport=${!!report}`);
-      try {
-        await this.sendJobComplete(jobId, result, report);
-        jobLog(jobId, `JobComplete sent successfully`);
-      } catch (sendErr) {
-        jobLog(jobId, `sendJobComplete FAILED: ${String(sendErr)}`);
-        console.error(`[executor] sendJobComplete failed for jobId=${jobId}:`, sendErr);
       }
     }
     if (this.afterJobComplete) {
@@ -18118,7 +18854,7 @@ ${msg.text}`;
     const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
     if (!match) {
       jobLog(jobId, `PR skipped \u2014 cannot parse owner/repo from "${repoUrl}"`);
-      return;
+      return void 0;
     }
     const ownerRepo = match[1];
     const prTitle = `feat: ${featureTitle ?? featureId ?? jobId}`;
@@ -18160,6 +18896,7 @@ ${msg.text}`;
       }
       jobLog(jobId, `PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);
       console.log(`[executor] PR created for feature ${featureId ?? "unknown"}: ${prUrl}`);
+      return prUrl || void 0;
     } catch (prErr) {
       jobLog(jobId, `PR creation failed: ${String(prErr)} \u2014 checking for existing PR`);
       console.warn(`[executor] PR creation failed for jobId=${jobId}: ${String(prErr)}`);
@@ -18185,17 +18922,19 @@ ${msg.text}`;
             jobLog(jobId, `Found existing PR for feature ${featureId}: ${prs[0].url}`);
           }
           console.log(`[executor] Found existing PR for feature ${featureId}: ${prs[0].url}`);
+          return prs[0].url;
         }
       } catch {
       }
+      return void 0;
     }
   }
   // ---------------------------------------------------------------------------
   // Private: Message injection queue (ported from SlackChatRouter)
   // ---------------------------------------------------------------------------
   enqueueMessage(message, sessionName, startedAt, type = "human") {
-    return new Promise((resolve2, reject) => {
-      enqueueWithCap(this.messageQueue, { text: message, sessionName, startedAt, type, resolve: resolve2, reject }, MAX_QUEUE_SIZE);
+    return new Promise((resolve4, reject) => {
+      enqueueWithCap(this.messageQueue, { text: message, sessionName, startedAt, type, resolve: resolve4, reject }, MAX_QUEUE_SIZE);
       if (!this.processingQueue) {
         void this.processMessageQueue();
       }
@@ -18241,14 +18980,15 @@ ${msg.text}`;
    *
    * @param role - The role key to look up in persistentAgents. If omitted, clears ALL agents.
    */
-  clearPersistentAgent(role) {
+  clearPersistentAgent(role, options) {
     const agentsToClear = role ? this.persistentAgents.has(role) ? [this.persistentAgents.get(role)] : [] : [...this.persistentAgents.values()];
+    const updateDbStatus = options?.updateDbStatus ?? true;
     for (const agent of agentsToClear) {
       if (agent.heartbeatTimer) {
         clearInterval(agent.heartbeatTimer);
         agent.heartbeatTimer = null;
       }
-      if (agent.companyId && this.machineUuid) {
+      if (updateDbStatus && agent.companyId && this.machineUuid) {
         this.supabase.from("persistent_agents").update({ status: "stopped" }).eq("company_id", agent.companyId).eq("role", agent.role).eq("machine_id", this.machineUuid).then(({ error }) => {
           if (error)
             console.warn(`[executor] Failed to update persistent_agents status for role=${agent.role}: ${error.message}`);
@@ -18313,46 +19053,27 @@ ${msg.text}`;
       ...output !== void 0 ? { output } : {}
     });
   }
-  async sendJobComplete(jobId, result, report) {
-    if (!jobId.startsWith("persistent-")) {
-      jobLog(jobId, `DB write: status=complete, result="${result.slice(0, 100)}"`);
-      const { error: dbErr } = await this.supabase.from("jobs").update({
-        status: "complete",
-        result,
-        completed_at: (/* @__PURE__ */ new Date()).toISOString(),
-        progress: 100
-      }).eq("id", jobId);
-      if (dbErr) {
-        jobLog(jobId, `DB write FAILED: ${dbErr.message}`);
-        console.warn(`[executor] sendJobComplete DB write failed for jobId=${jobId}: ${dbErr.message}`);
-      } else {
-        jobLog(jobId, `DB write succeeded`);
-      }
-    }
+  async sendJobComplete(jobId, result, report, branch, pr) {
     await this.send({
       type: "job_complete",
       protocolVersion: PROTOCOL_VERSION,
       jobId,
       machineId: this.machineId,
       result,
+      branch: branch ?? void 0,
+      pr_url: pr ?? void 0,
+      ...pr !== void 0 ? { pr } : {},
       ...report !== void 0 ? { report } : {}
     });
   }
-  async sendJobFailed(jobId, error, failureReason) {
-    jobLog(jobId, `FAILED \u2014 reason=${failureReason}, error="${error.slice(0, 200)}"`);
-    if (!jobId.startsWith("persistent-")) {
-      const { error: dbErr } = await this.supabase.from("jobs").update({ status: "failed", result: "FAILED" }).eq("id", jobId);
-      if (dbErr) {
-        jobLog(jobId, `DB write FAILED: ${dbErr.message}`);
-        console.warn(`[executor] sendJobFailed DB write failed for jobId=${jobId}: ${dbErr.message}`);
-      }
-    }
+  async sendJobFailed(jobId, result, failureReason) {
+    jobLog(jobId, `FAILED \u2014 reason=${failureReason}, error="${result.slice(0, 200)}"`);
     await this.send({
       type: "job_failed",
       protocolVersion: PROTOCOL_VERSION,
       jobId,
       machineId: this.machineId,
-      error,
+      error: result,
       failureReason
     });
   }
@@ -18518,13 +19239,18 @@ function buildFixPrompt(job) {
   if (!job.worktreePath) {
     throw new Error("buildFixPrompt requires a worktreePath");
   }
+  let originalSpec = job.spec;
+  try {
+    originalSpec = readFileSync3(join4(job.worktreePath, ".zazig-prompt.txt"), "utf-8");
+  } catch {
+  }
   const reasons = job.fixReasons.length > 0 ? job.fixReasons.map((reason, idx) => `${idx + 1}. ${reason}`).join("\n") : "1. No review reason recorded.";
   const fixPrompt = [
     `Codex review failed for job ${job.jobId}.`,
     `Attempt ${job.attempt} of ${job.maxAttempts}.`,
     "",
     "## Original Spec",
-    job.spec?.trim().length ? job.spec : "No spec provided.",
+    originalSpec?.trim().length ? originalSpec : "No spec provided.",
     "",
     "## Acceptance Criteria",
     job.acceptanceCriteria?.trim().length ? job.acceptanceCriteria : "No acceptance criteria provided.",
@@ -18539,10 +19265,13 @@ function buildFixPrompt(job) {
   writeFileSync2(fixPromptPath, fixPrompt, "utf-8");
   return fixPromptPath;
 }
-function buildCommand(slotType, complexity, model, worktreePath, promptFilePath) {
+function buildCommand(slotType, complexity, model, worktreePath, promptFilePath, repoDir) {
   const resolvedModel = model && model !== "codex" ? model : slotType === "codex" ? "gpt-5.3-codex" : complexity === "complex" ? "claude-opus-4-6" : "claude-sonnet-4-6";
   if (slotType === "codex") {
     const args = ["exec", "-m", resolvedModel, "--full-auto", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
+    if (repoDir) {
+      args.push("--add-dir", repoDir);
+    }
     if (complexity === "medium") {
       args.push("-c", "model_reasoning_effort=xhigh");
     }
@@ -18580,6 +19309,10 @@ async function killTmuxSession(sessionName) {
     console.warn(`[executor] Could not kill tmux session ${sessionName}:`, err);
   }
 }
+async function capturePane(sessionName) {
+  const { stdout } = await execFileAsync2("tmux", ["capture-pane", "-t", sessionName, "-p"]);
+  return stdout;
+}
 async function isTmuxSessionAlive(sessionName) {
   try {
     await execFileAsync2("tmux", ["has-session", "-t", sessionName]);
@@ -18589,7 +19322,7 @@ async function isTmuxSessionAlive(sessionName) {
   }
 }
 function sleep(ms) {
-  return new Promise((resolve2) => setTimeout(resolve2, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function jobLogPath(jobId) {
   return `${JOB_LOG_DIR}/${jobId}-pipe-pane.log`;
@@ -18619,7 +19352,7 @@ function readLogFileFrom(logPath2, offsetBytes) {
 function cleanupJobWorkspace(jobId, workspaceDir) {
   try {
     const target = workspaceDir && workspaceDir.trim().length > 0 ? workspaceDir : join4(homedir2(), ".zazigv2", `job-${jobId}`);
-    rmSync2(target, { recursive: true });
+    rmSync3(target, { recursive: true });
   } catch {
   }
 }
@@ -18627,7 +19360,7 @@ function shellEscape(parts) {
   return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
 }
 
-// ../local-agent/dist/job-recovery.js
+// packages/local-agent/dist/job-recovery.js
 async function recoverDispatchedJobs(dbClient, machineName, options) {
   const gracePeriodMs = options?.gracePeriodMs ?? 5 * 60 * 1e3;
   try {
@@ -18675,11 +19408,54 @@ async function recoverDispatchedJobs(dbClient, machineName, options) {
   }
 }
 
-// ../local-agent/dist/connection.js
+// packages/local-agent/package.json
+var package_default = {
+  name: "@zazigv2/local-agent",
+  version: "0.1.0",
+  private: true,
+  description: "Local agent daemon \u2014 connects to Supabase Realtime, executes tmux sessions",
+  type: "module",
+  main: "./dist/index.js",
+  bin: {
+    "zazig-agent-mcp": "./dist/agent-mcp-server.js"
+  },
+  exports: {
+    ".": {
+      import: "./dist/index.js",
+      types: "./dist/index.d.ts"
+    }
+  },
+  scripts: {
+    build: "tsc -b tsconfig.build.json && chmod +x dist/agent-mcp-server.js",
+    typecheck: "tsc -p tsconfig.json --noEmit",
+    clean: "rm -rf dist tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo",
+    test: "vitest run",
+    "test:coverage": "vitest run --coverage",
+    start: "node dist/index.js"
+  },
+  dependencies: {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@supabase/supabase-js": "^2.49.1",
+    "@zazigv2/shared": "*"
+  },
+  devDependencies: {
+    "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    typescript: "5.8",
+    vitest: "^4.0.18"
+  },
+  engines: {
+    node: ">=20.0.0"
+  }
+};
+
+// packages/local-agent/dist/connection.js
 var CREDENTIALS_PATH = join5(homedir3(), ".zazigv2", "credentials.json");
+var execFileAsync3 = promisify3(execFile3);
 var BACKOFF_BASE_MS = 1e3;
 var BACKOFF_MAX_MS = 3e4;
 var BACKOFF_MULTIPLIER = 2;
+var sleep2 = (ms) => new Promise((resolve4) => setTimeout(resolve4, ms));
 var AgentConnection = class {
   /** Anon-key client — used for Realtime subscriptions only. */
   supabase;
@@ -18693,13 +19469,14 @@ var AgentConnection = class {
   handlers = [];
   /** Inbound channel: `agent:{machineId}:{companyId}` — receives commands from orchestrator. */
   channel = null;
-  /** Outbound channel: `orchestrator:commands` — sends messages to orchestrator. */
-  outChannel = null;
   heartbeatTimer = null;
   reconnectTimer = null;
   reconnectAttempts = 0;
   stopped = false;
   isRecoveryRunning = false;
+  outdated = false;
+  outdatedWarningTimer = null;
+  outdatedExitPollTimer = null;
   constructor(config, slots) {
     this.config = config;
     this.machineId = config.name;
@@ -18737,24 +19514,39 @@ var AgentConnection = class {
     this.handlers.push(handler);
   }
   /**
-   * Send an AgentMessage to the orchestrator via the `orchestrator:commands` channel.
-   * The orchestrator subscribes to this channel and dispatches by message type.
+   * Send an AgentMessage to the orchestrator via the `agent-event` edge function.
    */
   async sendMessage(msg) {
-    if (!this.outChannel || this.stopped) {
-      console.warn("[local-agent] sendMessage called but outbound channel is not connected; message dropped:", msg.type);
+    if (this.stopped) {
+      console.warn("[local-agent] sendMessage called while stopped; message dropped:", msg.type);
       return;
     }
-    const result = await this.outChannel.send({
-      type: "broadcast",
-      event: "message",
-      payload: msg
-    });
-    if (result !== "ok") {
-      console.warn(`[local-agent] sendMessage returned: ${result} for type=${msg.type}`);
-    } else {
-      console.log(`[local-agent] Sent ${msg.type} for jobId=${"jobId" in msg ? msg.jobId : "n/a"}`);
+    await this.sendToOrchestrator(msg);
+  }
+  async sendToOrchestrator(msg) {
+    const url = `${this.config.supabase.url}/functions/v1/agent-event`;
+    const { data: { session } } = await this.dbClient.auth.getSession();
+    const token = session?.access_token ?? this.config.supabase.anon_key;
+    for (const delay of [0, 1e3, 5e3, 15e3]) {
+      if (delay > 0)
+        await sleep2(delay);
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify(msg)
+        });
+        if (res.ok)
+          return;
+        console.warn(`[local-agent] agent-event failed (${res.status}), retrying...`);
+      } catch (e) {
+        console.warn(`[local-agent] agent-event error: ${e}, retrying...`);
+      }
     }
+    console.error("[local-agent] agent-event failed after 3 retries");
   }
   /**
    * Query user_companies to get all companies the authenticated user belongs to.
@@ -18837,10 +19629,8 @@ var AgentConnection = class {
     this.stopped = true;
     this.clearReconnectTimer();
     this.clearHeartbeatTimer();
-    if (this.outChannel) {
-      await this.supabase.removeChannel(this.outChannel);
-      this.outChannel = null;
-    }
+    this.clearOutdatedWarningTimer();
+    this.clearOutdatedExitPollTimer();
     if (this.channel) {
       await this.supabase.removeChannel(this.channel);
       this.channel = null;
@@ -18857,8 +19647,7 @@ var AgentConnection = class {
       throw new Error("Cannot connect without company_id \u2014 set ZAZIG_COMPANY_ID");
     }
     const channelName = `agent:${this.machineId}:${this.primaryCompanyId}`;
-    const outChannelName = "orchestrator:commands";
-    console.log(`[local-agent] Connecting to channels: ${channelName} (in), ${outChannelName} (out)`);
+    console.log(`[local-agent] Connecting to inbound channel: ${channelName}`);
     this.channel = this.supabase.channel(channelName, {
       config: {
         broadcast: { ack: false }
@@ -18891,6 +19680,14 @@ var AgentConnection = class {
         console.error(`[local-agent] Broadcast handler crashed (event=job_unblocked):`, err);
       }
     });
+    this.channel.on("broadcast", { event: "start_expert" }, (payload) => {
+      try {
+        console.log(`[local-agent][DEBUG] Matched event=start_expert`);
+        this.handleIncomingPayload(payload.payload);
+      } catch (err) {
+        console.error(`[local-agent] Broadcast handler crashed (event=start_expert):`, err);
+      }
+    });
     this.channel.on("broadcast", { event: "message_inbound" }, (payload) => {
       try {
         console.log(`[local-agent][DEBUG] Matched event=message_inbound`);
@@ -18899,30 +19696,13 @@ var AgentConnection = class {
         console.error(`[local-agent] Broadcast handler crashed (event=message_inbound):`, err);
       }
     });
-    this.outChannel = this.supabase.channel(outChannelName, {
-      config: {
-        broadcast: { ack: false }
-      }
-    });
     let inReady = false;
-    let outReady = false;
     const onBothReady = () => {
-      if (inReady && outReady) {
+      if (inReady) {
         this.reconnectAttempts = 0;
         this.startHeartbeat();
       }
     };
-    this.outChannel.subscribe((status, err) => {
-      if (status === "SUBSCRIBED") {
-        console.log(`[local-agent] Connected to outbound channel: ${outChannelName}`);
-        outReady = true;
-        onBothReady();
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        console.error(`[local-agent] Outbound channel error (status=${status}):`, err ?? "unknown error");
-        this.clearHeartbeatTimer();
-        this.scheduleReconnect();
-      }
-    });
     this.channel.subscribe((status, err) => {
       if (status === "SUBSCRIBED") {
         console.log(`[local-agent] Connected to inbound channel: ${channelName}`);
@@ -18957,6 +19737,10 @@ var AgentConnection = class {
         } catch {
         }
       }
+      return;
+    }
+    if (this.outdated && (payload.type === "start_job" || payload.type === "start_expert")) {
+      console.warn(`[local-agent] Ignoring ${payload.type} while agent is outdated and awaiting upgrade`);
       return;
     }
     console.log(`[local-agent] Received message: type=${payload.type}`, JSON.stringify(payload));
@@ -19001,7 +19785,8 @@ var AgentConnection = class {
       status: "online",
       last_heartbeat: (/* @__PURE__ */ new Date()).toISOString(),
       slots_claude_code: slotsAvailable.claude_code,
-      slots_codex: slotsAvailable.codex
+      slots_codex: slotsAvailable.codex,
+      agent_version: package_default.version
     };
     let failures = 0;
     for (const companyId of this.companyIds) {
@@ -19025,7 +19810,8 @@ var AgentConnection = class {
       last_heartbeat: (/* @__PURE__ */ new Date()).toISOString(),
       status: "online",
       slots_claude_code: slotsAvailable.claude_code,
-      slots_codex: slotsAvailable.codex
+      slots_codex: slotsAvailable.codex,
+      agent_version: package_default.version
     };
     let dbErr = null;
     if (this.companyIds.length > 0) {
@@ -19040,19 +19826,24 @@ var AgentConnection = class {
     if (dbErr) {
       console.warn(`[local-agent] Heartbeat DB write failed: ${dbErr.message}`);
     }
-    if (this.outChannel) {
-      const heartbeat = {
-        type: "heartbeat",
-        protocolVersion: PROTOCOL_VERSION,
-        machineId: this.machineId,
-        slotsAvailable
-      };
-      await this.outChannel.send({
-        type: "broadcast",
-        event: "message",
-        payload: heartbeat
-      });
+    const env = process.env["ZAZIG_ENV"] ?? "production";
+    try {
+      const { data: latestVersion, error: latestVersionErr } = await this.dbClient.from("agent_versions").select("version").eq("env", env).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (latestVersionErr) {
+        console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${latestVersionErr.message}`);
+      } else if (latestVersion && latestVersion.version !== package_default.version) {
+        this.onOutdatedDetected(package_default.version, latestVersion.version);
+      }
+    } catch (err) {
+      console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${String(err)}`);
     }
+    const heartbeat = {
+      type: "heartbeat",
+      protocolVersion: PROTOCOL_VERSION,
+      machineId: this.machineId,
+      slotsAvailable
+    };
+    await this.sendToOrchestrator(heartbeat);
     if (dbErr) {
       console.warn(`[local-agent] Heartbeat FAILED \u2014 machineId=${this.machineId}, slots=${JSON.stringify(slotsAvailable)}, db=FAIL`);
     }
@@ -19067,6 +19858,98 @@ var AgentConnection = class {
         console.warn(`[local-agent] Job recovery poll failed:`, err);
       } finally {
         this.isRecoveryRunning = false;
+      }
+    }
+  }
+  onOutdatedDetected(currentVersion, requiredVersion) {
+    if (this.outdated)
+      return;
+    this.outdated = true;
+    const warningMessage = `
+\u26A0\uFE0F  UPDATE REQUIRED: running v${currentVersion}, latest is v${requiredVersion}. Run 'zazig update' to update.
+`;
+    const emitWarning = () => {
+      process.stderr.write(warningMessage);
+    };
+    emitWarning();
+    this.outdatedWarningTimer = setInterval(() => {
+      emitWarning();
+    }, 6e4);
+    void this.closeOutdatedInteractiveSessions();
+    this.startOutdatedExitPolling();
+  }
+  clearOutdatedWarningTimer() {
+    if (this.outdatedWarningTimer !== null) {
+      clearInterval(this.outdatedWarningTimer);
+      this.outdatedWarningTimer = null;
+    }
+  }
+  clearOutdatedExitPollTimer() {
+    if (this.outdatedExitPollTimer !== null) {
+      clearInterval(this.outdatedExitPollTimer);
+      this.outdatedExitPollTimer = null;
+    }
+  }
+  getActiveJobCount() {
+    const available = this.slots.getAvailable();
+    const activeClaudeJobs = Math.max(0, this.config.slots.claude_code - available.claude_code);
+    const activeCodexJobs = Math.max(0, this.config.slots.codex - available.codex);
+    return activeClaudeJobs + activeCodexJobs;
+  }
+  startOutdatedExitPolling() {
+    if (this.outdatedExitPollTimer !== null)
+      return;
+    if (process.env["ZAZIG_EXIT_ON_OUTDATED"] !== "1") {
+      console.warn("[local-agent] Outdated agent detected; auto-exit disabled (set ZAZIG_EXIT_ON_OUTDATED=1 to enable)");
+      return;
+    }
+    const maybeExit = () => {
+      const activeJobs = this.getActiveJobCount();
+      if (activeJobs > 0) {
+        console.warn(`[local-agent] Outdated agent waiting for ${activeJobs} active job(s) to complete`);
+        return;
+      }
+      this.clearOutdatedExitPollTimer();
+      console.warn("[local-agent] Outdated agent has no active jobs \u2014 exiting for update");
+      void this.stop().finally(() => {
+        process.exit(0);
+      });
+    };
+    maybeExit();
+    this.outdatedExitPollTimer = setInterval(maybeExit, 15e3);
+  }
+  async closeOutdatedInteractiveSessions() {
+    let sessions = [];
+    try {
+      const { stdout } = await execFileAsync3("tmux", ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
+      sessions = stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+    } catch (err) {
+      console.warn(`[local-agent] Could not enumerate tmux sessions while outdated: ${String(err)}`);
+      return;
+    }
+    const companyPrefixes = /* @__PURE__ */ new Set();
+    if (this.primaryCompanyId)
+      companyPrefixes.add(this.primaryCompanyId.slice(0, 8));
+    for (const companyId of this.companyIds) {
+      companyPrefixes.add(companyId.slice(0, 8));
+    }
+    const targets = sessions.filter((sessionName) => {
+      if (sessionName.startsWith("expert-"))
+        return true;
+      if (sessionName === `${this.machineId}-cpo`)
+        return true;
+      for (const prefix of companyPrefixes) {
+        if (sessionName === `${this.machineId}-${prefix}-cpo`)
+          return true;
+      }
+      return false;
+    });
+    for (const sessionName of targets) {
+      try {
+        await execFileAsync3("tmux", ["kill-session", "-t", sessionName], { encoding: "utf8" });
+        console.warn(`[local-agent] Closed interactive tmux session while outdated: ${sessionName}`);
+      } catch (err) {
+        console.warn(`[local-agent] Failed to close tmux session ${sessionName}: ${String(err)}`);
       }
     }
   }
@@ -19088,13 +19971,6 @@ var AgentConnection = class {
     };
     if (conn && typeof conn.on === "function") {
       conn.on("error", swallowErr);
-    }
-    if (this.outChannel) {
-      try {
-        await this.supabase.removeChannel(this.outChannel);
-      } catch {
-      }
-      this.outChannel = null;
     }
     if (this.channel) {
       try {
@@ -19125,10 +20001,532 @@ var AgentConnection = class {
   }
 };
 
-// ../local-agent/dist/fix-agent.js
-import { execFile as execFile3 } from "node:child_process";
-import { promisify as promisify3 } from "node:util";
-var execFileAsync3 = promisify3(execFile3);
+// packages/local-agent/dist/expert-session-manager.js
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync5, writeFileSync as writeFileSync4, existsSync as existsSync5, rmSync as rmSync4 } from "node:fs";
+import { join as join6, dirname as dirname3, resolve as resolve3 } from "node:path";
+import { homedir as homedir4 } from "node:os";
+import { execFile as execFile4 } from "node:child_process";
+import { promisify as promisify4 } from "node:util";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
+var execFileAsync4 = promisify4(execFile4);
+function shellEscape2(parts) {
+  return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
+}
+var AVAILABLE_CONTEXT_HEADING = "## Available Context";
+var AVAILABLE_CONTEXT_SECTION = `${AVAILABLE_CONTEXT_HEADING}
+
+Exec context skills are available in this session. To load an exec's current priorities, decisions, and working context:
+
+- \`/as-cpo\` \u2014 CPO's context: product priorities, active decisions, strategic direction
+- \`/as-cto\` \u2014 CTO's context: architecture decisions, technical constraints, infra state
+
+Use these if you need to understand why your task was commissioned. Read the exec's memory files \u2014 do not modify them.`;
+function assembleExpertBrief(brief) {
+  if (brief.includes(AVAILABLE_CONTEXT_HEADING)) {
+    return brief;
+  }
+  const trimmedBrief = brief.trimEnd();
+  return `${trimmedBrief}
+
+${AVAILABLE_CONTEXT_SECTION}`;
+}
+function resolveMcpServerPath2() {
+  const thisDir = dirname3(fileURLToPath2(import.meta.url));
+  const mjsPath = join6(thisDir, "agent-mcp-server.mjs");
+  if (existsSync5(mjsPath))
+    return mjsPath;
+  return join6(thisDir, "agent-mcp-server.js");
+}
+function resolveRepoRoot2() {
+  const thisDir = dirname3(fileURLToPath2(import.meta.url));
+  const candidates = [
+    resolve3(thisDir, "..", "..", ".."),
+    process.cwd()
+  ];
+  for (const c of candidates) {
+    if (existsSync5(join6(c, "packages")))
+      return c;
+  }
+  return process.cwd();
+}
+function viewerSessionName(companyName) {
+  return `zazig-view-${companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
+async function killTmuxSession2(sessionName) {
+  try {
+    await execFileAsync4("tmux", ["kill-session", "-t", sessionName]);
+    console.log(`[expert] Killed stale tmux session: ${sessionName}`);
+  } catch {
+  }
+}
+async function isTmuxSessionAlive2(sessionName) {
+  try {
+    await execFileAsync4("tmux", ["has-session", "-t", sessionName]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+var ExpertSessionManager = class {
+  machineId;
+  companyId;
+  supabase;
+  supabaseUrl;
+  supabaseAnonKey;
+  repoManager;
+  activeSessions = /* @__PURE__ */ new Map();
+  activePollers = /* @__PURE__ */ new Map();
+  exitingSessions = /* @__PURE__ */ new Set();
+  constructor(opts) {
+    this.machineId = opts.machineId;
+    this.companyId = opts.companyId;
+    this.supabase = opts.supabase;
+    this.supabaseUrl = opts.supabaseUrl;
+    this.supabaseAnonKey = opts.supabaseAnonKey;
+    this.repoManager = opts.repoManager;
+  }
+  async handleStartExpert(msg) {
+    const sessionId = msg.session_id;
+    const shortId = sessionId.slice(0, 8);
+    const tmuxSessionName = `expert-${shortId}`;
+    const displayName = msg.display_name ?? `Expert ${shortId}`;
+    console.log(`[expert] Starting expert session ${sessionId} (${displayName})`);
+    const workspaceDir = join6(homedir4(), ".zazigv2", `expert-${sessionId}`);
+    mkdirSync4(workspaceDir, { recursive: true });
+    let repoDir;
+    let bareRepoDir;
+    if (msg.project_id && !msg.repo_url || !msg.project_id && msg.repo_url) {
+      console.error(`[expert] Invalid start_expert payload for ${sessionId}: project_id and repo_url must both be set together`);
+      await this.updateSessionStatus(sessionId, "failed");
+      return;
+    }
+    if (msg.project_id && msg.repo_url) {
+      try {
+        const projectName = msg.repo_url.split("/").pop()?.replace(/\.git$/, "") ?? msg.project_id;
+        bareRepoDir = await this.repoManager.ensureRepo(msg.repo_url, projectName);
+        const worktreeTarget = join6(workspaceDir, "repo");
+        const branch = msg.branch ?? "master";
+        try {
+          await execFileAsync4("git", [
+            "-C",
+            bareRepoDir,
+            "worktree",
+            "remove",
+            "--force",
+            worktreeTarget
+          ]);
+        } catch {
+        }
+        rmSync4(worktreeTarget, { recursive: true, force: true });
+        await execFileAsync4("git", ["-C", bareRepoDir, "worktree", "prune"]);
+        await this.repoManager.fetchBranchForExpert(projectName, branch);
+        await execFileAsync4("git", [
+          "-C",
+          bareRepoDir,
+          "worktree",
+          "add",
+          "--detach",
+          worktreeTarget,
+          `refs/heads/${branch}`
+        ]);
+        const { stdout } = await execFileAsync4("git", ["-C", worktreeTarget, "rev-parse", "HEAD"]);
+        repoDir = worktreeTarget;
+        console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${branch})`);
+        console.log(`[expert] Worktree at commit: ${stdout.trim().slice(0, 8)}`);
+      } catch (err) {
+        console.error(`[expert] Failed to create git worktree:`, err);
+        await this.updateSessionStatus(sessionId, "failed");
+        return;
+      }
+    }
+    const effectiveWorkspaceDir = repoDir ?? workspaceDir;
+    try {
+      const mcpServerPath = resolveMcpServerPath2();
+      const repoRoot = resolveRepoRoot2();
+      const claudeMdParts = [];
+      if (msg.role.prompt) {
+        claudeMdParts.push(msg.role.prompt);
+      }
+      claudeMdParts.push(`
+## Expert Session Instructions
+
+You are working as an interactive expert. Your task brief is in \`.claude/expert-brief.md\`.
+
+### Workflow
+1. Read and understand the brief in \`.claude/expert-brief.md\`
+2. Work through the brief methodically
+3. Show diffs before merging any changes
+4. When done, merge your work to master
+
+### Ending the Session
+When the user says "wrap up", "I'm done", "finish up", or similar:
+1. Write a 2-3 sentence summary of what was accomplished to \`.claude/expert-report.md\`
+2. Tell the user: "Report written. Type /quit (or press Ctrl+C) to close this session."
+
+When greeting the user, always include: "When you're done, say 'wrap up' and I'll write a summary report. Then type /quit (or press Ctrl+C) to close the session."
+
+**Always write the report before the session ends.** The report is read by the CPO after the session closes.
+`);
+      const claudeMdContent = claudeMdParts.join("\n\n");
+      setupJobWorkspace({
+        workspaceDir: effectiveWorkspaceDir,
+        mcpServerPath,
+        supabaseUrl: this.supabaseUrl,
+        supabaseAnonKey: this.supabaseAnonKey,
+        jobId: sessionId,
+        companyId: this.companyId,
+        role: "expert",
+        claudeMdContent,
+        skills: msg.role.skills,
+        repoSkillsDir: join6(repoRoot, "projects", "skills"),
+        repoInteractiveSkillsDir: join6(repoRoot, ".claude", "skills"),
+        mcpTools: msg.role.mcp_tools,
+        tmuxSession: tmuxSessionName
+      });
+      const claudeDir = join6(effectiveWorkspaceDir, ".claude");
+      mkdirSync4(claudeDir, { recursive: true });
+      writeFileSync4(join6(claudeDir, "expert-brief.md"), assembleExpertBrief(msg.brief));
+      const settingsPath = join6(claudeDir, "settings.json");
+      const existingSettings = JSON.parse(readFileSync5(settingsPath, "utf8"));
+      if (msg.role.settings_overrides) {
+        const overrides = msg.role.settings_overrides;
+        for (const [key, value] of Object.entries(overrides)) {
+          if (key === "hooks" || key === "permissions")
+            continue;
+          existingSettings[key] = value;
+        }
+      }
+      existingSettings.hooks = {
+        ...existingSettings.hooks ?? {},
+        ...msg.role.settings_overrides?.hooks ?? {},
+        SessionStart: [
+          ...msg.role.settings_overrides?.hooks?.SessionStart ?? [],
+          {
+            matcher: "",
+            hooks: [{
+              type: "command",
+              command: `cat ${shellEscape2([join6(claudeDir, "expert-brief.md")])} && echo "" && echo "---" && echo "When you're finished, say 'wrap up' \u2014 the expert will write a summary report. Then type /quit (or press Ctrl+C) to close."`
+            }]
+          }
+        ]
+      };
+      if (msg.role.settings_overrides?.permissions) {
+        const overridePerms = msg.role.settings_overrides.permissions;
+        if (Array.isArray(overridePerms.allow)) {
+          const existingAllow = existingSettings.permissions?.allow ?? [];
+          existingSettings.permissions = {
+            ...existingSettings.permissions,
+            allow: [.../* @__PURE__ */ new Set([...existingAllow, ...overridePerms.allow])]
+          };
+        }
+      }
+      writeFileSync4(settingsPath, JSON.stringify(existingSettings, null, 2));
+      console.log(`[expert] Workspace configured at ${effectiveWorkspaceDir}`);
+    } catch (err) {
+      console.error(`[expert] Failed to set up workspace:`, err);
+      await this.updateSessionStatus(sessionId, "failed");
+      return;
+    }
+    try {
+      if (await isTmuxSessionAlive2(tmuxSessionName)) {
+        await killTmuxSession2(tmuxSessionName);
+      }
+      const claudeCmd = shellEscape2([
+        "claude",
+        "--model",
+        msg.model
+      ]);
+      const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
+      await execFileAsync4("tmux", [
+        "new-session",
+        "-d",
+        "-s",
+        tmuxSessionName,
+        "-c",
+        effectiveWorkspaceDir,
+        shellCmd
+      ]);
+      console.log(`[expert] Spawned tmux session: ${tmuxSessionName} (cwd=${effectiveWorkspaceDir})`);
+    } catch (err) {
+      console.error(`[expert] Failed to spawn tmux session:`, err);
+      await this.updateSessionStatus(sessionId, "failed");
+      return;
+    }
+    await this.updateSessionStatus(sessionId, "running");
+    const viewerLink = await this.linkToViewerTui(msg, tmuxSessionName, displayName);
+    const sessionState = {
+      sessionId,
+      workspaceDir,
+      effectiveWorkspaceDir,
+      repoDir,
+      bareRepoDir,
+      displayName,
+      tmuxSession: tmuxSessionName,
+      viewerSession: viewerLink?.viewerSession,
+      viewerWindowName: viewerLink?.viewerWindowName
+    };
+    this.activeSessions.set(sessionId, sessionState);
+    this.startExitPolling(sessionState);
+    console.log(`[expert] Expert session ${sessionId} is running (tmux=${tmuxSessionName})`);
+  }
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+  async updateSessionStatus(sessionId, status) {
+    try {
+      const update = { status };
+      if (status === "running") {
+        update.started_at = (/* @__PURE__ */ new Date()).toISOString();
+      }
+      const { error } = await this.supabase.from("expert_sessions").update(update).eq("id", sessionId);
+      if (error) {
+        console.warn(`[expert] DB update failed for session ${sessionId}: ${error.message}`);
+      }
+    } catch (err) {
+      console.error(`[expert] DB update error for session ${sessionId}:`, err);
+    }
+  }
+  async linkToViewerTui(msg, tmuxSessionName, displayName) {
+    let viewerSession;
+    if (msg.company_name) {
+      viewerSession = viewerSessionName(msg.company_name);
+    } else {
+      try {
+        const { stdout } = await execFileAsync4("tmux", [
+          "list-sessions",
+          "-F",
+          "#{session_name}"
+        ]);
+        const sessions = stdout.trim().split("\n");
+        viewerSession = sessions.find((s) => s.startsWith("zazig-view-"));
+      } catch {
+      }
+    }
+    if (!viewerSession) {
+      console.log(`[expert] No viewer session found \u2014 expert window not linked to TUI`);
+      return null;
+    }
+    if (!await isTmuxSessionAlive2(viewerSession)) {
+      console.log(`[expert] Viewer session ${viewerSession} not alive \u2014 skipping TUI linking`);
+      return null;
+    }
+    try {
+      const { stdout: windowId } = await execFileAsync4("tmux", [
+        "list-windows",
+        "-t",
+        tmuxSessionName,
+        "-F",
+        "#{window_id}"
+      ]);
+      const expertWindowId = windowId.trim().split("\n")[0];
+      if (!expertWindowId) {
+        console.warn(`[expert] Could not determine window ID for ${tmuxSessionName}`);
+        return null;
+      }
+      const viewerWindowName = displayName.toUpperCase().replace(/\s+/g, "-");
+      await execFileAsync4("tmux", [
+        "link-window",
+        "-s",
+        expertWindowId,
+        "-t",
+        `${viewerSession}:`
+      ]);
+      await execFileAsync4("tmux", [
+        "rename-window",
+        "-t",
+        expertWindowId,
+        viewerWindowName
+      ]);
+      try {
+        await execFileAsync4("tmux", [
+          "select-window",
+          "-t",
+          `${viewerSession}:${viewerWindowName}`
+        ]);
+      } catch {
+      }
+      console.log(`[expert] Linked expert window to viewer session ${viewerSession}`);
+      return { viewerSession, viewerWindowName };
+    } catch (err) {
+      console.warn(`[expert] Failed to link expert window to viewer TUI:`, err);
+      return null;
+    }
+  }
+  startExitPolling(session) {
+    const existing = this.activePollers.get(session.sessionId);
+    if (existing) {
+      clearInterval(existing);
+    }
+    const interval = setInterval(() => {
+      void (async () => {
+        try {
+          if (this.exitingSessions.has(session.sessionId))
+            return;
+          const alive = await isTmuxSessionAlive2(session.tmuxSession);
+          if (!alive) {
+            clearInterval(interval);
+            this.activePollers.delete(session.sessionId);
+            await this.handleSessionExit(session);
+          }
+        } catch (err) {
+          console.error("[expert] Poll error:", err);
+        }
+      })();
+    }, 1e4);
+    this.activePollers.set(session.sessionId, interval);
+  }
+  async handleSessionExit(session) {
+    if (this.exitingSessions.has(session.sessionId))
+      return;
+    this.exitingSessions.add(session.sessionId);
+    const poller = this.activePollers.get(session.sessionId);
+    if (poller) {
+      clearInterval(poller);
+      this.activePollers.delete(session.sessionId);
+    }
+    let summary = null;
+    const reportPath = join6(session.effectiveWorkspaceDir, ".claude", "expert-report.md");
+    try {
+      if (existsSync5(reportPath)) {
+        summary = readFileSync5(reportPath, "utf8");
+      }
+    } catch (err) {
+      console.warn(`[expert] Failed to read report for session ${session.sessionId}:`, err);
+    }
+    try {
+      const { error } = await this.supabase.from("expert_sessions").update({
+        status: "completed",
+        summary,
+        completed_at: (/* @__PURE__ */ new Date()).toISOString()
+      }).eq("id", session.sessionId);
+      if (error) {
+        console.warn(`[expert] Failed to mark session ${session.sessionId} completed: ${error.message}`);
+      }
+    } catch (err) {
+      console.warn(`[expert] Error updating expert session ${session.sessionId}:`, err);
+    }
+    await this.injectSummaryIntoCpo(session, summary);
+    await this.switchViewerToCpo(session);
+    await this.cleanupWorktree(session);
+    try {
+      rmSync4(session.workspaceDir, { recursive: true, force: true });
+    } catch (err) {
+      console.warn(`[expert] Failed to remove workspace ${session.workspaceDir}:`, err);
+    }
+    this.activeSessions.delete(session.sessionId);
+    this.exitingSessions.delete(session.sessionId);
+    console.log(`[expert] Session ${session.sessionId} exited and cleaned up`);
+  }
+  async injectSummaryIntoCpo(session, summary) {
+    const companyPrefix = this.companyId ? `${this.companyId.slice(0, 8)}-` : "";
+    const cpoSessionName = `${this.machineId}-${companyPrefix}cpo`;
+    if (!await isTmuxSessionAlive2(cpoSessionName)) {
+      console.warn(`[expert] CPO session ${cpoSessionName} not found; skipping summary injection`);
+      return;
+    }
+    const message = summary ? `[Expert Report - ${session.displayName}] ${summary}` : "[Expert session ended - no report written]";
+    const singleLine = message.replace(/\r?\n/g, " ").trim();
+    if (!singleLine)
+      return;
+    try {
+      await execFileAsync4("tmux", ["send-keys", "-t", cpoSessionName, "-l", singleLine]);
+      await execFileAsync4("tmux", ["send-keys", "-t", cpoSessionName, "Enter"]);
+      console.log(`[expert] Injected expert summary into CPO session ${cpoSessionName}`);
+    } catch (err) {
+      console.warn(`[expert] Failed to inject summary into CPO session ${cpoSessionName}:`, err);
+    }
+  }
+  async switchViewerToCpo(session) {
+    if (!session.viewerSession)
+      return;
+    if (!await isTmuxSessionAlive2(session.viewerSession))
+      return;
+    if (session.viewerWindowName) {
+      try {
+        await execFileAsync4("tmux", [
+          "unlink-window",
+          "-k",
+          "-t",
+          `${session.viewerSession}:${session.viewerWindowName}`
+        ]);
+      } catch (err) {
+        console.warn(`[expert] Failed to unlink expert window ${session.viewerWindowName} from ${session.viewerSession}:`, err);
+      }
+    }
+    const directTargets = [
+      `${session.viewerSession}:CPO`,
+      `${session.viewerSession}:cpo`
+    ];
+    for (const target of directTargets) {
+      try {
+        await execFileAsync4("tmux", ["select-window", "-t", target]);
+        return;
+      } catch {
+      }
+    }
+    try {
+      const { stdout } = await execFileAsync4("tmux", [
+        "list-windows",
+        "-t",
+        session.viewerSession,
+        "-F",
+        "#{window_index}:#{window_name}"
+      ]);
+      const lines = stdout.trim().split("\n").filter(Boolean);
+      const cpoLine = lines.find((line) => line.split(":")[1]?.toLowerCase() === "cpo");
+      const cpoIndex = cpoLine?.split(":")[0];
+      if (!cpoIndex) {
+        console.warn(`[expert] Could not find CPO window in viewer session ${session.viewerSession}`);
+        return;
+      }
+      await execFileAsync4("tmux", ["select-window", "-t", `${session.viewerSession}:${cpoIndex}`]);
+    } catch (err) {
+      console.warn(`[expert] Failed to switch viewer ${session.viewerSession} back to CPO:`, err);
+    }
+  }
+  async cleanupWorktree(session) {
+    if (!session.repoDir)
+      return;
+    try {
+      if (session.bareRepoDir) {
+        await execFileAsync4("git", [
+          "-C",
+          session.bareRepoDir,
+          "worktree",
+          "remove",
+          "--force",
+          session.repoDir
+        ]);
+        await execFileAsync4("git", [
+          "-C",
+          session.bareRepoDir,
+          "worktree",
+          "prune"
+        ]);
+      } else {
+        await execFileAsync4("git", ["worktree", "remove", "--force", session.repoDir]);
+      }
+      console.log(`[expert] Removed git worktree ${session.repoDir}`);
+    } catch (err) {
+      console.warn(`[expert] Failed to remove git worktree ${session.repoDir}:`, err);
+    }
+  }
+  cleanup() {
+    for (const poller of this.activePollers.values()) {
+      clearInterval(poller);
+    }
+    this.activePollers.clear();
+  }
+  /** Returns active session state (for exit detection poller). */
+  getActiveSessions() {
+    return this.activeSessions;
+  }
+};
+
+// packages/local-agent/dist/fix-agent.js
+import { execFile as execFile5 } from "node:child_process";
+import { promisify as promisify5 } from "node:util";
+var execFileAsync5 = promisify5(execFile5);
 var FixAgentManager = class {
   activeAgents = /* @__PURE__ */ new Map();
   repoDir;
@@ -19160,8 +20558,8 @@ var FixAgentManager = class {
       `Slack channel: ${safeChannel}`,
       `Thread: ${safeThread}`
     ].join(" ");
-    const shellCmd = `unset CLAUDECODE; ${shellEscape2(["claude", "-p", prompt])}`;
-    await execFileAsync3("tmux", [
+    const shellCmd = `unset CLAUDECODE; ${shellEscape3(["claude", "-p", prompt])}`;
+    await execFileAsync5("tmux", [
       "new-session",
       "-d",
       "-s",
@@ -19186,7 +20584,7 @@ var FixAgentManager = class {
     if (!agent)
       return;
     try {
-      await execFileAsync3("tmux", ["kill-session", "-t", agent.sessionName]);
+      await execFileAsync5("tmux", ["kill-session", "-t", agent.sessionName]);
       console.log(`[fix-agent] Killed tmux session: ${agent.sessionName}`);
     } catch {
     }
@@ -19202,14 +20600,14 @@ var FixAgentManager = class {
 function sanitizeSlackField(s) {
   return s.replace(/[`$\\"'\n\r]/g, "").slice(0, 200);
 }
-function shellEscape2(parts) {
+function shellEscape3(parts) {
   return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
 }
 
-// ../local-agent/dist/verifier.js
-import { execFile as execFile4 } from "node:child_process";
-import { promisify as promisify4 } from "node:util";
-var execFileAsync4 = promisify4(execFile4);
+// packages/local-agent/dist/verifier.js
+import { execFile as execFile6 } from "node:child_process";
+import { promisify as promisify6 } from "node:util";
+var execFileAsync6 = promisify6(execFile6);
 function getErrorOutput(error) {
   if (typeof error !== "object" || error === null) {
     return String(error);
@@ -19220,7 +20618,7 @@ function getErrorOutput(error) {
   return [message, stdout, stderr].filter((part) => part.trim().length > 0).join("\n");
 }
 var defaultRunCommand = async (file, args, options) => {
-  const { stdout, stderr } = await execFileAsync4(file, args, options);
+  const { stdout, stderr } = await execFileAsync6(file, args, options);
   return {
     stdout: typeof stdout === "string" ? stdout : String(stdout ?? ""),
     stderr: typeof stderr === "string" ? stderr : String(stderr ?? "")
@@ -19314,9 +20712,9 @@ ${typecheckStep.output}`,
   }
 };
 
-// ../local-agent/dist/index.js
+// packages/local-agent/dist/index.js
 var companySlug = process.env["ZAZIG_COMPANY_ID"]?.slice(0, 8) ?? "default";
-var logPath = join6(homedir4(), ".zazigv2", `local-agent-${companySlug}.log`);
+var logPath = join7(homedir5(), ".zazigv2", `local-agent-${companySlug}.log`);
 var logStream = createWriteStream(logPath, { flags: "a" });
 var origLog = console.log;
 var origErr = console.error;
@@ -19347,6 +20745,7 @@ process.on("uncaughtException", (err) => {
   console.error("[local-agent] Uncaught exception (process NOT exiting):", err);
 });
 var shuttingDown = false;
+var REPO_REFRESH_INTERVAL_MS = 5 * 60 * 1e3;
 async function main() {
   console.log("[local-agent] Initializing...");
   const config = loadConfig();
@@ -19358,6 +20757,14 @@ async function main() {
     repoDir: process.cwd(),
     machineId: config.name,
     send: (msg) => conn.sendMessage(msg)
+  });
+  const expertManager = new ExpertSessionManager({
+    machineId: config.name,
+    companyId: config.company_id ?? "",
+    supabase: conn.dbClient,
+    supabaseUrl: config.supabase.url,
+    supabaseAnonKey: config.supabase.anon_key,
+    repoManager: executor.repoManager
   });
   const _fixAgentManager = new FixAgentManager(process.cwd());
   conn.onMessage((msg) => {
@@ -19393,6 +20800,12 @@ async function main() {
         console.log(`[local-agent] Received verify_job \u2014 jobId=${msg.jobId}, featureBranch=${msg.featureBranch}, jobBranch=${msg.jobBranch}`);
         void verifier.verify(msg);
         break;
+      case "start_expert":
+        console.log(`[local-agent] Received start_expert \u2014 sessionId=${msg.session_id}`);
+        expertManager.handleStartExpert(msg).catch((err) => {
+          console.error(`[local-agent] FATAL: handleStartExpert crashed for session=${msg.session_id}:`, err);
+        });
+        break;
       // Legacy message types — orchestrator no longer sends these but they remain
       // in the OrchestratorMessage union for backward compatibility during rollout.
       case "deploy_to_test":
@@ -19412,8 +20825,31 @@ async function main() {
   });
   const companyId = process.env["ZAZIG_COMPANY_ID"];
   let rolePromptChannel = null;
+  let repoRefreshTimer = null;
   if (companyId) {
     await discoverAndSpawnPersistentAgents(config.supabase.url, config.supabase.anon_key, companyId, executor);
+    let refreshRunning = false;
+    repoRefreshTimer = setInterval(() => {
+      void (async () => {
+        if (refreshRunning)
+          return;
+        refreshRunning = true;
+        try {
+          const projects = executor.getCompanyProjects();
+          for (const project of projects) {
+            if (!project.repo_url)
+              continue;
+            try {
+              await executor.repoManager.refreshWorktree(project.name);
+            } catch (err) {
+              console.warn(`[daemon] repo refresh failed for ${project.name}:`, err);
+            }
+          }
+        } finally {
+          refreshRunning = false;
+        }
+      })();
+    }, REPO_REFRESH_INTERVAL_MS);
     rolePromptChannel = subscribeToRolePromptHotReload(conn, config.name, config.supabase.url, config.supabase.anon_key, companyId, executor);
   }
   const shutdown = async (signal) => {
@@ -19430,6 +20866,10 @@ async function main() {
         console.warn("[local-agent] Failed to remove role prompt channel during shutdown:", err);
       }
       rolePromptChannel = null;
+    }
+    if (repoRefreshTimer) {
+      clearInterval(repoRefreshTimer);
+      repoRefreshTimer = null;
     }
     const gracePeriodMs = parseInt(process.env["ZAZIG_GRACEFUL_SHUTDOWN_MS"] ?? "10000", 10);
     console.log(`[local-agent] SHUTDOWN: Grace period started (${gracePeriodMs}ms)`);
@@ -19460,13 +20900,14 @@ async function main() {
     } catch (err) {
       console.error("[local-agent] SHUTDOWN: Failed to send DaemonShutdownNotification:", err);
     }
-    await new Promise((resolve2) => setTimeout(resolve2, gracePeriodMs));
+    await new Promise((resolve4) => setTimeout(resolve4, gracePeriodMs));
     console.log("[local-agent] SHUTDOWN: Grace period wait complete");
     console.log("[local-agent] SHUTDOWN: Force-kill phase start");
+    expertManager.cleanup();
     await executor.stopAll();
     console.log("[local-agent] SHUTDOWN: Channel closure");
     const stopPromise = conn.stop();
-    const timeoutPromise = new Promise((resolve2) => setTimeout(resolve2, 5e3));
+    const timeoutPromise = new Promise((resolve4) => setTimeout(resolve4, 5e3));
     await Promise.race([stopPromise, timeoutPromise]);
     console.log("[local-agent] SHUTDOWN: Exit");
     process.exit(0);
@@ -19484,19 +20925,46 @@ async function fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId) 
     }
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Failed to fetch persistent jobs: HTTP ${res.status} \u2014 body: ${body.slice(0, 500)}`);
+    const body2 = await res.text().catch(() => "");
+    throw new Error(`Failed to fetch persistent jobs: HTTP ${res.status} \u2014 body: ${body2.slice(0, 500)}`);
   }
-  const jobs = await res.json();
-  if (!Array.isArray(jobs)) {
-    throw new Error("Persistent jobs endpoint returned non-array JSON");
+  const payload = await res.json();
+  if (Array.isArray(payload)) {
+    return { jobs: payload, companyProjects: [] };
   }
-  return jobs;
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Persistent jobs endpoint returned invalid JSON payload");
+  }
+  const body = payload;
+  const jobs = Array.isArray(body["jobs"]) ? body["jobs"] : Array.isArray(body["persistent_jobs"]) ? body["persistent_jobs"] : Array.isArray(body["persistentJobs"]) ? body["persistentJobs"] : [];
+  const projects = Array.isArray(body["company_projects"]) ? body["company_projects"] : Array.isArray(body["companyProjects"]) ? body["companyProjects"] : Array.isArray(body["projects"]) ? body["projects"] : [];
+  const companyProjects = [];
+  for (const project of projects) {
+    if (!project || typeof project !== "object")
+      continue;
+    const record = project;
+    const name = typeof record["name"] === "string" ? record["name"] : "";
+    const repoUrl = typeof record["repo_url"] === "string" ? record["repo_url"] : typeof record["repoUrl"] === "string" ? record["repoUrl"] : "";
+    if (!name || !repoUrl)
+      continue;
+    companyProjects.push({ name, repo_url: repoUrl });
+  }
+  return { jobs, companyProjects };
 }
 async function discoverAndSpawnPersistentAgents(supabaseUrl, anonKey, companyId, executor) {
   try {
-    const jobs = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+    const { jobs, companyProjects } = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
     console.log(`[local-agent] Discovered ${jobs.length} persistent agent(s) for company ${companyId}`);
+    console.log(`[local-agent] Discovered ${companyProjects.length} project repo(s) for company ${companyId}`);
+    for (const project of companyProjects) {
+      try {
+        await executor.repoManager.ensureRepo(project.repo_url, project.name);
+        await executor.repoManager.ensureWorktree(project.name);
+      } catch (err) {
+        console.error(`[local-agent] Failed to initialize worktree for project ${project.name}:`, err);
+      }
+    }
+    executor.setCompanyProjects(companyProjects);
     for (const job of jobs) {
       await executor.spawnPersistentAgent(job, companyId);
     }
@@ -19525,7 +20993,7 @@ function subscribeToRolePromptHotReload(conn, machineId, supabaseUrl, anonKey, c
       }
       inFlightRoles.add(role);
       try {
-        const jobs = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+        const { jobs } = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
         const refreshed = jobs.find((job) => job.role === role);
         if (!refreshed) {
           console.log(`[local-agent] role prompt update ignored for role=${role} \u2014 role is not active/persistent in company ${companyId}`);

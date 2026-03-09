@@ -19,6 +19,8 @@ interface ColumnDefinition {
   colorVar: string;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 const COLUMN_DEFINITIONS: ColumnDefinition[] = [
   { key: "proposal", label: "Proposal", colorVar: "--col-proposal" },
   { key: "ready", label: "Ready", colorVar: "--col-ready" },
@@ -43,6 +45,17 @@ function ageLabel(ageHours: number | null): string {
     return `${ageHours}h`;
   }
   return `${Math.floor(ageHours / 24)}d`;
+}
+
+function truncateCapabilityTitle(title: string | null | undefined): string {
+  const normalized = (title ?? "").trim();
+  if (!normalized) {
+    return "Capability";
+  }
+  if (normalized.length <= 16) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 13)}...`;
 }
 
 function priorityDotClass(priority: string | null | undefined): string {
@@ -88,6 +101,16 @@ function ideaColorVar(itemType: string): string {
   }
 }
 
+function featureActivityTimestamp(feature: PipelineFeature): number | null {
+  const activityAt = feature.updatedAt ?? feature.createdAt;
+  if (!activityAt) {
+    return null;
+  }
+
+  const timestamp = Date.parse(activityAt);
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
 export default function Pipeline(): JSX.Element {
   const { activeCompany } = useCompany();
   const { user } = useAuth();
@@ -102,6 +125,9 @@ export default function Pipeline(): JSX.Element {
   const [inboxTypeFilter, setInboxTypeFilter] = useState<string>("all");
   const [showReviewSoon, setShowReviewSoon] = useState(false);
   const [showLongTerm, setShowLongTerm] = useState(false);
+  const [showFailedArchive, setShowFailedArchive] = useState(false);
+  const [showCompleteArchive, setShowCompleteArchive] = useState(false);
+  const [showShippedArchive, setShowShippedArchive] = useState(false);
   const [selectedFeature, setSelectedFeature] = useState<{ id: string; colorVar: string } | null>(null);
   const [selectedIdea, setSelectedIdea] = useState<{ id: string; colorVar: string } | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
@@ -309,6 +335,8 @@ export default function Pipeline(): JSX.Element {
     };
   }, [filteredByStatus, filteredIdeas.length, filteredTriagedIdeas.length, allFeatures.length]);
 
+  const now = Date.now();
+
   return (
     <div className="pipeline-page">
       <div className="page-header">
@@ -488,6 +516,74 @@ export default function Pipeline(): JSX.Element {
 
         {COLUMN_DEFINITIONS.map((column) => {
           const features = filteredByStatus[column.key];
+          const hasArchive =
+            column.key === "failed" || column.key === "complete" || column.key === "shipped";
+          const recentFeatures = hasArchive
+            ? features.filter((feature) => {
+              const activityTimestamp = featureActivityTimestamp(feature);
+              if (activityTimestamp === null) {
+                return true;
+              }
+
+              return now - activityTimestamp <= DAY_MS;
+            })
+            : features;
+          const archivedFeatures = hasArchive
+            ? features.filter((feature) => {
+              const activityTimestamp = featureActivityTimestamp(feature);
+              if (activityTimestamp === null) {
+                return false;
+              }
+
+              return now - activityTimestamp > DAY_MS;
+            })
+            : [];
+          const showArchive =
+            column.key === "failed"
+              ? showFailedArchive
+              : column.key === "complete"
+                ? showCompleteArchive
+                : column.key === "shipped"
+                  ? showShippedArchive
+                  : false;
+
+          const renderFeatureCard = (feature: PipelineFeature) => (
+            <article className="card card--clickable" key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
+              <div className="card-accent" style={{ background: `var(${column.colorVar})` }} />
+              <div className="card-body">
+                <div className="card-title">{feature.title}</div>
+                {feature.capability_id ? (
+                  <div className="card-capability-badge">
+                    <span className="card-capability-icon" aria-hidden="true">
+                      {feature.capability_icon ?? "⚙️"}
+                    </span>
+                    <span className="card-capability-title">
+                      {truncateCapabilityTitle(feature.capability_title)}
+                    </span>
+                  </div>
+                ) : null}
+                <div className="card-meta">
+                  <span className={priorityDotClass(feature.priority)} />
+                  {feature.priority.toLowerCase()} · {ageLabel(feature.ageHours)}
+                </div>
+                <div className="card-desc">{feature.description}</div>
+                {feature.jobsTotal > 0 ? (
+                  <div className="card-jobs">
+                    <div className="card-jobs-bar">
+                      <div
+                        className="card-jobs-bar-fill"
+                        style={{ width: `${Math.round((feature.jobsDone / feature.jobsTotal) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="card-job-count">
+                      {feature.jobsDone}/{feature.jobsTotal}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            </article>
+          );
+
           return (
             <section className="pipeline-col" key={column.key}>
               <header className="pipeline-col-header">
@@ -499,38 +595,35 @@ export default function Pipeline(): JSX.Element {
               </header>
 
               <div className="pipeline-col-body">
-                {features.length === 0 ? (
+                {recentFeatures.length === 0 ? (
                   <div className="col-empty">No items</div>
                 ) : (
-                  features.map((feature) => (
-                    <article className="card card--clickable" key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
-                      <div className="card-accent" style={{ background: `var(${column.colorVar})` }} />
-                      <div className="card-body">
-                        <div className="card-meta">
-                          <span className={priorityDotClass(feature.priority)} />
-                          {feature.priority.toLowerCase()} · {ageLabel(feature.ageHours)}
-                        </div>
-                        <div className="card-title">{feature.title}</div>
-                        <div className="card-desc">{feature.description}</div>
-                        <div className="card-jobs">
-                          {Array.from({ length: Math.max(feature.jobsTotal, 1) }).map((_, index) => {
-                            const active = index < feature.jobsDone;
-                            return (
-                              <span
-                                key={`${feature.id}-pip-${index}`}
-                                className="card-job-pip"
-                                style={{ background: active ? "var(--positive)" : "var(--chalk)" }}
-                              />
-                            );
-                          })}
-                          <span className="card-job-count">
-                            {feature.jobsDone}/{feature.jobsTotal || 0} done
-                          </span>
-                        </div>
-                      </div>
-                    </article>
-                  ))
+                  recentFeatures.map((feature) => renderFeatureCard(feature))
                 )}
+
+                {archivedFeatures.length > 0 ? (
+                  <button
+                    className="parked-toggle"
+                    type="button"
+                    onClick={() => {
+                      if (column.key === "failed") {
+                        setShowFailedArchive((value) => !value);
+                        return;
+                      }
+                      if (column.key === "complete") {
+                        setShowCompleteArchive((value) => !value);
+                        return;
+                      }
+                      if (column.key === "shipped") {
+                        setShowShippedArchive((value) => !value);
+                      }
+                    }}
+                  >
+                    {showArchive ? "▼" : "▶"} Archive ({archivedFeatures.length})
+                  </button>
+                ) : null}
+
+                {showArchive ? archivedFeatures.map((feature) => renderFeatureCard(feature)) : null}
               </div>
             </section>
           );

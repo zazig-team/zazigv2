@@ -5,7 +5,7 @@ import * as fsModule from "node:fs";
 import { JobExecutor, type SendFn, enqueueWithCap, MAX_QUEUE_SIZE, type QueuedMessage } from "./executor.js";
 import { SlotTracker } from "./slots.js";
 import { RepoManager } from "./branches.js";
-import { setupJobWorkspace } from "./workspace.js";
+import { generateExecSkill, setupJobWorkspace } from "./workspace.js";
 
 // ---------------------------------------------------------------------------
 // Mock child_process + fs + util at module level
@@ -47,7 +47,9 @@ vi.mock("./branches.js", () => {
   class MockRepoManager {
     ensureRepo = vi.fn().mockResolvedValue("/tmp/mock-repo");
     ensureWorktree = vi.fn().mockResolvedValue("/tmp/mock-worktree-shared");
+    refreshWorktree = vi.fn().mockResolvedValue(undefined);
     ensureFeatureBranch = vi.fn().mockResolvedValue(undefined);
+    fetchBranchForExpert = vi.fn().mockResolvedValue(undefined);
     createJobWorktree = vi.fn().mockResolvedValue({
       worktreePath: "/tmp/mock-worktree",
       jobBranch: "job/job-001",
@@ -64,6 +66,8 @@ vi.mock("./branches.js", () => {
 
 vi.mock("./workspace.js", () => ({
   setupJobWorkspace: vi.fn(),
+  generateExecSkill: vi.fn(),
+  publishSharedExecSkill: vi.fn(),
   writeSubagentsConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -116,6 +120,19 @@ function makeMockSupabase() {
     data: [],
     error: null,
   };
+  let roleRowResult: { data: Record<string, unknown> | null; error: { message: string } | null } = {
+    data: {
+      prompt: "Persistent role prompt",
+      heartbeat_md: "",
+      cache_ttl_minutes: 30,
+      hard_ttl_minutes: 240,
+    },
+    error: null,
+  };
+  let machineResult: { data: Record<string, unknown> | null; error: { message: string } | null } = {
+    data: null,
+    error: null,
+  };
 
   const makeChainable = (table: string) => {
     const chain = {
@@ -129,26 +146,44 @@ function makeMockSupabase() {
         return { eq: eqFn };
       }),
       upsert: vi.fn(() => Promise.resolve({ error: null, data: null })),
-      select: vi.fn((columns: string) => ({
-        eq: vi.fn(() => {
-          if (table === "expert_roles" && columns === "name, display_name, description") {
-            return Promise.resolve(expertRolesResult);
-          }
-          return {
-            eq: vi.fn(() => ({
+      select: vi.fn((columns: string) => {
+        if (table === "expert_roles" && columns === "name, display_name, description") {
+          return Promise.resolve(expertRolesResult);
+        }
+        return {
+          eq: vi.fn((col: string) => {
+            if (table === "roles" && col === "name") {
+              return {
+                single: vi.fn(() => Promise.resolve(roleRowResult)),
+              };
+            }
+            if (table === "machines" && col === "company_id") {
+              return {
+                eq: vi.fn((innerCol: string) => ({
+                  single: vi.fn(() => Promise.resolve(
+                    innerCol === "name"
+                      ? machineResult
+                      : { data: null, error: null },
+                  )),
+                })),
+              };
+            }
+            return {
+              eq: vi.fn(() => ({
+                single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+              })),
               single: vi.fn(() => Promise.resolve({ data: null, error: null })),
-            })),
-            single: vi.fn(() => Promise.resolve({ data: null, error: null })),
-            not: vi.fn(() => ({
-              limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
-            })),
-          };
-        }),
-        in: vi.fn((inColumn: string, inValues: string[]) => {
-          selectInCalls.push({ table, columns, inColumn, inValues: [...inValues] });
-          return Promise.resolve(inResult);
-        }),
-      })),
+              not: vi.fn(() => ({
+                limit: vi.fn(() => Promise.resolve({ data: [], error: null })),
+              })),
+            };
+          }),
+          in: vi.fn((inColumn: string, inValues: string[]) => {
+            selectInCalls.push({ table, columns, inColumn, inValues: [...inValues] });
+            return Promise.resolve(inResult);
+          }),
+        };
+      }),
     };
     return chain;
   };
@@ -167,6 +202,12 @@ function makeMockSupabase() {
     },
     setExpertRolesResult: (next: { data: unknown; error: { message: string } | null }) => {
       expertRolesResult = next;
+    },
+    setRoleRowResult: (next: { data: Record<string, unknown> | null; error: { message: string } | null }) => {
+      roleRowResult = next;
+    },
+    setMachineResult: (next: { data: Record<string, unknown> | null; error: { message: string } | null }) => {
+      machineResult = next;
     },
   };
 }
@@ -206,6 +247,16 @@ describe("JobExecutor — progress integration", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+
+    const readFileSyncMock = fsModule.readFileSync as unknown as Mock;
+    readFileSyncMock.mockImplementation((path: unknown) => {
+      if (typeof path === "string" && path.endsWith(".json")) {
+        return JSON.stringify({ permissions: { allow: [] } });
+      }
+      return "status: pass\nsummary: Job completed.";
+    });
+    const renameSyncMock = fsModule.renameSync as unknown as Mock;
+    renameSyncMock.mockImplementation(() => undefined);
 
     // Default: execFileAsync resolves (tmux commands succeed → session alive)
     mockExecFileAsync = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
@@ -267,7 +318,47 @@ describe("JobExecutor — progress integration", () => {
     expect(values[1]).toBeLessThanOrEqual(values[2]!);
   });
 
-  it("sets progress: 100 in sendJobComplete when session ends", async () => {
+  it("flushes tmux and lifecycle logs via append_job_log RPC with new parameters", async () => {
+    const existsSyncMock = fsModule.existsSync as unknown as Mock;
+    const readFileSyncMock = fsModule.readFileSync as unknown as Mock;
+    existsSyncMock.mockImplementation((path: unknown) =>
+      typeof path === "string" && (path.endsWith("-pipe-pane.log") || path.endsWith("-pre-post.log"))
+    );
+    readFileSyncMock.mockImplementation((path: unknown) => {
+      if (typeof path === "string" && (path.endsWith("-pipe-pane.log") || path.endsWith("-pre-post.log"))) {
+        return Buffer.from("log-line-1\n");
+      }
+      if (typeof path === "string" && path.endsWith(".json")) {
+        return JSON.stringify({ permissions: { allow: [] } });
+      }
+      return "status: pass\nsummary: Job completed.";
+    });
+
+    await executor.handleStartJob(makeStartJob());
+    const rpcMock = (supabase.client as { rpc: Mock }).rpc;
+    rpcMock.mockClear();
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    const appendCalls = rpcMock.mock.calls.filter((call: unknown[]) => call[0] === "append_job_log");
+    expect(appendCalls.some((call: unknown[]) => {
+      const params = call[1] as Record<string, unknown>;
+      return params.p_job_id === "job-001"
+        && params.p_type === "tmux"
+        && typeof params.p_chunk === "string"
+        && (params.p_chunk as string).length > 0;
+    })).toBe(true);
+    expect(appendCalls.some((call: unknown[]) => {
+      const params = call[1] as Record<string, unknown>;
+      return params.p_job_id === "job-001"
+        && params.p_type === "lifecycle"
+        && typeof params.p_chunk === "string"
+        && (params.p_chunk as string).length > 0;
+    })).toBe(true);
+    expect(rpcMock.mock.calls.some((call: unknown[]) => call[0] === "append_raw_log")).toBe(false);
+  });
+
+  it("broadcasts job_complete when session ends and does not write terminal status to DB", async () => {
     await executor.handleStartJob(makeStartJob());
     supabase.calls.length = 0;
 
@@ -278,13 +369,76 @@ describe("JobExecutor — progress integration", () => {
     // Advance one poll interval — session is dead → onJobEnded → sendJobComplete
     await vi.advanceTimersByTimeAsync(30_000);
 
-    const completeCalls = supabase.calls.filter(
-      (c) => c.table === "jobs" && c.data.status === "complete",
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: "job_complete",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId: "job-001",
+      machineId: "machine-1",
+      result: "PASSED",
+      report: "status: pass\nsummary: Job completed.",
+      branch: "job/job-001",
+    }));
+
+    const terminalStatusWrites = supabase.calls.filter(
+      (c) => c.table === "jobs" && (c.data.status === "complete" || c.data.status === "failed"),
     );
-    expect(completeCalls.length).toBe(1);
-    expect(completeCalls[0]!.data.progress).toBe(100);
-    expect(completeCalls[0]!.data.result).toBeDefined();
-    expect(completeCalls[0]!.data.completed_at).toBeDefined();
+    expect(terminalStatusWrites.length).toBe(0);
+  });
+
+  it("routes FAILED report result to sendJobFailed and broadcasts failure reason", async () => {
+    const readFileSyncMock = fsModule.readFileSync as unknown as Mock;
+    readFileSyncMock.mockImplementation((path: unknown) => {
+      if (typeof path === "string" && path.endsWith(".json")) {
+        return JSON.stringify({ permissions: { allow: [] } });
+      }
+      return "status: fail\nfailure_reason: Could not acquire git index.lock";
+    });
+
+    await executor.handleStartJob(makeStartJob());
+    supabase.calls.length = 0;
+    mockExecFileAsync.mockRejectedValue(new Error("session not found"));
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: "job_failed",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId: "job-001",
+      machineId: "machine-1",
+      error: "FAILED: Could not acquire git index.lock",
+      failureReason: "unknown",
+    }));
+
+    const terminalStatusWrites = supabase.calls.filter(
+      (c) => c.table === "jobs" && (c.data.status === "complete" || c.data.status === "failed"),
+    );
+    expect(terminalStatusWrites.length).toBe(0);
+  });
+
+  it("routes NO_REPORT result to sendJobFailed", async () => {
+    const renameSyncMock = fsModule.renameSync as unknown as Mock;
+    renameSyncMock.mockImplementation(() => {
+      throw new Error("not found");
+    });
+
+    await executor.handleStartJob(makeStartJob());
+    supabase.calls.length = 0;
+    mockExecFileAsync.mockRejectedValue(new Error("session not found"));
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: "job_failed",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId: "job-001",
+      machineId: "machine-1",
+      error: "NO_REPORT",
+    }));
+
+    const terminalStatusWrites = supabase.calls.filter(
+      (c) => c.table === "jobs" && (c.data.status === "complete" || c.data.status === "failed"),
+    );
+    expect(terminalStatusWrites.length).toBe(0);
   });
 
   it("does not reset progress on job failure/timeout", async () => {
@@ -322,22 +476,7 @@ describe("JobExecutor — progress integration", () => {
     expect(failCalls.length).toBe(0);
   });
 
-  it("sendJobFailed does not include progress field", async () => {
-    await executor.handleStartJob(makeStartJob());
-    supabase.calls.length = 0;
-
-    // Stop the job (simulates orchestrator sending StopJob)
-    // This doesn't call sendJobFailed, so let's test the timeout path instead.
-    // To get a timeout without 118 polls, we'll directly test via handleStopJob
-    // then manually check what sendJobFailed writes.
-
-    // Actually, let's just verify the sendJobFailed implementation doesn't
-    // include progress by examining what handleStopJob triggers.
-    // StopJob doesn't call sendJobFailed — it calls sendStopAck.
-    // The timeout path calls sendJobFailed. Let's verify the DB update payload
-    // in sendJobFailed by looking at what it writes.
-
-    // We can trigger a slot failure by trying to start a job with no slots:
+  it("does not fail a job when local slots are exhausted", async () => {
     const noSlotExecutor = new JobExecutor(
       "machine-1",
       "company-test",
@@ -353,9 +492,7 @@ describe("JobExecutor — progress integration", () => {
     const failCalls = supabase.calls.filter(
       (c) => c.table === "jobs" && c.data.status === "failed",
     );
-    expect(failCalls.length).toBe(1);
-    // sendJobFailed should NOT set progress — it leaves it as-is
-    expect(failCalls[0]!.data).not.toHaveProperty("progress");
+    expect(failCalls.length).toBe(0);
   });
 
   it("ignores duplicate start_job when the same job is already active", async () => {
@@ -477,6 +614,141 @@ describe("JobExecutor — slot reconciliation", () => {
     expect(linkedRepo).toBe(true);
   });
 
+  it("continues linking other persistent repos when one project fails", async () => {
+    const symlinkSyncMock = fsModule.symlinkSync as unknown as Mock;
+    const linkErr = new Error("worktree add failed");
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    lastRepoManagerInstance.ensureWorktree
+      .mockRejectedValueOnce(linkErr)
+      .mockResolvedValueOnce("/tmp/mock-worktree-shared");
+
+    const persistentJob = {
+      ...makeStartJob({
+        jobId: "persistent-cpo-links-partial",
+        role: "cpo",
+        cardType: "persistent_agent",
+      }),
+      companyProjects: [
+        { name: "alpha", repo_url: "https://github.com/test/alpha.git" },
+        { name: "beta", repo_url: "https://github.com/test/beta.git" },
+      ],
+    } as StartJob & {
+      companyProjects: Array<{ name: string; repo_url: string }>;
+    };
+
+    await executor.handleStartJob(persistentJob as StartJob);
+
+    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenCalledTimes(2);
+    const linkedBeta = symlinkSyncMock.mock.calls.some((call: unknown[]) =>
+      call[0] === "/tmp/mock-worktree-shared"
+      && typeof call[1] === "string"
+      && (call[1] as string).endsWith("/repos/beta")
+    );
+    const linkedAlpha = symlinkSyncMock.mock.calls.some((call: unknown[]) =>
+      typeof call[1] === "string"
+      && (call[1] as string).endsWith("/repos/alpha")
+    );
+    expect(linkedBeta).toBe(true);
+    expect(linkedAlpha).toBe(false);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "[executor] Persistent agent repo link failed for project=alpha:",
+      linkErr,
+    );
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("writes heartbeat config into the persistent workspace and SessionStart hooks", async () => {
+    const setupMock = setupJobWorkspace as unknown as Mock;
+    const execSkillMock = generateExecSkill as unknown as Mock;
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as Mock;
+
+    supabase.setRoleRowResult({
+      data: {
+        prompt: "Persistent role prompt",
+        heartbeat_md: "# Heartbeat tasks",
+        cache_ttl_minutes: 30,
+        hard_ttl_minutes: 240,
+      },
+      error: null,
+    });
+
+    await executor.handleStartJob(makeStartJob({
+      jobId: "persistent-cpo-heartbeat",
+      role: "cpo",
+      cardType: "persistent_agent",
+    }));
+
+    const workspaceConfig = setupMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(workspaceConfig.heartbeatMd).toBe("# Heartbeat tasks");
+
+    expect(execSkillMock).toHaveBeenCalledWith(
+      {
+        name: "cpo",
+        prompt: expect.any(String),
+        heartbeat_md: "# Heartbeat tasks",
+      },
+      expect.stringContaining("cpo-workspace"),
+    );
+
+    const settingsWrite = writeFileSyncMock.mock.calls.find((call: unknown[]) =>
+      typeof call[0] === "string" && (call[0] as string).endsWith(".claude/settings.json"),
+    );
+    expect(settingsWrite).toBeDefined();
+    const settings = JSON.parse(settingsWrite![1] as string);
+    expect(settings.hooks.SessionStart).toHaveLength(2);
+  });
+
+  it("resets an idle persistent agent by replaying the stored StartJob", async () => {
+    const setupMock = setupJobWorkspace as unknown as Mock;
+    const execSkillMock = generateExecSkill as unknown as Mock;
+
+    supabase.setRoleRowResult({
+      data: {
+        prompt: "Persistent role prompt",
+        heartbeat_md: "# Heartbeat tasks",
+        cache_ttl_minutes: 1,
+        hard_ttl_minutes: 240,
+      },
+      error: null,
+    });
+
+    mockExecFileAsync = vi.fn(async (file: string, args: string[]) => {
+      if (file !== "tmux") {
+        return { stdout: "", stderr: "" };
+      }
+
+      switch (args[0]) {
+        case "capture-pane":
+          return { stdout: "stable output", stderr: "" };
+        case "list-clients":
+          return { stdout: "", stderr: "" };
+        default:
+          return { stdout: "", stderr: "" };
+      }
+    });
+
+    await executor.handleStartJob(makeStartJob({
+      jobId: "persistent-cpo-reset",
+      role: "cpo",
+      cardType: "persistent_agent",
+    }));
+
+    setupMock.mockClear();
+    execSkillMock.mockClear();
+
+    await vi.advanceTimersByTimeAsync((5 * 60_000) + 10_000);
+
+    expect(setupMock).toHaveBeenCalledTimes(1);
+    expect(execSkillMock).toHaveBeenCalledTimes(1);
+    expect(mockExecFileAsync.mock.calls.some((call: unknown[]) =>
+      call[0] === "tmux"
+      && Array.isArray(call[1])
+      && (call[1] as string[])[0] === "send-keys"
+      && (call[1] as string[])[3] === "exit"
+    )).toBe(true);
+  });
+
   it("handles reconciliation query failures without releasing slots", async () => {
     await executor.handleStartJob(makeStartJob({ jobId: "job-reconcile-error" }));
     expect(slots.getAvailable().claude_code).toBe(0);
@@ -497,7 +769,7 @@ describe("JobExecutor — slot reconciliation", () => {
   });
 });
 
-describe("JobExecutor — repo refresh heartbeat", () => {
+describe("JobExecutor — company project accessors", () => {
   let send: ReturnType<typeof vi.fn>;
   let slots: SlotTracker;
   let supabase: ReturnType<typeof makeMockSupabase>;
@@ -526,51 +798,21 @@ describe("JobExecutor — repo refresh heartbeat", () => {
     vi.useRealTimers();
   });
 
-  it("refreshes each configured company project on heartbeat", async () => {
-    executor.setCompanyProjects([
+  it("returns a defensive copy of configured company projects", () => {
+    const projects = [
       { name: "project-alpha", repo_url: "https://github.com/test/project-alpha.git" },
       { name: "project-beta", repo_url: "https://github.com/test/project-beta.git" },
-    ]);
+    ];
 
-    await vi.advanceTimersByTimeAsync(60_000);
+    executor.setCompanyProjects(projects);
+    const readBack = executor.getCompanyProjects();
+    readBack.pop();
 
-    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenCalledTimes(2);
-    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenNthCalledWith(1, "project-alpha");
-    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenNthCalledWith(2, "project-beta");
+    expect(executor.getCompanyProjects()).toEqual(projects);
   });
 
-  it("logs and continues when one project refresh fails", async () => {
-    const refreshErr = new Error("refresh failed");
-    lastRepoManagerInstance.ensureWorktree
-      .mockRejectedValueOnce(refreshErr)
-      .mockResolvedValueOnce("/tmp/mock-repo-worktree");
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    executor.setCompanyProjects([
-      { name: "project-alpha", repo_url: "https://github.com/test/project-alpha.git" },
-      { name: "project-beta", repo_url: "https://github.com/test/project-beta.git" },
-    ]);
-
-    await vi.advanceTimersByTimeAsync(60_000);
-
-    expect(consoleErrorSpy).toHaveBeenCalledWith("[repo-refresh] Failed to refresh project-alpha:", refreshErr);
-    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenCalledTimes(2);
-    expect(lastRepoManagerInstance.ensureWorktree).toHaveBeenNthCalledWith(2, "project-beta");
-
-    consoleErrorSpy.mockRestore();
-  });
-
-  it("stops repo refresh timer during stopAll", async () => {
-    executor.setCompanyProjects([
-      { name: "project-alpha", repo_url: "https://github.com/test/project-alpha.git" },
-    ]);
-
-    await executor.stopAll();
-    lastRepoManagerInstance.ensureWorktree.mockClear();
-
-    await vi.advanceTimersByTimeAsync(60_000);
-
-    expect(lastRepoManagerInstance.ensureWorktree).not.toHaveBeenCalled();
+  it("exposes the shared repoManager instance", () => {
+    expect(executor.repoManager).toBe(lastRepoManagerInstance);
   });
 });
 

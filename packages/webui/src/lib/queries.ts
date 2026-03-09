@@ -34,6 +34,9 @@ export interface Idea {
   horizon: "soon" | "later" | null;
   created_at: string;
   originator: string | null;
+  promoted_to_type: string | null;
+  promoted_to_id: string | null;
+  promoted_at: string | null;
 }
 
 export interface DecisionOption {
@@ -550,6 +553,7 @@ export interface FeatureDetailJob {
   status: string;
   role: string;
   model: string | null;
+  result: string | null;
 }
 
 export interface FeatureDetail {
@@ -558,6 +562,7 @@ export interface FeatureDetail {
   status: string;
   priority: string | null;
   description: string | null;
+  error: string | null;
   spec: string | null;
   acceptance_tests: string | null;
   branch: string | null;
@@ -590,13 +595,16 @@ export interface IdeaDetail {
   updated_at: string | null;
   item_type: string | null;
   horizon: string | null;
+  project_id: string | null;
+  suggested_exec: string | null;
+  triage_notes: string | null;
   promotedFeature: { title: string; status: string } | null;
 }
 
 export async function fetchFeatureDetail(featureId: string): Promise<FeatureDetail> {
   const { data: feature, error: featureError } = await supabase
     .from("features")
-    .select("id, title, status, priority, description, spec, acceptance_tests, branch, pr_url, created_by, verification_type, created_at, updated_at, completed_at, source_idea_id")
+    .select("id, title, status, priority, description, error, spec, acceptance_tests, branch, pr_url, created_by, verification_type, created_at, updated_at, completed_at, source_idea_id")
     .eq("id", featureId)
     .single();
 
@@ -604,7 +612,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
 
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("id, title, status, role, model")
+    .select("id, title, status, role, model, result")
     .eq("feature_id", featureId);
 
   let sourceIdea: FeatureDetail["sourceIdea"] = null;
@@ -629,6 +637,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
     status: f.status as string,
     priority: (f.priority as string | null) ?? null,
     description: (f.description as string | null) ?? null,
+    error: (f.error as string | null) ?? null,
     spec: (f.spec as string | null) ?? null,
     acceptance_tests: (f.acceptance_tests as string | null) ?? null,
     branch: (f.branch as string | null) ?? null,
@@ -644,6 +653,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
       status: j.status,
       role: j.role,
       model: j.model ?? null,
+      result: j.result ?? null,
     })),
     sourceIdea,
   };
@@ -652,7 +662,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
 export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
   const { data: idea, error: ideaError } = await supabase
     .from("ideas")
-    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon")
+    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon, project_id, suggested_exec, triage_notes")
     .eq("id", ideaId)
     .single();
 
@@ -693,8 +703,20 @@ export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
     updated_at: (row.updated_at as string | null) ?? null,
     item_type: (row.item_type as string | null) ?? null,
     horizon: (row.horizon as string | null) ?? null,
+    project_id: (row.project_id as string | null) ?? null,
+    suggested_exec: (row.suggested_exec as string | null) ?? null,
+    triage_notes: (row.triage_notes as string | null) ?? null,
     promotedFeature,
   };
+}
+
+export async function updateIdeaStatus(ideaId: string, status: string): Promise<void> {
+  const { error } = await supabase
+    .from("ideas")
+    .update({ status })
+    .eq("id", ideaId);
+
+  if (error) throw error;
 }
 
 export interface TeamExecCard {
@@ -950,6 +972,97 @@ export async function fetchTeamPageData(companyId: string): Promise<TeamPageData
     machines,
     contractors,
   };
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
+export async function fetchProjects(companyId: string): Promise<Project[]> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id, name, description")
+    .eq("company_id", companyId)
+    .order("name");
+
+  if (error) throw error;
+  return (data ?? []) as Project[];
+}
+
+export async function promoteIdea(params: {
+  ideaId: string;
+  promoteTo: "feature" | "job";
+  projectId: string;
+  title?: string;
+}): Promise<{ promoted_to_id: string }> {
+  return invokePost<{ promoted_to_id: string }>("promote-idea", {
+    idea_id: params.ideaId,
+    promote_to: params.promoteTo,
+    project_id: params.projectId,
+    title: params.title,
+  });
+}
+
+export async function commissionProjectArchitect(params: {
+  companyId: string;
+  projectId: string;
+  context: string;
+}): Promise<{ job_id?: string }> {
+  return invokePost<{ job_id?: string }>("request-work", {
+    company_id: params.companyId,
+    project_id: params.projectId,
+    role: "project-architect",
+    context: params.context,
+  });
+}
+
+export async function requestTriageJob(params: {
+  companyId: string;
+  projectId: string;
+  ideaId: string;
+}): Promise<{ job_id?: string }> {
+  return invokePost<{ job_id?: string }>("request-work", {
+    company_id: params.companyId,
+    project_id: params.projectId,
+    role: "triage-analyst",
+    context: params.ideaId,
+  });
+}
+
+export async function requestFeatureFix(params: {
+  companyId: string;
+  featureId: string;
+  reason: string;
+}): Promise<{ job_id: string; feature_id: string }> {
+  return invokePost<{ job_id: string; feature_id: string }>("request-feature-fix", {
+    company_id: params.companyId,
+    feature_id: params.featureId,
+    reason: params.reason,
+  });
+}
+
+export async function diagnoseFeature(params: {
+  companyId: string;
+  featureId: string;
+}): Promise<{ job_id: string }> {
+  return invokePost<{ job_id: string }>("diagnose-feature", {
+    company_id: params.companyId,
+    feature_id: params.featureId,
+  });
+}
+
+export async function fetchJobResult(jobId: string): Promise<{ status: string; result: string | null }> {
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("status, result")
+    .eq("id", jobId)
+    .single();
+
+  if (error) throw error;
+  const row = data as { status: string; result: string | null };
+  return { status: row.status, result: row.result };
 }
 
 export async function updateExecArchetype(

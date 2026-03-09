@@ -366,13 +366,11 @@ export interface StartExpertMessage {
   protocolVersion: number;
   /** Expert session UUID from the expert_sessions table. */
   session_id: string;
-  /** Target machine identifier — only the matching machine should act. */
-  machine_id: string;
   /** Project UUID — when provided, a git worktree is created. */
   project_id?: string;
   /** GitHub HTTPS URL for the project repo. Required when project_id is set. */
   repo_url?: string;
-  /** Branch to base the worktree on (defaults to master). */
+  /** Branch to base the worktree on (defaults to master when omitted). */
   branch?: string;
   /** Model identifier for the Claude session. */
   model: string;
@@ -459,6 +457,10 @@ export interface JobComplete {
   result: string;
   /** Pull request URL if the job opened a PR. */
   pr?: string;
+  /** Pull request URL if the job opened a PR. */
+  pr_url?: string;
+  /** Git branch created/pushed for this job. */
+  branch?: string;
   /** CPO-readable completion report (markdown). */
   report?: string;
 }

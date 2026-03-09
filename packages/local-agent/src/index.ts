@@ -43,7 +43,6 @@ import { ExpertSessionManager } from "./expert-session-manager.js";
 import { FixAgentManager } from "./fix-agent.js";
 import { recoverDispatchedJobs } from "./job-recovery.js";
 import { JobVerifier } from "./verifier.js";
-import { RepoManager } from "./branches.js";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import type { OrchestratorMessage, MessageInbound, DaemonShutdownNotification, StartExpertMessage } from "@zazigv2/shared";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -53,6 +52,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 // ---------------------------------------------------------------------------
 
 let shuttingDown = false;
+const REPO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 async function main(): Promise<void> {
   console.log("[local-agent] Initializing...");
@@ -97,6 +97,7 @@ async function main(): Promise<void> {
     supabase: conn.dbClient,
     supabaseUrl: config.supabase.url,
     supabaseAnonKey: config.supabase.anon_key,
+    repoManager: executor.repoManager,
   });
 
   // Initialize fix agent manager — spawns ephemeral Claude sessions during testing phase
@@ -151,7 +152,7 @@ async function main(): Promise<void> {
 
       case "start_expert":
         console.log(
-          `[local-agent] Received start_expert — sessionId=${msg.session_id}, machineId=${msg.machine_id}`
+          `[local-agent] Received start_expert — sessionId=${msg.session_id}`
         );
         expertManager.handleStartExpert(msg).catch((err) => {
           console.error(`[local-agent] FATAL: handleStartExpert crashed for session=${msg.session_id}:`, err);
@@ -187,6 +188,7 @@ async function main(): Promise<void> {
   // Discover and spawn persistent agents if ZAZIG_COMPANY_ID is set
   const companyId = process.env["ZAZIG_COMPANY_ID"];
   let rolePromptChannel: RealtimeChannel | null = null;
+  let repoRefreshTimer: ReturnType<typeof setInterval> | null = null;
   if (companyId) {
     await discoverAndSpawnPersistentAgents(
       config.supabase.url,
@@ -194,6 +196,27 @@ async function main(): Promise<void> {
       companyId,
       executor,
     );
+
+    let refreshRunning = false;
+    repoRefreshTimer = setInterval(() => {
+      void (async () => {
+        if (refreshRunning) return;
+        refreshRunning = true;
+        try {
+          const projects = executor.getCompanyProjects();
+          for (const project of projects) {
+            if (!project.repo_url) continue;
+            try {
+              await executor.repoManager.refreshWorktree(project.name);
+            } catch (err) {
+              console.warn(`[daemon] repo refresh failed for ${project.name}:`, err);
+            }
+          }
+        } finally {
+          refreshRunning = false;
+        }
+      })();
+    }, REPO_REFRESH_INTERVAL_MS);
 
     rolePromptChannel = subscribeToRolePromptHotReload(
       conn,
@@ -226,6 +249,10 @@ async function main(): Promise<void> {
         console.warn("[local-agent] Failed to remove role prompt channel during shutdown:", err);
       }
       rolePromptChannel = null;
+    }
+    if (repoRefreshTimer) {
+      clearInterval(repoRefreshTimer);
+      repoRefreshTimer = null;
     }
 
     const gracePeriodMs = parseInt(process.env["ZAZIG_GRACEFUL_SHUTDOWN_MS"] ?? "10000", 10);
@@ -372,11 +399,10 @@ async function discoverAndSpawnPersistentAgents(
     console.log(`[local-agent] Discovered ${jobs.length} persistent agent(s) for company ${companyId}`);
     console.log(`[local-agent] Discovered ${companyProjects.length} project repo(s) for company ${companyId}`);
 
-    const repoManager = new RepoManager();
     for (const project of companyProjects) {
       try {
-        await repoManager.ensureRepo(project.repo_url, project.name);
-        await repoManager.ensureWorktree(project.name);
+        await executor.repoManager.ensureRepo(project.repo_url, project.name);
+        await executor.repoManager.ensureWorktree(project.name);
       } catch (err) {
         console.error(`[local-agent] Failed to initialize worktree for project ${project.name}:`, err);
       }

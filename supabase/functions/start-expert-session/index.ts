@@ -113,22 +113,28 @@ interface MachineRow {
   name: string;
 }
 
+interface ProjectLookupRow {
+  id: string;
+  name: string;
+  repo_url: string | null;
+}
+
 interface StartExpertPayload {
   type: "start_expert";
+  protocolVersion: number;
   session_id: string;
-  machine_id: string;
-  role: {
-    id: string;
-    name: string;
-    display_name: string;
-    model: string;
-    prompt: string;
-    skills: string[];
-    mcp_tools: unknown;
-    settings_overrides: unknown;
-  };
+  model: string;
   brief: string;
-  project_id: string | null;
+  display_name?: string;
+  role: {
+    prompt: string;
+    skills?: string[];
+      mcp_tools?: unknown;
+      settings_overrides?: unknown;
+  };
+  project_id: string;
+  repo_url: string;
+  branch: string;
 }
 
 async function broadcastStartExpert(
@@ -216,7 +222,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
     const roleName = toTrimmedString(body.role_name);
     const brief = toTrimmedString(body.brief);
-    const machineId = toTrimmedString(body.machine_id);
+    const machineName = toTrimmedString(body.machine_name);
     const projectId = toTrimmedString(body.project_id);
 
     if (!roleName) {
@@ -225,14 +231,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!brief) {
       return jsonResponse({ error: "brief is required" }, 400);
     }
-    if (!machineId) {
-      return jsonResponse({ error: "machine_id is required" }, 400);
+    if (!machineName) {
+      return jsonResponse({ error: "machine_name is required" }, 400);
+    }
+    if (!projectId) {
+      return jsonResponse({ error: "project_id is required — experts need a repo to work in" }, 400);
     }
 
     const { data: roleData, error: roleErr } = await supabase
       .from("expert_roles")
       .select("id, name, display_name, model, prompt, skills, mcp_tools, settings_overrides")
-      .eq("company_id", companyId)
       .eq("name", roleName)
       .maybeSingle();
 
@@ -250,7 +258,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .from("machines")
       .select("id, name")
       .eq("company_id", companyId)
-      .eq("id", machineId)
+      .eq("name", machineName)
       .maybeSingle();
 
     if (machineErr) {
@@ -258,10 +266,50 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     if (!machineData) {
-      return jsonResponse({ error: `Unknown machine_id for company: ${machineId}` }, 400);
+      return jsonResponse({ error: `Unknown machine name for company: ${machineName}` }, 400);
     }
 
     const machine = machineData as MachineRow;
+
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    let projectQuery;
+    if (uuidRegex.test(projectId)) {
+      projectQuery = supabase
+        .from("projects")
+        .select("id, name, repo_url")
+        .eq("id", projectId)
+        .eq("company_id", companyId)
+        .maybeSingle();
+    } else {
+      projectQuery = supabase
+        .from("projects")
+        .select("id, name, repo_url")
+        .eq("company_id", companyId)
+        .ilike("name", projectId)
+        .maybeSingle();
+    }
+
+    const { data: projectData, error: projectErr } = await projectQuery;
+
+    if (projectErr) {
+      return jsonResponse({ error: `Failed to look up project: ${projectErr.message}` }, 500);
+    }
+
+    if (!projectData) {
+      return jsonResponse({ error: `Project not found: ${projectId}` }, 400);
+    }
+
+    const project = projectData as ProjectLookupRow;
+
+    if (!project.repo_url) {
+      return jsonResponse({ error: `Project ${project.name} has no repo_url configured` }, 400);
+    }
+
+    const resolvedProjectId = project.id;
+    const resolvedRepoUrl = project.repo_url;
+    const resolvedBranch = "master";
 
     const { data: sessionData, error: sessionErr } = await supabase
       .from("expert_sessions")
@@ -284,20 +332,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const payload: StartExpertPayload = {
       type: "start_expert",
+      protocolVersion: 1,
       session_id: sessionId,
-      machine_id: machine.id,
+      model: role.model,
+      brief,
+      display_name: role.display_name,
       role: {
-        id: role.id,
-        name: role.name,
-        display_name: role.display_name,
-        model: role.model,
         prompt: role.prompt,
-        skills: role.skills,
+        skills: role.skills ?? [],
         mcp_tools: role.mcp_tools,
         settings_overrides: role.settings_overrides,
       },
-      brief,
-      project_id: projectId,
+      project_id: resolvedProjectId,
+      repo_url: resolvedRepoUrl,
+      branch: resolvedBranch,
     };
 
     const broadcastResult = await broadcastStartExpert(

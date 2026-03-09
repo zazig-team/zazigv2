@@ -51,6 +51,18 @@ export default function Nav(): JSX.Element {
           >
             Pipeline
           </NavLink>
+          <NavLink
+            to="/ideas"
+            className={({ isActive }) => (isActive ? "active" : undefined)}
+          >
+            Ideas
+          </NavLink>
+          <NavLink
+            to="/roadmap"
+            className={({ isActive }) => (isActive ? "active" : undefined)}
+          >
+            Roadmap
+          </NavLink>
           <NavLink to="/team" className={({ isActive }) => (isActive ? "active" : undefined)}>
             Team
           </NavLink>

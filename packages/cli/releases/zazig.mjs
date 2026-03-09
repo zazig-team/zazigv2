@@ -14820,7 +14820,7 @@ async function switchArchetype(supabaseUrl, companyId, headers, roleName, roleId
 
 // dist/commands/promote.js
 import { execSync as execSync6 } from "node:child_process";
-import { existsSync as existsSync8, rmSync as rmSync3 } from "node:fs";
+import { existsSync as existsSync8, readFileSync as readFileSync7, rmSync as rmSync3, writeFileSync as writeFileSync7 } from "node:fs";
 import { join as join11 } from "node:path";
 import { homedir as homedir9 } from "node:os";
 import { createInterface as createInterface5 } from "node:readline/promises";
@@ -14875,6 +14875,59 @@ function resolveDefaultBranch(repoDir) {
     }
   }
   throw new Error(`Cannot resolve default branch in ${repoDir}`);
+}
+function readJsonFile(path) {
+  return JSON.parse(readFileSync7(path, "utf-8"));
+}
+function writeJsonFile(path, data) {
+  writeFileSync7(path, `${JSON.stringify(data, null, 2)}
+`);
+}
+function bumpMinorVersion(version3) {
+  const parts = version3.split(".");
+  if (parts.length !== 3) {
+    throw new Error(`Invalid semver '${version3}'. Expected format major.minor.patch.`);
+  }
+  const major = Number.parseInt(parts[0], 10);
+  const minor = Number.parseInt(parts[1], 10);
+  const patch = Number.parseInt(parts[2], 10);
+  if (Number.isNaN(major) || Number.isNaN(minor) || Number.isNaN(patch) || major < 0 || minor < 0 || patch < 0) {
+    throw new Error(`Invalid semver '${version3}'. Expected numeric major.minor.patch.`);
+  }
+  return `${major}.${minor + 1}.0`;
+}
+function bumpAgentPackageVersions(repoRoot) {
+  const cliPackagePath = join11(repoRoot, "packages", "cli", "package.json");
+  const localAgentPackagePath = join11(repoRoot, "packages", "local-agent", "package.json");
+  const cliPackage = readJsonFile(cliPackagePath);
+  if (typeof cliPackage.version !== "string") {
+    throw new Error("packages/cli/package.json is missing a valid version field.");
+  }
+  const newVersion = bumpMinorVersion(cliPackage.version);
+  const localAgentPackage = readJsonFile(localAgentPackagePath);
+  cliPackage.version = newVersion;
+  localAgentPackage.version = newVersion;
+  writeJsonFile(cliPackagePath, cliPackage);
+  writeJsonFile(localAgentPackagePath, localAgentPackage);
+  return newVersion;
+}
+async function registerAgentVersion(creds, anonKey, env, version3, commitSha) {
+  const supabase = createClient(creds.supabaseUrl, anonKey);
+  const { error: sessionError } = await supabase.auth.setSession({
+    access_token: creds.accessToken,
+    refresh_token: creds.refreshToken
+  });
+  if (sessionError) {
+    throw new Error(`Authentication failed: ${sessionError.message}`);
+  }
+  const { error } = await supabase.from("agent_versions").insert({
+    env,
+    version: version3,
+    commit_sha: commitSha
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
 }
 async function promote(args2) {
   if (args2.includes("--rollback")) {
@@ -14939,7 +14992,7 @@ Company: ${company.name}`);
   }
   console.log(`Creating worktree on ${defaultBranch}...`);
   try {
-    execSync6(`git worktree add "${worktreePath}" ${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
+    execSync6(`git worktree add --force "${worktreePath}" ${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
   } catch (err) {
     console.error(`Failed to create worktree: ${String(err)}`);
     process.exitCode = 1;
@@ -14947,7 +15000,7 @@ Company: ${company.name}`);
   }
   const repoRoot = worktreePath;
   try {
-    await runPromote(repoRoot, defaultBranch);
+    await runPromote(repoRoot, defaultBranch, creds, anonKey);
   } finally {
     console.log("\nCleaning up temporary worktree...");
     try {
@@ -14964,7 +15017,7 @@ Company: ${company.name}`);
     }
   }
 }
-async function runPromote(repoRoot, defaultBranch) {
+async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   try {
     const branch = execSync6("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
     if (branch !== defaultBranch) {
@@ -15003,6 +15056,16 @@ async function runPromote(repoRoot, defaultBranch) {
     process.exitCode = 1;
     return;
   }
+  console.log("\nBumping package versions...");
+  let newVersion;
+  try {
+    newVersion = bumpAgentPackageVersions(repoRoot);
+    console.log(`Bumped packages/cli and packages/local-agent to ${newVersion}.`);
+  } catch (err) {
+    console.error(`Version bump failed: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
   console.log("\nBundling CLI...");
   try {
     execSync6("node scripts/bundle.js", { cwd: join11(repoRoot, "packages", "cli"), stdio: "inherit" });
@@ -15011,19 +15074,29 @@ async function runPromote(repoRoot, defaultBranch) {
     process.exitCode = 1;
     return;
   }
-  console.log("\nCommitting bundles...");
+  let commitSha;
+  console.log("\nCommitting bundles and version bump...");
   try {
-    execSync6("git add packages/cli/releases/zazig.mjs packages/local-agent/releases/zazig-agent.mjs packages/local-agent/releases/agent-mcp-server.mjs", { cwd: repoRoot, stdio: "pipe" });
+    execSync6("git add " + [
+      "packages/cli/releases/zazig.mjs",
+      "packages/local-agent/releases/zazig-agent.mjs",
+      "packages/local-agent/releases/agent-mcp-server.mjs",
+      "packages/cli/package.json",
+      "packages/local-agent/package.json"
+    ].join(" "), { cwd: repoRoot, stdio: "pipe" });
     const diff = execSync6("git diff --cached --name-only", { encoding: "utf-8", cwd: repoRoot }).trim();
     if (diff) {
-      execSync6('git commit -m "chore: update production bundles"', { cwd: repoRoot, stdio: "pipe" });
+      execSync6(`git commit -m "chore: update production bundles and bump version to ${newVersion}"`, { cwd: repoRoot, stdio: "pipe" });
+      commitSha = execSync6("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
       execSync6(`git push origin ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
-      console.log("Bundles committed and pushed.");
+      console.log(`Bundles and version bump committed and pushed (${commitSha.slice(0, 7)}).`);
     } else {
-      console.log("Bundles unchanged, skipping commit.");
+      console.error("No staged changes detected after bundle/version bump; promote cannot continue.");
+      process.exitCode = 1;
+      return;
     }
   } catch (err) {
-    console.error(`Bundle commit/push failed: ${String(err)}`);
+    console.error(`Bundle/version commit or push failed: ${String(err)}`);
     process.exitCode = 1;
     return;
   }
@@ -15059,11 +15132,20 @@ async function runPromote(repoRoot, defaultBranch) {
     process.exitCode = 1;
     return;
   }
+  console.log("\nRegistering production version...");
+  try {
+    await registerAgentVersion(creds, anonKey, "production", newVersion, commitSha);
+    console.log(`Registered production agent version ${newVersion} (${commitSha.slice(0, 7)}).`);
+  } catch (err) {
+    console.error(`Version registration failed: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
   console.log("\nPinning local agent build...");
   pinCurrentBuild(repoRoot);
-  const sha = execSync6("git rev-parse --short HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
+  const sha = commitSha.slice(0, 7);
   console.log(`
-Promoted to production (${sha}).`);
+Promoted to production ${newVersion} (${sha}).`);
   console.log("CI will deploy Supabase migrations and edge functions.");
   console.log("Restart your production agent to use the new build: zazig stop && zazig start");
 }
@@ -15123,7 +15205,7 @@ Starting hotfix session: ${description}`);
 
 // dist/commands/staging-fix.js
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { existsSync as existsSync9, readFileSync as readFileSync7 } from "node:fs";
+import { existsSync as existsSync9, readFileSync as readFileSync8 } from "node:fs";
 import { resolve as resolve3 } from "node:path";
 async function stagingFix() {
   const repoRoot = process.cwd();
@@ -15152,7 +15234,7 @@ async function stagingFix() {
     contextParts.push("");
     contextParts.push("## Environment Config:");
     contextParts.push("```yaml");
-    contextParts.push(readFileSync7(envPath, "utf-8"));
+    contextParts.push(readFileSync8(envPath, "utf-8"));
     contextParts.push("```");
   }
   console.log("Starting staging fix session...");

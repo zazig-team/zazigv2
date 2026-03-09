@@ -145,8 +145,8 @@ Subscribe to `capabilities` and `capability_lanes` — changes from CPO appear l
 | Node | Status | Progress | Key Finding |
 |------|--------|----------|-------------|
 | Data Model | shipped | 95% | 119 migrations, 17+ tables. No scheduled_jobs table. |
-| Orchestrator | shipped | 85% | DAG dispatch works. Advanced features (stuck detection, ESTOP, hooks) only designed. |
-| Deep Heartbeat | active | 25% | Machine-level heartbeat only. Per-job health not built. |
+| Orchestrator | shipped | 85% | DAG dispatch works. Advanced features (ESTOP, hooks) only designed. Dispatch fencing (from retired Deep Heartbeat) folded in. |
+| ~~Deep Heartbeat~~ | **retired** | — | Retired 2026-03-09. Local health hardening → Exec Autonomy. Dispatch fencing → Orchestrator. See `2026-03-09-deep-heartbeat-retirement.md`. |
 | Triggers & Events | active | 15% | Events table exists. 7 subsystems designed, almost none built. |
 | Auto-Greenlight | locked | 0% | Accurate. Only a proposal, not designed. |
 
@@ -190,7 +190,7 @@ Subscribe to `capabilities` and `capability_lanes` — changes from CPO appear l
 ### Current priorities (build order)
 
 1. **Personality** — finish last 10%
-2. **Deep Heartbeat** — per-job health, stuck detection
+2. **Exec Autonomy** — Phase 1 shipped (cache-TTL, HEARTBEAT.md, exec skills). Phase 2: local health hardening (compaction/permission detection). Absorbs retired Deep Heartbeat's local pieces.
 3. **Memory P1** — deploy schema, bulletin injection, write path
 4. **Persistent Identity** — merge Bootstrap Parity branch, wire subAgentPrompt
 5. **Health Scoring** — add `health` column, automate v2

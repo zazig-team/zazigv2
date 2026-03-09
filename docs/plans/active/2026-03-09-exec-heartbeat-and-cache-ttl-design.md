@@ -429,7 +429,7 @@ This is about **exec autonomy** — giving agents the ability to work between hu
 
 **Why it depends on Persistent Identity:** The per-exec skill pattern (context side-loading) requires persistent identity to be stable — workspace paths, memory files, role prompts all need to be reliably maintained.
 
-**Why it does NOT depend on Deep Heartbeat:** Phase 1 idle detection is a simple tmux output hash comparison — doesn't need Deep Heartbeat's full `JobHealth` infrastructure. Phase 2 can optionally reuse Deep Heartbeat's tmux capture infra for smarter reset triggers (reset on compaction, context health), but that's an enhancement, not a prerequisite.
+**Why it does NOT depend on Deep Heartbeat:** All health detection (idle, compaction, permission prompts, session death) is daemon-local tmux capture — an extension of Phase 1's output hash comparison. The original "Deep Heartbeat" capability (cloud-side per-job health reporting) has been retired as a standalone capability. Its two remaining pieces fold into Exec Autonomy (local health hardening) and Orchestrator (dispatch fencing). See review notes in `2026-03-09-deep-heartbeat-retirement.md`.
 
 **Why it does NOT depend on Triggers & Events:** Phase 1 (Persistent + Cache-TTL) runs entirely in the local daemon. Phases 3-4 (Scheduled Dispatch, Event-Triggered) need T&E's Scheduler and Wake Service respectively, but those are later phases that add sophistication — not prerequisites for core autonomy.
 
@@ -479,10 +479,14 @@ Phase 1 (NOW — no cloud dependencies)
 ├── Per-exec skill generation (exec workspace only — no shared publish)
 └── CPO + CTO heartbeat tasks authored
 
-Phase 2 (needs Deep Heartbeat)
-├── Activity detection via tmux capture (reuse DH infrastructure)
-├── Context health monitoring (know WHEN to reset, not just on idle)
-└── Smart reset triggers (reset on compaction, not just idle)
+Phase 2 (daemon-local — no cloud dependencies)
+├── Compaction detection (scan tmux output for compaction markers)
+├── Permission prompt detection (scan for "Allow?" patterns → Slack alert)
+├── Smart reset triggers (reset on compaction, not just idle timeout)
+└── Session-alive hardening (detect tmux death vs idle)
+    NOTE: This does NOT need "Deep Heartbeat" cloud infrastructure.
+    All detection is local tmux capture — an extension of Phase 1's
+    output hash comparison. ~50 lines of daemon code.
 
 Phase 3 (needs T&E Scheduler)
 ├── Scheduled dispatch for non-persistent agents
@@ -496,7 +500,7 @@ Phase 4 (needs T&E Wake Service)
 └── Webhook → agent wake
 ```
 
-Phase 1 is the 80/20. It gives you autonomous execs with zero infrastructure dependencies. Phases 2-4 add sophistication but are incremental improvements, not prerequisites.
+Phase 1 is the 80/20. It gives you autonomous execs with zero infrastructure dependencies. Phase 2 is a small daemon-local enhancement. Phases 3-4 add sophistication but are incremental improvements, not prerequisites.
 
 ---
 

@@ -259,8 +259,7 @@ Based on current pain points and the autonomous CPO goal:
    daemon injects into persistent agent tmux. No events queue, no
    coalescing. Enables autonomous CPO loop.
 
-4. **Extended heartbeat** — per-job health in heartbeat payload. Stuck
-   detection in orchestrator. Builds on existing heartbeat.
+4. ~~**Extended heartbeat**~~ — **Retired 2026-03-09.** Per-job health reporting to cloud deemed unnecessary — daemon handles health locally (cache-TTL idle detection, session-alive checks shipped). Local health hardening (compaction/permission detection) folded into Exec Autonomy Phase 2. Dispatch fencing (`dispatch_attempt_id`) folded into Orchestrator hardening.
 
 5. **Lightweight notifications** — `agent_notifications` table replaces
    full events queue. Wake service reads from it.

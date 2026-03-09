@@ -78,7 +78,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    if ((promote_to === "feature" || promote_to === "job") && !project_id) {
+    const requiresProjectId = promote_to === "feature" || promote_to === "job";
+    if (requiresProjectId && !project_id) {
       return jsonResponse(
         { error: `project_id is required when promote_to is '${promote_to}'` },
         400,

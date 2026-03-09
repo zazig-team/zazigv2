@@ -15,6 +15,7 @@ import FormattedProse from "../components/FormattedProse";
 
 type TypeFilter = "all" | "idea" | "brief" | "bug" | "test";
 type SectionTab = "inbox" | "triaged" | "workshop" | "parked" | "shipped";
+type SortMode = "newest" | "oldest" | "priority";
 
 const TYPE_ICON: Record<string, string> = {
   idea: "\u{1F4A1}",
@@ -69,6 +70,12 @@ function sourceLabel(idea: Idea): string {
 function formatDate(iso: string | null): string {
   if (!iso) return "\u2014";
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+
+function priorityRank(priority: string | null): number {
+  return PRIORITY_RANK[(priority ?? "medium").toLowerCase()] ?? 2;
 }
 
 function featureStatusLabel(status: string): string {
@@ -328,6 +335,7 @@ export default function Ideas(): JSX.Element {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [activeTab, setActiveTab] = useState<SectionTab>("inbox");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [sortMode, setSortMode] = useState<SortMode>("newest");
   const listRef = useRef<HTMLDivElement>(null);
 
   const loadIdeas = useCallback(async () => {
@@ -432,7 +440,17 @@ export default function Ideas(): JSX.Element {
     shipped: filteredPromoted,
   }), [filtered, filteredPromoted]);
 
-  const activeItems = sections[activeTab];
+  const activeItems = useMemo(() => {
+    const items = [...sections[activeTab]];
+    if (sortMode === "oldest") {
+      items.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    } else if (sortMode === "newest") {
+      items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    } else if (sortMode === "priority") {
+      items.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+    }
+    return items;
+  }, [sections, activeTab, sortMode]);
 
   // Section counts (unfiltered for tab badges)
   const tabCounts = useMemo(() => ({
@@ -546,6 +564,24 @@ export default function Ideas(): JSX.Element {
         ))}
       </div>
 
+      {/* Sort controls */}
+      <div className="il-sort-bar">
+        <span className="il-sort-label">Sort</span>
+        {([["newest", "Newest first"], ["oldest", "Oldest first"], ["priority", "Priority"]] as [SortMode, string][]).map(([mode, label]) => (
+          <button
+            key={mode}
+            className={`il-sort-btn${sortMode === mode ? " active" : ""}`}
+            onClick={() => setSortMode(mode)}
+            type="button"
+          >
+            {label}
+            {sortMode === mode && (
+              <span className="il-sort-arrow">{mode === "oldest" ? "\u2191" : "\u2193"}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
       {/* List */}
       <div className="il-list" ref={listRef}>
         {activeItems.length === 0 && (
@@ -582,7 +618,7 @@ export default function Ideas(): JSX.Element {
                   <span className="il-source">{sourceLabel(idea)}</span>
                   <span className="il-age">{ageLabel(isShippedTab && idea.promoted_at ? idea.promoted_at : idea.created_at)}</span>
                 </div>
-                <div className="il-chevron">{"\u25B6"}</div>
+                <div className="il-chevron"><span className="il-chevron-icon">{"\u25B6"}</span></div>
               </div>
 
               {isExpanded && (

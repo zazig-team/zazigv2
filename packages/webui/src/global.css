@@ -2952,11 +2952,59 @@ input {
   font-size: 10px;
 }
 
+/* Sort / filter bar */
+.il-sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.il-sort-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--dust);
+  margin-right: 2px;
+}
+
+.il-sort-btn {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--dust);
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: none;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.il-sort-btn:hover {
+  color: var(--stone);
+  background: var(--white);
+}
+
+.il-sort-btn.active {
+  color: var(--ink);
+  background: var(--white);
+  border-color: var(--chalk);
+}
+
+.il-sort-arrow {
+  font-size: 9px;
+  opacity: 0.6;
+}
+
 /* List container */
 .il-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
 }
 
 .il-empty {
@@ -3129,15 +3177,22 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding-top: 13px;
+  align-self: stretch;
   color: var(--dust);
   font-size: 8px;
-  transition: transform 0.2s ease;
   flex-shrink: 0;
 }
 
-.il-row.expanded .il-chevron {
+.il-chevron-icon {
+  transition: transform 0.2s ease;
+  display: inline-block;
+}
+
+.il-row.expanded .il-chevron-icon {
   transform: rotate(90deg);
+}
+
+.il-row.expanded .il-chevron {
   color: var(--col-ideas);
 }
 

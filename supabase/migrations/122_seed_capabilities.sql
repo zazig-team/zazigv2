@@ -1,59 +1,56 @@
--- 121_seed_capabilities.sql
+-- 122_seed_capabilities.sql
 -- Seed capability lanes and capabilities audited on 2026-03-07.
+-- NOTE: This migration originally used a single CTE for lanes + capabilities,
+-- which failed due to PostgreSQL CTE snapshot isolation (capabilities INSERT
+-- couldn't see lanes inserted in the same WITH statement). Fixed by splitting
+-- into two separate statements. See 124_seed_capabilities_remediation.sql for
+-- the remediation migration that backfills on databases where this already ran.
 
-WITH company AS (
-    SELECT id
-    FROM public.companies
-    LIMIT 1
-),
-lane_seed (lane_key, lane_name, sort_order) AS (
+-- Statement 1: Seed lanes
+INSERT INTO public.capability_lanes (company_id, name, sort_order)
+SELECT
+    company.id,
+    lane.lane_name,
+    lane.sort_order
+FROM (SELECT id FROM public.companies LIMIT 1) company
+CROSS JOIN (
     VALUES
-        ('brain', 'Agent Brain', 1),
-        ('identity', 'Agent Identity', 2),
-        ('infra', 'Infrastructure', 3),
-        ('pipeline', 'Pipeline', 4),
-        ('interface', 'Interface', 5),
-        ('platform', 'Platform', 6),
-        ('strategy', 'Strategy', 7)
-),
-inserted_lanes AS (
-    INSERT INTO public.capability_lanes (
-        company_id,
-        name,
-        sort_order
-    )
-    SELECT
-        company.id,
-        lane_seed.lane_name,
-        lane_seed.sort_order
-    FROM company
-    JOIN lane_seed ON true
-    WHERE NOT EXISTS (
-        SELECT 1
-        FROM public.capability_lanes existing_lane
-        WHERE existing_lane.company_id = company.id
-          AND existing_lane.name = lane_seed.lane_name
-    )
-    RETURNING id, name
+        ('Agent Brain', 1),
+        ('Agent Identity', 2),
+        ('Infrastructure', 3),
+        ('Pipeline', 4),
+        ('Interface', 5),
+        ('Platform', 6),
+        ('Strategy', 7)
+) AS lane(lane_name, sort_order)
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM public.capability_lanes existing
+    WHERE existing.company_id = company.id
+      AND existing.name = lane.lane_name
+);
+
+-- Statement 2: Seed capabilities (runs after lanes are committed)
+WITH company AS (
+    SELECT id FROM public.companies LIMIT 1
 ),
 all_lanes AS (
-    SELECT
-        capability_lanes.name,
-        capability_lanes.id
+    SELECT cl.name, cl.id
     FROM company
-    JOIN public.capability_lanes
-        ON capability_lanes.company_id = company.id
-    JOIN lane_seed
-        ON lane_seed.lane_name = capability_lanes.name
+    JOIN public.capability_lanes cl ON cl.company_id = company.id
+),
+lane_map (lane_key, lane_name) AS (
+    VALUES
+        ('brain', 'Agent Brain'),
+        ('identity', 'Agent Identity'),
+        ('infra', 'Infrastructure'),
+        ('pipeline', 'Pipeline'),
+        ('interface', 'Interface'),
+        ('platform', 'Platform'),
+        ('strategy', 'Strategy')
 ),
 capability_seed (
-    lane_key,
-    title,
-    icon,
-    status,
-    progress,
-    sort_order,
-    tooltip
+    lane_key, title, icon, status, progress, sort_order, tooltip
 ) AS (
     VALUES
         ('brain', 'Personality', '🧬', 'shipped', 90, 0, '9 numeric dimensions per archetype. Compiled into prompt at dispatch.'),
@@ -94,85 +91,34 @@ capability_seed (
         ('strategy', 'Goals & Focus', '🎯', 'shipped', 65, 0, 'Tables + MCP tools + UI working. health column missing.'),
         ('strategy', 'Health Scoring', '📊', 'draft', 25, 1, 'Manual v1 done. Missing health column blocker.'),
         ('strategy', 'Strategy Sim', '🧮', 'locked', 5, 2, 'Decisions table + edge function exist.')
-),
-inserted_capabilities AS (
-    INSERT INTO public.capabilities (
-        company_id,
-        lane_id,
-        title,
-        icon,
-        status,
-        progress,
-        depends_on,
-        sort_order,
-        tooltip
-    )
-    SELECT
-        company.id,
-        all_lanes.id,
-        capability_seed.title,
-        capability_seed.icon,
-        capability_seed.status,
-        capability_seed.progress,
-        '{}'::uuid[],
-        capability_seed.sort_order,
-        capability_seed.tooltip
-    FROM company
-    JOIN capability_seed ON true
-    JOIN lane_seed
-        ON lane_seed.lane_key = capability_seed.lane_key
-    JOIN all_lanes
-        ON all_lanes.name = lane_seed.lane_name
-    WHERE NOT EXISTS (
-        SELECT 1
-        FROM public.capabilities existing_capability
-        WHERE existing_capability.company_id = company.id
-          AND existing_capability.title = capability_seed.title
-    )
-    RETURNING id
 )
-SELECT COUNT(*)
-FROM inserted_capabilities;
+INSERT INTO public.capabilities (
+    company_id, lane_id, title, icon, status, progress, depends_on, sort_order, tooltip
+)
+SELECT
+    company.id,
+    all_lanes.id,
+    cs.title,
+    cs.icon,
+    cs.status,
+    cs.progress,
+    '{}'::uuid[],
+    cs.sort_order,
+    cs.tooltip
+FROM company
+JOIN capability_seed cs ON true
+JOIN lane_map lm ON lm.lane_key = cs.lane_key
+JOIN all_lanes ON all_lanes.name = lm.lane_name
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM public.capabilities existing
+    WHERE existing.company_id = company.id
+      AND existing.title = cs.title
+);
 
+-- Statement 3: Wire up depends_on references
 WITH company AS (
-    SELECT id
-    FROM public.companies
-    LIMIT 1
-),
-capability_seed (title) AS (
-    VALUES
-        ('Personality'),
-        ('Memory P1'),
-        ('Doctrines'),
-        ('Memory P2'),
-        ('Canons'),
-        ('Auto-Spec'),
-        ('Roles & Prompts'),
-        ('Persistent Identity'),
-        ('Bootstrap Parity'),
-        ('Future Roles'),
-        ('Data Model'),
-        ('Orchestrator'),
-        ('Deep Heartbeat'),
-        ('Triggers & Events'),
-        ('Auto-Greenlight'),
-        ('Pipeline Engine'),
-        ('Contractors'),
-        ('Verification'),
-        ('Monitoring Agent'),
-        ('Product Intelligence'),
-        ('CLI & Agent'),
-        ('Terminal CPO'),
-        ('Gateway (Slack)'),
-        ('Interactive Jobs'),
-        ('Multi-Channel'),
-        ('WebUI'),
-        ('Model Flexibility'),
-        ('Roles Marketplace'),
-        ('Local Models'),
-        ('Goals & Focus'),
-        ('Health Scoring'),
-        ('Strategy Sim')
+    SELECT id FROM public.companies LIMIT 1
 ),
 dependency_seed (title, depends_on_title, dep_order) AS (
     VALUES
@@ -211,33 +157,30 @@ dependency_seed (title, depends_on_title, dep_order) AS (
 ),
 dependency_arrays AS (
     SELECT
-        dependency_seed.title,
+        ds.title,
         COALESCE(
-            array_agg(dep.id ORDER BY dependency_seed.dep_order)
+            array_agg(dep.id ORDER BY ds.dep_order)
                 FILTER (WHERE dep.id IS NOT NULL),
             '{}'::uuid[]
         ) AS depends_on_ids
-    FROM dependency_seed
+    FROM dependency_seed ds
     JOIN company ON true
     LEFT JOIN public.capabilities dep
         ON dep.company_id = company.id
-       AND dep.title = dependency_seed.depends_on_title
-    GROUP BY dependency_seed.title
+       AND dep.title = ds.depends_on_title
+    GROUP BY ds.title
 ),
-resolved_dependencies AS (
+resolved AS (
     SELECT
         target.id,
-        COALESCE(dependency_arrays.depends_on_ids, '{}'::uuid[]) AS depends_on_ids
+        COALESCE(da.depends_on_ids, '{}'::uuid[]) AS depends_on_ids
     FROM company
-    JOIN public.capabilities target
-        ON target.company_id = company.id
-    JOIN capability_seed
-        ON capability_seed.title = target.title
-    LEFT JOIN dependency_arrays
-        ON dependency_arrays.title = target.title
+    JOIN public.capabilities target ON target.company_id = company.id
+    LEFT JOIN dependency_arrays da ON da.title = target.title
+    WHERE da.depends_on_ids IS NOT NULL
 )
-UPDATE public.capabilities capabilities
-SET depends_on = resolved_dependencies.depends_on_ids
-FROM resolved_dependencies
-WHERE capabilities.id = resolved_dependencies.id
-  AND capabilities.depends_on IS DISTINCT FROM resolved_dependencies.depends_on_ids;
+UPDATE public.capabilities c
+SET depends_on = resolved.depends_on_ids
+FROM resolved
+WHERE c.id = resolved.id
+  AND c.depends_on IS DISTINCT FROM resolved.depends_on_ids;

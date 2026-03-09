@@ -232,6 +232,19 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     ),
   );
 
+  // 5b. Write .claude/settings.local.json to auto-trust the zazig-messaging MCP server
+  writeFileSync(
+    join(claudeDir, "settings.local.json"),
+    JSON.stringify(
+      {
+        enableAllProjectMcpServers: true,
+        enabledMcpjsonServers: ["zazig-messaging"],
+      },
+      null,
+      2,
+    ),
+  );
+
   // 6. Write machine/workspace metadata for skills that need daemon context.
   writeFileSync(
     join(claudeDir, "workspace-config.json"),

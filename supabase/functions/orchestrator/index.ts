@@ -483,6 +483,31 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
 
   console.log(`[orchestrator] ${queuedJobs.length} queued job(s) to process.`);
 
+  // Build a feature status cache for code jobs so we can cheaply gate dispatch
+  // while a feature is still in breaking_down.
+  const codeFeatureIds = Array.from(
+    new Set(
+      (queuedJobs as JobRow[])
+        .filter((job) => job.job_type === "code" && Boolean(job.feature_id))
+        .map((job) => job.feature_id as string),
+    ),
+  );
+  const featureStatusById = new Map<string, string>();
+  if (codeFeatureIds.length > 0) {
+    const { data: featureRows, error: featureRowsErr } = await supabase
+      .from("features")
+      .select("id, status")
+      .in("id", codeFeatureIds);
+    if (featureRowsErr) {
+      console.error("[orchestrator] Failed to preload feature statuses for code-job gate:", featureRowsErr.message);
+      return;
+    }
+    for (const row of featureRows ?? []) {
+      const featureRow = row as { id: string; status: string };
+      featureStatusById.set(featureRow.id, featureRow.status);
+    }
+  }
+
   // Cache machines fetched in this pass (keyed by company_id) to avoid redundant queries.
   const machineCache = new Map<string, MachineRow[]>();
 
@@ -554,6 +579,17 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
             `[orchestrator] Job ${job.id} auto-failed: deploy_to_test not allowed for feature ${job.feature_id} in ${featureStatus}`,
           );
         }
+        continue;
+      }
+    }
+
+    // Do not dispatch code jobs while the parent feature is still breaking_down.
+    if (job.job_type === "code" && job.feature_id) {
+      const featureStatus = featureStatusById.get(job.feature_id);
+      if (featureStatus === "breaking_down") {
+        console.log(
+          `[orchestrator] Skipping job ${job.id} — feature ${job.feature_id} still breaking_down`,
+        );
         continue;
       }
     }

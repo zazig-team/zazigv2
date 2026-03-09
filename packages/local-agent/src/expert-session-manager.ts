@@ -303,7 +303,12 @@ When the user says "wrap up", "I'm done", "finish up", or similar:
         await killTmuxSession(tmuxSessionName);
       }
 
-      const claudeCmd = shellEscape(["claude", "--model", msg.model]);
+      const claudeCmd = shellEscape([
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        msg.model,
+      ]);
       const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
 
       await execFileAsync("tmux", [

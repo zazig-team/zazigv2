@@ -33,6 +33,8 @@
 - Wants to see "what was built" — Shipped section on Ideas page, feature status badges on promoted ideas. The trail from idea → feature → completion matters.
 
 ## Codebase Gotchas
+- Ideas constraint values: domain=`product,engineering,marketing,cross-cutting,unknown`; scope=`job,feature,initiative,project,research,unknown`; source=`terminal,slack,telegram,agent,web,api,monitoring`. Use `web` for human-originated, `engineering` or `product` for domain. Column is `raw_text` not `body`.
+- `create-idea` edge function requires `originator` field (not optional).
 - Spelling: "canons" not "cannons", "Zazig" not "ZeZig/Zezig", "pillar" not "lens", "Supabase" not "SuperBase/super base"
 - Chris = Speaker 2 in meeting transcripts (transcription tool keeps re-labelling him as Speaker 11/12/13/14 too)
 - Every Supabase edge function needs its own `deno.json` with `"@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2"` import map — bare imports don't work in Deno runtime

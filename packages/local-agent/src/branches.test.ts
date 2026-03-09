@@ -317,7 +317,7 @@ describe("RepoManager.refreshWorktree", () => {
       const gitSpy = vi.spyOn(manager as any, "git").mockImplementation(async (repoDirPath: unknown, ...args: unknown[]) => {
         const repoDirPathStr = String(repoDirPath);
         const gitArgs = args.map(String);
-        if (repoDirPathStr === bareDir && gitArgs[0] === "fetch" && gitArgs[1] === "origin") {
+        if (repoDirPathStr === bareDir && gitArgs[0] === "fetch") {
           throw new Error("simulated fetch failure");
         }
         return originalGit(repoDirPathStr, ...gitArgs);

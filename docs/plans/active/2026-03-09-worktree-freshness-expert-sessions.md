@@ -1,8 +1,9 @@
 # Worktree Freshness for Expert Sessions
 
 **Date:** 2026-03-09
-**Status:** Draft (auto-generated, pending review)
+**Status:** Implemented (Codex, 2026-03-09) — pending test runner fix + staging validation
 **Authors:** Tom Weaver, Claude
+**Implemented by:** Codex (gpt-5.3-codex)
 **Source:** Chris Evans staging report — expert sessions (e.g., hotfix expert) behind current master
 
 ---
@@ -267,6 +268,16 @@ Expert session manager calls this instead of direct `execFileAsync`. All git ope
 | 4 | (Future) Evaluate per-session shallow clone if contention persists | M |
 
 **Total effort for immediate fix: S** — this is a ~10 line change.
+
+### Implementation Notes (2026-03-09, Codex)
+
+- Expert session manager now receives shared RepoManager via constructor (expert-session-manager.ts:51)
+- Old `origin/{branch}` fallback flow replaced with `ensureRepo()` + `fetchBranchForExpert()`
+- Worktree creation uses `refs/heads/${branch}` directly (not `origin/${branch}`)
+- Commit hash logged after worktree creation for freshness verification
+- Tests added in expert-session-manager.test.ts:232 for shared RepoManager expert flow
+- `npm run typecheck` passes
+- **Blocker:** Vitest cannot run due to mixed-architecture Rollup/esbuild install — tests need runner fix before validation
 
 ---
 

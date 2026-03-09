@@ -1,8 +1,9 @@
 # Worktree Freshness for Persistent Agents
 
 **Date:** 2026-03-09
-**Status:** Draft (auto-generated, pending review)
+**Status:** Implemented (Codex, 2026-03-09) — pending test runner fix + staging validation
 **Authors:** Tom Weaver, Claude
+**Implemented by:** Codex (gpt-5.3-codex)
 **Source:** Chris Evans staging report — CPO worktree behind current master
 
 ---
@@ -218,6 +219,17 @@ Add a HEARTBEAT.md task telling the exec to `git pull` in their repos/ directory
 | 4 | Test on staging with Chris's CPO setup | S |
 
 **Total effort: S** — this is a surgical fix, ~50 lines of new code.
+
+### Implementation Notes (2026-03-09, Codex)
+
+- `RepoManager.refreshWorktree()` added at branches.ts:269 — locked fetch, refs/heads comparison, merge-base divergence check, hard-reset only on fast-forward
+- `RepoManager.fetchBranchForExpert()` added at branches.ts — force-fetches single branch into refs/heads under shared lock
+- `executor.ts:341` — `repoManager` changed from `private` to `public`, `getCompanyProjects()` getter added
+- `index.ts:54` — 5-minute periodic refresh timer using executor's shared RepoManager instance (not a separate instance)
+- Persistent agent startup now initialises repos/worktrees through the executor's RepoManager
+- Tests added in branches.test.ts:237 (refreshWorktree cases + fetchBranchForExpert locking) and expert-session-manager.test.ts:232 (shared RepoManager expert flow)
+- `npm run typecheck` passes
+- **Blocker:** Vitest cannot run due to mixed-architecture Rollup/esbuild install — tests need runner fix before validation
 
 ---
 

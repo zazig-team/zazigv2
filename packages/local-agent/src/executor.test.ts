@@ -317,7 +317,7 @@ describe("JobExecutor — progress integration", () => {
     expect(rpcMock.mock.calls.some((call: unknown[]) => call[0] === "append_raw_log")).toBe(false);
   });
 
-  it("sets progress: 100 in sendJobComplete when session ends", async () => {
+  it("broadcasts job_complete when session ends and does not write terminal status to DB", async () => {
     await executor.handleStartJob(makeStartJob());
     supabase.calls.length = 0;
 
@@ -328,16 +328,23 @@ describe("JobExecutor — progress integration", () => {
     // Advance one poll interval — session is dead → onJobEnded → sendJobComplete
     await vi.advanceTimersByTimeAsync(30_000);
 
-    const completeCalls = supabase.calls.filter(
-      (c) => c.table === "jobs" && c.data.status === "complete",
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: "job_complete",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId: "job-001",
+      machineId: "machine-1",
+      result: "PASSED",
+      report: "status: pass\nsummary: Job completed.",
+      branch: "job/job-001",
+    }));
+
+    const terminalStatusWrites = supabase.calls.filter(
+      (c) => c.table === "jobs" && (c.data.status === "complete" || c.data.status === "failed"),
     );
-    expect(completeCalls.length).toBe(1);
-    expect(completeCalls[0]!.data.progress).toBe(100);
-    expect(completeCalls[0]!.data.result).toBeDefined();
-    expect(completeCalls[0]!.data.completed_at).toBeDefined();
+    expect(terminalStatusWrites.length).toBe(0);
   });
 
-  it("routes FAILED report result to sendJobFailed and preserves reason in DB result", async () => {
+  it("routes FAILED report result to sendJobFailed and broadcasts failure reason", async () => {
     const readFileSyncMock = fsModule.readFileSync as unknown as Mock;
     readFileSyncMock.mockImplementation((path: unknown) => {
       if (typeof path === "string" && path.endsWith(".json")) {
@@ -352,16 +359,19 @@ describe("JobExecutor — progress integration", () => {
 
     await vi.advanceTimersByTimeAsync(30_000);
 
-    const completeCalls = supabase.calls.filter(
-      (c) => c.table === "jobs" && c.data.status === "complete",
-    );
-    const failCalls = supabase.calls.filter(
-      (c) => c.table === "jobs" && c.data.status === "failed",
-    );
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: "job_failed",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId: "job-001",
+      machineId: "machine-1",
+      error: "FAILED: Could not acquire git index.lock",
+      failureReason: "unknown",
+    }));
 
-    expect(completeCalls.length).toBe(0);
-    expect(failCalls.length).toBe(1);
-    expect(failCalls[0]!.data.result).toBe("FAILED: Could not acquire git index.lock");
+    const terminalStatusWrites = supabase.calls.filter(
+      (c) => c.table === "jobs" && (c.data.status === "complete" || c.data.status === "failed"),
+    );
+    expect(terminalStatusWrites.length).toBe(0);
   });
 
   it("routes NO_REPORT result to sendJobFailed", async () => {

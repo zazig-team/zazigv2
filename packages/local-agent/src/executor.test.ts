@@ -698,6 +698,26 @@ describe("JobExecutor — slot reconciliation", () => {
     expect(settings.hooks.SessionStart).toHaveLength(2);
   });
 
+  it("injects a boot orientation prompt after persistent session startup", async () => {
+    await executor.handleStartJob(makeStartJob({
+      jobId: "persistent-cpo-boot",
+      role: "cpo",
+      cardType: "persistent_agent",
+    }));
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    const bootPromptCall = mockExecFileAsync.mock.calls.find((call: unknown[]) =>
+      call[0] === "tmux"
+      && Array.isArray(call[1])
+      && (call[1] as string[])[0] === "send-keys"
+      && (call[1] as string[])[3] === "-l",
+    );
+    expect(bootPromptCall).toBeDefined();
+    expect((bootPromptCall![1] as string[])[4]).toContain("Startup orientation:");
+    expect((bootPromptCall![1] as string[])[4]).toContain(".claude/cpo-report.md");
+  });
+
   it("resets an idle persistent agent by replaying the stored StartJob", async () => {
     const setupMock = setupJobWorkspace as unknown as Mock;
     const execSkillMock = generateExecSkill as unknown as Mock;

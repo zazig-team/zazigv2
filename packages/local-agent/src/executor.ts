@@ -68,6 +68,18 @@ function reportRelativePath(role?: string): string {
   return `.claude/${reportFile}`;
 }
 
+/** Default startup orientation message for persistent agents. */
+function buildPersistentBootPrompt(role: string): string {
+  const reportPath = reportRelativePath(role);
+  return [
+    "Startup orientation:",
+    `Read ${reportPath} if it exists to recover continuity.`,
+    "Review .claude/HEARTBEAT.md and the current workspace state.",
+    "Check for pending work using available MCP tools.",
+    `Begin with the highest-priority task and keep ${reportPath} updated as you work.`,
+  ].join(" ");
+}
+
 /** Per-job report directory to prevent concurrent-completion races. */
 const REPORT_ARCHIVE_DIR = ".claude/job-reports";
 
@@ -1349,6 +1361,12 @@ export class JobExecutor {
       resetInProgress: false,
     };
     this.persistentAgents.set(role, persistentAgent);
+
+    // Inject an initial orientation task so persistent agents self-start after boot/reset.
+    const bootPrompt = buildPersistentBootPrompt(role);
+    void this.enqueueMessage(bootPrompt, sessionName, spawnedAt, "human").catch((err) => {
+      console.warn(`[executor] Failed to inject boot prompt for role=${role}: ${String(err)}`);
+    });
 
     const uuid = this.machineUuid;
     persistentAgent.heartbeatTimer = setInterval(() => {

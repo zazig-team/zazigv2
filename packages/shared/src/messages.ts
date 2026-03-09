@@ -457,6 +457,10 @@ export interface JobComplete {
   result: string;
   /** Pull request URL if the job opened a PR. */
   pr?: string;
+  /** Pull request URL if the job opened a PR. */
+  pr_url?: string;
+  /** Git branch created/pushed for this job. */
+  branch?: string;
   /** CPO-readable completion report (markdown). */
   report?: string;
 }

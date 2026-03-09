@@ -50,6 +50,11 @@
 - Executor report path: agent writes `.claude/cpo-report.md` relative to workspace CWD (`~/.zazigv2/job-<id>/`), not `$HOME`. Executor checks workspace dir first, falls back to `$HOME`.
 - `batch-create-jobs` temp reference format is `temp:N` (colon), not `temp-N` (dash)
 - `assembled_context` column doesn't exist on jobs table yet — the executor's DB write fails silently (non-blocking)
+- **Vitest runner broken**: mixed-architecture Rollup/esbuild install in workspace prevents test runner startup. Tests compile (typecheck passes) but can't execute. Needs dependency cleanup.
+
+## Implementation Tracking
+- **Worktree freshness (both proposals)**: Codex implemented 2026-03-09. branches.ts (refreshWorktree, fetchBranchForExpert), executor.ts (public repoManager, getCompanyProjects), index.ts (5-min timer), expert-session-manager.ts (shared RepoManager). Typecheck passes, Vitest blocked.
+- **Cache-TTL Phase 1**: Codex implemented 2026-03-09. executor.ts:257 (PersistentAgentState, activity detection, reset sequence with stored StartJob replay), workspace.ts:46 (HEARTBEAT.md, heartbeat-state.json, generateExecSkill), migration 129_exec_heartbeat.sql. Unit tests pass, build passes. Pending: live tmux e2e, migration deploy.
 
 ## Patterns That Work
 - Capability detail panel content: don't repeat the panel title as a `## Heading` in the markdown body (redundant). Don't end with a large status summary paragraph — the tooltip + badges handle that. Just structured bullet points.

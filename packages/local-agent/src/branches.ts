@@ -279,34 +279,53 @@ export class RepoManager {
         return;
       }
 
+      const targetBranch = await this.resolveSharedWorktreeBranch(bareDir);
+
+      // Fetch into a temporary ref. Git refuses to update refs/heads/{branch}
+      // when that branch is checked out in a linked worktree — even with `+`
+      // and `--force`. Fetching into a separate ref sidesteps this protection
+      // entirely, and we advance the worktree via `reset --hard` instead.
+      //
+      // --refmap="" suppresses the configured refspec (refs/heads/*:refs/heads/*
+      // set by ensureRepo). Without this, Git also tries to update refs/heads/main
+      // via the configured refspec, which triggers the checked-out protection
+      // and fails the entire fetch.
+      const tempRef = `refs/zazig-refresh/${targetBranch}`;
       try {
-        await this.git(bareDir, "fetch", "origin");
+        await this.git(bareDir, "fetch", "--refmap=", "origin",
+          `+refs/heads/${targetBranch}:${tempRef}`);
       } catch (error) {
         console.warn(
           `[RepoManager] refreshWorktree fetch warning for ${projectName} (non-fatal): ${getErrorMessage(error)}`,
         );
       }
 
-      const targetBranch = await this.resolveSharedWorktreeBranch(bareDir);
-      const targetRef = `refs/heads/${targetBranch}`;
       const worktreeHead = await this.git(worktreeDir, "rev-parse", "HEAD");
-      const targetHead = await this.git(bareDir, "rev-parse", targetRef);
+      let remoteHead: string;
+      try {
+        remoteHead = await this.git(bareDir, "rev-parse", tempRef);
+      } catch {
+        return; // Temp ref doesn't exist — fetch failed entirely
+      }
 
-      if (worktreeHead === targetHead) {
+      if (worktreeHead === remoteHead) {
         return;
       }
 
       try {
-        await this.git(worktreeDir, "merge-base", "--is-ancestor", worktreeHead, targetHead);
+        await this.git(worktreeDir, "merge-base", "--is-ancestor", worktreeHead, remoteHead);
       } catch {
         console.error(
-          `[RepoManager] CRITICAL: refusing to refresh diverged ${projectName} worktree (${worktreeHead} vs ${targetHead})`,
+          `[RepoManager] CRITICAL: refusing to refresh diverged ${projectName} worktree (${worktreeHead} vs ${remoteHead})`,
         );
         return;
       }
 
-      await this.git(worktreeDir, "reset", "--hard", targetRef);
-      console.log(`[RepoManager] refreshed ${projectName} worktree: ${worktreeHead} → ${targetHead}`);
+      // Reset to the resolved commit hash, not the ref name. Linked worktrees
+      // can have trouble resolving refs from the parent bare repo in some Git
+      // versions, but commit hashes always work.
+      await this.git(worktreeDir, "reset", "--hard", remoteHead);
+      console.log(`[RepoManager] refreshed ${projectName} worktree: ${worktreeHead} → ${remoteHead}`);
     });
   }
 

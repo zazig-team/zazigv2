@@ -456,7 +456,106 @@ describe("setupJobWorkspace", () => {
     expect(heartbeatContent.match(/## Memory Maintenance/g)).toHaveLength(1);
   });
 
-  it("does not write HEARTBEAT.md for non-persistent jobs", () => {
+  it("seeds all memory skeleton files for persistent workspaces", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+    existsSyncMock.mockReturnValue(false);
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-memory-seed",
+      role: "cpo",
+      roleDisplayName: "Chief Product Officer",
+      claudeMdContent: "# Test",
+      heartbeatMd: "# Heartbeat tasks",
+    });
+
+    const prioritiesCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => call[0] === "/tmp/test-workspace/.claude/memory/priorities.md",
+    );
+    expect(prioritiesCall).toBeDefined();
+    const prioritiesContent = prioritiesCall![1] as string;
+    expect(prioritiesContent).toContain("_Updated by Chief Product Officer on each wake._");
+    expect(prioritiesContent).toContain("## P0 - Critical This Wake");
+    expect(prioritiesContent).toContain("## P3 - Parked / Backlog");
+
+    const decisionsCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => call[0] === "/tmp/test-workspace/.claude/memory/decisions.md",
+    );
+    expect(decisionsCall).toBeDefined();
+    const decisionsContent = decisionsCall![1] as string;
+    expect(decisionsContent).toContain("_Updated by Chief Product Officer on each wake._");
+    expect(decisionsContent).toContain("# Open Decisions");
+    expect(decisionsContent).toContain("- Status: Open");
+
+    const contextCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => call[0] === "/tmp/test-workspace/.claude/memory/context.md",
+    );
+    expect(contextCall).toBeDefined();
+    const contextContent = contextCall![1] as string;
+    expect(contextContent).toContain("_Updated by Chief Product Officer on each wake._");
+    expect(contextContent).toContain("## What's In Flight");
+    expect(contextContent).toContain("## Recent Events");
+    expect(contextContent).toContain("## Blocked On");
+
+    const handoffCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => call[0] === "/tmp/test-workspace/.claude/memory/handoff.md",
+    );
+    expect(handoffCall).toBeDefined();
+    const handoffContent = handoffCall![1] as string;
+    expect(handoffContent).toContain("_Updated by Chief Product Officer on each wake._");
+    expect(handoffContent).toContain("# Handoff Notes");
+    expect(handoffContent).toContain("## If You're Picking Up My Work");
+  });
+
+  it("does not overwrite memory skeleton files on second bootstrap", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+    const existingPaths = new Set<string>();
+
+    existsSyncMock.mockImplementation((p: string) => existingPaths.has(p));
+    writeFileSyncMock.mockImplementation((p: string) => {
+      existingPaths.add(p);
+    });
+
+    const config = {
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-memory-idempotent",
+      role: "cpo",
+      roleDisplayName: "Chief Product Officer",
+      claudeMdContent: "# Test",
+      heartbeatMd: "# Heartbeat tasks",
+    };
+
+    setupJobWorkspace(config);
+    writeFileSyncMock.mockClear();
+    setupJobWorkspace(config);
+
+    expect(writeFileSyncMock).not.toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/memory/priorities.md",
+      expect.anything(),
+    );
+    expect(writeFileSyncMock).not.toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/memory/decisions.md",
+      expect.anything(),
+    );
+    expect(writeFileSyncMock).not.toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/memory/context.md",
+      expect.anything(),
+    );
+    expect(writeFileSyncMock).not.toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/memory/handoff.md",
+      expect.anything(),
+    );
+  });
+
+  it("does not write HEARTBEAT.md or memory skeleton files for non-persistent jobs", () => {
     const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
 
     setupJobWorkspace({
@@ -473,6 +572,22 @@ describe("setupJobWorkspace", () => {
       (call: unknown[]) => call[0] === "/tmp/test-workspace/.claude/HEARTBEAT.md",
     );
     expect(heartbeatCall).toBeUndefined();
+    expect(writeFileSyncMock).not.toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/memory/priorities.md",
+      expect.anything(),
+    );
+    expect(writeFileSyncMock).not.toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/memory/decisions.md",
+      expect.anything(),
+    );
+    expect(writeFileSyncMock).not.toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/memory/context.md",
+      expect.anything(),
+    );
+    expect(writeFileSyncMock).not.toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/memory/handoff.md",
+      expect.anything(),
+    );
   });
 });
 

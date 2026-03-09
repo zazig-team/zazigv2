@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { FEATURE_STATUSES, JOB_STATUSES } from "./messages.js";
+import type { StartExpertMessage } from "./messages.js";
 import {
   isVerifyJob,
   isDeployToTest,
   isFeatureApproved,
   isFeatureRejected,
   isVerifyResult,
+  isStartExpert,
   isMessageInbound,
   isMessageOutbound,
   isOrchestratorMessage,
@@ -189,6 +191,28 @@ describe("isMessageInbound", () => {
 
   it("rejects wrong protocolVersion", () => {
     expect(isMessageInbound({ ...validMessageInbound, protocolVersion: 999 })).toBe(false);
+  });
+});
+
+describe("isStartExpert", () => {
+  const validStartExpert: StartExpertMessage = {
+    type: "start_expert",
+    protocolVersion: 1,
+    session_id: "session-123",
+    project_id: "project-123",
+    repo_url: "https://github.com/acme/project.git",
+    branch: "master",
+    model: "claude-opus-4-1",
+    brief: "Investigate production issue",
+    role: { prompt: "You are an expert engineer." },
+  };
+
+  it("returns true for a valid message with repo and branch", () => {
+    expect(isStartExpert(validStartExpert)).toBe(true);
+  });
+
+  it("rejects non-string branch when provided", () => {
+    expect(isStartExpert({ ...validStartExpert, branch: 123 })).toBe(false);
   });
 });
 

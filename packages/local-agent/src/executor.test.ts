@@ -328,13 +328,10 @@ describe("JobExecutor — progress integration", () => {
     // Advance one poll interval — session is dead → onJobEnded → sendJobComplete
     await vi.advanceTimersByTimeAsync(30_000);
 
-    const completeCalls = supabase.calls.filter(
-      (c) => c.table === "jobs" && c.data.status === "complete",
-    );
+    const sentMessages = send.mock.calls.map((c: unknown[]) => c[0] as any);
+    const completeCalls = sentMessages.filter((c: any) => c.type === "job_complete");
     expect(completeCalls.length).toBe(1);
-    expect(completeCalls[0]!.data.progress).toBe(100);
-    expect(completeCalls[0]!.data.result).toBeDefined();
-    expect(completeCalls[0]!.data.completed_at).toBeDefined();
+    expect(completeCalls[0].result).toBeDefined();
   });
 
   it("routes FAILED report result to sendJobFailed and preserves reason in DB result", async () => {
@@ -352,16 +349,13 @@ describe("JobExecutor — progress integration", () => {
 
     await vi.advanceTimersByTimeAsync(30_000);
 
-    const completeCalls = supabase.calls.filter(
-      (c) => c.table === "jobs" && c.data.status === "complete",
-    );
-    const failCalls = supabase.calls.filter(
-      (c) => c.table === "jobs" && c.data.status === "failed",
-    );
+    const sentMessages = send.mock.calls.map((c: unknown[]) => c[0] as any);
+    const completeCalls = sentMessages.filter((c: any) => c.type === "job_complete");
+    const failCalls = sentMessages.filter((c: any) => c.type === "job_failed");
 
     expect(completeCalls.length).toBe(0);
     expect(failCalls.length).toBe(1);
-    expect(failCalls[0]!.data.result).toBe("FAILED: Could not acquire git index.lock");
+    expect(failCalls[0]!.error).toBe("FAILED: Could not acquire git index.lock");
   });
 
   it("routes NO_REPORT result to sendJobFailed", async () => {
@@ -376,16 +370,13 @@ describe("JobExecutor — progress integration", () => {
 
     await vi.advanceTimersByTimeAsync(30_000);
 
-    const completeCalls = supabase.calls.filter(
-      (c) => c.table === "jobs" && c.data.status === "complete",
-    );
-    const failCalls = supabase.calls.filter(
-      (c) => c.table === "jobs" && c.data.status === "failed",
-    );
+    const sentMessages = send.mock.calls.map((c: unknown[]) => c[0] as any);
+    const completeCalls = sentMessages.filter((c: any) => c.type === "job_complete");
+    const failCalls = sentMessages.filter((c: any) => c.type === "job_failed");
 
     expect(completeCalls.length).toBe(0);
     expect(failCalls.length).toBe(1);
-    expect(failCalls[0]!.data.result).toBe("NO_REPORT");
+    expect(failCalls[0]!.error).toBe("NO_REPORT");
   });
 
   it("does not reset progress on job failure/timeout", async () => {

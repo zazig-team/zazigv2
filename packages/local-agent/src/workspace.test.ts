@@ -123,8 +123,8 @@ describe("setupJobWorkspace", () => {
     // Verify mkdirSync called with workspaceDir (recursive)
     expect(mkdirSyncMock).toHaveBeenCalledWith("/tmp/test-workspace", { recursive: true });
 
-    // Verify writeFileSync called 4 times (mcp.json, CLAUDE.md, settings.json, workspace-config.json)
-    expect(writeFileSyncMock).toHaveBeenCalledTimes(4);
+    // Verify writeFileSync called 5 times (mcp.json, CLAUDE.md, settings.json, settings.local.json, workspace-config.json)
+    expect(writeFileSyncMock).toHaveBeenCalledTimes(5);
 
     // 1. .mcp.json
     const mcpCall = writeFileSyncMock.mock.calls.find(

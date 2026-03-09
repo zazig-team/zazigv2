@@ -1291,7 +1291,7 @@ export async function handleJobComplete(
   supabase: SupabaseClient,
   msg: JobComplete,
 ): Promise<void> {
-  const { jobId, machineId, result, pr } = msg;
+  const { jobId, machineId, result, pr, report, branch } = msg;
 
   // Fetch the job to check type, feature_id, context, etc.
   const { data: jobRow, error: fetchErr } = await supabase
@@ -1318,10 +1318,12 @@ export async function handleJobComplete(
     .from("jobs")
     .update({
       status: "complete",
-      result,
+      result: report ?? result,
+      branch: branch ?? null,
       pr_url: pr ?? null,
       completed_at: new Date().toISOString(),
       machine_id: null,
+      progress: 100,
     })
     .eq("id", jobId);
 
@@ -1659,6 +1661,7 @@ async function handleJobFailed(
     .from("jobs")
     .update({
       status: "failed",
+      result: errMsg,
       machine_id: null,
       completed_at: new Date().toISOString(),
     })

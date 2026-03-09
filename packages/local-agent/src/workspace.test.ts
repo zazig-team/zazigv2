@@ -456,6 +456,48 @@ describe("setupJobWorkspace", () => {
     expect(heartbeatContent.match(/## Memory Maintenance/g)).toHaveLength(1);
   });
 
+  it("seeds memory skeleton files even when memory maintenance section already exists", () => {
+    const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+    existsSyncMock.mockReturnValue(false);
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-heartbeat-existing-with-memory-seed",
+      role: "cpo",
+      roleDisplayName: "Chief Product Officer",
+      claudeMdContent: "# Test",
+      heartbeatMd: "## Daily Tasks\n- Check pipeline\n\n## Memory Maintenance\nCustom existing section",
+    });
+
+    const heartbeatCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => call[0] === "/tmp/test-workspace/.claude/HEARTBEAT.md",
+    );
+    expect(heartbeatCall).toBeDefined();
+    const heartbeatContent = heartbeatCall![1] as string;
+    expect(heartbeatContent.match(/## Memory Maintenance/g)).toHaveLength(1);
+
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/memory/priorities.md",
+      expect.any(String),
+    );
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/memory/decisions.md",
+      expect.any(String),
+    );
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/memory/context.md",
+      expect.any(String),
+    );
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      "/tmp/test-workspace/.claude/memory/handoff.md",
+      expect.any(String),
+    );
+  });
+
   it("seeds all memory skeleton files for persistent workspaces", () => {
     const existsSyncMock = fsModule.existsSync as unknown as ReturnType<typeof vi.fn>;
     const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;

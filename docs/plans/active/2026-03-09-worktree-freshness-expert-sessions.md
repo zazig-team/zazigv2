@@ -1,7 +1,7 @@
 # Worktree Freshness for Expert Sessions
 
 **Date:** 2026-03-09
-**Status:** Implemented (Codex, 2026-03-09) — pending test runner fix + staging validation
+**Status:** Implemented (2026-03-09) — merged to master, pending staging validation
 **Authors:** Tom Weaver, Claude
 **Implemented by:** Codex (gpt-5.3-codex)
 **Source:** Chris Evans staging report — expert sessions (e.g., hotfix expert) behind current master
@@ -277,7 +277,8 @@ Expert session manager calls this instead of direct `execFileAsync`. All git ope
 - Commit hash logged after worktree creation for freshness verification
 - Tests added in expert-session-manager.test.ts:232 for shared RepoManager expert flow
 - `npm run typecheck` passes
-- **Blocker:** Vitest cannot run due to mixed-architecture Rollup/esbuild install — tests need runner fix before validation
+- **Vitest blocker resolved** — all expert session tests pass
+- **Worktree checkout protection fix (from companion PR):** Same `--refmap=""` + temp ref fix applies to shared worktrees used by experts. See persistent-agents doc for full details.
 
 ---
 

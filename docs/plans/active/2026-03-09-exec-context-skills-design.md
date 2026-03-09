@@ -1,7 +1,7 @@
 # Exec Context Skills — Portable Identity for Cross-Session Awareness
 
 **Date:** 2026-03-09
-**Status:** Draft
+**Status:** Implemented (Phase 1 + Phase 2, 2026-03-09) — merged to master (PR #220)
 **Authors:** Tom Weaver, Claude
 **Focus Areas:** Autonomous Organisation, The Full Loop
 **Depends on:** Persistent Identity
@@ -334,14 +334,21 @@ The skill is the map. The memory files are the territory. The map gets regenerat
 
 ## Implementation Plan
 
-### Phase 1: Basic Skill Generation
+### Phase 1: Basic Skill Generation — DONE
 
-1. **Add `generateExecContextSkill` to `workspace.ts`** — generates skill content from role data
-2. **Call from `handlePersistentJob`** — generate on persistent agent startup
-3. **Write to both locations** — exec workspace + repo `.claude/skills/`
-4. **Add memory file convention** — document recommended structure, add to HEARTBEAT.md
+1. **`generateExecSkill()` in `workspace.ts`** — writes exec-local skill to `{workspace}/.claude/skills/as-{role}/SKILL.md`
+2. **Called from `handlePersistentJob`** in executor.ts — generates on persistent agent startup
+3. **Includes role prompt, workspace paths, and heartbeat tasks**
 
-### Phase 2: Memory File Bootstrap
+### Phase 1b: Shared Skill Publication — DONE (PR #220)
+
+1. **`publishSharedExecSkill()` in `workspace.ts`** — writes sanitized skill to `{repoRoot}/.claude/skills/as-{role}/SKILL.md`
+2. **Called from `handlePersistentJob`** immediately after `generateExecSkill()`
+3. **Sanitization:** prompt summarised to first 5 non-empty lines, `$HOME` replaced with `~` for portability, memory marked READ ONLY, includes consumer guidance section ("You are not the {role}")
+4. **Syncs via existing skills pipeline:** `repoInteractiveSkillsDir` already points at `{repoRoot}/.claude/skills/` in executor.ts, expert-session-manager.ts — skills auto-copied into every workspace
+5. **Tests:** 2 test cases in workspace.test.ts (truncation + portable paths, short prompt without truncation), mock added to executor.test.ts — all 72 tests pass
+
+### Phase 2: Memory File Bootstrap — NOT STARTED
 
 1. **Seed memory files** — create initial `priorities.md`, `decisions.md`, `handoff.md` for CPO and CTO
 2. **Add to HEARTBEAT.md** — "Update memory files" as a wake task

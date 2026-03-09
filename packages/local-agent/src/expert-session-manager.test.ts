@@ -136,7 +136,9 @@ describe("ExpertSessionManager", () => {
     );
     expect(tmuxNewSessionCall).toBeDefined();
     const shellCmd = tmuxNewSessionCall?.[1][6];
-    expect(shellCmd).toContain("claude --model claude-sonnet-4-6");
+    expect(shellCmd).toContain("'claude'");
+    expect(shellCmd).toContain("'--model'");
+    expect(shellCmd).toContain("'claude-sonnet-4-6'");
     expect(shellCmd).not.toContain("dangerously");
   });
 

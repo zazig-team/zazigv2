@@ -364,6 +364,7 @@ const NO_CODE_CONTEXT_ROLES = new Set([
   "pipeline-technician",
   "monitoring-agent",
   "project-architect",
+  "triage-analyst",
 ]);
 
 const TERMINAL_FEATURE_STATUSES_FOR_DEPLOY = new Set([

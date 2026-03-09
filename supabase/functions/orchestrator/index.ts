@@ -3457,7 +3457,7 @@ async function checkExecutingJobsForHeartbeatTimeout(
  *
  * Handles:
  *   0. Executing-job heartbeat timeout check for long-running jobs
- *   1. Failed job catch-up: marks features failed when JobFailed broadcast was missed
+ *   1. Failed job catch-up: logs features with failed jobs for attention
  *   1b. deploy_to_test guard: fails queued/dispatched/executing deploy jobs for terminal features
  *   2. breaking_down → building: all breakdown jobs for the feature are complete
  *   3. building → combining_and_pr: all implementation jobs are complete
@@ -3472,9 +3472,7 @@ async function processFeatureLifecycle(
   await checkExecutingJobsForHeartbeatTimeout(supabase);
 
   // --- 1. Failed job catch-up (all stages) ---
-  // If the JobFailed broadcast was missed, the feature is stuck forever because
-  // handleJobFailed (line 1085) is the only path that marks features as failed.
-  // This catch-up finds features with failed jobs that weren't marked failed.
+  // If a failed-job event was missed, surface it here for manual attention.
   const { data: activeFeatures, error: activeErr } = await supabase
     .from("features")
     .select("id")
@@ -3491,7 +3489,7 @@ async function processFeatureLifecycle(
   for (const feature of (activeFeatures ?? []) as { id: string }[]) {
     const { data: failedJob } = await supabase
       .from("jobs")
-      .select("id, role, job_type, result")
+      .select("id")
       .eq("feature_id", feature.id)
       .eq("status", "failed")
       .order("created_at", { ascending: false })
@@ -3500,26 +3498,10 @@ async function processFeatureLifecycle(
     if (failedJob && failedJob.length > 0) {
       const job = failedJob[0] as {
         id: string;
-        role: string | null;
-        job_type: string;
-        result: string | null;
       };
-      const errorDetail = `${job.role ?? job.job_type} job failed (catch-up): ${
-        (job.result ?? "unknown error").slice(0, 200)
-      }`;
-
-      const { data: updated } = await supabase
-        .from("features")
-        .update({ status: "failed", error: errorDetail })
-        .eq("id", feature.id)
-        .not("status", "in", '("failed","complete","cancelled")') // CAS guard
-        .select("id");
-
-      if (updated && updated.length > 0) {
-        console.warn(
-          `[orchestrator] processFeatureLifecycle: feature ${feature.id} has failed job ${job.id} — marked feature failed (catch-up)`,
-        );
-      }
+      console.warn(
+        `[orchestrator] Feature ${feature.id} has failed job ${job.id} — needs attention (not changing feature status)`,
+      );
     }
   }
 
@@ -3621,7 +3603,7 @@ async function processFeatureLifecycle(
         .eq("status", "failed")
         .limit(1);
       if (failedBreakdown && failedBreakdown.length > 0) {
-        continue; // handleJobFailed will mark the feature as failed
+        continue; // Breakdown job failed — feature stays at breaking_down until manually retried
       }
       // Require at least one complete breakdown job — zero jobs means breakdown
       // hasn't run yet (or records were lost), not that it succeeded.
@@ -3723,7 +3705,7 @@ async function processFeatureLifecycle(
       .eq("status", "failed")
       .limit(1);
     if (failedJobs && failedJobs.length > 0) {
-      continue; // handleJobFailed will mark the feature as failed
+      continue; // Feature has failed job(s) — stays at building until retried
     }
 
     const { data: allDone } = await supabase
@@ -3780,7 +3762,7 @@ async function processFeatureLifecycle(
   // This catch-up handles cases where that message was missed.
   const { data: verifyingFeatures, error: verifyErr } = await supabase
     .from("features")
-    .select("id, company_id")
+    .select("id")
     .eq("status", "verifying")
     .limit(50);
 
@@ -3794,12 +3776,11 @@ async function processFeatureLifecycle(
   for (
     const feature of (verifyingFeatures ?? []) as {
       id: string;
-      company_id: string;
     }[]
   ) {
     const { data: latestVerify } = await supabase
       .from("jobs")
-      .select("id, status, context, result")
+      .select("id, status")
       .eq("feature_id", feature.id)
       .eq("job_type", "verify")
       .order("created_at", { ascending: false })
@@ -3809,8 +3790,6 @@ async function processFeatureLifecycle(
     const job = latestVerify[0] as {
       id: string;
       status: string;
-      context: string;
-      result: string | null;
     };
 
     if (job.status === "complete") {
@@ -3819,14 +3798,8 @@ async function processFeatureLifecycle(
       );
       await triggerMerging(supabase, feature.id);
     } else if (job.status === "failed") {
-      console.log(
-        `[orchestrator] processFeatureLifecycle: verify FAILED for feature ${feature.id} — triggering retry (catch-up)`,
-      );
-      await handleVerificationFailed(
-        supabase,
-        feature.id,
-        feature.company_id,
-        job.result ?? "FAILED",
+      console.warn(
+        `[orchestrator] processFeatureLifecycle: verify FAILED for feature ${feature.id} — staying at verifying, needs attention`,
       );
     }
     // if still 'executing', 'queued', or 'dispatched', do nothing — let it run
@@ -3855,7 +3828,7 @@ async function processFeatureLifecycle(
   ) {
     const { data: latestMerge } = await supabase
       .from("jobs")
-      .select("id, status, result")
+      .select("id, status")
       .eq("feature_id", feature.id)
       .eq("job_type", "merge")
       .order("created_at", { ascending: false })
@@ -3865,7 +3838,6 @@ async function processFeatureLifecycle(
     const job = latestMerge[0] as {
       id: string;
       status: string;
-      result: string | null;
     };
 
     if (job.status === "complete") {
@@ -3896,19 +3868,9 @@ async function processFeatureLifecycle(
         );
       }
     } else if (job.status === "failed") {
-      // Merge failed — mark feature as failed (catch-up)
-      console.log(
-        `[orchestrator] processFeatureLifecycle: merge FAILED for feature ${feature.id} — marking failed (catch-up)`,
+      console.warn(
+        `[orchestrator] processFeatureLifecycle: merge FAILED for feature ${feature.id} — staying at merging, needs attention`,
       );
-      await supabase
-        .from("features")
-        .update({
-          status: "failed",
-          error: `Merge failed: ${(job.result ?? "unknown").slice(0, 200)}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", feature.id)
-        .eq("status", "merging");
     }
     // if still 'executing', 'queued', or 'dispatched', do nothing — let it run
   }

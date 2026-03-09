@@ -214,6 +214,83 @@ export function generateExecSkill(
   writeFileSync(join(skillDir, "SKILL.md"), `${sections.join("\n")}\n`);
 }
 
+/**
+ * Publish a sanitized exec skill to the shared repo skills directory.
+ * Any session assembled with repoInteractiveSkillsDir pointing here
+ * (expert sessions, other execs, contractors) can `/as-{role}` to
+ * side-load this exec's context.
+ *
+ * Differences from the exec-local skill (generateExecSkill):
+ * - Role prompt is summarised, not dumped verbatim
+ * - Workspace paths use ~ shorthand (portable across machines)
+ * - Memory files marked read-only
+ * - Includes "How to Use" guidance for non-exec consumers
+ */
+export function publishSharedExecSkill(
+  role: { name: string; prompt: string; heartbeat_md?: string },
+  workspacePath: string,
+  repoRoot: string,
+): void {
+  const skillDir = join(repoRoot, ".claude", "skills", `as-${role.name}`);
+  mkdirSync(skillDir, { recursive: true });
+
+  const displayName = role.name.toUpperCase();
+  // Portable path: replace $HOME with ~ so it works across machines
+  const homedir = process.env.HOME ?? "/root";
+  const portablePath = workspacePath.startsWith(homedir)
+    ? workspacePath.replace(homedir, "~")
+    : workspacePath;
+
+  // Summarise the role prompt: first 3 lines or 300 chars, whichever is shorter.
+  // The full prompt is in the exec-local skill — shared consumers get the gist.
+  const promptLines = role.prompt.split("\n").filter(l => l.trim());
+  const summary = promptLines.slice(0, 5).join("\n");
+  const truncated = summary.length < role.prompt.length ? `${summary}\n\n_(Summarised — full context available in the exec's own workspace)_` : summary;
+
+  const sections = [
+    "---",
+    `name: as-${role.name}`,
+    `description: |`,
+    `  Load ${displayName}'s context, knowledge, and workspace links into this session.`,
+    `  Use when you need ${role.name}-level awareness in a non-persistent context.`,
+    "---",
+    "",
+    `# Operating as ${displayName}`,
+    "",
+    "## Role Summary",
+    truncated,
+    "",
+    "## Workspace (read-only access)",
+    `- Memory: ${portablePath}/.claude/memory/ _(READ ONLY — do not modify)_`,
+    `- Repos: ${portablePath}/repos/`,
+    `- State: ${portablePath}/.claude/workspace-config.json`,
+  ];
+
+  if (role.heartbeat_md?.trim()) {
+    sections.push(
+      "",
+      "## Current Heartbeat Tasks",
+      role.heartbeat_md,
+    );
+  }
+
+  sections.push(
+    "",
+    "## How to Use This Skill",
+    `You are not the ${role.name}. You are a session that has been given ${displayName}'s`,
+    "context and workspace access. Use this to:",
+    `- Make decisions consistent with ${displayName}'s perspective`,
+    `- Read ${displayName}'s memory and state files (do NOT write to them)`,
+    `- Continue work that ${displayName} started`,
+    `- Provide ${role.name}-level analysis without needing the persistent session`,
+    "",
+    `If you need to communicate something to ${displayName}, write a report to your`,
+    "own workspace — do not modify the exec's memory files directly.",
+  );
+
+  writeFileSync(join(skillDir, "SKILL.md"), `${sections.join("\n")}\n`);
+}
+
 // ---------------------------------------------------------------------------
 // Workspace setup
 // ---------------------------------------------------------------------------

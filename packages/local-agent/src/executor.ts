@@ -27,7 +27,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageInbound, JobUnblocked } from "@zazigv2/shared";
 import { PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
-import { generateExecSkill, setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
+import { generateExecSkill, publishSharedExecSkill, setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
 
 /**
  * Resolve the MCP server path — prefers the bundled .mjs (production),
@@ -1232,6 +1232,19 @@ export class JobExecutor {
           heartbeat_md: roleConfig.heartbeatMd,
         },
         workspaceDir,
+      );
+
+      // Publish sanitized exec skill to shared repo skills directory.
+      // Other sessions (expert sessions, contractors, other execs) can
+      // `/as-{role}` to side-load this exec's context.
+      publishSharedExecSkill(
+        {
+          name: role,
+          prompt: claudeMdContent,
+          heartbeat_md: roleConfig.heartbeatMd,
+        },
+        workspaceDir,
+        repoRoot,
       );
 
       // --- Write prompt freshness metadata for SessionStart hook ---

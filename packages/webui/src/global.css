@@ -3177,7 +3177,7 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  align-self: stretch;
+  padding: 13px 0;
   color: var(--dust);
   font-size: 8px;
   flex-shrink: 0;

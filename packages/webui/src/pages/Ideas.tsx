@@ -6,6 +6,7 @@ import {
   fetchIdeaDetail,
   fetchProjects,
   promoteIdea,
+  updateIdeaStatus,
   type Idea,
   type IdeaDetail,
   type Project,
@@ -112,6 +113,11 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   const [promoteError, setPromoteError] = useState<string | null>(null);
   const [promoted, setPromoted] = useState(false);
 
+  // Action state (triage/park/reject)
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionDone, setActionDone] = useState<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -167,6 +173,20 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
       setPromoteError(err instanceof Error ? err.message : String(err));
     } finally {
       setPromoting(false);
+    }
+  }
+
+  async function handleAction(newStatus: string, label: string): Promise<void> {
+    setActionInProgress(label);
+    setActionError(null);
+    try {
+      await updateIdeaStatus(ideaId, newStatus);
+      setActionDone(label);
+      onAction();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setActionInProgress(null);
     }
   }
 
@@ -312,13 +332,28 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
       )}
 
       {/* Actions row for non-triaged items */}
-      {!canPromote && !isShipped && !promoted && (
+      {!canPromote && !isShipped && !promoted && !actionDone && (
         <div className="il-detail-actions">
-          {data.status === "new" && <button className="il-action-secondary" type="button">Triage</button>}
-          {data.status !== "parked" && <button className="il-action-secondary" type="button">Park</button>}
-          {data.status !== "rejected" && <button className="il-action-secondary" type="button">Reject</button>}
+          {data.status === "new" && (
+            <button className="il-action-secondary" type="button" disabled={!!actionInProgress} onClick={() => handleAction("triaged", "Triage")}>
+              {actionInProgress === "Triage" ? "Triaging..." : "Triage"}
+            </button>
+          )}
+          {data.status !== "parked" && (
+            <button className="il-action-secondary" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
+              {actionInProgress === "Park" ? "Parking..." : "Park"}
+            </button>
+          )}
+          {data.status !== "rejected" && (
+            <button className="il-action-secondary" type="button" disabled={!!actionInProgress} onClick={() => handleAction("rejected", "Reject")}>
+              {actionInProgress === "Reject" ? "Rejecting..." : "Reject"}
+            </button>
+          )}
         </div>
       )}
+
+      {actionError && <div className="il-promote-error">{actionError}</div>}
+      {actionDone && <div className="il-promote-success">Idea {actionDone.toLowerCase()}d successfully.</div>}
     </div>
   );
 }

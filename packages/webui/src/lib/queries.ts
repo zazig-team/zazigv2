@@ -706,6 +706,15 @@ export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
   };
 }
 
+export async function updateIdeaStatus(ideaId: string, status: string): Promise<void> {
+  const { error } = await supabase
+    .from("ideas")
+    .update({ status })
+    .eq("id", ideaId);
+
+  if (error) throw error;
+}
+
 export interface TeamExecCard {
   id: string;
   roleId: string;

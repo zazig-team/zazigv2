@@ -4143,68 +4143,9 @@ async function listenForAgentMessages(
         "broadcast",
         { event: "*" },
         async ({ payload }: { payload: unknown }) => {
-          const msg = payload;
-          const caller = "agent-event";
-
-          if (isHeartbeat(msg)) {
-            const typedMsg = msg as Heartbeat;
-            await handleHeartbeat(supabase, typedMsg, { caller });
-          } else if (isJobAck(msg)) {
-            const typedMsg = msg as { jobId: string; machineId: string };
-            handleJobAck(supabase, typedMsg, { caller, jobId: typedMsg.jobId });
-          } else if (isJobStatusMessage(msg)) {
-            const typedMsg = msg as JobStatusMessage;
-            await handleJobStatus(supabase, typedMsg, {
-              caller,
-              jobId: typedMsg.jobId,
-            });
-          } else if (isJobComplete(msg)) {
-            const typedMsg = msg as JobComplete;
-            await handleJobComplete(supabase, typedMsg, {
-              caller,
-              jobId: typedMsg.jobId,
-            });
-          } else if (isJobFailed(msg)) {
-            const typedMsg = msg as JobFailed;
-            await handleJobFailed(supabase, typedMsg, {
-              caller,
-              jobId: typedMsg.jobId,
-            });
-          } else if (isVerifyResult(msg)) {
-            const typedMsg = msg as VerifyResult;
-            await handleVerifyResult(supabase, typedMsg, {
-              caller,
-              jobId: typedMsg.jobId,
-            });
-          } else if (isFeatureApproved(msg)) {
-            const typedMsg = msg as FeatureApproved;
-            await handleFeatureApproved(supabase, typedMsg, { caller });
-          } else if (isFeatureRejected(msg)) {
-            const typedMsg = msg as FeatureRejected;
-            await handleFeatureRejected(supabase, typedMsg, { caller });
-          } else if (isDeployComplete(msg)) {
-            const typedMsg = msg as DeployComplete;
-            await handleDeployComplete(supabase, typedMsg, { caller });
-          } else if (isJobBlocked(msg)) {
-            const typedMsg = msg as JobBlocked;
-            await handleJobBlocked(supabase, typedMsg, {
-              caller,
-              jobId: typedMsg.jobId,
-            });
-          } else if (isDecisionResolved(msg)) {
-            const typedMsg = msg as DecisionResolved;
-            await handleDecisionResolved(supabase, typedMsg, { caller });
-          } else if (isStopAck(msg)) {
-            makeLogger(caller, (msg as { jobId: string }).jobId)
-              .info(
-                `StopAck received — job ${(msg as { jobId: string }).jobId}`,
-              );
-          } else {
-            makeLogger(caller).warn(
-              "Unknown or invalid agent message received:",
-              JSON.stringify(payload),
-            );
-          }
+          await handleAgentEventMessage(supabase, payload, {
+            caller: "agent-event",
+          });
         },
       )
       .subscribe((status) => {
@@ -4217,6 +4158,76 @@ async function listenForAgentMessages(
         }
       });
   });
+}
+
+export async function handleAgentEventMessage(
+  supabase: SupabaseClient,
+  msg: unknown,
+  logContext: LogContext = { caller: "agent-event" },
+): Promise<void> {
+  const caller = logContext.caller;
+
+  if (isHeartbeat(msg)) {
+    const typedMsg = msg as Heartbeat;
+    await handleHeartbeat(supabase, typedMsg, { caller });
+  } else if (isJobAck(msg)) {
+    const typedMsg = msg as { jobId: string; machineId: string };
+    handleJobAck(supabase, typedMsg, { caller, jobId: typedMsg.jobId });
+  } else if (isJobStatusMessage(msg)) {
+    const typedMsg = msg as JobStatusMessage;
+    await handleJobStatus(supabase, typedMsg, {
+      caller,
+      jobId: typedMsg.jobId,
+    });
+  } else if (isJobComplete(msg)) {
+    const typedMsg = msg as JobComplete;
+    await handleJobComplete(supabase, typedMsg, {
+      caller,
+      jobId: typedMsg.jobId,
+    });
+  } else if (isJobFailed(msg)) {
+    const typedMsg = msg as JobFailed;
+    await handleJobFailed(supabase, typedMsg, {
+      caller,
+      jobId: typedMsg.jobId,
+    });
+  } else if (isVerifyResult(msg)) {
+    const typedMsg = msg as VerifyResult;
+    await handleVerifyResult(supabase, typedMsg, {
+      caller,
+      jobId: typedMsg.jobId,
+    });
+  } else if (isFeatureApproved(msg)) {
+    const typedMsg = msg as FeatureApproved;
+    await handleFeatureApproved(supabase, typedMsg, { caller });
+  } else if (isFeatureRejected(msg)) {
+    const typedMsg = msg as FeatureRejected;
+    await handleFeatureRejected(supabase, typedMsg, { caller });
+  } else if (isDeployComplete(msg)) {
+    const typedMsg = msg as DeployComplete;
+    await handleDeployComplete(supabase, typedMsg, { caller });
+  } else if (isJobBlocked(msg)) {
+    const typedMsg = msg as JobBlocked;
+    await handleJobBlocked(supabase, typedMsg, {
+      caller,
+      jobId: typedMsg.jobId,
+    });
+  } else if (isDecisionResolved(msg)) {
+    const typedMsg = msg as DecisionResolved;
+    await handleDecisionResolved(supabase, typedMsg, { caller });
+  } else if (isStopAck(msg)) {
+    const stopAck = msg as { jobId?: unknown };
+    const jobId = typeof stopAck.jobId === "string"
+      ? stopAck.jobId
+      : logContext.jobId;
+    makeLogger(caller, jobId)
+      .info(`StopAck received — job ${jobId ?? "unknown"}`);
+  } else {
+    makeLogger(caller, logContext.jobId).warn(
+      "Unknown or invalid agent message received:",
+      JSON.stringify(msg),
+    );
+  }
 }
 
 /**
@@ -4266,48 +4277,50 @@ async function refreshPipelineSnapshotCache(
 // Main handler
 // ---------------------------------------------------------------------------
 
-Deno.serve(async (_req: Request): Promise<Response> => {
-  console.log("[orchestrator] Invoked at", new Date().toISOString());
+if (import.meta.main) {
+  Deno.serve(async (_req: Request): Promise<Response> => {
+    console.log("[orchestrator] Invoked at", new Date().toISOString());
 
-  const supabase = makeAdminClient();
+    const supabase = makeAdminClient();
 
-  try {
-    // 1. Drain any pending agent messages from the Realtime channel.
-    //    Listen for 4 s to collect messages (heartbeats, job updates).
-    //    Must run BEFORE reap so freshly-received heartbeats prevent
-    //    machines from being incorrectly marked dead.
-    await listenForAgentMessages(supabase, 4_000);
+    try {
+      // 1. Drain any pending agent messages from the Realtime channel.
+      //    Listen for 4 s to collect messages (heartbeats, job updates).
+      //    Must run BEFORE reap so freshly-received heartbeats prevent
+      //    machines from being incorrectly marked dead.
+      await listenForAgentMessages(supabase, 4_000);
 
-    // 2a. Mark dead machines offline (prevents dispatch to them).
-    await reapDeadMachines(supabase);
+      // 2a. Mark dead machines offline (prevents dispatch to them).
+      await reapDeadMachines(supabase);
 
-    // 2b. Re-queue jobs stuck in dispatched/executing with stale updated_at.
-    await reapStaleJobs(supabase);
+      // 2b. Re-queue jobs stuck in dispatched/executing with stale updated_at.
+      await reapStaleJobs(supabase);
 
-    // 3. Process breaking_down features → create breakdown jobs.
-    await processReadyForBreakdown(supabase);
+      // 3. Process breaking_down features → create breakdown jobs.
+      await processReadyForBreakdown(supabase);
 
-    // 4. Catch missed feature lifecycle transitions (breakdown→building, building→combining).
-    //    The executor writes job status directly to DB — if the Realtime broadcast was
-    //    missed during the 4s listen window, these transitions would never fire.
-    await processFeatureLifecycle(supabase);
+      // 4. Catch missed feature lifecycle transitions (breakdown→building, building→combining).
+      //    The executor writes job status directly to DB — if the Realtime broadcast was
+      //    missed during the 4s listen window, these transitions would never fire.
+      await processFeatureLifecycle(supabase);
 
-    // 5. Dispatch queued jobs to available machines.
-    await dispatchQueuedJobs(supabase);
+      // 5. Dispatch queued jobs to available machines.
+      await dispatchQueuedJobs(supabase);
 
-    // 6. Refresh pipeline snapshot cache after all state mutations.
-    await refreshPipelineSnapshotCache(supabase);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[orchestrator] Unhandled error:", message);
-    return new Response(JSON.stringify({ ok: false, error: message }), {
-      status: 500,
+      // 6. Refresh pipeline snapshot cache after all state mutations.
+      await refreshPipelineSnapshotCache(supabase);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[orchestrator] Unhandled error:", message);
+      return new Response(JSON.stringify({ ok: false, error: message }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
       headers: { "Content-Type": "application/json" },
     });
-  }
-
-  return new Response(JSON.stringify({ ok: true }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
   });
-});
+}

@@ -386,16 +386,18 @@ describe("JobExecutor — progress integration", () => {
 
     await vi.advanceTimersByTimeAsync(30_000);
 
-    const completeCalls = supabase.calls.filter(
-      (c) => c.table === "jobs" && c.data.status === "complete",
-    );
-    const failCalls = supabase.calls.filter(
-      (c) => c.table === "jobs" && c.data.status === "failed",
-    );
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: "job_failed",
+      protocolVersion: PROTOCOL_VERSION,
+      jobId: "job-001",
+      machineId: "machine-1",
+      error: "NO_REPORT",
+    }));
 
-    expect(completeCalls.length).toBe(0);
-    expect(failCalls.length).toBe(1);
-    expect(failCalls[0]!.data.result).toBe("NO_REPORT");
+    const terminalStatusWrites = supabase.calls.filter(
+      (c) => c.table === "jobs" && (c.data.status === "complete" || c.data.status === "failed"),
+    );
+    expect(terminalStatusWrites.length).toBe(0);
   });
 
   it("does not reset progress on job failure/timeout", async () => {

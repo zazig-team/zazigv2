@@ -123,6 +123,7 @@ function makeMockSupabase() {
     data: {
       prompt: "Persistent role prompt",
       heartbeat_md: "",
+      boot_prompt: null,
       cache_ttl_minutes: 30,
       hard_ttl_minutes: 240,
     },
@@ -666,6 +667,7 @@ describe("JobExecutor — slot reconciliation", () => {
       data: {
         prompt: "Persistent role prompt",
         heartbeat_md: "# Heartbeat tasks",
+        boot_prompt: null,
         cache_ttl_minutes: 30,
         hard_ttl_minutes: 240,
       },
@@ -706,6 +708,7 @@ describe("JobExecutor — slot reconciliation", () => {
       data: {
         prompt: "Persistent role prompt",
         heartbeat_md: "# Heartbeat tasks",
+        boot_prompt: null,
         cache_ttl_minutes: 1,
         hard_ttl_minutes: 240,
       },
@@ -746,6 +749,51 @@ describe("JobExecutor — slot reconciliation", () => {
       && (call[1] as string[])[0] === "send-keys"
       && (call[1] as string[])[3] === "exit"
     )).toBe(true);
+  });
+
+  it("injects default boot prompt into newly spawned persistent sessions", async () => {
+    await executor.handleStartJob(makeStartJob({
+      jobId: "persistent-cpo-default-boot",
+      role: "cpo",
+      cardType: "persistent_agent",
+    }));
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    const defaultBootPromptCall = mockExecFileAsync.mock.calls.find((call: unknown[]) => {
+      if (call[0] !== "tmux" || !Array.isArray(call[1])) return false;
+      const args = call[1] as string[];
+      return args[0] === "send-keys" && args[3] === "-l" && typeof args[4] === "string" && args[4].includes(".claude/cpo-report.md");
+    });
+    expect(defaultBootPromptCall).toBeDefined();
+  });
+
+  it("injects role boot prompt from DB when configured", async () => {
+    supabase.setRoleRowResult({
+      data: {
+        prompt: "Persistent role prompt",
+        heartbeat_md: "",
+        boot_prompt: "Use MCP query tools first, then triage pending tasks.",
+        cache_ttl_minutes: 30,
+        hard_ttl_minutes: 240,
+      },
+      error: null,
+    });
+
+    await executor.handleStartJob(makeStartJob({
+      jobId: "persistent-cpo-custom-boot",
+      role: "cpo",
+      cardType: "persistent_agent",
+    }));
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    const customBootPromptCall = mockExecFileAsync.mock.calls.find((call: unknown[]) => {
+      if (call[0] !== "tmux" || !Array.isArray(call[1])) return false;
+      const args = call[1] as string[];
+      return args[0] === "send-keys" && args[3] === "-l" && args[4] === "Use MCP query tools first, then triage pending tasks.";
+    });
+    expect(customBootPromptCall).toBeDefined();
   });
 
   it("handles reconciliation query failures without releasing slots", async () => {

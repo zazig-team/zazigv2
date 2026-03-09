@@ -298,6 +298,7 @@ type PersistentStartJob = StartJob & {
 type PersistentRoleConfig = {
   prompt: string;
   heartbeatMd: string;
+  bootPrompt: string;
   cacheTtlMinutes: number;
   hardTtlMinutes: number;
 };
@@ -437,7 +438,7 @@ export class JobExecutor {
   private async loadPersistentRoleConfig(role: string): Promise<PersistentRoleConfig> {
     const { data, error } = await this.supabase
       .from("roles")
-      .select("prompt, heartbeat_md, cache_ttl_minutes, hard_ttl_minutes")
+      .select("prompt, heartbeat_md, boot_prompt, cache_ttl_minutes, hard_ttl_minutes")
       .eq("name", role)
       .single();
 
@@ -451,9 +452,17 @@ export class JobExecutor {
     return {
       prompt: data.prompt ?? "",
       heartbeatMd: data.heartbeat_md ?? "",
+      bootPrompt: this.resolveBootPrompt(role, data.boot_prompt),
       cacheTtlMinutes: data.cache_ttl_minutes ?? 30,
       hardTtlMinutes: data.hard_ttl_minutes ?? 240,
     };
+  }
+
+  private resolveBootPrompt(role: string, configuredBootPrompt: unknown): string {
+    if (typeof configuredBootPrompt === "string" && configuredBootPrompt.trim().length > 0) {
+      return configuredBootPrompt.trim();
+    }
+    return `Read your state files. If .claude/${role}-report.md exists, review it for continuity. Check for pending work via your MCP tools. Orient yourself and begin.`;
   }
 
   private buildHeartbeatSessionStartCommand(): string {
@@ -1349,6 +1358,11 @@ export class JobExecutor {
       resetInProgress: false,
     };
     this.persistentAgents.set(role, persistentAgent);
+    console.log(`[executor] Queuing persistent boot prompt for role=${role} session=${sessionName}`);
+    void this.enqueueMessage(roleConfig.bootPrompt, sessionName, spawnedAt, "notification")
+      .catch((err) => {
+        console.warn(`[executor] Failed to queue boot prompt for role=${role}: ${String(err)}`);
+      });
 
     const uuid = this.machineUuid;
     persistentAgent.heartbeatTimer = setInterval(() => {

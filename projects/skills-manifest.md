@@ -2,7 +2,7 @@
 
 Authoritative registry of all zazigv2 skills. Updated whenever skills are added, removed, or reassigned.
 
-Last updated: 2026-03-05
+Last updated: 2026-03-10
 
 ---
 
@@ -40,6 +40,7 @@ These are distributed to persistent agent workspaces via `zazig skills sync`.
 | napkin | .claude/skills/ | Session error tracking |
 | slack-headsup | .claude/skills/ | Notify Slack after producing artifacts |
 | brainstorming | .claude/skills/ | Structured design exploration before building |
+| harden | projects/skills/ | Run the 6-stage idea hardening pipeline (workshop → plan → reviews → synthesis → gap review → post). Use before promoting strategic ideas to capabilities. |
 
 ### CTO
 

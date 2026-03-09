@@ -67,6 +67,7 @@ vi.mock("./branches.js", () => {
 vi.mock("./workspace.js", () => ({
   setupJobWorkspace: vi.fn(),
   generateExecSkill: vi.fn(),
+  publishSharedExecSkill: vi.fn(),
   writeSubagentsConfig: vi.fn().mockResolvedValue(undefined),
 }));
 

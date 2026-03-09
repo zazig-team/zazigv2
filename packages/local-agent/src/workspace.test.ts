@@ -15,7 +15,7 @@ vi.mock("node:fs", () => ({
   appendFileSync: vi.fn(),
 }));
 
-import { generateAllowedTools, generateExecSkill, generateMcpConfig, setupJobWorkspace } from "./workspace.js";
+import { generateAllowedTools, generateExecSkill, generateMcpConfig, publishSharedExecSkill, setupJobWorkspace } from "./workspace.js";
 import * as fsModule from "node:fs";
 
 // ---------------------------------------------------------------------------
@@ -459,5 +459,79 @@ describe("generateExecSkill", () => {
     expect(content).toContain("# Role prompt");
     expect(content).toContain("## Current Heartbeat Tasks");
     expect(content).toContain("1. Check pipeline");
+  });
+});
+
+describe("publishSharedExecSkill", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("writes a sanitized skill to the repo shared skills directory", () => {
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+    const originalHome = process.env.HOME;
+    process.env.HOME = "/Users/testuser";
+
+    try {
+      publishSharedExecSkill(
+        {
+          name: "cpo",
+          prompt: "Line one of prompt\nLine two\nLine three\nLine four\nLine five\nLine six (should be truncated)",
+          heartbeat_md: "1. Check pipeline",
+        },
+        "/Users/testuser/.zazigv2/company-cpo-workspace",
+        "/Users/testuser/repos/zazigv2",
+      );
+
+      const call = writeFileSyncMock.mock.calls.find(
+        (c: unknown[]) => c[0] === "/Users/testuser/repos/zazigv2/.claude/skills/as-cpo/SKILL.md",
+      );
+      expect(call).toBeDefined();
+      const content = call![1] as string;
+
+      // Sanitization checks
+      expect(content).toContain("# Operating as CPO");
+      expect(content).toContain("## Role Summary");
+      expect(content).not.toContain("## Role Context"); // exec-local uses "Role Context"
+      expect(content).toContain("Summarised"); // truncation marker
+      expect(content).not.toContain("Line six"); // 6th line truncated
+
+      // Portable paths
+      expect(content).toContain("~/.zazigv2/company-cpo-workspace/.claude/memory/");
+      expect(content).not.toContain("/Users/testuser/.zazigv2"); // absolute path replaced
+
+      // Read-only warning
+      expect(content).toContain("READ ONLY");
+
+      // Consumer guidance
+      expect(content).toContain("## How to Use This Skill");
+      expect(content).toContain("You are not the cpo");
+      expect(content).toContain("do NOT write to them");
+
+      // Heartbeat tasks included
+      expect(content).toContain("## Current Heartbeat Tasks");
+      expect(content).toContain("1. Check pipeline");
+    } finally {
+      process.env.HOME = originalHome;
+    }
+  });
+
+  it("omits truncation marker when prompt is short", () => {
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+
+    publishSharedExecSkill(
+      { name: "cto", prompt: "Short prompt", heartbeat_md: "" },
+      "/home/user/.zazigv2/company-cto-workspace",
+      "/home/user/repos/zazigv2",
+    );
+
+    const call = writeFileSyncMock.mock.calls.find(
+      (c: unknown[]) => c[0] === "/home/user/repos/zazigv2/.claude/skills/as-cto/SKILL.md",
+    );
+    expect(call).toBeDefined();
+    const content = call![1] as string;
+    expect(content).toContain("Short prompt");
+    expect(content).not.toContain("Summarised");
+    expect(content).not.toContain("## Current Heartbeat Tasks"); // empty heartbeat omitted
   });
 });

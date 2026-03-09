@@ -4144,13 +4144,13 @@ async function listenForAgentMessages(
         { event: "*" },
         async ({ payload }: { payload: unknown }) => {
           await handleAgentEventMessage(supabase, payload, {
-            caller: "agent-event",
+            caller: "orchestrator",
           });
         },
       )
       .subscribe((status) => {
         if (status === "CHANNEL_ERROR") {
-          makeLogger("agent-event").error(
+          makeLogger("orchestrator").error(
             "Realtime channel error on orchestrator:commands",
           );
           clearTimeout(timer);

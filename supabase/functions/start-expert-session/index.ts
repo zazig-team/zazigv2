@@ -134,6 +134,7 @@ interface StartExpertPayload {
   };
   project_id: string;
   repo_url: string;
+  branch: string;
 }
 
 async function broadcastStartExpert(
@@ -308,6 +309,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const resolvedProjectId = project.id;
     const resolvedRepoUrl = project.repo_url;
+    const resolvedBranch = "master";
 
     const { data: sessionData, error: sessionErr } = await supabase
       .from("expert_sessions")
@@ -343,6 +345,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       },
       project_id: resolvedProjectId,
       repo_url: resolvedRepoUrl,
+      branch: resolvedBranch,
     };
 
     const broadcastResult = await broadcastStartExpert(

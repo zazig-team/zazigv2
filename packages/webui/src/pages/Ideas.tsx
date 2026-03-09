@@ -343,17 +343,17 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
       {!canPromote && !isShipped && !promoted && !actionDone && (
         <div className="il-detail-actions">
           {data.status === "new" && (
-            <button className="il-action-secondary" type="button" disabled={!!actionInProgress} onClick={() => handleAction("triaged", "Triage")}>
+            <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={() => handleAction("triaged", "Triage")}>
               {actionInProgress === "Triage" ? "Triaging..." : "Triage"}
             </button>
           )}
           {data.status !== "parked" && (
-            <button className="il-action-secondary" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
+            <button className="il-action-secondary il-action-park" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
               {actionInProgress === "Park" ? "Parking..." : "Park"}
             </button>
           )}
           {data.status !== "rejected" && (
-            <button className="il-action-secondary" type="button" disabled={!!actionInProgress} onClick={() => handleAction("rejected", "Reject")}>
+            <button className="il-action-secondary il-action-reject" type="button" disabled={!!actionInProgress} onClick={() => handleAction("rejected", "Reject")}>
               {actionInProgress === "Reject" ? "Rejecting..." : "Reject"}
             </button>
           )}

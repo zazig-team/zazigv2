@@ -16,7 +16,7 @@ import { supabase } from "../lib/supabase";
 import FormattedProse from "../components/FormattedProse";
 
 type TypeFilter = "all" | "idea" | "brief" | "bug" | "test";
-type SectionTab = "inbox" | "triaged" | "workshop" | "parked" | "shipped";
+type SectionTab = "inbox" | "triaged" | "workshop" | "parked" | "rejected" | "shipped";
 type SortMode = "newest" | "oldest" | "priority";
 
 const TYPE_ICON: Record<string, string> = {
@@ -95,6 +95,7 @@ function featureStatusClass(status: string): string {
 /* ── Inline Detail (expanded row content) ── */
 
 const STATUS_LABELS: Record<string, string> = {
+  new: "Inbox",
   triaging: "Analysing",
   triaged: "Triaged",
   parked: "Parked",
@@ -386,12 +387,17 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
               {actionInProgress === "Triage" ? "Commissioning..." : "Triage"}
             </button>
           )}
-          {data.status !== "parked" && (
+          {(data.status === "parked" || data.status === "rejected") && (
+            <button className="il-action-secondary il-action-restore" type="button" disabled={!!actionInProgress} onClick={() => handleAction("new", "Restore")}>
+              {actionInProgress === "Restore" ? "Restoring..." : "Restore to Inbox"}
+            </button>
+          )}
+          {data.status !== "parked" && data.status !== "rejected" && (
             <button className="il-action-secondary il-action-park" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
               {actionInProgress === "Park" ? "Parking..." : "Park"}
             </button>
           )}
-          {data.status !== "rejected" && (
+          {data.status !== "rejected" && data.status !== "parked" && (
             <button className="il-action-secondary il-action-reject" type="button" disabled={!!actionInProgress} onClick={() => handleAction("rejected", "Reject")}>
               {actionInProgress === "Reject" ? "Rejecting..." : "Reject"}
             </button>
@@ -419,6 +425,7 @@ export default function Ideas(): JSX.Element {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [dismissedIdeas, setDismissedIdeas] = useState<Map<string, string>>(new Map());
+  const [batchTriaging, setBatchTriaging] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   const loadIdeas = useCallback(async () => {
@@ -520,6 +527,7 @@ export default function Ideas(): JSX.Element {
     triaged: filtered.filter((i) => i.status === "triaged"),
     workshop: filtered.filter((i) => i.status === "workshop"),
     parked: filtered.filter((i) => i.status === "parked"),
+    rejected: filtered.filter((i) => i.status === "rejected"),
     shipped: filteredPromoted,
   }), [filtered, filteredPromoted]);
 
@@ -541,6 +549,7 @@ export default function Ideas(): JSX.Element {
     triaged: ideas.filter((i) => i.status === "triaged").length,
     workshop: ideas.filter((i) => i.status === "workshop").length,
     parked: ideas.filter((i) => i.status === "parked").length,
+    rejected: ideas.filter((i) => i.status === "rejected").length,
     shipped: promotedIdeas.length,
   }), [ideas, promotedIdeas]);
 
@@ -574,6 +583,29 @@ export default function Ideas(): JSX.Element {
       });
       setIdeas((prev) => prev.map((i) => i.id === ideaId ? { ...i, status: newStatus } : i));
     }, 3000);
+  }
+
+  // Batch triage all new ideas
+  async function handleBatchTriage(): Promise<void> {
+    if (!activeCompanyId) return;
+    const newIdeas = sections.inbox.filter((i) => i.status === "new");
+    if (newIdeas.length === 0) return;
+
+    const projectsData = await fetchProjects(activeCompanyId);
+    const projectId = projectsData[0]?.id;
+    if (!projectId) return;
+
+    setBatchTriaging(true);
+    try {
+      for (const idea of newIdeas) {
+        await updateIdeaStatus(idea.id, "triaging");
+        await requestTriageJob({ companyId: activeCompanyId, projectId, ideaId: idea.id });
+      }
+    } catch (err) {
+      console.error("Batch triage error:", err);
+    } finally {
+      setBatchTriaging(false);
+    }
   }
 
   // Keyboard navigation
@@ -636,7 +668,7 @@ export default function Ideas(): JSX.Element {
 
       {/* Section tabs */}
       <div className="il-tabs">
-        {(["inbox", "triaged", "workshop", "parked", "shipped"] as SectionTab[]).map((tab) => (
+        {(["inbox", "triaged", "workshop", "parked", "rejected", "shipped"] as SectionTab[]).map((tab) => (
           <button
             key={tab}
             className={`il-tab${activeTab === tab ? " active" : ""}`}
@@ -681,6 +713,20 @@ export default function Ideas(): JSX.Element {
           </button>
         ))}
       </div>
+
+      {/* Batch triage bar */}
+      {activeTab === "inbox" && sections.inbox.some((i) => i.status === "new") && (
+        <div className="il-batch-bar">
+          <button
+            className="il-action-secondary il-action-triage"
+            type="button"
+            disabled={batchTriaging}
+            onClick={handleBatchTriage}
+          >
+            {batchTriaging ? "Triaging..." : `Triage All (${sections.inbox.filter((i) => i.status === "new").length})`}
+          </button>
+        </div>
+      )}
 
       {/* List */}
       <div className="il-list" ref={listRef}>

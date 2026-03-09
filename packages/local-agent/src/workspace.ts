@@ -157,6 +157,18 @@ const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
   "breakdown-specialist": ["query_features", "batch_create_jobs"],
 };
 
+const MEMORY_MAINTENANCE_SECTION = `## Memory Maintenance
+
+At the end of every work session, update your memory files in \`.claude/memory/\`:
+
+- **priorities.md** — Reflect current P0-P3 items
+- **decisions.md** — Add new open decisions; mark resolved ones
+- **context.md** — Update what's in flight, what happened, what's blocked
+- **handoff.md** — Write notes for cross-session consumers (expert sessions, diagnostics)
+
+These files are read by other sessions via the exec context skill. Keep them current.
+`;
+
 /**
  * Returns the fully-prefixed MCP tool names that a given role is allowed to
  * invoke, plus the standard Claude Code tools every agent needs.
@@ -333,9 +345,13 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
   // 3b. Write HEARTBEAT.md for persistent execs, even when blank, so resets
   // can clear stale task files when the DB value changes.
   if (config.heartbeatMd !== undefined) {
+    const hasMemoryMaintenance = config.heartbeatMd.includes("## Memory Maintenance");
+    const heartbeatContent = hasMemoryMaintenance
+      ? config.heartbeatMd
+      : `${config.heartbeatMd}${config.heartbeatMd.endsWith("\n") || config.heartbeatMd.length === 0 ? "" : "\n\n"}${MEMORY_MAINTENANCE_SECTION}`;
     writeFileSync(
       join(claudeDir, "HEARTBEAT.md"),
-      config.heartbeatMd,
+      heartbeatContent,
     );
   }
 

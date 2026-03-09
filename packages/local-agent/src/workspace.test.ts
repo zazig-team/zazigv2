@@ -393,7 +393,10 @@ describe("setupJobWorkspace", () => {
       (call: unknown[]) => call[0] === "/tmp/test-workspace/.claude/HEARTBEAT.md",
     );
     expect(heartbeatCall).toBeDefined();
-    expect(heartbeatCall![1]).toBe("# Heartbeat tasks");
+    const heartbeatContent = heartbeatCall![1] as string;
+    expect(heartbeatContent).toContain("# Heartbeat tasks");
+    expect(heartbeatContent).toContain("## Memory Maintenance");
+    expect(heartbeatContent).toContain("At the end of every work session");
 
     const stateCall = writeFileSyncMock.mock.calls.find(
       (call: unknown[]) => call[0] === "/tmp/test-workspace/.claude/memory/heartbeat-state.json",
@@ -428,6 +431,48 @@ describe("setupJobWorkspace", () => {
       "/tmp/test-workspace/.claude/memory/heartbeat-state.json",
       expect.anything(),
     );
+  });
+
+  it("does not duplicate memory maintenance section when already present", () => {
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-heartbeat-existing-section",
+      role: "cpo",
+      claudeMdContent: "# Test",
+      heartbeatMd: "## Daily Tasks\n- Check pipeline\n\n## Memory Maintenance\nCustom existing section",
+    });
+
+    const heartbeatCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => call[0] === "/tmp/test-workspace/.claude/HEARTBEAT.md",
+    );
+    expect(heartbeatCall).toBeDefined();
+    const heartbeatContent = heartbeatCall![1] as string;
+    expect(heartbeatContent).toContain("## Daily Tasks");
+    expect(heartbeatContent.match(/## Memory Maintenance/g)).toHaveLength(1);
+  });
+
+  it("does not write HEARTBEAT.md for non-persistent jobs", () => {
+    const writeFileSyncMock = fsModule.writeFileSync as unknown as ReturnType<typeof vi.fn>;
+
+    setupJobWorkspace({
+      workspaceDir: "/tmp/test-workspace",
+      mcpServerPath: "/path/to/server.js",
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-non-persistent",
+      role: "breakdown-specialist",
+      claudeMdContent: "# Test",
+    });
+
+    const heartbeatCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => call[0] === "/tmp/test-workspace/.claude/HEARTBEAT.md",
+    );
+    expect(heartbeatCall).toBeUndefined();
   });
 });
 

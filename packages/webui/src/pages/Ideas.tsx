@@ -520,22 +520,20 @@ export default function Ideas(): JSX.Element {
     setExpandedId((prev) => prev === id ? null : id);
   }
 
-  // Handle idea action (triage/park/reject/promote) — remove from local state with toast
+  // Handle idea action (triage/park/reject/promote) — show toast then remove
   function handleIdeaAction(ideaId: string, newStatus: string): void {
     const label = STATUS_LABELS[newStatus] ?? newStatus;
     setDismissedIdeas((prev) => new Map(prev).set(ideaId, `Moved to ${label}`));
     setExpandedId(null);
 
-    // Remove from local state immediately
-    setIdeas((prev) => prev.map((i) => i.id === ideaId ? { ...i, status: newStatus } : i));
-
-    // Auto-dismiss toast after 3s
+    // After toast animation, actually update local state to move the idea
     setTimeout(() => {
       setDismissedIdeas((prev) => {
         const next = new Map(prev);
         next.delete(ideaId);
         return next;
       });
+      setIdeas((prev) => prev.map((i) => i.id === ideaId ? { ...i, status: newStatus } : i));
     }, 3000);
   }
 

@@ -6,7 +6,7 @@
  * Auth: deployed with --no-verify-jwt, so JWT verification is handled here.
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   isAgentMessage,
   type AgentMessage,
@@ -63,6 +63,22 @@ const KNOWN_TYPES = new Set<AgentMessage["type"]>([
   "stop_ack",
 ]);
 
+async function callAsyncHandler<T>(
+  handler: (supabase: SupabaseClient, msg: T) => Promise<void>,
+  msg: T,
+  supabaseAdmin: SupabaseClient,
+): Promise<void> {
+  await handler(supabaseAdmin, msg);
+}
+
+async function callSyncHandler<T>(
+  handler: (supabase: SupabaseClient, msg: T) => void,
+  msg: T,
+  supabaseAdmin: SupabaseClient,
+): Promise<void> {
+  await Promise.resolve(handler(supabaseAdmin, msg));
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method !== "POST") {
     return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
@@ -110,22 +126,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
   try {
     switch (body.type) {
       case "job_complete":
-        await handleJobComplete(supabaseAdmin, body as JobComplete);
+        await callAsyncHandler(handleJobComplete, body as JobComplete, supabaseAdmin);
         break;
       case "job_failed":
-        await handleJobFailed(supabaseAdmin, body as JobFailed);
+        await callAsyncHandler(handleJobFailed, body as JobFailed, supabaseAdmin);
         break;
       case "verify_result":
-        await handleVerifyResult(supabaseAdmin, body as VerifyResult);
+        await callAsyncHandler(handleVerifyResult, body as VerifyResult, supabaseAdmin);
         break;
       case "heartbeat":
-        await handleHeartbeat(supabaseAdmin, body as Heartbeat);
+        await callAsyncHandler(handleHeartbeat, body as Heartbeat, supabaseAdmin);
         break;
       case "job_ack":
-        handleJobAck(supabaseAdmin, body as JobAck);
+        await callSyncHandler(handleJobAck, body as JobAck, supabaseAdmin);
         break;
       case "job_status":
-        await handleJobStatus(supabaseAdmin, body as JobStatusMessage);
+        await callAsyncHandler(handleJobStatus, body as JobStatusMessage, supabaseAdmin);
         break;
       case "stop_ack":
         console.log(

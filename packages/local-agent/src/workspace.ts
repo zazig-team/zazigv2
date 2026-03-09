@@ -51,6 +51,7 @@ export interface WorkspaceConfig {
   jobId: string;
   companyId?: string;
   role: string;
+  roleDisplayName?: string;
   claudeMdContent: string;
   heartbeatMd?: string;
   skills?: string[];
@@ -291,6 +292,105 @@ export function publishSharedExecSkill(
   writeFileSync(join(skillDir, "SKILL.md"), `${sections.join("\n")}\n`);
 }
 
+function defaultRoleDisplayName(role: string): string {
+  return role
+    .split("-")
+    .map((part) => {
+      if (part.length <= 3) return part.toUpperCase();
+      if (part.toUpperCase() === part) return part;
+      return `${part.charAt(0).toUpperCase()}${part.slice(1)}`;
+    })
+    .join(" ");
+}
+
+function seedMemoryFiles(claudeDir: string, roleDisplayName: string): void {
+  const memoryDir = join(claudeDir, "memory");
+  mkdirSync(memoryDir, { recursive: true });
+
+  const fileTemplates: Array<{ name: string; content: string }> = [
+    {
+      name: "priorities.md",
+      content: [
+        `_Updated by ${roleDisplayName} on each wake._`,
+        "",
+        "# Priorities",
+        "",
+        "## P0 - Critical This Wake",
+        "- [ ]",
+        "",
+        "## P1 - Active This Week",
+        "- [ ]",
+        "",
+        "## P2 - Important, Not Urgent",
+        "- [ ]",
+        "",
+        "## P3 - Parked / Backlog",
+        "- [ ]",
+        "",
+      ].join("\n"),
+    },
+    {
+      name: "decisions.md",
+      content: [
+        `_Updated by ${roleDisplayName} on each wake._`,
+        "",
+        "# Open Decisions",
+        "",
+        "## Decision",
+        "- Summary:",
+        "- Options:",
+        "- Owner:",
+        "- Needed by:",
+        "- Status: Open",
+        "",
+      ].join("\n"),
+    },
+    {
+      name: "context.md",
+      content: [
+        `_Updated by ${roleDisplayName} on each wake._`,
+        "",
+        "# Working Context",
+        "",
+        "## What's In Flight",
+        "-",
+        "",
+        "## Recent Events",
+        "-",
+        "",
+        "## Blocked On",
+        "-",
+        "",
+      ].join("\n"),
+    },
+    {
+      name: "handoff.md",
+      content: [
+        `_Updated by ${roleDisplayName} on each wake._`,
+        "",
+        "# Handoff Notes",
+        "",
+        "## If You're Picking Up My Work",
+        "-",
+        "",
+        "## Active Decisions Waiting on Human",
+        "-",
+        "",
+        "## Known Issues",
+        "-",
+        "",
+      ].join("\n"),
+    },
+  ];
+
+  for (const template of fileTemplates) {
+    const filePath = join(memoryDir, template.name);
+    if (!existsSync(filePath)) {
+      writeFileSync(filePath, template.content);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Workspace setup
 // ---------------------------------------------------------------------------
@@ -337,6 +437,7 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
       join(claudeDir, "HEARTBEAT.md"),
       config.heartbeatMd,
     );
+    seedMemoryFiles(claudeDir, config.roleDisplayName ?? defaultRoleDisplayName(config.role));
   }
 
   // 3c. Seed heartbeat-state.json once so recurring tasks can dedupe across resets.

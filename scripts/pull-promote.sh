@@ -1,11 +1,13 @@
 #!/bin/bash
-# Pull latest from master and rebuild after a zazig promote
+# Pull latest promoted production build and rebuild
 set -e
 
 cd "$(dirname "$0")/.."
 
 echo "Pulling latest..."
+git stash --quiet 2>/dev/null || true
 git pull origin production
+git stash pop --quiet 2>/dev/null || true
 
 echo "Installing dependencies..."
 npm install

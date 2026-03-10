@@ -30963,7 +30963,7 @@ server.tool("start_expert_session", "Trigger an interactive expert agent session
   role_name: external_exports3.string().describe('The expert role identifier, e.g. "test-deployment-expert"'),
   brief: external_exports3.string().describe("Structured handoff context for the expert: what needs to be done, relevant background, expected output"),
   machine_name: external_exports3.string().describe("Which machine to spawn the expert on. Read the machine name from ~/.zazigv2/config.json \u2014 use the 'name' field."),
-  project_id: external_exports3.string().optional().describe("Optional project ID for repo access in the expert workspace")
+  project_id: external_exports3.string().describe("Project ID or name \u2014 required. The expert needs a repo to work in.")
 }, guardedHandler("start_expert_session", async ({ role_name, brief, machine_name, project_id }) => {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;

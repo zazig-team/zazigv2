@@ -154,7 +154,7 @@ const STANDARD_TOOLS = [
  * is provided. These match the roles' expected DB-level permissions.
  */
 const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
-  "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "request_work", "start_expert_session"],
+  "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "start_expert_session"],
   "breakdown-specialist": ["query_features", "batch_create_jobs"],
 };
 

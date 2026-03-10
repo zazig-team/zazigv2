@@ -2548,8 +2548,9 @@ async function runCodexReview(
     "Review against spec and acceptance criteria, not diff size.",
     "Do NOT fail solely because multiple files were touched.",
     "Adjacent files (tests, types, helpers) are acceptable if they support the spec; flag as observation unless clearly unrelated.",
+    "IMPORTANT: Files mentioned in the spec that do NOT appear in the diff may already have been correct before the job started. Only fail for missing requirements if the diff lacks changes that are clearly still needed — do NOT fail just because a file is absent from the diff.",
     "PASS if: changes address the spec, acceptance criteria are met, and there are no obvious bugs or placeholder code.",
-    "FAIL if: requirements are missing, acceptance criteria are missed, there are obvious errors, or changes are clearly unrelated.",
+    "FAIL if: the diff contains obvious errors, placeholder code, or clearly fails to address a requirement that cannot already be met by existing code.",
     "Respond with exactly: PASS or FAIL: reason",
   ].join("\n");
 

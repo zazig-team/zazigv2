@@ -39,10 +39,20 @@ interface CapabilityLookupEntry {
 
 type CapabilityLookup = Record<string, CapabilityLookupEntry>;
 
+type PipelineActiveJobStatus = "queued" | "dispatched" | "executing";
+
+export interface PipelineActiveJob {
+  id: string;
+  featureId: string | null;
+  role: string | null;
+  status: PipelineActiveJobStatus;
+  createdAt: string | null;
+}
 export interface NormalizedPipelineSnapshot {
   updatedAt: string | null;
   byStatus: Record<PipelineStatus, PipelineFeature[]>;
   ideasInboxNewCount: number;
+  activeJobs: PipelineActiveJob[];
 }
 
 const EMPTY_SNAPSHOT: NormalizedPipelineSnapshot = {
@@ -60,6 +70,7 @@ const EMPTY_SNAPSHOT: NormalizedPipelineSnapshot = {
     shipped: [],
   },
   ideasInboxNewCount: 0,
+  activeJobs: [],
 };
 
 function toPipelineStatus(rawStatus: string | null | undefined): PipelineStatus | null {
@@ -114,6 +125,67 @@ function numericValue(value: unknown): number | null {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function toActiveJobStatus(rawStatus: string | null | undefined): PipelineActiveJobStatus | null {
+  if (!rawStatus) {
+    return null;
+  }
+
+  const normalized = rawStatus.trim().toLowerCase();
+  if (normalized === "queued" || normalized === "dispatched" || normalized === "executing") {
+    return normalized;
+  }
+
+  return null;
+}
+
+function parseActiveJob(
+  raw: Record<string, unknown>,
+  fallbackFeatureId: string | null = null,
+): PipelineActiveJob | null {
+  const status = toActiveJobStatus(stringValue(raw.status));
+  if (!status) {
+    return null;
+  }
+
+  return {
+    id: stringValue(raw.id) ?? crypto.randomUUID(),
+    featureId: stringValue(raw.feature_id) ?? stringValue(raw.featureId) ?? fallbackFeatureId,
+    role: stringValue(raw.role),
+    status,
+    createdAt: stringValue(raw.created_at) ?? stringValue(raw.createdAt),
+  };
+}
+
+function collectActiveJobs(
+  rawJobs: unknown,
+  fallbackFeatureId: string | null = null,
+): PipelineActiveJob[] {
+  if (!Array.isArray(rawJobs)) {
+    return [];
+  }
+
+  return rawJobs
+    .map((rawJob) => {
+      if (!rawJob || typeof rawJob !== "object") {
+        return null;
+      }
+      return parseActiveJob(rawJob as Record<string, unknown>, fallbackFeatureId);
+    })
+    .filter((job): job is PipelineActiveJob => job !== null);
+}
+
+function sortByNewestCreatedAt(jobs: PipelineActiveJob[]): PipelineActiveJob[] {
+  const score = (value: string | null): number => {
+    if (!value) {
+      return Number.NEGATIVE_INFINITY;
+    }
+    const timestamp = Date.parse(value);
+    return Number.isNaN(timestamp) ? Number.NEGATIVE_INFINITY : timestamp;
+  };
+
+  return [...jobs].sort((a, b) => score(b.createdAt) - score(a.createdAt));
 }
 
 function ageInHours(isoValue: string | null): number | null {
@@ -271,6 +343,10 @@ function normalizeSnapshot(
     shipped: [],
   };
   let ideasInboxNewCount = 0;
+  const activeJobsById = new Map<string, PipelineActiveJob>();
+  const upsertActiveJob = (job: PipelineActiveJob): void => {
+    activeJobsById.set(job.id, job);
+  };
 
   if (snapshot && typeof snapshot === "object") {
     const snapshotObj = snapshot as Record<string, unknown>;
@@ -299,9 +375,10 @@ function normalizeSnapshot(
           if (!rawFeature || typeof rawFeature !== "object") {
             continue;
           }
-          byStatus[status].push(
-            parseFeature(rawFeature as Record<string, unknown>, status, capabilityLookup),
-          );
+          const featureRecord = rawFeature as Record<string, unknown>;
+          const parsedFeature = parseFeature(featureRecord, status, capabilityLookup);
+          byStatus[status].push(parsedFeature);
+          collectActiveJobs(featureRecord.jobs, parsedFeature.id).forEach(upsertActiveJob);
         }
       }
     } else {
@@ -311,15 +388,18 @@ function normalizeSnapshot(
           if (!rawFeature || typeof rawFeature !== "object") {
             continue;
           }
+          const featureRecord = rawFeature as Record<string, unknown>;
           const status =
-            toPipelineStatus(stringValue((rawFeature as Record<string, unknown>).status)) ??
+            toPipelineStatus(stringValue(featureRecord.status)) ??
             "breaking_down";
-          byStatus[status].push(
-            parseFeature(rawFeature as Record<string, unknown>, status, capabilityLookup),
-          );
+          const parsedFeature = parseFeature(featureRecord, status, capabilityLookup);
+          byStatus[status].push(parsedFeature);
+          collectActiveJobs(featureRecord.jobs, parsedFeature.id).forEach(upsertActiveJob);
         }
       }
     }
+
+    collectActiveJobs(snapshotObj.active_jobs).forEach(upsertActiveJob);
   }
 
   // Pick up completed_features from top level (RPC stores complete/cancelled separately)
@@ -343,6 +423,7 @@ function normalizeSnapshot(
     updatedAt,
     byStatus,
     ideasInboxNewCount,
+    activeJobs: sortByNewestCreatedAt(Array.from(activeJobsById.values())),
   };
 }
 

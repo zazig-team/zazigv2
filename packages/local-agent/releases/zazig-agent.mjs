@@ -40,7 +40,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// node_modules/tslib/tslib.es6.mjs
+// ../../node_modules/tslib/tslib.es6.mjs
 var tslib_es6_exports = {};
 __export(tslib_es6_exports, {
   __addDisposableResource: () => __addDisposableResource,
@@ -479,7 +479,7 @@ function __rewriteRelativeImportExtension(path, preserveJsx) {
 }
 var extendStatics, __assign, __createBinding, __setModuleDefault, ownKeys, _SuppressedError, tslib_es6_default;
 var init_tslib_es6 = __esm({
-  "node_modules/tslib/tslib.es6.mjs"() {
+  "../../node_modules/tslib/tslib.es6.mjs"() {
     extendStatics = function(d, b) {
       extendStatics = Object.setPrototypeOf || { __proto__: [] } instanceof Array && function(d2, b2) {
         d2.__proto__ = b2;
@@ -498,7 +498,7 @@ var init_tslib_es6 = __esm({
       };
       return __assign.apply(this, arguments);
     };
-    __createBinding = Object.create ? (function(o, m, k, k2) {
+    __createBinding = Object.create ? function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
@@ -507,13 +507,13 @@ var init_tslib_es6 = __esm({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    }) : (function(o, m, k, k2) {
+    } : function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    __setModuleDefault = Object.create ? (function(o, v) {
+    };
+    __setModuleDefault = Object.create ? function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    }) : function(o, v) {
+    } : function(o, v) {
       o["default"] = v;
     };
     ownKeys = function(o) {
@@ -565,9 +565,9 @@ var init_tslib_es6 = __esm({
   }
 });
 
-// node_modules/@supabase/functions-js/dist/main/helper.js
+// ../../node_modules/@supabase/functions-js/dist/main/helper.js
 var require_helper = __commonJS({
-  "node_modules/@supabase/functions-js/dist/main/helper.js"(exports) {
+  "../../node_modules/@supabase/functions-js/dist/main/helper.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.resolveFetch = void 0;
@@ -581,9 +581,9 @@ var require_helper = __commonJS({
   }
 });
 
-// node_modules/@supabase/functions-js/dist/main/types.js
+// ../../node_modules/@supabase/functions-js/dist/main/types.js
 var require_types = __commonJS({
-  "node_modules/@supabase/functions-js/dist/main/types.js"(exports) {
+  "../../node_modules/@supabase/functions-js/dist/main/types.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FunctionRegion = exports.FunctionsHttpError = exports.FunctionsRelayError = exports.FunctionsFetchError = exports.FunctionsError = void 0;
@@ -634,9 +634,9 @@ var require_types = __commonJS({
   }
 });
 
-// node_modules/@supabase/functions-js/dist/main/FunctionsClient.js
+// ../../node_modules/@supabase/functions-js/dist/main/FunctionsClient.js
 var require_FunctionsClient = __commonJS({
-  "node_modules/@supabase/functions-js/dist/main/FunctionsClient.js"(exports) {
+  "../../node_modules/@supabase/functions-js/dist/main/FunctionsClient.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FunctionsClient = void 0;
@@ -785,9 +785,9 @@ var require_FunctionsClient = __commonJS({
   }
 });
 
-// node_modules/@supabase/functions-js/dist/main/index.js
+// ../../node_modules/@supabase/functions-js/dist/main/index.js
 var require_main = __commonJS({
-  "node_modules/@supabase/functions-js/dist/main/index.js"(exports) {
+  "../../node_modules/@supabase/functions-js/dist/main/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FunctionRegion = exports.FunctionsRelayError = exports.FunctionsHttpError = exports.FunctionsFetchError = exports.FunctionsError = exports.FunctionsClient = void 0;
@@ -814,9 +814,9 @@ var require_main = __commonJS({
   }
 });
 
-// node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js
+// ../../node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js
 var require_websocket_factory = __commonJS({
-  "node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js"(exports) {
+  "../../node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.WebSocketFactory = void 0;
@@ -938,9 +938,9 @@ Suggested solution: ${env.workaround}`;
   }
 });
 
-// node_modules/@supabase/realtime-js/dist/main/lib/version.js
+// ../../node_modules/@supabase/realtime-js/dist/main/lib/version.js
 var require_version = __commonJS({
-  "node_modules/@supabase/realtime-js/dist/main/lib/version.js"(exports) {
+  "../../node_modules/@supabase/realtime-js/dist/main/lib/version.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
@@ -948,9 +948,9 @@ var require_version = __commonJS({
   }
 });
 
-// node_modules/@supabase/realtime-js/dist/main/lib/constants.js
+// ../../node_modules/@supabase/realtime-js/dist/main/lib/constants.js
 var require_constants = __commonJS({
-  "node_modules/@supabase/realtime-js/dist/main/lib/constants.js"(exports) {
+  "../../node_modules/@supabase/realtime-js/dist/main/lib/constants.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.CONNECTION_STATE = exports.TRANSPORTS = exports.CHANNEL_EVENTS = exports.CHANNEL_STATES = exports.SOCKET_STATES = exports.MAX_PUSH_BUFFER_SIZE = exports.WS_CLOSE_NORMAL = exports.DEFAULT_TIMEOUT = exports.VERSION = exports.DEFAULT_VSN = exports.VSN_2_0_0 = exports.VSN_1_0_0 = exports.DEFAULT_VERSION = void 0;
@@ -1001,9 +1001,9 @@ var require_constants = __commonJS({
   }
 });
 
-// node_modules/@supabase/realtime-js/dist/main/lib/serializer.js
+// ../../node_modules/@supabase/realtime-js/dist/main/lib/serializer.js
 var require_serializer = __commonJS({
-  "node_modules/@supabase/realtime-js/dist/main/lib/serializer.js"(exports) {
+  "../../node_modules/@supabase/realtime-js/dist/main/lib/serializer.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var Serializer = class {
@@ -1148,9 +1148,9 @@ var require_serializer = __commonJS({
   }
 });
 
-// node_modules/@supabase/realtime-js/dist/main/lib/timer.js
+// ../../node_modules/@supabase/realtime-js/dist/main/lib/timer.js
 var require_timer = __commonJS({
-  "node_modules/@supabase/realtime-js/dist/main/lib/timer.js"(exports) {
+  "../../node_modules/@supabase/realtime-js/dist/main/lib/timer.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var Timer = class {
@@ -1180,9 +1180,9 @@ var require_timer = __commonJS({
   }
 });
 
-// node_modules/@supabase/realtime-js/dist/main/lib/transformers.js
+// ../../node_modules/@supabase/realtime-js/dist/main/lib/transformers.js
 var require_transformers = __commonJS({
-  "node_modules/@supabase/realtime-js/dist/main/lib/transformers.js"(exports) {
+  "../../node_modules/@supabase/realtime-js/dist/main/lib/transformers.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.httpEndpointURL = exports.toTimestampString = exports.toArray = exports.toJson = exports.toNumber = exports.toBoolean = exports.convertCell = exports.convertColumn = exports.convertChangeData = exports.PostgresTypes = void 0;
@@ -1359,9 +1359,9 @@ var require_transformers = __commonJS({
   }
 });
 
-// node_modules/@supabase/realtime-js/dist/main/lib/push.js
+// ../../node_modules/@supabase/realtime-js/dist/main/lib/push.js
 var require_push = __commonJS({
-  "node_modules/@supabase/realtime-js/dist/main/lib/push.js"(exports) {
+  "../../node_modules/@supabase/realtime-js/dist/main/lib/push.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var constants_1 = require_constants();
@@ -1466,9 +1466,9 @@ var require_push = __commonJS({
   }
 });
 
-// node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js
+// ../../node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js
 var require_RealtimePresence = __commonJS({
-  "node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js"(exports) {
+  "../../node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.REALTIME_PRESENCE_LISTEN_EVENTS = void 0;
@@ -1706,9 +1706,9 @@ var require_RealtimePresence = __commonJS({
   }
 });
 
-// node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js
+// ../../node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js
 var require_RealtimeChannel = __commonJS({
-  "node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js"(exports) {
+  "../../node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.REALTIME_CHANNEL_STATES = exports.REALTIME_SUBSCRIBE_STATES = exports.REALTIME_LISTEN_TYPES = exports.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = void 0;
@@ -2318,9 +2318,9 @@ var require_RealtimeChannel = __commonJS({
   }
 });
 
-// node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js
+// ../../node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js
 var require_RealtimeClient = __commonJS({
-  "node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js"(exports) {
+  "../../node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
@@ -3071,17 +3071,17 @@ Option 2: Install and provide the "ws" package:
           this.logLevel = options.logLevel || options.log_level;
           this.params = Object.assign(Object.assign({}, this.params), { log_level: this.logLevel });
         }
-        this.reconnectAfterMs = (_h = options === null || options === void 0 ? void 0 : options.reconnectAfterMs) !== null && _h !== void 0 ? _h : ((tries) => {
+        this.reconnectAfterMs = (_h = options === null || options === void 0 ? void 0 : options.reconnectAfterMs) !== null && _h !== void 0 ? _h : (tries) => {
           return RECONNECT_INTERVALS[tries - 1] || DEFAULT_RECONNECT_FALLBACK;
-        });
+        };
         switch (this.vsn) {
           case constants_1.VSN_1_0_0:
-            this.encode = (_j = options === null || options === void 0 ? void 0 : options.encode) !== null && _j !== void 0 ? _j : ((payload, callback) => {
+            this.encode = (_j = options === null || options === void 0 ? void 0 : options.encode) !== null && _j !== void 0 ? _j : (payload, callback) => {
               return callback(JSON.stringify(payload));
-            });
-            this.decode = (_k = options === null || options === void 0 ? void 0 : options.decode) !== null && _k !== void 0 ? _k : ((payload, callback) => {
+            };
+            this.decode = (_k = options === null || options === void 0 ? void 0 : options.decode) !== null && _k !== void 0 ? _k : (payload, callback) => {
               return callback(JSON.parse(payload));
-            });
+            };
             break;
           case constants_1.VSN_2_0_0:
             this.encode = (_l = options === null || options === void 0 ? void 0 : options.encode) !== null && _l !== void 0 ? _l : this.serializer.encode.bind(this.serializer);
@@ -3102,9 +3102,9 @@ Option 2: Install and provide the "ws" package:
   }
 });
 
-// node_modules/@supabase/realtime-js/dist/main/index.js
+// ../../node_modules/@supabase/realtime-js/dist/main/index.js
 var require_main2 = __commonJS({
-  "node_modules/@supabase/realtime-js/dist/main/index.js"(exports) {
+  "../../node_modules/@supabase/realtime-js/dist/main/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.WebSocketFactory = exports.REALTIME_CHANNEL_STATES = exports.REALTIME_SUBSCRIBE_STATES = exports.REALTIME_PRESENCE_LISTEN_EVENTS = exports.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = exports.REALTIME_LISTEN_TYPES = exports.RealtimeClient = exports.RealtimeChannel = exports.RealtimePresence = void 0;
@@ -3135,9 +3135,9 @@ var require_main2 = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/lib/version.js
+// ../../node_modules/@supabase/auth-js/dist/main/lib/version.js
 var require_version2 = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/lib/version.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/lib/version.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
@@ -3145,9 +3145,9 @@ var require_version2 = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/lib/constants.js
+// ../../node_modules/@supabase/auth-js/dist/main/lib/constants.js
 var require_constants2 = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/lib/constants.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/lib/constants.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.JWKS_TTL = exports.BASE64URL_REGEX = exports.API_VERSIONS = exports.API_VERSION_HEADER_NAME = exports.NETWORK_FAILURE = exports.DEFAULT_HEADERS = exports.AUDIENCE = exports.STORAGE_KEY = exports.GOTRUE_URL = exports.EXPIRY_MARGIN_MS = exports.AUTO_REFRESH_TICK_THRESHOLD = exports.AUTO_REFRESH_TICK_DURATION_MS = void 0;
@@ -3176,9 +3176,9 @@ var require_constants2 = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/lib/errors.js
+// ../../node_modules/@supabase/auth-js/dist/main/lib/errors.js
 var require_errors = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/lib/errors.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/lib/errors.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.AuthInvalidJwtError = exports.AuthWeakPasswordError = exports.AuthRetryableFetchError = exports.AuthPKCECodeVerifierMissingError = exports.AuthPKCEGrantCodeExchangeError = exports.AuthImplicitGrantRedirectError = exports.AuthInvalidCredentialsError = exports.AuthInvalidTokenResponseError = exports.AuthSessionMissingError = exports.CustomAuthError = exports.AuthUnknownError = exports.AuthApiError = exports.AuthError = void 0;
@@ -3323,9 +3323,9 @@ var require_errors = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/lib/base64url.js
+// ../../node_modules/@supabase/auth-js/dist/main/lib/base64url.js
 var require_base64url = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/lib/base64url.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/lib/base64url.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.byteToBase64URL = byteToBase64URL;
@@ -3513,9 +3513,9 @@ var require_base64url = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/lib/helpers.js
+// ../../node_modules/@supabase/auth-js/dist/main/lib/helpers.js
 var require_helpers = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/lib/helpers.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/lib/helpers.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.Deferred = exports.removeItemAsync = exports.getItemAsync = exports.setItemAsync = exports.looksLikeFetchResponse = exports.resolveFetch = exports.supportsLocalStorage = exports.isBrowser = void 0;
@@ -3543,7 +3543,7 @@ var require_helpers = __commonJS({
       return timeNow + expiresIn;
     }
     function generateCallbackId() {
-      return /* @__PURE__ */ Symbol("auth-callback");
+      return Symbol("auth-callback");
     }
     var isBrowser = () => typeof window !== "undefined" && typeof document !== "undefined";
     exports.isBrowser = isBrowser;
@@ -3829,9 +3829,9 @@ var require_helpers = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/lib/fetch.js
+// ../../node_modules/@supabase/auth-js/dist/main/lib/fetch.js
 var require_fetch = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/lib/fetch.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/lib/fetch.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.handleError = handleError2;
@@ -3984,9 +3984,9 @@ var require_fetch = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/lib/types.js
+// ../../node_modules/@supabase/auth-js/dist/main/lib/types.js
 var require_types2 = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/lib/types.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/lib/types.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.SIGN_OUT_SCOPES = void 0;
@@ -3994,9 +3994,9 @@ var require_types2 = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js
+// ../../node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js
 var require_GoTrueAdminApi = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
@@ -4448,9 +4448,9 @@ var require_GoTrueAdminApi = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/lib/local-storage.js
+// ../../node_modules/@supabase/auth-js/dist/main/lib/local-storage.js
 var require_local_storage = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/lib/local-storage.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/lib/local-storage.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.memoryLocalStorageAdapter = memoryLocalStorageAdapter;
@@ -4470,9 +4470,9 @@ var require_local_storage = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/lib/locks.js
+// ../../node_modules/@supabase/auth-js/dist/main/lib/locks.js
 var require_locks = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/lib/locks.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/lib/locks.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ProcessLockAcquireTimeoutError = exports.NavigatorLockAcquireTimeoutError = exports.LockAcquireTimeoutError = exports.internals = void 0;
@@ -4635,9 +4635,9 @@ var require_locks = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/lib/polyfills.js
+// ../../node_modules/@supabase/auth-js/dist/main/lib/polyfills.js
 var require_polyfills = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/lib/polyfills.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/lib/polyfills.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.polyfillGlobalThis = polyfillGlobalThis;
@@ -4662,9 +4662,9 @@ var require_polyfills = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js
+// ../../node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js
 var require_ethereum = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getAddress = getAddress;
@@ -4740,9 +4740,9 @@ ${suffix}`;
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js
+// ../../node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js
 var require_webauthn_errors = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.WebAuthnUnknownError = exports.WebAuthnError = void 0;
@@ -4924,9 +4924,9 @@ var require_webauthn_errors = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/lib/webauthn.js
+// ../../node_modules/@supabase/auth-js/dist/main/lib/webauthn.js
 var require_webauthn = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/lib/webauthn.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/lib/webauthn.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.WebAuthnApi = exports.DEFAULT_REQUEST_OPTIONS = exports.DEFAULT_CREATION_OPTIONS = exports.webAuthnAbortService = exports.WebAuthnAbortService = exports.identifyAuthenticationError = exports.identifyRegistrationError = exports.isWebAuthnError = exports.WebAuthnError = void 0;
@@ -5482,9 +5482,9 @@ var require_webauthn = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/GoTrueClient.js
+// ../../node_modules/@supabase/auth-js/dist/main/GoTrueClient.js
 var require_GoTrueClient = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/GoTrueClient.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/GoTrueClient.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
@@ -8056,9 +8056,9 @@ var require_GoTrueClient = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js
+// ../../node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js
 var require_AuthAdminApi = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
@@ -8068,9 +8068,9 @@ var require_AuthAdminApi = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/AuthClient.js
+// ../../node_modules/@supabase/auth-js/dist/main/AuthClient.js
 var require_AuthClient = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/AuthClient.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/AuthClient.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = (init_tslib_es6(), __toCommonJS(tslib_es6_exports));
@@ -8080,9 +8080,9 @@ var require_AuthClient = __commonJS({
   }
 });
 
-// node_modules/@supabase/auth-js/dist/main/index.js
+// ../../node_modules/@supabase/auth-js/dist/main/index.js
 var require_main3 = __commonJS({
-  "node_modules/@supabase/auth-js/dist/main/index.js"(exports) {
+  "../../node_modules/@supabase/auth-js/dist/main/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.processLock = exports.lockInternals = exports.NavigatorLockAcquireTimeoutError = exports.navigatorLock = exports.AuthClient = exports.AuthAdminApi = exports.GoTrueClient = exports.GoTrueAdminApi = void 0;
@@ -8113,9 +8113,9 @@ var require_main3 = __commonJS({
   }
 });
 
-// node_modules/ws/lib/constants.js
+// ../../node_modules/ws/lib/constants.js
 var require_constants3 = __commonJS({
-  "node_modules/ws/lib/constants.js"(exports, module) {
+  "../../node_modules/ws/lib/constants.js"(exports, module) {
     "use strict";
     var BINARY_TYPES = ["nodebuffer", "arraybuffer", "fragments"];
     var hasBlob = typeof Blob !== "undefined";
@@ -8126,19 +8126,19 @@ var require_constants3 = __commonJS({
       EMPTY_BUFFER: Buffer.alloc(0),
       GUID: "258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
       hasBlob,
-      kForOnEventAttribute: /* @__PURE__ */ Symbol("kIsForOnEventAttribute"),
-      kListener: /* @__PURE__ */ Symbol("kListener"),
-      kStatusCode: /* @__PURE__ */ Symbol("status-code"),
-      kWebSocket: /* @__PURE__ */ Symbol("websocket"),
+      kForOnEventAttribute: Symbol("kIsForOnEventAttribute"),
+      kListener: Symbol("kListener"),
+      kStatusCode: Symbol("status-code"),
+      kWebSocket: Symbol("websocket"),
       NOOP: () => {
       }
     };
   }
 });
 
-// node_modules/ws/lib/buffer-util.js
+// ../../node_modules/ws/lib/buffer-util.js
 var require_buffer_util = __commonJS({
-  "node_modules/ws/lib/buffer-util.js"(exports, module) {
+  "../../node_modules/ws/lib/buffer-util.js"(exports, module) {
     "use strict";
     var { EMPTY_BUFFER } = require_constants3();
     var FastBuffer = Buffer[Symbol.species];
@@ -8211,12 +8211,12 @@ var require_buffer_util = __commonJS({
   }
 });
 
-// node_modules/ws/lib/limiter.js
+// ../../node_modules/ws/lib/limiter.js
 var require_limiter = __commonJS({
-  "node_modules/ws/lib/limiter.js"(exports, module) {
+  "../../node_modules/ws/lib/limiter.js"(exports, module) {
     "use strict";
-    var kDone = /* @__PURE__ */ Symbol("kDone");
-    var kRun = /* @__PURE__ */ Symbol("kRun");
+    var kDone = Symbol("kDone");
+    var kRun = Symbol("kRun");
     var Limiter = class {
       /**
        * Creates a new `Limiter`.
@@ -8261,9 +8261,9 @@ var require_limiter = __commonJS({
   }
 });
 
-// node_modules/ws/lib/permessage-deflate.js
+// ../../node_modules/ws/lib/permessage-deflate.js
 var require_permessage_deflate = __commonJS({
-  "node_modules/ws/lib/permessage-deflate.js"(exports, module) {
+  "../../node_modules/ws/lib/permessage-deflate.js"(exports, module) {
     "use strict";
     var zlib = __require("zlib");
     var bufferUtil = require_buffer_util();
@@ -8271,11 +8271,11 @@ var require_permessage_deflate = __commonJS({
     var { kStatusCode } = require_constants3();
     var FastBuffer = Buffer[Symbol.species];
     var TRAILER = Buffer.from([0, 0, 255, 255]);
-    var kPerMessageDeflate = /* @__PURE__ */ Symbol("permessage-deflate");
-    var kTotalLength = /* @__PURE__ */ Symbol("total-length");
-    var kCallback = /* @__PURE__ */ Symbol("callback");
-    var kBuffers = /* @__PURE__ */ Symbol("buffers");
-    var kError = /* @__PURE__ */ Symbol("error");
+    var kPerMessageDeflate = Symbol("permessage-deflate");
+    var kTotalLength = Symbol("total-length");
+    var kCallback = Symbol("callback");
+    var kBuffers = Symbol("buffers");
+    var kError = Symbol("error");
     var zlibLimiter;
     var PerMessageDeflate = class {
       /**
@@ -8644,9 +8644,9 @@ var require_permessage_deflate = __commonJS({
   }
 });
 
-// node_modules/ws/lib/validation.js
+// ../../node_modules/ws/lib/validation.js
 var require_validation = __commonJS({
-  "node_modules/ws/lib/validation.js"(exports, module) {
+  "../../node_modules/ws/lib/validation.js"(exports, module) {
     "use strict";
     var { isUtf8 } = __require("buffer");
     var { hasBlob } = require_constants3();
@@ -8845,9 +8845,9 @@ var require_validation = __commonJS({
   }
 });
 
-// node_modules/ws/lib/receiver.js
+// ../../node_modules/ws/lib/receiver.js
 var require_receiver = __commonJS({
-  "node_modules/ws/lib/receiver.js"(exports, module) {
+  "../../node_modules/ws/lib/receiver.js"(exports, module) {
     "use strict";
     var { Writable } = __require("stream");
     var PerMessageDeflate = require_permessage_deflate();
@@ -9437,9 +9437,9 @@ var require_receiver = __commonJS({
   }
 });
 
-// node_modules/ws/lib/sender.js
+// ../../node_modules/ws/lib/sender.js
 var require_sender = __commonJS({
-  "node_modules/ws/lib/sender.js"(exports, module) {
+  "../../node_modules/ws/lib/sender.js"(exports, module) {
     "use strict";
     var { Duplex } = __require("stream");
     var { randomFillSync } = __require("crypto");
@@ -9447,7 +9447,7 @@ var require_sender = __commonJS({
     var { EMPTY_BUFFER, kWebSocket, NOOP } = require_constants3();
     var { isBlob, isValidStatusCode } = require_validation();
     var { mask: applyMask, toBuffer } = require_buffer_util();
-    var kByteLength = /* @__PURE__ */ Symbol("kByteLength");
+    var kByteLength = Symbol("kByteLength");
     var maskBuffer = Buffer.alloc(4);
     var RANDOM_POOL_SIZE = 8 * 1024;
     var randomPool;
@@ -9925,19 +9925,19 @@ var require_sender = __commonJS({
   }
 });
 
-// node_modules/ws/lib/event-target.js
+// ../../node_modules/ws/lib/event-target.js
 var require_event_target = __commonJS({
-  "node_modules/ws/lib/event-target.js"(exports, module) {
+  "../../node_modules/ws/lib/event-target.js"(exports, module) {
     "use strict";
     var { kForOnEventAttribute, kListener } = require_constants3();
-    var kCode = /* @__PURE__ */ Symbol("kCode");
-    var kData = /* @__PURE__ */ Symbol("kData");
-    var kError = /* @__PURE__ */ Symbol("kError");
-    var kMessage = /* @__PURE__ */ Symbol("kMessage");
-    var kReason = /* @__PURE__ */ Symbol("kReason");
-    var kTarget = /* @__PURE__ */ Symbol("kTarget");
-    var kType = /* @__PURE__ */ Symbol("kType");
-    var kWasClean = /* @__PURE__ */ Symbol("kWasClean");
+    var kCode = Symbol("kCode");
+    var kData = Symbol("kData");
+    var kError = Symbol("kError");
+    var kMessage = Symbol("kMessage");
+    var kReason = Symbol("kReason");
+    var kTarget = Symbol("kTarget");
+    var kType = Symbol("kType");
+    var kWasClean = Symbol("kWasClean");
     var Event = class {
       /**
        * Create a new `Event`.
@@ -10154,9 +10154,9 @@ var require_event_target = __commonJS({
   }
 });
 
-// node_modules/ws/lib/extension.js
+// ../../node_modules/ws/lib/extension.js
 var require_extension = __commonJS({
-  "node_modules/ws/lib/extension.js"(exports, module) {
+  "../../node_modules/ws/lib/extension.js"(exports, module) {
     "use strict";
     var { tokenChars } = require_validation();
     function push(dest, name, elem) {
@@ -10307,9 +10307,9 @@ var require_extension = __commonJS({
   }
 });
 
-// node_modules/ws/lib/websocket.js
+// ../../node_modules/ws/lib/websocket.js
 var require_websocket = __commonJS({
-  "node_modules/ws/lib/websocket.js"(exports, module) {
+  "../../node_modules/ws/lib/websocket.js"(exports, module) {
     "use strict";
     var EventEmitter = __require("events");
     var https = __require("https");
@@ -10339,7 +10339,7 @@ var require_websocket = __commonJS({
     } = require_event_target();
     var { format, parse } = require_extension();
     var { toBuffer } = require_buffer_util();
-    var kAborted = /* @__PURE__ */ Symbol("kAborted");
+    var kAborted = Symbol("kAborted");
     var protocolVersions = [8, 13];
     var readyStates = ["CONNECTING", "OPEN", "CLOSING", "CLOSED"];
     var subprotocolRegex = /^[!#$%&'*+\-.0-9A-Z^_`|a-z~]+$/;
@@ -11193,9 +11193,9 @@ var require_websocket = __commonJS({
   }
 });
 
-// node_modules/ws/lib/stream.js
+// ../../node_modules/ws/lib/stream.js
 var require_stream = __commonJS({
-  "node_modules/ws/lib/stream.js"(exports, module) {
+  "../../node_modules/ws/lib/stream.js"(exports, module) {
     "use strict";
     var WebSocket3 = require_websocket();
     var { Duplex } = __require("stream");
@@ -11291,9 +11291,9 @@ var require_stream = __commonJS({
   }
 });
 
-// node_modules/ws/lib/subprotocol.js
+// ../../node_modules/ws/lib/subprotocol.js
 var require_subprotocol = __commonJS({
-  "node_modules/ws/lib/subprotocol.js"(exports, module) {
+  "../../node_modules/ws/lib/subprotocol.js"(exports, module) {
     "use strict";
     var { tokenChars } = require_validation();
     function parse(header) {
@@ -11336,9 +11336,9 @@ var require_subprotocol = __commonJS({
   }
 });
 
-// node_modules/ws/lib/websocket-server.js
+// ../../node_modules/ws/lib/websocket-server.js
 var require_websocket_server = __commonJS({
-  "node_modules/ws/lib/websocket-server.js"(exports, module) {
+  "../../node_modules/ws/lib/websocket-server.js"(exports, module) {
     "use strict";
     var EventEmitter = __require("events");
     var http = __require("http");
@@ -11729,17 +11729,17 @@ var require_websocket_server = __commonJS({
   }
 });
 
-// packages/local-agent/dist/index.js
+// ../local-agent/dist/index.js
 import { createWriteStream } from "node:fs";
 import { homedir as homedir5 } from "node:os";
 import { join as join7 } from "node:path";
 
-// packages/local-agent/dist/config.js
+// ../local-agent/dist/config.js
 import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// packages/shared/src/validators.ts
+// ../shared/src/validators.ts
 var ALLOWED_MODELS = /* @__PURE__ */ new Set([
   "claude-opus-4-6",
   "claude-sonnet-4-6",
@@ -11894,7 +11894,7 @@ function isOrchestratorMessage(v) {
   }
 }
 
-// packages/shared/src/index.ts
+// ../shared/src/index.ts
 var DEFAULT_SUPABASE_URL = "https://jmussmwglgbwncgygzbz.supabase.co";
 var DEFAULT_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0";
 var PROTOCOL_VERSION = 1;
@@ -11902,7 +11902,7 @@ var HEARTBEAT_INTERVAL_MS = 3e4;
 var MAX_CONTEXT_BYTES = 64e3;
 var MAX_PERSONALITY_PROMPT_BYTES = 16e3;
 
-// packages/local-agent/dist/config.js
+// ../local-agent/dist/config.js
 var CONFIG_PATH = join(homedir(), ".zazigv2", "config.json");
 function loadConfig() {
   const nameFromEnv = process.env["ZAZIG_MACHINE_NAME"];
@@ -11952,7 +11952,7 @@ function loadConfig() {
   };
 }
 
-// packages/local-agent/dist/slots.js
+// ../local-agent/dist/slots.js
 var SlotTracker = class {
   total;
   inUse;
@@ -11997,7 +11997,7 @@ var SlotTracker = class {
   }
 };
 
-// node_modules/@supabase/supabase-js/dist/index.mjs
+// ../../node_modules/@supabase/supabase-js/dist/index.mjs
 var dist_exports = {};
 __export(dist_exports, {
   FunctionRegion: () => import_functions_js.FunctionRegion,
@@ -12011,7 +12011,7 @@ __export(dist_exports, {
 });
 var import_functions_js = __toESM(require_main(), 1);
 
-// node_modules/@supabase/postgrest-js/dist/index.mjs
+// ../../node_modules/@supabase/postgrest-js/dist/index.mjs
 var PostgrestError = class extends Error {
   /**
   * @example
@@ -13323,10 +13323,10 @@ var PostgrestClient = class PostgrestClient2 {
   }
 };
 
-// node_modules/@supabase/supabase-js/dist/index.mjs
+// ../../node_modules/@supabase/supabase-js/dist/index.mjs
 var import_realtime_js = __toESM(require_main2(), 1);
 
-// node_modules/iceberg-js/dist/index.mjs
+// ../../node_modules/iceberg-js/dist/index.mjs
 var IcebergError = class extends Error {
   constructor(message, opts) {
     super(message);
@@ -13859,7 +13859,7 @@ var IcebergRestCatalog = class {
   }
 };
 
-// node_modules/@supabase/storage-js/dist/index.mjs
+// ../../node_modules/@supabase/storage-js/dist/index.mjs
 var StorageError = class extends Error {
   constructor(message, namespace = "storage", status, statusCode) {
     super(message);
@@ -16212,7 +16212,7 @@ var StorageClient = class extends StorageBucketApi {
   }
 };
 
-// node_modules/@supabase/supabase-js/dist/index.mjs
+// ../../node_modules/@supabase/supabase-js/dist/index.mjs
 var import_auth_js = __toESM(require_main3(), 1);
 __reExport(dist_exports, __toESM(require_main2(), 1));
 __reExport(dist_exports, __toESM(require_main3(), 1));
@@ -16554,7 +16554,7 @@ function shouldShowDeprecationWarning() {
 }
 if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217");
 
-// node_modules/ws/wrapper.mjs
+// ../../node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
 var import_receiver = __toESM(require_receiver(), 1);
 var import_sender = __toESM(require_sender(), 1);
@@ -16562,14 +16562,14 @@ var import_websocket = __toESM(require_websocket(), 1);
 var import_websocket_server = __toESM(require_websocket_server(), 1);
 var wrapper_default = import_websocket.default;
 
-// packages/local-agent/dist/connection.js
+// ../local-agent/dist/connection.js
 import { execFile as execFile3 } from "node:child_process";
 import { readFileSync as readFileSync4, writeFileSync as writeFileSync3, mkdirSync as mkdirSync3, appendFileSync as appendFileSync3 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join5 } from "node:path";
 import { promisify as promisify3 } from "node:util";
 
-// packages/local-agent/dist/executor.js
+// ../local-agent/dist/executor.js
 import { execFile as execFile2 } from "node:child_process";
 import { existsSync as existsSync4, readFileSync as readFileSync3, renameSync, unlinkSync, mkdirSync as mkdirSync2, rmSync as rmSync3, symlinkSync as symlinkSync2, appendFileSync as appendFileSync2 } from "node:fs";
 import { promisify as promisify2 } from "node:util";
@@ -16579,7 +16579,7 @@ import { writeFileSync as writeFileSync2 } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-// packages/local-agent/dist/workspace.js
+// ../local-agent/dist/workspace.js
 import { writeFileSync, mkdirSync, existsSync as existsSync2, copyFileSync, readFileSync as readFileSync2, appendFileSync, symlinkSync, rmSync } from "node:fs";
 import { dirname, join as join2, resolve } from "node:path";
 var SUBAGENT_CONFIGS = {
@@ -16927,7 +16927,7 @@ function resolveGitWorktreeMetadataDir(workspaceDir) {
   }
 }
 
-// packages/local-agent/dist/branches.js
+// ../local-agent/dist/branches.js
 import { execFile } from "node:child_process";
 import { existsSync as existsSync3, rmSync as rmSync2 } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
@@ -17112,26 +17112,57 @@ var RepoManager = class {
       try {
         await this.git(bareDir, "fetch", "--refmap=", "origin", `+refs/heads/${targetBranch}:${tempRef}`);
       } catch (error) {
-        console.warn(`[RepoManager] refreshWorktree fetch warning for ${projectName} (non-fatal): ${getErrorMessage(error)}`);
+        console.warn(`[RepoManager] refreshWorktree: fetch FAILED for ${projectName}: ${getErrorMessage(error)}`);
+        return;
       }
-      const worktreeHead = await this.git(worktreeDir, "rev-parse", "HEAD");
       let remoteHead;
       try {
         remoteHead = await this.git(bareDir, "rev-parse", tempRef);
       } catch {
+        console.warn(`[RepoManager] refreshWorktree: temp ref missing after fetch for ${projectName}`);
         return;
       }
+      const worktreeHead = await this.git(worktreeDir, "rev-parse", "HEAD");
       if (worktreeHead === remoteHead) {
         return;
       }
-      try {
-        await this.git(worktreeDir, "merge-base", "--is-ancestor", worktreeHead, remoteHead);
-      } catch {
-        console.error(`[RepoManager] CRITICAL: refusing to refresh diverged ${projectName} worktree (${worktreeHead} vs ${remoteHead})`);
-        return;
+      const status = await this.git(worktreeDir, "status", "--porcelain");
+      const isDirty = status.length > 0;
+      if (isDirty) {
+        await this.git(worktreeDir, "stash", "push", "-m", "zazig-auto-refresh");
+        console.log(`[RepoManager] stashed dirty changes in ${projectName} before refresh`);
       }
-      await this.git(worktreeDir, "reset", "--hard", remoteHead);
-      console.log(`[RepoManager] refreshed ${projectName} worktree: ${worktreeHead} \u2192 ${remoteHead}`);
+      try {
+        let isFastForward = false;
+        try {
+          await this.git(worktreeDir, "merge-base", "--is-ancestor", worktreeHead, remoteHead);
+          isFastForward = true;
+        } catch {
+        }
+        if (isFastForward) {
+          await this.git(worktreeDir, "reset", "--hard", remoteHead);
+          console.log(`[RepoManager] refreshed ${projectName}: ${worktreeHead.slice(0, 8)} \u2192 ${remoteHead.slice(0, 8)}`);
+        } else {
+          try {
+            await this.git(worktreeDir, "rebase", remoteHead);
+            const newHead = await this.git(worktreeDir, "rev-parse", "HEAD");
+            console.log(`[RepoManager] rebased ${projectName} onto ${remoteHead.slice(0, 8)} (now ${newHead.slice(0, 8)})`);
+          } catch {
+            await this.git(worktreeDir, "rebase", "--abort").catch(() => {
+            });
+            console.error(`[RepoManager] CRITICAL: rebase failed for ${projectName} (local ${worktreeHead.slice(0, 8)} vs remote ${remoteHead.slice(0, 8)}) \u2014 skipping refresh`);
+          }
+        }
+      } finally {
+        if (isDirty) {
+          try {
+            await this.git(worktreeDir, "stash", "pop");
+            console.log(`[RepoManager] restored stashed changes in ${projectName}`);
+          } catch {
+            console.warn(`[RepoManager] stash pop conflict in ${projectName} \u2014 changes saved in git stash`);
+          }
+        }
+      }
     });
   }
   /**
@@ -17374,7 +17405,7 @@ var RepoManager = class {
   }
 };
 
-// packages/local-agent/dist/executor.js
+// ../local-agent/dist/executor.js
 function resolveMcpServerPath() {
   const thisDir = dirname2(fileURLToPath(import.meta.url));
   const mjsPath = join4(thisDir, "agent-mcp-server.mjs");
@@ -17685,6 +17716,14 @@ ${cpoContext}`);
         await this.repoManager.ensureFeatureBranch(repoDir, msg.featureBranch);
         const routing = msg.dependencyBranches && msg.dependencyBranches.length > 0 ? "createDependentJobWorktree" : "createJobWorktree";
         clearJobLogs(jobId);
+        let buildCommit = "unknown";
+        try {
+          const agentDir = dirname2(fileURLToPath(import.meta.url));
+          const { stdout } = await execFileAsync2("git", ["log", "-1", "--format=%h %s"], { cwd: agentDir });
+          buildCommit = stdout.trim();
+        } catch {
+        }
+        jobLog(jobId, `Agent=${roleName} slot=${slotType} model=${msg.model} build=${buildCommit}`);
         jobLog(jobId, `Branch routing: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
         jobLog(jobId, `featureBranch=${msg.featureBranch}, repoDir=${repoDir}`);
         console.log(`[executor] Branch routing for jobId=${jobId}: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
@@ -19148,6 +19187,16 @@ async function runCodexReview(job, jobSpec, acceptanceCriteria) {
       return { pass: false, reason: `git diff failed: ${String(err)}`, committed: false };
     }
     if (!uncommittedDiff.trim()) {
+      const rpPath = join4(worktreePath, reportRelativePath(job.role));
+      try {
+        const report = readFileSync3(rpPath, "utf-8");
+        const statusMatch = report.match(/^status:\s*(pass|success)\s*$/m);
+        if (statusMatch) {
+          jobLog(job.jobId, `No code diff but report confirms spec already met \u2014 passing`);
+          return { pass: true, reason: "No changes needed \u2014 report confirms spec already met", committed: false, startingCommit };
+        }
+      } catch {
+      }
       return { pass: false, reason: "Codex produced no changes", committed: false, startingCommit };
     }
     return { pass: false, reason: "Codex changes could not be committed", committed: false, startingCommit };
@@ -19176,11 +19225,13 @@ async function runCodexReview(job, jobSpec, acceptanceCriteria) {
     acceptanceCriteria,
     "## Diff",
     diff,
-    "Review against spec and acceptance criteria, not diff size.",
-    "Do NOT fail solely because multiple files were touched.",
-    "Adjacent files (tests, types, helpers) are acceptable if they support the spec; flag as observation unless clearly unrelated.",
-    "PASS if: changes address the spec, acceptance criteria are met, and there are no obvious bugs or placeholder code.",
-    "FAIL if: requirements are missing, acceptance criteria are missed, there are obvious errors, or changes are clearly unrelated.",
+    "## Review Rules",
+    "1. Review against spec and acceptance criteria \u2014 not diff size or file count.",
+    "2. Do NOT fail because files mentioned in the spec are absent from the diff. Those files may already have been correct before the job started and needed no changes.",
+    "3. Do NOT fail because the agent added reasonable supplementary changes (e.g. extra CSS classes, minor refactors) beyond what the spec literally states, as long as the spec requirements are MET.",
+    "4. Adjacent files (tests, types, helpers) are acceptable if they support the spec.",
+    "PASS if: the diff addresses the spec requirements and acceptance criteria are met. Minor additions beyond spec are acceptable.",
+    "FAIL only if: the diff introduces obvious bugs, contains placeholder code, or clearly contradicts a stated requirement.",
     "Respond with exactly: PASS or FAIL: reason"
   ].join("\n");
   const reviewPromptPath = join4(worktreePath, ".zazig-review-prompt.txt");
@@ -19360,7 +19411,7 @@ function shellEscape(parts) {
   return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
 }
 
-// packages/local-agent/dist/job-recovery.js
+// ../local-agent/dist/job-recovery.js
 async function recoverDispatchedJobs(dbClient, machineName, options) {
   const gracePeriodMs = options?.gracePeriodMs ?? 5 * 60 * 1e3;
   try {
@@ -19408,10 +19459,10 @@ async function recoverDispatchedJobs(dbClient, machineName, options) {
   }
 }
 
-// packages/local-agent/package.json
+// ../local-agent/package.json
 var package_default = {
   name: "@zazigv2/local-agent",
-  version: "0.1.0",
+  version: "0.2.0",
   private: true,
   description: "Local agent daemon \u2014 connects to Supabase Realtime, executes tmux sessions",
   type: "module",
@@ -19449,7 +19500,7 @@ var package_default = {
   }
 };
 
-// packages/local-agent/dist/connection.js
+// ../local-agent/dist/connection.js
 var CREDENTIALS_PATH = join5(homedir3(), ".zazigv2", "credentials.json");
 var execFileAsync3 = promisify3(execFile3);
 var BACKOFF_BASE_MS = 1e3;
@@ -20001,7 +20052,7 @@ var AgentConnection = class {
   }
 };
 
-// packages/local-agent/dist/expert-session-manager.js
+// ../local-agent/dist/expert-session-manager.js
 import { mkdirSync as mkdirSync4, readFileSync as readFileSync5, writeFileSync as writeFileSync4, existsSync as existsSync5, rmSync as rmSync4 } from "node:fs";
 import { join as join6, dirname as dirname3, resolve as resolve3 } from "node:path";
 import { homedir as homedir4 } from "node:os";
@@ -20095,6 +20146,7 @@ var ExpertSessionManager = class {
     mkdirSync4(workspaceDir, { recursive: true });
     let repoDir;
     let bareRepoDir;
+    let startCommitHash;
     if (msg.project_id && !msg.repo_url || !msg.project_id && msg.repo_url) {
       console.error(`[expert] Invalid start_expert payload for ${sessionId}: project_id and repo_url must both be set together`);
       await this.updateSessionStatus(sessionId, "failed");
@@ -20130,9 +20182,10 @@ var ExpertSessionManager = class {
           `refs/heads/${branch}`
         ]);
         const { stdout } = await execFileAsync4("git", ["-C", worktreeTarget, "rev-parse", "HEAD"]);
+        startCommitHash = stdout.trim();
         repoDir = worktreeTarget;
         console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${branch})`);
-        console.log(`[expert] Worktree at commit: ${stdout.trim().slice(0, 8)}`);
+        console.log(`[expert] Worktree at commit: ${startCommitHash.slice(0, 8)}`);
       } catch (err) {
         console.error(`[expert] Failed to create git worktree:`, err);
         await this.updateSessionStatus(sessionId, "failed");
@@ -20260,6 +20313,8 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       effectiveWorkspaceDir,
       repoDir,
       bareRepoDir,
+      branch: repoDir ? msg.branch ?? "master" : void 0,
+      startCommit: repoDir ? startCommitHash : void 0,
       displayName,
       tmuxSession: tmuxSessionName,
       viewerSession: viewerLink?.viewerSession,
@@ -20407,6 +20462,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
     }
     await this.injectSummaryIntoCpo(session, summary);
     await this.switchViewerToCpo(session);
+    await this.pushUnpushedCommits(session);
     await this.cleanupWorktree(session);
     try {
       rmSync4(session.workspaceDir, { recursive: true, force: true });
@@ -20484,6 +20540,55 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       console.warn(`[expert] Failed to switch viewer ${session.viewerSession} back to CPO:`, err);
     }
   }
+  /**
+   * Safety net: before destroying the worktree, check if the expert made
+   * commits that were never pushed. If so, push them to origin so work
+   * isn't silently lost when the session ends.
+   */
+  async pushUnpushedCommits(session) {
+    if (!session.repoDir || !session.bareRepoDir || !session.branch || !session.startCommit)
+      return;
+    try {
+      const { stdout: currentHead } = await execFileAsync4("git", [
+        "-C",
+        session.repoDir,
+        "rev-parse",
+        "HEAD"
+      ]);
+      const head2 = currentHead.trim();
+      if (head2 === session.startCommit) {
+        return;
+      }
+      console.log(`[expert] Session ${session.sessionId} has unpushed commits (${session.startCommit.slice(0, 8)}..${head2.slice(0, 8)}). Pushing to origin/${session.branch}...`);
+      try {
+        await execFileAsync4("git", [
+          "-C",
+          session.repoDir,
+          "push",
+          "origin",
+          `HEAD:refs/heads/${session.branch}`
+        ]);
+        console.log(`[expert] Pushed unpushed commits to origin/${session.branch}`);
+      } catch (pushErr) {
+        const rescueBranch = `rescue/expert-${session.sessionId.slice(0, 8)}`;
+        console.warn(`[expert] Push to origin/${session.branch} failed \u2014 saving work to ${rescueBranch}`);
+        try {
+          await execFileAsync4("git", [
+            "-C",
+            session.repoDir,
+            "push",
+            "origin",
+            `HEAD:refs/heads/${rescueBranch}`
+          ]);
+          console.log(`[expert] Saved work to rescue branch origin/${rescueBranch}`);
+        } catch (rescueErr) {
+          console.error(`[expert] CRITICAL: Failed to push rescue branch for session ${session.sessionId}. Work may be lost.`, rescueErr);
+        }
+      }
+    } catch (err) {
+      console.warn(`[expert] Failed to check for unpushed commits in session ${session.sessionId}:`, err);
+    }
+  }
   async cleanupWorktree(session) {
     if (!session.repoDir)
       return;
@@ -20523,7 +20628,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
   }
 };
 
-// packages/local-agent/dist/fix-agent.js
+// ../local-agent/dist/fix-agent.js
 import { execFile as execFile5 } from "node:child_process";
 import { promisify as promisify5 } from "node:util";
 var execFileAsync5 = promisify5(execFile5);
@@ -20604,7 +20709,7 @@ function shellEscape3(parts) {
   return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
 }
 
-// packages/local-agent/dist/verifier.js
+// ../local-agent/dist/verifier.js
 import { execFile as execFile6 } from "node:child_process";
 import { promisify as promisify6 } from "node:util";
 var execFileAsync6 = promisify6(execFile6);
@@ -20712,7 +20817,7 @@ ${typecheckStep.output}`,
   }
 };
 
-// packages/local-agent/dist/index.js
+// ../local-agent/dist/index.js
 var companySlug = process.env["ZAZIG_COMPANY_ID"]?.slice(0, 8) ?? "default";
 var logPath = join7(homedir5(), ".zazigv2", `local-agent-${companySlug}.log`);
 var logStream = createWriteStream(logPath, { flags: "a" });

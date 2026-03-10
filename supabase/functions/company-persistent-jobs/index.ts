@@ -120,16 +120,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const repoLines = (projects ?? []).flatMap((p: { name: string }) => [
       `**${p.name}**`,
       ``,
-      `Browse and edit code: \`./repos/${p.name}/\` (master)`,
+      `Repo path: \`./repos/${p.name}/\` — this is a writable git checkout on master.`,
       ``,
-      `Branch investigation (diffs, logs, specific files on other branches):`,
-      `  git -C ~/.zazigv2/repos/${p.name} log master..{branch}`,
-      `  git -C ~/.zazigv2/repos/${p.name} show {branch}:path/to/file`,
+      `All git operations use this path:`,
+      `  git -C ./repos/${p.name} log master..{branch}`,
+      `  git -C ./repos/${p.name} show {branch}:path/to/file`,
+      `  git -C ./repos/${p.name} status`,
       ``,
       `Committing docs or config changes:`,
       `  cd ./repos/${p.name} && git add <files> && git commit -m "docs: ..." && git push origin master`,
       ``,
-      `The repo is refreshed automatically every 5 minutes. You can read and write files, commit, and push.`,
+      `The repo is refreshed automatically every 5 minutes. You can read, write, commit, and push.`,
+      `Do NOT use ~/.zazigv2/repos/ paths directly — that is the bare mirror and is read-only.`,
       ``,
     ]);
     const localReposSection = [

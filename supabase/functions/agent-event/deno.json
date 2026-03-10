@@ -2,7 +2,6 @@
   "lock": false,
   "imports": {
     "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2",
-    "@zazigv2/shared": "../_shared/messages.ts",
-    "../orchestrator/index.ts": "../orchestrator/index.ts"
+    "@zazigv2/shared": "../_shared/messages.ts"
   }
 }

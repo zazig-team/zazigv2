@@ -24,7 +24,7 @@ import {
   handleJobFailed,
   handleJobStatus,
   handleVerifyResult,
-} from "../orchestrator/index.ts";
+} from "./handlers.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");

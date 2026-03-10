@@ -32,17 +32,26 @@ const originalServe = (Deno as any).serve;
 };
 
 // Now import the functions under test after stubbing Deno.serve.
+// Orchestrator-only exports
 const {
-  handleJobComplete,
-  triggerFeatureVerification,
   handleFeatureApproved,
   handleFeatureRejected,
   triggerBreakdown,
+  resolveModelAndSlot,
+} = await import("./index.ts");
+
+// Shared pipeline utilities
+const {
+  triggerFeatureVerification,
   checkUnblockedJobs,
   notifyCPO,
   handleDeployComplete,
-  resolveModelAndSlot,
-} = await import("./index.ts");
+} = await import("../_shared/pipeline-utils.ts");
+
+// Agent-event handler functions
+const {
+  handleJobComplete,
+} = await import("../agent-event/handlers.ts");
 
 // Restore Deno.serve after import.
 // deno-lint-ignore no-explicit-any

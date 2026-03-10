@@ -169,7 +169,6 @@ export async function handleJobComplete(
       branch: branch ?? null,
       pr_url: pr ?? null,
       completed_at: new Date().toISOString(),
-      machine_id: null,
       progress: 100,
     })
     .eq("id", jobId);
@@ -491,7 +490,6 @@ export async function handleVerifyResult(
       status: "complete",
       verify_context: null,
       completed_at: new Date().toISOString(),
-      machine_id: null,
     })
     .eq("id", jobId);
 

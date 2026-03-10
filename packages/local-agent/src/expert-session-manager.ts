@@ -663,9 +663,43 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
         return; // No new commits — nothing to push
       }
 
-      // There are local commits. Push them to the original branch.
+      // Ensure remote tracking info is fresh before comparing ahead/behind.
+      await execFileAsync("git", [
+        "-C", session.repoDir,
+        "fetch", "origin", `refs/heads/${session.branch}:refs/remotes/origin/${session.branch}`,
+      ]);
+
+      try {
+        // If HEAD moved off the original history (e.g. checkout to unrelated ref),
+        // avoid pushing to the canonical branch.
+        await execFileAsync("git", [
+          "-C", session.repoDir,
+          "merge-base", "--is-ancestor", session.startCommit, head,
+        ]);
+      } catch {
+        const rescueBranch = `rescue/expert-${session.sessionId.slice(0, 8)}`;
+        console.warn(
+          `[expert] Session ${session.sessionId} moved off start history; saving to ${rescueBranch} instead of origin/${session.branch}`,
+        );
+        await execFileAsync("git", [
+          "-C", session.repoDir,
+          "push", "origin", `HEAD:refs/heads/${rescueBranch}`,
+        ]);
+        console.log(`[expert] Saved work to rescue branch origin/${rescueBranch}`);
+        return;
+      }
+
+      const { stdout: aheadCountRaw } = await execFileAsync("git", [
+        "-C", session.repoDir,
+        "rev-list", "--count", `refs/remotes/origin/${session.branch}..HEAD`,
+      ]);
+      const aheadCount = Number.parseInt(aheadCountRaw.trim(), 10);
+      if (!Number.isFinite(aheadCount) || aheadCount <= 0) {
+        return; // No local commits ahead of origin/<branch>
+      }
+
       console.log(
-        `[expert] Session ${session.sessionId} has unpushed commits (${session.startCommit.slice(0, 8)}..${head.slice(0, 8)}). Pushing to origin/${session.branch}...`,
+        `[expert] Session ${session.sessionId} has ${aheadCount} unpushed commit(s) on ${session.branch}. Pushing...`,
       );
 
       try {
@@ -674,9 +708,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
           "push", "origin", `HEAD:refs/heads/${session.branch}`,
         ]);
         console.log(`[expert] Pushed unpushed commits to origin/${session.branch}`);
-      } catch (pushErr) {
-        // Push to the original branch failed (maybe it advanced).
-        // Create a rescue branch so the work is recoverable.
+      } catch {
         const rescueBranch = `rescue/expert-${session.sessionId.slice(0, 8)}`;
         console.warn(
           `[expert] Push to origin/${session.branch} failed — saving work to ${rescueBranch}`,

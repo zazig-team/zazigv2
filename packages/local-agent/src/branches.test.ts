@@ -276,9 +276,9 @@ describe("RepoManager.refreshWorktree", () => {
     }
   });
 
-  it("skips refresh and logs CRITICAL when the shared worktree has diverged", async () => {
+  it("rebases local commits when the shared worktree has diverged", async () => {
     const sourceDir = createSourceRepo();
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
       const manager = new branches.RepoManager();
       await manager.ensureRepo(sourceDir, "refresh-diverged-project");
@@ -287,17 +287,20 @@ describe("RepoManager.refreshWorktree", () => {
       git(worktreePath, "config", "user.email", "test@test.com");
       git(worktreePath, "config", "user.name", "Test");
       git(worktreePath, "checkout", "--detach");
-      const detachedHead = commitFileInRepo(worktreePath, "local-only.txt", "local change\n", "local detached commit");
+      commitFileInRepo(worktreePath, "local-only.txt", "local change\n", "local detached commit");
       const remoteHead = commitFileInRepo(sourceDir, "remote-only.txt", "remote change\n", "remote commit");
 
       await manager.refreshWorktree("refresh-diverged-project");
 
-      expect(git(worktreePath, "rev-parse", "HEAD")).toBe(detachedHead);
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        `[RepoManager] CRITICAL: refusing to refresh diverged refresh-diverged-project worktree (${detachedHead} vs ${remoteHead})`,
-      );
+      // After rebase, the local commit should be on top of the remote head.
+      // Both files should exist (local-only.txt rebased onto remote-only.txt).
+      const newHead = git(worktreePath, "rev-parse", "HEAD");
+      expect(newHead).not.toBe(remoteHead); // rebased commit is a new hash
+      expect(git(worktreePath, "merge-base", "--is-ancestor", remoteHead, newHead)).toBe("");
+      expect(existsSync(join(worktreePath, "local-only.txt"))).toBe(true);
+      expect(existsSync(join(worktreePath, "remote-only.txt"))).toBe(true);
     } finally {
-      consoleErrorSpy.mockRestore();
+      consoleLogSpy.mockRestore();
       rmSync(sourceDir, { recursive: true, force: true });
     }
   });
@@ -327,7 +330,7 @@ describe("RepoManager.refreshWorktree", () => {
 
       expect(git(worktreePath, "rev-parse", "HEAD")).toBe(initialHead);
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        "[RepoManager] refreshWorktree fetch warning for refresh-fetch-warning-project (non-fatal): simulated fetch failure",
+        "[RepoManager] refreshWorktree: fetch FAILED for refresh-fetch-warning-project: simulated fetch failure",
       );
       gitSpy.mockRestore();
     } finally {

@@ -120,11 +120,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const repoLines = (projects ?? []).flatMap((p: { name: string }) => [
       `**${p.name}**`,
       ``,
-      `Browse code: \`./repos/${p.name}/\` (master)`,
+      `Browse and edit code: \`./repos/${p.name}/\` (master)`,
       ``,
       `Branch investigation (diffs, logs, specific files on other branches):`,
       `  git -C ~/.zazigv2/repos/${p.name} log master..{branch}`,
       `  git -C ~/.zazigv2/repos/${p.name} show {branch}:path/to/file`,
+      ``,
+      `Committing docs or config changes:`,
+      `  cd ./repos/${p.name} && git add <files> && git commit -m "docs: ..." && git push origin master`,
+      ``,
+      `The repo is refreshed automatically every 5 minutes. You can read and write files, commit, and push.`,
       ``,
     ]);
     const localReposSection = [

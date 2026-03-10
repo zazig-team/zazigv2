@@ -284,7 +284,7 @@ export class RepoManager {
       // Fetch into a temporary ref. Git refuses to update refs/heads/{branch}
       // when that branch is checked out in a linked worktree — even with `+`
       // and `--force`. Fetching into a separate ref sidesteps this protection
-      // entirely, and we advance the worktree via `reset --hard` instead.
+      // entirely, and we advance the worktree via rebase/reset instead.
       //
       // --refmap="" suppresses the configured refspec (refs/heads/*:refs/heads/*
       // set by ensureRepo). Without this, Git also tries to update refs/heads/main
@@ -296,36 +296,71 @@ export class RepoManager {
           `+refs/heads/${targetBranch}:${tempRef}`);
       } catch (error) {
         console.warn(
-          `[RepoManager] refreshWorktree fetch warning for ${projectName} (non-fatal): ${getErrorMessage(error)}`,
+          `[RepoManager] refreshWorktree: fetch FAILED for ${projectName}: ${getErrorMessage(error)}`,
         );
+        return; // Can't refresh without a successful fetch
       }
 
-      const worktreeHead = await this.git(worktreeDir, "rev-parse", "HEAD");
       let remoteHead: string;
       try {
         remoteHead = await this.git(bareDir, "rev-parse", tempRef);
       } catch {
-        return; // Temp ref doesn't exist — fetch failed entirely
+        console.warn(`[RepoManager] refreshWorktree: temp ref missing after fetch for ${projectName}`);
+        return;
       }
 
+      const worktreeHead = await this.git(worktreeDir, "rev-parse", "HEAD");
       if (worktreeHead === remoteHead) {
-        return;
+        return; // Already up to date
+      }
+
+      // Stash any dirty working-tree changes so they survive the refresh.
+      const status = await this.git(worktreeDir, "status", "--porcelain");
+      const isDirty = status.length > 0;
+      if (isDirty) {
+        await this.git(worktreeDir, "stash", "push", "-m", "zazig-auto-refresh");
+        console.log(`[RepoManager] stashed dirty changes in ${projectName} before refresh`);
       }
 
       try {
-        await this.git(worktreeDir, "merge-base", "--is-ancestor", worktreeHead, remoteHead);
-      } catch {
-        console.error(
-          `[RepoManager] CRITICAL: refusing to refresh diverged ${projectName} worktree (${worktreeHead} vs ${remoteHead})`,
-        );
-        return;
-      }
+        // Check if worktree HEAD is an ancestor of remote (simple fast-forward).
+        let isFastForward = false;
+        try {
+          await this.git(worktreeDir, "merge-base", "--is-ancestor", worktreeHead, remoteHead);
+          isFastForward = true;
+        } catch {
+          // Not a fast-forward — worktree has local commits or has diverged
+        }
 
-      // Reset to the resolved commit hash, not the ref name. Linked worktrees
-      // can have trouble resolving refs from the parent bare repo in some Git
-      // versions, but commit hashes always work.
-      await this.git(worktreeDir, "reset", "--hard", remoteHead);
-      console.log(`[RepoManager] refreshed ${projectName} worktree: ${worktreeHead} → ${remoteHead}`);
+        if (isFastForward) {
+          // Safe fast-forward — no local commits to preserve.
+          await this.git(worktreeDir, "reset", "--hard", remoteHead);
+          console.log(`[RepoManager] refreshed ${projectName}: ${worktreeHead.slice(0, 8)} → ${remoteHead.slice(0, 8)}`);
+        } else {
+          // Worktree has local commits (e.g. CPO doc commits). Rebase them
+          // on top of the new remote head to preserve them while pulling in
+          // upstream changes.
+          try {
+            await this.git(worktreeDir, "rebase", remoteHead);
+            const newHead = await this.git(worktreeDir, "rev-parse", "HEAD");
+            console.log(`[RepoManager] rebased ${projectName} onto ${remoteHead.slice(0, 8)} (now ${newHead.slice(0, 8)})`);
+          } catch {
+            await this.git(worktreeDir, "rebase", "--abort").catch(() => {});
+            console.error(
+              `[RepoManager] CRITICAL: rebase failed for ${projectName} (local ${worktreeHead.slice(0, 8)} vs remote ${remoteHead.slice(0, 8)}) — skipping refresh`,
+            );
+          }
+        }
+      } finally {
+        if (isDirty) {
+          try {
+            await this.git(worktreeDir, "stash", "pop");
+            console.log(`[RepoManager] restored stashed changes in ${projectName}`);
+          } catch {
+            console.warn(`[RepoManager] stash pop conflict in ${projectName} — changes saved in git stash`);
+          }
+        }
+      }
     });
   }
 

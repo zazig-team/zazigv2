@@ -468,36 +468,6 @@ export class AgentConnection {
     if (this.stopped) return;
 
     const slotsAvailable = this.slots.getAvailable();
-    // Primary: write heartbeat directly to the DB — reliable, no timing dependency
-    // Update all company rows so the orchestrator sees this machine as online for every company.
-    const updatePayload = {
-      last_heartbeat: new Date().toISOString(),
-      status: "online",
-      slots_claude_code: slotsAvailable.claude_code,
-      slots_codex: slotsAvailable.codex,
-      agent_version: pkg.version,
-    };
-
-    let dbErr: Error | null = null;
-    if (this.companyIds.length > 0) {
-      const { error } = await this.dbClient
-        .from("machines")
-        .update(updatePayload)
-        .eq("name", this.machineId)
-        .in("company_id", this.companyIds);
-      if (error) dbErr = error;
-    } else {
-      const { error } = await this.dbClient
-        .from("machines")
-        .update(updatePayload)
-        .eq("name", this.machineId);
-      if (error) dbErr = error;
-    }
-
-    if (dbErr) {
-      console.warn(`[local-agent] Heartbeat DB write failed: ${dbErr.message}`);
-    }
-
     const env = process.env["ZAZIG_ENV"] ?? "production";
     try {
       const { data: latestVersion, error: latestVersionErr } = await this.dbClient
@@ -517,7 +487,7 @@ export class AgentConnection {
       console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${String(err)}`);
     }
 
-    // Secondary: send heartbeat event to orchestrator via edge function.
+    // Send heartbeat event to orchestrator via edge function.
     const heartbeat: Heartbeat = {
       type: "heartbeat",
       protocolVersion: PROTOCOL_VERSION,
@@ -525,13 +495,6 @@ export class AgentConnection {
       slotsAvailable,
     };
     await this.sendToOrchestrator(heartbeat);
-
-    if (dbErr) {
-      console.warn(
-        `[local-agent] Heartbeat FAILED — machineId=${this.machineId}, ` +
-          `slots=${JSON.stringify(slotsAvailable)}, db=FAIL`
-      );
-    }
 
     // --- Job recovery poll ---
     // Check for dispatched jobs that were missed due to Realtime drops.

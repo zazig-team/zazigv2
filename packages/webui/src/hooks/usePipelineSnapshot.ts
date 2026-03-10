@@ -29,6 +29,7 @@ export interface PipelineFeature {
   capability_id: string | null;
   capability_icon: string | null;
   capability_title: string | null;
+  hasFailedJobs: boolean;
 }
 
 interface CapabilityLookupEntry {
@@ -246,6 +247,7 @@ function parseFeature(
     capability_id: capabilityId,
     capability_icon: capabilityIcon,
     capability_title: capabilityTitle,
+    hasFailedJobs: raw.has_failed_jobs === true,
   };
 }
 

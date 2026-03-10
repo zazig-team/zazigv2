@@ -2749,6 +2749,14 @@ input {
   border-color: var(--dust);
 }
 
+.card--failed {
+  border-color: var(--negative);
+}
+
+.card--failed .card-accent {
+  background: var(--negative) !important;
+}
+
 .card-progress {
   height: 2px;
   background: var(--chalk);

@@ -548,7 +548,7 @@ export default function Pipeline(): JSX.Element {
                   : false;
 
           const renderFeatureCard = (feature: PipelineFeature) => (
-            <article className="card card--clickable" key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
+            <article className={`card card--clickable${feature.hasFailedJobs ? " card--failed" : ""}`} key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
               <div className="card-accent" style={{ background: `var(${column.colorVar})` }} />
               <div className="card-body">
                 <div className="card-title">{feature.title}</div>

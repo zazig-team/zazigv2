@@ -20,9 +20,10 @@ function statusBadgeClass(status: string): string {
 
 function jobDotColor(status: string): string {
   const s = status.toLowerCase();
-  if (s === "complete") return "var(--positive)";
+  if (s === "running" || s === "in_progress") return "var(--positive)";
+  if (s === "queued" || s === "dispatched") return "var(--caution)";
   if (s === "failed") return "var(--negative)";
-  if (s === "executing" || s === "dispatched") return "var(--ember)";
+  if (s === "complete") return "var(--info)";
   return "var(--chalk)";
 }
 

@@ -58,6 +58,7 @@ export class AgentConnection {
   private reconnectAttempts = 0;
   private stopped = false;
   private isRecoveryRunning = false;
+  private consecutiveHeartbeatFailures = 0;
   private outdated = false;
   private outdatedWarningTimer: ReturnType<typeof setInterval> | null = null;
   private outdatedExitPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -67,6 +68,11 @@ export class AgentConnection {
     this.machineId = config.name;
     this.primaryCompanyId = config.company_id;
     this.slots = slots;
+
+    if (config.supabase.access_token && !config.supabase.refresh_token) {
+      throw new Error("[local-agent] refresh_token is required when access_token is set — daemon refused to start");
+    }
+
     this.supabase = createClient(config.supabase.url, config.supabase.anon_key, {
       realtime: {
         // Node.js requires an explicit WebSocket implementation; the ws package
@@ -86,12 +92,6 @@ export class AgentConnection {
       // We'll call auth.setSession() in start() to activate the managed session.
       this.dbClient = createClient(config.supabase.url, config.supabase.anon_key);
       console.log("[local-agent] Using authenticated JWT with auto-refresh for DB writes");
-    } else if (config.supabase.access_token) {
-      // No refresh token — fall back to static header (will expire after ~1h)
-      this.dbClient = createClient(config.supabase.url, config.supabase.anon_key, {
-        global: { headers: { Authorization: `Bearer ${config.supabase.access_token}` } },
-      });
-      console.warn("[local-agent] No refresh token — JWT will expire after ~1h");
     } else if (config.supabase.service_role_key) {
       this.dbClient = createClient(config.supabase.url, config.supabase.service_role_key);
       console.log("[local-agent] Using service_role key for DB writes");
@@ -117,7 +117,7 @@ export class AgentConnection {
     await this.sendToOrchestrator(msg);
   }
 
-  private async sendToOrchestrator(msg: AgentMessage): Promise<void> {
+  private async sendToOrchestrator(msg: AgentMessage): Promise<boolean> {
     const url = `${this.config.supabase.url}/functions/v1/agent-event`;
     const { data: { session } } = await this.dbClient.auth.getSession();
     const token = session?.access_token ?? this.config.supabase.anon_key;
@@ -135,7 +135,7 @@ export class AgentConnection {
           body: JSON.stringify(msg),
         });
 
-        if (res.ok) return;
+        if (res.ok) return true;
         console.warn(`[local-agent] agent-event failed (${res.status}), retrying...`);
       } catch (e) {
         console.warn(`[local-agent] agent-event error: ${e}, retrying...`);
@@ -143,6 +143,7 @@ export class AgentConnection {
     }
 
     console.error("[local-agent] agent-event failed after 3 retries");
+    return false;
   }
 
   /**
@@ -185,7 +186,7 @@ export class AgentConnection {
         refresh_token: this.config.supabase.refresh_token,
       });
       if (error) {
-        console.warn(`[local-agent] Failed to set auth session: ${error.message}`);
+        throw new Error(`[local-agent] Failed to set auth session: ${error.message}`);
       } else {
         console.log("[local-agent] Auth session initialized — auto-refresh enabled");
       }
@@ -468,36 +469,6 @@ export class AgentConnection {
     if (this.stopped) return;
 
     const slotsAvailable = this.slots.getAvailable();
-    // Primary: write heartbeat directly to the DB — reliable, no timing dependency
-    // Update all company rows so the orchestrator sees this machine as online for every company.
-    const updatePayload = {
-      last_heartbeat: new Date().toISOString(),
-      status: "online",
-      slots_claude_code: slotsAvailable.claude_code,
-      slots_codex: slotsAvailable.codex,
-      agent_version: pkg.version,
-    };
-
-    let dbErr: Error | null = null;
-    if (this.companyIds.length > 0) {
-      const { error } = await this.dbClient
-        .from("machines")
-        .update(updatePayload)
-        .eq("name", this.machineId)
-        .in("company_id", this.companyIds);
-      if (error) dbErr = error;
-    } else {
-      const { error } = await this.dbClient
-        .from("machines")
-        .update(updatePayload)
-        .eq("name", this.machineId);
-      if (error) dbErr = error;
-    }
-
-    if (dbErr) {
-      console.warn(`[local-agent] Heartbeat DB write failed: ${dbErr.message}`);
-    }
-
     const env = process.env["ZAZIG_ENV"] ?? "production";
     try {
       const { data: latestVersion, error: latestVersionErr } = await this.dbClient
@@ -517,20 +488,27 @@ export class AgentConnection {
       console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${String(err)}`);
     }
 
-    // Secondary: send heartbeat event to orchestrator via edge function.
+    // Send heartbeat event to orchestrator via edge function.
     const heartbeat: Heartbeat = {
       type: "heartbeat",
       protocolVersion: PROTOCOL_VERSION,
       machineId: this.machineId,
       slotsAvailable,
     };
-    await this.sendToOrchestrator(heartbeat);
-
-    if (dbErr) {
-      console.warn(
-        `[local-agent] Heartbeat FAILED — machineId=${this.machineId}, ` +
-          `slots=${JSON.stringify(slotsAvailable)}, db=FAIL`
+    const heartbeatOk = await this.sendToOrchestrator(heartbeat);
+    if (heartbeatOk) {
+      this.consecutiveHeartbeatFailures = 0;
+    } else {
+      this.consecutiveHeartbeatFailures++;
+      console.error(
+        `[local-agent] Heartbeat failure ${this.consecutiveHeartbeatFailures}/5 — machineId=${this.machineId}`
       );
+      if (this.consecutiveHeartbeatFailures >= 5) {
+        console.error(
+          `[local-agent] 5 consecutive heartbeat failures — exiting for supervisor restart`
+        );
+        process.exit(1);
+      }
     }
 
     // --- Job recovery poll ---

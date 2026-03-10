@@ -1438,7 +1438,7 @@ export class JobExecutor {
       pollTimer: null,
       timeoutTimer: null,
       settled: false,
-      startedAt: spawnedAt,
+      startedAt: startedAt,
       logPath: "",
       lastBytesSent: 0,
       lastLifecycleBytesSent: 0,

@@ -13,8 +13,8 @@ function formatDate(iso: string | null): string {
 function healthBadgeClass(health: string | null): string {
   const h = (health ?? "").toLowerCase();
   if (h === "on_track" || h === "healthy") return "detail-badge detail-badge--positive";
-  if (h === "behind") return "detail-badge detail-badge--negative";
-  if (h === "waiting") return "detail-badge detail-badge--caution";
+  if (h === "at_risk" || h === "waiting") return "detail-badge detail-badge--caution";
+  if (h === "off_track" || h === "behind") return "detail-badge detail-badge--negative";
   return "detail-badge";
 }
 

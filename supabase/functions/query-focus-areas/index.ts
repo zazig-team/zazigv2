@@ -38,7 +38,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-const FOCUS_AREA_SELECT = "id, company_id, title, description, status, position, domain_tags, proposed_by, approved_at, created_at, updated_at";
+const FOCUS_AREA_SELECT = "id, company_id, title, description, status, health, position, domain_tags, proposed_by, approved_at, created_at, updated_at";
 
 // ---------------------------------------------------------------------------
 // Handler

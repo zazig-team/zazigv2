@@ -16639,7 +16639,7 @@ var STANDARD_TOOLS = [
   "Grep"
 ];
 var ROLE_DEFAULT_MCP_TOOLS = {
-  "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "request_work", "start_expert_session"],
+  "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "start_expert_session"],
   "breakdown-specialist": ["query_features", "batch_create_jobs"]
 };
 var MEMORY_MAINTENANCE_SECTION = `## Memory Maintenance
@@ -17431,6 +17431,7 @@ var NO_CODE_CONTEXT_ROLES = /* @__PURE__ */ new Set([
   "triage-analyst"
 ]);
 var CPO_STARTUP_DELAY_MS = 15e3;
+var DEFAULT_BOOT_PROMPT = "Read your state files. If .claude/{role}-report.md exists, review it for continuity. Check for pending work via your MCP tools. Orient yourself and begin.";
 var MIN_SESSION_AGE_MS = 5 * 6e4;
 var RESET_FAILURE_WINDOW_MS = 10 * 6e4;
 var MAX_RESET_FAILURES = 3;
@@ -17568,7 +17569,7 @@ var JobExecutor = class {
     return data.id;
   }
   async loadPersistentRoleConfig(role) {
-    const { data, error } = await this.supabase.from("roles").select("prompt, heartbeat_md, cache_ttl_minutes, hard_ttl_minutes").eq("name", role).single();
+    const { data, error } = await this.supabase.from("roles").select("prompt, heartbeat_md, cache_ttl_minutes, hard_ttl_minutes, boot_prompt").eq("name", role).single();
     if (error) {
       throw new Error(`Failed to load role config for ${role}: ${error.message}`);
     }
@@ -17579,7 +17580,8 @@ var JobExecutor = class {
       prompt: data.prompt ?? "",
       heartbeatMd: data.heartbeat_md ?? "",
       cacheTtlMinutes: data.cache_ttl_minutes ?? 30,
-      hardTtlMinutes: data.hard_ttl_minutes ?? 240
+      hardTtlMinutes: data.hard_ttl_minutes ?? 240,
+      bootPrompt: data.boot_prompt ?? null
     };
   }
   buildHeartbeatSessionStartCommand() {
@@ -18281,7 +18283,11 @@ ${msg.text}`;
       await this.sendJobFailed(jobId, `Failed to start agent session: ${String(err)}`, "agent_crash");
       return;
     }
-    const spawnedAt = Date.now();
+    const startedAt = Date.now();
+    const bootPrompt = roleConfig.bootPrompt ?? DEFAULT_BOOT_PROMPT;
+    void this.enqueueMessage(bootPrompt, sessionName, startedAt).catch((err) => {
+      console.error(`[executor] Failed to enqueue boot prompt for ${role}:`, err);
+    });
     let initialOutputHash = "";
     try {
       const output = await capturePane(sessionName);
@@ -18294,8 +18300,8 @@ ${msg.text}`;
       jobId,
       companyId: resolvedCompanyId,
       heartbeatTimer: null,
-      startedAt: spawnedAt,
-      lastActivityAt: spawnedAt,
+      startedAt,
+      lastActivityAt: startedAt,
       lastOutputHash: initialOutputHash,
       cacheTtlMinutes: roleConfig.cacheTtlMinutes,
       hardTtlMinutes: roleConfig.hardTtlMinutes,
@@ -18348,7 +18354,7 @@ ${msg.text}`;
       pollTimer: null,
       timeoutTimer: null,
       settled: false,
-      startedAt: spawnedAt,
+      startedAt: Date.now(),
       logPath: "",
       lastBytesSent: 0,
       lastLifecycleBytesSent: 0,
@@ -18495,6 +18501,8 @@ ${msg.text}`;
       });
       if (!error) {
         job.lastLifecycleBytesSent = lifecycleChunk1.newOffset;
+      } else {
+        console.warn(`[executor] Lifecycle log flush failed for jobId=${jobId}: ${error.message}`);
       }
     }
     if (job.worktreePath && job.jobBranch) {
@@ -18556,6 +18564,8 @@ ${msg.text}`;
         });
         if (!error) {
           job.lastLifecycleBytesSent = lifecycleChunk2.newOffset;
+        } else {
+          console.warn(`[executor] Lifecycle log flush failed for jobId=${jobId}: ${error.message}`);
         }
       }
       jobLog(jobId, `Still running \u2014 progress=${progress}`);
@@ -18608,6 +18618,8 @@ ${msg.text}`;
       });
       if (!error) {
         job.lastLifecycleBytesSent = lifecycleChunk3.newOffset;
+      } else {
+        console.warn(`[executor] Lifecycle log flush failed for jobId=${jobId}: ${error.message}`);
       }
     }
     if (job.worktreePath && job.jobBranch) {
@@ -18708,8 +18720,16 @@ ${msg.text}`;
         const failLogChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
         if (failLogChunk !== null) {
           try {
-            await this.supabase.rpc("append_job_log", { p_job_id: jobId, p_type: "tmux", p_chunk: failLogChunk.chunk });
-          } catch {
+            const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+              p_job_id: jobId,
+              p_type: "tmux",
+              p_chunk: failLogChunk.chunk
+            });
+            if (appendErr) {
+              console.warn(`[executor] Final failure log flush failed for jobId=${jobId}: ${appendErr.message}`);
+            }
+          } catch (appendErr) {
+            console.warn(`[executor] Final failure log flush crashed for jobId=${jobId}: ${String(appendErr)}`);
           }
         }
         const lifecycleLogPath4 = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
@@ -18723,8 +18743,11 @@ ${msg.text}`;
             });
             if (!error) {
               job.lastLifecycleBytesSent = lifecycleChunk4.newOffset;
+            } else {
+              console.warn(`[executor] Lifecycle log flush failed for jobId=${jobId}: ${error.message}`);
             }
-          } catch {
+          } catch (appendErr) {
+            console.warn(`[executor] Lifecycle log flush crashed for jobId=${jobId}: ${String(appendErr)}`);
           }
         }
         await this.sendJobFailed(jobId, job.fixReasons.join(" | "), "unknown");
@@ -18825,6 +18848,8 @@ ${msg.text}`;
       });
       if (!error) {
         job.lastLifecycleBytesSent = lifecycleChunk5.newOffset;
+      } else {
+        console.warn(`[executor] Lifecycle log flush failed for jobId=${jobId}: ${error.message}`);
       }
     }
     let pr;

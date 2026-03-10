@@ -30121,7 +30121,6 @@ var STANDALONE_ELIGIBLE_ROLES = [
   "project-architect"
 ];
 var REQUEST_WORK_ROLE_ALLOWLIST = {
-  cpo: new Set(STANDALONE_ELIGIBLE_ROLES),
   cto: new Set(STANDALONE_ELIGIBLE_ROLES),
   "verification-specialist": /* @__PURE__ */ new Set(["pipeline-technician"])
 };
@@ -31185,13 +31184,14 @@ server.tool("update_focus_area", "Update a focus area, including adding/removing
   title: external_exports3.string().optional().describe("New focus area title"),
   description: external_exports3.string().optional().describe("New focus area description"),
   status: external_exports3.enum(["active", "paused"]).optional().describe("New status"),
+  health: external_exports3.enum(["on_track", "at_risk", "off_track"]).nullable().optional().describe("New health assessment"),
   position: external_exports3.number().optional().describe("New position/order"),
   domain_tags: external_exports3.array(external_exports3.string()).optional().describe("Updated domain tags"),
   add_goal_ids: external_exports3.array(external_exports3.string()).optional().describe("Goal IDs to link"),
   remove_goal_ids: external_exports3.array(external_exports3.string()).optional().describe("Goal IDs to unlink"),
   add_feature_ids: external_exports3.array(external_exports3.string()).optional().describe("Feature IDs to link"),
   remove_feature_ids: external_exports3.array(external_exports3.string()).optional().describe("Feature IDs to unlink")
-}, guardedHandler("update_focus_area", async ({ focus_area_id, title, description, status, position, domain_tags, add_goal_ids, remove_goal_ids, add_feature_ids, remove_feature_ids }) => {
+}, guardedHandler("update_focus_area", async ({ focus_area_id, title, description, status, health, position, domain_tags, add_goal_ids, remove_goal_ids, add_feature_ids, remove_feature_ids }) => {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
   const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -31208,7 +31208,7 @@ server.tool("update_focus_area", "Update a focus area, including adding/removing
       "Content-Type": "application/json",
       Authorization: `Bearer ${supabaseAnonKey}`
     },
-    body: JSON.stringify({ focus_area_id, title, description, status, position, domain_tags, add_goal_ids, remove_goal_ids, add_feature_ids, remove_feature_ids, job_id: jobId, company_id: companyId })
+    body: JSON.stringify({ focus_area_id, title, description, status, health, position, domain_tags, add_goal_ids, remove_goal_ids, add_feature_ids, remove_feature_ids, job_id: jobId, company_id: companyId })
   });
   if (response.ok) {
     return {

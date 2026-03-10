@@ -63,6 +63,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       title,
       description,
       status,
+      health,
       position,
       domain_tags,
       approved_at,
@@ -81,6 +82,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
     if (status !== undefined) updates.status = status;
+    if (health !== undefined) updates.health = health;
     if (position !== undefined) updates.position = position;
     if (domain_tags !== undefined) updates.domain_tags = domain_tags;
     if (approved_at !== undefined) updates.approved_at = approved_at;

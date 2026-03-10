@@ -161,11 +161,11 @@ function focusBadgeDetails(focusArea: FocusArea): { label: string; tone: FocusBa
     if (health === "on_track" || health === "healthy") {
       return { label: health.replace(/_/g, " "), tone: "badge--positive" };
     }
-    if (health === "behind") {
-      return { label: health, tone: "badge--negative" };
+    if (health === "at_risk" || health === "waiting") {
+      return { label: health.replace(/_/g, " "), tone: "badge--caution" };
     }
-    if (health === "waiting") {
-      return { label: health, tone: "badge--caution" };
+    if (health === "off_track" || health === "behind") {
+      return { label: health.replace(/_/g, " "), tone: "badge--negative" };
     }
     if (health === "later") {
       return { label: health, tone: "badge--neutral" };

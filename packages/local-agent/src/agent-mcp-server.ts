@@ -1411,6 +1411,7 @@ server.tool(
     title: z.string().optional().describe("New focus area title"),
     description: z.string().optional().describe("New focus area description"),
     status: z.enum(["active", "paused"]).optional().describe("New status"),
+    health: z.enum(["on_track", "at_risk", "off_track"]).nullable().optional().describe("New health assessment"),
     position: z.number().optional().describe("New position/order"),
     domain_tags: z.array(z.string()).optional().describe("Updated domain tags"),
     add_goal_ids: z.array(z.string()).optional().describe("Goal IDs to link"),
@@ -1418,7 +1419,7 @@ server.tool(
     add_feature_ids: z.array(z.string()).optional().describe("Feature IDs to link"),
     remove_feature_ids: z.array(z.string()).optional().describe("Feature IDs to unlink"),
   },
-  guardedHandler("update_focus_area", async ({ focus_area_id, title, description, status, position, domain_tags, add_goal_ids, remove_goal_ids, add_feature_ids, remove_feature_ids }) => {
+  guardedHandler("update_focus_area", async ({ focus_area_id, title, description, status, health, position, domain_tags, add_goal_ids, remove_goal_ids, add_feature_ids, remove_feature_ids }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -1437,7 +1438,7 @@ server.tool(
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ focus_area_id, title, description, status, position, domain_tags, add_goal_ids, remove_goal_ids, add_feature_ids, remove_feature_ids, job_id: jobId, company_id: companyId }),
+      body: JSON.stringify({ focus_area_id, title, description, status, health, position, domain_tags, add_goal_ids, remove_goal_ids, add_feature_ids, remove_feature_ids, job_id: jobId, company_id: companyId }),
     });
 
     if (response.ok) {

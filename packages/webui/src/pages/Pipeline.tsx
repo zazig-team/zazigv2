@@ -32,6 +32,13 @@ const COLUMN_DEFINITIONS: ColumnDefinition[] = [
   { key: "shipped", label: "Shipped", colorVar: "--col-shipped" },
 ];
 
+const ACTIVE_FEATURE_STATUSES = new Set<PipelineStatus>([
+  "breaking_down",
+  "building",
+  "combining_and_pr",
+  "verifying",
+]);
+
 function ageLabel(ageHours: number | null): string {
   if (ageHours === null) {
     return "new";
@@ -86,6 +93,23 @@ function ideaColorVar(itemType: string): string {
     case "test": return "--col-test";
     default: return "--col-ideas";
   }
+}
+
+function timestampScore(value: string | null): number {
+  if (!value) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
+
+function formatRoleLabel(value: string): string {
+  return value
+    .replace(/[-_]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
 }
 
 export default function Pipeline(): JSX.Element {
@@ -291,6 +315,33 @@ export default function Pipeline(): JSX.Element {
     () => displayedParkedIdeas.filter((idea) => idea.horizon === "later"),
     [displayedParkedIdeas],
   );
+  const activeRoleByFeatureId = useMemo(() => {
+    const latestRoleByFeature = new Map<string, { role: string; createdAtScore: number }>();
+
+    for (const job of snapshot.activeJobs) {
+      if (!job.featureId || !job.role) {
+        continue;
+      }
+
+      const trimmedRole = job.role.trim();
+      if (!trimmedRole) {
+        continue;
+      }
+
+      const createdAtScore = timestampScore(job.createdAt);
+      const current = latestRoleByFeature.get(job.featureId);
+      if (!current || createdAtScore > current.createdAtScore) {
+        latestRoleByFeature.set(job.featureId, { role: trimmedRole, createdAtScore });
+      }
+    }
+
+    const formattedRoleByFeature = new Map<string, string>();
+    for (const [featureId, value] of latestRoleByFeature.entries()) {
+      formattedRoleByFeature.set(featureId, formatRoleLabel(value.role));
+    }
+
+    return formattedRoleByFeature;
+  }, [snapshot.activeJobs]);
 
   const metrics = useMemo(() => {
     const active =
@@ -502,34 +553,41 @@ export default function Pipeline(): JSX.Element {
                 {features.length === 0 ? (
                   <div className="col-empty">No items</div>
                 ) : (
-                  features.map((feature) => (
-                    <article className="card card--clickable" key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
-                      <div className="card-accent" style={{ background: `var(${column.colorVar})` }} />
-                      <div className="card-body">
-                        <div className="card-meta">
-                          <span className={priorityDotClass(feature.priority)} />
-                          {feature.priority.toLowerCase()} · {ageLabel(feature.ageHours)}
+                  features.map((feature) => {
+                    const activeRole = ACTIVE_FEATURE_STATUSES.has(feature.status)
+                      ? activeRoleByFeatureId.get(feature.id)
+                      : undefined;
+
+                    return (
+                      <article className="card card--clickable" key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
+                        <div className="card-accent" style={{ background: `var(${column.colorVar})` }} />
+                        <div className="card-body">
+                          <div className="card-meta">
+                            <span className={priorityDotClass(feature.priority)} />
+                            {feature.priority.toLowerCase()} · {ageLabel(feature.ageHours)}
+                          </div>
+                          <div className="card-title">{feature.title}</div>
+                          {activeRole ? <div className="card-role-badge">{activeRole}</div> : null}
+                          <div className="card-desc">{feature.description}</div>
+                          <div className="card-jobs">
+                            {Array.from({ length: Math.max(feature.jobsTotal, 1) }).map((_, index) => {
+                              const active = index < feature.jobsDone;
+                              return (
+                                <span
+                                  key={`${feature.id}-pip-${index}`}
+                                  className="card-job-pip"
+                                  style={{ background: active ? "var(--positive)" : "var(--chalk)" }}
+                                />
+                              );
+                            })}
+                            <span className="card-job-count">
+                              {feature.jobsDone}/{feature.jobsTotal || 0} done
+                            </span>
+                          </div>
                         </div>
-                        <div className="card-title">{feature.title}</div>
-                        <div className="card-desc">{feature.description}</div>
-                        <div className="card-jobs">
-                          {Array.from({ length: Math.max(feature.jobsTotal, 1) }).map((_, index) => {
-                            const active = index < feature.jobsDone;
-                            return (
-                              <span
-                                key={`${feature.id}-pip-${index}`}
-                                className="card-job-pip"
-                                style={{ background: active ? "var(--positive)" : "var(--chalk)" }}
-                              />
-                            );
-                          })}
-                          <span className="card-job-count">
-                            {feature.jobsDone}/{feature.jobsTotal || 0} done
-                          </span>
-                        </div>
-                      </div>
-                    </article>
-                  ))
+                      </article>
+                    );
+                  })
                 )}
               </div>
             </section>

@@ -14,16 +14,42 @@
 
 ## Root Cause Analysis (2026-03-10 Incident)
 
-Three jobs sat `queued` with `machine_id: null` for 3+ hours. The orchestrator ran every 10 seconds and saw them — but silently skipped dispatch because the only online machine had `enabled = FALSE`.
+Three dashboard features (role badges, ideas count badge, PR link) plus one other job sat `queued` with `machine_id: null` for 3+ hours. The orchestrator ran every ~60 seconds and saw them — but silently skipped dispatch because the only online machine had `enabled = FALSE`.
 
 The pipeline snapshot reported `machines_online: 1` with `8 claude_code slots` — because the snapshot SQL doesn't filter by `enabled`. This made it look like a Realtime issue when it was actually a zero-eligible-machines issue.
 
 **Failure chain:**
 1. Both machines (laptop + mini) went offline
 2. Daemon restarted, registered as `-local` — but that row had `enabled = FALSE` (operator-set at some prior point; the daemon does NOT write the `enabled` field — confirmed in `connection.ts:437-443`)
-3. Orchestrator: `No machine with available claude_code slot for job X — skipping` (every 10 seconds, silently)
+3. Orchestrator: `No machine with available claude_code slot for job X — skipping` (every ~60 seconds, silently)
 4. Snapshot showed 1 machine online with 8 slots (misleading — didn't filter `enabled`)
 5. No alert, no escalation, no visibility for 3+ hours
+
+**Confirmed by Supabase Logs Explorer (2026-03-11):**
+
+Querying `function_logs` in the Supabase Logs Explorer (Dashboard > Logs > Query tab) confirmed the orchestrator was logging skip messages for all 4 jobs every ~60 seconds for the entire duration of the incident:
+
+```
+[orchestrator] No machine with available claude_code slot for job 6f41015c — skipping.
+[orchestrator] No machine with available claude_code slot for job 9055f579 — skipping.
+[orchestrator] No machine with available claude_code slot for job b4887028 — skipping.
+[orchestrator] No machine with available claude_code slot for job dc798a67 — skipping.
+```
+
+This repeated every ~60 seconds with no variation or escalation. The log message itself is misleading — it says "no available slot" when the real problem was `enabled=false`. The machine had 8 slots available but was excluded from dispatch because it was disabled.
+
+**Machines table state during incident (4 records):**
+
+| Machine | Status | Enabled | Slots (CC) |
+|---------|--------|---------|------------|
+| (unnamed) | offline | TRUE | 8 |
+| -local | online | FALSE | 8 |
+| (unnamed) | offline | TRUE | 4 |
+| (unnamed) | offline | TRUE | 4 |
+
+Only `-local` was online, but it was the only machine with `enabled=FALSE`. Zero eligible dispatch targets.
+
+**Resolution:** `UPDATE machines SET enabled = true WHERE name = 'toms-macbook-pro-2023-local'` — all 4 jobs dispatched within seconds, confirming root cause.
 
 ---
 

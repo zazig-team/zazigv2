@@ -29,6 +29,7 @@ export interface PipelineFeature {
 export interface NormalizedPipelineSnapshot {
   updatedAt: string | null;
   byStatus: Record<PipelineStatus, PipelineFeature[]>;
+  ideasInboxNewCount: number;
 }
 
 const EMPTY_SNAPSHOT: NormalizedPipelineSnapshot = {
@@ -45,6 +46,7 @@ const EMPTY_SNAPSHOT: NormalizedPipelineSnapshot = {
     failed: [],
     shipped: [],
   },
+  ideasInboxNewCount: 0,
 };
 
 function toPipelineStatus(rawStatus: string | null | undefined): PipelineStatus | null {
@@ -187,9 +189,19 @@ function normalizeSnapshot(snapshot: unknown, updatedAt: string | null): Normali
     failed: [],
     shipped: [],
   };
+  let ideasInboxNewCount = 0;
 
   if (snapshot && typeof snapshot === "object") {
     const snapshotObj = snapshot as Record<string, unknown>;
+    const ideasInbox = snapshotObj.ideas_inbox;
+    if (ideasInbox && typeof ideasInbox === "object") {
+      const parsedIdeasInboxCount = numericValue(
+        (ideasInbox as Record<string, unknown>).new_count,
+      );
+      if (parsedIdeasInboxCount !== null) {
+        ideasInboxNewCount = Math.max(0, Math.floor(parsedIdeasInboxCount));
+      }
+    }
 
     const grouped =
       (snapshotObj.features_by_status as Record<string, unknown> | undefined) ??
@@ -241,6 +253,7 @@ function normalizeSnapshot(snapshot: unknown, updatedAt: string | null): Normali
   return {
     updatedAt,
     byStatus,
+    ideasInboxNewCount,
   };
 }
 

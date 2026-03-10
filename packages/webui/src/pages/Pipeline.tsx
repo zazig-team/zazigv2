@@ -345,6 +345,14 @@ export default function Pipeline(): JSX.Element {
             <div className="pipeline-col-title">
               <span className="col-dot" style={{ background: "var(--col-ideas)" }} title="Inbox" />
               <span className="col-name">Inbox</span>
+              {snapshot.ideasInboxNewCount > 0 ? (
+                <span
+                  className="col-notification-badge"
+                  aria-label={`${snapshot.ideasInboxNewCount} new ideas`}
+                >
+                  {snapshot.ideasInboxNewCount}
+                </span>
+              ) : null}
             </div>
             <span className="col-count">{displayedIdeas.length}</span>
           </header>

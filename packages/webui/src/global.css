@@ -1651,6 +1651,22 @@ input {
   letter-spacing: 0.05em;
 }
 
+.col-notification-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--white);
+  background: var(--negative);
+}
+
 .col-count {
   font-family: var(--font-mono);
   font-size: 10px;

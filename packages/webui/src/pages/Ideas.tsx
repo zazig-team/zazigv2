@@ -688,14 +688,7 @@ export default function Ideas(): JSX.Element {
       {/* Header */}
       <div className="il-header">
         <h1 className="il-title">Ideas</h1>
-        <button
-          className={`il-auto-triage-toggle${autoTriage ? " active" : ""}`}
-          type="button"
-          disabled={autoTriageLoading}
-          onClick={handleAutoTriageToggle}
-        >
-          Auto-triage: {autoTriage ? "ON" : "OFF"}
-        </button>
+        {/* Auto-triage toggle hidden until orchestrator is deployed to production */}
       </div>
 
       {/* Section tabs */}

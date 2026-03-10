@@ -2725,7 +2725,55 @@ async function refreshPipelineSnapshotCache(
 // ---------------------------------------------------------------------------
 
 const AUTO_TRIAGE_COOLDOWN_MS = 60 * 1000; // 1 min between dispatches per company
+const AUTO_TRIAGE_STALE_THRESHOLD_MS = 15 * 60 * 1000; // 15 min before reverting orphaned triaging ideas
 const autoTriageLastRun = new Map<string, number>();
+
+/**
+ * Recover ideas stuck at 'triaging' with no active triage-analyst job.
+ * This handles: batch-orphaning, agent crashes, tool failures, prompt non-compliance.
+ */
+async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void> {
+  const staleCutoff = new Date(Date.now() - AUTO_TRIAGE_STALE_THRESHOLD_MS).toISOString();
+
+  // Find ideas stuck at 'triaging' for longer than the threshold.
+  const { data: staleIdeas, error: staleErr } = await supabase
+    .from("ideas")
+    .select("id, company_id")
+    .eq("status", "triaging")
+    .lt("updated_at", staleCutoff);
+
+  if (staleErr || !staleIdeas?.length) return;
+
+  for (const idea of staleIdeas as { id: string; company_id: string }[]) {
+    // Check if there's still an active triage job for this specific idea.
+    const { data: activeJobs } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("role", "triage-analyst")
+      .eq("context", idea.id)
+      .in("status", ["queued", "dispatched", "executing"])
+      .limit(1);
+
+    if (activeJobs && activeJobs.length > 0) continue;
+
+    // No active job — revert to 'new' so it can be re-triaged.
+    const { error: revertErr } = await supabase
+      .from("ideas")
+      .update({ status: "new" })
+      .eq("id", idea.id)
+      .eq("status", "triaging"); // guard against race
+
+    if (revertErr) {
+      console.error(
+        `[orchestrator] stale-triage-recovery: failed to revert idea ${idea.id}: ${revertErr.message}`,
+      );
+    } else {
+      console.warn(
+        `[orchestrator] stale-triage-recovery: reverted idea ${idea.id} from triaging → new (no active triage job after ${AUTO_TRIAGE_STALE_THRESHOLD_MS / 60000} min)`,
+      );
+    }
+  }
+}
 
 async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
   const { data: companies } = await supabase
@@ -2844,7 +2892,10 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 4. Dispatch queued jobs to available machines.
     await dispatchQueuedJobs(supabase);
 
-    // 4b. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
+    // 4b. Recover ideas stuck at 'triaging' with no active triage job (orphan protection).
+    await recoverStaleTriagingIdeas(supabase);
+
+    // 4c. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
     await autoTriageNewIdeas(supabase);
 
     // 5. Refresh pipeline snapshot cache after all state mutations.

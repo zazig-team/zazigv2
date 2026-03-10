@@ -19462,7 +19462,7 @@ async function recoverDispatchedJobs(dbClient, machineName, options) {
 // ../local-agent/package.json
 var package_default = {
   name: "@zazigv2/local-agent",
-  version: "0.4.0",
+  version: "0.5.0",
   private: true,
   description: "Local agent daemon \u2014 connects to Supabase Realtime, executes tmux sessions",
   type: "module",

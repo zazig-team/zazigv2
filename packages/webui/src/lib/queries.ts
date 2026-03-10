@@ -1065,6 +1065,26 @@ export async function fetchJobResult(jobId: string): Promise<{ status: string; r
   return { status: row.status, result: row.result };
 }
 
+export async function fetchAutoTriageSetting(companyId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("companies")
+    .select("auto_triage")
+    .eq("id", companyId)
+    .single();
+
+  if (error) throw error;
+  return (data as { auto_triage: boolean }).auto_triage;
+}
+
+export async function setAutoTriageSetting(companyId: string, enabled: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("companies")
+    .update({ auto_triage: enabled })
+    .eq("id", companyId);
+
+  if (error) throw error;
+}
+
 export async function updateExecArchetype(
   personalityId: string,
   archetypeId: string,

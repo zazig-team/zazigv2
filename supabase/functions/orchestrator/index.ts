@@ -2721,6 +2721,86 @@ async function refreshPipelineSnapshotCache(
 }
 
 // ---------------------------------------------------------------------------
+// Auto-triage: dispatch triage jobs for new ideas in auto_triage companies
+// ---------------------------------------------------------------------------
+
+const AUTO_TRIAGE_BATCH_LIMIT = 3;
+const AUTO_TRIAGE_COOLDOWN_MS = 5 * 60 * 1000; // 5 min between sweeps per company
+const autoTriageLastRun = new Map<string, number>();
+
+async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
+  const { data: companies } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("auto_triage", true)
+    .eq("status", "active");
+
+  if (!companies?.length) return;
+
+  for (const company of companies as { id: string }[]) {
+    const lastRun = autoTriageLastRun.get(company.id) ?? 0;
+    if (Date.now() - lastRun < AUTO_TRIAGE_COOLDOWN_MS) continue;
+
+    const { data: newIdeas } = await supabase
+      .from("ideas")
+      .select("id")
+      .eq("company_id", company.id)
+      .eq("status", "new")
+      .order("created_at", { ascending: true })
+      .limit(AUTO_TRIAGE_BATCH_LIMIT);
+
+    if (!newIdeas?.length) continue;
+
+    const { data: projects } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("company_id", company.id)
+      .eq("status", "active")
+      .limit(1);
+
+    const projectId = (projects as { id: string }[] | null)?.[0]?.id;
+    if (!projectId) {
+      console.log(
+        `[orchestrator] auto-triage: no active project for company ${company.id}, skipping`,
+      );
+      continue;
+    }
+
+    for (const idea of newIdeas as { id: string }[]) {
+      await supabase
+        .from("ideas")
+        .update({ status: "triaging" })
+        .eq("id", idea.id);
+
+      const { error } = await supabase.rpc("request_standalone_work", {
+        p_company_id: company.id,
+        p_project_id: projectId,
+        p_feature_id: null,
+        p_role: "triage-analyst",
+        p_context: idea.id,
+      });
+
+      if (error) {
+        console.error(
+          `[orchestrator] auto-triage: failed to queue triage for idea ${idea.id}:`,
+          error.message,
+        );
+        await supabase
+          .from("ideas")
+          .update({ status: "new" })
+          .eq("id", idea.id);
+      } else {
+        console.log(
+          `[orchestrator] auto-triage: queued triage for idea ${idea.id}`,
+        );
+      }
+    }
+
+    autoTriageLastRun.set(company.id, Date.now());
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
 
@@ -2746,6 +2826,9 @@ Deno.serve(async (_req: Request): Promise<Response> => {
 
     // 4. Dispatch queued jobs to available machines.
     await dispatchQueuedJobs(supabase);
+
+    // 4b. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
+    await autoTriageNewIdeas(supabase);
 
     // 5. Refresh pipeline snapshot cache after all state mutations.
     await refreshPipelineSnapshotCache(supabase);

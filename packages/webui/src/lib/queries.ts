@@ -1031,6 +1031,20 @@ export async function requestTriageJob(params: {
   });
 }
 
+export async function requestEnrichmentJob(params: {
+  companyId: string;
+  projectId: string;
+  ideaId: string;
+  missing: string[];
+}): Promise<{ job_id?: string }> {
+  return invokePost<{ job_id?: string }>("request-work", {
+    company_id: params.companyId,
+    project_id: params.projectId,
+    role: "triage-analyst",
+    context: JSON.stringify({ idea_id: params.ideaId, action: "enrich", missing: params.missing }),
+  });
+}
+
 export async function requestFeatureFix(params: {
   companyId: string;
   featureId: string;

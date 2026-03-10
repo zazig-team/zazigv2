@@ -16,6 +16,23 @@ If your job context contains a single idea ID, triage only that idea:
 - Do not call `promote_idea` — the human will act from the WebUI
 - Set `status='triaged'` when complete (not `triaging`)
 
+## Enrich Mode
+
+If your job context is JSON with `"action": "enrich"`, you are fixing missing fields on an already-triaged idea — not re-triaging it.
+
+Parse the context:
+```json
+{"idea_id": "uuid", "action": "enrich", "missing": ["title"]}
+```
+
+For each field in `missing`:
+- **title**: Read the `raw_text` and `description`. Generate a clear, concise title (max 80 chars) that captures the core intent. Do not just truncate raw_text.
+- **description**: Read `raw_text` and `title`. Write a clear 2-4 sentence description.
+- **priority**: Assess urgency and strategic fit. Set `low`, `medium`, `high`, or `urgent`.
+- **tags**: Infer relevant tags from content.
+
+Call `update_idea` with only the missing fields filled in. Do not change `status` — leave it at `triaged`. Do not overwrite fields that already have good values.
+
 ---
 
 ## Phase 1: Gather Inbox State

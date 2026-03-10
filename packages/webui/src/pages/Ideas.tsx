@@ -10,6 +10,7 @@ import {
   promoteIdea,
   updateIdeaStatus,
   requestTriageJob,
+  requestEnrichmentJob,
   type Idea,
   type IdeaDetail,
   type Project,
@@ -126,10 +127,11 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   const [promoteError, setPromoteError] = useState<string | null>(null);
   const [promoted, setPromoted] = useState(false);
 
-  // Action state (triage/park/reject)
+  // Action state (triage/park/reject/enrich)
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionDone, setActionDone] = useState<string | null>(null);
+  const [enriching, setEnriching] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -230,11 +232,31 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
 
   const canPromote = data.status === "triaged" && !promoted && !isShipped;
   const readiness = canPromote ? [
-    { label: "Has title", ok: Boolean(data.title?.trim()), hint: "Needs a clear title" },
-    { label: "Has description", ok: Boolean(data.description?.trim()) || Boolean(data.raw_text && data.raw_text.length > 20), hint: "Needs description or detailed raw text" },
-    { label: "Has project", ok: Boolean(selectedProjectId ?? data.project_id), hint: "Select a project below" },
+    { label: "Has title", ok: Boolean(data.title?.trim()), hint: "Needs a clear title", field: "title" },
+    { label: "Has description", ok: Boolean(data.description?.trim()) || Boolean(data.raw_text && data.raw_text.length > 20), hint: "Needs description or detailed raw text", field: "description" },
+    { label: "Has project", ok: Boolean(selectedProjectId ?? data.project_id), hint: "Select a project below", field: "project" },
   ] : [];
   const allReady = readiness.every((r) => r.ok);
+  const missingFields = readiness.filter((r) => !r.ok && r.field !== "project").map((r) => r.field);
+
+  async function handleEnrich(): Promise<void> {
+    if (!activeCompanyId || missingFields.length === 0) return;
+    const projectId = selectedProjectId ?? projects[0]?.id;
+    if (!projectId) {
+      setActionError("No project available for enrichment job");
+      return;
+    }
+    setEnriching(true);
+    setActionError(null);
+    try {
+      await requestEnrichmentJob({ companyId: activeCompanyId, projectId, ideaId: data!.id, missing: missingFields });
+      setActionDone("Enrich");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setEnriching(false);
+    }
+  }
 
   return (
     <div className="il-detail">
@@ -366,14 +388,26 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
 
           {promoteError && <div className="il-promote-error">{promoteError}</div>}
 
-          <button
-            className="il-action-primary"
-            type="button"
-            disabled={!allReady || promoting}
-            onClick={handlePromote}
-          >
-            {promoting ? "Promoting..." : "Promote to Feature"}
-          </button>
+          <div className="il-promote-actions">
+            <button
+              className="il-action-primary"
+              type="button"
+              disabled={!allReady || promoting}
+              onClick={handlePromote}
+            >
+              {promoting ? "Promoting..." : "Promote to Feature"}
+            </button>
+            {missingFields.length > 0 && (
+              <button
+                className="il-action-secondary il-action-enrich"
+                type="button"
+                disabled={enriching}
+                onClick={handleEnrich}
+              >
+                {enriching ? "Enriching..." : `Enrich (${missingFields.join(", ")})`}
+              </button>
+            )}
+          </div>
         </div>
       )}
 

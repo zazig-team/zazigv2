@@ -82,6 +82,9 @@ const NO_CODE_CONTEXT_ROLES = new Set([
 /** Delay after CPO session spawn before allowing message injection (Claude Code startup). */
 const CPO_STARTUP_DELAY_MS = 15_000;
 
+const DEFAULT_BOOT_PROMPT =
+  "Read your state files. If .claude/{role}-report.md exists, review it for continuity. Check for pending work via your MCP tools. Orient yourself and begin.";
+
 /** Minimum session age before Cache-TTL may reset a persistent exec. */
 const MIN_SESSION_AGE_MS = 5 * 60_000;
 
@@ -300,6 +303,7 @@ type PersistentRoleConfig = {
   heartbeatMd: string;
   cacheTtlMinutes: number;
   hardTtlMinutes: number;
+  bootPrompt: string | null;
 };
 
 export interface QueuedMessage {
@@ -437,7 +441,7 @@ export class JobExecutor {
   private async loadPersistentRoleConfig(role: string): Promise<PersistentRoleConfig> {
     const { data, error } = await this.supabase
       .from("roles")
-      .select("prompt, heartbeat_md, cache_ttl_minutes, hard_ttl_minutes")
+      .select("prompt, heartbeat_md, cache_ttl_minutes, hard_ttl_minutes, boot_prompt")
       .eq("name", role)
       .single();
 
@@ -453,6 +457,7 @@ export class JobExecutor {
       heartbeatMd: data.heartbeat_md ?? "",
       cacheTtlMinutes: data.cache_ttl_minutes ?? 30,
       hardTtlMinutes: data.hard_ttl_minutes ?? 240,
+      bootPrompt: data.boot_prompt ?? null,
     };
   }
 
@@ -1320,7 +1325,12 @@ export class JobExecutor {
       return;
     }
 
-    const spawnedAt = Date.now();
+    const startedAt = Date.now();
+    const bootPrompt = roleConfig.bootPrompt ?? DEFAULT_BOOT_PROMPT;
+    void this.enqueueMessage(bootPrompt, sessionName, startedAt).catch((err) => {
+      console.error(`[executor] Failed to enqueue boot prompt for ${role}:`, err);
+    });
+
     let initialOutputHash = "";
     try {
       const output = await capturePane(sessionName);
@@ -1336,8 +1346,8 @@ export class JobExecutor {
       jobId,
       companyId: resolvedCompanyId,
       heartbeatTimer: null,
-      startedAt: spawnedAt,
-      lastActivityAt: spawnedAt,
+      startedAt,
+      lastActivityAt: startedAt,
       lastOutputHash: initialOutputHash,
       cacheTtlMinutes: roleConfig.cacheTtlMinutes,
       hardTtlMinutes: roleConfig.hardTtlMinutes,

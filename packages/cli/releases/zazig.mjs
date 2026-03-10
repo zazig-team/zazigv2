@@ -15115,19 +15115,13 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
     try {
       execSync6(`git merge ${defaultBranch} --ff-only`, { cwd: repoRoot, stdio: "pipe" });
     } catch {
-      execSync6(`git checkout ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
       console.error("Fast-forward merge into production failed. The production branch has diverged from master.\nTo fix: git checkout production && git reset --hard master && git push --force-with-lease origin production");
       process.exitCode = 1;
       return;
     }
     execSync6("git push origin production", { cwd: repoRoot, stdio: "pipe" });
-    execSync6(`git checkout ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
     console.log("Production branch updated and pushed (triggers CI for Supabase deployment).");
   } catch (err) {
-    try {
-      execSync6(`git checkout ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
-    } catch {
-    }
     console.error(`Production branch update failed: ${String(err)}`);
     process.exitCode = 1;
     return;

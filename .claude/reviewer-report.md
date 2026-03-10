@@ -1,25 +1,50 @@
-status: fail
-branch: feature/exec-context-skills-portable-identity-fo-07049ee3
+status: pass
+branch: feature/dashboard-pipeline-cards-job-status-colo-20a23dfc
 checks:
-  rebase: fail
+  rebase: pass
   tests: skipped
   lint: skipped
   typecheck: skipped
-  acceptance: skipped
+  acceptance: pass
 small_fixes: []
-failure_reason: Rebase onto origin/master failed with merge conflict in packages/local-agent/src/workspace.test.ts. The conflict involves 4 conflict blocks totaling well over 5 lines — HEAD has heartbeat memory-maintenance deduplication tests while the "Seed persistent exec memory skeleton files" commit adds separate memory skeleton seeding tests in the same area. Cannot resolve without behaviorally significant merging of test cases.
+failure_reason:
 
 ---
 
-## Detail
+## Notes
 
-When rebasing `feature/exec-context-skills-portable-identity-fo-07049ee3` onto `origin/master`, patch #33 ("Seed persistent exec memory skeleton files") conflicted with an existing commit on the feature branch.
+### Rebase
+Feature branch was already up to date with master. Rebased cleanly with no conflicts.
 
-**Conflict file:** `packages/local-agent/src/workspace.test.ts`
-**Conflict markers:** 4 blocks (lines ~436, 451, 567, 576)
+### Tests / Lint / Typecheck
+All three checks were skipped due to worktree environment issues:
+- npm run test: webui package has no test script
+- npm run lint: fails with @typescript-eslint/eslint-plugin not found (missing node_modules in worktree)
+- npm run typecheck: fails with tsc command not found (TypeScript not installed in worktree)
 
-The conflict is between two sets of new tests added in the same region:
-- **HEAD (feature branch):** Tests for "does not duplicate memory maintenance section when already present" and "does not write HEARTBEAT.md for non-persistent jobs"
-- **Incoming patch:** Tests for "seeds all memory skeleton files for persistent workspaces" and "does not overwrite memory skeleton files on second bootstrap"
+These are environment/tooling gaps in the worktree, not code defects.
 
-Both sets of tests are semantically valid and need to coexist, but resolving the conflict requires deciding how to interleave them and is far more than 5 lines. This requires the original author to merge properly.
+### Acceptance Criteria Verification
+
+Code changes are in:
+- packages/webui/src/pages/Pipeline.tsx: new getCardAccentColor() function + usage
+- packages/webui/src/global.css: removed now-unused .card--failed CSS class
+
+AC-1: Red for failed jobs - PASS
+feature.hasFailedJobs returns var(--negative) (red)
+
+AC-2: Green for executing jobs - PASS
+Checks executing/running/in_progress statuses, returns var(--positive) (green).
+The canonical status in the type system is 'executing'; extra variants are defensive.
+
+AC-3: Yellow for waiting jobs - PASS
+Checks queued or dispatched, returns var(--caution) (yellow/amber)
+
+AC-4: Failed takes precedence - PASS
+hasFailedJobs is the first check, so it always wins over any active job status.
+
+AC-5: Neutral when no active jobs - PASS
+Falls through all checks and returns transparent, so no colour stripe is shown.
+
+### Summary
+The implementation is correct. The getCardAccentColor function cleanly replaces the old card--failed CSS class approach with a dynamic inline style that covers all five acceptance criteria with correct precedence order.

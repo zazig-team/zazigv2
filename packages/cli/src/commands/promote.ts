@@ -395,12 +395,15 @@ async function runPromote(
       }
     }
 
-    // Checkout production branch, fast-forward merge, push, return
+    // Checkout production branch, fast-forward merge, push.
+    // Note: we don't checkout back to defaultBranch afterwards — the temp
+    // worktree is force-removed in the finally block, and Git refuses
+    // checkout if the branch is checked out in another worktree (e.g. the
+    // CPO's shared worktree).
     execSync("git checkout production", { cwd: repoRoot, stdio: "pipe" });
     try {
       execSync(`git merge ${defaultBranch} --ff-only`, { cwd: repoRoot, stdio: "pipe" });
     } catch {
-      execSync(`git checkout ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
       console.error(
         "Fast-forward merge into production failed. The production branch has diverged from master.\n" +
         "To fix: git checkout production && git reset --hard master && git push --force-with-lease origin production"
@@ -409,10 +412,8 @@ async function runPromote(
       return;
     }
     execSync("git push origin production", { cwd: repoRoot, stdio: "pipe" });
-    execSync(`git checkout ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
     console.log("Production branch updated and pushed (triggers CI for Supabase deployment).");
   } catch (err) {
-    try { execSync(`git checkout ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" }); } catch { /* best-effort */ }
     console.error(`Production branch update failed: ${String(err)}`);
     process.exitCode = 1;
     return;

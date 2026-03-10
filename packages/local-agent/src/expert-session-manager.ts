@@ -37,6 +37,10 @@ interface ExpertSessionState {
   effectiveWorkspaceDir: string;
   repoDir?: string;
   bareRepoDir?: string;
+  /** Branch the worktree was created from (e.g. "master"). */
+  branch?: string;
+  /** Commit hash at worktree creation — used to detect unpushed commits. */
+  startCommit?: string;
   displayName: string;
   tmuxSession: string;
   viewerSession?: string;
@@ -169,6 +173,7 @@ export class ExpertSessionManager {
     // 3. Git worktree setup if project_id + repo_url provided
     let repoDir: string | undefined;
     let bareRepoDir: string | undefined;
+    let startCommitHash: string | undefined;
     if ((msg.project_id && !msg.repo_url) || (!msg.project_id && msg.repo_url)) {
       console.error(
         `[expert] Invalid start_expert payload for ${sessionId}: project_id and repo_url must both be set together`,
@@ -206,10 +211,11 @@ export class ExpertSessionManager {
           `refs/heads/${branch}`,
         ]);
         const { stdout } = await execFileAsync("git", ["-C", worktreeTarget, "rev-parse", "HEAD"]);
+        startCommitHash = stdout.trim();
 
         repoDir = worktreeTarget;
         console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${branch})`);
-        console.log(`[expert] Worktree at commit: ${stdout.trim().slice(0, 8)}`);
+        console.log(`[expert] Worktree at commit: ${startCommitHash.slice(0, 8)}`);
       } catch (err) {
         console.error(`[expert] Failed to create git worktree:`, err);
         await this.updateSessionStatus(sessionId, "failed");
@@ -370,6 +376,8 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       effectiveWorkspaceDir,
       repoDir,
       bareRepoDir,
+      branch: repoDir ? (msg.branch ?? "master") : undefined,
+      startCommit: repoDir ? startCommitHash : undefined,
       displayName,
       tmuxSession: tmuxSessionName,
       viewerSession: viewerLink?.viewerSession,
@@ -548,6 +556,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
 
     await this.injectSummaryIntoCpo(session, summary);
     await this.switchViewerToCpo(session);
+    await this.pushUnpushedCommits(session);
     await this.cleanupWorktree(session);
 
     try {
@@ -633,6 +642,60 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       await execFileAsync("tmux", ["select-window", "-t", `${session.viewerSession}:${cpoIndex}`]);
     } catch (err) {
       console.warn(`[expert] Failed to switch viewer ${session.viewerSession} back to CPO:`, err);
+    }
+  }
+
+  /**
+   * Safety net: before destroying the worktree, check if the expert made
+   * commits that were never pushed. If so, push them to origin so work
+   * isn't silently lost when the session ends.
+   */
+  private async pushUnpushedCommits(session: ExpertSessionState): Promise<void> {
+    if (!session.repoDir || !session.bareRepoDir || !session.branch || !session.startCommit) return;
+
+    try {
+      const { stdout: currentHead } = await execFileAsync("git", [
+        "-C", session.repoDir, "rev-parse", "HEAD",
+      ]);
+      const head = currentHead.trim();
+
+      if (head === session.startCommit) {
+        return; // No new commits — nothing to push
+      }
+
+      // There are local commits. Push them to the original branch.
+      console.log(
+        `[expert] Session ${session.sessionId} has unpushed commits (${session.startCommit.slice(0, 8)}..${head.slice(0, 8)}). Pushing to origin/${session.branch}...`,
+      );
+
+      try {
+        await execFileAsync("git", [
+          "-C", session.repoDir,
+          "push", "origin", `HEAD:refs/heads/${session.branch}`,
+        ]);
+        console.log(`[expert] Pushed unpushed commits to origin/${session.branch}`);
+      } catch (pushErr) {
+        // Push to the original branch failed (maybe it advanced).
+        // Create a rescue branch so the work is recoverable.
+        const rescueBranch = `rescue/expert-${session.sessionId.slice(0, 8)}`;
+        console.warn(
+          `[expert] Push to origin/${session.branch} failed — saving work to ${rescueBranch}`,
+        );
+        try {
+          await execFileAsync("git", [
+            "-C", session.repoDir,
+            "push", "origin", `HEAD:refs/heads/${rescueBranch}`,
+          ]);
+          console.log(`[expert] Saved work to rescue branch origin/${rescueBranch}`);
+        } catch (rescueErr) {
+          console.error(
+            `[expert] CRITICAL: Failed to push rescue branch for session ${session.sessionId}. Work may be lost.`,
+            rescueErr,
+          );
+        }
+      }
+    } catch (err) {
+      console.warn(`[expert] Failed to check for unpushed commits in session ${session.sessionId}:`, err);
     }
   }
 

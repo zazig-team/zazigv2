@@ -18,3 +18,10 @@ projects/personality/.claude/napkin.md
 .vercel
 /.claude
 /.claude
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

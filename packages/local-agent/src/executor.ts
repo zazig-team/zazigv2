@@ -637,6 +637,15 @@ export class JobExecutor {
           ? "createDependentJobWorktree"
           : "createJobWorktree";
         clearJobLogs(jobId);
+
+        // Header line: agent role + latest commit on the feature branch
+        let headCommitShort = "unknown";
+        try {
+          const { stdout } = await execFileAsync("git", ["log", "-1", "--format=%h %s", msg.featureBranch!], { cwd: repoDir });
+          headCommitShort = stdout.trim();
+        } catch { /* non-fatal */ }
+        jobLog(jobId, `Agent=${roleName} slot=${slotType} model=${msg.model} commit=${headCommitShort}`);
+
         jobLog(jobId, `Branch routing: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
         jobLog(jobId, `featureBranch=${msg.featureBranch}, repoDir=${repoDir}`);
         console.log(`[executor] Branch routing for jobId=${jobId}: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
@@ -2545,12 +2554,13 @@ async function runCodexReview(
     acceptanceCriteria,
     "## Diff",
     diff,
-    "Review against spec and acceptance criteria, not diff size.",
-    "Do NOT fail solely because multiple files were touched.",
-    "Adjacent files (tests, types, helpers) are acceptable if they support the spec; flag as observation unless clearly unrelated.",
-    "IMPORTANT: Files mentioned in the spec that do NOT appear in the diff may already have been correct before the job started. Only fail for missing requirements if the diff lacks changes that are clearly still needed — do NOT fail just because a file is absent from the diff.",
-    "PASS if: changes address the spec, acceptance criteria are met, and there are no obvious bugs or placeholder code.",
-    "FAIL if: the diff contains obvious errors, placeholder code, or clearly fails to address a requirement that cannot already be met by existing code.",
+    "## Review Rules",
+    "1. Review against spec and acceptance criteria — not diff size or file count.",
+    "2. Do NOT fail because files mentioned in the spec are absent from the diff. Those files may already have been correct before the job started and needed no changes.",
+    "3. Do NOT fail because the agent added reasonable supplementary changes (e.g. extra CSS classes, minor refactors) beyond what the spec literally states, as long as the spec requirements are MET.",
+    "4. Adjacent files (tests, types, helpers) are acceptable if they support the spec.",
+    "PASS if: the diff addresses the spec requirements and acceptance criteria are met. Minor additions beyond spec are acceptable.",
+    "FAIL only if: the diff introduces obvious bugs, contains placeholder code, or clearly contradicts a stated requirement.",
     "Respond with exactly: PASS or FAIL: reason",
   ].join("\n");
 

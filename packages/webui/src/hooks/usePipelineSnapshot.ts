@@ -24,6 +24,16 @@ export interface PipelineFeature {
   jobsDone: number;
   jobsTotal: number;
   assignee: string | null;
+  branch: string | null;
+  jobs: PipelineFeatureJob[];
+}
+
+export interface PipelineFeatureJob {
+  status: string | null;
+  jobType: string | null;
+  role: string | null;
+  title: string | null;
+  result: unknown;
 }
 
 export interface NormalizedPipelineSnapshot {
@@ -114,6 +124,32 @@ function ageInHours(isoValue: string | null): number | null {
   return Math.max(0, Math.floor((Date.now() - timestamp) / (1000 * 60 * 60)));
 }
 
+function parseFeatureJobs(value: unknown): PipelineFeatureJob[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+
+      const job = entry as Record<string, unknown>;
+      return {
+        status: stringValue(job.status),
+        jobType:
+          stringValue(job.job_type) ??
+          stringValue(job.jobType) ??
+          stringValue(job.type),
+        role: stringValue(job.role),
+        title: stringValue(job.title),
+        result: job.result,
+      };
+    })
+    .filter((job): job is PipelineFeatureJob => job !== null);
+}
+
 function parseFeature(raw: Record<string, unknown>, fallbackStatus: PipelineStatus): PipelineFeature {
   const fromStatus = toPipelineStatus(stringValue(raw.status));
   const status = fromStatus ?? fallbackStatus;
@@ -141,14 +177,12 @@ function parseFeature(raw: Record<string, unknown>, fallbackStatus: PipelineStat
     jobsDone = numericValue((jobCounts as Record<string, unknown>).complete) ?? jobsDone;
   }
 
-  const jobs = raw.jobs;
-  if (Array.isArray(jobs) && jobs.length > 0) {
+  const jobs = parseFeatureJobs(raw.jobs);
+  if (jobs.length > 0) {
     jobsTotal = Math.max(jobsTotal, jobs.length);
     const completeCount = jobs.filter((job) => {
-      if (!job || typeof job !== "object") {
-        return false;
-      }
-      return (job as Record<string, unknown>).status === "complete";
+      const normalized = (job.status ?? "").toLowerCase();
+      return normalized === "complete" || normalized === "done";
     }).length;
     jobsDone = Math.max(jobsDone, completeCount);
   }
@@ -171,6 +205,11 @@ function parseFeature(raw: Record<string, unknown>, fallbackStatus: PipelineStat
     jobsTotal,
     assignee:
       stringValue(raw.owner_id) ?? stringValue(raw.owner) ?? stringValue(raw.originator),
+    branch:
+      stringValue(raw.branch) ??
+      stringValue(raw.feature_branch) ??
+      stringValue(raw.featureBranch),
+    jobs,
   };
 }
 

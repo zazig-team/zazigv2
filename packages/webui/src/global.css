@@ -1716,6 +1716,20 @@ input {
   overflow: hidden;
 }
 
+.card-secondary-link {
+  display: inline-block;
+  margin-top: var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--info);
+  text-decoration: none;
+}
+
+.card-secondary-link:hover {
+  text-decoration: underline;
+}
+
 .card-meta {
   display: flex;
   align-items: center;

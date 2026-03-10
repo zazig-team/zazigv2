@@ -2782,9 +2782,21 @@ input {
     grid-template-columns: 1fr;
   }
 
+  .sidebar {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--sp-4);
+  }
+
   .page-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -2817,8 +2829,7 @@ input {
     display: none;
   }
 
-  .goals-grid,
-  .pulse-grid {
+  .goals-grid {
     grid-template-columns: 1fr;
   }
 

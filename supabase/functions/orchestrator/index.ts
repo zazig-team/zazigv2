@@ -2724,8 +2724,7 @@ async function refreshPipelineSnapshotCache(
 // Auto-triage: dispatch triage jobs for new ideas in auto_triage companies
 // ---------------------------------------------------------------------------
 
-const AUTO_TRIAGE_BATCH_LIMIT = 3;
-const AUTO_TRIAGE_COOLDOWN_MS = 5 * 60 * 1000; // 5 min between sweeps per company
+const AUTO_TRIAGE_COOLDOWN_MS = 60 * 1000; // 1 min between dispatches per company
 const autoTriageLastRun = new Map<string, number>();
 
 async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
@@ -2741,13 +2740,27 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
     const lastRun = autoTriageLastRun.get(company.id) ?? 0;
     if (Date.now() - lastRun < AUTO_TRIAGE_COOLDOWN_MS) continue;
 
+    // Check if there's already an active triage-analyst job for this company.
+    // The RPC enforces idempotency (one active triage-analyst per company/project),
+    // so we skip dispatch entirely if one is already running.
+    const { data: activeTriageJobs } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("company_id", company.id)
+      .eq("role", "triage-analyst")
+      .in("status", ["queued", "dispatched", "executing"])
+      .limit(1);
+
+    if (activeTriageJobs && activeTriageJobs.length > 0) continue;
+
+    // Pick the oldest new idea (one at a time — next tick picks the next one).
     const { data: newIdeas } = await supabase
       .from("ideas")
       .select("id")
       .eq("company_id", company.id)
       .eq("status", "new")
       .order("created_at", { ascending: true })
-      .limit(AUTO_TRIAGE_BATCH_LIMIT);
+      .limit(1);
 
     if (!newIdeas?.length) continue;
 
@@ -2766,34 +2779,38 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
       continue;
     }
 
-    for (const idea of newIdeas as { id: string }[]) {
+    const idea = (newIdeas as { id: string }[])[0];
+
+    await supabase
+      .from("ideas")
+      .update({ status: "triaging" })
+      .eq("id", idea.id);
+
+    const { data: rpcResult, error } = await supabase.rpc("request_standalone_work", {
+      p_company_id: company.id,
+      p_project_id: projectId,
+      p_feature_id: null,
+      p_role: "triage-analyst",
+      p_context: idea.id,
+    });
+
+    const rejected = rpcResult && typeof rpcResult === "object" &&
+      (rpcResult as Record<string, unknown>).rejected === true;
+
+    if (error || rejected) {
+      const reason = error?.message ??
+        (rpcResult as Record<string, unknown>)?.reason ?? "unknown";
+      console.error(
+        `[orchestrator] auto-triage: failed to queue triage for idea ${idea.id}: ${reason}`,
+      );
       await supabase
         .from("ideas")
-        .update({ status: "triaging" })
+        .update({ status: "new" })
         .eq("id", idea.id);
-
-      const { error } = await supabase.rpc("request_standalone_work", {
-        p_company_id: company.id,
-        p_project_id: projectId,
-        p_feature_id: null,
-        p_role: "triage-analyst",
-        p_context: idea.id,
-      });
-
-      if (error) {
-        console.error(
-          `[orchestrator] auto-triage: failed to queue triage for idea ${idea.id}:`,
-          error.message,
-        );
-        await supabase
-          .from("ideas")
-          .update({ status: "new" })
-          .eq("id", idea.id);
-      } else {
-        console.log(
-          `[orchestrator] auto-triage: queued triage for idea ${idea.id}`,
-        );
-      }
+    } else {
+      console.log(
+        `[orchestrator] auto-triage: queued triage for idea ${idea.id}`,
+      );
     }
 
     autoTriageLastRun.set(company.id, Date.now());

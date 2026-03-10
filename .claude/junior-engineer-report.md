@@ -1,6 +1,6 @@
 status: pass
-summary: Removed the inline verify-time PR merge logic from onJobEnded so merging is handled only by orchestrator merge jobs.
+summary: Updated job status dot color mapping in FeatureDetailPanel to match the specified status-to-token rules.
 files_changed:
-  - packages/local-agent/src/executor.ts
+  - packages/webui/src/components/FeatureDetailPanel.tsx
   - .claude/junior-engineer-report.md
 failure_reason: 

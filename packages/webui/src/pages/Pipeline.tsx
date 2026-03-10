@@ -41,6 +41,8 @@ const ACTIVE_FEATURE_STATUSES = new Set<PipelineStatus>([
   "verifying",
 ]);
 
+const GITHUB_REPO_URL = "https://github.com/zazig-team/zazigv2";
+
 function ageLabel(ageHours: number | null): string {
   if (ageHours === null) {
     return "new";
@@ -135,6 +137,128 @@ function formatRoleLabel(value: string): string {
     .join(" ");
 }
 
+function normalizeGithubUrl(value: string): string | null {
+  const trimmed = value.trim().replace(/[),.;]+$/g, "");
+  return trimmed.startsWith("https://github.com/") ? trimmed : null;
+}
+
+function extractGithubUrlFromText(text: string): string | null {
+  const match = text.match(/https?:\/\/\S+/);
+  if (!match?.[0]) {
+    return null;
+  }
+  return normalizeGithubUrl(match[0]);
+}
+
+function extractPrUrlFromResult(result: unknown): string | null {
+  if (typeof result === "string") {
+    const directUrl = normalizeGithubUrl(result);
+    if (directUrl) {
+      return directUrl;
+    }
+
+    const embeddedUrl = extractGithubUrlFromText(result);
+    if (embeddedUrl) {
+      return embeddedUrl;
+    }
+
+    const trimmed = result.trim();
+    if (/^\d+$/.test(trimmed)) {
+      return `${GITHUB_REPO_URL}/pull/${trimmed}`;
+    }
+
+    return null;
+  }
+
+  if (typeof result === "number" && Number.isInteger(result) && result > 0) {
+    return `${GITHUB_REPO_URL}/pull/${result}`;
+  }
+
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+
+  const resultObj = result as Record<string, unknown>;
+  const urlKeys = [
+    "pr_url",
+    "prUrl",
+    "url",
+    "html_url",
+    "pull_request_url",
+    "pullRequestUrl",
+    "link",
+  ];
+
+  for (const key of urlKeys) {
+    const value = resultObj[key];
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    const directUrl = normalizeGithubUrl(value);
+    if (directUrl) {
+      return directUrl;
+    }
+
+    const embeddedUrl = extractGithubUrlFromText(value);
+    if (embeddedUrl) {
+      return embeddedUrl;
+    }
+
+    const trimmed = value.trim();
+    if (/^\d+$/.test(trimmed)) {
+      return `${GITHUB_REPO_URL}/pull/${trimmed}`;
+    }
+  }
+
+  const nestedResult = resultObj.result;
+  if (nestedResult !== undefined && nestedResult !== result) {
+    return extractPrUrlFromResult(nestedResult);
+  }
+
+  return null;
+}
+
+function isCompletedCombineJob(job: PipelineFeature["jobs"][number]): boolean {
+  const status = (job.status ?? "").toLowerCase();
+  const isComplete = status === "complete" || status === "done";
+  if (!isComplete) {
+    return false;
+  }
+
+  const jobType = (job.jobType ?? "").toLowerCase();
+  const role = (job.role ?? "").toLowerCase();
+  const title = (job.title ?? "").toLowerCase();
+
+  return (
+    jobType === "combine" ||
+    role.includes("combiner") ||
+    title.includes("combine")
+  );
+}
+
+function featurePrUrl(feature: PipelineFeature): string | null {
+  if (feature.status !== "pr_ready") {
+    return null;
+  }
+
+  for (const job of feature.jobs) {
+    if (!isCompletedCombineJob(job)) {
+      continue;
+    }
+
+    const prUrl = extractPrUrlFromResult(job.result);
+    if (prUrl) {
+      return prUrl;
+    }
+  }
+
+  if (!feature.branch) {
+    return null;
+  }
+
+  return `${GITHUB_REPO_URL}/pulls?q=head:${encodeURIComponent(feature.branch)}`;
+}
 
 export default function Pipeline(): JSX.Element {
   const { activeCompany } = useCompany();
@@ -611,6 +735,7 @@ export default function Pipeline(): JSX.Element {
             const activeRole = ACTIVE_FEATURE_STATUSES.has(feature.status)
               ? activeRoleByFeatureId.get(feature.id)
               : undefined;
+            const prUrl = column.key === "pr_ready" ? featurePrUrl(feature) : null;
             return (
             <article className={`card card--clickable${feature.hasFailedJobs ? " card--failed" : ""}`} key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
               <div className="card-accent" style={{ background: `var(${column.colorVar})` }} />
@@ -632,6 +757,17 @@ export default function Pipeline(): JSX.Element {
                   {feature.priority.toLowerCase()} · {ageLabel(feature.ageHours)}
                 </div>
                 <div className="card-desc">{feature.description}</div>
+                {prUrl ? (
+                  <a
+                    className="card-secondary-link"
+                    href={prUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    View PR
+                  </a>
+                ) : null}
                 {feature.jobsTotal > 0 ? (
                   <div className="card-jobs">
                     <div className="card-jobs-bar">

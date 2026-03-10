@@ -30,6 +30,16 @@ export interface PipelineFeature {
   capability_icon: string | null;
   capability_title: string | null;
   hasFailedJobs: boolean;
+  branch: string | null;
+  jobs: PipelineFeatureJob[];
+}
+
+export interface PipelineFeatureJob {
+  status: string | null;
+  jobType: string | null;
+  role: string | null;
+  title: string | null;
+  result: unknown;
 }
 
 interface CapabilityLookupEntry {
@@ -246,6 +256,32 @@ async function fetchCapabilityLookup(companyId: string): Promise<CapabilityLooku
   return lookup;
 }
 
+function parseFeatureJobs(value: unknown): PipelineFeatureJob[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+
+      const job = entry as Record<string, unknown>;
+      return {
+        status: stringValue(job.status),
+        jobType:
+          stringValue(job.job_type) ??
+          stringValue(job.jobType) ??
+          stringValue(job.type),
+        role: stringValue(job.role),
+        title: stringValue(job.title),
+        result: job.result,
+      };
+    })
+    .filter((job): job is PipelineFeatureJob => job !== null);
+}
+
 function parseFeature(
   raw: Record<string, unknown>,
   fallbackStatus: PipelineStatus,
@@ -278,14 +314,12 @@ function parseFeature(
     jobsDone = numericValue((jobCounts as Record<string, unknown>).complete) ?? jobsDone;
   }
 
-  const jobs = raw.jobs;
-  if (Array.isArray(jobs) && jobs.length > 0) {
+  const jobs = parseFeatureJobs(raw.jobs);
+  if (jobs.length > 0) {
     jobsTotal = Math.max(jobsTotal, jobs.length);
     const completeCount = jobs.filter((job) => {
-      if (!job || typeof job !== "object") {
-        return false;
-      }
-      return (job as Record<string, unknown>).status === "complete";
+      const normalized = (job.status ?? "").toLowerCase();
+      return normalized === "complete" || normalized === "done";
     }).length;
     jobsDone = Math.max(jobsDone, completeCount);
   }
@@ -322,6 +356,11 @@ function parseFeature(
     capability_icon: capabilityIcon,
     capability_title: capabilityTitle,
     hasFailedJobs: raw.has_failed_jobs === true,
+    branch:
+      stringValue(raw.branch) ??
+      stringValue(raw.feature_branch) ??
+      stringValue(raw.featureBranch),
+    jobs,
   };
 }
 

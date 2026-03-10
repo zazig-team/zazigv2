@@ -478,7 +478,7 @@ export default function Dashboard(): JSX.Element {
                     className="goal-card goal-card--clickable"
                     key={goal.id}
                     onClick={() => setSelectedGoal({ goal, color })}
-                    style={{ borderLeftColor: color }}
+                    style={{ borderLeftColor: color, "--goal-color": color } as React.CSSProperties}
                   >
                     <div className="goal-rank" style={{ color }}>{index + 1}</div>
                     <div className="goal-horizon">{goal.time_horizon ?? "Near"}</div>

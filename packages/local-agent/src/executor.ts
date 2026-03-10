@@ -2525,20 +2525,14 @@ async function runCodexReview(
       // Codex made no code changes — check if it wrote a passing report
       // (indicates the code already meets the spec, e.g. re-queued job).
       const rpPath = join(worktreePath, reportRelativePath(job.role));
-      jobLog(job.jobId, `No code diff — checking report at ${rpPath} (role=${job.role})`);
       try {
         const report = readFileSync(rpPath, "utf-8");
-        const firstLine = report.split("\n")[0];
-        jobLog(job.jobId, `Report found (${report.length} chars), first line: "${firstLine}"`);
         const statusMatch = report.match(/^status:\s*(pass|success)\s*$/m);
         if (statusMatch) {
-          jobLog(job.jobId, `Report confirms spec already met — passing`);
+          jobLog(job.jobId, `No code diff but report confirms spec already met — passing`);
           return { pass: true, reason: "No changes needed — report confirms spec already met", committed: false, startingCommit };
         }
-        jobLog(job.jobId, `Report exists but no pass/success status found`);
-      } catch (e) {
-        jobLog(job.jobId, `Report not found at ${rpPath}: ${String(e)}`);
-      }
+      } catch { /* report not found — fall through to failure */ }
       return { pass: false, reason: "Codex produced no changes", committed: false, startingCommit };
     }
     return { pass: false, reason: "Codex changes could not be committed", committed: false, startingCommit };

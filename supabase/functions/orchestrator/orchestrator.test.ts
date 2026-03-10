@@ -45,7 +45,6 @@ const {
   triggerFeatureVerification,
   checkUnblockedJobs,
   notifyCPO,
-  handleDeployComplete,
 } = await import("../_shared/pipeline-utils.ts");
 
 // Agent-event handler functions
@@ -465,104 +464,6 @@ Deno.test("handleJobComplete — feature-linked completion does not auto-deploy 
   assertEquals(featureChains.length, 0, "Should not initiate test deploy");
 });
 
-Deno.test("handleJobComplete — passive verification completion initiates test deploy", async () => {
-  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
-
-  setResponse("jobs:update.eq", { error: null });
-
-  setResponse("jobs:select.eq.single", {
-    data: {
-      job_type: "verify",
-      context: '{"type":"feature_verification"}',
-      feature_id: "feature-99",
-      company_id: "company-1",
-      project_id: "proj-1",
-      branch: "feature/auth-system",
-      result: null,
-      role: "reviewer",
-      slot_type: "claude_code",
-    },
-    error: null,
-  });
-
-  setResponse("jobs:select.eq.eq.contains", { data: [], error: null });
-
-  // initiateTestDeploy lookups + CAS transition
-  setResponse("features:select.eq.single", {
-    data: {
-      project_id: "proj-1",
-      company_id: "company-1",
-      branch: "feature/auth-system",
-      title: "Auth Feature",
-    },
-    error: null,
-  });
-  setResponse("features:update.eq.eq.select", {
-    data: [{ id: "feature-99" }],
-    error: null,
-  });
-  setResponse("projects:select.eq.single", {
-    data: { repo_url: "" },
-    error: null,
-  });
-  setResponse("jobs:insert", { error: null });
-  setResponse("rpc:release_machine_slot", { data: null, error: null });
-
-  const msg = {
-    type: "job_complete" as const,
-    protocolVersion: 1,
-    jobId: "job-3",
-    machineId: "machine-1",
-    result: "All tests passed",
-  };
-
-  // deno-lint-ignore no-explicit-any
-  await handleJobComplete(client as any, msg);
-
-  // Feature table should be accessed (select details + update status)
-  const featureChains = chainedCalls.filter((c) => c.table === "features");
-  assertEquals(
-    featureChains.length >= 2,
-    true,
-    "Should have feature update + select chains",
-  );
-
-  // First feature chain: select details
-  assertEquals(featureChains[0].operations[0].method, "select");
-  // Second feature chain: CAS update status to verifying
-  assertEquals(featureChains[1].operations[0].method, "update");
-  // deno-lint-ignore no-explicit-any
-  assertEquals(
-    (featureChains[1].operations[0].args[0] as any).status,
-    "deploying_to_test",
-  );
-
-  // Jobs should include completion update and deploy job insertion
-  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
-  assertEquals(
-    jobsChains.length >= 4,
-    true,
-    "Should include select, update, release-slot select, and deploy insert",
-  );
-
-  // Deploy job should be queued
-  const insertChain = jobsChains.find((c) =>
-    c.operations.some((o) => o.method === "insert")
-  );
-  assertEquals(insertChain !== undefined, true, "Should insert a deploy job");
-  // deno-lint-ignore no-explicit-any
-  const insertPayload = insertChain!.operations[0].args[0] as any;
-  assertEquals(insertPayload.status, "queued");
-  assertEquals(insertPayload.role, "test-deployer");
-  assertEquals(insertPayload.job_type, "deploy_to_test");
-  assertEquals(insertPayload.feature_id, "feature-99");
-  assertEquals(insertPayload.branch, "feature/auth-system");
-  const context = JSON.parse(insertPayload.context);
-  assertEquals(context.type, "deploy_to_test");
-  assertEquals(context.featureBranch, "feature/auth-system");
-  assertEquals(context.featureId, "feature-99");
-});
-
 Deno.test("handleJobComplete — reviewer NO_REPORT triggers request-feature-fix", async () => {
   const { client, setResponse } = createSmartMockSupabase();
 
@@ -751,42 +652,6 @@ Deno.test("handleJobComplete — always releases slot via RPC", async () => {
     releaseCall !== undefined,
     true,
     "release_machine_slot RPC should be called",
-  );
-});
-
-Deno.test("handleDeployComplete — stale CAS match skips Slack/event side effects", async () => {
-  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
-
-  setResponse("features:select.eq.single", {
-    data: {
-      company_id: "co-1",
-      project_id: "proj-1",
-      title: "Feature title",
-      human_checklist: "",
-      spec: "",
-    },
-    error: null,
-  });
-  setResponse("features:update.eq.eq.select", {
-    data: [],
-    error: null,
-  });
-
-  // deno-lint-ignore no-explicit-any
-  await handleDeployComplete(client as any, {
-    type: "deploy_complete",
-    protocolVersion: 1,
-    featureId: "feat-1",
-    machineId: "machine-1",
-    testUrl: "https://preview.example.com",
-    ephemeral: true,
-  });
-
-  const eventsChains = chainedCalls.filter((c) => c.table === "events");
-  assertEquals(
-    eventsChains.length,
-    0,
-    "No feature_status_changed event should be inserted on stale CAS",
   );
 });
 
@@ -1130,73 +995,6 @@ Deno.test("handleFeatureRejected — severity=big + NOT in ready_to_test (CAS gu
     "Should not insert fix job when CAS fails",
   );
 });
-
-Deno.test.ignore(
-  "handleFeatureRejected — severity=big + queue exists → promotes next feature",
-  async () => {
-    const { client, chainedCalls, setResponse } = createSmartMockSupabase();
-
-    // Fetch feature
-    setResponse("features:select.eq.single", {
-      data: {
-        company_id: "co-1",
-        project_id: "proj-1",
-        branch: "feat/y",
-        spec: "spec",
-        human_checklist: "",
-      },
-      error: null,
-    });
-
-    // CAS update → success
-    setResponse("features:update.eq.eq.select", {
-      data: [{ id: "feat-5" }],
-      error: null,
-    });
-
-    // Insert event
-    setResponse("events:insert", { error: null });
-
-    // Insert fix job
-    setResponse("jobs:insert", { error: null });
-
-    // Queue check → next feature waiting
-    setResponse("features:select.eq.eq.order.limit", {
-      data: [{ id: "next-feat" }],
-      error: null,
-    });
-
-    // promoteToTesting internals:
-    setResponse("features:select.eq.eq.limit", { data: [], error: null });
-    setResponse("features:update.eq", { error: null });
-
-    const msg = {
-      type: "feature_rejected" as const,
-      protocolVersion: 1,
-      featureId: "feat-5",
-      feedback: "Major rework needed",
-      severity: "big" as const,
-      machineId: "machine-1",
-    };
-
-    // deno-lint-ignore no-explicit-any
-    await handleFeatureRejected(client as any, msg);
-
-    // Should promote next feature — look for update to "deploying_to_test"
-    const featureChains = chainedCalls.filter((c) => c.table === "features");
-    const promoteUpdate = featureChains.find((c) => {
-      if (c.operations[0].method !== "update") return false;
-      // deno-lint-ignore no-explicit-any
-      const payload = c.operations[0].args[0] as any;
-      return payload.status === "deploying_to_test";
-    });
-    assertEquals(
-      promoteUpdate !== undefined,
-      true,
-      "Should promote next feature to deploying_to_test after big rejection",
-    );
-  },
-);
 
 // ---------------------------------------------------------------------------
 // Standalone job tests (jobs with no feature_id)

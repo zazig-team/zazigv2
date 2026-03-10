@@ -7,9 +7,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import type {
-  DeployComplete,
   Heartbeat,
   JobComplete,
   JobFailed,
@@ -19,9 +17,6 @@ import type {
 
 import {
   checkUnblockedJobs,
-  handleDeployComplete,
-  handleProdDeployComplete,
-  initiateTestDeploy,
   notifyCPO,
   releaseSlot,
   triggerFeatureVerification,
@@ -210,9 +205,9 @@ export async function handleJobComplete(
     const passed = result?.toUpperCase().startsWith("PASSED");
     if (passed) {
       console.log(
-        `[agent-event job=${jobId}] Active verification PASSED for feature ${jobRow.feature_id} — initiating test deploy`,
+        `[agent-event job=${jobId}] Active verification PASSED for feature ${jobRow.feature_id} — triggering merge`,
       );
-      await initiateTestDeploy(supabase, jobRow.feature_id);
+      await triggerMerging(supabase, jobRow.feature_id);
     } else {
       console.log(
         `[agent-event job=${jobId}] Active verification FAILED for feature ${jobRow.feature_id} — notifying CPO`,
@@ -227,9 +222,9 @@ export async function handleJobComplete(
     }
   }
 
-  // Passive verification (reviewer): initiate test deploy on success
+  // Passive verification (reviewer): trigger merge on success
   if (ctx.type === "feature_verification" && jobRow?.feature_id) {
-    await initiateTestDeploy(supabase, jobRow.feature_id);
+    await triggerMerging(supabase, jobRow.feature_id);
   }
 
   // Handle breakdown job completion: feature transitions breakdown → building
@@ -347,40 +342,6 @@ export async function handleJobComplete(
     await triggerMerging(supabase, jobRow.feature_id);
   }
 
-  // Handle test deploy job completion: extract URL and advance feature
-  if (jobRow?.job_type === "deploy_to_test" && jobRow?.feature_id) {
-    const urlMatch = result?.match(/https?:\/\/\S+/);
-    if (urlMatch) {
-      await handleDeployComplete(supabase, {
-        type: "deploy_complete",
-        protocolVersion: PROTOCOL_VERSION,
-        featureId: jobRow.feature_id,
-        machineId: jobRow.machine_id ?? "",
-        testUrl: urlMatch[0],
-        ephemeral: true,
-      });
-    } else {
-      // No URL found — roll back feature so it can retry
-      await supabase
-        .from("features")
-        .update({ status: "verifying" })
-        .eq("id", jobRow.feature_id)
-        .eq("status", "deploying_to_test");
-      await notifyCPO(
-        supabase,
-        jobRow.company_id,
-        `Test deploy failed for feature ${jobRow.feature_id}: ${
-          (result ?? "").slice(0, 200)
-        }`,
-      );
-    }
-  }
-
-  // Handle prod deploy job completion: feature transitions deploying_to_prod → complete
-  if (jobRow?.job_type === "deploy_to_prod" && jobRow?.feature_id) {
-    await handleProdDeployComplete(supabase, jobRow.feature_id);
-  }
-
   // Handle merge job completion: job_complete means merge succeeded.
   // (Failed merge arrives via job_failed broadcast → handleJobFailed)
   if (jobRow?.job_type === "merge" && jobRow?.feature_id) {
@@ -474,18 +435,6 @@ export async function handleJobFailed(
   );
 
   if (!job?.feature_id) return;
-
-  if (job.job_type === "deploy_to_test") {
-    await supabase
-      .from("features")
-      .update({ status: "verifying" })
-      .eq("id", job.feature_id)
-      .eq("status", "deploying_to_test");
-    console.log(
-      `[agent-event job=${jobId}] Rolled back feature ${job.feature_id} to verifying after deploy failure`,
-    );
-    return;
-  }
 
   console.log(
     `[agent-event job=${jobId}] Feature ${job.feature_id} stays at current status — job failure is the signal`,

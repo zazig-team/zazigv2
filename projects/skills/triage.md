@@ -40,7 +40,8 @@ For each idea selected for triage:
    - Add or correct tags
 3. Set `priority` (`low` | `medium` | `high` | `urgent`) based on urgency signals, strategic fit, and originator intent.
 4. Set `suggested_exec` (`cpo`, `cto`, `cmo`, or a contractor name).
-5. Mark the idea as triaged with `update_idea(..., status='triaged')`.
+5. Write an **End-to-End Test Plan** section in `triage_notes`. This answers: "How would we verify this idea actually works once shipped?" One or two sentences covering what a human or automated test would do to confirm the feature/fix delivers its intended value. If the idea is not directly testable (e.g. research, cosmetic, process change), state that explicitly and explain why.
+6. Mark the idea as triaged with `update_idea(..., status='triaged')`.
 
 > **Content-level duplicate checking is mandatory.** When evaluating whether an idea overlaps with an existing feature or idea, you MUST compare the actual description, scope, and requirements of both — not just titles. Title similarity alone is insufficient and has caused false 'already exists' conclusions in the past. Two ideas can share a title but be fundamentally different in scope; two ideas can have different titles but be identical in substance. Always read the full description of candidate duplicates before making any duplicate determination. If you cannot read the full content of a candidate duplicate, do not conclude it is or is not a duplicate.
 
@@ -53,6 +54,7 @@ Use `query_features` (and, when needed, inbox context) to validate overlap at co
 Present triaged ideas in a concise decision list for the human. For each idea:
 - Show title, priority, and suggested_exec
 - Give one recommendation: `promote`, `park`, or `reject`
+- Include the E2E test plan (from triage_notes)
 - Show any `flags` or `clarification_notes` needing human attention
 
 For every `promote` recommendation, include an explicit promote target:

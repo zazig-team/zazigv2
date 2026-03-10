@@ -638,13 +638,14 @@ export class JobExecutor {
           : "createJobWorktree";
         clearJobLogs(jobId);
 
-        // Header line: agent role + latest commit on the feature branch
-        let headCommitShort = "unknown";
+        // Header line: agent role + local-agent build commit (zazigv2 repo)
+        let buildCommit = "unknown";
         try {
-          const { stdout } = await execFileAsync("git", ["log", "-1", "--format=%h %s", msg.featureBranch!], { cwd: repoDir });
-          headCommitShort = stdout.trim();
+          const agentDir = dirname(fileURLToPath(import.meta.url));
+          const { stdout } = await execFileAsync("git", ["log", "-1", "--format=%h %s"], { cwd: agentDir });
+          buildCommit = stdout.trim();
         } catch { /* non-fatal */ }
-        jobLog(jobId, `Agent=${roleName} slot=${slotType} model=${msg.model} commit=${headCommitShort}`);
+        jobLog(jobId, `Agent=${roleName} slot=${slotType} model=${msg.model} build=${buildCommit}`);
 
         jobLog(jobId, `Branch routing: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
         jobLog(jobId, `featureBranch=${msg.featureBranch}, repoDir=${repoDir}`);
@@ -2521,6 +2522,16 @@ async function runCodexReview(
       return { pass: false, reason: `git diff failed: ${String(err)}`, committed: false };
     }
     if (!uncommittedDiff.trim()) {
+      // Codex made no code changes — check if it wrote a passing report
+      // (indicates the code already meets the spec, e.g. re-queued job).
+      const rpPath = join(worktreePath, reportRelativePath(job.role));
+      try {
+        const report = readFileSync(rpPath, "utf-8");
+        const statusMatch = report.match(/^status:\s*(pass|success)\s*$/m);
+        if (statusMatch) {
+          return { pass: true, reason: "No changes needed — report confirms spec already met", committed: false, startingCommit };
+        }
+      } catch { /* report not found — fall through to failure */ }
       return { pass: false, reason: "Codex produced no changes", committed: false, startingCommit };
     }
     return { pass: false, reason: "Codex changes could not be committed", committed: false, startingCommit };

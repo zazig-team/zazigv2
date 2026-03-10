@@ -2868,6 +2868,36 @@ input {
   letter-spacing: -0.03em;
 }
 
+.il-auto-triage-toggle {
+  margin-left: auto;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid var(--chalk);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--col-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.il-auto-triage-toggle:hover {
+  border-color: var(--col-text-secondary);
+}
+
+.il-auto-triage-toggle.active {
+  background: color-mix(in srgb, var(--positive) 12%, transparent);
+  border-color: var(--positive);
+  color: var(--positive);
+}
+
+.il-auto-triage-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Section tabs */
 .il-tabs {
   display: flex;

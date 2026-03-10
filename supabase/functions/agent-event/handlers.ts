@@ -416,7 +416,6 @@ export async function handleJobFailed(
     .update({
       status: "failed",
       result: errMsg,
-      machine_id: null,
       completed_at: new Date().toISOString(),
     })
     .eq("id", jobId);
@@ -467,7 +466,6 @@ export async function handleVerifyResult(
         status: "verify_failed",
         verify_context: [reviewSummary, testOutput].filter((part) => !!part)
           .join("\n\n"),
-        machine_id: null,
       })
       .eq("id", jobId);
 

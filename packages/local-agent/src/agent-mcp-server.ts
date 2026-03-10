@@ -61,7 +61,6 @@ const STANDALONE_ELIGIBLE_ROLES = [
 ] as const;
 
 const REQUEST_WORK_ROLE_ALLOWLIST: Record<string, Set<string>> = {
-  cpo: new Set(STANDALONE_ELIGIBLE_ROLES),
   cto: new Set(STANDALONE_ELIGIBLE_ROLES),
   "verification-specialist": new Set(["pipeline-technician"]),
 };

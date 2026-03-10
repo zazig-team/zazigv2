@@ -3,7 +3,6 @@ import { useAuth } from "../hooks/useAuth";
 import { useCompany } from "../hooks/useCompany";
 import {
   usePipelineSnapshot,
-  type PipelineActiveJob,
   type PipelineFeature,
   type PipelineStatus,
 } from "../hooks/usePipelineSnapshot";
@@ -259,27 +258,6 @@ function featurePrUrl(feature: PipelineFeature): string | null {
   }
 
   return `${GITHUB_REPO_URL}/pulls?q=head:${encodeURIComponent(feature.branch)}`;
-}
-
-function getCardAccentColor(feature: PipelineFeature, activeJobs: PipelineActiveJob[]): string {
-  if (feature.hasFailedJobs) {
-    return "var(--negative)";
-  }
-
-  const featureJobs = activeJobs.filter((job) => job.featureId === feature.id);
-  if (
-    featureJobs.some((job) =>
-      ["executing", "running", "in_progress"].includes(job.status.toLowerCase()),
-    )
-  ) {
-    return "var(--positive)";
-  }
-
-  if (featureJobs.some((job) => ["queued", "dispatched"].includes(job.status.toLowerCase()))) {
-    return "var(--caution)";
-  }
-
-  return "transparent";
 }
 
 export default function Pipeline(): JSX.Element {
@@ -758,10 +736,9 @@ export default function Pipeline(): JSX.Element {
               ? activeRoleByFeatureId.get(feature.id)
               : undefined;
             const prUrl = column.key === "pr_ready" ? featurePrUrl(feature) : null;
-            const accentColor = getCardAccentColor(feature, snapshot.activeJobs);
             return (
-            <article className="card card--clickable" key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
-              <div className="card-accent" style={{ background: accentColor }} />
+            <article className={`card card--clickable${feature.hasFailedJobs ? " card--failed" : ""}`} key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
+              <div className="card-accent" style={{ background: `var(${column.colorVar})` }} />
               <div className="card-body">
                 <div className="card-title">{feature.title}</div>
                 {activeRole ? <div className="card-role-badge">{activeRole}</div> : null}

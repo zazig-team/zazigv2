@@ -43,7 +43,6 @@ import { ExpertSessionManager } from "./expert-session-manager.js";
 import { FixAgentManager } from "./fix-agent.js";
 import { recoverDispatchedJobs } from "./job-recovery.js";
 import { JobVerifier } from "./verifier.js";
-import { resolveAgentVersion } from "./version.js";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import type { OrchestratorMessage, MessageInbound, DaemonShutdownNotification, StartExpertMessage } from "@zazigv2/shared";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -67,12 +66,11 @@ async function main(): Promise<void> {
 
   // Initialize slot tracker from config
   const slots = new SlotTracker(config.slots);
-  const agentVersion = resolveAgentVersion();
 
   // Create and configure Realtime connection
   // Auth: AgentConnection reads SUPABASE_ACCESS_TOKEN from env (set by `zazig start`)
   // and uses it for authenticated DB writes. No explicit authenticate() call needed.
-  const conn = new AgentConnection(config, slots, agentVersion);
+  const conn = new AgentConnection(config, slots);
 
   // Initialize job executor — passes messages back to orchestrator via conn.sendMessage
   // conn.dbClient (authenticated) is passed so the executor can write job status directly to the DB

@@ -1634,6 +1634,8 @@ export class JobExecutor {
       });
       if (!error) {
         job.lastLifecycleBytesSent = lifecycleChunk1.newOffset;
+      } else {
+        console.warn(`[executor] Lifecycle log flush failed for jobId=${jobId}: ${error.message}`);
       }
     }
 
@@ -1717,6 +1719,8 @@ export class JobExecutor {
         });
         if (!error) {
           job.lastLifecycleBytesSent = lifecycleChunk2.newOffset;
+        } else {
+          console.warn(`[executor] Lifecycle log flush failed for jobId=${jobId}: ${error.message}`);
         }
       }
 
@@ -1779,6 +1783,8 @@ export class JobExecutor {
       });
       if (!error) {
         job.lastLifecycleBytesSent = lifecycleChunk3.newOffset;
+      } else {
+        console.warn(`[executor] Lifecycle log flush failed for jobId=${jobId}: ${error.message}`);
       }
     }
 
@@ -1913,7 +1919,18 @@ export class JobExecutor {
         // Flush log before failing
         const failLogChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
         if (failLogChunk !== null) {
-          try { await this.supabase.rpc("append_job_log", { p_job_id: jobId, p_type: "tmux", p_chunk: failLogChunk.chunk }); } catch { /* best-effort */ }
+          try {
+            const { error: appendErr } = await this.supabase.rpc("append_job_log", {
+              p_job_id: jobId,
+              p_type: "tmux",
+              p_chunk: failLogChunk.chunk,
+            });
+            if (appendErr) {
+              console.warn(`[executor] Final failure log flush failed for jobId=${jobId}: ${appendErr.message}`);
+            }
+          } catch (appendErr) {
+            console.warn(`[executor] Final failure log flush crashed for jobId=${jobId}: ${String(appendErr)}`);
+          }
         }
 
         // Lifecycle log flush (best-effort)
@@ -1928,8 +1945,12 @@ export class JobExecutor {
             });
             if (!error) {
               job.lastLifecycleBytesSent = lifecycleChunk4.newOffset;
+            } else {
+              console.warn(`[executor] Lifecycle log flush failed for jobId=${jobId}: ${error.message}`);
             }
-          } catch { /* best-effort */ }
+          } catch (appendErr) {
+            console.warn(`[executor] Lifecycle log flush crashed for jobId=${jobId}: ${String(appendErr)}`);
+          }
         }
 
         await this.sendJobFailed(jobId, job.fixReasons.join(" | "), "unknown");
@@ -2055,6 +2076,8 @@ export class JobExecutor {
       });
       if (!error) {
         job.lastLifecycleBytesSent = lifecycleChunk5.newOffset;
+      } else {
+        console.warn(`[executor] Lifecycle log flush failed for jobId=${jobId}: ${error.message}`);
       }
     }
 

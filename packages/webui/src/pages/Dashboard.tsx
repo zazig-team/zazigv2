@@ -474,11 +474,16 @@ export default function Dashboard(): JSX.Element {
                 const progress = goal.progress ?? 0;
                 const color = ["var(--ember)", "var(--caution)", "var(--info)"][index] ?? "var(--ember)";
                 return (
-                  <article className="goal-card goal-card--clickable" key={goal.id} onClick={() => setSelectedGoal({ goal, color })}>
-                    <div className="goal-rank">{index + 1}</div>
+                  <article
+                    className="goal-card goal-card--clickable"
+                    key={goal.id}
+                    onClick={() => setSelectedGoal({ goal, color })}
+                    style={{ borderLeftColor: color }}
+                  >
+                    <div className="goal-rank" style={{ color }}>{index + 1}</div>
                     <div className="goal-horizon">{goal.time_horizon ?? "Near"}</div>
                     <div className="goal-title">{goal.title}</div>
-                    <div className="goal-progress">
+                    <div className="goal-progress" style={{ background: `color-mix(in srgb, ${color} 15%, var(--chalk-light))` }}>
                       <div className="goal-progress-fill" style={{ width: `${progress}%`, background: color }} />
                     </div>
                     <div className="goal-meta">
@@ -486,7 +491,7 @@ export default function Dashboard(): JSX.Element {
                         {goal.target ?? goal.metric ?? "Target pending"}
                         {goal.target_date ? ` · ${goal.target_date}` : ""}
                       </span>
-                      <span className="goal-percent">{progress}%</span>
+                      <span className="goal-percent" style={{ color }}>{progress}%</span>
                     </div>
                   </article>
                 );

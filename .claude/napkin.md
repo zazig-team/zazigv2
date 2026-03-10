@@ -82,7 +82,7 @@
 - Memory system design: `docs/plans/active/2026-03-03-memory-system-design.md` (in active subdirectory, v3 — includes Procedure type, tier-specific budgets, mandatory slot reservation, hardened Context Handoff Protocol)
 
 ## WebUI Status (2026-03-03)
-- **Vercel prod (`zazigv2-webui`, www.zazig.com) does NOT auto-deploy from master** — `dashboard` and `zazigv2-webui-staging` do, but prod requires manual deploy: `cd zazigv2 && npx vercel --prod`
+- **Vercel prod (`zazigv2-webui`, www.zazig.com) auto-deploys from master** — `dashboard` and `zazigv2-webui-staging` also auto-deploy from master.
 - Old Netlify deploy (decommissioned): `cd zazigv2 && npx netlify deploy --prod --dir=packages/webui/dist --site dc0c201a-c481-4724-8b07-40e089f3b6d4 --filter @zazig/webui`
 - Phase 1 complete: auth, landing, login, dashboard, pipeline, team — all read-only, connected to live Supabase
 - Phase 2 complete (Codex): Realtime subscriptions, archetype picker write-back, theme persistence, goal progress, focus area health

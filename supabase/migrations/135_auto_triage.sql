@@ -6,3 +6,9 @@ ADD COLUMN auto_triage boolean NOT NULL DEFAULT false;
 
 COMMENT ON COLUMN public.companies.auto_triage IS
   'When true, the orchestrator automatically dispatches triage jobs for status=new ideas on each tick.';
+
+-- Allow authenticated users to update their own company (needed for WebUI toggle)
+CREATE POLICY authenticated_update_own ON public.companies
+  FOR UPDATE TO authenticated
+  USING (user_in_company(id))
+  WITH CHECK (user_in_company(id));

@@ -25,7 +25,6 @@ import type { OrchestratorMessage, Heartbeat, AgentMessage } from "@zazigv2/shar
 import type { MachineConfig } from "./config.js";
 import type { SlotTracker } from "./slots.js";
 import { recoverDispatchedJobs } from "./job-recovery.js";
-import pkg from "../package.json" with { type: "json" };
 
 const CREDENTIALS_PATH = join(homedir(), ".zazigv2", "credentials.json");
 const execFileAsync = promisify(execFile);
@@ -46,6 +45,7 @@ export class AgentConnection {
   readonly dbClient: SupabaseClient;
   private readonly machineId: string;
   private readonly primaryCompanyId: string | undefined;
+  private readonly agentVersion: string;
   public companyIds: string[] = [];
   private readonly config: MachineConfig;
   private readonly slots: SlotTracker;
@@ -63,10 +63,11 @@ export class AgentConnection {
   private outdatedWarningTimer: ReturnType<typeof setInterval> | null = null;
   private outdatedExitPollTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(config: MachineConfig, slots: SlotTracker) {
+  constructor(config: MachineConfig, slots: SlotTracker, agentVersion: string) {
     this.config = config;
     this.machineId = config.name;
     this.primaryCompanyId = config.company_id;
+    this.agentVersion = agentVersion;
     this.slots = slots;
 
     if (config.supabase.access_token && !config.supabase.refresh_token) {
@@ -441,7 +442,7 @@ export class AgentConnection {
       last_heartbeat: new Date().toISOString(),
       slots_claude_code: slotsAvailable.claude_code,
       slots_codex: slotsAvailable.codex,
-      agent_version: pkg.version,
+      agent_version: this.agentVersion,
     };
 
     let failures = 0;
@@ -481,8 +482,8 @@ export class AgentConnection {
 
       if (latestVersionErr) {
         console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${latestVersionErr.message}`);
-      } else if (latestVersion && latestVersion.version !== pkg.version) {
-        this.onOutdatedDetected(pkg.version, latestVersion.version);
+      } else if (latestVersion && latestVersion.version !== this.agentVersion) {
+        this.onOutdatedDetected(this.agentVersion, latestVersion.version);
       }
     } catch (err) {
       console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${String(err)}`);

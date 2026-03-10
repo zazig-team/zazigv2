@@ -67,6 +67,11 @@ export class AgentConnection {
     this.machineId = config.name;
     this.primaryCompanyId = config.company_id;
     this.slots = slots;
+
+    if (config.supabase.access_token && !config.supabase.refresh_token) {
+      throw new Error("[local-agent] refresh_token is required when access_token is set — daemon refused to start");
+    }
+
     this.supabase = createClient(config.supabase.url, config.supabase.anon_key, {
       realtime: {
         // Node.js requires an explicit WebSocket implementation; the ws package
@@ -86,12 +91,6 @@ export class AgentConnection {
       // We'll call auth.setSession() in start() to activate the managed session.
       this.dbClient = createClient(config.supabase.url, config.supabase.anon_key);
       console.log("[local-agent] Using authenticated JWT with auto-refresh for DB writes");
-    } else if (config.supabase.access_token) {
-      // No refresh token — fall back to static header (will expire after ~1h)
-      this.dbClient = createClient(config.supabase.url, config.supabase.anon_key, {
-        global: { headers: { Authorization: `Bearer ${config.supabase.access_token}` } },
-      });
-      console.warn("[local-agent] No refresh token — JWT will expire after ~1h");
     } else if (config.supabase.service_role_key) {
       this.dbClient = createClient(config.supabase.url, config.supabase.service_role_key);
       console.log("[local-agent] Using service_role key for DB writes");
@@ -185,7 +184,7 @@ export class AgentConnection {
         refresh_token: this.config.supabase.refresh_token,
       });
       if (error) {
-        console.warn(`[local-agent] Failed to set auth session: ${error.message}`);
+        throw new Error(`[local-agent] Failed to set auth session: ${error.message}`);
       } else {
         console.log("[local-agent] Auth session initialized — auto-refresh enabled");
       }

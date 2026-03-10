@@ -58,6 +58,7 @@ export class AgentConnection {
   private reconnectAttempts = 0;
   private stopped = false;
   private isRecoveryRunning = false;
+  private consecutiveHeartbeatFailures = 0;
   private outdated = false;
   private outdatedWarningTimer: ReturnType<typeof setInterval> | null = null;
   private outdatedExitPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -116,7 +117,7 @@ export class AgentConnection {
     await this.sendToOrchestrator(msg);
   }
 
-  private async sendToOrchestrator(msg: AgentMessage): Promise<void> {
+  private async sendToOrchestrator(msg: AgentMessage): Promise<boolean> {
     const url = `${this.config.supabase.url}/functions/v1/agent-event`;
     const { data: { session } } = await this.dbClient.auth.getSession();
     const token = session?.access_token ?? this.config.supabase.anon_key;
@@ -134,7 +135,7 @@ export class AgentConnection {
           body: JSON.stringify(msg),
         });
 
-        if (res.ok) return;
+        if (res.ok) return true;
         console.warn(`[local-agent] agent-event failed (${res.status}), retrying...`);
       } catch (e) {
         console.warn(`[local-agent] agent-event error: ${e}, retrying...`);
@@ -142,6 +143,7 @@ export class AgentConnection {
     }
 
     console.error("[local-agent] agent-event failed after 3 retries");
+    return false;
   }
 
   /**
@@ -493,7 +495,21 @@ export class AgentConnection {
       machineId: this.machineId,
       slotsAvailable,
     };
-    await this.sendToOrchestrator(heartbeat);
+    const heartbeatOk = await this.sendToOrchestrator(heartbeat);
+    if (heartbeatOk) {
+      this.consecutiveHeartbeatFailures = 0;
+    } else {
+      this.consecutiveHeartbeatFailures++;
+      console.error(
+        `[local-agent] Heartbeat failure ${this.consecutiveHeartbeatFailures}/5 — machineId=${this.machineId}`
+      );
+      if (this.consecutiveHeartbeatFailures >= 5) {
+        console.error(
+          `[local-agent] 5 consecutive heartbeat failures — exiting for supervisor restart`
+        );
+        process.exit(1);
+      }
+    }
 
     // --- Job recovery poll ---
     // Check for dispatched jobs that were missed due to Realtime drops.

@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")/.."
 
 echo "Pulling latest..."
-git pull origin master
+git pull origin production
 
 echo "Installing dependencies..."
 npm install

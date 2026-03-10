@@ -148,6 +148,42 @@ function bumpAgentPackageVersions(repoRoot: string): string {
   return newVersion;
 }
 
+function resolveAgentBuildHash(repoRoot: string): string {
+  let agentBuildHash = "";
+  try {
+    agentBuildHash = execSync("git log -1 --format=%h -- packages/local-agent/", {
+      encoding: "utf-8",
+      cwd: repoRoot,
+      stdio: "pipe",
+    }).trim();
+  } catch {
+    // Fall through to HEAD fallback.
+  }
+
+  if (agentBuildHash) {
+    return agentBuildHash;
+  }
+
+  const headHash = execSync("git rev-parse --short HEAD", {
+    encoding: "utf-8",
+    cwd: repoRoot,
+    stdio: "pipe",
+  }).trim();
+
+  if (!headHash) {
+    throw new Error("Unable to resolve an agent build hash.");
+  }
+
+  return headHash;
+}
+
+function injectAgentBuildHash(repoRoot: string, agentBuildHash: string): void {
+  const bundlePath = join(repoRoot, "packages", "local-agent", "releases", "zazig-agent.mjs");
+  const bundleContent = readFileSync(bundlePath, "utf-8");
+  const injected = `const AGENT_BUILD_HASH = "${agentBuildHash}";\n${bundleContent}`;
+  writeFileSync(bundlePath, injected);
+}
+
 async function registerAgentVersion(
   creds: Credentials,
   anonKey: string,
@@ -336,7 +372,19 @@ async function runPromote(
     return;
   }
 
-  // 4. Bundle CLI + local-agent with the bumped package version
+  // 4. Resolve local-agent scoped build hash before bundling
+  console.log("\nResolving agent build hash...");
+  let agentBuildHash: string;
+  try {
+    agentBuildHash = resolveAgentBuildHash(repoRoot);
+    console.log(`Using agent build hash ${agentBuildHash}.`);
+  } catch (err) {
+    console.error(`Failed to resolve agent build hash: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // 5. Bundle CLI + local-agent with the bumped package version
   console.log("\nBundling CLI...");
   try {
     execSync("node scripts/bundle.js", { cwd: join(repoRoot, "packages", "cli"), stdio: "inherit" });
@@ -346,7 +394,16 @@ async function runPromote(
     return;
   }
 
-  // 5. Commit bundles + version bump to default branch and push
+  // Inject scoped hash into the production local-agent bundle.
+  try {
+    injectAgentBuildHash(repoRoot, agentBuildHash);
+  } catch (err) {
+    console.error(`Failed to inject agent build hash into bundle: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // 6. Commit bundles + version bump to default branch and push
   let commitSha: string;
   console.log("\nCommitting bundles and version bump...");
   try {
@@ -381,7 +438,7 @@ async function runPromote(
     return;
   }
 
-  // 6. Fast-forward production branch (triggers production CI)
+  // 7. Fast-forward production branch (triggers production CI)
   console.log("\nUpdating production branch...");
   try {
     // Ensure production branch exists locally
@@ -419,23 +476,24 @@ async function runPromote(
     return;
   }
 
-  // 7. Register promoted version in agent_versions
+  // 8. Register promoted version in agent_versions
   console.log("\nRegistering production version...");
   try {
-    await registerAgentVersion(creds, anonKey, "production", newVersion, commitSha);
-    console.log(`Registered production agent version ${newVersion} (${commitSha.slice(0, 7)}).`);
+    await registerAgentVersion(creds, anonKey, "production", agentBuildHash, commitSha);
+    console.log(`Registered production agent version ${agentBuildHash} (${commitSha.slice(0, 7)}).`);
   } catch (err) {
     console.error(`Version registration failed: ${String(err)}`);
     process.exitCode = 1;
     return;
   }
 
-  // 8. Pin local agent build
+  // 9. Pin local agent build
   console.log("\nPinning local agent build...");
   pinCurrentBuild(repoRoot);
 
   const sha = commitSha.slice(0, 7);
-  console.log(`\nPromoted to production ${newVersion} (${sha}).`);
+  console.log(`\nPromoted to production ${agentBuildHash} (${sha}).`);
+  console.log(`Bumped package semver to ${newVersion}.`);
   console.log("CI will deploy Supabase migrations and edge functions.");
   console.log("Restart your production agent to use the new build: zazig stop && zazig start");
 }

@@ -36,7 +36,6 @@ describe("generateAllowedTools", () => {
       "mcp__zazig-messaging__create_feature",
       "mcp__zazig-messaging__create_decision",
       "mcp__zazig-messaging__update_feature",
-      "mcp__zazig-messaging__request_work",
       "mcp__zazig-messaging__start_expert_session",
     ]);
   });

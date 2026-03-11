@@ -9,7 +9,7 @@ import {
   setAutoTriageSetting,
   promoteIdea,
   updateIdeaStatus,
-  requestTriageJob,
+  requestHeadlessTriage,
   requestEnrichmentJob,
   type Idea,
   type IdeaDetail,
@@ -19,7 +19,7 @@ import { supabase } from "../lib/supabase";
 import FormattedProse from "../components/FormattedProse";
 
 type TypeFilter = "all" | "idea" | "brief" | "bug" | "test";
-type SectionTab = "inbox" | "triaged" | "workshop" | "parked" | "rejected" | "shipped";
+type SectionTab = "inbox" | "triaged" | "developing" | "workshop" | "parked" | "rejected" | "shipped";
 type SortMode = "newest" | "oldest" | "priority";
 
 const TYPE_ICON: Record<string, string> = {
@@ -101,11 +101,19 @@ const STATUS_LABELS: Record<string, string> = {
   new: "Inbox",
   triaging: "Analysing",
   triaged: "Triaged",
+  developing: "Developing",
+  specced: "Specced",
   parked: "Parked",
   rejected: "Rejected",
   promoted: "Promoted",
   workshop: "Workshop",
 };
+
+function ideaStatusClass(status: string): string | null {
+  if (status === "developing") return "il-feature-status active";
+  if (status === "specced") return "il-feature-status positive";
+  return null;
+}
 
 interface InlineDetailProps {
   ideaId: string;
@@ -209,14 +217,14 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
     if (!activeCompanyId) return;
     const projectId = selectedProjectId ?? projects[0]?.id;
     if (!projectId) {
-      setActionError("No project available for triage job");
+      setActionError("No project available for triage");
       return;
     }
     setActionInProgress("Triage");
     setActionError(null);
     try {
       await updateIdeaStatus(ideaId, "triaging");
-      await requestTriageJob({ companyId: activeCompanyId, projectId, ideaId });
+      await requestHeadlessTriage({ companyId: activeCompanyId, projectId, ideaIds: [ideaId] });
       setActionDone("Triage");
       onAction(ideaId, "triaging");
     } catch (err) {
@@ -583,6 +591,7 @@ export default function Ideas(): JSX.Element {
   const sections = useMemo(() => ({
     inbox: filtered.filter((i) => i.status === "new" || i.status === "triaging"),
     triaged: filtered.filter((i) => i.status === "triaged"),
+    developing: filtered.filter((i) => i.status === "developing" || i.status === "specced"),
     workshop: filtered.filter((i) => i.status === "workshop"),
     parked: filtered.filter((i) => i.status === "parked"),
     rejected: filtered.filter((i) => i.status === "rejected"),
@@ -605,6 +614,7 @@ export default function Ideas(): JSX.Element {
   const tabCounts = useMemo(() => ({
     inbox: ideas.filter((i) => i.status === "new" || i.status === "triaging").length,
     triaged: ideas.filter((i) => i.status === "triaged").length,
+    developing: ideas.filter((i) => i.status === "developing" || i.status === "specced").length,
     workshop: ideas.filter((i) => i.status === "workshop").length,
     parked: ideas.filter((i) => i.status === "parked").length,
     rejected: ideas.filter((i) => i.status === "rejected").length,
@@ -657,8 +667,23 @@ export default function Ideas(): JSX.Element {
     try {
       for (const idea of newIdeas) {
         await updateIdeaStatus(idea.id, "triaging");
-        await requestTriageJob({ companyId: activeCompanyId, projectId, ideaId: idea.id });
       }
+      const batchSize = 5;
+      const batches: string[][] = [];
+      for (let i = 0; i < newIdeas.length; i += batchSize) {
+        batches.push(newIdeas.slice(i, i + batchSize).map((x) => x.id));
+      }
+      const maxConcurrent = 3;
+      let nextBatchIndex = 0;
+      async function runWorker(): Promise<void> {
+        while (nextBatchIndex < batches.length) {
+          const currentIndex = nextBatchIndex;
+          nextBatchIndex += 1;
+          await requestHeadlessTriage({ companyId: activeCompanyId, projectId, ideaIds: batches[currentIndex] });
+        }
+      }
+      const workers = Array.from({ length: Math.min(maxConcurrent, batches.length) }, () => runWorker());
+      await Promise.all(workers);
     } catch (err) {
       console.error("Batch triage error:", err);
     } finally {
@@ -727,7 +752,7 @@ export default function Ideas(): JSX.Element {
 
       {/* Section tabs */}
       <div className="il-tabs">
-        {(["inbox", "triaged", "workshop", "parked", "rejected", "shipped"] as SectionTab[]).map((tab) => (
+        {(["inbox", "triaged", "developing", "workshop", "parked", "rejected", "shipped"] as SectionTab[]).map((tab) => (
           <button
             key={tab}
             className={`il-tab${activeTab === tab ? " active" : ""}`}
@@ -807,6 +832,7 @@ export default function Ideas(): JSX.Element {
           const colorVar = TYPE_COLOR_VAR[type] ?? "--col-ideas";
           const isExpanded = expandedId === idea.id;
           const isTriaging = idea.status === "triaging";
+          const statusBadgeClass = ideaStatusClass(idea.status);
           const fInfo = isShippedTab && idea.promoted_to_id ? featureStatuses.get(idea.promoted_to_id) ?? null : null;
 
           return (
@@ -834,6 +860,8 @@ export default function Ideas(): JSX.Element {
                     <span className="il-triaging-badge">triaging</span>
                   ) : isShippedTab && fInfo ? (
                     <span className={featureStatusClass(fInfo.status)}>{featureStatusLabel(fInfo.status)}</span>
+                  ) : statusBadgeClass ? (
+                    <span className={statusBadgeClass}>{STATUS_LABELS[idea.status] ?? idea.status}</span>
                   ) : (
                     <span className={priorityClass(idea.priority)}>{priorityLabel(idea.priority)}</span>
                   )}

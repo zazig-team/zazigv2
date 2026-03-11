@@ -996,6 +996,43 @@ export class JobExecutor {
     });
   }
 
+  public async killAllRunningJobs(reason: FailureReason): Promise<number> {
+    const jobIds = [...this.activeJobs.keys()];
+    let killed = 0;
+
+    for (const jobId of jobIds) {
+      const job = this.activeJobs.get(jobId);
+      if (!job || job.settled) continue;
+
+      // Mark settled early to prevent poll/timeout races from double-reporting.
+      job.settled = true;
+      this.clearJobTimers(job);
+      jobLog(jobId, `Force-killed by daemon — reason=${reason}`);
+
+      try {
+        await killTmuxSession(job.sessionName);
+      } catch (err) {
+        console.warn(`[executor] Failed to kill tmux session for jobId=${jobId}: ${String(err)}`);
+      }
+
+      try {
+        await this.sendJobFailed(jobId, `Daemon killed job: ${reason}`, reason);
+      } catch (err) {
+        console.warn(`[executor] Failed to report forced failure for jobId=${jobId}: ${String(err)}`);
+      } finally {
+        try {
+          await this.settleJob(jobId);
+        } catch (err) {
+          console.warn(`[executor] Failed to settle force-killed jobId=${jobId}: ${String(err)}`);
+        }
+      }
+
+      killed++;
+    }
+
+    return killed;
+  }
+
   // Public: JobUnblocked
   // ---------------------------------------------------------------------------
 
@@ -2369,6 +2406,32 @@ export class JobExecutor {
     if (job.timeoutTimer !== null) {
       clearTimeout(job.timeoutTimer);
       job.timeoutTimer = null;
+    }
+  }
+
+  private async settleJob(jobId: string): Promise<void> {
+    const job = this.activeJobs.get(jobId);
+    if (!job) return;
+
+    job.settled = true;
+    this.clearJobTimers(job);
+    this.activeJobs.delete(jobId);
+
+    const persistentRole = [...this.persistentAgents.values()].find((agent) => agent.jobId === jobId)?.role;
+    if (persistentRole) {
+      this.clearPersistentAgent(persistentRole);
+    } else if (job.slotAcquired) {
+      this.slots.release(job.slotType);
+    }
+
+    if (job.worktreePath && job.repoDir) {
+      try {
+        await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      } catch (err) {
+        console.warn(`[executor] Failed to clean worktree for jobId=${jobId}: ${String(err)}`);
+      }
+    } else {
+      cleanupJobWorkspace(jobId, job.workspaceDir);
     }
   }
 

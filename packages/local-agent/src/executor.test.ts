@@ -318,6 +318,27 @@ describe("JobExecutor — progress integration", () => {
     expect(values[1]).toBeLessThanOrEqual(values[2]!);
   });
 
+  it("force-kills all running jobs and reports daemon heartbeat gap failures", async () => {
+    await executor.handleStartJob(makeStartJob());
+
+    const killed = await executor.killAllRunningJobs("daemon_heartbeat_gap");
+
+    expect(killed).toBe(1);
+    expect(executor.getActiveJobIds()).toEqual([]);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "job_failed",
+        jobId: "job-001",
+        failureReason: "daemon_heartbeat_gap",
+      }),
+    );
+    expect(lastRepoManagerInstance.removeJobWorktree).toHaveBeenCalledWith(
+      "/tmp/mock-repo",
+      "/tmp/mock-worktree",
+    );
+    expect(slots.getAvailable()).toEqual({ claude_code: 2, codex: 1 });
+  });
+
   it("flushes tmux and lifecycle logs via append_job_log RPC with new parameters", async () => {
     const existsSyncMock = fsModule.existsSync as unknown as Mock;
     const readFileSyncMock = fsModule.readFileSync as unknown as Mock;

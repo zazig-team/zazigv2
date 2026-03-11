@@ -62,8 +62,7 @@ export class AgentConnection {
   private lastHeartbeatSentAt: number = Date.now();
   private killStaleJobsFn?: (reason: FailureReason) => Promise<number>;
   private outdated = false;
-  private outdatedWarningTimer: ReturnType<typeof setInterval> | null = null;
-  private outdatedExitPollTimer: ReturnType<typeof setInterval> | null = null;
+  private outdatedShutdownInProgress = false;
 
   constructor(config: MachineConfig, slots: SlotTracker, agentVersion: string) {
     this.config = config;
@@ -253,8 +252,6 @@ export class AgentConnection {
     this.stopped = true;
     this.clearReconnectTimer();
     this.clearHeartbeatTimer();
-    this.clearOutdatedWarningTimer();
-    this.clearOutdatedExitPollTimer();
     if (this.channel) {
       await this.supabase.removeChannel(this.channel);
       this.channel = null;
@@ -551,68 +548,27 @@ export class AgentConnection {
   }
 
   private onOutdatedDetected(currentVersion: string, requiredVersion: string): void {
-    if (this.outdated) return;
+    if (this.outdatedShutdownInProgress) return;
+    this.outdatedShutdownInProgress = true;
     this.outdated = true;
 
-    const warningMessage =
-      `\n⚠️  UPDATE REQUIRED: running v${currentVersion}, latest is v${requiredVersion}. Run 'zazig update' to update.\n`;
-    const emitWarning = (): void => {
-      process.stderr.write(warningMessage);
-    };
+    const mismatchMessage =
+      `ERROR: Agent version mismatch — local: ${currentVersion}, backend: ${requiredVersion}. Shutting down. Restart with updated code.`;
+    console.error(`[local-agent] ${mismatchMessage}`);
+    process.stderr.write(`${mismatchMessage}\n`);
 
-    emitWarning();
-    this.outdatedWarningTimer = setInterval(() => {
-      emitWarning();
-    }, 60_000);
-
-    void this.closeOutdatedInteractiveSessions();
-    this.startOutdatedExitPolling();
+    void this.shutdownForVersionMismatch();
   }
 
-  private clearOutdatedWarningTimer(): void {
-    if (this.outdatedWarningTimer !== null) {
-      clearInterval(this.outdatedWarningTimer);
-      this.outdatedWarningTimer = null;
+  private async shutdownForVersionMismatch(): Promise<void> {
+    try {
+      await this.closeOutdatedInteractiveSessions();
+      await this.stop();
+    } catch (err) {
+      console.error("[local-agent] Failed during version mismatch shutdown:", err);
+    } finally {
+      process.exit(1);
     }
-  }
-
-  private clearOutdatedExitPollTimer(): void {
-    if (this.outdatedExitPollTimer !== null) {
-      clearInterval(this.outdatedExitPollTimer);
-      this.outdatedExitPollTimer = null;
-    }
-  }
-
-  private getActiveJobCount(): number {
-    const available = this.slots.getAvailable();
-    const activeClaudeJobs = Math.max(0, this.config.slots.claude_code - available.claude_code);
-    const activeCodexJobs = Math.max(0, this.config.slots.codex - available.codex);
-    return activeClaudeJobs + activeCodexJobs;
-  }
-
-  private startOutdatedExitPolling(): void {
-    if (this.outdatedExitPollTimer !== null) return;
-    if (process.env["ZAZIG_EXIT_ON_OUTDATED"] !== "1") {
-      console.warn("[local-agent] Outdated agent detected; auto-exit disabled (set ZAZIG_EXIT_ON_OUTDATED=1 to enable)");
-      return;
-    }
-
-    const maybeExit = (): void => {
-      const activeJobs = this.getActiveJobCount();
-      if (activeJobs > 0) {
-        console.warn(`[local-agent] Outdated agent waiting for ${activeJobs} active job(s) to complete`);
-        return;
-      }
-
-      this.clearOutdatedExitPollTimer();
-      console.warn("[local-agent] Outdated agent has no active jobs — exiting for update");
-      void this.stop().finally(() => {
-        process.exit(0);
-      });
-    };
-
-    maybeExit();
-    this.outdatedExitPollTimer = setInterval(maybeExit, 15_000);
   }
 
   private async closeOutdatedInteractiveSessions(): Promise<void> {
@@ -637,8 +593,10 @@ export class AgentConnection {
     const targets = sessions.filter((sessionName) => {
       if (sessionName.startsWith("expert-")) return true;
       if (sessionName === `${this.machineName}-cpo`) return true;
+      if (sessionName === `${this.machineName}-cto`) return true;
       for (const prefix of companyPrefixes) {
         if (sessionName === `${this.machineName}-${prefix}-cpo`) return true;
+        if (sessionName === `${this.machineName}-${prefix}-cto`) return true;
       }
       return false;
     });

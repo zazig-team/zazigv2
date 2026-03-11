@@ -353,6 +353,55 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       return;
     }
 
+    if ((msg as StartExpertMessage & { headless?: boolean }).headless === true) {
+      try {
+        const claudeCmd = shellEscape([
+          "claude",
+          "--model",
+          msg.model,
+          "-p",
+          msg.brief,
+        ]);
+        const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
+
+        // Kill any stale session from interrupted runs.
+        await killTmuxSession(tmuxSessionName);
+
+        await execFileAsync("tmux", [
+          "new-session", "-d",
+          "-s", tmuxSessionName,
+          "-c", effectiveWorkspaceDir,
+          shellCmd,
+        ]);
+
+        console.log(`[expert] Spawned headless tmux session: ${tmuxSessionName} (cwd=${effectiveWorkspaceDir})`);
+      } catch (err) {
+        console.error(`[expert] Failed to spawn headless tmux session:`, err);
+        await this.updateSessionStatus(sessionId, "failed");
+        return;
+      }
+
+      await this.updateSessionStatus(sessionId, "running");
+
+      const sessionState: ExpertSessionState = {
+        sessionId,
+        workspaceDir,
+        effectiveWorkspaceDir,
+        repoDir,
+        bareRepoDir,
+        branch: msg.branch ?? undefined,
+        expertBranch: repoDir ? expertBranch : undefined,
+        startCommit: repoDir ? startCommitHash : undefined,
+        displayName,
+        tmuxSession: tmuxSessionName,
+      };
+      this.activeSessions.set(sessionId, sessionState);
+      this.startExitPolling(sessionState);
+
+      console.log(`[expert] Headless expert session ${sessionId} is running (tmux=${tmuxSessionName})`);
+      return;
+    }
+
     // 10. Spawn tmux session
     try {
       // Kill any stale session

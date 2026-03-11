@@ -145,7 +145,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { data: jobsData, error: jobsErr } = await supabaseAdmin
       .from("jobs")
       .select(
-        "id, title, context, acceptance_tests, complexity, role, job_type, feature_id, depends_on, status, machines!inner(name, company_id)",
+        "id, title, context, acceptance_tests, complexity, role, job_type, feature_id, depends_on, status, slot_type, model, branch, sequence, project_id, prompt_stack, machines!inner(name, company_id)",
       )
       .eq("status", "dispatched")
       .eq("machines.name", machineName)

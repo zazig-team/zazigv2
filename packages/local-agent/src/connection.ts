@@ -54,7 +54,7 @@ export class AgentConnection {
   private outdatedWarningTimer: ReturnType<typeof setInterval> | null = null;
   private outdatedExitPollTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(config: MachineConfig, slots: SlotTracker, agentVersion: string) {
+  constructor(config: MachineConfig, slots: SlotTracker, agentVersion: string = "") {
     this.config = config;
     this.supabaseUrl = config.supabase.url;
     this.supabaseAnonKey = config.supabase.anon_key;

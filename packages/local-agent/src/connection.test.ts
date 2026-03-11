@@ -263,4 +263,41 @@ describe("AgentConnection", () => {
     expect(killStaleJobsFn).not.toHaveBeenCalled();
     expect((connection as any).lastHeartbeatSentAt).toBeGreaterThan(Date.now() - 5_000);
   });
+
+  it("logs mismatch and exits non-zero when local agent version is outdated", async () => {
+    const supabaseMock = makeSupabaseClientMock();
+    createClientMock.mockReturnValue(supabaseMock.client);
+
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots), "80d28cf");
+    const closeSessionsMock = vi
+      .spyOn(connection as any, "closeOutdatedInteractiveSessions")
+      .mockResolvedValue(undefined);
+    const stopMock = vi
+      .spyOn(connection, "stop")
+      .mockResolvedValue(undefined);
+    const processExitMock = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+    const consoleErrorMock = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const stderrWriteMock = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    (connection as any).onOutdatedDetected("80d28cf", "abc1234");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(closeSessionsMock).toHaveBeenCalledTimes(1);
+    expect(stopMock).toHaveBeenCalledTimes(1);
+    expect(processExitMock).toHaveBeenCalledWith(1);
+    expect(consoleErrorMock).toHaveBeenCalledWith(
+      "[local-agent] ERROR: Agent version mismatch — local: 80d28cf, backend: abc1234. Shutting down. Restart with updated code.",
+    );
+    expect(stderrWriteMock).toHaveBeenCalledWith(
+      "ERROR: Agent version mismatch — local: 80d28cf, backend: abc1234. Shutting down. Restart with updated code.\n",
+    );
+  });
+
 });

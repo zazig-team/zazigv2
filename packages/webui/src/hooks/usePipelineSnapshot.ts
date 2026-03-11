@@ -36,8 +36,9 @@ export interface PipelineFeature {
 
 export interface PipelineIdea {
   id: string;
-  title: string;
-  status: string;
+  title: string | null;
+  rawText: string | null;
+  status: "developing" | "specced";
   priority: string;
   createdAt: string | null;
   ageHours: number | null;
@@ -268,15 +269,17 @@ async function fetchCapabilityLookup(companyId: string): Promise<CapabilityLooku
 }
 
 function parseDevelopingIdea(raw: Record<string, unknown>): PipelineIdea | null {
-  const status = stringValue(raw.status)?.trim().toLowerCase();
-  if (status !== "developing" && status !== "specced") {
+  const parsedStatus = stringValue(raw.status)?.trim().toLowerCase();
+  if (parsedStatus !== "developing" && parsedStatus !== "specced") {
     return null;
   }
 
+  const status: PipelineIdea["status"] = parsedStatus;
   const createdAt = stringValue(raw.created_at);
   return {
     id: stringValue(raw.id) ?? crypto.randomUUID(),
-    title: stringValue(raw.title) ?? "Untitled idea",
+    title: stringValue(raw.title),
+    rawText: stringValue(raw.raw_text),
     status,
     priority: stringValue(raw.priority) ?? "medium",
     createdAt,
@@ -287,7 +290,7 @@ function parseDevelopingIdea(raw: Record<string, unknown>): PipelineIdea | null 
 async function fetchDevelopingIdeas(companyId: string): Promise<PipelineIdea[]> {
   const { data, error } = await supabase
     .from("ideas")
-    .select("id, title, status, priority, created_at")
+    .select("id, title, raw_text, status, priority, created_at")
     .eq("company_id", companyId)
     .in("status", ["developing", "specced"]);
 

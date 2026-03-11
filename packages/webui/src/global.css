@@ -1764,6 +1764,83 @@ input {
   text-overflow: ellipsis;
 }
 
+.card--idea-proposal {
+  border-left: 2px solid var(--col-ideas);
+  opacity: 0.95;
+}
+
+.card--idea-proposal .card-status-badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.card--idea-proposal .card-status-badge--developing {
+  background: color-mix(in srgb, var(--col-ideas) 20%, transparent);
+  color: var(--col-ideas);
+}
+
+.card--idea-proposal .card-status-badge--specced {
+  background: color-mix(in srgb, var(--positive) 20%, transparent);
+  color: var(--positive);
+}
+
+.proposal-promote-inline {
+  margin-top: var(--sp-2);
+}
+
+.proposal-promote-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.proposal-promote-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--stone);
+}
+
+.proposal-promote-select {
+  width: 100%;
+  font-size: 12px;
+  border: 1px solid var(--chalk);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  background: var(--white);
+  color: var(--ink);
+}
+
+.proposal-promote-select:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+.proposal-promote-hint {
+  font-size: 11px;
+  color: var(--stone);
+}
+
+.proposal-promote-actions {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.proposal-promote-btn {
+  flex: 1;
+}
+
+.proposal-promote-cancel {
+  min-width: 70px;
+}
+
+.proposal-promote-trigger {
+  width: 100%;
+}
+
 
 .card-desc {
   font-size: 12px;

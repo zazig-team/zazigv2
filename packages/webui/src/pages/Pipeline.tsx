@@ -5,10 +5,18 @@ import {
   usePipelineSnapshot,
   type PipelineActiveJob,
   type PipelineFeature,
+  type PipelineIdea,
   type PipelineStatus,
 } from "../hooks/usePipelineSnapshot";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
-import { fetchIdeas, getAccessToken, type Idea } from "../lib/queries";
+import {
+  fetchIdeas,
+  fetchProjects,
+  getAccessToken,
+  promoteIdea,
+  type Idea,
+  type Project,
+} from "../lib/queries";
 import FeatureDetailPanel from "../components/FeatureDetailPanel";
 import IdeaDetailPanel from "../components/IdeaDetailPanel";
 
@@ -91,6 +99,30 @@ function roleMatchesMine(value: string | null, userIdentifier: string): boolean 
 
 function ideaTitle(idea: Idea): string {
   return idea.title ?? idea.description ?? idea.raw_text;
+}
+
+function pipelineIdeaTitle(idea: PipelineIdea): string {
+  const title = (idea.title ?? "").trim();
+  if (title) {
+    return title;
+  }
+
+  const rawText = (idea.rawText ?? "").trim();
+  if (rawText) {
+    return rawText;
+  }
+
+  return "Untitled idea";
+}
+
+function pipelineIdeaStatusLabel(status: PipelineIdea["status"]): string {
+  return status === "specced" ? "Specced" : "Developing";
+}
+
+function pipelineIdeaStatusBadgeClass(status: PipelineIdea["status"]): string {
+  return status === "specced"
+    ? "card-status-badge card-status-badge--specced"
+    : "card-status-badge card-status-badge--developing";
 }
 
 function ideaAccentColor(itemType: string): string {
@@ -301,7 +333,16 @@ export default function Pipeline(): JSX.Element {
   const [showShippedArchive, setShowShippedArchive] = useState(false);
   const [selectedFeature, setSelectedFeature] = useState<{ id: string; colorVar: string } | null>(null);
   const [selectedIdea, setSelectedIdea] = useState<{ id: string; colorVar: string } | null>(null);
+  const [proposalProjects, setProposalProjects] = useState<Project[]>([]);
+  const [proposalProjectsLoading, setProposalProjectsLoading] = useState(false);
+  const [proposalProjectsError, setProposalProjectsError] = useState<string | null>(null);
+  const [promotingIdeaId, setPromotingIdeaId] = useState<string | null>(null);
+  const [promoteProjectId, setPromoteProjectId] = useState<string>("");
+  const [promoteSubmittingIdeaId, setPromoteSubmittingIdeaId] = useState<string | null>(null);
+  const [promoteErrorByIdeaId, setPromoteErrorByIdeaId] = useState<Record<string, string>>({});
+  const [hiddenDevelopingIdeaIds, setHiddenDevelopingIdeaIds] = useState<string[]>([]);
   const refreshTimerRef = useRef<number | null>(null);
+  const activePromoteCardRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     async function loadIdeas(): Promise<void> {
@@ -337,6 +378,16 @@ export default function Pipeline(): JSX.Element {
   }, [activeCompany?.id]);
 
   useEffect(() => {
+    setPromotingIdeaId(null);
+    setPromoteProjectId("");
+    setPromoteSubmittingIdeaId(null);
+    setPromoteErrorByIdeaId({});
+    setProposalProjects([]);
+    setProposalProjectsError(null);
+    setHiddenDevelopingIdeaIds([]);
+  }, [activeCompany?.id]);
+
+  useEffect(() => {
     return () => {
       if (refreshTimerRef.current !== null) {
         window.clearTimeout(refreshTimerRef.current);
@@ -354,6 +405,93 @@ export default function Pipeline(): JSX.Element {
       refreshTimerRef.current = null;
     }, 300);
   }, [refresh]);
+
+  const loadProposalProjects = useCallback(async () => {
+    if (!activeCompany?.id || proposalProjectsLoading) {
+      return;
+    }
+
+    setProposalProjectsLoading(true);
+    setProposalProjectsError(null);
+
+    try {
+      const projects = await fetchProjects(activeCompany.id);
+      setProposalProjects(projects);
+      if (projects.length === 1) {
+        setPromoteProjectId((current) => current || projects[0].id);
+      }
+    } catch (projectError) {
+      setProposalProjectsError(projectError instanceof Error ? projectError.message : String(projectError));
+    } finally {
+      setProposalProjectsLoading(false);
+    }
+  }, [activeCompany?.id, proposalProjectsLoading]);
+
+  const closePromoteInline = useCallback(() => {
+    setPromotingIdeaId(null);
+    setPromoteProjectId("");
+  }, []);
+
+  const openPromoteInline = useCallback((ideaId: string) => {
+    setPromotingIdeaId(ideaId);
+    setPromoteErrorByIdeaId((current) => {
+      if (!current[ideaId]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[ideaId];
+      return next;
+    });
+
+    if (proposalProjects.length > 0) {
+      setPromoteProjectId((current) => current || proposalProjects[0].id);
+      return;
+    }
+
+    void loadProposalProjects();
+  }, [loadProposalProjects, proposalProjects]);
+
+  const submitPromoteIdea = useCallback(async (idea: PipelineIdea) => {
+    if (!promoteProjectId) {
+      setPromoteErrorByIdeaId((current) => ({
+        ...current,
+        [idea.id]: "Select a project to continue.",
+      }));
+      return;
+    }
+
+    setPromoteSubmittingIdeaId(idea.id);
+    setPromoteErrorByIdeaId((current) => {
+      if (!current[idea.id]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[idea.id];
+      return next;
+    });
+
+    try {
+      await promoteIdea({
+        ideaId: idea.id,
+        promoteTo: "feature",
+        projectId: promoteProjectId,
+        title: pipelineIdeaTitle(idea),
+      });
+
+      setHiddenDevelopingIdeaIds((current) =>
+        current.includes(idea.id) ? current : [...current, idea.id]
+      );
+      closePromoteInline();
+      scheduleRefresh();
+    } catch (promoteError) {
+      setPromoteErrorByIdeaId((current) => ({
+        ...current,
+        [idea.id]: promoteError instanceof Error ? promoteError.message : String(promoteError),
+      }));
+    } finally {
+      setPromoteSubmittingIdeaId(null);
+    }
+  }, [closePromoteInline, promoteProjectId, scheduleRefresh]);
 
   const realtimeEnabled = Boolean(activeCompany?.id);
   const realtimeFilter = activeCompany?.id
@@ -383,6 +521,41 @@ export default function Pipeline(): JSX.Element {
     onInsert: scheduleRefresh,
     onUpdate: scheduleRefresh,
   });
+
+  useEffect(() => {
+    const activeIdeaIds = new Set(snapshot.developingIdeas.map((idea) => idea.id));
+    setHiddenDevelopingIdeaIds((current) => current.filter((ideaId) => activeIdeaIds.has(ideaId)));
+  }, [snapshot.developingIdeas]);
+
+  useEffect(() => {
+    if (!promotingIdeaId || promoteProjectId || proposalProjects.length === 0) {
+      return;
+    }
+    setPromoteProjectId(proposalProjects[0].id);
+  }, [promotingIdeaId, promoteProjectId, proposalProjects]);
+
+  useEffect(() => {
+    if (!promotingIdeaId) {
+      activePromoteCardRef.current = null;
+      return;
+    }
+
+    const handleMouseDown = (event: MouseEvent): void => {
+      const target = event.target;
+      if (
+        activePromoteCardRef.current &&
+        target instanceof Node &&
+        !activePromoteCardRef.current.contains(target)
+      ) {
+        closePromoteInline();
+      }
+    };
+
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+    };
+  }, [closePromoteInline, promotingIdeaId]);
 
   const allFeatures = useMemo(
     () => Object.values(snapshot.byStatus).flat(),
@@ -439,6 +612,26 @@ export default function Pipeline(): JSX.Element {
     return true;
   };
 
+  const applyDevelopingIdeaFilter = (idea: PipelineIdea): boolean => {
+    if (filterMode === "all") {
+      return true;
+    }
+
+    if (filterMode === "urgent") {
+      return ["urgent", "high"].includes((idea.priority ?? "medium").toLowerCase());
+    }
+
+    if (filterMode === "stale") {
+      return (idea.ageHours ?? 0) >= 72;
+    }
+
+    if (filterMode === "mine") {
+      return true;
+    }
+
+    return true;
+  };
+
   const filteredByStatus = useMemo(() => {
     const next: Record<PipelineStatus, PipelineFeature[]> = {
       proposal: [],
@@ -472,6 +665,12 @@ export default function Pipeline(): JSX.Element {
     () => parkedIdeas.filter(applyIdeaFilter),
     [parkedIdeas, filterMode, mineIdentifier, userId],
   );
+  const filteredDevelopingIdeas = useMemo(() => {
+    const hiddenIds = new Set(hiddenDevelopingIdeaIds);
+    return snapshot.developingIdeas
+      .filter(applyDevelopingIdeaFilter)
+      .filter((idea) => !hiddenIds.has(idea.id));
+  }, [snapshot.developingIdeas, filterMode, hiddenDevelopingIdeaIds]);
   const displayedIdeas = useMemo(
     () => (
       inboxTypeFilter === "all"
@@ -730,6 +929,10 @@ export default function Pipeline(): JSX.Element {
 
         {COLUMN_DEFINITIONS.map((column) => {
           const features = filteredByStatus[column.key];
+          const proposalIdeas = column.key === "proposal" ? filteredDevelopingIdeas : [];
+          const columnCount = column.key === "proposal"
+            ? proposalIdeas.length + features.length
+            : features.length;
           const hasArchive =
             column.key === "failed" || column.key === "complete" || column.key === "shipped";
           const recentFeatures = hasArchive
@@ -817,6 +1020,100 @@ export default function Pipeline(): JSX.Element {
             );
           };
 
+          const renderProposalIdeaCard = (idea: PipelineIdea) => {
+            const showPromoteInline = idea.status === "specced" && promotingIdeaId === idea.id;
+            return (
+              <article
+                className="card card--clickable card--idea-proposal"
+                key={idea.id}
+                onClick={() => setSelectedIdea({ id: idea.id, colorVar: "--col-ideas" })}
+                ref={showPromoteInline ? activePromoteCardRef : undefined}
+              >
+                <div className="card-accent" style={{ background: "var(--col-ideas)" }} />
+                <div className="card-body">
+                  <div className="card-meta">
+                    <span className={priorityDotClass(idea.priority)} />
+                    <span className={pipelineIdeaStatusBadgeClass(idea.status)}>
+                      {pipelineIdeaStatusLabel(idea.status)}
+                    </span>
+                  </div>
+                  <div className="card-title">{pipelineIdeaTitle(idea)}</div>
+
+                  {idea.status === "specced" ? (
+                    <div className="proposal-promote-inline" onClick={(event) => event.stopPropagation()}>
+                      {showPromoteInline ? (
+                        <div className="proposal-promote-picker">
+                          {proposalProjectsLoading ? (
+                            <div className="proposal-promote-hint">Loading projects...</div>
+                          ) : (
+                            <>
+                              <label className="proposal-promote-label" htmlFor={`proposal-promote-${idea.id}`}>
+                                Project
+                              </label>
+                              <select
+                                id={`proposal-promote-${idea.id}`}
+                                className="proposal-promote-select"
+                                value={promoteProjectId}
+                                onChange={(event) => setPromoteProjectId(event.target.value)}
+                              >
+                                <option value="">Select project...</option>
+                                {proposalProjects.map((project) => (
+                                  <option key={project.id} value={project.id}>{project.name}</option>
+                                ))}
+                              </select>
+                            </>
+                          )}
+
+                          {proposalProjectsError ? (
+                            <div className="promote-error">{proposalProjectsError}</div>
+                          ) : null}
+                          {promoteErrorByIdeaId[idea.id] ? (
+                            <div className="promote-error">{promoteErrorByIdeaId[idea.id]}</div>
+                          ) : null}
+
+                          <div className="proposal-promote-actions">
+                            <button
+                              className="promote-btn proposal-promote-btn"
+                              type="button"
+                              disabled={proposalProjectsLoading || promoteSubmittingIdeaId === idea.id}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void submitPromoteIdea(idea);
+                              }}
+                            >
+                              {promoteSubmittingIdeaId === idea.id ? "Promoting..." : "Promote to Feature"}
+                            </button>
+                            <button
+                              className="filter-btn proposal-promote-cancel"
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                closePromoteInline();
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          className="promote-btn proposal-promote-trigger"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openPromoteInline(idea.id);
+                          }}
+                        >
+                          Promote to Feature
+                        </button>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              </article>
+            );
+          };
+
           return (
             <section className="pipeline-col" key={column.key}>
               <header className="pipeline-col-header">
@@ -824,15 +1121,18 @@ export default function Pipeline(): JSX.Element {
                   <span className="col-dot" style={{ background: `var(${column.colorVar})` }} />
                   <span className="col-name">{column.label}</span>
                 </div>
-                <span className="col-count">{features.length}</span>
+                <span className="col-count">{columnCount}</span>
               </header>
 
               <div className="pipeline-col-body">
-                {recentFeatures.length === 0 ? (
+                {column.key === "proposal" ? proposalIdeas.map((idea) => renderProposalIdeaCard(idea)) : null}
+                {column.key === "proposal" && proposalIdeas.length === 0 && recentFeatures.length === 0 ? (
+                  <div className="col-empty">No proposals or developing ideas</div>
+                ) : null}
+                {column.key !== "proposal" && recentFeatures.length === 0 ? (
                   <div className="col-empty">No items</div>
-                ) : (
-                  recentFeatures.map((feature) => renderFeatureCard(feature))
-                )}
+                ) : null}
+                {recentFeatures.map((feature) => renderFeatureCard(feature))}
 
                 {archivedFeatures.length > 0 ? (
                   <button

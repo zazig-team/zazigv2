@@ -2739,6 +2739,7 @@ async function refreshPipelineSnapshotCache(
 
 const AUTO_TRIAGE_COOLDOWN_MS = 60 * 1000; // 1 min between dispatches per company
 const AUTO_TRIAGE_STALE_THRESHOLD_MS = 15 * 60 * 1000; // 15 min before reverting orphaned triaging ideas
+const AUTO_TRIAGE_STALE_SESSION_THRESHOLD_MS = 30 * 60 * 1000; // 30 min before cancelling orphaned triage sessions
 const autoTriageLastRun = new Map<string, number>();
 
 /**
@@ -2747,6 +2748,42 @@ const autoTriageLastRun = new Map<string, number>();
  */
 async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void> {
   const staleCutoff = new Date(Date.now() - AUTO_TRIAGE_STALE_THRESHOLD_MS).toISOString();
+  const staleSessionCutoff = new Date(
+    Date.now() - AUTO_TRIAGE_STALE_SESSION_THRESHOLD_MS,
+  ).toISOString();
+
+  // Cancel stale triage-analyst expert sessions so they do not block auto-triage capacity.
+  const { data: staleSessions, error: staleSessionsErr } = await supabase
+    .from("expert_sessions")
+    .select("id, company_id, expert_roles!inner(name)")
+    .eq("expert_roles.name", "triage-analyst")
+    .in("status", ["requested", "running"])
+    .lt("created_at", staleSessionCutoff);
+
+  if (staleSessionsErr) {
+    console.error(
+      `[orchestrator] stale-triage-recovery: failed to fetch stale expert sessions: ${staleSessionsErr.message}`,
+    );
+  } else {
+    for (const session of (staleSessions ??
+      []) as { id: string; company_id: string }[]) {
+      const { error: cancelErr } = await supabase
+        .from("expert_sessions")
+        .update({ status: "cancelled" })
+        .eq("id", session.id)
+        .in("status", ["requested", "running"]); // guard against race
+
+      if (cancelErr) {
+        console.error(
+          `[orchestrator] stale-triage-recovery: failed to cancel stale expert session ${session.id}: ${cancelErr.message}`,
+        );
+      } else {
+        console.warn(
+          `[orchestrator] stale-triage-recovery: cancelled stale triage expert session ${session.id} for company ${session.company_id} (older than ${AUTO_TRIAGE_STALE_SESSION_THRESHOLD_MS / 60000} min)`,
+        );
+      }
+    }
+  }
 
   // Find ideas stuck at 'triaging' for longer than the threshold.
   const { data: staleIdeas, error: staleErr } = await supabase
@@ -2757,9 +2794,11 @@ async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void
 
   if (staleErr || !staleIdeas?.length) return;
 
+  const companyHasActiveTriageSession = new Map<string, boolean>();
+
   for (const idea of staleIdeas as { id: string; company_id: string }[]) {
     // Check if there's still an active triage job for this specific idea.
-    const { data: activeJobs } = await supabase
+    const { data: activeJobs, error: activeJobsErr } = await supabase
       .from("jobs")
       .select("id")
       .eq("role", "triage-analyst")
@@ -2767,7 +2806,42 @@ async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void
       .in("status", ["queued", "dispatched", "executing"])
       .limit(1);
 
+    if (activeJobsErr) {
+      console.error(
+        `[orchestrator] stale-triage-recovery: failed to check active jobs for idea ${idea.id}: ${activeJobsErr.message}`,
+      );
+      continue;
+    }
+
     if (activeJobs && activeJobs.length > 0) continue;
+
+    // Also guard against active triage-analyst sessions for the company.
+    let hasActiveTriageSession = companyHasActiveTriageSession.get(
+      idea.company_id,
+    );
+    if (hasActiveTriageSession === undefined) {
+      const { data: activeSessions, error: activeSessionsErr } = await supabase
+        .from("expert_sessions")
+        .select("id, expert_roles!inner(name)")
+        .eq("company_id", idea.company_id)
+        .eq("expert_roles.name", "triage-analyst")
+        .in("status", ["requested", "running"])
+        .gt("created_at", staleCutoff)
+        .limit(1);
+
+      if (activeSessionsErr) {
+        console.error(
+          `[orchestrator] stale-triage-recovery: failed to check active expert sessions for company ${idea.company_id}: ${activeSessionsErr.message}`,
+        );
+        companyHasActiveTriageSession.set(idea.company_id, true);
+        continue;
+      }
+
+      hasActiveTriageSession = Boolean(activeSessions && activeSessions.length > 0);
+      companyHasActiveTriageSession.set(idea.company_id, hasActiveTriageSession);
+    }
+
+    if (hasActiveTriageSession) continue;
 
     // No active job — revert to 'new' so it can be re-triaged.
     const { error: revertErr } = await supabase

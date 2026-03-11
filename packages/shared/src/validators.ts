@@ -257,13 +257,13 @@ export function isHeartbeat(v: unknown): v is Heartbeat {
 /**
  * Validates a JobStatusMessage from the local agent.
  * Only agent-reportable statuses are accepted (AgentJobStatus).
- * The DB-only states `queued` and `dispatched` are intentionally excluded.
+ * The DB-only state `queued` is intentionally excluded.
  */
 export function isJobStatusMessage(v: unknown): v is JobStatusMessage {
   if (!isObject(v) || v.type !== "job_status") return false;
   if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || v.jobId.length === 0) return false;
-  // Only AgentJobStatus values — agents must never send `queued` or `dispatched`.
+  // Only AgentJobStatus values — agents must never send `queued`.
   const agentStatuses = ["executing", "reviewing", "blocked", "complete", "failed"];
   if (!isString(v.status) || !agentStatuses.includes(v.status)) return false;
   if (v.output !== undefined && !isString(v.output)) return false;

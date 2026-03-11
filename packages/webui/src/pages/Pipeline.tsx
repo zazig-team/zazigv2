@@ -275,7 +275,7 @@ function getCardAccentColor(feature: PipelineFeature, activeJobs: PipelineActive
     return "var(--positive)";
   }
 
-  if (featureJobs.some((job) => ["queued", "dispatched"].includes(job.status.toLowerCase()))) {
+  if (featureJobs.some((job) => ["queued"].includes(job.status.toLowerCase()))) {
     return "var(--caution)";
   }
 

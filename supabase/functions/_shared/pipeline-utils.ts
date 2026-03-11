@@ -228,7 +228,7 @@ export async function notifyCPO(
     .from("jobs")
     .select("id, machine_id")
     .eq("role", "cpo")
-    .in("status", ["dispatched", "executing"])
+    .in("status", ["executing"])
     .eq("company_id", companyId)
     .limit(1)
     .maybeSingle();
@@ -652,7 +652,7 @@ export async function triggerMerging(
     .select("id, status")
     .eq("feature_id", featureId)
     .eq("job_type", "merge")
-    .in("status", ["queued", "dispatched", "executing", "complete"])
+    .in("status", ["queued", "executing", "complete"])
     .limit(1);
 
   if (existingMerge && existingMerge.length > 0) {
@@ -739,4 +739,3 @@ export async function triggerMerging(
     `[pipeline] Created merge job ${mergeJob.id} for feature ${featureId}`,
   );
 }
-

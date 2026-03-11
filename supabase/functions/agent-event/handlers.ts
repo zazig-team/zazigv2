@@ -118,7 +118,7 @@ export async function handleJobStatus(
     .from("jobs")
     .update({ status: msg.status })
     .eq("id", msg.jobId)
-    .in("status", ["dispatched", "executing", "blocked"]) // only update non-terminal jobs
+    .in("status", ["executing", "blocked"]) // only update non-terminal jobs
     .select("id");
 
   if (error) {

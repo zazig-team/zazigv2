@@ -550,7 +550,7 @@ server.tool(
   {
     job_id: z.string().optional().describe("Job UUID — returns a single job with full detail"),
     feature_id: z.string().optional().describe("Feature UUID — returns all jobs for this feature"),
-    status: z.string().optional().describe("Filter by status (e.g. 'queued', 'dispatched', 'complete')"),
+    status: z.string().optional().describe("Filter by status (e.g. 'queued', 'executing', 'complete')"),
   },
   guardedHandler("query_jobs", async ({ job_id, feature_id, status }) => {
     const supabaseUrl = process.env.SUPABASE_URL;

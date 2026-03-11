@@ -32,17 +32,16 @@ export type CardType = "code" | "infra" | "design" | "research" | "docs" | "veri
 /**
  * Lifecycle status values for a job in the orchestrator's job queue (DB model).
  *
- *   queued → dispatched → executing → reviewing → complete
+ *   queued → executing → reviewing → complete
  *                           ↘ blocked (needs human input)
  *   Plus: failed, cancelled
  *
- * NOTE: `queued` and `dispatched` are DB-only states that the local agent never
+ * NOTE: `queued` is a DB-only state that the local agent never
  * sends over the wire. Use `AgentJobStatus` for the set of statuses an agent
  * may report in a JobStatusMessage.
  */
 export type JobStatusValue =
   | "queued"
-  | "dispatched"
   | "executing"
   | "blocked"
   | "reviewing"
@@ -52,7 +51,7 @@ export type JobStatusValue =
 
 /**
  * Subset of JobStatusValue that the local agent is allowed to send in a
- * JobStatusMessage. The orchestrator-only states `queued` and `dispatched`
+ * JobStatusMessage. The orchestrator-only state `queued`
  * are intentionally excluded — agents must never emit those values over the
  * wire.
  */
@@ -240,7 +239,6 @@ export type FeatureStatus = typeof FEATURE_STATUSES[number];
 
 export const JOB_STATUSES = [
   "queued",
-  "dispatched",
   "executing",
   "blocked",
   "reviewing",
@@ -432,7 +430,7 @@ export interface Heartbeat {
  * May include an optional partial output or status detail.
  *
  * NOTE: Only AgentJobStatus values may be sent here. The DB-only states
- * `queued` and `dispatched` must never appear in this message.
+ * `queued` must never appear in this message.
  */
 export interface JobStatusMessage {
   type: "job_status";

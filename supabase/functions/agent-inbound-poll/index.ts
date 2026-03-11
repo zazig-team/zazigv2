@@ -9,14 +9,25 @@
 
 import { createClient } from "@supabase/supabase-js";
 
+console.log("[agent-inbound-poll] Module loading...");
+
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+console.log("[agent-inbound-poll] SUPABASE_URL set:", !!SUPABASE_URL, "SERVICE_ROLE_KEY set:", !!SUPABASE_SERVICE_ROLE_KEY);
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error(
     "Missing required environment variables: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY",
   );
 }
+
+// Pre-create admin client at module level (reused across requests)
+const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
+});
+
+console.log("[agent-inbound-poll] Module loaded OK");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -83,11 +94,9 @@ async function authenticateRequest(token: string): Promise<boolean> {
   if (token === SUPABASE_SERVICE_ROLE_KEY) return true;
 
   // Validate as user JWT (same pattern as agent-event)
-  const supabaseAdmin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
-    auth: { persistSession: false },
-  });
-  const { error } = await supabaseAdmin.auth.getUser(token);
-  return !error;
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  console.log("[agent-inbound-poll] auth.getUser result:", error ? `error: ${error.message}` : `user: ${user?.email}`);
+  return !error && !!user;
 }
 
 function requiredQueryParam(url: URL, key: string): string | null {
@@ -133,11 +142,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { persistSession: false },
-    });
-
-    const { data: jobsData, error: jobsErr } = await supabase
+    const { data: jobsData, error: jobsErr } = await supabaseAdmin
       .from("jobs")
       .select(
         "id, title, spec, acceptance_tests, complexity, role, job_type, feature_id, depends_on, status, machines!inner(name, company_id)",
@@ -150,7 +155,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: `Failed to fetch dispatched jobs: ${jobsErr.message}` }, 500);
     }
 
-    const { data: sessionsData, error: sessionsErr } = await supabase
+    const { data: sessionsData, error: sessionsErr } = await supabaseAdmin
       .from("expert_sessions")
       .select(
         "id, role_name, brief, machine_id, feature_id, project_id, branch_name, status, machines!inner(name, company_id)",

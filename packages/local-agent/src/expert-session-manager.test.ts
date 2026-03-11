@@ -324,6 +324,7 @@ describe("ExpertSessionManager", () => {
       type: "start_expert",
       protocolVersion: 1,
       session_id: "session-123456789",
+      role_name: "hotfix-engineer",
       project_id: "project-123",
       repo_url: "https://github.com/acme/project.git",
       model: "claude-opus",
@@ -332,15 +333,24 @@ describe("ExpertSessionManager", () => {
     });
 
     expect(repoManager.ensureRepo).toHaveBeenCalledWith("https://github.com/acme/project.git", "project");
-    expect(repoManager.fetchBranchForExpert).toHaveBeenCalledWith("project", "master");
+    // Should fetch origin master for the expert branch base
+    expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
+      "-C",
+      expect.stringContaining("/.zazigv2/repos/project"),
+      "fetch",
+      "origin",
+      "master",
+    ]);
+    // Should create worktree with named branch from origin/master
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
       "-C",
       expect.stringContaining("/.zazigv2/repos/project"),
       "worktree",
       "add",
-      "--detach",
+      "-b",
+      "expert/hotfix-engineer-session-",
       expect.stringContaining("/.zazigv2/expert-session-123456789/repo"),
-      "refs/heads/master",
+      "refs/remotes/origin/master",
     ]);
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
       "-C",
@@ -358,6 +368,8 @@ describe("ExpertSessionManager", () => {
       expect.any(String),
     ]);
     expect(vi.mocked(setupJobWorkspace)).toHaveBeenCalled();
+    // Should NOT use fetchBranchForExpert (replaced by direct fetch origin master)
+    expect(repoManager.fetchBranchForExpert).not.toHaveBeenCalled();
 
     const statusUpdates = supabase.updates
       .filter((u) => u.table === "expert_sessions")
@@ -367,9 +379,7 @@ describe("ExpertSessionManager", () => {
 
   it("handleStartExpert marks session failed when repo worktree setup fails", async () => {
     const supabase = makeSupabaseClient();
-    const repoManager = makeRepoManager({
-      fetchBranchForExpert: vi.fn().mockRejectedValue(new Error("targeted fetch failed")),
-    });
+    const repoManager = makeRepoManager();
     const { ExpertSessionManager } = await import("./expert-session-manager.js");
     const manager = new ExpertSessionManager({
       machineId: "machine-1",
@@ -380,10 +390,19 @@ describe("ExpertSessionManager", () => {
       repoManager: repoManager as any,
     });
 
+    // Make `git fetch origin master` fail to trigger the error path
+    mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === "git" && Array.isArray(args) && args.includes("fetch") && args.includes("master")) {
+        throw new Error("fetch origin master failed");
+      }
+      return { stdout: "", stderr: "" };
+    });
+
     await manager.handleStartExpert({
       type: "start_expert",
       protocolVersion: 1,
       session_id: "session-123456789",
+      role_name: "hotfix-engineer",
       project_id: "project-123",
       repo_url: "https://github.com/acme/project.git",
       model: "claude-opus",
@@ -391,7 +410,6 @@ describe("ExpertSessionManager", () => {
       role: { prompt: "system prompt" },
     });
 
-    expect(repoManager.fetchBranchForExpert).toHaveBeenCalledWith("project", "master");
     const statusUpdates = supabase.updates
       .filter((u) => u.table === "expert_sessions")
       .map((u) => u.data.status);

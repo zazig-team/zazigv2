@@ -39,6 +39,8 @@ interface ExpertSessionState {
   bareRepoDir?: string;
   /** Branch the worktree was created from (e.g. "master"). */
   branch?: string;
+  /** Named expert branch created for this session (e.g. "expert/hotfix-engineer-a2ba54b3"). */
+  expertBranch?: string;
   /** Commit hash at worktree creation — used to detect unpushed commits. */
   startCommit?: string;
   displayName: string;
@@ -182,12 +184,16 @@ export class ExpertSessionManager {
       return;
     }
 
+    let expertBranch: string | undefined;
     if (msg.project_id && msg.repo_url) {
       try {
         const projectName = msg.repo_url.split("/").pop()?.replace(/\.git$/, "") ?? msg.project_id;
         bareRepoDir = await this.repoManager.ensureRepo(msg.repo_url, projectName);
         const worktreeTarget = join(workspaceDir, "repo");
-        const branch = msg.branch ?? "master";
+
+        // Build named expert branch from role_name + shortId
+        const roleName = msg.role_name ?? "expert";
+        expertBranch = `expert/${roleName}-${shortId}`;
 
         // Remove stale metadata/dir from interrupted sessions so each start gets a fresh worktree.
         try {
@@ -201,20 +207,30 @@ export class ExpertSessionManager {
         rmSync(worktreeTarget, { recursive: true, force: true });
         await execFileAsync("git", ["-C", bareRepoDir, "worktree", "prune"]);
 
-        await this.repoManager.fetchBranchForExpert(projectName, branch);
+        // Delete stale local branch with the same name if it exists
+        try {
+          await execFileAsync("git", ["-C", bareRepoDir, "branch", "-D", expertBranch]);
+        } catch {
+          // Branch doesn't exist — fine.
+        }
 
-        // Create worktree — use detached HEAD from the target branch to avoid
-        // "already checked out" errors on shared branches
+        // Fetch latest origin/master for a clean base
         await execFileAsync("git", [
           "-C", bareRepoDir,
-          "worktree", "add", "--detach", worktreeTarget,
-          `refs/heads/${branch}`,
+          "fetch", "origin", "master",
+        ]);
+
+        // Create worktree on a named branch from the latest origin/master
+        await execFileAsync("git", [
+          "-C", bareRepoDir,
+          "worktree", "add", "-b", expertBranch, worktreeTarget,
+          "refs/remotes/origin/master",
         ]);
         const { stdout } = await execFileAsync("git", ["-C", worktreeTarget, "rev-parse", "HEAD"]);
         startCommitHash = stdout.trim();
 
         repoDir = worktreeTarget;
-        console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${branch})`);
+        console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${expertBranch})`);
         console.log(`[expert] Worktree at commit: ${startCommitHash.slice(0, 8)}`);
       } catch (err) {
         console.error(`[expert] Failed to create git worktree:`, err);
@@ -377,6 +393,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       repoDir,
       bareRepoDir,
       branch: repoDir ? (msg.branch ?? "master") : undefined,
+      expertBranch,
       startCommit: repoDir ? startCommitHash : undefined,
       displayName,
       tmuxSession: tmuxSessionName,
@@ -651,7 +668,11 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
    * isn't silently lost when the session ends.
    */
   private async pushUnpushedCommits(session: ExpertSessionState): Promise<void> {
-    if (!session.repoDir || !session.bareRepoDir || !session.branch || !session.startCommit) return;
+    if (!session.repoDir || !session.bareRepoDir || !session.startCommit) return;
+
+    // Push to the expert branch if available, otherwise fall back to the original branch
+    const pushBranch = session.expertBranch ?? session.branch;
+    if (!pushBranch) return;
 
     try {
       const { stdout: currentHead } = await execFileAsync("git", [
@@ -663,23 +684,23 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
         return; // No new commits — nothing to push
       }
 
-      // There are local commits. Push them to the original branch.
+      // There are local commits. Push them to the expert branch.
       console.log(
-        `[expert] Session ${session.sessionId} has unpushed commits (${session.startCommit.slice(0, 8)}..${head.slice(0, 8)}). Pushing to origin/${session.branch}...`,
+        `[expert] Session ${session.sessionId} has unpushed commits (${session.startCommit.slice(0, 8)}..${head.slice(0, 8)}). Pushing to origin/${pushBranch}...`,
       );
 
       try {
         await execFileAsync("git", [
           "-C", session.repoDir,
-          "push", "origin", `HEAD:refs/heads/${session.branch}`,
+          "push", "origin", `HEAD:refs/heads/${pushBranch}`,
         ]);
-        console.log(`[expert] Pushed unpushed commits to origin/${session.branch}`);
+        console.log(`[expert] Pushed unpushed commits to origin/${pushBranch}`);
       } catch (pushErr) {
-        // Push to the original branch failed (maybe it advanced).
+        // Push to the expert branch failed.
         // Create a rescue branch so the work is recoverable.
         const rescueBranch = `rescue/expert-${session.sessionId.slice(0, 8)}`;
         console.warn(
-          `[expert] Push to origin/${session.branch} failed — saving work to ${rescueBranch}`,
+          `[expert] Push to origin/${pushBranch} failed — saving work to ${rescueBranch}`,
         );
         try {
           await execFileAsync("git", [
@@ -712,6 +733,17 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
           "-C", session.bareRepoDir,
           "worktree", "prune",
         ]);
+        // Clean up the local expert branch after worktree removal
+        if (session.expertBranch) {
+          try {
+            await execFileAsync("git", [
+              "-C", session.bareRepoDir,
+              "branch", "-D", session.expertBranch,
+            ]);
+          } catch {
+            // Branch may already be gone — fine.
+          }
+        }
       } else {
         await execFileAsync("git", ["worktree", "remove", "--force", session.repoDir]);
       }

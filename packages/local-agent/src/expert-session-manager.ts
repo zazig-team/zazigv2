@@ -353,7 +353,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       return;
     }
 
-    if ((msg as StartExpertMessage & { headless?: boolean }).headless === true) {
+    if (msg.headless === true) {
       try {
         const claudeCmd = shellEscape([
           "claude",

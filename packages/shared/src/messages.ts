@@ -388,6 +388,12 @@ export interface StartExpertMessage {
   company_name?: string;
   /** Full role configuration. */
   role: ExpertRoleConfig;
+  /** Run without interactive tmux window — expert processes brief and exits. */
+  headless?: boolean;
+  /** Batch ID for grouping related headless sessions. */
+  batch_id?: string;
+  /** Auto-exit when Claude process completes (default true for headless). */
+  auto_exit?: boolean;
 }
 
 /** Union of all messages the orchestrator sends to a local agent. */

@@ -164,6 +164,196 @@ describe("ExpertSessionManager", () => {
     expect(String(briefWriteCall?.[1])).toContain("/as-cto");
   });
 
+  it("handleStartExpert in headless mode spawns detached tmux and skips viewer linking", async () => {
+    const supabase = makeSupabaseClient();
+    const repoManager = makeRepoManager();
+    const { ExpertSessionManager } = await import("./expert-session-manager.js");
+    const manager = new ExpertSessionManager({
+      machineId: "machine-1",
+      companyId: "company-12345678",
+      supabase: supabase.client as any,
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "anon-key",
+      repoManager: repoManager as any,
+    });
+
+    const fsReadMock = vi.mocked(fsModule.readFileSync);
+    fsReadMock.mockImplementation((path: unknown) =>
+      String(path).endsWith("settings.json")
+        ? JSON.stringify({ permissions: { allow: ["Read"] } })
+        : "status: pass\nsummary: expert result",
+    );
+
+    const linkSpy = vi.spyOn(manager as any, "linkToViewerTui");
+    const pollSpy = vi.spyOn(manager as any, "startExitPolling");
+    const statusSpy = vi.spyOn(manager as any, "updateSessionStatus");
+
+    await manager.handleStartExpert({
+      type: "start_expert",
+      protocolVersion: 1,
+      session_id: "feedface-1234-5678-90ab-cdef12345678",
+      display_name: "Headless Expert",
+      role: {
+        name: "expert",
+        prompt: "You are an expert.",
+        mcp_tools: [],
+        settings_overrides: null,
+        skills: [],
+      },
+      model: "claude-sonnet-4-6",
+      brief: "Run fully autonomously.",
+      branch: "master",
+      company_name: null,
+      company_id: "company-12345678",
+      project_id: null,
+      repo_url: null,
+      headless: true,
+    } as any);
+
+    const tmuxNewSessionCall = mockExecFileAsync.mock.calls.find((call) =>
+      call[0] === "tmux"
+      && Array.isArray(call[1])
+      && call[1][0] === "new-session"
+    );
+    expect(tmuxNewSessionCall).toBeDefined();
+    expect(tmuxNewSessionCall?.[1][1]).toBe("-d");
+    const shellCmd = tmuxNewSessionCall?.[1][6];
+    expect(shellCmd).toContain("'claude'");
+    expect(shellCmd).toContain("'--model'");
+    expect(shellCmd).toContain("'claude-sonnet-4-6'");
+    expect(shellCmd).toContain("'-p'");
+    expect(shellCmd).toContain("'Run fully autonomously.'");
+
+    expect(linkSpy).not.toHaveBeenCalled();
+    expect(pollSpy).toHaveBeenCalledTimes(1);
+    expect(statusSpy).toHaveBeenCalledWith("feedface-1234-5678-90ab-cdef12345678", "running");
+  });
+
+  it("headless lifecycle exits cleanly and injects session summary", async () => {
+    const supabase = makeSupabaseClient();
+    const repoManager = makeRepoManager();
+    const { ExpertSessionManager } = await import("./expert-session-manager.js");
+    const manager = new ExpertSessionManager({
+      machineId: "machine-1",
+      companyId: "company-12345678",
+      supabase: supabase.client as any,
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "anon-key",
+      repoManager: repoManager as any,
+    });
+
+    const fsExistsMock = vi.mocked(fsModule.existsSync);
+    const fsReadMock = vi.mocked(fsModule.readFileSync);
+    fsExistsMock.mockImplementation((path: unknown) => String(path).endsWith("expert-report.md"));
+    fsReadMock.mockImplementation((path: unknown) => {
+      if (String(path).endsWith("settings.json")) return JSON.stringify({ permissions: { allow: ["Read"] } });
+      if (String(path).endsWith("expert-report.md")) return "Headless summary";
+      return "";
+    });
+
+    let expertHasSessionChecks = 0;
+    mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "has-session") {
+        const sessionName = args[2];
+        if (sessionName === "expert-feedface") {
+          expertHasSessionChecks += 1;
+          if (expertHasSessionChecks === 1) return { stdout: "", stderr: "" };
+          throw new Error("dead");
+        }
+        return { stdout: "", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    const exitSpy = vi.spyOn(manager as any, "handleSessionExit");
+    const injectSpy = vi.spyOn(manager as any, "injectSummaryIntoCpo");
+    const fsRmMock = vi.mocked(fsModule.rmSync);
+    const sessionId = "feedface-1234-5678-90ab-cdef12345678";
+
+    await manager.handleStartExpert({
+      type: "start_expert",
+      protocolVersion: 1,
+      session_id: sessionId,
+      display_name: "Headless Expert",
+      role: {
+        name: "expert",
+        prompt: "You are an expert.",
+        mcp_tools: [],
+        settings_overrides: null,
+        skills: [],
+      },
+      model: "claude-sonnet-4-6",
+      brief: "Run fully autonomously.",
+      branch: "master",
+      company_name: null,
+      company_id: "company-12345678",
+      project_id: null,
+      repo_url: null,
+      headless: true,
+    } as any);
+
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(exitSpy).toHaveBeenCalled();
+    expect(injectSpy).toHaveBeenCalledWith(expect.objectContaining({ sessionId }), "Headless summary");
+    expect(fsRmMock).toHaveBeenCalledWith(expect.stringContaining(`/.zazigv2/expert-${sessionId}`), {
+      recursive: true,
+      force: true,
+    });
+    expect((manager as any).getActiveSessions().has(sessionId)).toBe(false);
+
+    const completedUpdate = supabase.updates.find((u) => u.table === "expert_sessions" && u.data.status === "completed");
+    expect(completedUpdate).toBeDefined();
+    expect(completedUpdate?.data.summary).toBe("Headless summary");
+  });
+
+  it("interactive regression: non-headless sessions still link to viewer TUI", async () => {
+    const supabase = makeSupabaseClient();
+    const repoManager = makeRepoManager();
+    const { ExpertSessionManager } = await import("./expert-session-manager.js");
+    const manager = new ExpertSessionManager({
+      machineId: "machine-1",
+      companyId: "company-12345678",
+      supabase: supabase.client as any,
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "anon-key",
+      repoManager: repoManager as any,
+    });
+
+    const fsReadMock = vi.mocked(fsModule.readFileSync);
+    fsReadMock.mockImplementation((path: unknown) =>
+      String(path).endsWith("settings.json")
+        ? JSON.stringify({ permissions: { allow: ["Read"] } })
+        : "",
+    );
+
+    const linkSpy = vi.spyOn(manager as any, "linkToViewerTui").mockResolvedValue(null);
+
+    await manager.handleStartExpert({
+      type: "start_expert",
+      protocolVersion: 1,
+      session_id: "cafebabe-1234-5678-90ab-cdef12345678",
+      display_name: "Interactive Expert",
+      role: {
+        name: "expert",
+        prompt: "You are an expert.",
+        mcp_tools: [],
+        settings_overrides: null,
+        skills: [],
+      },
+      model: "claude-sonnet-4-6",
+      brief: "Interactive flow.",
+      branch: "master",
+      company_name: null,
+      company_id: "company-12345678",
+      project_id: null,
+      repo_url: null,
+      headless: false,
+    } as any);
+
+    expect(linkSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("does not duplicate Available Context section if already present in brief", async () => {
     const supabase = makeSupabaseClient();
     const repoManager = makeRepoManager();

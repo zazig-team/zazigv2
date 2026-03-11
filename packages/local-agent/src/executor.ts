@@ -735,6 +735,9 @@ export class JobExecutor {
     // --- 5. Clear stale report before spawning (prevents reading a previous job's report) ---
     const reportPath = `${process.env["HOME"] ?? "/tmp"}/${reportRelativePath(msg.role)}`;
     try { unlinkSync(reportPath); } catch { /* no stale report — fine */ }
+    if (msg.role === "reviewer" && msg.worktreePath) {
+      try { unlinkSync(`${msg.worktreePath}/.claude/reviewer-report.md`); } catch { /* no stale report — fine */ }
+    }
 
     // --- 6. Kill stale tmux session if it exists (from a previous dispatch) ---
     if (await isTmuxSessionAlive(sessionName)) {
@@ -1980,48 +1983,64 @@ export class JobExecutor {
     const archiveDir = `${homeDir}/${REPORT_ARCHIVE_DIR}`;
     const jobReportPath = `${archiveDir}/${jobId}.md`;
 
-    // Candidate paths in priority order: worktree first, then legacy workspace dir, then $HOME
-    const rpPath = reportRelativePath(job.role);
-    const candidatePaths: string[] = [];
-    if (job.worktreePath) {
-      candidatePaths.push(`${job.worktreePath}/${rpPath}`);
-    } else if (job.workspaceDir) {
-      candidatePaths.push(`${job.workspaceDir}/${rpPath}`);
-    }
-    candidatePaths.push(`${homeDir}/${rpPath}`);
-
-    // Fallback: some role prompts write reports under a different filename than
-    // the executor's convention ({role}-report.md).  Add known alternates so we
-    // find the report regardless of which name the agent used.
-    const REPORT_FALLBACKS: Record<string, string> = {
-      reviewer: ".claude/verify-report.md",
-      deployer: ".claude/deploy-report.md",
-      "test-deployer": ".claude/deploy-report.md",
-      tester: ".claude/tester-report.md",
-      "job-merger": ".claude/job-merger-report.md",
-    };
-    const fallback = job.role ? REPORT_FALLBACKS[job.role] : undefined;
-    if (fallback && fallback !== rpPath) {
-      if (job.worktreePath) candidatePaths.push(`${job.worktreePath}/${fallback}`);
-      else if (job.workspaceDir) candidatePaths.push(`${job.workspaceDir}/${fallback}`);
-      candidatePaths.push(`${homeDir}/${fallback}`);
-    }
-
     let result = "NO_REPORT";
     let report: string | undefined;
-
-    jobLog(jobId, `Report search — rpPath=${rpPath}, fallback=${fallback ?? "none"}, candidates=${JSON.stringify(candidatePaths)}`);
-
     mkdirSync(archiveDir, { recursive: true });
-    for (const candidatePath of candidatePaths) {
-      try {
-        renameSync(candidatePath, jobReportPath);
-        report = readFileSync(jobReportPath, "utf-8");
-        jobLog(jobId, `Report FOUND at ${candidatePath} (${report.length} chars)`);
-        console.log(`[executor] Claimed report for jobId=${jobId} from ${candidatePath} → ${jobReportPath}`);
-        break;
-      } catch {
-        jobLog(jobId, `Report not at ${candidatePath}`);
+
+    if (job.role === "reviewer") {
+      if (!job.worktreePath) {
+        result = "FAILED: Reviewer job missing required worktreePath";
+        jobLog(jobId, "Report search ERROR — reviewer job missing required worktreePath");
+      } else {
+        const reviewerReportPath = `${job.worktreePath}/.claude/reviewer-report.md`;
+        jobLog(jobId, `Report search — reviewer canonical path=${reviewerReportPath}`);
+        try {
+          renameSync(reviewerReportPath, jobReportPath);
+          report = readFileSync(jobReportPath, "utf-8");
+          jobLog(jobId, `Report FOUND at ${reviewerReportPath} (${report.length} chars)`);
+          console.log(`[executor] Claimed report for jobId=${jobId} from ${reviewerReportPath} → ${jobReportPath}`);
+        } catch {
+          jobLog(jobId, `Report not at ${reviewerReportPath}`);
+        }
+      }
+    } else {
+      // Candidate paths in priority order: worktree first, then legacy workspace dir, then $HOME
+      const rpPath = reportRelativePath(job.role);
+      const candidatePaths: string[] = [];
+      if (job.worktreePath) {
+        candidatePaths.push(`${job.worktreePath}/${rpPath}`);
+      } else if (job.workspaceDir) {
+        candidatePaths.push(`${job.workspaceDir}/${rpPath}`);
+      }
+      candidatePaths.push(`${homeDir}/${rpPath}`);
+
+      // Fallback: some role prompts write reports under a different filename than
+      // the executor's convention ({role}-report.md).  Add known alternates so we
+      // find the report regardless of which name the agent used.
+      const REPORT_FALLBACKS: Record<string, string> = {
+        deployer: ".claude/deploy-report.md",
+        "test-deployer": ".claude/deploy-report.md",
+        tester: ".claude/tester-report.md",
+        "job-merger": ".claude/job-merger-report.md",
+      };
+      const fallback = job.role ? REPORT_FALLBACKS[job.role] : undefined;
+      if (fallback && fallback !== rpPath) {
+        if (job.worktreePath) candidatePaths.push(`${job.worktreePath}/${fallback}`);
+        else if (job.workspaceDir) candidatePaths.push(`${job.workspaceDir}/${fallback}`);
+        candidatePaths.push(`${homeDir}/${fallback}`);
+      }
+
+      jobLog(jobId, `Report search — rpPath=${rpPath}, fallback=${fallback ?? "none"}, candidates=${JSON.stringify(candidatePaths)}`);
+      for (const candidatePath of candidatePaths) {
+        try {
+          renameSync(candidatePath, jobReportPath);
+          report = readFileSync(jobReportPath, "utf-8");
+          jobLog(jobId, `Report FOUND at ${candidatePath} (${report.length} chars)`);
+          console.log(`[executor] Claimed report for jobId=${jobId} from ${candidatePath} → ${jobReportPath}`);
+          break;
+        } catch {
+          jobLog(jobId, `Report not at ${candidatePath}`);
+        }
       }
     }
 
@@ -2047,9 +2066,12 @@ export class JobExecutor {
         }
       }
       jobLog(jobId, `Report parsed — result="${result}"`);
-    } else {
+    } else if (result === "NO_REPORT") {
       jobLog(jobId, `Report NOT FOUND — result="NO_REPORT"`);
       console.log(`[executor] No report file for jobId=${jobId}, result=NO_REPORT`);
+    } else {
+      jobLog(jobId, `Report retrieval failed — result="${result}"`);
+      console.log(`[executor] Report retrieval failed for jobId=${jobId}, result=${result}`);
     }
 
     // Final log flush — capture anything written after the last poll tick

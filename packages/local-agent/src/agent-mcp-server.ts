@@ -1125,8 +1125,10 @@ server.tool(
     brief: z.string().describe("Structured handoff context for the expert: what needs to be done, relevant background, expected output"),
     machine_name: z.string().describe("Which machine to spawn the expert on. Read the machine name from ~/.zazigv2/config.json — use the 'name' field."),
     project_id: z.string().describe("Project ID or name — required. The expert needs a repo to work in."),
+    headless: z.boolean().optional().describe("Run in headless mode without interactive tmux window (for autonomous use)"),
+    batch_id: z.string().optional().describe("Group related headless sessions under a batch ID"),
   },
-  guardedHandler("start_expert_session", async ({ role_name, brief, machine_name, project_id }) => {
+  guardedHandler("start_expert_session", async ({ role_name, brief, machine_name, project_id, headless, batch_id }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
@@ -1149,7 +1151,7 @@ server.tool(
         Authorization: `Bearer ${supabaseAnonKey}`,
         "x-company-id": companyId,
       },
-      body: JSON.stringify({ role_name, brief, machine_name, project_id }),
+      body: JSON.stringify({ role_name, brief, machine_name, project_id, headless, batch_id }),
     });
     if (!response.ok) {
       const error = await response.text();

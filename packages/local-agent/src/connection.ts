@@ -19,9 +19,9 @@ import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs"
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { HEARTBEAT_INTERVAL_MS, PROTOCOL_VERSION, isOrchestratorMessage } from "@zazigv2/shared";
+import { HEARTBEAT_INTERVAL_MS, MACHINE_DEAD_THRESHOLD_MS, PROTOCOL_VERSION, isOrchestratorMessage } from "@zazigv2/shared";
 import { jobLog } from "./executor.js";
-import type { OrchestratorMessage, Heartbeat, AgentMessage } from "@zazigv2/shared";
+import type { OrchestratorMessage, Heartbeat, AgentMessage, FailureReason } from "@zazigv2/shared";
 import type { MachineConfig } from "./config.js";
 import type { SlotTracker } from "./slots.js";
 import { recoverDispatchedJobs } from "./job-recovery.js";
@@ -59,6 +59,8 @@ export class AgentConnection {
   private stopped = false;
   private isRecoveryRunning = false;
   private consecutiveHeartbeatFailures = 0;
+  private lastHeartbeatSentAt: number = Date.now();
+  private killStaleJobsFn?: (reason: FailureReason) => Promise<number>;
   private outdated = false;
   private outdatedWarningTimer: ReturnType<typeof setInterval> | null = null;
   private outdatedExitPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -105,6 +107,10 @@ export class AgentConnection {
   /** Register a handler for incoming OrchestratorMessages. */
   onMessage(handler: MessageHandler): void {
     this.handlers.push(handler);
+  }
+
+  public setKillStaleJobsFn(fn: (reason: FailureReason) => Promise<number>): void {
+    this.killStaleJobsFn = fn;
   }
 
   /**
@@ -468,6 +474,15 @@ export class AgentConnection {
 
   private async sendHeartbeat(): Promise<void> {
     if (this.stopped) return;
+
+    const now = Date.now();
+    const gapMs = now - this.lastHeartbeatSentAt;
+    if (gapMs > MACHINE_DEAD_THRESHOLD_MS) {
+      const gapMin = (gapMs / 60_000).toFixed(1);
+      const runningJobs = this.killStaleJobsFn ? await this.killStaleJobsFn("daemon_heartbeat_gap") : 0;
+      console.log(`[local-agent] Killing ${runningJobs} jobs — heartbeat gap of ${gapMin}m detected (likely sleep/network loss)`);
+    }
+    this.lastHeartbeatSentAt = now;
 
     const slotsAvailable = this.slots.getAvailable();
     const env = process.env["ZAZIG_ENV"] ?? "production";

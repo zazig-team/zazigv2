@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createClient } from "@supabase/supabase-js";
+import { MACHINE_DEAD_THRESHOLD_MS } from "@zazigv2/shared";
 import type { MachineConfig } from "./config.js";
 import { recoverDispatchedJobs } from "./job-recovery.js";
 import { SlotTracker } from "./slots.js";
@@ -229,5 +230,37 @@ describe("AgentConnection", () => {
     await (connection as any).sendHeartbeat();
     expect((connection as any).consecutiveHeartbeatFailures).toBe(1);
     expect(processExitMock).not.toHaveBeenCalled();
+  });
+
+  it("kills stale jobs when heartbeat gap exceeds machine dead threshold", async () => {
+    const supabaseMock = makeSupabaseClientMock();
+    createClientMock.mockReturnValue(supabaseMock.client);
+
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots));
+    vi.spyOn(connection as any, "sendToOrchestrator").mockResolvedValue(true);
+    const killStaleJobsFn = vi.fn().mockResolvedValue(3);
+    connection.setKillStaleJobsFn(killStaleJobsFn);
+
+    (connection as any).lastHeartbeatSentAt = Date.now() - MACHINE_DEAD_THRESHOLD_MS - 1_000;
+    await (connection as any).sendHeartbeat();
+
+    expect(killStaleJobsFn).toHaveBeenCalledWith("daemon_heartbeat_gap");
+    expect((connection as any).lastHeartbeatSentAt).toBeGreaterThan(Date.now() - 5_000);
+  });
+
+  it("updates heartbeat timestamp every tick even when delivery fails", async () => {
+    const supabaseMock = makeSupabaseClientMock();
+    createClientMock.mockReturnValue(supabaseMock.client);
+
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots));
+    const killStaleJobsFn = vi.fn().mockResolvedValue(0);
+    connection.setKillStaleJobsFn(killStaleJobsFn);
+    vi.spyOn(connection as any, "sendToOrchestrator").mockResolvedValue(false);
+
+    (connection as any).lastHeartbeatSentAt = Date.now();
+    await (connection as any).sendHeartbeat();
+
+    expect(killStaleJobsFn).not.toHaveBeenCalled();
+    expect((connection as any).lastHeartbeatSentAt).toBeGreaterThan(Date.now() - 5_000);
   });
 });

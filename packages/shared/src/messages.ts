@@ -355,8 +355,8 @@ export interface ExpertRoleConfig {
   prompt: string;
   /** Skill names to load into the workspace. */
   skills?: string[];
-  /** MCP tool names the expert may invoke. */
-  mcp_tools?: string[];
+  /** MCP tool names the expert may invoke. DB may return {allowed: [...]} or flat array. */
+  mcp_tools?: string[] | { allowed: string[] };
   /** Overrides merged into .claude/settings.json after workspace setup. */
   settings_overrides?: Record<string, unknown>;
 }

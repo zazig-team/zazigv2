@@ -1,3 +1,4 @@
+const AGENT_BUILD_HASH = "2442bcb";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;

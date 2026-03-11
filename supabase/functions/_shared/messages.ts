@@ -280,7 +280,7 @@ export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
 export function isHeartbeat(v: unknown): v is _Heartbeat {
   if (!_isObject(v) || v.type !== "heartbeat") return false;
   if (!_hasValidVersion(v)) return false;
-  if (!_isString(v.machineId) || v.machineId.length === 0) return false;
+  if (!_isString(v.machineName) || v.machineName.length === 0) return false;
   if (!_isObject(v.slotsAvailable)) return false;
   if (!_isNumber(v.slotsAvailable.claude_code) || (v.slotsAvailable.claude_code as number) < 0) return false;
   if (!_isNumber(v.slotsAvailable.codex) || (v.slotsAvailable.codex as number) < 0) return false;

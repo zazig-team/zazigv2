@@ -37,8 +37,10 @@ interface ExpertSessionState {
   effectiveWorkspaceDir: string;
   repoDir?: string;
   bareRepoDir?: string;
-  /** Branch the worktree was created from (e.g. "master"). */
+  /** Branch used for expert work and post-session push/merge handling. */
   branch?: string;
+  /** Isolated expert branch checked out in the worktree (expert/{role}-{shortId}). */
+  expertBranch?: string;
   /** Commit hash at worktree creation — used to detect unpushed commits. */
   startCommit?: string;
   displayName: string;
@@ -69,6 +71,14 @@ function shellEscape(parts: string[]): string {
   return parts
     .map((p) => `'${p.replace(/'/g, "'\"'\"'")}'`)
     .join(" ");
+}
+
+function slugifyBranchSegment(input: string): string {
+  const slug = input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "expert";
 }
 
 const AVAILABLE_CONTEXT_HEADING = "## Available Context";
@@ -161,6 +171,11 @@ export class ExpertSessionManager {
   async handleStartExpert(msg: StartExpertMessage): Promise<void> {
     const sessionId = msg.session_id;
     const shortId = sessionId.slice(0, 8);
+    const roleName =
+      (msg as StartExpertMessage & { role_name?: string }).role_name
+      ?? msg.display_name
+      ?? "expert";
+    const expertBranch = `expert/${slugifyBranchSegment(roleName)}-${shortId}`;
     const tmuxSessionName = `expert-${shortId}`;
     const displayName = msg.display_name ?? `Expert ${shortId}`;
 
@@ -187,7 +202,7 @@ export class ExpertSessionManager {
         const projectName = msg.repo_url.split("/").pop()?.replace(/\.git$/, "") ?? msg.project_id;
         bareRepoDir = await this.repoManager.ensureRepo(msg.repo_url, projectName);
         const worktreeTarget = join(workspaceDir, "repo");
-        const branch = msg.branch ?? "master";
+        const branch = "master";
 
         // Remove stale metadata/dir from interrupted sessions so each start gets a fresh worktree.
         try {
@@ -203,18 +218,17 @@ export class ExpertSessionManager {
 
         await this.repoManager.fetchBranchForExpert(projectName, branch);
 
-        // Create worktree — use detached HEAD from the target branch to avoid
-        // "already checked out" errors on shared branches
+        // Create a dedicated expert branch from the latest fetched master.
         await execFileAsync("git", [
           "-C", bareRepoDir,
-          "worktree", "add", "--detach", worktreeTarget,
+          "worktree", "add", "-b", expertBranch, worktreeTarget,
           `refs/heads/${branch}`,
         ]);
         const { stdout } = await execFileAsync("git", ["-C", worktreeTarget, "rev-parse", "HEAD"]);
         startCommitHash = stdout.trim();
 
         repoDir = worktreeTarget;
-        console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${branch})`);
+        console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${expertBranch})`);
         console.log(`[expert] Worktree at commit: ${startCommitHash.slice(0, 8)}`);
       } catch (err) {
         console.error(`[expert] Failed to create git worktree:`, err);
@@ -247,9 +261,13 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
 
 ### Workflow
 1. Read and understand the brief in \`.claude/expert-brief.md\`
-2. Work through the brief methodically
-3. Show diffs before merging any changes
-4. When done, merge your work to master
+2. You are on branch \`${expertBranch}\` — all your work goes here
+3. Work through the brief methodically
+4. Show diffs before applying changes
+5. When done: push your branch and merge to master, then delete the remote expert branch
+   - \`git push origin ${expertBranch}\`
+   - \`git checkout master && git merge ${expertBranch} && git push origin master\`
+   - \`git push origin --delete ${expertBranch}\`
 
 ### Ending the Session
 When the user says "wrap up", "I'm done", "finish up", or similar:
@@ -376,7 +394,8 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       effectiveWorkspaceDir,
       repoDir,
       bareRepoDir,
-      branch: repoDir ? (msg.branch ?? "master") : undefined,
+      branch: repoDir ? expertBranch : undefined,
+      expertBranch: repoDir ? expertBranch : undefined,
       startCommit: repoDir ? startCommitHash : undefined,
       displayName,
       tmuxSession: tmuxSessionName,
@@ -651,7 +670,8 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
    * isn't silently lost when the session ends.
    */
   private async pushUnpushedCommits(session: ExpertSessionState): Promise<void> {
-    if (!session.repoDir || !session.bareRepoDir || !session.branch || !session.startCommit) return;
+    const expertBranch = session.expertBranch ?? session.branch;
+    if (!session.repoDir || !session.bareRepoDir || !expertBranch || !session.startCommit) return;
 
     try {
       const { stdout: currentHead } = await execFileAsync("git", [
@@ -663,23 +683,38 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
         return; // No new commits — nothing to push
       }
 
-      // There are local commits. Push them to the original branch.
+      // There are local commits. Push them to the expert branch first.
       console.log(
-        `[expert] Session ${session.sessionId} has unpushed commits (${session.startCommit.slice(0, 8)}..${head.slice(0, 8)}). Pushing to origin/${session.branch}...`,
+        `[expert] Session ${session.sessionId} has unpushed commits (${session.startCommit.slice(0, 8)}..${head.slice(0, 8)}). Pushing to origin/${expertBranch}...`,
       );
 
       try {
         await execFileAsync("git", [
           "-C", session.repoDir,
-          "push", "origin", `HEAD:refs/heads/${session.branch}`,
+          "push", "origin", `HEAD:refs/heads/${expertBranch}`,
         ]);
-        console.log(`[expert] Pushed unpushed commits to origin/${session.branch}`);
+        console.log(`[expert] Pushed unpushed commits to origin/${expertBranch}`);
+
+        try {
+          await execFileAsync("git", ["-C", session.repoDir, "checkout", "master"]);
+          await execFileAsync("git", ["-C", session.repoDir, "merge", expertBranch]);
+          await execFileAsync("git", ["-C", session.repoDir, "push", "origin", "master"]);
+          await execFileAsync("git", ["-C", session.repoDir, "push", "origin", "--delete", expertBranch]);
+          console.log(
+            `[expert] Merged ${expertBranch} to master, pushed master, and deleted origin/${expertBranch}`,
+          );
+        } catch (mergeErr) {
+          console.warn(
+            `[expert] Merge/push to master failed after pushing ${expertBranch}; leaving origin/${expertBranch} for manual resolution`,
+            mergeErr,
+          );
+        }
       } catch (pushErr) {
-        // Push to the original branch failed (maybe it advanced).
+        // Push to the expert branch failed (maybe it advanced).
         // Create a rescue branch so the work is recoverable.
         const rescueBranch = `rescue/expert-${session.sessionId.slice(0, 8)}`;
         console.warn(
-          `[expert] Push to origin/${session.branch} failed — saving work to ${rescueBranch}`,
+          `[expert] Push to origin/${expertBranch} failed — saving work to ${rescueBranch}`,
         );
         try {
           await execFileAsync("git", [

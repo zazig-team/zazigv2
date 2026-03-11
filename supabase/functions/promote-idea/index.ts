@@ -90,7 +90,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const { data: idea, error: ideaError } = await supabase
       .from("ideas")
-      .select("id, company_id, status, raw_text, title")
+      .select("id, company_id, status, raw_text, title, spec, acceptance_tests, human_checklist")
       .eq("id", idea_id)
       .single();
 
@@ -98,10 +98,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: `Idea not found: ${idea_id}` }, 404);
     }
 
-    const promotableStatuses = ["triaged", "workshop"];
+    const promotableStatuses = ["triaged", "workshop", "specced"];
     if (!promotableStatuses.includes(idea.status)) {
       return jsonResponse(
-        { error: `Idea status is '${idea.status}' — must be 'triaged' or 'workshop' to promote` },
+        { error: `Idea status is '${idea.status}' — must be 'triaged', 'workshop', or 'specced' to promote` },
         400,
       );
     }
@@ -124,6 +124,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
           title: resolvedTitle,
           status: "breaking_down",
           source_idea_id: idea.id,
+          ...(idea.spec != null && { spec: idea.spec }),
+          ...(idea.acceptance_tests != null && { acceptance_tests: idea.acceptance_tests }),
+          ...(idea.human_checklist != null && { human_checklist: idea.human_checklist }),
         })
         .select("id")
         .single();

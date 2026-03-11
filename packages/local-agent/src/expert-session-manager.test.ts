@@ -338,7 +338,8 @@ describe("ExpertSessionManager", () => {
       expect.stringContaining("/.zazigv2/repos/project"),
       "worktree",
       "add",
-      "--detach",
+      "-b",
+      "expert/expert-session-",
       expect.stringContaining("/.zazigv2/expert-session-123456789/repo"),
       "refs/heads/master",
     ]);
@@ -358,6 +359,8 @@ describe("ExpertSessionManager", () => {
       expect.any(String),
     ]);
     expect(vi.mocked(setupJobWorkspace)).toHaveBeenCalled();
+    const setupArgs = vi.mocked(setupJobWorkspace).mock.calls[0]?.[0];
+    expect(setupArgs?.claudeMdContent).toContain("You are on branch `expert/expert-session-`");
 
     const statusUpdates = supabase.updates
       .filter((u) => u.table === "expert_sessions")

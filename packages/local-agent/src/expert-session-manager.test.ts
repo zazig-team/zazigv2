@@ -306,6 +306,7 @@ describe("ExpertSessionManager", () => {
       supabaseAnonKey: "anon-key",
       repoManager: repoManager as any,
     });
+    const sessionId = "8badf00d-1234-4567-89ab-abcdef012345";
 
     const fsReadMock = vi.mocked(fsModule.readFileSync);
     fsReadMock.mockImplementation((path: unknown) => {
@@ -323,7 +324,8 @@ describe("ExpertSessionManager", () => {
     await manager.handleStartExpert({
       type: "start_expert",
       protocolVersion: 1,
-      session_id: "session-123456789",
+      session_id: sessionId,
+      display_name: "Research Expert",
       project_id: "project-123",
       repo_url: "https://github.com/acme/project.git",
       model: "claude-opus",
@@ -339,13 +341,13 @@ describe("ExpertSessionManager", () => {
       "worktree",
       "add",
       "-b",
-      "expert/expert-session-",
-      expect.stringContaining("/.zazigv2/expert-session-123456789/repo"),
-      "refs/heads/master",
+      expect.stringMatching(/^expert\/.+-[a-f0-9]{8}$/),
+      expect.stringContaining(`/.zazigv2/expert-${sessionId}/repo`),
+      expect.stringContaining("master"),
     ]);
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
       "-C",
-      expect.stringContaining("/.zazigv2/expert-session-123456789/repo"),
+      expect.stringContaining(`/.zazigv2/expert-${sessionId}/repo`),
       "rev-parse",
       "HEAD",
     ]);
@@ -353,19 +355,191 @@ describe("ExpertSessionManager", () => {
       "new-session",
       "-d",
       "-s",
-      "expert-session-",
+      "expert-8badf00d",
       "-c",
-      expect.stringContaining("/.zazigv2/expert-session-123456789/repo"),
+      expect.stringContaining(`/.zazigv2/expert-${sessionId}/repo`),
       expect.any(String),
     ]);
+
+    const worktreeAddCall = mockExecFileAsync.mock.calls.find((call) =>
+      call[0] === "git"
+      && Array.isArray(call[1])
+      && call[1][2] === "worktree"
+      && call[1][3] === "add",
+    );
+    expect(worktreeAddCall).toBeDefined();
+    const worktreeAddArgs = worktreeAddCall?.[1] as string[];
+    const branchArgIndex = worktreeAddArgs.indexOf("-b");
+    expect(branchArgIndex).toBeGreaterThan(-1);
+    const expertBranch = worktreeAddArgs[branchArgIndex + 1];
+    expect(expertBranch).toBeDefined();
+
     expect(vi.mocked(setupJobWorkspace)).toHaveBeenCalled();
     const setupArgs = vi.mocked(setupJobWorkspace).mock.calls[0]?.[0];
-    expect(setupArgs?.claudeMdContent).toContain("You are on branch `expert/expert-session-`");
+    expect(setupArgs?.claudeMdContent).toContain(`You are on branch \`${expertBranch}\``);
 
     const statusUpdates = supabase.updates
       .filter((u) => u.table === "expert_sessions")
       .map((u) => u.data.status);
     expect(statusUpdates).toContain("running");
+  });
+
+  it("handleStartExpert creates an expert branch with role slug and hex suffix", async () => {
+    const supabase = makeSupabaseClient();
+    const repoManager = makeRepoManager();
+    const { ExpertSessionManager } = await import("./expert-session-manager.js");
+    const manager = new ExpertSessionManager({
+      machineId: "machine-1",
+      companyId: "company-12345678",
+      supabase: supabase.client as any,
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "anon-key",
+      repoManager: repoManager as any,
+    });
+
+    const fsReadMock = vi.mocked(fsModule.readFileSync);
+    fsReadMock.mockImplementation((path: unknown) => {
+      if (String(path).endsWith("settings.json")) return "{}";
+      return "";
+    });
+
+    mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "has-session") {
+        throw new Error("session missing");
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    await manager.handleStartExpert({
+      type: "start_expert",
+      protocolVersion: 1,
+      session_id: "deadbeef-1234-4567-89ab-abcdef012345",
+      display_name: "Research Expert",
+      project_id: "project-123",
+      repo_url: "https://github.com/acme/project.git",
+      model: "claude-opus",
+      brief: "review latest implementation",
+      role: { prompt: "system prompt" },
+    });
+
+    const worktreeAddCall = mockExecFileAsync.mock.calls.find((call) =>
+      call[0] === "git"
+      && Array.isArray(call[1])
+      && call[1][2] === "worktree"
+      && call[1][3] === "add",
+    );
+    expect(worktreeAddCall).toBeDefined();
+
+    const worktreeAddArgs = worktreeAddCall?.[1] as string[];
+    const branchArgIndex = worktreeAddArgs.indexOf("-b");
+    expect(branchArgIndex).toBeGreaterThan(-1);
+    const expertBranch = worktreeAddArgs[branchArgIndex + 1];
+
+    expect(expertBranch.startsWith("expert/")).toBe(true);
+    expect(expertBranch).toContain("research-expert");
+    expect(expertBranch).toMatch(/-[a-f0-9]{8}$/);
+  });
+
+  describe("pushUnpushedCommits", () => {
+    it("pushes expert branch commits, merges to master, and deletes remote expert branch", async () => {
+      const supabase = makeSupabaseClient();
+      const repoManager = makeRepoManager();
+      const { ExpertSessionManager } = await import("./expert-session-manager.js");
+      const manager = new ExpertSessionManager({
+        machineId: "machine-1",
+        companyId: "company-12345678",
+        supabase: supabase.client as any,
+        supabaseUrl: "https://test.supabase.co",
+        supabaseAnonKey: "anon-key",
+        repoManager: repoManager as any,
+      });
+
+      mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
+        if (cmd === "git" && args[2] === "rev-parse" && args[3] === "HEAD") {
+          return { stdout: "deadbeefcafebabe\n", stderr: "" };
+        }
+        return { stdout: "", stderr: "" };
+      });
+
+      await (manager as any).pushUnpushedCommits({
+        sessionId: "deadbeef-1234-4567-89ab-abcdef012345",
+        repoDir: "/tmp/workspace-root/repo",
+        bareRepoDir: "/tmp/repos/project.git",
+        expertBranch: "expert/research-expert-deadbeef",
+        startCommit: "abc12345",
+      });
+
+      expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
+        "-C", "/tmp/workspace-root/repo",
+        "push", "origin", "HEAD:refs/heads/expert/research-expert-deadbeef",
+      ]);
+      expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
+        "-C", "/tmp/workspace-root/repo", "checkout", "master",
+      ]);
+      expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
+        "-C", "/tmp/workspace-root/repo", "merge", "expert/research-expert-deadbeef",
+      ]);
+      expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
+        "-C", "/tmp/workspace-root/repo", "push", "origin", "master",
+      ]);
+      expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
+        "-C", "/tmp/workspace-root/repo", "push", "origin", "--delete", "expert/research-expert-deadbeef",
+      ]);
+    });
+
+    it("does not delete remote expert branch when merge to master fails", async () => {
+      const supabase = makeSupabaseClient();
+      const repoManager = makeRepoManager();
+      const { ExpertSessionManager } = await import("./expert-session-manager.js");
+      const manager = new ExpertSessionManager({
+        machineId: "machine-1",
+        companyId: "company-12345678",
+        supabase: supabase.client as any,
+        supabaseUrl: "https://test.supabase.co",
+        supabaseAnonKey: "anon-key",
+        repoManager: repoManager as any,
+      });
+
+      const mergeErr = new Error("merge conflict");
+      mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
+        if (cmd === "git" && args[2] === "rev-parse" && args[3] === "HEAD") {
+          return { stdout: "deadbeefcafebabe\n", stderr: "" };
+        }
+        if (cmd === "git" && args[2] === "merge") {
+          throw mergeErr;
+        }
+        return { stdout: "", stderr: "" };
+      });
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await (manager as any).pushUnpushedCommits({
+        sessionId: "deadbeef-1234-4567-89ab-abcdef012345",
+        repoDir: "/tmp/workspace-root/repo",
+        bareRepoDir: "/tmp/repos/project.git",
+        expertBranch: "expert/research-expert-deadbeef",
+        startCommit: "abc12345",
+      });
+
+      expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
+        "-C", "/tmp/workspace-root/repo",
+        "push", "origin", "HEAD:refs/heads/expert/research-expert-deadbeef",
+      ]);
+      expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
+        "-C", "/tmp/workspace-root/repo", "checkout", "master",
+      ]);
+      expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
+        "-C", "/tmp/workspace-root/repo", "merge", "expert/research-expert-deadbeef",
+      ]);
+      expect(mockExecFileAsync).not.toHaveBeenCalledWith("git", [
+        "-C", "/tmp/workspace-root/repo", "push", "origin", "--delete", "expert/research-expert-deadbeef",
+      ]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Merge/push to master failed after pushing expert/research-expert-deadbeef"),
+        mergeErr,
+      );
+      warnSpy.mockRestore();
+    });
   });
 
   it("handleStartExpert marks session failed when repo worktree setup fails", async () => {

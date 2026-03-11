@@ -16,7 +16,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync, symlinkSync, appendFileSync, createWriteStream } from "node:fs";
+import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync, symlinkSync, appendFileSync, createWriteStream, statSync } from "node:fs";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -58,6 +58,9 @@ const PR_MONITOR_INTERVAL_MS = 60_000;
 
 /** Kill the job after 60 minutes regardless of status. */
 const JOB_TIMEOUT_MS = 60 * 60_000;
+
+/** Kill the session if no pipe-pane output appears for 5 minutes. */
+const STUCK_NO_OUTPUT_MS = 5 * 60_000;
 
 /** Kill interactive (human-in-loop) jobs after 30 minutes. */
 const INTERACTIVE_JOB_TIMEOUT_MS = 30 * 60_000;
@@ -1719,6 +1722,24 @@ export class JobExecutor {
     const alive = await isTmuxSessionAlive(job.sessionName);
     jobLog(jobId, `pollJob — session=${job.sessionName}, alive=${alive}`);
     if (alive) {
+      // Stuck detection: check pipe-pane last-modified
+      try {
+        const stat = statSync(job.logPath);
+        const silenceMs = Date.now() - stat.mtimeMs;
+        if (silenceMs > STUCK_NO_OUTPUT_MS) {
+          const silenceMin = (silenceMs / 60_000).toFixed(1);
+          jobLog(jobId, `Stuck detected - no pipe-pane output for ${silenceMin}m, killing session`);
+          console.log(`[executor] Killing job ${jobId} - no pipe-pane output for ${silenceMin} minutes`);
+          await killTmuxSession(job.sessionName);
+          await this.sendJobFailed(jobId, `No pipe-pane output for ${silenceMin} minutes`, "stuck_no_output");
+          await this.settleJob(jobId);
+          return;
+        }
+      } catch (err) {
+        // If stat fails (file doesn't exist yet), skip stuck detection for this tick
+        jobLog(jobId, `Could not stat logPath for stuck detection: ${String(err)}`);
+      }
+
       // Write time-based progress estimate (linear over JOB_TIMEOUT_MS, capped at 95)
       const elapsedMs = Date.now() - job.startedAt;
       const progress = Math.min(95, Math.floor((elapsedMs / JOB_TIMEOUT_MS) * 100));

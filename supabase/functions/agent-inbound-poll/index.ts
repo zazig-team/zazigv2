@@ -37,7 +37,7 @@ const corsHeaders = {
 interface JobRow {
   id: string;
   title: string | null;
-  spec: string | null;
+  context: string | null;
   acceptance_tests: string | null;
   complexity: string | null;
   role: string | null;
@@ -145,7 +145,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { data: jobsData, error: jobsErr } = await supabaseAdmin
       .from("jobs")
       .select(
-        "id, title, spec, acceptance_tests, complexity, role, job_type, feature_id, depends_on, status, machines!inner(name, company_id)",
+        "id, title, context, acceptance_tests, complexity, role, job_type, feature_id, depends_on, status, machines!inner(name, company_id)",
       )
       .eq("status", "dispatched")
       .eq("machines.name", machineName)
@@ -173,7 +173,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       const job: JobRow = {
         id: String(record.id),
         title: typeof record.title === "string" ? record.title : null,
-        spec: typeof record.spec === "string" ? record.spec : null,
+        context: typeof record.context === "string" ? record.context : null,
         acceptance_tests: typeof record.acceptance_tests === "string"
           ? record.acceptance_tests
           : null,

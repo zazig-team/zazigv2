@@ -85,6 +85,7 @@ async function main(): Promise<void> {
     config.supabase.url,
     config.supabase.anon_key,
   );
+  conn.setKillStaleJobsFn((reason) => executor.killAllRunningJobs(reason));
 
   const verifier = new JobVerifier({
     repoDir: process.cwd(),

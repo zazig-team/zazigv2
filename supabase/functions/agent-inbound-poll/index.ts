@@ -111,9 +111,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse({ error: "Missing authorization header" }, 401);
   }
 
-  const authenticated = await authenticateRequest(token);
-  if (!authenticated) {
-    return jsonResponse({ error: "Forbidden: invalid or expired token" }, 403);
+  try {
+    const authenticated = await authenticateRequest(token);
+    if (!authenticated) {
+      return jsonResponse({ error: "Forbidden: invalid or expired token" }, 403);
+    }
+  } catch (authErr) {
+    console.error("[agent-inbound-poll] Auth error:", authErr);
+    return jsonResponse({ error: "Forbidden: auth validation failed" }, 403);
   }
 
   const url = new URL(req.url);

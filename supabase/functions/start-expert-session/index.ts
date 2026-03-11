@@ -125,6 +125,9 @@ interface StartExpertPayload {
   session_id: string;
   model: string;
   brief: string;
+  headless?: boolean;
+  batch_id?: string;
+  auto_exit?: boolean;
   display_name?: string;
   role: {
     prompt: string;
@@ -224,6 +227,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const brief = toTrimmedString(body.brief);
     const machineName = toTrimmedString(body.machine_name);
     const projectId = toTrimmedString(body.project_id);
+    const headless = body.headless === true;
+    const batchId = typeof body.batch_id === "string" ? body.batch_id : undefined;
 
     if (!roleName) {
       return jsonResponse({ error: "role_name is required" }, 400);
@@ -319,6 +324,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
         machine_id: machine.id,
         triggered_by: "cpo",
         brief,
+        headless,
+        batch_id: batchId ?? null,
         status: "requested",
       })
       .select("id")
@@ -336,6 +343,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       session_id: sessionId,
       model: role.model,
       brief,
+      headless,
+      batch_id: batchId,
+      auto_exit: headless,
       display_name: role.display_name,
       role: {
         prompt: role.prompt,

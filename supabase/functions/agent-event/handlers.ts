@@ -33,22 +33,21 @@ export async function handleHeartbeat(
 ): Promise<void> {
   const { machineName, slotsAvailable } = msg;
 
-  // Check if the machine was offline before this heartbeat.
-  const { data: machine, error: fetchErr } = await supabase
+  // Fetch all rows for this machine name (one per company).
+  const { data: machines, error: fetchErr } = await supabase
     .from("machines")
     .select("id, company_id, status")
-    .eq("name", machineName)
-    .single();
+    .eq("name", machineName);
 
-  if (fetchErr || !machine) {
+  if (fetchErr || !machines || machines.length === 0) {
     console.error(
       `[agent-event machine=${machineName}] Failed to fetch machine for heartbeat:`,
-      fetchErr?.message,
+      fetchErr?.message ?? "no rows found",
     );
     return;
   }
 
-  const wasOffline = machine.status === "offline";
+  const wasOffline = machines.some((m) => m.status === "offline");
 
   const { error } = await supabase
     .from("machines")
@@ -72,7 +71,7 @@ export async function handleHeartbeat(
     `[agent-event machine=${machineName}] Heartbeat — claude_code:${slotsAvailable.claude_code} codex:${slotsAvailable.codex}`,
   );
 
-  // Machine came back online — log event.
+  // Machine came back online — log an event per company.
   // NOTE: recoveryTimestamps tracking lives in orchestrator isolate (in-memory).
   // The set() call was removed during extraction since it was already broken
   // across isolates (agent-event and orchestrator run in separate Deno isolates).
@@ -81,20 +80,22 @@ export async function handleHeartbeat(
       `[agent-event machine=${machineName}] Machine recovered from offline`,
     );
 
-    const { error: eventErr } = await supabase
-      .from("events")
-      .insert({
-        company_id: machine.company_id,
-        machine_id: machine.id,
-        event_type: "machine_online",
-        detail: { recovered: true },
-      });
+    for (const machine of machines.filter((m) => m.status === "offline")) {
+      const { error: eventErr } = await supabase
+        .from("events")
+        .insert({
+          company_id: machine.company_id,
+          machine_id: machine.id,
+          event_type: "machine_online",
+          detail: { recovered: true },
+        });
 
-    if (eventErr) {
-      console.error(
-        `[agent-event machine=${machineName}] Failed to log machine_online event:`,
-        eventErr.message,
-      );
+      if (eventErr) {
+        console.error(
+          `[agent-event machine=${machineName}] Failed to log machine_online event:`,
+          eventErr.message,
+        );
+      }
     }
   }
 }

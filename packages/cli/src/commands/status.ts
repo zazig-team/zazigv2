@@ -116,7 +116,7 @@ export async function status(): Promise<void> {
         `${creds.supabaseUrl}/rest/v1/jobs` +
           `?select=id,status,context,slot_type,job_type` +
           `&machine_id=eq.${encodeURIComponent(machineId)}` +
-          `&status=in.(queued,dispatched,executing,reviewing)`,
+          `&status=in.(queued,executing,reviewing)`,
         headers
       );
 

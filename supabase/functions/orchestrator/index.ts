@@ -2885,11 +2885,13 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
     });
 
     try {
-      const dispatchResp = await fetch(`${SUPABASE_URL}/functions/v1/start-expert-session`, {
+      const dispatchResp = await fetch(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/start-expert-session`,
+        {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
           "x-company-id": company.id,
         },
         body: JSON.stringify({
@@ -2898,7 +2900,8 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
           headless: true,
           project_id: projectId,
         }),
-      });
+      },
+      );
 
       if (!dispatchResp.ok) {
         const responseText = await dispatchResp.text();

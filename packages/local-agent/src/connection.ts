@@ -3,7 +3,7 @@
  *
  * Manages inbound polling and outbound HTTP delivery:
  *   - Inbound HTTP poll: `functions/v1/agent-inbound-poll` — receives orchestrator messages
- *   - Outbound HTTP:     `functions/v1/agent-event`        — sends Heartbeat/JobAck/JobComplete/JobFailed
+ *   - Outbound HTTP:     `functions/v1/agent-event`        — sends JobAck/JobComplete/JobFailed
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -12,12 +12,11 @@ import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs"
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { HEARTBEAT_INTERVAL_MS, MACHINE_DEAD_THRESHOLD_MS, PROTOCOL_VERSION, isOrchestratorMessage } from "@zazigv2/shared";
+import { isOrchestratorMessage } from "@zazigv2/shared";
 import { jobLog } from "./executor.js";
-import type { OrchestratorMessage, Heartbeat, AgentMessage, FailureReason } from "@zazigv2/shared";
+import type { OrchestratorMessage, AgentMessage } from "@zazigv2/shared";
 import type { MachineConfig } from "./config.js";
 import type { SlotTracker } from "./slots.js";
-import { recoverDispatchedJobs } from "./job-recovery.js";
 
 const CREDENTIALS_PATH = join(homedir(), ".zazigv2", "credentials.json");
 const execFileAsync = promisify(execFile);
@@ -42,14 +41,9 @@ export class AgentConnection {
   private readonly slots: SlotTracker;
   private readonly handlers: MessageHandler[] = [];
 
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private isPolling = false;
   private stopped = false;
-  private isRecoveryRunning = false;
-  private consecutiveHeartbeatFailures = 0;
-  private lastHeartbeatSentAt: number = Date.now();
-  private killStaleJobsFn?: (reason: FailureReason) => Promise<number>;
   private outdated = false;
   private outdatedShutdownInProgress = false;
 
@@ -87,10 +81,6 @@ export class AgentConnection {
   /** Register a handler for incoming OrchestratorMessages. */
   onMessage(handler: MessageHandler): void {
     this.handlers.push(handler);
-  }
-
-  public setKillStaleJobsFn(fn: (reason: FailureReason) => Promise<number>): void {
-    this.killStaleJobsFn = fn;
   }
 
   /**
@@ -160,7 +150,7 @@ export class AgentConnection {
     }
   }
 
-  /** Start heartbeat and inbound poll loop. */
+  /** Start inbound poll loop. */
   async start(): Promise<void> {
     console.log(`[local-agent] Starting daemon for machine: ${this.machineName}`);
     this.stopped = false;
@@ -214,7 +204,7 @@ export class AgentConnection {
       this.companyIds = [this.primaryCompanyId];
       console.warn("[local-agent] Could not discover companies from user_companies — falling back to config.company_id");
     } else {
-      console.warn("[local-agent] No companies found and no company_id in config — heartbeats may fail");
+      console.warn("[local-agent] No companies found and no company_id in config");
       this.companyIds = [];
     }
 
@@ -222,17 +212,15 @@ export class AgentConnection {
       console.warn("[local-agent] No access token set — multi-company lookup requires an authenticated JWT");
     }
 
-    // Register/upsert machine row so heartbeats and status queries work
+    // Register/upsert machine row so status queries work
     await this.registerMachine();
 
-    this.startHeartbeat();
     this.startPollLoop();
   }
 
   /** Gracefully disconnect and stop all timers. */
   async stop(): Promise<void> {
     this.stopped = true;
-    this.clearHeartbeatTimer();
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
@@ -278,7 +266,15 @@ export class AgentConnection {
         console.warn(`[Connection] Poll failed: ${response.status} ${response.statusText}`);
         return;
       }
-      const result = await response.json() as { jobs?: unknown[]; heartbeat?: string };
+      const result = await response.json() as {
+        jobs?: unknown[];
+        heartbeat?: string;
+        outdated?: boolean;
+        required_version?: string;
+      };
+      if (result.outdated && result.required_version && !this.outdated) {
+        this.onOutdatedDetected(this.agentVersion, result.required_version);
+      }
       const jobs = result.jobs ?? [];
       for (const item of jobs) {
         this.handleIncomingPayload(item);
@@ -338,26 +334,6 @@ export class AgentConnection {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Heartbeat
-  // ---------------------------------------------------------------------------
-
-  private startHeartbeat(): void {
-    this.clearHeartbeatTimer();
-    // Send immediately, then on interval
-    void this.sendHeartbeat();
-    this.heartbeatTimer = setInterval(() => {
-      void this.sendHeartbeat();
-    }, HEARTBEAT_INTERVAL_MS);
-  }
-
-  private clearHeartbeatTimer(): void {
-    if (this.heartbeatTimer !== null) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
-  }
-
   private async registerMachine(): Promise<void> {
     if (this.companyIds.length === 0) {
       console.warn("[local-agent] No companies — skipping machine registration");
@@ -392,84 +368,6 @@ export class AgentConnection {
       console.log(`[local-agent] Machine registered for ${this.companyIds.length} company(ies)`);
     } else {
       console.warn(`[local-agent] Machine registration: ${this.companyIds.length - failures}/${this.companyIds.length} succeeded`);
-    }
-  }
-
-  private async sendHeartbeat(): Promise<void> {
-    if (this.stopped) return;
-
-    const now = Date.now();
-    const gapMs = now - this.lastHeartbeatSentAt;
-    if (gapMs > MACHINE_DEAD_THRESHOLD_MS) {
-      const gapMin = (gapMs / 60_000).toFixed(1);
-      const runningJobs = this.killStaleJobsFn ? await this.killStaleJobsFn("daemon_heartbeat_gap") : 0;
-      console.log(`[local-agent] Killing ${runningJobs} jobs — heartbeat gap of ${gapMin}m detected (likely sleep/network loss)`);
-    }
-    this.lastHeartbeatSentAt = now;
-
-    const slotsAvailable = this.slots.getAvailable();
-    const env = process.env["ZAZIG_ENV"] ?? "production";
-    try {
-      const { data: latestVersion, error: latestVersionErr } = await this.dbClient
-        .from("agent_versions")
-        .select("version")
-        .eq("env", env)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (latestVersionErr) {
-        console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${latestVersionErr.message}`);
-      } else if (latestVersion && latestVersion.version !== this.agentVersion) {
-        this.onOutdatedDetected(this.agentVersion, latestVersion.version);
-      }
-    } catch (err) {
-      console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${String(err)}`);
-    }
-
-    // Send heartbeat event to orchestrator via edge function.
-    const heartbeat: Heartbeat = {
-      type: "heartbeat",
-      protocolVersion: PROTOCOL_VERSION,
-      machineName: this.machineName,
-      slotsAvailable,
-    };
-    const heartbeatOk = await this.sendToOrchestrator(heartbeat);
-    if (heartbeatOk) {
-      this.consecutiveHeartbeatFailures = 0;
-    } else {
-      this.consecutiveHeartbeatFailures++;
-      console.error(
-        `[local-agent] Heartbeat failure ${this.consecutiveHeartbeatFailures}/5 — machineName=${this.machineName}`
-      );
-      if (this.consecutiveHeartbeatFailures >= 5) {
-        console.error(
-          `[local-agent] 5 consecutive heartbeat failures — exiting for supervisor restart`
-        );
-        process.exit(1);
-      }
-    }
-
-    // --- Job recovery poll ---
-    // Check for dispatched jobs that were missed due to poll drops.
-    // Resets them to queued so the orchestrator re-dispatches on next tick.
-    // Skip if previous recovery poll is still in-flight (DB slow).
-    if (!this.isRecoveryRunning) {
-      this.isRecoveryRunning = true;
-      try {
-        const recovered = await recoverDispatchedJobs(
-          this.dbClient,
-          this.machineName,
-          { companyIds: this.companyIds },
-        );
-        if (recovered > 0) {
-          console.log(`[local-agent] Heartbeat recovered ${recovered} missed job(s)`);
-        }
-      } catch (err) {
-        console.warn(`[local-agent] Job recovery poll failed:`, err);
-      } finally {
-        this.isRecoveryRunning = false;
-      }
     }
   }
 

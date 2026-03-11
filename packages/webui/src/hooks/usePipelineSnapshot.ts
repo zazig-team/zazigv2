@@ -49,7 +49,7 @@ interface CapabilityLookupEntry {
 
 type CapabilityLookup = Record<string, CapabilityLookupEntry>;
 
-type PipelineActiveJobStatus = "queued" | "dispatched" | "executing";
+type PipelineActiveJobStatus = "queued" | "executing";
 
 export interface PipelineActiveJob {
   id: string;
@@ -143,7 +143,7 @@ function toActiveJobStatus(rawStatus: string | null | undefined): PipelineActive
   }
 
   const normalized = rawStatus.trim().toLowerCase();
-  if (normalized === "queued" || normalized === "dispatched" || normalized === "executing") {
+  if (normalized === "queued" || normalized === "executing") {
     return normalized;
   }
 

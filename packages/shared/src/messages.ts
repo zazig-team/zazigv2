@@ -366,6 +366,8 @@ export interface StartExpertMessage {
   protocolVersion: number;
   /** Expert session UUID from the expert_sessions table. */
   session_id: string;
+  /** Expert role name used for branch naming (for example, "hotfix-engineer"). */
+  role_name?: string;
   /** Project UUID — when provided, a git worktree is created. */
   project_id?: string;
   /** GitHub HTTPS URL for the project repo. Required when project_id is set. */

@@ -123,14 +123,15 @@ interface StartExpertPayload {
   type: "start_expert";
   protocolVersion: number;
   session_id: string;
+  role_name?: string;
   model: string;
   brief: string;
   display_name?: string;
   role: {
     prompt: string;
     skills?: string[];
-      mcp_tools?: unknown;
-      settings_overrides?: unknown;
+    mcp_tools?: unknown;
+    settings_overrides?: unknown;
   };
   project_id: string;
   repo_url: string;
@@ -334,6 +335,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       type: "start_expert",
       protocolVersion: 1,
       session_id: sessionId,
+      role_name: role.name,
       model: role.model,
       brief,
       display_name: role.display_name,

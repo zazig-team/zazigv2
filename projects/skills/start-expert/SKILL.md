@@ -2,6 +2,8 @@
 
 Use when the user needs or you are suggesting specialized expert help. Compose a structured brief from the current conversation context and trigger an expert session.
 
+Experts run on a dedicated branch named `expert/{role}-{session-id}`. The session manager automatically pushes that branch, merges it to `master`, and cleans it up when the expert is done.
+
 ## Skill Steps
 
 1. **Identify the need**: What specific expertise is required? What should the expert accomplish?

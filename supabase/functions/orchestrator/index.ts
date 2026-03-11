@@ -375,7 +375,7 @@ async function reapDeadMachines(supabase: SupabaseClient): Promise<void> {
 }
 
 /**
- * Step 1b: Re-queue jobs stuck in dispatched/executing whose updated_at is stale.
+ * Step 1b: Re-queue jobs stuck in executing whose updated_at is stale.
  * The local agent updates updated_at every 30s for active jobs, so >2 min stale
  * means the agent is no longer working on it (crashed, restarted, lost connection).
  * This is machine-agnostic — works whether the machine died or just restarted.
@@ -387,7 +387,7 @@ async function reapStaleJobs(supabase: SupabaseClient): Promise<void> {
   const { data: staleJobs, error } = await supabase
     .from("jobs")
     .select("id, machine_id, status")
-    .in("status", ["dispatched", "executing"])
+    .in("status", ["executing"])
     .lt("updated_at", staleCutoff);
 
   if (error) {
@@ -545,7 +545,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
             completed_at: new Date().toISOString(),
           })
           .eq("id", job.id)
-          .in("status", ["queued", "verify_failed", "dispatched", "executing"])
+          .in("status", ["queued", "verify_failed", "executing"])
           .select("id");
 
         if (failErr) {
@@ -1500,7 +1500,7 @@ export async function triggerBreakdown(
     .select("id, status")
     .eq("feature_id", featureId)
     .eq("job_type", "breakdown")
-    .in("status", ["queued", "dispatched", "executing", "blocked", "complete"])
+    .in("status", ["queued", "executing", "blocked", "complete"])
     .maybeSingle();
 
   if (existing) {
@@ -1882,7 +1882,7 @@ async function checkExecutingJobsForHeartbeatTimeout(
  * Handles:
  *   0. Executing-job heartbeat timeout check for long-running jobs
  *   1. Failed job catch-up: logs features with failed jobs for attention
- *   1b. deploy_to_test guard: fails queued/dispatched/executing deploy jobs for terminal features
+ *   1b. deploy_to_test guard: fails queued/executing deploy jobs for terminal features
  *   2. breaking_down → building: all breakdown jobs for the feature are complete
  *   3. building → combining_and_pr: all implementation jobs are complete
  *   4. combining_and_pr → verifying: the latest combine job is complete
@@ -1930,7 +1930,7 @@ async function processFeatureLifecycle(
   }
 
   // --- 1b. deploy_to_test cleanup for terminal features ---
-  // If a feature is terminal, deploy_to_test must never be queued/dispatched/executing.
+  // If a feature is terminal, deploy_to_test must never be queued/executing.
   const { data: terminalFeatures, error: terminalErr } = await supabase
     .from("features")
     .select("id, status")
@@ -1954,7 +1954,7 @@ async function processFeatureLifecycle(
       .select("id, feature_id")
       .eq("job_type", "deploy_to_test")
       .in("feature_id", [...terminalStatusByFeatureId.keys()])
-      .in("status", ["queued", "dispatched", "executing"])
+      .in("status", ["queued", "executing"])
       .limit(100);
 
     if (invalidDeployErr) {
@@ -1981,7 +1981,7 @@ async function processFeatureLifecycle(
           completed_at: new Date().toISOString(),
         })
         .eq("id", job.id)
-        .in("status", ["queued", "dispatched", "executing"])
+        .in("status", ["queued", "executing"])
         .select("id");
 
       if (updated && updated.length > 0) {
@@ -2226,7 +2226,7 @@ async function processFeatureLifecycle(
         `[orchestrator] processFeatureLifecycle: verify FAILED for feature ${feature.id} — staying at verifying, needs attention`,
       );
     }
-    // if still 'executing', 'queued', or 'dispatched', do nothing — let it run
+    // if still 'executing' or 'queued', do nothing — let it run
   }
 
   // --- 6. merging → complete (catch-up) ---
@@ -2296,7 +2296,7 @@ async function processFeatureLifecycle(
         `[orchestrator] processFeatureLifecycle: merge FAILED for feature ${feature.id} — staying at merging, needs attention`,
       );
     }
-    // if still 'executing', 'queued', or 'dispatched', do nothing — let it run
+    // if still 'executing' or 'queued', do nothing — let it run
   }
 
   // Feature pipeline ends at 'complete'.
@@ -2486,7 +2486,7 @@ async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void
       .select("id")
       .eq("role", "triage-analyst")
       .eq("context", idea.id)
-      .in("status", ["queued", "dispatched", "executing"])
+      .in("status", ["queued", "executing"])
       .limit(1);
 
     if (activeJobs && activeJobs.length > 0) continue;
@@ -2678,7 +2678,7 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 1a. Mark dead machines offline (prevents dispatch to them).
     await reapDeadMachines(supabase);
 
-    // 1b. Re-queue jobs stuck in dispatched/executing with stale updated_at.
+    // 1b. Re-queue jobs stuck in executing with stale updated_at.
     await reapStaleJobs(supabase);
 
     // 2. Process breaking_down features → create breakdown jobs.

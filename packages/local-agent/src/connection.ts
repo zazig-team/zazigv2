@@ -1,19 +1,12 @@
 /**
- * connection.ts — Supabase Realtime connection manager
+ * connection.ts — local-agent connection manager
  *
- * Manages inbound Realtime communication and outbound HTTP delivery:
- *   - Inbound Realtime: `agent:${machineId}:${companyId}` — receives StartJob/StopJob/HealthCheck from orchestrator
- *   - Outbound HTTP:    `functions/v1/agent-event`        — sends Heartbeat/JobAck/JobComplete/JobFailed to orchestrator
- *
- * Handles:
- *   - Inbound channel subscription with reconnect/backoff
- *   - Exponential backoff on disconnect (capped at 30 s)
- *   - Heartbeat every HEARTBEAT_INTERVAL_MS (30 s)
- *   - Incoming OrchestratorMessage validation + dispatch to handlers
+ * Manages inbound polling and outbound HTTP delivery:
+ *   - Inbound HTTP poll: `functions/v1/agent-inbound-poll` — receives orchestrator messages
+ *   - Outbound HTTP:     `functions/v1/agent-event`        — sends Heartbeat/JobAck/JobComplete/JobFailed
  */
 
-import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
-import WebSocket from "ws";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { execFile } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -29,20 +22,18 @@ import { recoverDispatchedJobs } from "./job-recovery.js";
 const CREDENTIALS_PATH = join(homedir(), ".zazigv2", "credentials.json");
 const execFileAsync = promisify(execFile);
 
-// Backoff constants
-const BACKOFF_BASE_MS = 1_000;
-const BACKOFF_MAX_MS = 30_000;
-const BACKOFF_MULTIPLIER = 2;
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 export type MessageHandler = (msg: OrchestratorMessage) => void;
 
 export class AgentConnection {
-  /** Anon-key client — used for Realtime subscriptions only. */
+  /** Anon-key client used as DB fallback when no JWT/service role key is configured. */
   readonly supabase: SupabaseClient;
   /** Service-role client for direct DB writes (bypasses RLS). Falls back to anon client if service_role_key not set. */
   readonly dbClient: SupabaseClient;
+  private readonly supabaseUrl: string;
+  private readonly supabaseAnonKey: string;
   private readonly machineName: string;
   private readonly primaryCompanyId: string | undefined;
   private readonly agentVersion: string;
@@ -51,11 +42,9 @@ export class AgentConnection {
   private readonly slots: SlotTracker;
   private readonly handlers: MessageHandler[] = [];
 
-  /** Inbound channel: `agent:{machineId}:{companyId}` — receives commands from orchestrator. */
-  private channel: RealtimeChannel | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private reconnectAttempts = 0;
+  private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private isPolling = false;
   private stopped = false;
   private isRecoveryRunning = false;
   private consecutiveHeartbeatFailures = 0;
@@ -66,6 +55,8 @@ export class AgentConnection {
 
   constructor(config: MachineConfig, slots: SlotTracker, agentVersion: string) {
     this.config = config;
+    this.supabaseUrl = config.supabase.url;
+    this.supabaseAnonKey = config.supabase.anon_key;
     this.machineName = config.name;
     this.primaryCompanyId = config.company_id;
     this.agentVersion = agentVersion;
@@ -75,17 +66,7 @@ export class AgentConnection {
       throw new Error("[local-agent] refresh_token is required when access_token is set — daemon refused to start");
     }
 
-    this.supabase = createClient(config.supabase.url, config.supabase.anon_key, {
-      realtime: {
-        // Node.js requires an explicit WebSocket implementation; the ws package
-        // types don't perfectly align with supabase-js's WebSocketLikeConstructor.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        transport: WebSocket as any,
-        params: {
-          eventsPerSecond: 10,
-        },
-      },
-    });
+    this.supabase = createClient(config.supabase.url, config.supabase.anon_key);
 
     // Prefer authenticated JWT with auto-refresh for DB writes (respects RLS).
     // Fall back to service_role key (bypasses RLS), then anon client.
@@ -179,7 +160,7 @@ export class AgentConnection {
     }
   }
 
-  /** Connect to Supabase Realtime and start the heartbeat loop. */
+  /** Start heartbeat and inbound poll loop. */
   async start(): Promise<void> {
     console.log(`[local-agent] Starting daemon for machine: ${this.machineName}`);
     this.stopped = false;
@@ -244,121 +225,60 @@ export class AgentConnection {
     // Register/upsert machine row so heartbeats and status queries work
     await this.registerMachine();
 
-    await this.connect();
+    this.startHeartbeat();
+    this.startPollLoop();
   }
 
   /** Gracefully disconnect and stop all timers. */
   async stop(): Promise<void> {
     this.stopped = true;
-    this.clearReconnectTimer();
     this.clearHeartbeatTimer();
-    if (this.channel) {
-      await this.supabase.removeChannel(this.channel);
-      this.channel = null;
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
     }
     console.log(`[local-agent] Daemon stopped.`);
   }
 
-  // ---------------------------------------------------------------------------
-  // Private connection management
-  // ---------------------------------------------------------------------------
+  private startPollLoop(): void {
+    void this.poll();
+    this.pollInterval = setInterval(() => {
+      void this.poll();
+    }, 10_000);
+  }
 
-  private async connect(): Promise<void> {
-    if (this.stopped) return;
+  private async poll(): Promise<void> {
+    if (this.isPolling) return;
+    this.isPolling = true;
+    try {
+      if (!this.primaryCompanyId) {
+        console.warn("[Connection] Poll skipped: missing primary company id");
+        return;
+      }
 
-    if (!this.primaryCompanyId) {
-      throw new Error("Cannot connect without company_id — set ZAZIG_COMPANY_ID");
+      const url =
+        `${this.supabaseUrl}/functions/v1/agent-inbound-poll` +
+        `?machine_name=${encodeURIComponent(this.machineName)}` +
+        `&company_id=${encodeURIComponent(this.primaryCompanyId)}`;
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${this.supabaseAnonKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!response.ok) {
+        console.warn(`[Connection] Poll failed: ${response.status} ${response.statusText}`);
+        return;
+      }
+      const items = await response.json() as unknown[];
+      for (const item of items) {
+        this.handleIncomingPayload(item);
+      }
+    } catch (err) {
+      console.warn(`[Connection] Poll unreachable: ${String(err)}`);
+    } finally {
+      this.isPolling = false;
     }
-    const channelName = `agent:${this.machineName}:${this.primaryCompanyId}`;
-    console.log(`[local-agent] Connecting to inbound channel: ${channelName}`);
-
-    // Inbound channel: receives commands from orchestrator
-    this.channel = this.supabase.channel(channelName, {
-      config: {
-        broadcast: { ack: false },
-      },
-    });
-
-    // Catch-all: log every broadcast event received on this channel
-    this.channel.on("broadcast", { event: "*" }, (payload) => {
-      console.log(`[local-agent][DEBUG] Broadcast received — event=${(payload as Record<string, unknown>).event ?? "unknown"}, keys=${Object.keys(payload)}`);
-    });
-
-    // Listen for broadcast messages from the orchestrator
-    // Each handler is wrapped in try/catch to prevent a bad message from crashing the process
-    this.channel.on("broadcast", { event: "message" }, (payload) => {
-      try {
-        console.log(`[local-agent][DEBUG] Matched event=message`);
-        this.handleIncomingPayload(payload.payload);
-      } catch (err) {
-        console.error(`[local-agent] Broadcast handler crashed (event=message):`, err);
-      }
-    });
-
-    // Also listen for named events (orchestrator sends with event matching the message type)
-    this.channel.on("broadcast", { event: "start_job" }, (payload) => {
-      try {
-        console.log(`[local-agent][DEBUG] Matched event=start_job`);
-        this.handleIncomingPayload(payload.payload);
-      } catch (err) {
-        console.error(`[local-agent] Broadcast handler crashed (event=start_job):`, err);
-      }
-    });
-
-    this.channel.on("broadcast", { event: "job_unblocked" }, (payload) => {
-      try {
-        console.log(`[local-agent][DEBUG] Matched event=job_unblocked`);
-        this.handleIncomingPayload(payload.payload);
-      } catch (err) {
-        console.error(`[local-agent] Broadcast handler crashed (event=job_unblocked):`, err);
-      }
-    });
-
-    this.channel.on("broadcast", { event: "start_expert" }, (payload) => {
-      try {
-        console.log(`[local-agent][DEBUG] Matched event=start_expert`);
-        this.handleIncomingPayload(payload.payload);
-      } catch (err) {
-        console.error(`[local-agent] Broadcast handler crashed (event=start_expert):`, err);
-      }
-    });
-
-    this.channel.on("broadcast", { event: "message_inbound" }, (payload) => {
-      try {
-        console.log(`[local-agent][DEBUG] Matched event=message_inbound`);
-        this.handleIncomingPayload(payload.payload);
-      } catch (err) {
-        console.error(`[local-agent] Broadcast handler crashed (event=message_inbound):`, err);
-      }
-    });
-
-    // Subscribe to inbound channel and start heartbeat once ready.
-    let inReady = false;
-
-    const onBothReady = (): void => {
-      if (inReady) {
-        this.reconnectAttempts = 0;
-        this.startHeartbeat();
-      }
-    };
-
-    this.channel.subscribe((status, err) => {
-      if (status === "SUBSCRIBED") {
-        console.log(`[local-agent] Connected to inbound channel: ${channelName}`);
-        inReady = true;
-        onBothReady();
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        console.error(`[local-agent] Inbound channel error (status=${status}):`, err ?? "unknown error");
-        this.clearHeartbeatTimer();
-        this.scheduleReconnect();
-      } else if (status === "CLOSED") {
-        if (!this.stopped) {
-          console.warn(`[local-agent] Inbound channel closed unexpectedly. Scheduling reconnect.`);
-          this.clearHeartbeatTimer();
-          this.scheduleReconnect();
-        }
-      }
-    });
   }
 
   private handleIncomingPayload(payload: unknown): void {
@@ -418,9 +338,6 @@ export class AgentConnection {
     // Send immediately, then on interval
     void this.sendHeartbeat();
     this.heartbeatTimer = setInterval(() => {
-      // Log channel state alongside heartbeat for debugging
-      const inState = this.channel?.state ?? "null";
-      console.log(`[local-agent][DEBUG] Channel state: inbound=${inState}, machineName=${this.machineName}`);
       void this.sendHeartbeat();
     }, HEARTBEAT_INTERVAL_MS);
   }
@@ -525,7 +442,7 @@ export class AgentConnection {
     }
 
     // --- Job recovery poll ---
-    // Check for dispatched jobs that were missed due to Realtime drops.
+    // Check for dispatched jobs that were missed due to poll drops.
     // Resets them to queued so the orchestrator re-dispatches on next tick.
     // Skip if previous recovery poll is still in-flight (DB slow).
     if (!this.isRecoveryRunning) {
@@ -611,60 +528,4 @@ export class AgentConnection {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Reconnection with exponential backoff
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Safely remove old channels before reconnecting.
-   *
-   * `removeChannel()` calls `WebSocket.close()` internally. If the WebSocket
-   * is still in CONNECTING state, `ws` emits an 'error' event via
-   * `process.nextTick`. Without a listener this is an unhandled error that
-   * crashes the process. We attach a temporary listener to swallow it.
-   */
-  private async cleanupChannels(): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const conn = (this.supabase as any).realtime?.conn;
-    const swallowErr = (err: Error): void => {
-      console.warn(`[local-agent] Swallowed WebSocket error during channel cleanup: ${err.message}`);
-    };
-    if (conn && typeof conn.on === "function") {
-      conn.on("error", swallowErr);
-    }
-
-    if (this.channel) {
-      try { await this.supabase.removeChannel(this.channel); } catch { /* best-effort */ }
-      this.channel = null;
-    }
-    // Old conn is destroyed now — listener will be GC'd with it.
-  }
-
-  private scheduleReconnect(): void {
-    if (this.stopped) return;
-    this.clearReconnectTimer();
-
-    const delay = Math.min(
-      BACKOFF_BASE_MS * Math.pow(BACKOFF_MULTIPLIER, this.reconnectAttempts),
-      BACKOFF_MAX_MS
-    );
-    this.reconnectAttempts++;
-
-    console.log(
-      `[local-agent] Reconnecting in ${delay}ms (attempt #${this.reconnectAttempts})...`
-    );
-
-    this.reconnectTimer = setTimeout(async () => {
-      this.reconnectTimer = null;
-      await this.cleanupChannels();
-      await this.connect();
-    }, delay);
-  }
-
-  private clearReconnectTimer(): void {
-    if (this.reconnectTimer !== null) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-  }
 }

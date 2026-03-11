@@ -300,4 +300,94 @@ describe("AgentConnection", () => {
     );
   });
 
+  it("calls poll immediately on start", async () => {
+    const supabaseMock = makeSupabaseClientMock();
+    createClientMock.mockReturnValue(supabaseMock.client);
+
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots));
+    vi.spyOn(connection as any, "registerMachine").mockResolvedValue(undefined);
+    vi.spyOn(connection as any, "startHeartbeat").mockImplementation(() => undefined);
+    vi.spyOn(connection as any, "getCompanyIds").mockResolvedValue([]);
+    const pollSpy = vi.spyOn(connection as any, "poll").mockResolvedValue(undefined);
+
+    await connection.start();
+
+    expect(pollSpy).toHaveBeenCalledTimes(1);
+    await connection.stop();
+  });
+
+  it("poll skips when a previous poll is still running", async () => {
+    const supabaseMock = makeSupabaseClientMock();
+    createClientMock.mockReturnValue(supabaseMock.client);
+
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots));
+    (connection as any).isPolling = true;
+
+    await (connection as any).poll();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("warns when poll endpoint returns non-ok status", async () => {
+    const supabaseMock = makeSupabaseClientMock();
+    createClientMock.mockReturnValue(supabaseMock.client);
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 503,
+      statusText: "Service Unavailable",
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots));
+    await (connection as any).poll();
+
+    expect(warnSpy).toHaveBeenCalledWith("[Connection] Poll failed: 503 Service Unavailable");
+  });
+
+  it("warns when poll endpoint is unreachable", async () => {
+    const supabaseMock = makeSupabaseClientMock();
+    createClientMock.mockReturnValue(supabaseMock.client);
+    fetchMock.mockRejectedValue(new Error("network down"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots));
+    await (connection as any).poll();
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("[Connection] Poll unreachable:"));
+  });
+
+  it("passes poll items to handleIncomingPayload", async () => {
+    const supabaseMock = makeSupabaseClientMock();
+    createClientMock.mockReturnValue(supabaseMock.client);
+    const items = [{ type: "start_job" }, { type: "message_inbound" }];
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(items),
+    });
+
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots));
+    const handlerSpy = vi.spyOn(connection as any, "handleIncomingPayload").mockImplementation(() => undefined);
+    await (connection as any).poll();
+
+    expect(handlerSpy).toHaveBeenCalledTimes(2);
+    expect(handlerSpy).toHaveBeenNthCalledWith(1, items[0]);
+    expect(handlerSpy).toHaveBeenNthCalledWith(2, items[1]);
+  });
+
+  it("stop clears poll interval", async () => {
+    const supabaseMock = makeSupabaseClientMock();
+    createClientMock.mockReturnValue(supabaseMock.client);
+    vi.useFakeTimers();
+    const clearIntervalSpy = vi.spyOn(global, "clearInterval");
+
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots));
+    vi.spyOn(connection as any, "poll").mockResolvedValue(undefined);
+    (connection as any).startPollLoop();
+    expect((connection as any).pollInterval).not.toBeNull();
+
+    await connection.stop();
+
+    expect(clearIntervalSpy).toHaveBeenCalled();
+    expect((connection as any).pollInterval).toBeNull();
+  });
 });

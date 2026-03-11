@@ -1,8 +1,8 @@
 /**
  * @zazigv2/local-agent — Node.js daemon entry point
  *
- * Connects to Supabase Realtime, sends heartbeats, and listens for job commands
- * from the orchestrator. Job execution is handled by a separate module (future card).
+ * Connects to Supabase and polls for job commands from the orchestrator.
+ * Job execution is handled by a separate module (future card).
  *
  * Runtime: Node.js 20+
  * Start: node dist/index.js (or npm start from this package)
@@ -41,7 +41,6 @@ import { AgentConnection } from "./connection.js";
 import { JobExecutor, type CompanyProject, type PersistentAgentJobDefinition } from "./executor.js";
 import { ExpertSessionManager } from "./expert-session-manager.js";
 import { FixAgentManager } from "./fix-agent.js";
-import { recoverDispatchedJobs } from "./job-recovery.js";
 import { JobVerifier } from "./verifier.js";
 import { resolveAgentVersion } from "./version.js";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
@@ -85,7 +84,6 @@ async function main(): Promise<void> {
     config.supabase.url,
     config.supabase.anon_key,
   );
-  conn.setKillStaleJobsFn((reason) => executor.killAllRunningJobs(reason));
 
   const verifier = new JobVerifier({
     repoDir: process.cwd(),
@@ -133,7 +131,7 @@ async function main(): Promise<void> {
         break;
 
       case "health_check":
-        console.log("[local-agent] Received health_check — heartbeat will be sent on next interval");
+        console.log("[local-agent] Received health_check");
         break;
 
       case "message_inbound":
@@ -178,15 +176,8 @@ async function main(): Promise<void> {
     }
   });
 
-  // Start the connection (connects + begins heartbeat loop)
+  // Start the connection (connects + begins poll loop)
   await conn.start();
-
-  // Recover any jobs that were dispatched when we last went offline.
-  // These are stuck because the Realtime broadcast was missed or the daemon was killed.
-  await recoverDispatchedJobs(conn.dbClient, config.name, {
-    gracePeriodMs: 0,
-    companyIds: conn.companyIds,
-  });
 
   // Discover and spawn persistent agents if ZAZIG_COMPANY_ID is set
   const companyId = process.env["ZAZIG_COMPANY_ID"];

@@ -10,8 +10,7 @@
  * 2. Finds queued jobs this machine can handle (by slot_type capacity)
  * 3. Atomically claims them (queued → executing, sets machine_id)
  * 4. Returns claimed jobs as StartJob messages
- *
- * Expert sessions are NOT handled here — they have their own dispatch path.
+ * 5. Returns requested expert sessions as StartExpert messages
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -33,6 +32,24 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+interface ExpertSessionRow {
+  id: string;
+  brief: string;
+  headless: boolean;
+  batch_id: string | null;
+  items_total: number;
+  status: string;
+  expert_roles: {
+    name: string;
+    display_name: string;
+    model: string;
+    prompt: string;
+    skills: string[] | null;
+    mcp_tools: unknown;
+    settings_overrides: unknown;
+  };
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -262,7 +279,49 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (remainingClaude <= 0 && remainingCodex <= 0) break;
     }
 
-    return jsonResponse({ jobs: claimedMessages, ...baseResponse });
+    // ---------------------------------------------------------------
+    // 4. Find requested expert sessions for this machine
+    // ---------------------------------------------------------------
+    const { data: sessionsData, error: sessionsErr } = await supabaseAdmin
+      .from("expert_sessions")
+      .select(
+        "id, brief, headless, batch_id, items_total, status, expert_roles(name, display_name, model, prompt, skills, mcp_tools, settings_overrides)",
+      )
+      .eq("status", "requested")
+      .eq("machine_id", machineId);
+
+    if (sessionsErr) {
+      console.error("[agent-inbound-poll] Expert sessions query failed:", sessionsErr.message);
+      // Don't fail — still return jobs
+    }
+
+    const expertMessages = (sessionsData ?? []).map((row) => {
+      const record = row as unknown as ExpertSessionRow;
+      const role = record.expert_roles;
+      return {
+        type: "start_expert",
+        protocolVersion: PROTOCOL_VERSION,
+        session_id: record.id,
+        model: role?.model ?? "claude-sonnet-4-6",
+        brief: record.brief ?? "",
+        headless: record.headless ?? false,
+        batch_id: record.batch_id ?? undefined,
+        auto_exit: record.headless ?? false,
+        display_name: role?.display_name ?? role?.name ?? "Expert",
+        role: {
+          prompt: role?.prompt ?? "",
+          skills: role?.skills ?? [],
+          mcp_tools: role?.mcp_tools ?? { allowed: [] },
+          settings_overrides: role?.settings_overrides ?? undefined,
+        },
+      };
+    });
+
+    return jsonResponse({
+      jobs: claimedMessages,
+      experts: expertMessages,
+      ...baseResponse,
+    });
   } catch (err) {
     console.error("[agent-inbound-poll] Error:", err);
     return jsonResponse({ error: String(err) }, 500);

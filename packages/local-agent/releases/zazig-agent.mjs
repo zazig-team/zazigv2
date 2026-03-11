@@ -1,4 +1,3 @@
-const AGENT_BUILD_HASH = "e9d6bcf";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -19772,6 +19771,10 @@ var AgentConnection = class {
       for (const item of jobs) {
         this.handleIncomingPayload(item);
       }
+      const experts = result.experts ?? [];
+      for (const item of experts) {
+        this.handleIncomingPayload(item);
+      }
     } catch (err) {
       console.warn(`[Connection] Poll unreachable: ${String(err)}`);
     } finally {
@@ -20041,6 +20044,9 @@ var ExpertSessionManager = class {
   }
   async handleStartExpert(msg) {
     const sessionId = msg.session_id;
+    if (this.activeSessions.has(sessionId)) {
+      return;
+    }
     const shortId = sessionId.slice(0, 8);
     const roleName = msg.role_name ?? msg.display_name ?? "expert";
     const expertBranch = `expert/${slugifyBranchSegment(roleName)}-${shortId}`;
@@ -20192,14 +20198,15 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
     }
     if (msg.headless === true) {
       try {
+        const promptFilePath = join6(effectiveWorkspaceDir, ".zazig-prompt.txt");
+        writeFileSync4(promptFilePath, msg.brief);
         const claudeCmd = shellEscape2([
           "claude",
           "--model",
           msg.model,
-          "-p",
-          msg.brief
+          "-p"
         ]);
-        const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
+        const shellCmd = `unset CLAUDECODE; cat ${shellEscape2([promptFilePath])} | ${claudeCmd}`;
         await killTmuxSession2(tmuxSessionName);
         await execFileAsync4("tmux", [
           "new-session",
@@ -20288,9 +20295,13 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       if (status === "running") {
         update.started_at = (/* @__PURE__ */ new Date()).toISOString();
       }
-      const { error } = await this.supabase.from("expert_sessions").update(update).eq("id", sessionId);
+      const { error, data } = await this.supabase.from("expert_sessions").update(update).eq("id", sessionId).select("id");
       if (error) {
         console.warn(`[expert] DB update failed for session ${sessionId}: ${error.message}`);
+      } else if (!data || data.length === 0) {
+        console.warn(`[expert] DB update for session ${sessionId} matched 0 rows (RLS may be blocking)`);
+      } else {
+        console.log(`[expert] Updated session ${sessionId} \u2192 ${status}`);
       }
     } catch (err) {
       console.error(`[expert] DB update error for session ${sessionId}:`, err);

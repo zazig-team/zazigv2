@@ -293,6 +293,7 @@ export class AgentConnection {
       }
       const result = await response.json() as {
         jobs?: unknown[];
+        experts?: unknown[];
         heartbeat?: string;
         outdated?: boolean;
         required_version?: string;
@@ -302,6 +303,10 @@ export class AgentConnection {
       }
       const jobs = result.jobs ?? [];
       for (const item of jobs) {
+        this.handleIncomingPayload(item);
+      }
+      const experts = result.experts ?? [];
+      for (const item of experts) {
         this.handleIncomingPayload(item);
       }
     } catch (err) {

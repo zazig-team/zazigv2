@@ -79,6 +79,42 @@ async function callSyncHandler<T>(
   await Promise.resolve(handler(supabaseAdmin, msg));
 }
 
+async function loadAllowedCompanyIds(
+  supabaseAdmin: SupabaseClient,
+  userId: string,
+): Promise<string[]> {
+  const { data, error } = await supabaseAdmin
+    .from("user_companies")
+    .select("company_id")
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(`Failed to resolve user companies: ${error.message}`);
+  }
+
+  return (data ?? [])
+    .map((row) => row.company_id)
+    .filter((cid): cid is string => typeof cid === "string" && cid.length > 0);
+}
+
+async function isJobInAllowedCompanies(
+  supabaseAdmin: SupabaseClient,
+  jobId: string,
+  allowedCompanyIds: ReadonlySet<string>,
+): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("jobs")
+    .select("company_id")
+    .eq("id", jobId)
+    .maybeSingle();
+
+  if (error || !data?.company_id) {
+    return false;
+  }
+
+  return allowedCompanyIds.has(data.company_id);
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method !== "POST") {
     return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
@@ -102,6 +138,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse({ ok: false, error: "Forbidden" }, 403);
   }
 
+  const allowedCompanyIds = await loadAllowedCompanyIds(supabaseAdmin, user.id);
+  if (allowedCompanyIds.length === 0) {
+    return jsonResponse({ ok: false, error: "Forbidden" }, 403);
+  }
+  const allowedCompanySet = new Set(allowedCompanyIds);
+
   let body: unknown;
   try {
     body = await req.json();
@@ -123,6 +165,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse({ ok: false, error: "Invalid message" }, 400);
   }
 
+  const maybeJobId =
+    "jobId" in body && typeof body.jobId === "string"
+      ? body.jobId
+      : null;
+
+  if (maybeJobId) {
+    const allowed = await isJobInAllowedCompanies(
+      supabaseAdmin,
+      maybeJobId,
+      allowedCompanySet,
+    );
+    if (!allowed) {
+      return jsonResponse({ ok: false, error: "Forbidden" }, 403);
+    }
+  }
+
   try {
     switch (body.type) {
       case "job_complete":
@@ -135,7 +193,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
         await callAsyncHandler(handleVerifyResult, body as VerifyResult, supabaseAdmin);
         break;
       case "heartbeat":
-        await callAsyncHandler(handleHeartbeat, body as Heartbeat, supabaseAdmin);
+        await handleHeartbeat(
+          supabaseAdmin,
+          body as Heartbeat,
+          allowedCompanyIds,
+        );
         break;
       case "job_ack":
         await callSyncHandler(handleJobAck, body as JobAck, supabaseAdmin);

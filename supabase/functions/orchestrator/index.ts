@@ -794,8 +794,21 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       .limit(1)
       .maybeSingle();
 
+    console.log(
+      `[orchestrator job=${job.id}] machines fetched: ${machines.length}, latestVersion=${latestVersion?.version ?? "none"}, env=${env}`,
+    );
+    for (const m of machines) {
+      console.log(
+        `[orchestrator job=${job.id}] machine=${m.name} status=${m.status} agent_version=${m.agent_version} slots_claude_code=${m.slots_claude_code} slots_codex=${m.slots_codex} version_match=${!latestVersion || m.agent_version === latestVersion.version}`,
+      );
+    }
+
     const eligibleMachines = machines.filter(
       (m) => !latestVersion || m.agent_version === latestVersion.version,
+    );
+
+    console.log(
+      `[orchestrator job=${job.id}] eligibleMachines=${eligibleMachines.length} slotType=${slotType}`,
     );
 
     // Find a machine with an available slot of the required type.

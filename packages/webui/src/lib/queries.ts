@@ -215,9 +215,11 @@ export async function getAccessToken(): Promise<string | null> {
 async function invokePost<TResponse>(
   functionName: string,
   body: Record<string, unknown>,
+  headers?: Record<string, string>,
 ): Promise<TResponse> {
   const { data, error } = await supabase.functions.invoke(functionName, {
     body,
+    ...(headers ? { headers } : {}),
   });
 
   if (error) {
@@ -598,6 +600,11 @@ export interface IdeaDetail {
   project_id: string | null;
   suggested_exec: string | null;
   triage_notes: string | null;
+  triage_route: string | null;
+  spec: string | null;
+  acceptance_tests: string | null;
+  human_checklist: string | null;
+  complexity: string | null;
   promotedFeature: { title: string; status: string } | null;
 }
 
@@ -662,7 +669,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
 export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
   const { data: idea, error: ideaError } = await supabase
     .from("ideas")
-    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon, project_id, suggested_exec, triage_notes")
+    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon, project_id, suggested_exec, triage_notes, triage_route, spec, acceptance_tests, human_checklist, complexity")
     .eq("id", ideaId)
     .single();
 
@@ -706,6 +713,11 @@ export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
     project_id: (row.project_id as string | null) ?? null,
     suggested_exec: (row.suggested_exec as string | null) ?? null,
     triage_notes: (row.triage_notes as string | null) ?? null,
+    triage_route: (row.triage_route as string | null) ?? null,
+    spec: (row.spec as string | null) ?? null,
+    acceptance_tests: (row.acceptance_tests as string | null) ?? null,
+    human_checklist: (row.human_checklist as string | null) ?? null,
+    complexity: (row.complexity as string | null) ?? null,
     promotedFeature,
   };
 }
@@ -1018,17 +1030,32 @@ export async function commissionProjectArchitect(params: {
   });
 }
 
-export async function requestTriageJob(params: {
+export async function requestHeadlessTriage(params: {
   companyId: string;
   projectId: string;
-  ideaId: string;
-}): Promise<{ job_id?: string }> {
-  return invokePost<{ job_id?: string }>("request-work", {
-    company_id: params.companyId,
+  ideaIds: string[];
+}): Promise<{ session_id?: string }> {
+  return invokePost<{ session_id?: string }>("start-expert-session", {
+    role_name: "triage-analyst",
+    brief: `Triage these ideas: ${JSON.stringify(params.ideaIds)}. For each idea, evaluate against org goals, check for duplicates, set priority, and route to the appropriate track (promote/develop/workshop/harden/park/reject). Call update_idea for each with your triage_notes and triage_route.`,
+    machine_name: "auto",
     project_id: params.projectId,
-    role: "triage-analyst",
-    context: params.ideaId,
-  });
+    headless: true,
+  }, { "x-company-id": params.companyId });
+}
+
+export async function requestHeadlessSpec(params: {
+  companyId: string;
+  projectId: string;
+  ideaIds: string[];
+}): Promise<{ session_id?: string }> {
+  return invokePost<{ session_id?: string }>("start-expert-session", {
+    role_name: "spec-writer",
+    brief: `Write specs for these ideas: ${JSON.stringify(params.ideaIds)}. For each, read triage notes, explore codebase, write spec with acceptance criteria and human checklist, estimate complexity, then call update_idea with spec, acceptance_tests, human_checklist, complexity, and set status to 'specced'.`,
+    machine_name: "auto",
+    project_id: params.projectId,
+    headless: true,
+  }, { "x-company-id": params.companyId });
 }
 
 export async function requestEnrichmentJob(params: {
@@ -1036,13 +1063,14 @@ export async function requestEnrichmentJob(params: {
   projectId: string;
   ideaId: string;
   missing: string[];
-}): Promise<{ job_id?: string }> {
-  return invokePost<{ job_id?: string }>("request-work", {
-    company_id: params.companyId,
+}): Promise<{ session_id?: string }> {
+  return invokePost<{ session_id?: string }>("start-expert-session", {
+    role_name: "triage-analyst",
+    brief: `Enrich idea ${params.ideaId}. Fill in missing fields: ${params.missing.join(", ")}. Call update_idea with the enriched data.`,
+    machine_name: "auto",
     project_id: params.projectId,
-    role: "triage-analyst",
-    context: JSON.stringify({ idea_id: params.ideaId, action: "enrich", missing: params.missing }),
-  });
+    headless: true,
+  }, { "x-company-id": params.companyId });
 }
 
 export async function requestFeatureFix(params: {

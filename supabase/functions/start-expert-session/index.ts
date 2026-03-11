@@ -125,6 +125,9 @@ interface StartExpertPayload {
   session_id: string;
   model: string;
   brief: string;
+  headless?: boolean;
+  batch_id?: string;
+  auto_exit?: boolean;
   display_name?: string;
   role: {
     prompt: string;
@@ -224,6 +227,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const brief = toTrimmedString(body.brief);
     const machineName = toTrimmedString(body.machine_name);
     const projectId = toTrimmedString(body.project_id);
+    const headless = body.headless === true;
+    const batchId = typeof body.batch_id === "string" ? body.batch_id : undefined;
 
     if (!roleName) {
       return jsonResponse({ error: "role_name is required" }, 400);
@@ -254,22 +259,46 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const role = roleData as ExpertRoleRow;
 
-    const { data: machineData, error: machineErr } = await supabase
-      .from("machines")
-      .select("id, name")
-      .eq("company_id", companyId)
-      .eq("name", machineName)
-      .maybeSingle();
+    let machineData: MachineRow | null = null;
 
-    if (machineErr) {
-      return jsonResponse({ error: `Failed to fetch machine: ${machineErr.message}` }, 500);
+    if (machineName === "auto") {
+      // Auto-routing: pick any online machine for this company
+      const { data: machines, error: machineErr } = await supabase
+        .from("machines")
+        .select("id, name")
+        .eq("company_id", companyId)
+        .eq("status", "online")
+        .order("last_heartbeat", { ascending: false })
+        .limit(1);
+
+      if (machineErr) {
+        return jsonResponse({ error: `Failed to fetch machines: ${machineErr.message}` }, 500);
+      }
+
+      machineData = (machines as MachineRow[] | null)?.[0] ?? null;
+      if (!machineData) {
+        return jsonResponse({ error: `No online machines available for company` }, 400);
+      }
+    } else {
+      const { data: found, error: machineErr } = await supabase
+        .from("machines")
+        .select("id, name")
+        .eq("company_id", companyId)
+        .eq("name", machineName)
+        .maybeSingle();
+
+      if (machineErr) {
+        return jsonResponse({ error: `Failed to fetch machine: ${machineErr.message}` }, 500);
+      }
+
+      if (!found) {
+        return jsonResponse({ error: `Unknown machine name for company: ${machineName}` }, 400);
+      }
+
+      machineData = found as MachineRow;
     }
 
-    if (!machineData) {
-      return jsonResponse({ error: `Unknown machine name for company: ${machineName}` }, 400);
-    }
-
-    const machine = machineData as MachineRow;
+    const machine = machineData;
 
     const uuidRegex =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -311,6 +340,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const resolvedRepoUrl = project.repo_url;
     const resolvedBranch = "master";
 
+    // Estimate items_total from brief — look for JSON array of idea IDs
+    let itemsTotal = 0;
+    if (headless) {
+      const idArrayMatch = brief.match(/\["[0-9a-f-]+"/);
+      if (idArrayMatch) {
+        try {
+          const idsPortion = brief.slice(brief.indexOf("["));
+          const closeBracket = idsPortion.indexOf("]");
+          if (closeBracket > 0) {
+            const parsed = JSON.parse(idsPortion.slice(0, closeBracket + 1));
+            if (Array.isArray(parsed)) itemsTotal = parsed.length;
+          }
+        } catch { /* non-critical — leave as 0 */ }
+      }
+    }
+
     const { data: sessionData, error: sessionErr } = await supabase
       .from("expert_sessions")
       .insert({
@@ -319,6 +364,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
         machine_id: machine.id,
         triggered_by: "cpo",
         brief,
+        headless,
+        batch_id: batchId ?? null,
+        items_total: itemsTotal,
         status: "requested",
       })
       .select("id")
@@ -336,6 +384,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       session_id: sessionId,
       model: role.model,
       brief,
+      headless,
+      batch_id: batchId,
+      auto_exit: headless,
       display_name: role.display_name,
       role: {
         prompt: role.prompt,

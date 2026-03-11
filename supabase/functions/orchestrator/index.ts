@@ -365,7 +365,6 @@ const NO_CODE_CONTEXT_ROLES = new Set([
   "pipeline-technician",
   "monitoring-agent",
   "project-architect",
-  "triage-analyst",
 ]);
 
 const EXECUTING_JOB_INVESTIGATION_THRESHOLD_MS = 30 * 60 * 1000;
@@ -2769,7 +2768,37 @@ async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void
 
     if (activeJobs && activeJobs.length > 0) continue;
 
-    // No active job — revert to 'new' so it can be re-triaged.
+    // Also check headless expert sessions that are still running and mention this idea.
+    // Join through expert_session_items (preferred) with a fallback to brief text search
+    // for sessions that haven't yet inserted item rows.
+    const { data: activeSessionItems } = await supabase
+      .from("expert_session_items")
+      .select("id, session:session_id!inner(status)")
+      .eq("idea_id", idea.id)
+      .is("completed_at", null)
+      .limit(1);
+
+    const hasActiveItem = activeSessionItems?.some(
+      (item: Record<string, unknown>) => {
+        const session = item.session as Record<string, unknown> | null;
+        return session?.status === "running";
+      }
+    );
+    if (hasActiveItem) continue;
+
+    // Fallback: check running headless sessions whose brief mentions this idea ID
+    const { data: runningSessions } = await supabase
+      .from("expert_sessions")
+      .select("id, brief")
+      .eq("headless", true)
+      .eq("status", "running");
+
+    const briefMentionsIdea = runningSessions?.some(
+      (s: { brief: string | null }) => s.brief && s.brief.includes(idea.id)
+    );
+    if (briefMentionsIdea) continue;
+
+    // No active job or session — revert to 'new' so it can be re-triaged.
     const { error: revertErr } = await supabase
       .from("ideas")
       .update({ status: "new" })
@@ -2791,90 +2820,125 @@ async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void
 async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
   const { data: companies } = await supabase
     .from("companies")
-    .select("id")
+    .select("id, auto_triage, triage_batch_size, triage_max_concurrent, triage_delay_minutes")
     .eq("auto_triage", true)
     .eq("status", "active");
 
   if (!companies?.length) return;
 
-  for (const company of companies as { id: string }[]) {
-    const lastRun = autoTriageLastRun.get(company.id) ?? 0;
+  for (const company of companies) {
+    const companyId = company.id;
+    const lastRun = autoTriageLastRun.get(companyId) ?? 0;
     if (Date.now() - lastRun < AUTO_TRIAGE_COOLDOWN_MS) continue;
 
-    // Check if there's already an active triage-analyst job for this company.
-    // The RPC enforces idempotency (one active triage-analyst per company/project),
-    // so we skip dispatch entirely if one is already running.
-    const { data: activeTriageJobs } = await supabase
-      .from("jobs")
-      .select("id")
-      .eq("company_id", company.id)
-      .eq("role", "triage-analyst")
-      .in("status", ["queued", "dispatched", "executing"])
-      .limit(1);
+    // Check active headless triage expert sessions (not all headless — only triage)
+    const { count: activeSessions } = await supabase
+      .from("expert_sessions")
+      .select("id, expert_role:expert_role_id!inner(name)", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("headless", true)
+      .eq("status", "running")
+      .eq("expert_role.name", "triage-analyst");
 
-    if (activeTriageJobs && activeTriageJobs.length > 0) continue;
+    const maxConcurrent = company.triage_max_concurrent ?? 3;
+    const activeCount = activeSessions ?? 0;
+    if (activeCount >= maxConcurrent) continue;
 
-    // Pick the oldest new idea (one at a time — next tick picks the next one).
+    // Only triage ideas older than the configured delay
+    const delayMinutes = company.triage_delay_minutes ?? 5;
+    const cutoff = new Date(Date.now() - delayMinutes * 60 * 1000).toISOString();
+    const batchSize = company.triage_batch_size ?? 5;
+
+    // Fetch enough ideas to fill available concurrent slots
+    const slotsAvailable = maxConcurrent - activeCount;
+    const maxIdeas = slotsAvailable * batchSize;
+
     const { data: newIdeas } = await supabase
       .from("ideas")
       .select("id")
-      .eq("company_id", company.id)
+      .eq("company_id", companyId)
       .eq("status", "new")
+      .lt("created_at", cutoff)
       .order("created_at", { ascending: true })
-      .limit(1);
+      .limit(maxIdeas);
 
     if (!newIdeas?.length) continue;
 
+    // Resolve project for this company (same pattern as original autoTriageNewIdeas)
     const { data: projects } = await supabase
       .from("projects")
       .select("id")
-      .eq("company_id", company.id)
+      .eq("company_id", companyId)
       .eq("status", "active")
       .limit(1);
 
     const projectId = (projects as { id: string }[] | null)?.[0]?.id;
     if (!projectId) {
       console.log(
-        `[orchestrator] auto-triage: no active project for company ${company.id}, skipping`,
+        `[orchestrator] auto-triage: no active project for company ${companyId}, skipping`,
       );
       continue;
     }
 
-    const idea = (newIdeas as { id: string }[])[0];
-
-    await supabase
-      .from("ideas")
-      .update({ status: "triaging" })
-      .eq("id", idea.id);
-
-    const { data: rpcResult, error } = await supabase.rpc("request_standalone_work", {
-      p_company_id: company.id,
-      p_project_id: projectId,
-      p_feature_id: null,
-      p_role: "triage-analyst",
-      p_context: idea.id,
-    });
-
-    const rejected = rpcResult && typeof rpcResult === "object" &&
-      (rpcResult as Record<string, unknown>).rejected === true;
-
-    if (error || rejected) {
-      const reason = error?.message ??
-        (rpcResult as Record<string, unknown>)?.reason ?? "unknown";
-      console.error(
-        `[orchestrator] auto-triage: failed to queue triage for idea ${idea.id}: ${reason}`,
-      );
-      await supabase
-        .from("ideas")
-        .update({ status: "new" })
-        .eq("id", idea.id);
-    } else {
-      console.log(
-        `[orchestrator] auto-triage: queued triage for idea ${idea.id}`,
-      );
+    // Partition into batches and dispatch up to slotsAvailable sessions
+    const allIdeaIds = newIdeas.map((i: { id: string }) => i.id);
+    const batches: string[][] = [];
+    for (let i = 0; i < allIdeaIds.length; i += batchSize) {
+      batches.push(allIdeaIds.slice(i, i + batchSize));
     }
 
-    autoTriageLastRun.set(company.id, Date.now());
+    for (const ideaIds of batches) {
+      const batchId = crypto.randomUUID();
+
+      // Atomic claim: only mark ideas that are still 'new' (guards against concurrent orchestrator)
+      const { data: claimed } = await supabase
+        .from("ideas")
+        .update({ status: "triaging" })
+        .in("id", ideaIds)
+        .eq("status", "new")
+        .select("id");
+
+      const claimedIds = (claimed as { id: string }[] | null)?.map(r => r.id) ?? [];
+      if (claimedIds.length === 0) continue;
+
+      // Dispatch via headless expert session
+      const response = await fetch(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/start-expert-session`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            "x-company-id": companyId,
+          },
+          body: JSON.stringify({
+            role_name: "triage-analyst",
+            brief: `Auto-triage batch. Triage these ideas: ${JSON.stringify(claimedIds)}`,
+            machine_name: "auto",
+            project_id: projectId,
+            headless: true,
+            batch_id: batchId,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        console.error(
+          `[orchestrator] auto-triage: failed to start headless session for company ${companyId}: ${response.status} ${response.statusText}`,
+        );
+        // Revert claimed ideas back to 'new' on failure
+        await supabase
+          .from("ideas")
+          .update({ status: "new" })
+          .in("id", claimedIds);
+      } else {
+        console.log(
+          `[orchestrator] auto-triage: started headless triage session for ${claimedIds.length} ideas in company ${companyId}`,
+        );
+      }
+    }
+
+    autoTriageLastRun.set(companyId, Date.now());
   }
 }
 

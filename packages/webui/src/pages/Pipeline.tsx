@@ -754,11 +754,31 @@ export default function Pipeline(): JSX.Element {
                   : false;
 
           const renderFeatureCard = (feature: PipelineFeature) => {
+            const ideaStatus = (feature as unknown as Record<string, unknown>)._ideaStatus as string | undefined;
+            const isIdeaCard = Boolean(ideaStatus);
             const activeRole = ACTIVE_FEATURE_STATUSES.has(feature.status)
               ? activeRoleByFeatureId.get(feature.id)
               : undefined;
             const prUrl = column.key === "pr_ready" ? featurePrUrl(feature) : null;
-            const accentColor = getCardAccentColor(feature, snapshot.activeJobs);
+            const accentColor = isIdeaCard
+              ? (ideaStatus === "specced" ? "var(--positive)" : "var(--caution)")
+              : getCardAccentColor(feature, snapshot.activeJobs);
+
+            if (isIdeaCard) {
+              return (
+                <article className="card card--clickable" key={feature.id} onClick={() => setSelectedIdea({ id: feature.id, colorVar: column.colorVar })}>
+                  <div className="card-accent" style={{ background: accentColor }} />
+                  <div className="card-body">
+                    <div className="card-title">{feature.title}</div>
+                    <span className={ideaStatus === "specced" ? "il-feature-status positive" : "il-triaging-badge"}>
+                      {ideaStatus === "specced" ? "Specced" : "Speccing..."}
+                    </span>
+                    <div className="card-desc">{feature.description}</div>
+                  </div>
+                </article>
+              );
+            }
+
             return (
             <article className="card card--clickable" key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
               <div className="card-accent" style={{ background: accentColor }} />

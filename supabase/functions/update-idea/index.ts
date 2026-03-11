@@ -81,6 +81,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
       flags,
       clarification_notes,
       triage_notes,
+      triage_route,
+      spec,
+      acceptance_tests,
+      human_checklist,
+      complexity,
       project_id,
       job_id,
     } = body;
@@ -109,6 +114,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (flags !== undefined) updates.flags = flags;
     if (clarification_notes !== undefined) updates.clarification_notes = clarification_notes;
     if (triage_notes !== undefined) updates.triage_notes = triage_notes;
+    if (triage_route !== undefined) updates.triage_route = triage_route;
+    if (spec !== undefined) updates.spec = spec;
+    if (acceptance_tests !== undefined) updates.acceptance_tests = acceptance_tests;
+    if (human_checklist !== undefined) updates.human_checklist = human_checklist;
+    if (complexity !== undefined) updates.complexity = complexity;
     if (project_id !== undefined) updates.project_id = project_id;
     // job_id is used for identity resolution only — not stored on ideas
 

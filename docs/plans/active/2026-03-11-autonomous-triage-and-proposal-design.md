@@ -616,6 +616,140 @@ Total: ~3-4 feature cycles (each phase is one pipeline feature).
 
 ---
 
+## End-to-End Testing Plan
+
+Each phase ships with Playwright E2E tests that prove the feature works. Tests run via `/loop` for continuous validation during development and produce visual + log evidence.
+
+### Test Isolation: Dedicated Test Company
+
+All E2E tests run against a **dedicated test company**, not zazig-dev itself. This prevents test ideas from polluting the real inbox or triggering real triage/spec work on production ideas.
+
+**Setup:**
+- Create a test company (e.g. `e2e-triage-test`) in staging Supabase with its own `company_id`
+- Test company has its own ideas, features, goals, focus areas — all test fixtures
+- Seed with a small set of goals and focus areas so triage routing has something to evaluate against
+- Auto-triage toggle and batch settings are per-company, so test config doesn't affect zazig-dev
+
+**Fixture ideas:** Pre-defined test ideas covering each routing scenario:
+- A clear, goal-aligned feature idea (should route to `develop` or `promote`)
+- A vague multi-system idea (should route to `workshop`)
+- A strategic capability idea (should route to `harden`)
+- A low-priority, off-goal idea (should auto-park)
+- A spam/nonsense idea (should auto-reject)
+- A near-duplicate of an existing feature (should flag duplicate)
+
+**Teardown:** After each test run, reset the test company's ideas back to `new` status so tests are idempotent. Don't delete — reset. This preserves the fixtures while allowing re-runs.
+
+### Test Infrastructure
+
+**Directory:** `tests/e2e/triage/`
+
+**Proof collation:** Each test run produces:
+- Timestamped screenshots at every status transition
+- Idea JSON snapshots (full record) at each stage
+- Network HAR capture for all API/edge function calls
+- Expert session records from `expert_sessions` table
+- Per-idea timing data from `expert_session_items` table
+- Consolidated into `tests/e2e/triage/{run-id}/report.md` — markdown with embedded screenshots, status timeline, and log excerpts
+
+**Loop configuration:** `/loop 1m` polls the Ideas page and captures state changes. Each loop iteration:
+1. Screenshot the Ideas page (current tab)
+2. Query idea records via Supabase API for status changes since last poll
+3. If status changed: screenshot, dump idea JSON, log the transition
+4. If expert session completed: capture session record + report
+
+### Test Scenarios by Phase
+
+#### Phase 1: Headless Expert Sessions
+
+| Test | Steps | Proof |
+|------|-------|-------|
+| Headless expert spawns and exits | Spawn headless expert with trivial brief via MCP tool. Verify session record created in DB with `headless=true`. Wait for completion. | DB record shows `status=completed`, `summary` populated. No tmux window visible. |
+| Report injection | Spawn headless expert. Verify report appears in CPO session after completion. | Screenshot of CPO tmux showing injected report text. |
+| Workspace cleanup | After headless expert completes, verify workspace directory deleted and worktree removed. | `ls ~/.zazigv2/expert-{sessionId}/` returns not found. `git worktree list` shows no stale entries. |
+
+#### Phase 2: Triage Expert (Single Idea)
+
+| Test | Steps | Proof |
+|------|-------|-------|
+| Manual triage via WebUI | Create test idea via WebUI. Click "Triage" button. Wait for completion. | Screenshots: idea card at `new` → `triaging` (shows "Analysing...") → `triaged`. Idea JSON shows `priority`, `tags`, `triage_route`, `triage_notes` all populated. |
+| Triage routing: develop | Create idea that needs spec (e.g. "Add caching to API responses"). Triage it. Verify route. | Idea JSON: `triage_route=develop`, `status=developing`. Triage notes explain why spec is needed. |
+| Triage routing: auto-park | Create low-value idea (e.g. "Change button colour to mauve"). Triage it. Verify auto-parked. | Idea JSON: `status=parked`, `triage_notes` explains reasoning. Screenshot: idea moved to Parked tab. |
+| Triage routing: auto-reject | Create spam idea (e.g. "Buy cheap SEO services"). Triage it. Verify auto-rejected. | Idea JSON: `status=rejected`. Screenshot: idea gone from Inbox tab. |
+| Triage routing: workshop | Create ambiguous idea (e.g. "Redesign the whole pipeline"). Triage it. Verify workshop flag. | Idea JSON: `triage_route=workshop`, `status=workshop`. Screenshot: idea on Workshop tab. |
+| No pipeline slot consumed | Check pipeline slot counts before and after triage. Verify unchanged. | API query: `machines` table slot counts identical before and after. HAR capture shows no `request-work` calls. |
+
+#### Phase 3: Batch Triage
+
+| Test | Steps | Proof |
+|------|-------|-------|
+| Triage All button | Create 8 test ideas. Click "Triage All". Verify batching. | Screenshots: ideas transition to `triaging` immediately. Expert session records show `batch_id` grouping, `items_total` correct. All ideas reach terminal triage status within timeout. |
+| Batch sizing | Create 12 ideas. Trigger Triage All. Verify multiple sessions spawned (12 ideas / batch size). | DB: multiple `expert_sessions` rows with same `batch_id`, each with `items_total <= batch_size`. |
+| Concurrent sessions | Create 15 ideas with batch_size=5. Verify 3 sessions run concurrently. | DB: 3 sessions with `status=running` simultaneously (query with timestamp window). Per-item timing shows parallel execution. |
+| Per-idea metrics | After batch triage, query `expert_session_items`. Verify timing data. | DB dump: each item has `started_at`, `completed_at`, `duration_ms`, `route`, `model`. Report includes average time per idea. |
+
+#### Phase 4: Spec Expert
+
+| Test | Steps | Proof |
+|------|-------|-------|
+| Autonomous spec writing | Create idea, triage to `developing`. Verify spec expert picks it up. | Idea JSON progression: `developing` → `specced`. Fields populated: `spec`, `acceptance_tests`, `human_checklist`, `complexity`. |
+| Spec escape to workshop | Create idea that looks simple but is actually ambiguous. Route to `developing`. Verify spec expert escalates. | Idea JSON: `status=workshop`. Triage notes updated with spec expert's reasoning. |
+| Promote with spec | Spec an idea to `specced`. Promote to feature via WebUI. Verify feature has spec data. | Feature record: `spec`, `acceptance_tests`, `human_checklist` all copied from idea. Feature status: `breaking_down`. |
+| Full flow: new → shipped | Create idea. Let it flow through triage → develop → spec → promote → breakdown. | Timeline report: screenshot + JSON at every status transition, from `new` to `breaking_down`. Total elapsed time logged. |
+
+#### Phase 5: Auto-Triage
+
+| Test | Steps | Proof |
+|------|-------|-------|
+| Toggle on, ideas auto-triaged | Set `auto_triage=true` in company settings. Create idea. Wait for `triage_delay_minutes`. Verify triage fires. | DB: idea status changes from `new` → `triaging` → `triaged` without any manual action. Expert session record created automatically. Timeline shows delay respected. |
+| Toggle off, no auto-triage | Set `auto_triage=false`. Create idea. Wait beyond delay. Verify idea stays `new`. | DB: idea status still `new` after 2x delay period. No expert session created. |
+| Delay respected | Set delay to 2 minutes. Create idea. Verify no triage at 1 minute, triage starts after 2 minutes. | Timestamped log: idea created at T+0, no session at T+60s, session created at T+120s (±15s). |
+| Concurrent cap respected | Set `triage_max_concurrent=2`. Create 20 ideas. Verify no more than 2 sessions running simultaneously. | DB query: `SELECT COUNT(*) FROM expert_sessions WHERE status='running' AND headless=true` never exceeds 2 during test window. |
+
+#### Phase 6: Pipeline UI
+
+| Test | Steps | Proof |
+|------|-------|-------|
+| Proposal column shows developing ideas | Route ideas to `developing`. Navigate to Pipeline page. Verify Proposal column populated. | Screenshot: Pipeline page with ideas visible in Proposal column. Card shows idea title, status badge. |
+| Specced ideas distinguishable | Have both `developing` and `specced` ideas. Verify visual distinction. | Screenshot: Proposal column cards with different status badges (e.g. "Speccing..." vs "Specced"). |
+
+### Running the Full Suite
+
+**Development mode (per-phase):**
+```bash
+# Run triage tests in a loop during development
+npx playwright test tests/e2e/triage/phase-2-single-triage.spec.ts
+```
+
+**Continuous validation via /loop:**
+```
+/loop 1m tests/e2e/triage/health-check.spec.ts
+```
+
+The health check spec:
+1. Screenshots the Ideas page
+2. Queries for any ideas stuck in `triaging` > 15 minutes (staleness detection)
+3. Queries for expert sessions in `running` > 30 minutes (hung session detection)
+4. Reports anomalies
+
+**Full regression (pre-merge):**
+```bash
+npx playwright test tests/e2e/triage/ --reporter=html
+```
+
+Produces an HTML report with all screenshots, timings, and pass/fail status. Archive to `tests/e2e/triage/reports/{date}/` for historical comparison.
+
+### Evidence Standard
+
+Every phase gate requires:
+1. All test scenarios pass in Playwright
+2. Screenshot evidence for every status transition in the happy path
+3. Per-idea timing metrics logged and within expected bounds
+4. No pipeline slots consumed during any triage/spec operation (verified by slot count assertion)
+5. Report committed to repo at `tests/e2e/triage/reports/{date}/report.md`
+
+---
+
 ## Open Questions
 
 1. **Headless implementation detail:** Should headless experts run as detached tmux sessions (invisible but same infra) or as direct child processes (simpler but different code path)? Recommendation: detached tmux — minimises changes to ExpertSessionManager.

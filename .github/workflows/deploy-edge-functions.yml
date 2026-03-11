@@ -28,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - uses: supabase/setup-cli@v1
         with:
@@ -36,7 +38,18 @@ jobs:
       - name: Upsert staging agent version
         run: |
           set -euo pipefail
-          hash=$(git rev-parse --short "$GITHUB_SHA")
+
+          changed_local_agent=$(git diff --name-only HEAD~1 HEAD -- packages/local-agent/ || true)
+          if [ -z "$changed_local_agent" ]; then
+            echo "No changes in packages/local-agent/. Skipping staging agent_version upsert."
+            exit 0
+          fi
+
+          hash=$(git log -1 --format=%h -- packages/local-agent/)
+          if [ -z "$hash" ]; then
+            echo "Unable to resolve scoped hash for packages/local-agent/."
+            exit 1
+          fi
 
           echo "Upserting staging agent_versions row with version=$hash"
           curl -sS -f -X POST \
@@ -47,7 +60,6 @@ jobs:
             -H "Prefer: resolution=merge-duplicates" \
             -d "{\"env\":\"staging\",\"version\":\"${hash}\",\"commit_sha\":\"${hash}\"}"
         env:
-          GITHUB_SHA: ${{ github.sha }}
           SUPABASE_STAGING_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_STAGING_SERVICE_ROLE_KEY }}
 

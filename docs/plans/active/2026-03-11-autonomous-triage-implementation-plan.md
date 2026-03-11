@@ -919,3 +919,93 @@ git commit -m "feat: migration 149 — remove triage-analyst from pipeline job d
 
 **Critical path:** Phase 1 → Phase 2 → Phase 3 (serial, each builds on previous)
 **Parallel after Phase 2:** Phases 4, 5, 6 can run concurrently once Phase 2 is done.
+
+---
+
+## Amendment: E2E Staging Validation — 2026-03-11
+
+### Goal
+
+Prove the headless expert lifecycle works end-to-end on staging before merging to production: WebUI dispatch → daemon pickup → Claude Code triage → DB update → WebUI reflects change.
+
+### Environment
+
+- **Staging Supabase:** `ymgjtrbrvhezxpwjuhbu.supabase.co`
+- **Staging WebUI:** `zazigv2-webui-staging.vercel.app`
+- **Test company:** Staging Test Co (`5b6787db-2051-41db-a702-f8796250c531`)
+- **Local daemon:** releases bundle (`zazig-agent.mjs`) running on toms-mac-mini
+- **Browser automation:** Playwright MCP for WebUI interaction
+
+### Test Data
+
+Six seed ideas designed to exercise all triage routes:
+
+| Idea | Expected Route | Tests |
+|------|---------------|-------|
+| Add Redis caching layer for API responses | promote/develop | Clear scope, goal-aligned |
+| Redesign the entire CI/CD pipeline | workshop | Ambiguous scope, needs founder input |
+| Multi-region Supabase deployment | harden/park | Strategic, premature |
+| Webhook notifications for pipeline status | develop/park | Near-duplicate of Slack integration |
+| Change dashboard font to Comic Sans | park/reject | Low value |
+| Buy cheap SEO backlinks | reject | Spam |
+
+### Blockers Encountered and Resolved
+
+Six sequential blockers discovered during testing, each requiring the previous to be solved:
+
+| # | Blocker | Root Cause | Fix |
+|---|---------|-----------|-----|
+| 1 | Git worktree conflict | Stale worktree lock on master branch | `git worktree remove --force` |
+| 2 | `TypeError: allowedTools.join` | `mcp_tools` is `{allowed: [...]}` not flat array | `Array.isArray()` guard in bundle + source |
+| 3 | Trust prompt blocking sessions | Expert sessions missing auto-dismiss Enter keystroke | Manual workaround (not needed once switched to `-p` mode) |
+| 4 | "Not logged in" in tmux | macOS keychain ACLs block detached tmux from reading OAuth credentials | Export `ANTHROPIC_API_KEY` in shell command string |
+| 5 | OAuth tokens rejected | `sk-ant-oat01` (OAuth) can't be used as `ANTHROPIC_API_KEY` — Claude Code detects org but refuses API calls | Store real `sk-ant-api03` key in Doppler (`zazig/prd`) |
+| 6 | Interactive mode ignores API keys | Claude Code interactive mode requires OAuth login regardless of API key | Switch headless experts to `-p` (pipe) mode |
+
+**Bonus blockers:** Doppler CLI also can't access macOS keychain from detached tmux (same security restriction). `tmux setenv -g` only affects new windows/panes, not the initial `tmux new-session` command.
+
+### Architecture That Works
+
+```
+Parent shell (keychain access)
+  └─ reads ANTHROPIC_API_KEY from Doppler
+  └─ exports into tmux session env
+      └─ zazig-staging start → daemon
+          └─ daemon has key in process.env
+          └─ on start_expert broadcast:
+              └─ writes role prompt + brief to .zazig-prompt.txt
+              └─ tmux new-session "export ANTHROPIC_API_KEY=...; cat prompt.txt | claude --model X -p"
+                  └─ Claude Code authenticates via API key in -p mode
+                  └─ calls MCP tools (query_ideas, update_idea, etc.)
+                  └─ exits on completion → daemon cleans up worktree
+```
+
+Key insight: headless expert sessions **must** use `-p` (pipe) mode. Claude Code interactive mode requires OAuth login through macOS keychain, which is impossible in detached tmux. The `-p` flag accepts `ANTHROPIC_API_KEY` for direct API auth.
+
+### Result
+
+The Redis caching idea was triaged autonomously end-to-end:
+
+1. **Dispatch:** Triage button clicked in staging WebUI → `start-expert-session` edge function called → Realtime broadcast sent
+2. **Daemon pickup:** Local daemon received `start_expert` broadcast within seconds
+3. **Workspace setup:** Git worktree created, MCP server started, `.zazig-prompt.txt` written with role prompt + brief
+4. **Claude Code execution:** Sonnet 4.6 ran in `-p` mode with API key auth. Called `query_ideas` to read the idea, then `update_idea` with triage output.
+5. **Triage quality:** The expert correctly identified Redis might not be the right approach — suggested profiling first, flagged cache invalidation complexity with Realtime subscriptions, and recommended materialized views as an alternative.
+6. **DB update:** Idea status changed from `new` → `triaged` with detailed `triage_notes`
+7. **WebUI reflection:** Inbox count dropped from 6 → 5, Triaged count went from 0 → 1
+8. **Cleanup:** Expert tmux session exited, git worktree removed, session marked completed
+
+### Code Changes
+
+| File | Change |
+|------|--------|
+| `packages/local-agent/releases/zazig-agent.mjs` | Headless experts use `-p` mode; `ANTHROPIC_API_KEY` exported in tmux shell command; `mcp_tools` type guard |
+| `packages/local-agent/src/expert-session-manager.ts` | `mcp_tools` type guard (source) |
+| `packages/cli/dist/staging-index.js` | Doppler integration for API key (local only, not tracked) |
+
+### Remaining Work
+
+- **Apply `-p` mode change to TypeScript source** — currently only in the releases bundle
+- **`triage_route` field** — expert set `status=triaged` but didn't set `triage_route`. Role prompt may need stronger instruction or the field should be set as part of the status update.
+- **Batch triage (Triage All)** — single-idea triage validated; batch dispatch across all 6 ideas not yet tested
+- **Production deploy** — changes need to be merged, bundle rebuilt, and promoted to production builds

@@ -17814,7 +17814,8 @@ ${cpoContext}`);
     try {
       if (isInteractive) {
         const claudeCmd = shellEscape([cmd, ...cmdArgs]);
-        const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
+        const envExports2 = process.env.ANTHROPIC_API_KEY ? `export ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"; ` : "";
+        const shellCmd = `unset CLAUDECODE; ${envExports2}${claudeCmd}`;
         await execFileAsync2("tmux", [
           "new-session",
           "-d",
@@ -20316,7 +20317,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
         skills: msg.role.skills,
         repoSkillsDir: join6(repoRoot, "projects", "skills"),
         repoInteractiveSkillsDir: join6(repoRoot, ".claude", "skills"),
-        mcpTools: msg.role.mcp_tools,
+        mcpTools: Array.isArray(msg.role.mcp_tools) ? msg.role.mcp_tools : msg.role.mcp_tools?.allowed,
         tmuxSession: tmuxSessionName
       });
       const claudeDir = join6(effectiveWorkspaceDir, ".claude");
@@ -20367,12 +20368,25 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       if (await isTmuxSessionAlive2(tmuxSessionName)) {
         await killTmuxSession2(tmuxSessionName);
       }
-      const claudeCmd = shellEscape2([
-        "claude",
-        "--model",
-        msg.model
-      ]);
-      const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
+      const envExports = process.env.ANTHROPIC_API_KEY ? `export ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"; ` : "";
+      let shellCmd;
+      if (msg.headless) {
+        // Headless mode: use -p (pipe) mode since interactive mode doesn't work with API keys.
+        // Write a combined prompt file with role prompt + brief, then pipe to claude -p.
+        const promptPath = join6(effectiveWorkspaceDir, ".zazig-prompt.txt");
+        const promptParts = [];
+        if (msg.role?.prompt) promptParts.push(msg.role.prompt);
+        promptParts.push("\n## Task Brief\n");
+        promptParts.push(msg.brief);
+        promptParts.push("\n\nWhen done, write a 2-3 sentence summary to `.claude/expert-report.md`.");
+        writeFileSync4(promptPath, promptParts.join("\n"));
+        const claudeCmd = shellEscape2(["claude", "--model", msg.model, "-p"]);
+        shellCmd = `unset CLAUDECODE; ${envExports}cat ${shellEscape2([promptPath])} | ${claudeCmd}`;
+      } else {
+        // Interactive mode: launch claude normally
+        const claudeCmd = shellEscape2(["claude", "--model", msg.model]);
+        shellCmd = `unset CLAUDECODE; ${envExports}${claudeCmd}`;
+      }
       await execFileAsync4("tmux", [
         "new-session",
         "-d",
@@ -21135,6 +21149,16 @@ async function main() {
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  // Pass ANTHROPIC_API_KEY to tmux global env so headless expert/CPO sessions can authenticate.
+  // macOS keychain ACLs block detached tmux sessions from reading Claude Code credentials.
+  if (process.env.ANTHROPIC_API_KEY) {
+    try {
+      execSync(`tmux setenv -g ANTHROPIC_API_KEY "${process.env.ANTHROPIC_API_KEY}"`, { stdio: "pipe" });
+      console.log("[local-agent] Set ANTHROPIC_API_KEY in tmux global environment");
+    } catch (err) {
+      console.warn("[local-agent] Failed to set ANTHROPIC_API_KEY in tmux env:", err?.message ?? err);
+    }
+  }
   console.log("[local-agent] Daemon running. Press Ctrl+C to stop.");
 }
 async function fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId) {

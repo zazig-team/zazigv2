@@ -34,6 +34,15 @@ export interface PipelineFeature {
   jobs: PipelineFeatureJob[];
 }
 
+export interface PipelineIdea {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  createdAt: string | null;
+  ageHours: number | null;
+}
+
 export interface PipelineFeatureJob {
   status: string | null;
   jobType: string | null;
@@ -63,6 +72,7 @@ export interface NormalizedPipelineSnapshot {
   byStatus: Record<PipelineStatus, PipelineFeature[]>;
   ideasInboxNewCount: number;
   activeJobs: PipelineActiveJob[];
+  developingIdeas: PipelineIdea[];
 }
 
 const EMPTY_SNAPSHOT: NormalizedPipelineSnapshot = {
@@ -81,6 +91,7 @@ const EMPTY_SNAPSHOT: NormalizedPipelineSnapshot = {
   },
   ideasInboxNewCount: 0,
   activeJobs: [],
+  developingIdeas: [],
 };
 
 function toPipelineStatus(rawStatus: string | null | undefined): PipelineStatus | null {
@@ -254,6 +265,42 @@ async function fetchCapabilityLookup(companyId: string): Promise<CapabilityLooku
   }
 
   return lookup;
+}
+
+function parseDevelopingIdea(raw: Record<string, unknown>): PipelineIdea | null {
+  const status = stringValue(raw.status)?.trim().toLowerCase();
+  if (status !== "developing" && status !== "specced") {
+    return null;
+  }
+
+  const createdAt = stringValue(raw.created_at);
+  return {
+    id: stringValue(raw.id) ?? crypto.randomUUID(),
+    title: stringValue(raw.title) ?? "Untitled idea",
+    status,
+    priority: stringValue(raw.priority) ?? "medium",
+    createdAt,
+    ageHours: ageInHours(createdAt),
+  };
+}
+
+async function fetchDevelopingIdeas(companyId: string): Promise<PipelineIdea[]> {
+  const { data, error } = await supabase
+    .from("ideas")
+    .select("id, title, status, priority, created_at")
+    .eq("company_id", companyId)
+    .in("status", ["developing", "specced"]);
+
+  if (error) {
+    if (!isMissingRelationError(error)) {
+      console.error("[pipeline] failed to fetch developing ideas", error);
+    }
+    return [];
+  }
+
+  return ((data ?? []) as Array<Record<string, unknown>>)
+    .map(parseDevelopingIdea)
+    .filter((idea): idea is PipelineIdea => idea !== null);
 }
 
 function parseFeatureJobs(value: unknown): PipelineFeatureJob[] {
@@ -463,6 +510,7 @@ function normalizeSnapshot(
     byStatus,
     ideasInboxNewCount,
     activeJobs: sortByNewestCreatedAt(Array.from(activeJobsById.values())),
+    developingIdeas: [],
   };
 }
 
@@ -487,13 +535,20 @@ export function usePipelineSnapshot(companyId: string | null): {
 
     try {
       await getAccessToken();
-      const [response, capabilityLookup] = await Promise.all([
+      const [response, capabilityLookup, developingIdeas] = await Promise.all([
         fetchPipelineSnapshot(companyId),
         fetchCapabilityLookup(companyId),
+        fetchDevelopingIdeas(companyId),
       ]);
-      setSnapshot(
-        normalizeSnapshot(response.snapshot, response.updated_at ?? null, capabilityLookup),
+      const normalizedSnapshot = normalizeSnapshot(
+        response.snapshot,
+        response.updated_at ?? null,
+        capabilityLookup,
       );
+      setSnapshot({
+        ...normalizedSnapshot,
+        developingIdeas,
+      });
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
       setSnapshot(EMPTY_SNAPSHOT);

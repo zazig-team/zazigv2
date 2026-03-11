@@ -376,6 +376,14 @@ export default function Pipeline(): JSX.Element {
     onUpdate: scheduleRefresh,
   });
 
+  useRealtimeTable({
+    table: "ideas",
+    filter: realtimeFilter,
+    enabled: realtimeEnabled,
+    onInsert: scheduleRefresh,
+    onUpdate: scheduleRefresh,
+  });
+
   const allFeatures = useMemo(
     () => Object.values(snapshot.byStatus).flat(),
     [snapshot.byStatus],

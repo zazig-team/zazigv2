@@ -30,6 +30,9 @@ export interface Idea {
   raw_text: string;
   status: string;
   priority: string | null;
+  triage_route: string | null;
+  spec: string | null;
+  complexity: string | null;
   item_type: "idea" | "brief" | "bug" | "test";
   horizon: "soon" | "later" | null;
   created_at: string;

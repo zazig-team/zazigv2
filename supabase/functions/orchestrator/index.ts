@@ -4,7 +4,7 @@
  * Runs on a schedule (every 10 s via Supabase Cron) or via HTTP trigger.
  *
  * Responsibilities:
- *   1. Poll `jobs` for queued work and dispatch to machines with capacity.
+ *   1. Poll `jobs` for queued work and enrich rows for poll-based claiming.
  *   2. Detect dead machines (no heartbeat for 2 min) and re-queue their jobs.
  *
  * Runtime: Deno / Supabase Edge Functions
@@ -15,7 +15,6 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import {
   MACHINE_DEAD_THRESHOLD_MS,
   PROTOCOL_VERSION,
-  RECOVERY_COOLDOWN_MS,
 } from "@zazigv2/shared";
 import type {
   DeployComplete,
@@ -28,7 +27,6 @@ import type {
   JobStatusMessage,
   JobUnblocked,
   SlotType,
-  StartJob,
   TeardownTest,
   VerifyJob,
   VerifyResult,
@@ -98,17 +96,6 @@ interface JobRow {
   source: string | null;
 }
 
-interface MachineRow {
-  id: string;
-  company_id: string;
-  name: string;
-  slots_claude_code: number;
-  slots_codex: number;
-  last_heartbeat: string | null;
-  status: string;
-  agent_version: string | null;
-}
-
 interface DecisionResolved {
   type: "DecisionResolved";
   decisionId: string;
@@ -143,42 +130,6 @@ function makeAdminClient(): SupabaseClient {
   return createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
     auth: { persistSession: false },
   });
-}
-
-/**
- * Selects available_slots for the requested slot_type from a machine row.
- */
-function availableSlots(machine: MachineRow, slotType: SlotType): number {
-  return slotType === "claude_code"
-    ? machine.slots_claude_code
-    : machine.slots_codex;
-}
-
-/**
- * Decrements the appropriate slot column by 1.
- * Returns the update payload object suitable for supabase .update().
- */
-function decrementSlotPayload(
-  machine: MachineRow,
-  slotType: SlotType,
-): Record<string, number> {
-  if (slotType === "claude_code") {
-    return { slots_claude_code: Math.max(0, machine.slots_claude_code - 1) };
-  }
-  return { slots_codex: Math.max(0, machine.slots_codex - 1) };
-}
-
-/**
- * Increments the appropriate slot column by 1.
- */
-function incrementSlotPayload(
-  machine: MachineRow,
-  slotType: SlotType,
-): Record<string, number> {
-  if (slotType === "claude_code") {
-    return { slots_claude_code: machine.slots_claude_code + 1 };
-  }
-  return { slots_codex: machine.slots_codex + 1 };
 }
 
 // ---------------------------------------------------------------------------
@@ -341,26 +292,6 @@ export function resolveModelAndSlot(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Machine recovery cooldown tracking (in-memory)
-// ---------------------------------------------------------------------------
-
-/**
- * Tracks when machines transitioned from offline → online (epoch ms).
- * Used to enforce RECOVERY_COOLDOWN_MS before dispatching new jobs to a
- * machine that just recovered, preventing flapping machines from grabbing
- * work they'll immediately drop again.
- *
- * LIMITATION: This Map lives in process memory and is lost on Edge Function
- * cold starts. A fresh instance will have an empty map and may dispatch jobs
- * to machines still within their cooldown window. Worst case: a flapping
- * machine receives one extra job before being reaped again on the next cycle.
- *
- * TODO: For durable anti-flap, persist recovery_started_at in the machines
- * table and check it in dispatchQueuedJobs instead of this Map.
- */
-const recoveryTimestamps = new Map<string, number>();
-
 const NO_CODE_CONTEXT_ROLES = new Set([
   "pipeline-technician",
   "monitoring-agent",
@@ -377,10 +308,6 @@ const EXECUTING_JOB_STARTED_AT_COLUMN_CANDIDATES = [
   "started_at",
   "assigned_at",
 ] as const;
-
-console.log(
-  "[orchestrator] Cold start — in-memory recoveryTimestamps reset (anti-flap cooldown not durable across restarts)",
-);
 
 // ---------------------------------------------------------------------------
 // Core orchestrator operations
@@ -491,7 +418,7 @@ async function reapStaleJobs(supabase: SupabaseClient): Promise<void> {
 }
 
 /**
- * Step 2: Poll queued jobs and dispatch each one to an available machine.
+ * Step 2: Poll queued jobs and enrich each row for poll-based claiming.
  */
 async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
   // Fetch queued jobs oldest-first.
@@ -542,9 +469,6 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       featureStatusById.set(featureRow.id, featureRow.status);
     }
   }
-
-  // Cache machines fetched in this pass (keyed by company_id) to avoid redundant queries.
-  const machineCache = new Map<string, MachineRow[]>();
 
   // Reset routing cache at the start of each dispatch pass.
   routingCache = null;
@@ -751,90 +675,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       ));
     }
 
-    // Fetch available machines for this company (with capacity for the slot type).
-    let machines = machineCache.get(job.company_id);
-    if (!machines) {
-      const { data: m, error: mErr } = await supabase
-        .from("machines")
-        .select(
-          "id, company_id, name, slots_claude_code, slots_codex, last_heartbeat, status, enabled, agent_version",
-        )
-        .eq("company_id", job.company_id)
-        .eq("status", "online")
-        .neq("enabled", false);
-
-      if (mErr) {
-        console.error("[orchestrator] Error fetching machines:", mErr.message);
-        continue;
-      }
-      // Exclude machines still within recovery cooldown after coming back online.
-      const now = Date.now();
-      machines = ((m ?? []) as MachineRow[]).filter((machine) => {
-        const recoveredAt = recoveryTimestamps.get(machine.id);
-        if (recoveredAt && now - recoveredAt < RECOVERY_COOLDOWN_MS) {
-          console.log(
-            `[orchestrator] Machine ${machine.name} in recovery cooldown — skipping for dispatch`,
-          );
-          return false;
-        }
-        // Clear expired cooldown entries.
-        if (recoveredAt) recoveryTimestamps.delete(machine.id);
-        return true;
-      });
-      machineCache.set(job.company_id, machines);
-    }
-
-    const env = Deno.env.get("ZAZIG_ENV") ?? "production";
-    const { data: latestVersion } = await supabase
-      .from("agent_versions")
-      .select("version")
-      .eq("env", env)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    console.log(
-      `[orchestrator job=${job.id}] machines fetched: ${machines.length}, latestVersion=${latestVersion?.version ?? "none"}, env=${env}`,
-    );
-    for (const m of machines) {
-      console.log(
-        `[orchestrator job=${job.id}] machine=${m.name} status=${m.status} agent_version=${m.agent_version} slots_claude_code=${m.slots_claude_code} slots_codex=${m.slots_codex} version_match=${!latestVersion || m.agent_version === latestVersion.version}`,
-      );
-    }
-
-    const eligibleMachines = machines.filter(
-      (m) => !latestVersion || m.agent_version === latestVersion.version,
-    );
-
-    console.log(
-      `[orchestrator job=${job.id}] eligibleMachines=${eligibleMachines.length} slotType=${slotType}`,
-    );
-
-    // Find a machine with an available slot of the required type.
-    let candidate = eligibleMachines.find((m) =>
-      availableSlots(m, slotType) > 0
-    );
-
-    // For jobs preferring codex, fall back to claude_code if no codex slots available.
-    if (!candidate && slotType === "codex") {
-      slotType = "claude_code";
-      // Only change model if it was complexity-derived (not an explicit override).
-      if (!job.model) {
-        const mediumEntry = routing.get("medium");
-        model = mediumEntry?.model ?? "claude-sonnet-4-6";
-      }
-      candidate = eligibleMachines.find((m) => availableSlots(m, slotType) > 0);
-    }
-
-    if (!candidate) {
-      console.log(
-        `[orchestrator] No machine with available ${slotType} slot for job ${job.id} — skipping.`,
-      );
-      continue;
-    }
-
     // Look up git context (repo_url from projects, branch from features) for code-context roles.
-    // Must be resolved before slot decrement so we can skip without side effects.
     let repoUrl: string | null = null;
     let featureBranch: string | null = null;
     const requiresCodeContext = !NO_CODE_CONTEXT_ROLES.has(resolvedRole);
@@ -868,7 +709,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       !job.project_id || (requiresCodeContext && (!repoUrl || !featureBranch))
     ) {
       console.warn(
-        `[orchestrator] Job ${job.id} missing dispatch context (projectId=${job.project_id}, repoUrl=${repoUrl}, featureBranch=${featureBranch}, requiresCodeContext=${requiresCodeContext}) — skipping dispatch`,
+        `[orchestrator] Job ${job.id} missing enrichment context (projectId=${job.project_id}, repoUrl=${repoUrl}, featureBranch=${featureBranch}, requiresCodeContext=${requiresCodeContext}) — skipping enrichment`,
       );
       continue;
     }
@@ -911,13 +752,10 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       dispatchContext = grounding + "\n\n---\n\n" + (dispatchContext ?? "");
     }
 
-    // Validate context — the local agent's isStartJob validator requires either
-    // context (inline string) or contextRef. Jobs with null/empty context will be
-    // silently rejected by the agent, creating a zombie that consumes a slot forever.
-    // Fail these jobs immediately with a clear error instead of dispatching.
+    // Validate context — jobs with null/empty context cannot be executed by agents.
     if (!dispatchContext || dispatchContext.trim().length === 0) {
       console.error(
-        `[orchestrator] Job ${job.id} has null/empty context — failing instead of dispatching (would be rejected by agent validator)`,
+        `[orchestrator] Job ${job.id} has null/empty context — failing during enrichment`,
       );
       await supabase
         .from("jobs")
@@ -932,81 +770,39 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       continue;
     }
 
-    // Atomically decrement the slot BEFORE marking the job dispatched.
-    // Using .gt(slotColumn, 0) as a CAS guard: if two concurrent invocations both
-    // see slots=2, only one will win the conditional UPDATE and get a rowCount > 0.
-    // The loser gets an empty result set and skips dispatch, preventing double-booking.
-    const slotColumn = slotType === "claude_code"
-      ? "slots_claude_code"
-      : "slots_codex";
-    const currentSlots = slotType === "claude_code"
-      ? candidate.slots_claude_code
-      : candidate.slots_codex;
-    const { data: decrementResult, error: decrementErr } = await supabase
-      .from("machines")
-      .update({ [slotColumn]: currentSlots - 1 })
-      .eq("id", candidate.id)
-      .gt(slotColumn, 0) // CAS guard — only update if slot is still > 0
-      .select("id");
-
-    if (decrementErr || !decrementResult?.length) {
-      // Another concurrent invocation already claimed this slot — skip.
-      console.warn(
-        `[orchestrator] Slot contention on machine ${candidate.id} for job ${job.id} — skipping (no rows updated).`,
-      );
-      continue;
-    }
-
-    // Fetch role prompt + skills for non-codex jobs that have a named role.
-    // These populate the 4-layer context stack: personality → role → skills → task.
-    // Fetched BEFORE dispatch so we can assemble the full prompt_stack for observability.
+    // Fetch role prompt for jobs that have a named role.
+    // These populate the 4-layer context stack: personality → role → skills marker → task.
     let rolePrompt: string | undefined;
-    let roleSkills: string[] | undefined;
-    let roleMcpTools: string[] | undefined;
-    let isInteractive = false;
     let personalityPrompt: string | undefined;
-    let subAgentPrompt: string | undefined;
     if (resolvedRole) {
       const { data: roleRow } = await supabase
         .from("roles")
-        .select("id, prompt, skills, mcp_tools, interactive")
+        .select("id, prompt")
         .eq("name", resolvedRole)
         .single();
       if (roleRow) {
         const typed = roleRow as {
           id: string;
           prompt: string | null;
-          skills: string[] | null;
-          mcp_tools: string[] | null;
-          interactive: boolean | null;
         };
         rolePrompt = typed.prompt ?? undefined;
-        roleSkills = typed.skills ?? undefined;
-        roleMcpTools = typed.mcp_tools ?? undefined;
-        isInteractive = typed.interactive ?? false;
 
-        // Fetch compiled personality prompt + sub-agent prompt for this company + role
+        // Fetch compiled personality prompt for this company + role.
         const { data: personality } = await supabase
           .from("exec_personalities")
-          .select("compiled_prompt, compiled_sub_agent_prompt")
+          .select("compiled_prompt")
           .eq("company_id", job.company_id)
           .eq("role_id", typed.id)
           .single();
         if (personality?.compiled_prompt) {
           personalityPrompt = personality.compiled_prompt as string;
         }
-        if (
-          (personality as Record<string, unknown>)?.compiled_sub_agent_prompt
-        ) {
-          subAgentPrompt = (personality as Record<string, unknown>)
-            .compiled_sub_agent_prompt as string;
-        }
       }
     }
 
-    // Assemble the full prompt stack minus skills for observability and dispatch.
+    // Assemble the full prompt stack minus skills for observability and polling dispatch.
     // Order: personality → role → SKILLS_MARKER → task context → completion.
-    // The local agent inserts skill file content at the SKILLS_MARKER position.
+    // The local agent inserts skill file content at SKILLS_MARKER when it claims the job.
     const promptParts: string[] = [];
     if (personalityPrompt) promptParts.push(personalityPrompt);
     if (rolePrompt) promptParts.push(rolePrompt);
@@ -1015,17 +811,14 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     promptParts.push(completionInstructions(resolvedRole));
     const promptStackMinusSkills = promptParts.join("\n\n---\n\n");
 
-    // Dispatch: update job status → dispatched, assign machine_id.
-    // Record the resolved model and slot_type on the job for observability.
-    const { data: claimedJobRows, error: updateJobErr } = await supabase
+    // Enrich queued jobs for poll-based dispatch.
+    // Do not mutate status or machine_id; the poll endpoint claims jobs.
+    const { data: enrichedRows, error: updateJobErr } = await supabase
       .from("jobs")
       .update({
-        status: "dispatched",
-        machine_id: candidate.id,
         role: resolvedRole,
         model,
         slot_type: slotType,
-        started_at: new Date().toISOString(),
         prompt_stack: promptStackMinusSkills || null,
       })
       .eq("id", job.id)
@@ -1034,90 +827,20 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
 
     if (updateJobErr) {
       console.error(
-        `[orchestrator] Failed to dispatch job ${job.id}:`,
+        `[orchestrator] Failed to enrich job ${job.id}:`,
         updateJobErr.message,
       );
-      // The slot was already decremented above; it will self-correct on next heartbeat.
       continue;
     }
-    if (!claimedJobRows || claimedJobRows.length === 0) {
+    if (!enrichedRows || enrichedRows.length === 0) {
       console.warn(
-        `[orchestrator] Duplicate dispatch claim ignored for job ${job.id} on machine ${candidate.id} (CAS matched zero rows)`,
+        `[orchestrator] Duplicate enrichment claim ignored for job ${job.id} (CAS matched zero rows)`,
       );
-      const { error: releaseErr } = await supabase.rpc("release_machine_slot", {
-        p_machine_id: candidate.id,
-        p_slot_type: slotType,
-      });
-      if (releaseErr) {
-        console.error(
-          `[orchestrator] Failed to roll back slot claim on machine ${candidate.id} after duplicate dispatch for job ${job.id}:`,
-          releaseErr.message,
-        );
-      }
       continue;
     }
-
-    // Update in-memory cache so subsequent jobs in this pass see the reduced capacity.
-    const slotUpdate = { [slotColumn]: currentSlots - 1 };
-    Object.assign(candidate, slotUpdate);
-
-    // Build the StartJob message.
-    // project_id is always required; git fields are only required for code-context roles.
-    const startJobMsg: StartJob = {
-      type: "start_job",
-      protocolVersion: PROTOCOL_VERSION,
-      jobId: job.id,
-      cardId: job.id,
-      cardType: (job.job_type as StartJob["cardType"]) ?? "code",
-      complexity: (job.complexity as StartJob["complexity"]) ?? "medium",
-      slotType,
-      model,
-      projectId: job.project_id!,
-      ...(repoUrl ? { repoUrl } : {}),
-      ...(featureBranch ? { featureBranch } : {}),
-      promptStackMinusSkills,
-      // Include role for role-based jobs (specialized reviewers, etc.)
-      ...(resolvedRole ? { role: resolvedRole } : {}),
-      ...(subAgentPrompt ? { subAgentPrompt } : {}),
-      ...(roleSkills && roleSkills.length > 0 ? { roleSkills } : {}),
-      ...(roleMcpTools !== undefined ? { roleMcpTools } : {}),
-      ...(depBranches.length > 0 ? { dependencyBranches: depBranches } : {}),
-      ...(isInteractive ? { interactive: true } : {}),
-    };
-
-    // Broadcast StartJob via Supabase Realtime on the machine's command channel.
-    // Channel naming convention: `agent:{machine.name}:{company_id}`
-    const channel = supabase.channel(
-      agentChannelName(candidate.name, job.company_id),
+    console.log(
+      `[orchestrator] Enriched queued job ${job.id} with role=${resolvedRole}, slot=${slotType}, model=${model}`,
     );
-
-    // Supabase Realtime broadcast is fire-and-forget; errors are surfaced via the
-    // subscribe callback but not awaited in polling loops (the agent will re-ack or fail).
-    await new Promise<void>((resolve) => {
-      channel.subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          const result = await channel.send({
-            type: "broadcast",
-            event: "start_job",
-            payload: startJobMsg,
-          });
-          if (result !== "ok") {
-            console.error(
-              `[orchestrator] Realtime broadcast failed for job ${job.id} on channel agent:${candidate.name}: ${result}`,
-            );
-          } else {
-            console.log(
-              `[orchestrator] Dispatched job ${job.id} → machine ${candidate.name} (${slotType}, model: ${model})`,
-            );
-          }
-          // Allow time for the message to be delivered before tearing down the channel.
-          // Without this delay, unsubscribe() can race with message delivery.
-          await new Promise((r) => setTimeout(r, 500));
-          await channel.unsubscribe();
-          resolve();
-        }
-      });
-    });
   }
 }
 

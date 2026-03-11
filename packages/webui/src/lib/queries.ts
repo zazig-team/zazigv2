@@ -215,9 +215,11 @@ export async function getAccessToken(): Promise<string | null> {
 async function invokePost<TResponse>(
   functionName: string,
   body: Record<string, unknown>,
+  headers?: Record<string, string>,
 ): Promise<TResponse> {
   const { data, error } = await supabase.functions.invoke(functionName, {
     body,
+    ...(headers ? { headers } : {}),
   });
 
   if (error) {
@@ -1039,7 +1041,7 @@ export async function requestHeadlessTriage(params: {
     machine_name: "auto",
     project_id: params.projectId,
     headless: true,
-  });
+  }, { "x-company-id": params.companyId });
 }
 
 export async function requestHeadlessSpec(params: {
@@ -1053,7 +1055,7 @@ export async function requestHeadlessSpec(params: {
     machine_name: "auto",
     project_id: params.projectId,
     headless: true,
-  });
+  }, { "x-company-id": params.companyId });
 }
 
 export async function requestEnrichmentJob(params: {
@@ -1068,7 +1070,7 @@ export async function requestEnrichmentJob(params: {
     machine_name: "auto",
     project_id: params.projectId,
     headless: true,
-  });
+  }, { "x-company-id": params.companyId });
 }
 
 export async function requestFeatureFix(params: {

@@ -29,6 +29,24 @@ jobs:
         with:
           version: latest
 
+      - name: Upsert production agent version
+        run: |
+          set -euo pipefail
+          hash=$(git rev-parse --short "$GITHUB_SHA")
+
+          echo "Upserting production agent_versions row with version=$hash"
+          curl -sS -f -X POST \
+            "https://${SUPABASE_PRODUCTION_PROJECT_REF}.supabase.co/rest/v1/agent_versions" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: resolution=merge-duplicates" \
+            -d "{\"env\":\"production\",\"version\":\"${hash}\",\"commit_sha\":\"${hash}\"}"
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          SUPABASE_PRODUCTION_PROJECT_REF: ${{ secrets.SUPABASE_PRODUCTION_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_PRODUCTION_SERVICE_ROLE_KEY }}
+
       - name: Push migrations to PRODUCTION
         run: |
           supabase link --project-ref "$SUPABASE_PRODUCTION_PROJECT_REF"

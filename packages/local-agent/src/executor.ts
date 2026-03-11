@@ -738,9 +738,6 @@ export class JobExecutor {
     // --- 5. Clear stale report before spawning (prevents reading a previous job's report) ---
     const reportPath = `${process.env["HOME"] ?? "/tmp"}/${reportRelativePath(msg.role)}`;
     try { unlinkSync(reportPath); } catch { /* no stale report — fine */ }
-    if (msg.role === "reviewer" && msg.worktreePath) {
-      try { unlinkSync(`${msg.worktreePath}/.claude/reviewer-report.md`); } catch { /* no stale report — fine */ }
-    }
 
     // --- 6. Kill stale tmux session if it exists (from a previous dispatch) ---
     if (await isTmuxSessionAlive(sessionName)) {

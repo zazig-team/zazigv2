@@ -30,14 +30,22 @@ import {
 export async function handleHeartbeat(
   supabase: SupabaseClient,
   msg: Heartbeat,
+  allowedCompanyIds: string[],
 ): Promise<void> {
   const { machineName, slotsAvailable } = msg;
+  if (allowedCompanyIds.length === 0) {
+    console.error(
+      `[agent-event machine=${machineName}] No allowed companies for caller; refusing heartbeat`,
+    );
+    return;
+  }
 
   // Fetch all rows for this machine name (one per company).
   const { data: machines, error: fetchErr } = await supabase
     .from("machines")
     .select("id, company_id, status")
-    .eq("name", machineName);
+    .eq("name", machineName)
+    .in("company_id", allowedCompanyIds);
 
   if (fetchErr || !machines || machines.length === 0) {
     console.error(
@@ -57,7 +65,8 @@ export async function handleHeartbeat(
       slots_claude_code: slotsAvailable.claude_code,
       slots_codex: slotsAvailable.codex,
     })
-    .eq("name", machineName);
+    .eq("name", machineName)
+    .in("company_id", allowedCompanyIds);
 
   if (error) {
     console.error(

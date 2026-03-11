@@ -256,24 +256,31 @@ export class AgentConnection {
         return;
       }
 
-      const url =
-        `${this.supabaseUrl}/functions/v1/agent-inbound-poll` +
-        `?machine_name=${encodeURIComponent(this.machineName)}` +
-        `&company_id=${encodeURIComponent(this.primaryCompanyId)}`;
+      const url = `${this.supabaseUrl}/functions/v1/agent-inbound-poll`;
       const { data: { session } } = await this.dbClient.auth.getSession();
       const token = session?.access_token ?? this.supabaseAnonKey;
+      const slotsAvailable = this.slots.getAvailable();
+
       const response = await fetch(url, {
+        method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
+        body: JSON.stringify({
+          machine_name: this.machineName,
+          company_id: this.primaryCompanyId,
+          slots_available: slotsAvailable,
+          agent_version: this.agentVersion,
+        }),
       });
       if (!response.ok) {
         console.warn(`[Connection] Poll failed: ${response.status} ${response.statusText}`);
         return;
       }
-      const items = await response.json() as unknown[];
-      for (const item of items) {
+      const result = await response.json() as { jobs?: unknown[]; heartbeat?: string };
+      const jobs = result.jobs ?? [];
+      for (const item of jobs) {
         this.handleIncomingPayload(item);
       }
     } catch (err) {

@@ -11,7 +11,6 @@ import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error(
@@ -79,10 +78,16 @@ function parseBearerToken(authHeader: string | null): string | null {
   return token.length > 0 ? token : null;
 }
 
-function isValidApiKey(token: string): boolean {
+async function authenticateRequest(token: string): Promise<boolean> {
+  // Allow service role key directly
   if (token === SUPABASE_SERVICE_ROLE_KEY) return true;
-  if (SUPABASE_ANON_KEY && token === SUPABASE_ANON_KEY) return true;
-  return false;
+
+  // Validate as user JWT (same pattern as agent-event)
+  const supabaseAdmin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
+    auth: { persistSession: false },
+  });
+  const { error } = await supabaseAdmin.auth.getUser(token);
+  return !error;
 }
 
 function requiredQueryParam(url: URL, key: string): string | null {
@@ -106,8 +111,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse({ error: "Missing authorization header" }, 401);
   }
 
-  if (!isValidApiKey(token)) {
-    return jsonResponse({ error: "Forbidden: invalid API key" }, 403);
+  const authenticated = await authenticateRequest(token);
+  if (!authenticated) {
+    return jsonResponse({ error: "Forbidden: invalid or expired token" }, 403);
   }
 
   const url = new URL(req.url);

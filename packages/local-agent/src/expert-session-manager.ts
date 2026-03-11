@@ -294,7 +294,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
         skills: msg.role.skills,
         repoSkillsDir: join(repoRoot, "projects", "skills"),
         repoInteractiveSkillsDir: join(repoRoot, ".claude", "skills"),
-        mcpTools: msg.role.mcp_tools,
+        mcpTools: Array.isArray(msg.role.mcp_tools) ? msg.role.mcp_tools : msg.role.mcp_tools?.allowed,
         tmuxSession: tmuxSessionName,
       });
 

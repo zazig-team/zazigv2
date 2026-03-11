@@ -66,7 +66,13 @@ export type AgentJobStatus = "executing" | "reviewing" | "blocked" | "complete" 
  *   timeout      → re-queue with extended timeout or move to Needs Human
  *   unknown      → log and move to Needs Human
  */
-export type FailureReason = "agent_crash" | "ci_failure" | "timeout" | "unknown";
+export type FailureReason =
+  | "agent_crash"
+  | "ci_failure"
+  | "timeout"
+  | "unknown"
+  | "daemon_heartbeat_gap"
+  | "stuck_no_output";
 
 // ---------------------------------------------------------------------------
 // Orchestrator → Local Agent messages

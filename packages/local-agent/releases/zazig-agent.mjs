@@ -11899,6 +11899,7 @@ var DEFAULT_SUPABASE_URL = "https://jmussmwglgbwncgygzbz.supabase.co";
 var DEFAULT_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0";
 var PROTOCOL_VERSION = 1;
 var HEARTBEAT_INTERVAL_MS = 3e4;
+var MACHINE_DEAD_THRESHOLD_MS = 12e4;
 var MAX_CONTEXT_BYTES = 64e3;
 var MAX_PERSONALITY_PROMPT_BYTES = 16e3;
 
@@ -16571,7 +16572,7 @@ import { promisify as promisify3 } from "node:util";
 
 // ../local-agent/dist/executor.js
 import { execFile as execFile2 } from "node:child_process";
-import { existsSync as existsSync4, readFileSync as readFileSync3, renameSync, unlinkSync, mkdirSync as mkdirSync2, rmSync as rmSync3, symlinkSync as symlinkSync2, appendFileSync as appendFileSync2 } from "node:fs";
+import { existsSync as existsSync4, readFileSync as readFileSync3, renameSync, unlinkSync, mkdirSync as mkdirSync2, rmSync as rmSync3, symlinkSync as symlinkSync2, appendFileSync as appendFileSync2, statSync } from "node:fs";
 import { promisify as promisify2 } from "node:util";
 import { homedir as homedir2 } from "node:os";
 import { dirname as dirname2, join as join4, resolve as resolve2 } from "node:path";
@@ -17418,6 +17419,7 @@ var POLL_INTERVAL_MS = 3e4;
 var SLOT_RECONCILE_INTERVAL_MS = 6e4;
 var PR_MONITOR_INTERVAL_MS = 6e4;
 var JOB_TIMEOUT_MS = 60 * 6e4;
+var STUCK_NO_OUTPUT_MS = 5 * 6e4;
 var INTERACTIVE_JOB_TIMEOUT_MS = 30 * 6e4;
 function reportRelativePath(role) {
   const reportFile = role ? `${role}-report.md` : "cpo-report.md";
@@ -17798,6 +17800,12 @@ ${cpoContext}`);
       unlinkSync(reportPath);
     } catch {
     }
+    if (msg.role === "reviewer" && worktreePath) {
+      try {
+        unlinkSync(`${worktreePath}/.claude/reviewer-report.md`);
+      } catch {
+      }
+    }
     if (await isTmuxSessionAlive(sessionName)) {
       console.warn(`[executor] Stale tmux session ${sessionName} exists \u2014 killing before respawn`);
       await killTmuxSession(sessionName);
@@ -18001,6 +18009,36 @@ ${msg.text}`;
       jobId,
       reason: "graceful_shutdown"
     });
+  }
+  async killAllRunningJobs(reason) {
+    const jobIds = [...this.activeJobs.keys()];
+    let killed = 0;
+    for (const jobId of jobIds) {
+      const job = this.activeJobs.get(jobId);
+      if (!job || job.settled)
+        continue;
+      job.settled = true;
+      this.clearJobTimers(job);
+      jobLog(jobId, `Force-killed by daemon \u2014 reason=${reason}`);
+      try {
+        await killTmuxSession(job.sessionName);
+      } catch (err) {
+        console.warn(`[executor] Failed to kill tmux session for jobId=${jobId}: ${String(err)}`);
+      }
+      try {
+        await this.sendJobFailed(jobId, `Daemon killed job: ${reason}`, reason);
+      } catch (err) {
+        console.warn(`[executor] Failed to report forced failure for jobId=${jobId}: ${String(err)}`);
+      } finally {
+        try {
+          await this.settleJob(jobId);
+        } catch (err) {
+          console.warn(`[executor] Failed to settle force-killed jobId=${jobId}: ${String(err)}`);
+        }
+      }
+      killed++;
+    }
+    return killed;
   }
   // Public: JobUnblocked
   // ---------------------------------------------------------------------------
@@ -18534,6 +18572,21 @@ ${msg.text}`;
     const alive = await isTmuxSessionAlive(job.sessionName);
     jobLog(jobId, `pollJob \u2014 session=${job.sessionName}, alive=${alive}`);
     if (alive) {
+      try {
+        const stat = statSync(job.logPath);
+        const silenceMs = Date.now() - stat.mtimeMs;
+        if (silenceMs > STUCK_NO_OUTPUT_MS) {
+          const silenceMin = (silenceMs / 6e4).toFixed(1);
+          jobLog(jobId, `Stuck detected - no pipe-pane output for ${silenceMin}m, killing session`);
+          console.log(`[executor] Killing job ${jobId} - no pipe-pane output for ${silenceMin} minutes`);
+          await killTmuxSession(job.sessionName);
+          await this.sendJobFailed(jobId, `No pipe-pane output for ${silenceMin} minutes`, "stuck_no_output");
+          await this.settleJob(jobId);
+          return;
+        }
+      } catch (err) {
+        jobLog(jobId, `Could not stat logPath for stuck detection: ${String(err)}`);
+      }
       const elapsedMs = Date.now() - job.startedAt;
       const progress = Math.min(95, Math.floor(elapsedMs / JOB_TIMEOUT_MS * 100));
       const { error: progressErr } = await this.supabase.from("jobs").update({ progress, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", jobId);
@@ -18767,42 +18820,59 @@ ${msg.text}`;
     const homeDir = process.env["HOME"] ?? "/tmp";
     const archiveDir = `${homeDir}/${REPORT_ARCHIVE_DIR}`;
     const jobReportPath = `${archiveDir}/${jobId}.md`;
-    const rpPath = reportRelativePath(job.role);
-    const candidatePaths = [];
-    if (job.worktreePath) {
-      candidatePaths.push(`${job.worktreePath}/${rpPath}`);
-    } else if (job.workspaceDir) {
-      candidatePaths.push(`${job.workspaceDir}/${rpPath}`);
-    }
-    candidatePaths.push(`${homeDir}/${rpPath}`);
-    const REPORT_FALLBACKS = {
-      reviewer: ".claude/verify-report.md",
-      deployer: ".claude/deploy-report.md",
-      "test-deployer": ".claude/deploy-report.md",
-      tester: ".claude/tester-report.md",
-      "job-merger": ".claude/job-merger-report.md"
-    };
-    const fallback = job.role ? REPORT_FALLBACKS[job.role] : void 0;
-    if (fallback && fallback !== rpPath) {
-      if (job.worktreePath)
-        candidatePaths.push(`${job.worktreePath}/${fallback}`);
-      else if (job.workspaceDir)
-        candidatePaths.push(`${job.workspaceDir}/${fallback}`);
-      candidatePaths.push(`${homeDir}/${fallback}`);
-    }
     let result = "NO_REPORT";
     let report;
-    jobLog(jobId, `Report search \u2014 rpPath=${rpPath}, fallback=${fallback ?? "none"}, candidates=${JSON.stringify(candidatePaths)}`);
     mkdirSync2(archiveDir, { recursive: true });
-    for (const candidatePath of candidatePaths) {
-      try {
-        renameSync(candidatePath, jobReportPath);
-        report = readFileSync3(jobReportPath, "utf-8");
-        jobLog(jobId, `Report FOUND at ${candidatePath} (${report.length} chars)`);
-        console.log(`[executor] Claimed report for jobId=${jobId} from ${candidatePath} \u2192 ${jobReportPath}`);
-        break;
-      } catch {
-        jobLog(jobId, `Report not at ${candidatePath}`);
+    if (job.role === "reviewer") {
+      if (!job.worktreePath) {
+        result = "FAILED: Reviewer job missing required worktreePath";
+        jobLog(jobId, "Report search ERROR \u2014 reviewer job missing required worktreePath");
+      } else {
+        const reviewerReportPath = `${job.worktreePath}/.claude/reviewer-report.md`;
+        jobLog(jobId, `Report search \u2014 reviewer canonical path=${reviewerReportPath}`);
+        try {
+          renameSync(reviewerReportPath, jobReportPath);
+          report = readFileSync3(jobReportPath, "utf-8");
+          jobLog(jobId, `Report FOUND at ${reviewerReportPath} (${report.length} chars)`);
+          console.log(`[executor] Claimed report for jobId=${jobId} from ${reviewerReportPath} \u2192 ${jobReportPath}`);
+        } catch {
+          jobLog(jobId, `Report not at ${reviewerReportPath}`);
+        }
+      }
+    } else {
+      const rpPath = reportRelativePath(job.role);
+      const candidatePaths = [];
+      if (job.worktreePath) {
+        candidatePaths.push(`${job.worktreePath}/${rpPath}`);
+      } else if (job.workspaceDir) {
+        candidatePaths.push(`${job.workspaceDir}/${rpPath}`);
+      }
+      candidatePaths.push(`${homeDir}/${rpPath}`);
+      const REPORT_FALLBACKS = {
+        deployer: ".claude/deploy-report.md",
+        "test-deployer": ".claude/deploy-report.md",
+        tester: ".claude/tester-report.md",
+        "job-merger": ".claude/job-merger-report.md"
+      };
+      const fallback = job.role ? REPORT_FALLBACKS[job.role] : void 0;
+      if (fallback && fallback !== rpPath) {
+        if (job.worktreePath)
+          candidatePaths.push(`${job.worktreePath}/${fallback}`);
+        else if (job.workspaceDir)
+          candidatePaths.push(`${job.workspaceDir}/${fallback}`);
+        candidatePaths.push(`${homeDir}/${fallback}`);
+      }
+      jobLog(jobId, `Report search \u2014 rpPath=${rpPath}, fallback=${fallback ?? "none"}, candidates=${JSON.stringify(candidatePaths)}`);
+      for (const candidatePath of candidatePaths) {
+        try {
+          renameSync(candidatePath, jobReportPath);
+          report = readFileSync3(jobReportPath, "utf-8");
+          jobLog(jobId, `Report FOUND at ${candidatePath} (${report.length} chars)`);
+          console.log(`[executor] Claimed report for jobId=${jobId} from ${candidatePath} \u2192 ${jobReportPath}`);
+          break;
+        } catch {
+          jobLog(jobId, `Report not at ${candidatePath}`);
+        }
       }
     }
     if (report) {
@@ -18823,9 +18893,12 @@ ${msg.text}`;
         }
       }
       jobLog(jobId, `Report parsed \u2014 result="${result}"`);
-    } else {
+    } else if (result === "NO_REPORT") {
       jobLog(jobId, `Report NOT FOUND \u2014 result="NO_REPORT"`);
       console.log(`[executor] No report file for jobId=${jobId}, result=NO_REPORT`);
+    } else {
+      jobLog(jobId, `Report retrieval failed \u2014 result="${result}"`);
+      console.log(`[executor] Report retrieval failed for jobId=${jobId}, result=${result}`);
     }
     const logChunk = readLogFileFrom(job.logPath, job.lastBytesSent);
     if (logChunk !== null) {
@@ -19072,6 +19145,29 @@ ${msg.text}`;
     if (job.timeoutTimer !== null) {
       clearTimeout(job.timeoutTimer);
       job.timeoutTimer = null;
+    }
+  }
+  async settleJob(jobId) {
+    const job = this.activeJobs.get(jobId);
+    if (!job)
+      return;
+    job.settled = true;
+    this.clearJobTimers(job);
+    this.activeJobs.delete(jobId);
+    const persistentRole = [...this.persistentAgents.values()].find((agent) => agent.jobId === jobId)?.role;
+    if (persistentRole) {
+      this.clearPersistentAgent(persistentRole);
+    } else if (job.slotAcquired) {
+      this.slots.release(job.slotType);
+    }
+    if (job.worktreePath && job.repoDir) {
+      try {
+        await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      } catch (err) {
+        console.warn(`[executor] Failed to clean worktree for jobId=${jobId}: ${String(err)}`);
+      }
+    } else {
+      cleanupJobWorkspace(jobId, job.workspaceDir);
     }
   }
   // ---------------------------------------------------------------------------
@@ -19484,47 +19580,6 @@ async function recoverDispatchedJobs(dbClient, machineName, options) {
   }
 }
 
-// ../local-agent/package.json
-var package_default = {
-  name: "@zazigv2/local-agent",
-  version: "0.10.0",
-  private: true,
-  description: "Local agent daemon \u2014 connects to Supabase Realtime, executes tmux sessions",
-  type: "module",
-  main: "./dist/index.js",
-  bin: {
-    "zazig-agent-mcp": "./dist/agent-mcp-server.js"
-  },
-  exports: {
-    ".": {
-      import: "./dist/index.js",
-      types: "./dist/index.d.ts"
-    }
-  },
-  scripts: {
-    build: "tsc -b tsconfig.build.json && chmod +x dist/agent-mcp-server.js",
-    typecheck: "tsc -p tsconfig.json --noEmit",
-    clean: "rm -rf dist tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo",
-    test: "vitest run",
-    "test:coverage": "vitest run --coverage",
-    start: "node dist/index.js"
-  },
-  dependencies: {
-    "@modelcontextprotocol/sdk": "^1.26.0",
-    "@supabase/supabase-js": "^2.49.1",
-    "@zazigv2/shared": "*"
-  },
-  devDependencies: {
-    "@types/node": "^20.0.0",
-    "@vitest/coverage-v8": "^4.0.18",
-    typescript: "5.8",
-    vitest: "^4.0.18"
-  },
-  engines: {
-    node: ">=20.0.0"
-  }
-};
-
 // ../local-agent/dist/connection.js
 var CREDENTIALS_PATH = join5(homedir3(), ".zazigv2", "credentials.json");
 var execFileAsync3 = promisify3(execFile3);
@@ -19537,8 +19592,9 @@ var AgentConnection = class {
   supabase;
   /** Service-role client for direct DB writes (bypasses RLS). Falls back to anon client if service_role_key not set. */
   dbClient;
-  machineId;
+  machineName;
   primaryCompanyId;
+  agentVersion;
   companyIds = [];
   config;
   slots;
@@ -19550,14 +19606,21 @@ var AgentConnection = class {
   reconnectAttempts = 0;
   stopped = false;
   isRecoveryRunning = false;
+  consecutiveHeartbeatFailures = 0;
+  lastHeartbeatSentAt = Date.now();
+  killStaleJobsFn;
   outdated = false;
   outdatedWarningTimer = null;
   outdatedExitPollTimer = null;
-  constructor(config, slots) {
+  constructor(config, slots, agentVersion) {
     this.config = config;
-    this.machineId = config.name;
+    this.machineName = config.name;
     this.primaryCompanyId = config.company_id;
+    this.agentVersion = agentVersion;
     this.slots = slots;
+    if (config.supabase.access_token && !config.supabase.refresh_token) {
+      throw new Error("[local-agent] refresh_token is required when access_token is set \u2014 daemon refused to start");
+    }
     this.supabase = createClient(config.supabase.url, config.supabase.anon_key, {
       realtime: {
         // Node.js requires an explicit WebSocket implementation; the ws package
@@ -19572,11 +19635,6 @@ var AgentConnection = class {
     if (config.supabase.access_token && config.supabase.refresh_token) {
       this.dbClient = createClient(config.supabase.url, config.supabase.anon_key);
       console.log("[local-agent] Using authenticated JWT with auto-refresh for DB writes");
-    } else if (config.supabase.access_token) {
-      this.dbClient = createClient(config.supabase.url, config.supabase.anon_key, {
-        global: { headers: { Authorization: `Bearer ${config.supabase.access_token}` } }
-      });
-      console.warn("[local-agent] No refresh token \u2014 JWT will expire after ~1h");
     } else if (config.supabase.service_role_key) {
       this.dbClient = createClient(config.supabase.url, config.supabase.service_role_key);
       console.log("[local-agent] Using service_role key for DB writes");
@@ -19588,6 +19646,9 @@ var AgentConnection = class {
   /** Register a handler for incoming OrchestratorMessages. */
   onMessage(handler) {
     this.handlers.push(handler);
+  }
+  setKillStaleJobsFn(fn) {
+    this.killStaleJobsFn = fn;
   }
   /**
    * Send an AgentMessage to the orchestrator via the `agent-event` edge function.
@@ -19616,13 +19677,14 @@ var AgentConnection = class {
           body: JSON.stringify(msg)
         });
         if (res.ok)
-          return;
+          return true;
         console.warn(`[local-agent] agent-event failed (${res.status}), retrying...`);
       } catch (e) {
         console.warn(`[local-agent] agent-event error: ${e}, retrying...`);
       }
     }
     console.error("[local-agent] agent-event failed after 3 retries");
+    return false;
   }
   /**
    * Query user_companies to get all companies the authenticated user belongs to.
@@ -19647,7 +19709,7 @@ var AgentConnection = class {
   }
   /** Connect to Supabase Realtime and start the heartbeat loop. */
   async start() {
-    console.log(`[local-agent] Starting daemon for machine: ${this.machineId}`);
+    console.log(`[local-agent] Starting daemon for machine: ${this.machineName}`);
     this.stopped = false;
     if (this.config.supabase.access_token && this.config.supabase.refresh_token) {
       const { error } = await this.dbClient.auth.setSession({
@@ -19655,7 +19717,7 @@ var AgentConnection = class {
         refresh_token: this.config.supabase.refresh_token
       });
       if (error) {
-        console.warn(`[local-agent] Failed to set auth session: ${error.message}`);
+        throw new Error(`[local-agent] Failed to set auth session: ${error.message}`);
       } else {
         console.log("[local-agent] Auth session initialized \u2014 auto-refresh enabled");
       }
@@ -19722,7 +19784,7 @@ var AgentConnection = class {
     if (!this.primaryCompanyId) {
       throw new Error("Cannot connect without company_id \u2014 set ZAZIG_COMPANY_ID");
     }
-    const channelName = `agent:${this.machineId}:${this.primaryCompanyId}`;
+    const channelName = `agent:${this.machineName}:${this.primaryCompanyId}`;
     console.log(`[local-agent] Connecting to inbound channel: ${channelName}`);
     this.channel = this.supabase.channel(channelName, {
       config: {
@@ -19840,7 +19902,7 @@ var AgentConnection = class {
     void this.sendHeartbeat();
     this.heartbeatTimer = setInterval(() => {
       const inState = this.channel?.state ?? "null";
-      console.log(`[local-agent][DEBUG] Channel state: inbound=${inState}, machineId=${this.machineId}`);
+      console.log(`[local-agent][DEBUG] Channel state: inbound=${inState}, machineName=${this.machineName}`);
       void this.sendHeartbeat();
     }, HEARTBEAT_INTERVAL_MS);
   }
@@ -19857,12 +19919,12 @@ var AgentConnection = class {
     }
     const slotsAvailable = this.slots.getAvailable();
     const row = {
-      name: this.machineId,
+      name: this.machineName,
       status: "online",
       last_heartbeat: (/* @__PURE__ */ new Date()).toISOString(),
       slots_claude_code: slotsAvailable.claude_code,
       slots_codex: slotsAvailable.codex,
-      agent_version: package_default.version
+      agent_version: this.agentVersion
     };
     let failures = 0;
     for (const companyId of this.companyIds) {
@@ -19881,34 +19943,22 @@ var AgentConnection = class {
   async sendHeartbeat() {
     if (this.stopped)
       return;
+    const now = Date.now();
+    const gapMs = now - this.lastHeartbeatSentAt;
+    if (gapMs > MACHINE_DEAD_THRESHOLD_MS) {
+      const gapMin = (gapMs / 6e4).toFixed(1);
+      const runningJobs = this.killStaleJobsFn ? await this.killStaleJobsFn("daemon_heartbeat_gap") : 0;
+      console.log(`[local-agent] Killing ${runningJobs} jobs \u2014 heartbeat gap of ${gapMin}m detected (likely sleep/network loss)`);
+    }
+    this.lastHeartbeatSentAt = now;
     const slotsAvailable = this.slots.getAvailable();
-    const updatePayload = {
-      last_heartbeat: (/* @__PURE__ */ new Date()).toISOString(),
-      status: "online",
-      slots_claude_code: slotsAvailable.claude_code,
-      slots_codex: slotsAvailable.codex,
-      agent_version: package_default.version
-    };
-    let dbErr = null;
-    if (this.companyIds.length > 0) {
-      const { error } = await this.dbClient.from("machines").update(updatePayload).eq("name", this.machineId).in("company_id", this.companyIds);
-      if (error)
-        dbErr = error;
-    } else {
-      const { error } = await this.dbClient.from("machines").update(updatePayload).eq("name", this.machineId);
-      if (error)
-        dbErr = error;
-    }
-    if (dbErr) {
-      console.warn(`[local-agent] Heartbeat DB write failed: ${dbErr.message}`);
-    }
     const env = process.env["ZAZIG_ENV"] ?? "production";
     try {
       const { data: latestVersion, error: latestVersionErr } = await this.dbClient.from("agent_versions").select("version").eq("env", env).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (latestVersionErr) {
         console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${latestVersionErr.message}`);
-      } else if (latestVersion && latestVersion.version !== package_default.version) {
-        this.onOutdatedDetected(package_default.version, latestVersion.version);
+      } else if (latestVersion && latestVersion.version !== this.agentVersion) {
+        this.onOutdatedDetected(this.agentVersion, latestVersion.version);
       }
     } catch (err) {
       console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${String(err)}`);
@@ -19916,17 +19966,24 @@ var AgentConnection = class {
     const heartbeat = {
       type: "heartbeat",
       protocolVersion: PROTOCOL_VERSION,
-      machineId: this.machineId,
+      machineName: this.machineName,
       slotsAvailable
     };
-    await this.sendToOrchestrator(heartbeat);
-    if (dbErr) {
-      console.warn(`[local-agent] Heartbeat FAILED \u2014 machineId=${this.machineId}, slots=${JSON.stringify(slotsAvailable)}, db=FAIL`);
+    const heartbeatOk = await this.sendToOrchestrator(heartbeat);
+    if (heartbeatOk) {
+      this.consecutiveHeartbeatFailures = 0;
+    } else {
+      this.consecutiveHeartbeatFailures++;
+      console.error(`[local-agent] Heartbeat failure ${this.consecutiveHeartbeatFailures}/5 \u2014 machineName=${this.machineName}`);
+      if (this.consecutiveHeartbeatFailures >= 5) {
+        console.error(`[local-agent] 5 consecutive heartbeat failures \u2014 exiting for supervisor restart`);
+        process.exit(1);
+      }
     }
     if (!this.isRecoveryRunning) {
       this.isRecoveryRunning = true;
       try {
-        const recovered = await recoverDispatchedJobs(this.dbClient, this.machineId, { companyIds: this.companyIds });
+        const recovered = await recoverDispatchedJobs(this.dbClient, this.machineName, { companyIds: this.companyIds });
         if (recovered > 0) {
           console.log(`[local-agent] Heartbeat recovered ${recovered} missed job(s)`);
         }
@@ -20012,10 +20069,10 @@ var AgentConnection = class {
     const targets = sessions.filter((sessionName) => {
       if (sessionName.startsWith("expert-"))
         return true;
-      if (sessionName === `${this.machineId}-cpo`)
+      if (sessionName === `${this.machineName}-cpo`)
         return true;
       for (const prefix of companyPrefixes) {
-        if (sessionName === `${this.machineId}-${prefix}-cpo`)
+        if (sessionName === `${this.machineName}-${prefix}-cpo`)
           return true;
       }
       return false;
@@ -20842,6 +20899,37 @@ ${typecheckStep.output}`,
   }
 };
 
+// ../local-agent/dist/version.js
+import { execSync } from "node:child_process";
+function runGitCommand(command, cwd) {
+  try {
+    const output = execSync(command, {
+      encoding: "utf8",
+      stdio: "pipe",
+      cwd
+    }).trim();
+    return output || null;
+  } catch {
+    return null;
+  }
+}
+function resolveAgentVersion() {
+  const env = process.env["ZAZIG_ENV"] ?? "production";
+  const repoRoot = process.env["ZAZIG_REPO_PATH"] ?? process.cwd();
+  if (env === "staging") {
+    const localAgentHash = runGitCommand("git log -1 --format=%h -- packages/local-agent/", repoRoot);
+    if (localAgentHash)
+      return localAgentHash;
+  }
+  if (typeof AGENT_BUILD_HASH !== "undefined" && AGENT_BUILD_HASH) {
+    return AGENT_BUILD_HASH;
+  }
+  const headHash = runGitCommand("git rev-parse --short HEAD", repoRoot);
+  if (headHash)
+    return headHash;
+  return "dev";
+}
+
 // ../local-agent/dist/index.js
 var companySlug = process.env["ZAZIG_COMPANY_ID"]?.slice(0, 8) ?? "default";
 var logPath = join7(homedir5(), ".zazigv2", `local-agent-${companySlug}.log`);
@@ -20881,8 +20969,10 @@ async function main() {
   const config = loadConfig();
   console.log(`[local-agent] Config loaded \u2014 machine=${config.name}, slots=${JSON.stringify(config.slots)}`);
   const slots = new SlotTracker(config.slots);
-  const conn = new AgentConnection(config, slots);
+  const agentVersion = resolveAgentVersion();
+  const conn = new AgentConnection(config, slots, agentVersion);
   const executor = new JobExecutor(config.name, config.company_id ?? "", slots, (msg) => conn.sendMessage(msg), conn.dbClient, config.supabase.url, config.supabase.anon_key);
+  conn.setKillStaleJobsFn((reason) => executor.killAllRunningJobs(reason));
   const verifier = new JobVerifier({
     repoDir: process.cwd(),
     machineId: config.name,

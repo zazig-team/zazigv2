@@ -14911,6 +14911,36 @@ function bumpAgentPackageVersions(repoRoot) {
   writeJsonFile(localAgentPackagePath, localAgentPackage);
   return newVersion;
 }
+function resolveAgentBuildHash(repoRoot) {
+  let agentBuildHash = "";
+  try {
+    agentBuildHash = execSync6("git log -1 --format=%h -- packages/local-agent/", {
+      encoding: "utf-8",
+      cwd: repoRoot,
+      stdio: "pipe"
+    }).trim();
+  } catch {
+  }
+  if (agentBuildHash) {
+    return agentBuildHash;
+  }
+  const headHash = execSync6("git rev-parse --short HEAD", {
+    encoding: "utf-8",
+    cwd: repoRoot,
+    stdio: "pipe"
+  }).trim();
+  if (!headHash) {
+    throw new Error("Unable to resolve an agent build hash.");
+  }
+  return headHash;
+}
+function injectAgentBuildHash(repoRoot, agentBuildHash) {
+  const bundlePath = join11(repoRoot, "packages", "local-agent", "releases", "zazig-agent.mjs");
+  const bundleContent = readFileSync7(bundlePath, "utf-8");
+  const injected = `const AGENT_BUILD_HASH = "${agentBuildHash}";
+${bundleContent}`;
+  writeFileSync7(bundlePath, injected);
+}
 async function registerAgentVersion(creds, anonKey, env, version3, commitSha) {
   const supabase = createClient(creds.supabaseUrl, anonKey);
   const { error: sessionError } = await supabase.auth.setSession({
@@ -15066,11 +15096,28 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
     process.exitCode = 1;
     return;
   }
+  console.log("\nResolving agent build hash...");
+  let agentBuildHash;
+  try {
+    agentBuildHash = resolveAgentBuildHash(repoRoot);
+    console.log(`Using agent build hash ${agentBuildHash}.`);
+  } catch (err) {
+    console.error(`Failed to resolve agent build hash: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
   console.log("\nBundling CLI...");
   try {
     execSync6("node scripts/bundle.js", { cwd: join11(repoRoot, "packages", "cli"), stdio: "inherit" });
   } catch {
     console.error("Bundle failed.");
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    injectAgentBuildHash(repoRoot, agentBuildHash);
+  } catch (err) {
+    console.error(`Failed to inject agent build hash into bundle: ${String(err)}`);
     process.exitCode = 1;
     return;
   }
@@ -15128,8 +15175,8 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   }
   console.log("\nRegistering production version...");
   try {
-    await registerAgentVersion(creds, anonKey, "production", newVersion, commitSha);
-    console.log(`Registered production agent version ${newVersion} (${commitSha.slice(0, 7)}).`);
+    await registerAgentVersion(creds, anonKey, "production", agentBuildHash, commitSha);
+    console.log(`Registered production agent version ${agentBuildHash} (${commitSha.slice(0, 7)}).`);
   } catch (err) {
     console.error(`Version registration failed: ${String(err)}`);
     process.exitCode = 1;
@@ -15139,7 +15186,8 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   pinCurrentBuild(repoRoot);
   const sha = commitSha.slice(0, 7);
   console.log(`
-Promoted to production ${newVersion} (${sha}).`);
+Promoted to production ${agentBuildHash} (${sha}).`);
+  console.log(`Bumped package semver to ${newVersion}.`);
   console.log("CI will deploy Supabase migrations and edge functions.");
   console.log("Restart your production agent to use the new build: zazig stop && zazig start");
 }

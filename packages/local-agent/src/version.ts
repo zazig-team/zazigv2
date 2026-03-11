@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 
 // In production builds, zazig promote injects this constant into the bundled entrypoint.
+// On deploy, CI upserts the resolved version into the agent_versions table (env + version + commit_sha).
 declare const AGENT_BUILD_HASH: string | undefined;
 
 function runGitCommand(command: string, cwd?: string): string | null {

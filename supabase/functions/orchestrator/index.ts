@@ -2791,37 +2791,58 @@ async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void
 async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
   const { data: companies } = await supabase
     .from("companies")
-    .select("id")
+    .select("id, triage_batch_size, triage_max_concurrent, triage_delay_minutes")
     .eq("auto_triage", true)
     .eq("status", "active");
 
   if (!companies?.length) return;
 
-  for (const company of companies as { id: string }[]) {
+  for (
+    const company of companies as {
+      id: string;
+      triage_batch_size: number | null;
+      triage_max_concurrent: number | null;
+      triage_delay_minutes: number | null;
+    }[]
+  ) {
     const lastRun = autoTriageLastRun.get(company.id) ?? 0;
     if (Date.now() - lastRun < AUTO_TRIAGE_COOLDOWN_MS) continue;
 
-    // Check if there's already an active triage-analyst job for this company.
-    // The RPC enforces idempotency (one active triage-analyst per company/project),
-    // so we skip dispatch entirely if one is already running.
-    const { data: activeTriageJobs } = await supabase
-      .from("jobs")
-      .select("id")
+    const triageBatchSize = Math.max(1, company.triage_batch_size ?? 1);
+    const triageMaxConcurrent = Math.max(1, company.triage_max_concurrent ?? 1);
+    const triageDelayMinutes = Math.max(0, company.triage_delay_minutes ?? 0);
+
+    // Limit auto-triage by number of active triage-analyst expert sessions.
+    const { count: activeSessionCount, error: activeSessionsErr } = await supabase
+      .from("expert_sessions")
+      .select("id, expert_roles!inner(name)", { count: "exact", head: true })
       .eq("company_id", company.id)
-      .eq("role", "triage-analyst")
-      .in("status", ["queued", "dispatched", "executing"])
-      .limit(1);
+      .eq("expert_roles.name", "triage-analyst")
+      .in("status", ["requested", "running"]);
 
-    if (activeTriageJobs && activeTriageJobs.length > 0) continue;
+    if (activeSessionsErr) {
+      console.error(
+        `[orchestrator] auto-triage: failed to count active triage sessions for company ${company.id}: ${activeSessionsErr.message}`,
+      );
+      continue;
+    }
 
-    // Pick the oldest new idea (one at a time — next tick picks the next one).
+    const activeCount = activeSessionCount ?? 0;
+    if (activeCount >= triageMaxConcurrent) continue;
+
+    const remainingCapacity = triageMaxConcurrent - activeCount;
+    if (remainingCapacity <= 0) continue;
+
+    const delayCutoff = new Date(Date.now() - triageDelayMinutes * 60_000).toISOString();
+
     const { data: newIdeas } = await supabase
       .from("ideas")
       .select("id")
       .eq("company_id", company.id)
       .eq("status", "new")
+      .lt("created_at", delayCutoff)
       .order("created_at", { ascending: true })
-      .limit(1);
+      .limit(triageBatchSize);
 
     if (!newIdeas?.length) continue;
 
@@ -2840,38 +2861,72 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
       continue;
     }
 
-    const idea = (newIdeas as { id: string }[])[0];
+    const batchIds = (newIdeas as { id: string }[]).map((idea) => idea.id);
+    if (batchIds.length === 0) continue;
 
-    await supabase
+    const { error: markTriagingErr } = await supabase
       .from("ideas")
       .update({ status: "triaging" })
-      .eq("id", idea.id);
+      .eq("company_id", company.id)
+      .eq("status", "new")
+      .in("id", batchIds);
 
-    const { data: rpcResult, error } = await supabase.rpc("request_standalone_work", {
-      p_company_id: company.id,
-      p_project_id: projectId,
-      p_feature_id: null,
-      p_role: "triage-analyst",
-      p_context: idea.id,
+    if (markTriagingErr) {
+      console.error(
+        `[orchestrator] auto-triage: failed to mark ideas triaging for company ${company.id}: ${markTriagingErr.message}`,
+      );
+      continue;
+    }
+
+    const brief = JSON.stringify({
+      source: "auto_triage",
+      company_id: company.id,
+      idea_ids: batchIds,
     });
 
-    const rejected = rpcResult && typeof rpcResult === "object" &&
-      (rpcResult as Record<string, unknown>).rejected === true;
+    try {
+      const dispatchResp = await fetch(`${SUPABASE_URL}/functions/v1/start-expert-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          "x-company-id": company.id,
+        },
+        body: JSON.stringify({
+          role_name: "triage-analyst",
+          brief,
+          headless: true,
+          project_id: projectId,
+        }),
+      });
 
-    if (error || rejected) {
-      const reason = error?.message ??
-        (rpcResult as Record<string, unknown>)?.reason ?? "unknown";
+      if (!dispatchResp.ok) {
+        const responseText = await dispatchResp.text();
+        console.error(
+          `[orchestrator] auto-triage: failed to start headless triage session for company ${company.id} (ideas ${batchIds.join(",")}): ${dispatchResp.status} ${responseText}`,
+        );
+        await supabase
+          .from("ideas")
+          .update({ status: "new" })
+          .eq("company_id", company.id)
+          .eq("status", "triaging")
+          .in("id", batchIds);
+      } else {
+        console.log(
+          `[orchestrator] auto-triage: dispatched triage batch for company ${company.id} (${batchIds.length} ideas, capacity remaining before dispatch: ${remainingCapacity})`,
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       console.error(
-        `[orchestrator] auto-triage: failed to queue triage for idea ${idea.id}: ${reason}`,
+        `[orchestrator] auto-triage: request failed for company ${company.id} (ideas ${batchIds.join(",")}): ${message}`,
       );
       await supabase
         .from("ideas")
         .update({ status: "new" })
-        .eq("id", idea.id);
-    } else {
-      console.log(
-        `[orchestrator] auto-triage: queued triage for idea ${idea.id}`,
-      );
+        .eq("company_id", company.id)
+        .eq("status", "triaging")
+        .in("id", batchIds);
     }
 
     autoTriageLastRun.set(company.id, Date.now());

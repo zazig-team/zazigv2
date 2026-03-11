@@ -357,6 +357,9 @@ verify_jwt = false
 [functions.slack-create-channel]
 verify_jwt = false
 
+[functions.agent-inbound-poll]
+verify_jwt = false
+
 [functions.agent-event]
 verify_jwt = false
 

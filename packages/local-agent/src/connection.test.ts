@@ -141,7 +141,7 @@ describe("AgentConnection", () => {
     const supabaseMock = makeSupabaseClientMock();
     createClientMock.mockReturnValue(supabaseMock.client);
 
-    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots));
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots), "test-version");
 
     await (connection as any).sendHeartbeat();
 
@@ -161,6 +161,7 @@ describe("AgentConnection", () => {
       new AgentConnection(
         makeConfig({ access_token: "access-token" }),
         new SlotTracker(baseConfig.slots),
+        "test-version",
       );
     }).toThrow(/refresh_token is required/i);
   });
@@ -179,6 +180,7 @@ describe("AgentConnection", () => {
         refresh_token: "refresh-token",
       }),
       new SlotTracker(baseConfig.slots),
+      "test-version",
     );
 
     await expect(connection.start()).rejects.toThrow(/bad token/i);
@@ -189,7 +191,7 @@ describe("AgentConnection", () => {
     const supabaseMock = makeSupabaseClientMock();
     createClientMock.mockReturnValue(supabaseMock.client);
 
-    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots));
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots), "test-version");
     vi.spyOn(connection as any, "sendToOrchestrator").mockResolvedValue(false);
     const processExitMock = vi
       .spyOn(process, "exit")
@@ -207,7 +209,7 @@ describe("AgentConnection", () => {
     const supabaseMock = makeSupabaseClientMock();
     createClientMock.mockReturnValue(supabaseMock.client);
 
-    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots));
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots), "test-version");
     vi.spyOn(connection as any, "sendToOrchestrator")
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(false)
@@ -236,7 +238,7 @@ describe("AgentConnection", () => {
     const supabaseMock = makeSupabaseClientMock();
     createClientMock.mockReturnValue(supabaseMock.client);
 
-    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots));
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots), "test-version");
     vi.spyOn(connection as any, "sendToOrchestrator").mockResolvedValue(true);
     const killStaleJobsFn = vi.fn().mockResolvedValue(3);
     connection.setKillStaleJobsFn(killStaleJobsFn);
@@ -252,7 +254,7 @@ describe("AgentConnection", () => {
     const supabaseMock = makeSupabaseClientMock();
     createClientMock.mockReturnValue(supabaseMock.client);
 
-    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots));
+    const connection = new AgentConnection(makeConfig(), new SlotTracker(baseConfig.slots), "test-version");
     const killStaleJobsFn = vi.fn().mockResolvedValue(0);
     connection.setKillStaleJobsFn(killStaleJobsFn);
     vi.spyOn(connection as any, "sendToOrchestrator").mockResolvedValue(false);

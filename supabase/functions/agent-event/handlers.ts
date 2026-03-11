@@ -31,18 +31,18 @@ export async function handleHeartbeat(
   supabase: SupabaseClient,
   msg: Heartbeat,
 ): Promise<void> {
-  const { machineId, slotsAvailable } = msg;
+  const { machineName, slotsAvailable } = msg;
 
   // Check if the machine was offline before this heartbeat.
   const { data: machine, error: fetchErr } = await supabase
     .from("machines")
     .select("id, company_id, status")
-    .eq("id", machineId)
+    .eq("name", machineName)
     .single();
 
   if (fetchErr || !machine) {
     console.error(
-      `[agent-event machine=${machineId}] Failed to fetch machine for heartbeat:`,
+      `[agent-event machine=${machineName}] Failed to fetch machine for heartbeat:`,
       fetchErr?.message,
     );
     return;
@@ -58,18 +58,18 @@ export async function handleHeartbeat(
       slots_claude_code: slotsAvailable.claude_code,
       slots_codex: slotsAvailable.codex,
     })
-    .eq("name", machineId);
+    .eq("name", machineName);
 
   if (error) {
     console.error(
-      `[agent-event machine=${machineId}] Failed to record heartbeat:`,
+      `[agent-event machine=${machineName}] Failed to record heartbeat:`,
       error.message,
     );
     return;
   }
 
   console.log(
-    `[agent-event machine=${machineId}] Heartbeat — claude_code:${slotsAvailable.claude_code} codex:${slotsAvailable.codex}`,
+    `[agent-event machine=${machineName}] Heartbeat — claude_code:${slotsAvailable.claude_code} codex:${slotsAvailable.codex}`,
   );
 
   // Machine came back online — log event.
@@ -78,21 +78,21 @@ export async function handleHeartbeat(
   // across isolates (agent-event and orchestrator run in separate Deno isolates).
   if (wasOffline) {
     console.log(
-      `[agent-event machine=${machineId}] Machine recovered from offline`,
+      `[agent-event machine=${machineName}] Machine recovered from offline`,
     );
 
     const { error: eventErr } = await supabase
       .from("events")
       .insert({
         company_id: machine.company_id,
-        machine_id: machineId,
+        machine_id: machine.id,
         event_type: "machine_online",
         detail: { recovered: true },
       });
 
     if (eventErr) {
       console.error(
-        `[agent-event machine=${machineId}] Failed to log machine_online event:`,
+        `[agent-event machine=${machineName}] Failed to log machine_online event:`,
         eventErr.message,
       );
     }

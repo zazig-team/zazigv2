@@ -43,7 +43,7 @@ export class AgentConnection {
   readonly supabase: SupabaseClient;
   /** Service-role client for direct DB writes (bypasses RLS). Falls back to anon client if service_role_key not set. */
   readonly dbClient: SupabaseClient;
-  private readonly machineId: string;
+  private readonly machineName: string;
   private readonly primaryCompanyId: string | undefined;
   private readonly agentVersion: string;
   public companyIds: string[] = [];
@@ -67,7 +67,7 @@ export class AgentConnection {
 
   constructor(config: MachineConfig, slots: SlotTracker, agentVersion: string) {
     this.config = config;
-    this.machineId = config.name;
+    this.machineName = config.name;
     this.primaryCompanyId = config.company_id;
     this.agentVersion = agentVersion;
     this.slots = slots;
@@ -182,7 +182,7 @@ export class AgentConnection {
 
   /** Connect to Supabase Realtime and start the heartbeat loop. */
   async start(): Promise<void> {
-    console.log(`[local-agent] Starting daemon for machine: ${this.machineId}`);
+    console.log(`[local-agent] Starting daemon for machine: ${this.machineName}`);
     this.stopped = false;
 
     // Initialize managed auth session for automatic token refresh.
@@ -272,7 +272,7 @@ export class AgentConnection {
     if (!this.primaryCompanyId) {
       throw new Error("Cannot connect without company_id — set ZAZIG_COMPANY_ID");
     }
-    const channelName = `agent:${this.machineId}:${this.primaryCompanyId}`;
+    const channelName = `agent:${this.machineName}:${this.primaryCompanyId}`;
     console.log(`[local-agent] Connecting to inbound channel: ${channelName}`);
 
     // Inbound channel: receives commands from orchestrator
@@ -423,7 +423,7 @@ export class AgentConnection {
     this.heartbeatTimer = setInterval(() => {
       // Log channel state alongside heartbeat for debugging
       const inState = this.channel?.state ?? "null";
-      console.log(`[local-agent][DEBUG] Channel state: inbound=${inState}, machineId=${this.machineId}`);
+      console.log(`[local-agent][DEBUG] Channel state: inbound=${inState}, machineName=${this.machineName}`);
       void this.sendHeartbeat();
     }, HEARTBEAT_INTERVAL_MS);
   }
@@ -443,7 +443,7 @@ export class AgentConnection {
 
     const slotsAvailable = this.slots.getAvailable();
     const row = {
-      name: this.machineId,
+      name: this.machineName,
       status: "online",
       last_heartbeat: new Date().toISOString(),
       slots_claude_code: slotsAvailable.claude_code,
@@ -508,7 +508,7 @@ export class AgentConnection {
     const heartbeat: Heartbeat = {
       type: "heartbeat",
       protocolVersion: PROTOCOL_VERSION,
-      machineId: this.machineId,
+      machineName: this.machineName,
       slotsAvailable,
     };
     const heartbeatOk = await this.sendToOrchestrator(heartbeat);
@@ -517,7 +517,7 @@ export class AgentConnection {
     } else {
       this.consecutiveHeartbeatFailures++;
       console.error(
-        `[local-agent] Heartbeat failure ${this.consecutiveHeartbeatFailures}/5 — machineId=${this.machineId}`
+        `[local-agent] Heartbeat failure ${this.consecutiveHeartbeatFailures}/5 — machineName=${this.machineName}`
       );
       if (this.consecutiveHeartbeatFailures >= 5) {
         console.error(
@@ -536,7 +536,7 @@ export class AgentConnection {
       try {
         const recovered = await recoverDispatchedJobs(
           this.dbClient,
-          this.machineId,
+          this.machineName,
           { companyIds: this.companyIds },
         );
         if (recovered > 0) {
@@ -636,9 +636,9 @@ export class AgentConnection {
 
     const targets = sessions.filter((sessionName) => {
       if (sessionName.startsWith("expert-")) return true;
-      if (sessionName === `${this.machineId}-cpo`) return true;
+      if (sessionName === `${this.machineName}-cpo`) return true;
       for (const prefix of companyPrefixes) {
-        if (sessionName === `${this.machineId}-${prefix}-cpo`) return true;
+        if (sessionName === `${this.machineName}-${prefix}-cpo`) return true;
       }
       return false;
     });

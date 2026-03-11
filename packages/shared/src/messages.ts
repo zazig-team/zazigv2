@@ -406,8 +406,8 @@ export interface Heartbeat {
   type: "heartbeat";
   /** Protocol version — must equal PROTOCOL_VERSION. */
   protocolVersion: number;
-  /** Stable machine identifier (matches the `machines` table in Supabase). */
-  machineId: string;
+  /** Machine name (matches the `name` column in the `machines` table). */
+  machineName: string;
   /**
    * Number of free slots per slot type on this machine at time of heartbeat.
    * Example: { claude_code: 1, codex: 0 }

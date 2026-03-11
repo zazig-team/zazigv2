@@ -245,7 +245,7 @@ export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
 export function isHeartbeat(v: unknown): v is Heartbeat {
   if (!isObject(v) || v.type !== "heartbeat") return false;
   if (!hasValidProtocolVersion(v)) return false;
-  if (!isString(v.machineId) || v.machineId.length === 0) return false;
+  if (!isString(v.machineName) || v.machineName.length === 0) return false;
   if (!isObject(v.slotsAvailable)) return false;
   if (!isNumber(v.slotsAvailable.claude_code) || v.slotsAvailable.claude_code < 0) return false;
   if (!isNumber(v.slotsAvailable.codex) || v.slotsAvailable.codex < 0) return false;

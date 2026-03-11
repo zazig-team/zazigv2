@@ -260,9 +260,11 @@ export class AgentConnection {
         `${this.supabaseUrl}/functions/v1/agent-inbound-poll` +
         `?machine_name=${encodeURIComponent(this.machineName)}` +
         `&company_id=${encodeURIComponent(this.primaryCompanyId)}`;
+      const { data: { session } } = await this.dbClient.auth.getSession();
+      const token = session?.access_token ?? this.supabaseAnonKey;
       const response = await fetch(url, {
         headers: {
-          Authorization: `Bearer ${this.supabaseAnonKey}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
       });

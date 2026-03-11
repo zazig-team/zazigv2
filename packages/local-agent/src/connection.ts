@@ -53,7 +53,7 @@ export class AgentConnection {
   private outdated = false;
   private outdatedShutdownInProgress = false;
 
-  constructor(config: MachineConfig, slots: SlotTracker, agentVersion: string) {
+  constructor(config: MachineConfig, slots: SlotTracker, agentVersion: string = "unknown") {
     this.config = config;
     this.supabaseUrl = config.supabase.url;
     this.supabaseAnonKey = config.supabase.anon_key;

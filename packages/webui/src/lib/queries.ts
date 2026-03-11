@@ -1018,6 +1018,7 @@ export async function commissionProjectArchitect(params: {
   });
 }
 
+/** @deprecated Use requestHeadlessTriage instead. This creates a pipeline job (slot-consuming). */
 export async function requestTriageJob(params: {
   companyId: string;
   projectId: string;
@@ -1028,6 +1029,21 @@ export async function requestTriageJob(params: {
     project_id: params.projectId,
     role: "triage-analyst",
     context: params.ideaId,
+  });
+}
+
+export async function requestHeadlessTriage(params: {
+  companyId: string;
+  projectId: string;
+  ideaIds: string[];
+  machineName?: string;
+}): Promise<{ session_id?: string }> {
+  return invokePost<{ session_id?: string }>("start-expert-session", {
+    role_name: "triage-analyst",
+    brief: `Triage these ideas: ${JSON.stringify(params.ideaIds)}. For each idea, evaluate against org goals, check for duplicates, set priority, and route to the appropriate track (promote/develop/workshop/harden/park/reject). Call update_idea for each with your triage_notes and triage_route.`,
+    machine_name: params.machineName ?? "auto",
+    project_id: params.projectId,
+    headless: true,
   });
 }
 

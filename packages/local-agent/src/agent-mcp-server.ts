@@ -848,16 +848,21 @@ server.tool(
     idea_id: z.string().describe("ID of the idea to update"),
     title: z.string().optional().describe("New title"),
     description: z.string().optional().describe("New description"),
-    status: z.enum(["new", "triaged", "parked", "rejected", "done"]).optional().describe("New status"),
+    status: z.enum(["new", "triaging", "triaged", "developing", "specced", "workshop", "hardening", "parked", "rejected", "done"]).optional().describe("New status"),
     priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("New priority"),
     suggested_exec: z.string().optional().describe("Suggested executor"),
     tags: z.array(z.string()).optional().describe("Updated tags"),
     flags: z.array(z.string()).optional().describe("Updated flags"),
     clarification_notes: z.string().optional().describe("Clarification notes"),
     triage_notes: z.string().optional().describe("Notes from triage"),
+    triage_route: z.string().optional().describe("Triage routing decision: promote, develop, workshop, harden, park, reject, founder-review"),
+    spec: z.string().optional().describe("Feature spec written by spec expert"),
+    acceptance_tests: z.string().optional().describe("Acceptance criteria"),
+    human_checklist: z.string().optional().describe("Items requiring human verification"),
+    complexity: z.string().optional().describe("Estimated complexity: simple, medium, complex"),
     project_id: z.string().optional().describe("Associated project ID"),
   },
-  async ({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id }) => {
+  async ({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, triage_route, spec, acceptance_tests, human_checklist, complexity, project_id }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -876,7 +881,7 @@ server.tool(
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id, job_id: jobId, company_id: companyId }),
+      body: JSON.stringify({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, triage_route, spec, acceptance_tests, human_checklist, complexity, project_id, job_id: jobId, company_id: companyId }),
     });
 
     if (response.ok) {
@@ -888,6 +893,62 @@ server.tool(
     const errorBody = await response.text().catch(() => "unknown error");
     return {
       content: [{ type: "text" as const, text: `Failed to update idea (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  },
+);
+
+server.tool(
+  "record_session_item",
+  "Record per-item processing metrics for a headless expert session. Call this for each idea you process to track timing and routing decisions.",
+  {
+    session_id: z.string().optional().describe("Expert session ID. Optional inside an expert session; defaults to the current session ID from env."),
+    idea_id: z.string().describe("ID of the idea being processed"),
+    route: z.string().optional().describe("Routing decision for this idea (e.g. promote, develop, workshop, park, reject)"),
+    started_at: z.string().optional().describe("ISO timestamp when processing started"),
+    completed_at: z.string().optional().describe("ISO timestamp when processing completed"),
+  },
+  async ({ session_id, idea_id, route, started_at, completed_at }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const resolvedSessionId = session_id ?? process.env.ZAZIG_JOB_ID ?? "";
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    if (!resolvedSessionId) {
+      return {
+        content: [{ type: "text" as const, text: "Error: session_id is required when not running inside an expert session" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/record-session-item`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({
+        session_id: resolvedSessionId,
+        idea_id,
+        route,
+        started_at,
+        completed_at,
+      }),
+    });
+
+    if (response.ok) {
+      return { content: [{ type: "text" as const, text: "Session item recorded." }] };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to record session item (HTTP ${response.status}): ${errorBody}` }],
       isError: true,
     };
   },

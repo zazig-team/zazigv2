@@ -21,6 +21,11 @@
 | 2026-03-08 | Supabase migration naming | Renamed an already-applied migration (123→125). Remote had the old name in `schema_migrations`, causing `supabase db push` to fail with "not found locally". | NEVER rename or modify already-applied migrations. Create new remediation migrations instead. Migration filenames are tracked by Supabase and renaming breaks the history match. |
 | 2026-03-08 | CTE snapshot isolation | Migration 122 inserted lanes + capabilities in the same WITH statement. The capabilities INSERT joined `all_lanes` which couldn't see freshly inserted lanes (CTE snapshot isolation). | Data-modifying CTEs in the same WITH share the same snapshot. One CTE cannot see rows inserted by another CTE. Split into separate statements or separate migrations. |
 | 2026-03-10 | Blind migration apply | Saw `has_failed_jobs` missing from snapshot output, assumed migration 119 hadn't been applied, and ran the full SQL file against production via Management API without checking what was already there. | NEVER apply a migration without first checking what's on the DB. For functions: `SELECT prosrc FROM pg_proc WHERE proname='fn_name'`. For tables: `\d table_name`. Try refreshing cached data first (e.g. re-run the RPC) before concluding the schema is wrong. A missing field in cached output ≠ missing migration. |
+| 2026-03-11 | machines column name | Used `last_heartbeat_at` in orchestrator query — column is actually `last_heartbeat`. | Check actual column names with `\d machines` before writing queries. Don't guess `_at` suffix. |
+| 2026-03-11 | PostgREST upsert syntax | Tried `POST /rest/v1/table` with unique constraint expecting auto-upsert — got 409 conflict. PostgREST upsert requires `?on_conflict=col1,col2` query param + `Prefer: resolution=merge-duplicates` header. | Always include both `?on_conflict=` and `Prefer: resolution=merge-duplicates` for PostgREST upserts. Neither alone is sufficient. |
+| 2026-03-11 | MCP tool allowed lists | Expert roles have `mcp_tools.allowed` arrays. Forgot to add `record_session_item` — experts couldn't track their own progress. | When adding a new MCP tool that experts need, update BOTH the tool registration in `agent-mcp-server.ts` AND every expert role's `mcp_tools.allowed` list in their migration SQL. |
+| 2026-03-11 | Empty expert role prompts | Initially created role migrations without operational prompts — experts ran with no instructions. | Expert role prompts must be non-empty and include step-by-step instructions for the expert's workflow. Prompt is the expert's "brain". |
+| 2026-03-11 | Increment vs count for counters | Used `items_processed = items_processed + 1` — retries double-counted. | Use count-based sync: `SELECT count(*) WHERE completed_at IS NOT NULL`. Idempotent regardless of retries. Wrap in a `SECURITY DEFINER` RPC for clean API. |
 
 ## User Preferences
 - TypeScript for both orchestrator and local agent
@@ -34,6 +39,9 @@
 - Wants to see "what was built" — Shipped section on Ideas page, feature status badges on promoted ideas. The trail from idea → feature → completion matters.
 
 ## Codebase Gotchas
+- `expert_session_items` table: tracks per-idea metrics for headless sessions. Unique on `(session_id, idea_id)`. Upserted via `record_session_item` MCP tool. `sync_session_items_processed` RPC keeps `expert_sessions.items_processed` in sync.
+- `start-expert-session` edge function: supports `machine_name: "auto"` (picks most recently active online machine). Parses `items_total` from JSON array of idea IDs in the brief.
+- Headless expert sessions: `headless=true`, `auto_exit=true`, `batch_id` groups related sessions. Expert roles need `record_session_item` in their `mcp_tools.allowed`.
 - Ideas constraint values: domain=`product,engineering,marketing,cross-cutting,unknown`; scope=`job,feature,initiative,project,research,unknown`; source=`terminal,slack,telegram,agent,web,api,monitoring`. Use `web` for human-originated, `engineering` or `product` for domain. Column is `raw_text` not `body`.
 - `create-idea` edge function requires `originator` field (not optional).
 - Spelling: "canons" not "cannons", "Zazig" not "ZeZig/Zezig", "pillar" not "lens", "Supabase" not "SuperBase/super base"
@@ -66,6 +74,9 @@
 - Running migrations: Use Supabase Management API (`POST https://api.supabase.com/v1/projects/jmussmwglgbwncgygzbz/database/query`) with `SUPABASE_ACCESS_TOKEN` from Doppler. `supabase db push` doesn't work due to migration history mismatch with numbered naming convention.
 - Documentation reconciliation as an explicit planning activity — iterating across existing docs to build clarity before structuring into features
 - Contractor Pattern: skill (reasoning/decomposition brain) + role-scoped MCP (typed DB writes hands) — replicable across contractor roles
+- Contract-first agent teams: upstream data agent delivers schema/interface contracts BEFORE spawning downstream agents. Prevents interface divergence across parallel agents.
+- Atomic claims in orchestrator: use `.update().eq("status", "expected").select("id")` to prevent duplicate dispatch — if another tick already claimed the row, select returns empty.
+- Idempotent counters: count-based sync (`SELECT count(*) WHERE completed_at IS NOT NULL`) wrapped in a `SECURITY DEFINER` RPC. Never increment — always recount.
 - CPO Knowledge Architecture: lean routing prompt (~200 tokens permanent) + stage-specific skills (load on demand) + doctrines (proactively injected beliefs). Avoids 2000+ token permanent context cost.
 - Skill-to-role/stage mapping as an explicit section in design docs — clarifies what the orchestrator must assemble at dispatch time and what machines need installed
 
@@ -118,8 +129,8 @@
 - Pipeline statuses in DB: `created`, `ready_for_breakdown`, `breakdown`, `building`, `combining`, `verifying`, `pr_ready`, `complete`, `cancelled`, `failed`
 - `refresh_pipeline_snapshot` RPC: `features_by_status` excludes `complete` and `cancelled` — complete goes to `completed_features` (maps to Shipped in UI), cancelled is omitted entirely. The `complete` pipeline column will always be empty by design.
 - Pipeline color scheme (dark mode): ideas=amber, briefs=blue, bugs=red, tests=purple, triage=sage green. Defined in `tokens.css`, no longer overridden in `global.css`.
-- Idea statuses in DB: `new`, `triaged`, `workshop`, `parked`, `promoted`, `rejected`, `done`
-- Ideas page sections: Workshop (status=workshop), Triaged (status=triaged), Inbox (status=new), Parked (status=parked, split by horizon), Shipped (status=promoted, fetched separately with linked feature statuses)
+- Idea statuses in DB: `new`, `triaging`, `triaged`, `developing`, `specced`, `workshop`, `hardening`, `parked`, `promoted`, `rejected`, `done`
+- Ideas page sections: Workshop (status=workshop), Developing (status=developing), Triaged (status=triaged), Inbox (status=new), Parked (status=parked, split by horizon), Shipped (status=promoted, fetched separately with linked feature statuses)
 - Idea `Idea` TS interface includes `promoted_to_type`, `promoted_to_id`, `promoted_at` — must keep in sync with DB columns
 - Idea-to-feature linking: lives on the **ideas** table — `promoted_to_type` ("feature"|"job"|"research"), `promoted_to_id` (UUID), `promoted_at` (timestamp). No FK on features table. Reverse lookup: `SELECT FROM ideas WHERE promoted_to_type='feature' AND promoted_to_id=<featureId>`
 - Features have `pr_url` column (migration 072) — use this as primary PR link, fall back to job `pr_url`

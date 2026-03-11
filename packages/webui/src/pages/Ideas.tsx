@@ -9,7 +9,8 @@ import {
   setAutoTriageSetting,
   promoteIdea,
   updateIdeaStatus,
-  requestTriageJob,
+  requestHeadlessTriage,
+  requestHeadlessSpec,
   requestEnrichmentJob,
   type Idea,
   type IdeaDetail,
@@ -19,7 +20,7 @@ import { supabase } from "../lib/supabase";
 import FormattedProse from "../components/FormattedProse";
 
 type TypeFilter = "all" | "idea" | "brief" | "bug" | "test";
-type SectionTab = "inbox" | "triaged" | "workshop" | "parked" | "rejected" | "shipped";
+type SectionTab = "inbox" | "triaged" | "developing" | "workshop" | "parked" | "rejected" | "shipped";
 type SortMode = "newest" | "oldest" | "priority";
 
 const TYPE_ICON: Record<string, string> = {
@@ -101,6 +102,8 @@ const STATUS_LABELS: Record<string, string> = {
   new: "Inbox",
   triaging: "Analysing",
   triaged: "Triaged",
+  developing: "Developing",
+  specced: "Specced",
   parked: "Parked",
   rejected: "Rejected",
   promoted: "Promoted",
@@ -155,7 +158,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
 
   // Load projects for triaged ideas (promote) and new ideas (triage job needs project_id)
   useEffect(() => {
-    if (!activeCompanyId || !data || !["triaged", "new"].includes(data.status)) return;
+    if (!activeCompanyId || !data || !["triaged", "specced", "developing", "new"].includes(data.status)) return;
     let cancelled = false;
 
     fetchProjects(activeCompanyId).then((result) => {
@@ -209,16 +212,45 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
     if (!activeCompanyId) return;
     const projectId = selectedProjectId ?? projects[0]?.id;
     if (!projectId) {
-      setActionError("No project available for triage job");
+      setActionError("No project available for triage");
       return;
     }
     setActionInProgress("Triage");
     setActionError(null);
     try {
       await updateIdeaStatus(ideaId, "triaging");
-      await requestTriageJob({ companyId: activeCompanyId, projectId, ideaId });
+      await requestHeadlessTriage({
+        companyId: activeCompanyId,
+        projectId,
+        ideaIds: [ideaId],
+      });
       setActionDone("Triage");
       onAction(ideaId, "triaging");
+    } catch (err) {
+      // Revert to 'new' on dispatch failure
+      await updateIdeaStatus(ideaId, "new").catch(() => {});
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setActionInProgress(null);
+    }
+  }
+
+  async function handleWriteSpec(): Promise<void> {
+    if (!activeCompanyId) return;
+    const projectId = selectedProjectId ?? projects[0]?.id;
+    if (!projectId) {
+      setActionError("No project available for spec");
+      return;
+    }
+    setActionInProgress("Spec");
+    setActionError(null);
+    try {
+      await requestHeadlessSpec({
+        companyId: activeCompanyId,
+        projectId,
+        ideaIds: [ideaId],
+      });
+      setActionDone("Spec");
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -230,7 +262,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   if (error) return <div className="il-detail-error">{error}</div>;
   if (!data) return <div className="il-detail-loading">No data</div>;
 
-  const canPromote = data.status === "triaged" && !promoted && !isShipped;
+  const canPromote = (data.status === "triaged" || data.status === "specced") && !promoted && !isShipped;
   const readiness = canPromote ? [
     { label: "Has title", ok: Boolean(data.title?.trim()), hint: "Needs a clear title", field: "title" },
     { label: "Has description", ok: Boolean(data.description?.trim()) || Boolean(data.raw_text && data.raw_text.length > 20), hint: "Needs description or detailed raw text", field: "description" },
@@ -334,6 +366,52 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
         </div>
       )}
 
+      {/* Triage route */}
+      {data.triage_route && (
+        <div className="il-detail-meta-row">
+          <div className="il-detail-meta-item">
+            <span className="il-detail-meta-key">Triage Route</span>
+            <span className="il-detail-meta-val">{data.triage_route}</span>
+          </div>
+          {data.complexity && (
+            <div className="il-detail-meta-item">
+              <span className="il-detail-meta-key">Complexity</span>
+              <span className="il-detail-meta-val">{data.complexity}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Spec (from spec expert) */}
+      {data.spec && (
+        <div className="il-detail-section">
+          <div className="il-detail-section-label">Spec</div>
+          <div className="il-detail-text">
+            <FormattedProse text={data.spec} />
+          </div>
+        </div>
+      )}
+
+      {/* Acceptance criteria */}
+      {data.acceptance_tests && (
+        <div className="il-detail-section">
+          <div className="il-detail-section-label">Acceptance Criteria</div>
+          <div className="il-detail-text">
+            <FormattedProse text={data.acceptance_tests} />
+          </div>
+        </div>
+      )}
+
+      {/* Human checklist */}
+      {data.human_checklist && (
+        <div className="il-detail-section">
+          <div className="il-detail-section-label">Human Checklist</div>
+          <div className="il-detail-text">
+            <FormattedProse text={data.human_checklist} />
+          </div>
+        </div>
+      )}
+
       {/* Clarification notes */}
       {data.clarification_notes && (
         <div className="il-detail-section">
@@ -421,6 +499,11 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
           {data.status === "new" && (
             <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleBackgroundTriage}>
               {actionInProgress === "Triage" ? "Commissioning..." : "Triage"}
+            </button>
+          )}
+          {data.status === "developing" && (
+            <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleWriteSpec}>
+              {actionInProgress === "Spec" ? "Dispatching..." : "Write Spec"}
             </button>
           )}
           {(data.status === "parked" || data.status === "rejected") && (
@@ -583,6 +666,7 @@ export default function Ideas(): JSX.Element {
   const sections = useMemo(() => ({
     inbox: filtered.filter((i) => i.status === "new" || i.status === "triaging"),
     triaged: filtered.filter((i) => i.status === "triaged"),
+    developing: filtered.filter((i) => i.status === "developing" || i.status === "specced"),
     workshop: filtered.filter((i) => i.status === "workshop"),
     parked: filtered.filter((i) => i.status === "parked"),
     rejected: filtered.filter((i) => i.status === "rejected"),
@@ -605,6 +689,7 @@ export default function Ideas(): JSX.Element {
   const tabCounts = useMemo(() => ({
     inbox: ideas.filter((i) => i.status === "new" || i.status === "triaging").length,
     triaged: ideas.filter((i) => i.status === "triaged").length,
+    developing: ideas.filter((i) => i.status === "developing" || i.status === "specced").length,
     workshop: ideas.filter((i) => i.status === "workshop").length,
     parked: ideas.filter((i) => i.status === "parked").length,
     rejected: ideas.filter((i) => i.status === "rejected").length,
@@ -643,7 +728,7 @@ export default function Ideas(): JSX.Element {
     }, 3000);
   }
 
-  // Batch triage all new ideas
+  // Batch triage all new ideas via headless expert sessions (batches of 5)
   async function handleBatchTriage(): Promise<void> {
     if (!activeCompanyId) return;
     const newIdeas = sections.inbox.filter((i) => i.status === "new");
@@ -655,9 +740,22 @@ export default function Ideas(): JSX.Element {
 
     setBatchTriaging(true);
     try {
-      for (const idea of newIdeas) {
-        await updateIdeaStatus(idea.id, "triaging");
-        await requestTriageJob({ companyId: activeCompanyId, projectId, ideaId: idea.id });
+      // Batch into groups of 5 — mark and dispatch per-batch to enable partial rollback
+      for (let i = 0; i < newIdeas.length; i += 5) {
+        const batch = newIdeas.slice(i, i + 5);
+        const batchIds = batch.map((idea) => idea.id);
+        await Promise.all(batch.map((idea) => updateIdeaStatus(idea.id, "triaging")));
+        try {
+          await requestHeadlessTriage({
+            companyId: activeCompanyId,
+            projectId,
+            ideaIds: batchIds,
+          });
+        } catch (batchErr) {
+          console.error("Batch triage dispatch error:", batchErr);
+          // Revert this batch back to 'new'
+          await Promise.all(batchIds.map((id) => updateIdeaStatus(id, "new").catch(() => {})));
+        }
       }
     } catch (err) {
       console.error("Batch triage error:", err);
@@ -727,7 +825,7 @@ export default function Ideas(): JSX.Element {
 
       {/* Section tabs */}
       <div className="il-tabs">
-        {(["inbox", "triaged", "workshop", "parked", "rejected", "shipped"] as SectionTab[]).map((tab) => (
+        {(["inbox", "triaged", "developing", "workshop", "parked", "rejected", "shipped"] as SectionTab[]).map((tab) => (
           <button
             key={tab}
             className={`il-tab${activeTab === tab ? " active" : ""}`}
@@ -807,6 +905,8 @@ export default function Ideas(): JSX.Element {
           const colorVar = TYPE_COLOR_VAR[type] ?? "--col-ideas";
           const isExpanded = expandedId === idea.id;
           const isTriaging = idea.status === "triaging";
+          const isDeveloping = idea.status === "developing";
+          const isSpecced = idea.status === "specced";
           const fInfo = isShippedTab && idea.promoted_to_id ? featureStatuses.get(idea.promoted_to_id) ?? null : null;
 
           return (
@@ -832,6 +932,10 @@ export default function Ideas(): JSX.Element {
                 <div className="il-row-meta">
                   {isTriaging ? (
                     <span className="il-triaging-badge">triaging</span>
+                  ) : isDeveloping ? (
+                    <span className="il-triaging-badge">developing</span>
+                  ) : isSpecced ? (
+                    <span className="il-feature-status positive">specced</span>
                   ) : isShippedTab && fInfo ? (
                     <span className={featureStatusClass(fInfo.status)}>{featureStatusLabel(fInfo.status)}</span>
                   ) : (

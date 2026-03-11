@@ -598,6 +598,10 @@ export interface IdeaDetail {
   project_id: string | null;
   suggested_exec: string | null;
   triage_notes: string | null;
+  spec: string | null;
+  acceptance_tests: string | null;
+  human_checklist: string | null;
+  complexity: string | null;
   promotedFeature: { title: string; status: string } | null;
 }
 
@@ -662,7 +666,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
 export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
   const { data: idea, error: ideaError } = await supabase
     .from("ideas")
-    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon, project_id, suggested_exec, triage_notes")
+    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon, project_id, suggested_exec, triage_notes, spec, acceptance_tests, human_checklist, complexity")
     .eq("id", ideaId)
     .single();
 
@@ -706,6 +710,10 @@ export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
     project_id: (row.project_id as string | null) ?? null,
     suggested_exec: (row.suggested_exec as string | null) ?? null,
     triage_notes: (row.triage_notes as string | null) ?? null,
+    spec: (row.spec as string | null) ?? null,
+    acceptance_tests: (row.acceptance_tests as string | null) ?? null,
+    human_checklist: (row.human_checklist as string | null) ?? null,
+    complexity: (row.complexity as string | null) ?? null,
     promotedFeature,
   };
 }
@@ -1097,6 +1105,20 @@ export async function setAutoTriageSetting(companyId: string, enabled: boolean):
     .eq("id", companyId);
 
   if (error) throw error;
+}
+
+export async function requestHeadlessSpec(params: {
+  companyId: string;
+  projectId: string;
+  ideaIds: string[];
+}): Promise<{ session_id?: string }> {
+  return invokePost<{ session_id?: string }>("start-expert-session", {
+    role_name: "spec-writer",
+    brief: `Write specs for these developing ideas: ${JSON.stringify(params.ideaIds)}. For each idea: read triage_notes and clarification_notes, explore the codebase for affected files, then call update_idea with: spec (full feature spec), acceptance_tests (Gherkin criteria), human_checklist (manual verification steps), complexity (simple/medium/complex), and status='specced'. If the idea is too complex or unclear, set status to 'workshop' or 'hardening' instead.`,
+    machine_name: "auto",
+    project_id: params.projectId,
+    headless: true,
+  });
 }
 
 export async function updateExecArchetype(

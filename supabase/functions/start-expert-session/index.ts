@@ -125,12 +125,13 @@ interface StartExpertPayload {
   session_id: string;
   model: string;
   brief: string;
+  headless?: boolean;
   display_name?: string;
   role: {
     prompt: string;
     skills?: string[];
-      mcp_tools?: unknown;
-      settings_overrides?: unknown;
+    mcp_tools?: unknown;
+    settings_overrides?: unknown;
   };
   project_id: string;
   repo_url: string;
@@ -224,6 +225,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const brief = toTrimmedString(body.brief);
     const machineName = toTrimmedString(body.machine_name);
     const projectId = toTrimmedString(body.project_id);
+    const headless = body.headless === true;
 
     if (!roleName) {
       return jsonResponse({ error: "role_name is required" }, 400);
@@ -231,7 +233,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!brief) {
       return jsonResponse({ error: "brief is required" }, 400);
     }
-    if (!machineName) {
+    if (!headless && !machineName) {
       return jsonResponse({ error: "machine_name is required" }, 400);
     }
     if (!projectId) {
@@ -254,18 +256,28 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const role = roleData as ExpertRoleRow;
 
-    const { data: machineData, error: machineErr } = await supabase
+    const machineQuery = supabase
       .from("machines")
       .select("id, name")
-      .eq("company_id", companyId)
-      .eq("name", machineName)
-      .maybeSingle();
+      .eq("company_id", companyId);
+
+    const { data: machineData, error: machineErr } = headless && !machineName
+      ? await machineQuery
+        .eq("status", "online")
+        .limit(1)
+        .maybeSingle()
+      : await machineQuery
+        .eq("name", machineName as string)
+        .maybeSingle();
 
     if (machineErr) {
       return jsonResponse({ error: `Failed to fetch machine: ${machineErr.message}` }, 500);
     }
 
     if (!machineData) {
+      if (headless && !machineName) {
+        return jsonResponse({ error: "No online machine available for company" }, 400);
+      }
       return jsonResponse({ error: `Unknown machine name for company: ${machineName}` }, 400);
     }
 
@@ -317,7 +329,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         company_id: companyId,
         expert_role_id: role.id,
         machine_id: machine.id,
-        triggered_by: "cpo",
+        triggered_by: headless ? "orchestrator" : "cpo",
         brief,
         status: "requested",
       })
@@ -336,6 +348,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       session_id: sessionId,
       model: role.model,
       brief,
+      headless,
       display_name: role.display_name,
       role: {
         prompt: role.prompt,

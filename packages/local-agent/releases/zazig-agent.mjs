@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "2442bcb";
+const AGENT_BUILD_HASH = "e9d6bcf";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -11900,7 +11900,6 @@ var DEFAULT_SUPABASE_URL = "https://jmussmwglgbwncgygzbz.supabase.co";
 var DEFAULT_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0";
 var PROTOCOL_VERSION = 1;
 var HEARTBEAT_INTERVAL_MS = 3e4;
-var MACHINE_DEAD_THRESHOLD_MS = 12e4;
 var MAX_CONTEXT_BYTES = 64e3;
 var MAX_PERSONALITY_PROMPT_BYTES = 16e3;
 
@@ -17525,7 +17524,7 @@ var JobExecutor = class {
   /** Map of jobId → active job state. */
   activeJobs = /* @__PURE__ */ new Map();
   /** Jobs that have been attempted (including failures) — prevents duplicate dispatch. */
-  /** Manages bare repo clones and job worktrees for all dispatched jobs. */
+  /** Manages bare repo clones and job worktrees for all active jobs. */
   repoManager = new RepoManager();
   /** Map of role → active persistent agent state. Supports simultaneous CPO, CTO, etc. */
   persistentAgents = /* @__PURE__ */ new Map();
@@ -17814,8 +17813,7 @@ ${cpoContext}`);
     try {
       if (isInteractive) {
         const claudeCmd = shellEscape([cmd, ...cmdArgs]);
-        const envExports2 = process.env.ANTHROPIC_API_KEY ? `export ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"; ` : "";
-        const shellCmd = `unset CLAUDECODE; ${envExports2}${claudeCmd}`;
+        const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
         await execFileAsync2("tmux", [
           "new-session",
           "-d",
@@ -19534,66 +19532,17 @@ function shellEscape(parts) {
   return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
 }
 
-// ../local-agent/dist/job-recovery.js
-async function recoverDispatchedJobs(dbClient, machineName, options) {
-  const gracePeriodMs = options?.gracePeriodMs ?? 5 * 60 * 1e3;
-  try {
-    let machineQuery = dbClient.from("machines").select("id").eq("name", machineName);
-    if (options?.companyIds && options.companyIds.length > 0) {
-      machineQuery = machineQuery.in("company_id", options.companyIds);
-    }
-    const { data: machines, error: machErr } = await machineQuery;
-    if (machErr || !machines || machines.length === 0) {
-      return 0;
-    }
-    const machineIds = machines.map((m) => m.id);
-    let jobQuery = dbClient.from("jobs").select("id, status, job_type, role").in("machine_id", machineIds).eq("status", "dispatched");
-    if (gracePeriodMs > 0) {
-      const graceCutoff = new Date(Date.now() - gracePeriodMs).toISOString();
-      jobQuery = jobQuery.lt("updated_at", graceCutoff);
-    }
-    const { data: stuckJobs, error: jobErr } = await jobQuery;
-    if (jobErr) {
-      console.error("[local-agent] Error querying dispatched jobs:", jobErr.message);
-      return 0;
-    }
-    if (!stuckJobs || stuckJobs.length === 0) {
-      return 0;
-    }
-    console.log(`[local-agent] Found ${stuckJobs.length} dispatched job(s) \u2014 resetting to queued`);
-    let recovered = 0;
-    for (const job of stuckJobs) {
-      const { error: updateErr } = await dbClient.from("jobs").update({
-        status: "queued",
-        machine_id: null,
-        started_at: null
-      }).eq("id", job.id).eq("status", "dispatched");
-      if (updateErr) {
-        console.error(`[local-agent] Failed to reset job ${job.id}: ${updateErr.message}`);
-      } else {
-        console.log(`[local-agent] Reset job ${job.id} (dispatched \u2192 queued, role=${job.role ?? "none"})`);
-        recovered++;
-      }
-    }
-    return recovered;
-  } catch (err) {
-    console.error("[local-agent] Job recovery failed:", err);
-    return 0;
-  }
-}
-
 // ../local-agent/dist/connection.js
 var CREDENTIALS_PATH = join5(homedir3(), ".zazigv2", "credentials.json");
 var execFileAsync3 = promisify3(execFile3);
-var BACKOFF_BASE_MS = 1e3;
-var BACKOFF_MAX_MS = 3e4;
-var BACKOFF_MULTIPLIER = 2;
 var sleep2 = (ms) => new Promise((resolve4) => setTimeout(resolve4, ms));
 var AgentConnection = class {
-  /** Anon-key client — used for Realtime subscriptions only. */
+  /** Anon-key client used as DB fallback when no JWT/service role key is configured. */
   supabase;
   /** Service-role client for direct DB writes (bypasses RLS). Falls back to anon client if service_role_key not set. */
   dbClient;
+  supabaseUrl;
+  supabaseAnonKey;
   machineName;
   primaryCompanyId;
   agentVersion;
@@ -19601,21 +19550,18 @@ var AgentConnection = class {
   config;
   slots;
   handlers = [];
-  /** Inbound channel: `agent:{machineId}:{companyId}` — receives commands from orchestrator. */
-  channel = null;
-  heartbeatTimer = null;
-  reconnectTimer = null;
-  reconnectAttempts = 0;
+  pollInterval = null;
+  realtimeChannel = null;
+  realtimeReconnectTimer = null;
+  realtimeReconnectAttempts = 0;
+  isPolling = false;
   stopped = false;
-  isRecoveryRunning = false;
-  consecutiveHeartbeatFailures = 0;
-  lastHeartbeatSentAt = Date.now();
-  killStaleJobsFn;
   outdated = false;
-  outdatedWarningTimer = null;
-  outdatedExitPollTimer = null;
+  outdatedShutdownInProgress = false;
   constructor(config, slots, agentVersion) {
     this.config = config;
+    this.supabaseUrl = config.supabase.url;
+    this.supabaseAnonKey = config.supabase.anon_key;
     this.machineName = config.name;
     this.primaryCompanyId = config.company_id;
     this.agentVersion = agentVersion;
@@ -19648,9 +19594,6 @@ var AgentConnection = class {
   /** Register a handler for incoming OrchestratorMessages. */
   onMessage(handler) {
     this.handlers.push(handler);
-  }
-  setKillStaleJobsFn(fn) {
-    this.killStaleJobsFn = fn;
   }
   /**
    * Send an AgentMessage to the orchestrator via the `agent-event` edge function.
@@ -19709,7 +19652,7 @@ var AgentConnection = class {
       return [];
     }
   }
-  /** Connect to Supabase Realtime and start the heartbeat loop. */
+  /** Start inbound poll loop. */
   async start() {
     console.log(`[local-agent] Starting daemon for machine: ${this.machineName}`);
     this.stopped = false;
@@ -19755,111 +19698,85 @@ var AgentConnection = class {
       this.companyIds = [this.primaryCompanyId];
       console.warn("[local-agent] Could not discover companies from user_companies \u2014 falling back to config.company_id");
     } else {
-      console.warn("[local-agent] No companies found and no company_id in config \u2014 heartbeats may fail");
+      console.warn("[local-agent] No companies found and no company_id in config");
       this.companyIds = [];
     }
     if (!this.config.supabase.access_token && !this.config.supabase.service_role_key) {
       console.warn("[local-agent] No access token set \u2014 multi-company lookup requires an authenticated JWT");
     }
     await this.registerMachine();
-    await this.connect();
+    this.startPollLoop();
+    this.subscribeToRealtimeBroadcast();
   }
   /** Gracefully disconnect and stop all timers. */
   async stop() {
     this.stopped = true;
-    this.clearReconnectTimer();
-    this.clearHeartbeatTimer();
-    this.clearOutdatedWarningTimer();
-    this.clearOutdatedExitPollTimer();
-    if (this.channel) {
-      await this.supabase.removeChannel(this.channel);
-      this.channel = null;
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+    if (this.realtimeReconnectTimer) {
+      clearTimeout(this.realtimeReconnectTimer);
+      this.realtimeReconnectTimer = null;
+    }
+    if (this.realtimeChannel) {
+      try {
+        await this.realtimeChannel.unsubscribe();
+      } catch {
+      }
+      this.realtimeChannel = null;
     }
     console.log(`[local-agent] Daemon stopped.`);
   }
-  // ---------------------------------------------------------------------------
-  // Private connection management
-  // ---------------------------------------------------------------------------
-  async connect() {
-    if (this.stopped)
+  startPollLoop() {
+    void this.poll();
+    this.pollInterval = setInterval(() => {
+      void this.poll();
+    }, 1e4);
+  }
+  async poll() {
+    if (this.isPolling)
       return;
-    if (!this.primaryCompanyId) {
-      throw new Error("Cannot connect without company_id \u2014 set ZAZIG_COMPANY_ID");
+    this.isPolling = true;
+    try {
+      if (!this.primaryCompanyId) {
+        console.warn("[Connection] Poll skipped: missing primary company id");
+        return;
+      }
+      const url = `${this.supabaseUrl}/functions/v1/agent-inbound-poll`;
+      const { data: { session } } = await this.dbClient.auth.getSession();
+      const token = session?.access_token ?? this.supabaseAnonKey;
+      const slotsAvailable = this.slots.getAvailable();
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          machine_name: this.machineName,
+          company_id: this.primaryCompanyId,
+          slots_available: slotsAvailable,
+          agent_version: this.agentVersion
+        })
+      });
+      if (!response.ok) {
+        console.warn(`[Connection] Poll failed: ${response.status} ${response.statusText}`);
+        return;
+      }
+      const result = await response.json();
+      if (result.outdated && result.required_version && !this.outdated) {
+        this.onOutdatedDetected(this.agentVersion, result.required_version);
+      }
+      const jobs = result.jobs ?? [];
+      for (const item of jobs) {
+        this.handleIncomingPayload(item);
+      }
+    } catch (err) {
+      console.warn(`[Connection] Poll unreachable: ${String(err)}`);
+    } finally {
+      this.isPolling = false;
     }
-    const channelName = `agent:${this.machineName}:${this.primaryCompanyId}`;
-    console.log(`[local-agent] Connecting to inbound channel: ${channelName}`);
-    this.channel = this.supabase.channel(channelName, {
-      config: {
-        broadcast: { ack: false }
-      }
-    });
-    this.channel.on("broadcast", { event: "*" }, (payload) => {
-      console.log(`[local-agent][DEBUG] Broadcast received \u2014 event=${payload.event ?? "unknown"}, keys=${Object.keys(payload)}`);
-    });
-    this.channel.on("broadcast", { event: "message" }, (payload) => {
-      try {
-        console.log(`[local-agent][DEBUG] Matched event=message`);
-        this.handleIncomingPayload(payload.payload);
-      } catch (err) {
-        console.error(`[local-agent] Broadcast handler crashed (event=message):`, err);
-      }
-    });
-    this.channel.on("broadcast", { event: "start_job" }, (payload) => {
-      try {
-        console.log(`[local-agent][DEBUG] Matched event=start_job`);
-        this.handleIncomingPayload(payload.payload);
-      } catch (err) {
-        console.error(`[local-agent] Broadcast handler crashed (event=start_job):`, err);
-      }
-    });
-    this.channel.on("broadcast", { event: "job_unblocked" }, (payload) => {
-      try {
-        console.log(`[local-agent][DEBUG] Matched event=job_unblocked`);
-        this.handleIncomingPayload(payload.payload);
-      } catch (err) {
-        console.error(`[local-agent] Broadcast handler crashed (event=job_unblocked):`, err);
-      }
-    });
-    this.channel.on("broadcast", { event: "start_expert" }, (payload) => {
-      try {
-        console.log(`[local-agent][DEBUG] Matched event=start_expert`);
-        this.handleIncomingPayload(payload.payload);
-      } catch (err) {
-        console.error(`[local-agent] Broadcast handler crashed (event=start_expert):`, err);
-      }
-    });
-    this.channel.on("broadcast", { event: "message_inbound" }, (payload) => {
-      try {
-        console.log(`[local-agent][DEBUG] Matched event=message_inbound`);
-        this.handleIncomingPayload(payload.payload);
-      } catch (err) {
-        console.error(`[local-agent] Broadcast handler crashed (event=message_inbound):`, err);
-      }
-    });
-    let inReady = false;
-    const onBothReady = () => {
-      if (inReady) {
-        this.reconnectAttempts = 0;
-        this.startHeartbeat();
-      }
-    };
-    this.channel.subscribe((status, err) => {
-      if (status === "SUBSCRIBED") {
-        console.log(`[local-agent] Connected to inbound channel: ${channelName}`);
-        inReady = true;
-        onBothReady();
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        console.error(`[local-agent] Inbound channel error (status=${status}):`, err ?? "unknown error");
-        this.clearHeartbeatTimer();
-        this.scheduleReconnect();
-      } else if (status === "CLOSED") {
-        if (!this.stopped) {
-          console.warn(`[local-agent] Inbound channel closed unexpectedly. Scheduling reconnect.`);
-          this.clearHeartbeatTimer();
-          this.scheduleReconnect();
-        }
-      }
-    });
   }
   handleIncomingPayload(payload) {
     if (!isOrchestratorMessage(payload)) {
@@ -19896,23 +19813,51 @@ var AgentConnection = class {
       }
     }
   }
-  // ---------------------------------------------------------------------------
-  // Heartbeat
-  // ---------------------------------------------------------------------------
-  startHeartbeat() {
-    this.clearHeartbeatTimer();
-    void this.sendHeartbeat();
-    this.heartbeatTimer = setInterval(() => {
-      const inState = this.channel?.state ?? "null";
-      console.log(`[local-agent][DEBUG] Channel state: inbound=${inState}, machineName=${this.machineName}`);
-      void this.sendHeartbeat();
-    }, HEARTBEAT_INTERVAL_MS);
-  }
-  clearHeartbeatTimer() {
-    if (this.heartbeatTimer !== null) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
+  /**
+   * Subscribe to the Realtime broadcast channel for this machine+company.
+   * Used for low-latency delivery of expert session commands.
+   * Reconnects with exponential backoff on failure (1s → 2s → 4s → ... capped at 30s).
+   */
+  subscribeToRealtimeBroadcast() {
+    if (!this.primaryCompanyId) {
+      console.warn("[local-agent] No company ID \u2014 skipping Realtime broadcast subscription");
+      return;
     }
+    const channelName = `agent:${this.machineName}:${this.primaryCompanyId}`;
+    if (this.realtimeChannel) {
+      try {
+        void this.supabase.removeChannel(this.realtimeChannel);
+      } catch {
+      }
+      this.realtimeChannel = null;
+    }
+    this.realtimeChannel = this.supabase.channel(channelName).on("broadcast", { event: "start_expert" }, (msg) => {
+      if (msg.payload) {
+        console.log(`[local-agent] Realtime broadcast received: start_expert`);
+        this.handleIncomingPayload(msg.payload);
+      }
+    }).subscribe((status, err) => {
+      if (status === "SUBSCRIBED") {
+        console.log(`[local-agent] Subscribed to Realtime broadcast channel: ${channelName}`);
+        this.realtimeReconnectAttempts = 0;
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        console.error(`[local-agent] Realtime broadcast channel error (status=${status}):`, err ?? "unknown");
+        this.scheduleRealtimeReconnect();
+      }
+    });
+  }
+  scheduleRealtimeReconnect() {
+    if (this.stopped)
+      return;
+    if (this.realtimeReconnectTimer)
+      return;
+    const delay = Math.min(1e3 * Math.pow(2, this.realtimeReconnectAttempts), 3e4);
+    this.realtimeReconnectAttempts++;
+    console.log(`[local-agent] Realtime broadcast reconnecting in ${delay}ms (attempt #${this.realtimeReconnectAttempts})...`);
+    this.realtimeReconnectTimer = setTimeout(() => {
+      this.realtimeReconnectTimer = null;
+      this.subscribeToRealtimeBroadcast();
+    }, delay);
   }
   async registerMachine() {
     if (this.companyIds.length === 0) {
@@ -19942,116 +19887,26 @@ var AgentConnection = class {
       console.warn(`[local-agent] Machine registration: ${this.companyIds.length - failures}/${this.companyIds.length} succeeded`);
     }
   }
-  async sendHeartbeat() {
-    if (this.stopped)
-      return;
-    const now = Date.now();
-    const gapMs = now - this.lastHeartbeatSentAt;
-    if (gapMs > MACHINE_DEAD_THRESHOLD_MS) {
-      const gapMin = (gapMs / 6e4).toFixed(1);
-      const runningJobs = this.killStaleJobsFn ? await this.killStaleJobsFn("daemon_heartbeat_gap") : 0;
-      console.log(`[local-agent] Killing ${runningJobs} jobs \u2014 heartbeat gap of ${gapMin}m detected (likely sleep/network loss)`);
-    }
-    this.lastHeartbeatSentAt = now;
-    const slotsAvailable = this.slots.getAvailable();
-    const env = process.env["ZAZIG_ENV"] ?? "production";
-    try {
-      const { data: latestVersion, error: latestVersionErr } = await this.dbClient.from("agent_versions").select("version").eq("env", env).order("created_at", { ascending: false }).limit(1).maybeSingle();
-      if (latestVersionErr) {
-        console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${latestVersionErr.message}`);
-      } else if (latestVersion && latestVersion.version !== this.agentVersion) {
-        this.onOutdatedDetected(this.agentVersion, latestVersion.version);
-      }
-    } catch (err) {
-      console.warn(`[local-agent] Failed to query latest agent version for env=${env}: ${String(err)}`);
-    }
-    const heartbeat = {
-      type: "heartbeat",
-      protocolVersion: PROTOCOL_VERSION,
-      machineName: this.machineName,
-      slotsAvailable
-    };
-    const heartbeatOk = await this.sendToOrchestrator(heartbeat);
-    if (heartbeatOk) {
-      this.consecutiveHeartbeatFailures = 0;
-    } else {
-      this.consecutiveHeartbeatFailures++;
-      console.error(`[local-agent] Heartbeat failure ${this.consecutiveHeartbeatFailures}/5 \u2014 machineName=${this.machineName}`);
-      if (this.consecutiveHeartbeatFailures >= 5) {
-        console.error(`[local-agent] 5 consecutive heartbeat failures \u2014 exiting for supervisor restart`);
-        process.exit(1);
-      }
-    }
-    if (!this.isRecoveryRunning) {
-      this.isRecoveryRunning = true;
-      try {
-        const recovered = await recoverDispatchedJobs(this.dbClient, this.machineName, { companyIds: this.companyIds });
-        if (recovered > 0) {
-          console.log(`[local-agent] Heartbeat recovered ${recovered} missed job(s)`);
-        }
-      } catch (err) {
-        console.warn(`[local-agent] Job recovery poll failed:`, err);
-      } finally {
-        this.isRecoveryRunning = false;
-      }
-    }
-  }
   onOutdatedDetected(currentVersion, requiredVersion) {
-    if (this.outdated)
+    if (this.outdatedShutdownInProgress)
       return;
+    this.outdatedShutdownInProgress = true;
     this.outdated = true;
-    const warningMessage = `
-\u26A0\uFE0F  UPDATE REQUIRED: running v${currentVersion}, latest is v${requiredVersion}. Run 'zazig update' to update.
-`;
-    const emitWarning = () => {
-      process.stderr.write(warningMessage);
-    };
-    emitWarning();
-    this.outdatedWarningTimer = setInterval(() => {
-      emitWarning();
-    }, 6e4);
-    void this.closeOutdatedInteractiveSessions();
-    this.startOutdatedExitPolling();
+    const mismatchMessage = `ERROR: Agent version mismatch \u2014 local: ${currentVersion}, backend: ${requiredVersion}. Shutting down. Restart with updated code.`;
+    console.error(`[local-agent] ${mismatchMessage}`);
+    process.stderr.write(`${mismatchMessage}
+`);
+    void this.shutdownForVersionMismatch();
   }
-  clearOutdatedWarningTimer() {
-    if (this.outdatedWarningTimer !== null) {
-      clearInterval(this.outdatedWarningTimer);
-      this.outdatedWarningTimer = null;
+  async shutdownForVersionMismatch() {
+    try {
+      await this.closeOutdatedInteractiveSessions();
+      await this.stop();
+    } catch (err) {
+      console.error("[local-agent] Failed during version mismatch shutdown:", err);
+    } finally {
+      process.exit(1);
     }
-  }
-  clearOutdatedExitPollTimer() {
-    if (this.outdatedExitPollTimer !== null) {
-      clearInterval(this.outdatedExitPollTimer);
-      this.outdatedExitPollTimer = null;
-    }
-  }
-  getActiveJobCount() {
-    const available = this.slots.getAvailable();
-    const activeClaudeJobs = Math.max(0, this.config.slots.claude_code - available.claude_code);
-    const activeCodexJobs = Math.max(0, this.config.slots.codex - available.codex);
-    return activeClaudeJobs + activeCodexJobs;
-  }
-  startOutdatedExitPolling() {
-    if (this.outdatedExitPollTimer !== null)
-      return;
-    if (process.env["ZAZIG_EXIT_ON_OUTDATED"] !== "1") {
-      console.warn("[local-agent] Outdated agent detected; auto-exit disabled (set ZAZIG_EXIT_ON_OUTDATED=1 to enable)");
-      return;
-    }
-    const maybeExit = () => {
-      const activeJobs = this.getActiveJobCount();
-      if (activeJobs > 0) {
-        console.warn(`[local-agent] Outdated agent waiting for ${activeJobs} active job(s) to complete`);
-        return;
-      }
-      this.clearOutdatedExitPollTimer();
-      console.warn("[local-agent] Outdated agent has no active jobs \u2014 exiting for update");
-      void this.stop().finally(() => {
-        process.exit(0);
-      });
-    };
-    maybeExit();
-    this.outdatedExitPollTimer = setInterval(maybeExit, 15e3);
   }
   async closeOutdatedInteractiveSessions() {
     let sessions = [];
@@ -20073,8 +19928,12 @@ var AgentConnection = class {
         return true;
       if (sessionName === `${this.machineName}-cpo`)
         return true;
+      if (sessionName === `${this.machineName}-cto`)
+        return true;
       for (const prefix of companyPrefixes) {
         if (sessionName === `${this.machineName}-${prefix}-cpo`)
+          return true;
+        if (sessionName === `${this.machineName}-${prefix}-cto`)
           return true;
       }
       return false;
@@ -20086,52 +19945,6 @@ var AgentConnection = class {
       } catch (err) {
         console.warn(`[local-agent] Failed to close tmux session ${sessionName}: ${String(err)}`);
       }
-    }
-  }
-  // ---------------------------------------------------------------------------
-  // Reconnection with exponential backoff
-  // ---------------------------------------------------------------------------
-  /**
-   * Safely remove old channels before reconnecting.
-   *
-   * `removeChannel()` calls `WebSocket.close()` internally. If the WebSocket
-   * is still in CONNECTING state, `ws` emits an 'error' event via
-   * `process.nextTick`. Without a listener this is an unhandled error that
-   * crashes the process. We attach a temporary listener to swallow it.
-   */
-  async cleanupChannels() {
-    const conn = this.supabase.realtime?.conn;
-    const swallowErr = (err) => {
-      console.warn(`[local-agent] Swallowed WebSocket error during channel cleanup: ${err.message}`);
-    };
-    if (conn && typeof conn.on === "function") {
-      conn.on("error", swallowErr);
-    }
-    if (this.channel) {
-      try {
-        await this.supabase.removeChannel(this.channel);
-      } catch {
-      }
-      this.channel = null;
-    }
-  }
-  scheduleReconnect() {
-    if (this.stopped)
-      return;
-    this.clearReconnectTimer();
-    const delay = Math.min(BACKOFF_BASE_MS * Math.pow(BACKOFF_MULTIPLIER, this.reconnectAttempts), BACKOFF_MAX_MS);
-    this.reconnectAttempts++;
-    console.log(`[local-agent] Reconnecting in ${delay}ms (attempt #${this.reconnectAttempts})...`);
-    this.reconnectTimer = setTimeout(async () => {
-      this.reconnectTimer = null;
-      await this.cleanupChannels();
-      await this.connect();
-    }, delay);
-  }
-  clearReconnectTimer() {
-    if (this.reconnectTimer !== null) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
     }
   }
 };
@@ -20146,6 +19959,10 @@ import { fileURLToPath as fileURLToPath2 } from "node:url";
 var execFileAsync4 = promisify4(execFile4);
 function shellEscape2(parts) {
   return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
+}
+function slugifyBranchSegment(input) {
+  const slug = input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug || "expert";
 }
 var AVAILABLE_CONTEXT_HEADING = "## Available Context";
 var AVAILABLE_CONTEXT_SECTION = `${AVAILABLE_CONTEXT_HEADING}
@@ -20205,6 +20022,7 @@ async function isTmuxSessionAlive2(sessionName) {
 var ExpertSessionManager = class {
   machineId;
   companyId;
+  companyName;
   supabase;
   supabaseUrl;
   supabaseAnonKey;
@@ -20215,6 +20033,7 @@ var ExpertSessionManager = class {
   constructor(opts) {
     this.machineId = opts.machineId;
     this.companyId = opts.companyId;
+    this.companyName = opts.companyName;
     this.supabase = opts.supabase;
     this.supabaseUrl = opts.supabaseUrl;
     this.supabaseAnonKey = opts.supabaseAnonKey;
@@ -20223,6 +20042,8 @@ var ExpertSessionManager = class {
   async handleStartExpert(msg) {
     const sessionId = msg.session_id;
     const shortId = sessionId.slice(0, 8);
+    const roleName = msg.role_name ?? msg.display_name ?? "expert";
+    const expertBranch = `expert/${slugifyBranchSegment(roleName)}-${shortId}`;
     const tmuxSessionName = `expert-${shortId}`;
     const displayName = msg.display_name ?? `Expert ${shortId}`;
     console.log(`[expert] Starting expert session ${sessionId} (${displayName})`);
@@ -20241,7 +20062,7 @@ var ExpertSessionManager = class {
         const projectName = msg.repo_url.split("/").pop()?.replace(/\.git$/, "") ?? msg.project_id;
         bareRepoDir = await this.repoManager.ensureRepo(msg.repo_url, projectName);
         const worktreeTarget = join6(workspaceDir, "repo");
-        const branch = msg.branch ?? "master";
+        const branch = "master";
         try {
           await execFileAsync4("git", [
             "-C",
@@ -20261,14 +20082,15 @@ var ExpertSessionManager = class {
           bareRepoDir,
           "worktree",
           "add",
-          "--detach",
+          "-b",
+          expertBranch,
           worktreeTarget,
           `refs/heads/${branch}`
         ]);
         const { stdout } = await execFileAsync4("git", ["-C", worktreeTarget, "rev-parse", "HEAD"]);
         startCommitHash = stdout.trim();
         repoDir = worktreeTarget;
-        console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${branch})`);
+        console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${expertBranch})`);
         console.log(`[expert] Worktree at commit: ${startCommitHash.slice(0, 8)}`);
       } catch (err) {
         console.error(`[expert] Failed to create git worktree:`, err);
@@ -20291,9 +20113,13 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
 
 ### Workflow
 1. Read and understand the brief in \`.claude/expert-brief.md\`
-2. Work through the brief methodically
-3. Show diffs before merging any changes
-4. When done, merge your work to master
+2. You are on branch \`${expertBranch}\` \u2014 all your work goes here
+3. Work through the brief methodically
+4. Show diffs before applying changes
+5. When done: push your branch and merge to master, then delete the remote expert branch
+   - \`git push origin ${expertBranch}\`
+   - \`git checkout master && git merge ${expertBranch} && git push origin master\`
+   - \`git push origin --delete ${expertBranch}\`
 
 ### Ending the Session
 When the user says "wrap up", "I'm done", "finish up", or similar:
@@ -20364,29 +20190,60 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       await this.updateSessionStatus(sessionId, "failed");
       return;
     }
+    if (msg.headless === true) {
+      try {
+        const claudeCmd = shellEscape2([
+          "claude",
+          "--model",
+          msg.model,
+          "-p",
+          msg.brief
+        ]);
+        const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
+        await killTmuxSession2(tmuxSessionName);
+        await execFileAsync4("tmux", [
+          "new-session",
+          "-d",
+          "-s",
+          tmuxSessionName,
+          "-c",
+          effectiveWorkspaceDir,
+          shellCmd
+        ]);
+        console.log(`[expert] Spawned headless tmux session: ${tmuxSessionName} (cwd=${effectiveWorkspaceDir})`);
+      } catch (err) {
+        console.error(`[expert] Failed to spawn headless tmux session:`, err);
+        await this.updateSessionStatus(sessionId, "failed");
+        return;
+      }
+      await this.updateSessionStatus(sessionId, "running");
+      const sessionState2 = {
+        sessionId,
+        workspaceDir,
+        effectiveWorkspaceDir,
+        repoDir,
+        bareRepoDir,
+        branch: msg.branch ?? void 0,
+        expertBranch: repoDir ? expertBranch : void 0,
+        startCommit: repoDir ? startCommitHash : void 0,
+        displayName,
+        tmuxSession: tmuxSessionName
+      };
+      this.activeSessions.set(sessionId, sessionState2);
+      this.startExitPolling(sessionState2);
+      console.log(`[expert] Headless expert session ${sessionId} is running (tmux=${tmuxSessionName})`);
+      return;
+    }
     try {
       if (await isTmuxSessionAlive2(tmuxSessionName)) {
         await killTmuxSession2(tmuxSessionName);
       }
-      const envExports = process.env.ANTHROPIC_API_KEY ? `export ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"; ` : "";
-      let shellCmd;
-      if (msg.headless) {
-        // Headless mode: use -p (pipe) mode since interactive mode doesn't work with API keys.
-        // Write a combined prompt file with role prompt + brief, then pipe to claude -p.
-        const promptPath = join6(effectiveWorkspaceDir, ".zazig-prompt.txt");
-        const promptParts = [];
-        if (msg.role?.prompt) promptParts.push(msg.role.prompt);
-        promptParts.push("\n## Task Brief\n");
-        promptParts.push(msg.brief);
-        promptParts.push("\n\nWhen done, write a 2-3 sentence summary to `.claude/expert-report.md`.");
-        writeFileSync4(promptPath, promptParts.join("\n"));
-        const claudeCmd = shellEscape2(["claude", "--model", msg.model, "-p"]);
-        shellCmd = `unset CLAUDECODE; ${envExports}cat ${shellEscape2([promptPath])} | ${claudeCmd}`;
-      } else {
-        // Interactive mode: launch claude normally
-        const claudeCmd = shellEscape2(["claude", "--model", msg.model]);
-        shellCmd = `unset CLAUDECODE; ${envExports}${claudeCmd}`;
-      }
+      const claudeCmd = shellEscape2([
+        "claude",
+        "--model",
+        msg.model
+      ]);
+      const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
       await execFileAsync4("tmux", [
         "new-session",
         "-d",
@@ -20410,7 +20267,8 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       effectiveWorkspaceDir,
       repoDir,
       bareRepoDir,
-      branch: repoDir ? msg.branch ?? "master" : void 0,
+      branch: repoDir ? expertBranch : void 0,
+      expertBranch: repoDir ? expertBranch : void 0,
       startCommit: repoDir ? startCommitHash : void 0,
       displayName,
       tmuxSession: tmuxSessionName,
@@ -20440,8 +20298,9 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
   }
   async linkToViewerTui(msg, tmuxSessionName, displayName) {
     let viewerSession;
-    if (msg.company_name) {
-      viewerSession = viewerSessionName(msg.company_name);
+    const companyName = msg.company_name || this.companyName;
+    if (companyName) {
+      viewerSession = viewerSessionName(companyName);
     } else {
       try {
         const { stdout } = await execFileAsync4("tmux", [
@@ -20643,7 +20502,8 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
    * isn't silently lost when the session ends.
    */
   async pushUnpushedCommits(session) {
-    if (!session.repoDir || !session.bareRepoDir || !session.branch || !session.startCommit)
+    const expertBranch = session.expertBranch ?? session.branch;
+    if (!session.repoDir || !session.bareRepoDir || !expertBranch || !session.startCommit)
       return;
     try {
       const { stdout: currentHead } = await execFileAsync4("git", [
@@ -20656,19 +20516,28 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       if (head2 === session.startCommit) {
         return;
       }
-      console.log(`[expert] Session ${session.sessionId} has unpushed commits (${session.startCommit.slice(0, 8)}..${head2.slice(0, 8)}). Pushing to origin/${session.branch}...`);
+      console.log(`[expert] Session ${session.sessionId} has unpushed commits (${session.startCommit.slice(0, 8)}..${head2.slice(0, 8)}). Pushing to origin/${expertBranch}...`);
       try {
         await execFileAsync4("git", [
           "-C",
           session.repoDir,
           "push",
           "origin",
-          `HEAD:refs/heads/${session.branch}`
+          `HEAD:refs/heads/${expertBranch}`
         ]);
-        console.log(`[expert] Pushed unpushed commits to origin/${session.branch}`);
+        console.log(`[expert] Pushed unpushed commits to origin/${expertBranch}`);
+        try {
+          await execFileAsync4("git", ["-C", session.repoDir, "checkout", "master"]);
+          await execFileAsync4("git", ["-C", session.repoDir, "merge", expertBranch]);
+          await execFileAsync4("git", ["-C", session.repoDir, "push", "origin", "master"]);
+          await execFileAsync4("git", ["-C", session.repoDir, "push", "origin", "--delete", expertBranch]);
+          console.log(`[expert] Merged ${expertBranch} to master, pushed master, and deleted origin/${expertBranch}`);
+        } catch (mergeErr) {
+          console.warn(`[expert] Merge/push to master failed after pushing ${expertBranch}; leaving origin/${expertBranch} for manual resolution`, mergeErr);
+        }
       } catch (pushErr) {
         const rescueBranch = `rescue/expert-${session.sessionId.slice(0, 8)}`;
-        console.warn(`[expert] Push to origin/${session.branch} failed \u2014 saving work to ${rescueBranch}`);
+        console.warn(`[expert] Push to origin/${expertBranch} failed \u2014 saving work to ${rescueBranch}`);
         try {
           await execFileAsync4("git", [
             "-C",
@@ -20987,7 +20856,6 @@ async function main() {
   const agentVersion = resolveAgentVersion();
   const conn = new AgentConnection(config, slots, agentVersion);
   const executor = new JobExecutor(config.name, config.company_id ?? "", slots, (msg) => conn.sendMessage(msg), conn.dbClient, config.supabase.url, config.supabase.anon_key);
-  conn.setKillStaleJobsFn((reason) => executor.killAllRunningJobs(reason));
   const verifier = new JobVerifier({
     repoDir: process.cwd(),
     machineId: config.name,
@@ -20996,6 +20864,7 @@ async function main() {
   const expertManager = new ExpertSessionManager({
     machineId: config.name,
     companyId: config.company_id ?? "",
+    companyName: process.env["ZAZIG_COMPANY_NAME"] ?? "",
     supabase: conn.dbClient,
     supabaseUrl: config.supabase.url,
     supabaseAnonKey: config.supabase.anon_key,
@@ -21021,7 +20890,7 @@ async function main() {
         });
         break;
       case "health_check":
-        console.log("[local-agent] Received health_check \u2014 heartbeat will be sent on next interval");
+        console.log("[local-agent] Received health_check");
         break;
       case "message_inbound":
         console.log(`[local-agent] Received message_inbound \u2014 conversationId=${msg.conversationId}, from=${msg.from}`);
@@ -21054,10 +20923,6 @@ async function main() {
     }
   });
   await conn.start();
-  await recoverDispatchedJobs(conn.dbClient, config.name, {
-    gracePeriodMs: 0,
-    companyIds: conn.companyIds
-  });
   const companyId = process.env["ZAZIG_COMPANY_ID"];
   let rolePromptChannel = null;
   let repoRefreshTimer = null;
@@ -21149,16 +21014,6 @@ async function main() {
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
-  // Pass ANTHROPIC_API_KEY to tmux global env so headless expert/CPO sessions can authenticate.
-  // macOS keychain ACLs block detached tmux sessions from reading Claude Code credentials.
-  if (process.env.ANTHROPIC_API_KEY) {
-    try {
-      execSync(`tmux setenv -g ANTHROPIC_API_KEY "${process.env.ANTHROPIC_API_KEY}"`, { stdio: "pipe" });
-      console.log("[local-agent] Set ANTHROPIC_API_KEY in tmux global environment");
-    } catch (err) {
-      console.warn("[local-agent] Failed to set ANTHROPIC_API_KEY in tmux env:", err?.message ?? err);
-    }
-  }
   console.log("[local-agent] Daemon running. Press Ctrl+C to stop.");
 }
 async function fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId) {

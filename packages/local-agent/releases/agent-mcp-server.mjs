@@ -30497,7 +30497,7 @@ ${summary}` }]
 server.tool("query_jobs", "Query jobs by job ID, feature ID, or status filter. Used by the Verification Specialist to poll job status during active acceptance testing.", {
   job_id: external_exports3.string().optional().describe("Job UUID \u2014 returns a single job with full detail"),
   feature_id: external_exports3.string().optional().describe("Feature UUID \u2014 returns all jobs for this feature"),
-  status: external_exports3.string().optional().describe("Filter by status (e.g. 'queued', 'dispatched', 'complete')")
+  status: external_exports3.string().optional().describe("Filter by status (e.g. 'queued', 'executing', 'complete')")
 }, guardedHandler("query_jobs", async ({ job_id, feature_id, status }) => {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
@@ -30736,15 +30736,20 @@ server.tool("update_idea", "Update triage metadata on an existing idea", {
   idea_id: external_exports3.string().describe("ID of the idea to update"),
   title: external_exports3.string().optional().describe("New title"),
   description: external_exports3.string().optional().describe("New description"),
-  status: external_exports3.enum(["new", "triaged", "parked", "rejected", "done"]).optional().describe("New status"),
+  status: external_exports3.enum(["new", "triaging", "triaged", "developing", "specced", "workshop", "hardening", "parked", "rejected", "done"]).optional().describe("New status"),
   priority: external_exports3.enum(["low", "medium", "high", "urgent"]).optional().describe("New priority"),
   suggested_exec: external_exports3.string().optional().describe("Suggested executor"),
   tags: external_exports3.array(external_exports3.string()).optional().describe("Updated tags"),
   flags: external_exports3.array(external_exports3.string()).optional().describe("Updated flags"),
   clarification_notes: external_exports3.string().optional().describe("Clarification notes"),
   triage_notes: external_exports3.string().optional().describe("Notes from triage"),
+  triage_route: external_exports3.string().optional().describe("Triage routing decision: promote, develop, workshop, harden, park, reject, founder-review"),
+  spec: external_exports3.string().optional().describe("Feature spec written by spec expert"),
+  acceptance_tests: external_exports3.string().optional().describe("Acceptance criteria"),
+  human_checklist: external_exports3.string().optional().describe("Items requiring human verification"),
+  complexity: external_exports3.string().optional().describe("Estimated complexity: simple, medium, complex"),
   project_id: external_exports3.string().optional().describe("Associated project ID")
-}, async ({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id }) => {
+}, async ({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, triage_route, spec, acceptance_tests, human_checklist, complexity, project_id }) => {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
   const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -30761,7 +30766,7 @@ server.tool("update_idea", "Update triage metadata on an existing idea", {
       "Content-Type": "application/json",
       Authorization: `Bearer ${supabaseAnonKey}`
     },
-    body: JSON.stringify({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id, job_id: jobId, company_id: companyId })
+    body: JSON.stringify({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, triage_route, spec, acceptance_tests, human_checklist, complexity, project_id, job_id: jobId, company_id: companyId })
   });
   if (response.ok) {
     return {
@@ -30771,6 +30776,51 @@ server.tool("update_idea", "Update triage metadata on an existing idea", {
   const errorBody = await response.text().catch(() => "unknown error");
   return {
     content: [{ type: "text", text: `Failed to update idea (HTTP ${response.status}): ${errorBody}` }],
+    isError: true
+  };
+});
+server.tool("record_session_item", "Record per-item processing metrics for a headless expert session. Call this for each idea you process to track timing and routing decisions.", {
+  session_id: external_exports3.string().optional().describe("Expert session ID. Optional inside an expert session; defaults to the current session ID from env."),
+  idea_id: external_exports3.string().describe("ID of the idea being processed"),
+  route: external_exports3.string().optional().describe("Routing decision for this idea (e.g. promote, develop, workshop, park, reject)"),
+  started_at: external_exports3.string().optional().describe("ISO timestamp when processing started"),
+  completed_at: external_exports3.string().optional().describe("ISO timestamp when processing completed")
+}, async ({ session_id, idea_id, route, started_at, completed_at }) => {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+  const resolvedSessionId = session_id ?? process.env.ZAZIG_JOB_ID ?? "";
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return {
+      content: [{ type: "text", text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+      isError: true
+    };
+  }
+  if (!resolvedSessionId) {
+    return {
+      content: [{ type: "text", text: "Error: session_id is required when not running inside an expert session" }],
+      isError: true
+    };
+  }
+  const response = await fetch(`${supabaseUrl}/functions/v1/record-session-item`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${supabaseAnonKey}`
+    },
+    body: JSON.stringify({
+      session_id: resolvedSessionId,
+      idea_id,
+      route,
+      started_at,
+      completed_at
+    })
+  });
+  if (response.ok) {
+    return { content: [{ type: "text", text: "Session item recorded." }] };
+  }
+  const errorBody = await response.text().catch(() => "unknown error");
+  return {
+    content: [{ type: "text", text: `Failed to record session item (HTTP ${response.status}): ${errorBody}` }],
     isError: true
   };
 });
@@ -30962,8 +31012,10 @@ server.tool("start_expert_session", "Trigger an interactive expert agent session
   role_name: external_exports3.string().describe('The expert role identifier, e.g. "test-deployment-expert"'),
   brief: external_exports3.string().describe("Structured handoff context for the expert: what needs to be done, relevant background, expected output"),
   machine_name: external_exports3.string().describe("Which machine to spawn the expert on. Read the machine name from ~/.zazigv2/config.json \u2014 use the 'name' field."),
-  project_id: external_exports3.string().describe("Project ID or name \u2014 required. The expert needs a repo to work in.")
-}, guardedHandler("start_expert_session", async ({ role_name, brief, machine_name, project_id }) => {
+  project_id: external_exports3.string().describe("Project ID or name \u2014 required. The expert needs a repo to work in."),
+  headless: external_exports3.boolean().optional().describe("Run in headless mode without interactive tmux window (for autonomous use)"),
+  batch_id: external_exports3.string().optional().describe("Group related headless sessions under a batch ID")
+}, guardedHandler("start_expert_session", async ({ role_name, brief, machine_name, project_id, headless, batch_id }) => {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
   const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
@@ -30983,7 +31035,7 @@ server.tool("start_expert_session", "Trigger an interactive expert agent session
       Authorization: `Bearer ${supabaseAnonKey}`,
       "x-company-id": companyId
     },
-    body: JSON.stringify({ role_name, brief, machine_name, project_id })
+    body: JSON.stringify({ role_name, brief, machine_name, project_id, headless, batch_id })
   });
   if (!response.ok) {
     const error48 = await response.text();

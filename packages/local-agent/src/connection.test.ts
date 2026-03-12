@@ -75,7 +75,11 @@ function makeSupabaseClientMock(options: { setSessionError?: string } = {}): Moc
       onAuthStateChange: vi.fn(),
     },
     from: fromMock,
-    channel: vi.fn(),
+    channel: vi.fn().mockReturnValue({
+      on: vi.fn().mockReturnThis(),
+      subscribe: vi.fn().mockReturnThis(),
+      unsubscribe: vi.fn().mockResolvedValue(undefined),
+    }),
     removeChannel: vi.fn().mockResolvedValue(undefined),
   };
 

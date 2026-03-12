@@ -6,7 +6,7 @@
  *   - Outbound HTTP:     `functions/v1/agent-event`        — sends JobAck/JobComplete/JobFailed
  */
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
 import { execFile } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -42,6 +42,7 @@ export class AgentConnection {
   private readonly handlers: MessageHandler[] = [];
 
   private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private realtimeChannel: RealtimeChannel | null = null;
   private isPolling = false;
   private stopped = false;
   private outdated = false;
@@ -216,6 +217,7 @@ export class AgentConnection {
     await this.registerMachine();
 
     this.startPollLoop();
+    this.subscribeToRealtimeBroadcast();
   }
 
   /** Gracefully disconnect and stop all timers. */
@@ -224,6 +226,12 @@ export class AgentConnection {
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
+    }
+    if (this.realtimeChannel) {
+      try {
+        await this.realtimeChannel.unsubscribe();
+      } catch { /* best-effort */ }
+      this.realtimeChannel = null;
     }
     console.log(`[local-agent] Daemon stopped.`);
   }
@@ -332,6 +340,34 @@ export class AgentConnection {
         console.error("[local-agent] Message handler threw:", err);
       }
     }
+  }
+
+  /**
+   * Subscribe to the Realtime broadcast channel for this machine+company.
+   * Used for low-latency delivery of expert session commands.
+   */
+  private subscribeToRealtimeBroadcast(): void {
+    if (!this.primaryCompanyId) {
+      console.warn("[local-agent] No company ID — skipping Realtime broadcast subscription");
+      return;
+    }
+
+    const channelName = `agent:${this.machineName}:${this.primaryCompanyId}`;
+    this.realtimeChannel = this.supabase
+      .channel(channelName)
+      .on("broadcast", { event: "start_expert" }, (msg) => {
+        if (msg.payload) {
+          console.log(`[local-agent] Realtime broadcast received: start_expert`);
+          this.handleIncomingPayload(msg.payload);
+        }
+      })
+      .subscribe((status, err) => {
+        if (status === "SUBSCRIBED") {
+          console.log(`[local-agent] Subscribed to Realtime broadcast channel: ${channelName}`);
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error(`[local-agent] Realtime broadcast channel error (status=${status}):`, err ?? "unknown");
+        }
+      });
   }
 
   private async registerMachine(): Promise<void> {

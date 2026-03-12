@@ -3,6 +3,8 @@
 ## Corrections
 | Date | Source | What Went Wrong | What To Do Instead |
 |------|--------|----------------|-------------------|
+| 2026-03-12 | Release bundles | Implementation work modified `.mjs` release bundles directly, causing issues. | NEVER modify `packages/cli/releases/zazig.mjs` or `packages/local-agent/releases/zazig-agent.mjs` as part of coding work. These are built artifacts produced by `node scripts/bundle.js`. Only rebuild them intentionally when shipping. |
+| 2026-03-12 | CPO doc output | CPO and other agents writing docs/reports to workspace dirs (`~/.zazigv2/`) instead of the repo. Docs get lost, aren't version-controlled, invisible to other agents. | Agents MUST write all documents (specs, reports, design docs) to the project repo, not workspace directories. Specs go in `docs/specs/`, design docs in `docs/plans/`. Only temp/scratch files go in workspace. |
 | 2026-03-03 | docs/plans directory | Assumed design docs were at `docs/plans/*.md` but they are organized into subdirectories: `active/`, `shipped/`, `archived/`, `parked/`. Only one file sits at root level. | Always check `docs/plans/active/` and `docs/plans/shipped/` for the canonical design docs. New standalone docs can go at `docs/plans/` root. |
 | 2026-03-03 | Idea-feature link | Assumed no DB link between ideas and features existed, told user we'd need a migration. Actually, ideas table already has `promoted_to_type`, `promoted_to_id`, `promoted_at` columns + a `query-idea-status` edge function that traces the full chain. | Check edge functions and do `SELECT *` from the table before assuming columns don't exist — migrations may not capture all schema changes (some done via direct ALTER). |
 | 2026-02-20 | Doppler secrets | Searched `--config dev` and found no Supabase keys. Keys are in `--config prd`. | Always check `prd` config first for zazig project in Doppler |
@@ -66,7 +68,9 @@
 - Executor report path: agent writes `.claude/cpo-report.md` relative to workspace CWD (`~/.zazigv2/job-<id>/`), not `$HOME`. Executor checks workspace dir first, falls back to `$HOME`.
 - `batch-create-jobs` temp reference format is `temp:N` (colon), not `temp-N` (dash)
 - `assembled_context` column doesn't exist on jobs table yet — the executor's DB write fails silently (non-blocking)
-- **Vitest runner broken**: mixed-architecture Rollup/esbuild install in workspace prevents test runner startup. Tests compile (typecheck passes) but can't execute. Needs dependency cleanup.
+- **Vitest works, orchestrator tests are Deno**: `npm test` runs — `shared` passes, `local-agent` runs (one unrelated red test at `expert-session-manager.test.ts:228`). The orchestrator test harness is Deno-based (`orchestrator.test.ts`), NOT Vitest, and currently fails at type-check before tests run. Don't confuse the two.
+- **Expert session `failed` status gap**: local agent writes `status='failed'` on startup errors (`expert-session-manager.ts` lines 205, 244, 441), but DB constraint only allows `requested, running, completed, cancelled` (migration 120). Startup failures leave sessions stuck at `requested` → infinite redelivery loop via `agent-inbound-poll`. Must fix constraint or use `cancelled` instead.
+- **Expert session branch assumption**: session startup hardcodes `master` (`expert-session-manager.ts:214`, `branches.ts:443`). Will fail for `main`-only repos.
 
 ## Implementation Tracking
 - **Worktree freshness (both proposals)**: Codex implemented 2026-03-09. branches.ts (refreshWorktree, fetchBranchForExpert), executor.ts (public repoManager, getCompanyProjects), index.ts (5-min timer), expert-session-manager.ts (shared RepoManager). Typecheck passes, Vitest blocked.

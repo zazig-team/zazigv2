@@ -1,6 +1,7 @@
 status: pass
-summary: Removed the inline verify-time PR merge logic from onJobEnded so merging is handled only by orchestrator merge jobs.
+summary: Implemented a new About page with the full AI Bot founder biography, wired the /about route, and updated the Landing page About navigation link to use client-side routing.
 files_changed:
-  - packages/local-agent/src/executor.ts
-  - .claude/junior-engineer-report.md
-failure_reason: 
+  - packages/webui/src/App.tsx
+  - packages/webui/src/pages/Landing.tsx
+  - packages/webui/src/pages/About.tsx
+failure_reason: none

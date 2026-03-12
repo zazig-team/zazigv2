@@ -44,6 +44,8 @@ export class AgentConnection {
 
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private realtimeChannel: RealtimeChannel | null = null;
+  private realtimeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private realtimeReconnectAttempts = 0;
   private isPolling = false;
   private stopped = false;
   private outdated = false;
@@ -238,6 +240,10 @@ export class AgentConnection {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
     }
+    if (this.realtimeReconnectTimer) {
+      clearTimeout(this.realtimeReconnectTimer);
+      this.realtimeReconnectTimer = null;
+    }
     if (this.realtimeChannel) {
       try {
         await this.realtimeChannel.unsubscribe();
@@ -356,6 +362,7 @@ export class AgentConnection {
   /**
    * Subscribe to the Realtime broadcast channel for this machine+company.
    * Used for low-latency delivery of expert session commands.
+   * Reconnects with exponential backoff on failure (1s → 2s → 4s → ... capped at 30s).
    */
   private subscribeToRealtimeBroadcast(): void {
     if (!this.primaryCompanyId) {
@@ -364,6 +371,13 @@ export class AgentConnection {
     }
 
     const channelName = `agent:${this.machineName}:${this.primaryCompanyId}`;
+
+    // Clean up previous channel if reconnecting
+    if (this.realtimeChannel) {
+      try { void this.supabase.removeChannel(this.realtimeChannel); } catch { /* best-effort */ }
+      this.realtimeChannel = null;
+    }
+
     this.realtimeChannel = this.supabase
       .channel(channelName)
       .on("broadcast", { event: "start_expert" }, (msg) => {
@@ -375,10 +389,32 @@ export class AgentConnection {
       .subscribe((status, err) => {
         if (status === "SUBSCRIBED") {
           console.log(`[local-agent] Subscribed to Realtime broadcast channel: ${channelName}`);
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          this.realtimeReconnectAttempts = 0;
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
           console.error(`[local-agent] Realtime broadcast channel error (status=${status}):`, err ?? "unknown");
+          this.scheduleRealtimeReconnect();
         }
       });
+  }
+
+  private scheduleRealtimeReconnect(): void {
+    if (this.stopped) return;
+    if (this.realtimeReconnectTimer) return; // already scheduled
+
+    const delay = Math.min(
+      1_000 * Math.pow(2, this.realtimeReconnectAttempts),
+      30_000,
+    );
+    this.realtimeReconnectAttempts++;
+
+    console.log(
+      `[local-agent] Realtime broadcast reconnecting in ${delay}ms (attempt #${this.realtimeReconnectAttempts})...`,
+    );
+
+    this.realtimeReconnectTimer = setTimeout(() => {
+      this.realtimeReconnectTimer = null;
+      this.subscribeToRealtimeBroadcast();
+    }, delay);
   }
 
   private async registerMachine(): Promise<void> {

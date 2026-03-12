@@ -13361,12 +13361,12 @@ ${readFileSync2(p, "utf-8").slice(0, 4e3)}
           break;
         }
       }
-      const pkgPath2 = join3(localRepoPath, "package.json");
-      if (existsSync3(pkgPath2)) {
+      const pkgPath = join3(localRepoPath, "package.json");
+      if (existsSync3(pkgPath)) {
         try {
           repoContext += `
 --- package.json ---
-${readFileSync2(pkgPath2, "utf-8").slice(0, 2e3)}
+${readFileSync2(pkgPath, "utf-8").slice(0, 2e3)}
 `;
         } catch {
         }
@@ -13580,7 +13580,7 @@ Slack channel for CPO conversations [${defaultChannel}]: `)).trim() || defaultCh
 
 // dist/commands/start.js
 import { existsSync as existsSync9 } from "node:fs";
-import { hostname, homedir as homedir8 } from "node:os";
+import { hostname, homedir as homedir9 } from "node:os";
 import { join as join10 } from "node:path";
 import { execSync as execSync4 } from "node:child_process";
 import { createInterface as createInterface4 } from "node:readline/promises";
@@ -14180,7 +14180,11 @@ import { execSync as execSync3 } from "node:child_process";
 import { existsSync as existsSync6, readFileSync as readFileSync5 } from "node:fs";
 import { join as join7, dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
+import { homedir as homedir6 } from "node:os";
 var thisDir = dirname3(fileURLToPath3(import.meta.url));
+function isCompiledBinary() {
+  return thisDir.startsWith("/$bunfs") || !existsSync6(thisDir);
+}
 function findPackageJson() {
   for (const rel of ["../../package.json", "../package.json"]) {
     const candidate = join7(thisDir, rel);
@@ -14189,8 +14193,16 @@ function findPackageJson() {
   }
   return join7(thisDir, "../../package.json");
 }
-var pkgPath = findPackageJson();
 function getVersion() {
+  if (isCompiledBinary()) {
+    const versionFile = join7(homedir6(), ".zazigv2", "bin", ".version");
+    try {
+      return readFileSync5(versionFile, "utf8").trim();
+    } catch {
+      return "0.0.0";
+    }
+  }
+  const pkgPath = findPackageJson();
   const pkg = JSON.parse(readFileSync5(pkgPath, "utf8"));
   const base = pkg.version ?? "0.0.0";
   let hash = "";
@@ -14211,8 +14223,8 @@ function getVersion() {
 // dist/lib/builds.js
 import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync6, writeFileSync as writeFileSync6, cpSync, renameSync, rmSync as rmSync2 } from "node:fs";
 import { join as join8 } from "node:path";
-import { homedir as homedir6 } from "node:os";
-var BUILDS_DIR = join8(homedir6(), ".zazigv2", "builds");
+import { homedir as homedir7 } from "node:os";
+var BUILDS_DIR = join8(homedir7(), ".zazigv2", "builds");
 var CURRENT = join8(BUILDS_DIR, "current");
 var PREVIOUS = join8(BUILDS_DIR, "previous");
 function getCurrentBuildSha() {
@@ -14224,7 +14236,7 @@ function getCurrentBuildSha() {
 function hasPinnedBuild() {
   return existsSync7(join8(CURRENT, "packages", "local-agent", "releases", "zazig-agent.mjs"));
 }
-var BIN_DIR = join8(homedir6(), ".zazigv2", "bin");
+var BIN_DIR = join8(homedir7(), ".zazigv2", "bin");
 var BIN_PREVIOUS = join8(BIN_DIR, "previous");
 function rollbackBinaries() {
   if (!existsSync7(BIN_PREVIOUS)) {
@@ -14247,8 +14259,8 @@ function rollbackBinaries() {
 // dist/lib/auto-update.js
 import { existsSync as existsSync8, readFileSync as readFileSync7, mkdirSync as mkdirSync7, writeFileSync as writeFileSync7, chmodSync as chmodSync2, rmSync as rmSync3, cpSync as cpSync2 } from "node:fs";
 import { join as join9 } from "node:path";
-import { homedir as homedir7 } from "node:os";
-var BIN_DIR2 = join9(homedir7(), ".zazigv2", "bin");
+import { homedir as homedir8 } from "node:os";
+var BIN_DIR2 = join9(homedir8(), ".zazigv2", "bin");
 var VERSION_FILE = join9(BIN_DIR2, ".version");
 var GITHUB_REPO = "zazig-team/zazigv2";
 var PREVIOUS_DIR = join9(BIN_DIR2, "previous");
@@ -14458,13 +14470,13 @@ Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.
   };
   let agentEntryOverride;
   if (zazigEnv === "production") {
-    const binAgent = join10(homedir8(), ".zazigv2", "bin", "zazig-agent");
+    const binAgent = join10(homedir9(), ".zazigv2", "bin", "zazig-agent");
     if (existsSync9(binAgent)) {
       agentEntryOverride = binAgent;
       const ver = getLocalVersion();
       console.log(`Using zazig-agent binary${ver ? ` (v${ver})` : ""}`);
     } else if (hasPinnedBuild()) {
-      const buildDir = join10(homedir8(), ".zazigv2", "builds", "current");
+      const buildDir = join10(homedir9(), ".zazigv2", "builds", "current");
       agentEntryOverride = join10(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
       const sha = getCurrentBuildSha();
       console.log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);
@@ -14585,7 +14597,7 @@ async function stop() {
 
 // dist/commands/status.js
 import { readdirSync as readdirSync2 } from "node:fs";
-import { homedir as homedir9 } from "node:os";
+import { homedir as homedir10 } from "node:os";
 import { join as join11 } from "node:path";
 function apiFetch(url, headers) {
   return fetch(url, { headers }).then(async (r) => {
@@ -14595,7 +14607,7 @@ function apiFetch(url, headers) {
   });
 }
 function findRunningDaemon() {
-  const zazigDir = join11(homedir9(), ".zazigv2");
+  const zazigDir = join11(homedir10(), ".zazigv2");
   try {
     const uuidPattern = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.pid$/;
     for (const entry of readdirSync2(zazigDir)) {
@@ -14852,9 +14864,9 @@ async function switchArchetype(supabaseUrl, companyId, headers, roleName, roleId
 import { execSync as execSync5 } from "node:child_process";
 import { chmodSync as chmodSync3, cpSync as cpSync3, existsSync as existsSync10, mkdirSync as mkdirSync8, readFileSync as readFileSync8, rmSync as rmSync4, writeFileSync as writeFileSync8 } from "node:fs";
 import { join as join12 } from "node:path";
-import { homedir as homedir10 } from "node:os";
+import { homedir as homedir11 } from "node:os";
 import { createInterface as createInterface5 } from "node:readline/promises";
-var REPOS_BASE = join12(homedir10(), ".zazigv2", "repos");
+var REPOS_BASE = join12(homedir11(), ".zazigv2", "repos");
 async function fetchProjects(supabaseUrl, anonKey, accessToken, companyId) {
   const res = await fetch(`${supabaseUrl}/rest/v1/projects?select=id,name,repo_url&company_id=eq.${companyId}`, {
     headers: {
@@ -15037,7 +15049,7 @@ Company: ${company.name}`);
     execSync5(`git update-ref refs/remotes/origin/${defaultBranch} refs/heads/${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
   } catch {
   }
-  const worktreePath = join12(homedir10(), ".zazigv2", "worktrees", "promote-tmp");
+  const worktreePath = join12(homedir11(), ".zazigv2", "worktrees", "promote-tmp");
   try {
     execSync5(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" });
   } catch {
@@ -15152,7 +15164,7 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
     return;
   }
   console.log("\nCompiling native binaries...");
-  const compileOutDir = join12(homedir10(), ".zazigv2", "compile-tmp");
+  const compileOutDir = join12(homedir11(), ".zazigv2", "compile-tmp");
   try {
     execSync5(`bash "${join12(repoRoot, "packages", "cli", "scripts", "compile.sh")}" "${compileOutDir}" "${repoRoot}"`, { stdio: "inherit" });
   } catch {
@@ -15222,7 +15234,7 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
     return;
   }
   console.log("\nInstalling binaries locally...");
-  const binDir = join12(homedir10(), ".zazigv2", "bin");
+  const binDir = join12(homedir11(), ".zazigv2", "bin");
   mkdirSync8(binDir, { recursive: true });
   const localBinaries = [
     { src: join12(compileOutDir, "zazig-cli-darwin-arm64"), dest: join12(binDir, "zazig") },

@@ -75,6 +75,7 @@ describe("ExpertSessionManager", () => {
     const manager = new ExpertSessionManager({
       machineId: "machine-1",
       companyId: "company-12345678",
+      companyName: "test-company",
       supabase: supabase.client as any,
       supabaseUrl: "https://test.supabase.co",
       supabaseAnonKey: "anon-key",
@@ -108,6 +109,7 @@ describe("ExpertSessionManager", () => {
     const manager = new ExpertSessionManager({
       machineId: "machine-1",
       companyId: "company-12345678",
+      companyName: "test-company",
       supabase: supabase.client as any,
       supabaseUrl: "https://test.supabase.co",
       supabaseAnonKey: "anon-key",
@@ -171,6 +173,7 @@ describe("ExpertSessionManager", () => {
     const manager = new ExpertSessionManager({
       machineId: "machine-1",
       companyId: "company-12345678",
+      companyName: "test-company",
       supabase: supabase.client as any,
       supabaseUrl: "https://test.supabase.co",
       supabaseAnonKey: "anon-key",
@@ -236,6 +239,7 @@ describe("ExpertSessionManager", () => {
     const manager = new ExpertSessionManager({
       machineId: "machine-1",
       companyId: "company-12345678",
+      companyName: "test-company",
       supabase: supabase.client as any,
       supabaseUrl: "https://test.supabase.co",
       supabaseAnonKey: "anon-key",
@@ -314,6 +318,7 @@ describe("ExpertSessionManager", () => {
     const manager = new ExpertSessionManager({
       machineId: "machine-1",
       companyId: "company-12345678",
+      companyName: "test-company",
       supabase: supabase.client as any,
       supabaseUrl: "https://test.supabase.co",
       supabaseAnonKey: "anon-key",
@@ -361,6 +366,7 @@ describe("ExpertSessionManager", () => {
     const manager = new ExpertSessionManager({
       machineId: "machine-1",
       companyId: "company-12345678",
+      companyName: "test-company",
       supabase: supabase.client as any,
       supabaseUrl: "https://test.supabase.co",
       supabaseAnonKey: "anon-key",
@@ -418,6 +424,7 @@ describe("ExpertSessionManager", () => {
     const manager = new ExpertSessionManager({
       machineId: "machine-1",
       companyId: "company-12345678",
+      companyName: "test-company",
       supabase: supabase.client as any,
       supabaseUrl: "https://test.supabase.co",
       supabaseAnonKey: "anon-key",
@@ -491,6 +498,7 @@ describe("ExpertSessionManager", () => {
     const manager = new ExpertSessionManager({
       machineId: "machine-1",
       companyId: "company-12345678",
+      companyName: "test-company",
       supabase: supabase.client as any,
       supabaseUrl: "https://test.supabase.co",
       supabaseAnonKey: "anon-key",
@@ -581,6 +589,7 @@ describe("ExpertSessionManager", () => {
     const manager = new ExpertSessionManager({
       machineId: "machine-1",
       companyId: "company-12345678",
+      companyName: "test-company",
       supabase: supabase.client as any,
       supabaseUrl: "https://test.supabase.co",
       supabaseAnonKey: "anon-key",
@@ -638,6 +647,7 @@ describe("ExpertSessionManager", () => {
       const manager = new ExpertSessionManager({
         machineId: "machine-1",
         companyId: "company-12345678",
+        companyName: "test-company",
         supabase: supabase.client as any,
         supabaseUrl: "https://test.supabase.co",
         supabaseAnonKey: "anon-key",
@@ -684,6 +694,7 @@ describe("ExpertSessionManager", () => {
       const manager = new ExpertSessionManager({
         machineId: "machine-1",
         companyId: "company-12345678",
+        companyName: "test-company",
         supabase: supabase.client as any,
         supabaseUrl: "https://test.supabase.co",
         supabaseAnonKey: "anon-key",
@@ -741,6 +752,7 @@ describe("ExpertSessionManager", () => {
     const manager = new ExpertSessionManager({
       machineId: "machine-1",
       companyId: "company-12345678",
+      companyName: "test-company",
       supabase: supabase.client as any,
       supabaseUrl: "https://test.supabase.co",
       supabaseAnonKey: "anon-key",

@@ -57,6 +57,7 @@ interface ViewerLinkResult {
 interface ExpertSessionManagerOpts {
   machineId: string;
   companyId: string;
+  companyName: string;
   supabase: SupabaseClient;
   supabaseUrl: string;
   supabaseAnonKey: string;
@@ -151,6 +152,7 @@ async function isTmuxSessionAlive(sessionName: string): Promise<boolean> {
 export class ExpertSessionManager {
   private readonly machineId: string;
   private readonly companyId: string;
+  private readonly companyName: string;
   private readonly supabase: SupabaseClient;
   private readonly supabaseUrl: string;
   private readonly supabaseAnonKey: string;
@@ -162,6 +164,7 @@ export class ExpertSessionManager {
   constructor(opts: ExpertSessionManagerOpts) {
     this.machineId = opts.machineId;
     this.companyId = opts.companyId;
+    this.companyName = opts.companyName;
     this.supabase = opts.supabase;
     this.supabaseUrl = opts.supabaseUrl;
     this.supabaseAnonKey = opts.supabaseAnonKey;
@@ -486,10 +489,11 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
     tmuxSessionName: string,
     displayName: string,
   ): Promise<ViewerLinkResult | null> {
-    // Derive viewer session name from company_name if provided
+    // Derive viewer session name from company_name (message field, then instance field)
     let viewerSession: string | undefined;
-    if (msg.company_name) {
-      viewerSession = viewerSessionName(msg.company_name);
+    const companyName = msg.company_name || this.companyName;
+    if (companyName) {
+      viewerSession = viewerSessionName(companyName);
     } else {
       // Try to find the viewer session by looking for zazig-view-* sessions
       try {

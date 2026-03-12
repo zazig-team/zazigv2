@@ -95,6 +95,7 @@ async function main(): Promise<void> {
   const expertManager = new ExpertSessionManager({
     machineId: config.name,
     companyId: config.company_id ?? "",
+    companyName: process.env["ZAZIG_COMPANY_NAME"] ?? "",
     supabase: conn.dbClient,
     supabaseUrl: config.supabase.url,
     supabaseAnonKey: config.supabase.anon_key,

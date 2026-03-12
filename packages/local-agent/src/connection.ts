@@ -353,7 +353,7 @@ export class AgentConnection {
     }
 
     const channelName = `agent:${this.machineName}:${this.primaryCompanyId}`;
-    this.realtimeChannel = this.supabase
+    this.realtimeChannel = this.dbClient
       .channel(channelName)
       .on("broadcast", { event: "start_expert" }, (msg) => {
         if (msg.payload) {

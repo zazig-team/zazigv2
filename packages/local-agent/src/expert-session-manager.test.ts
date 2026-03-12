@@ -225,7 +225,8 @@ describe("ExpertSessionManager", () => {
     expect(shellCmd).toContain("'--model'");
     expect(shellCmd).toContain("'claude-sonnet-4-6'");
     expect(shellCmd).toContain("'-p'");
-    expect(shellCmd).toContain("'Run fully autonomously.'");
+    expect(shellCmd).toContain("cat ");
+    expect(shellCmd).toContain(".zazig-prompt.txt");
 
     expect(linkSpy).not.toHaveBeenCalled();
     expect(pollSpy).toHaveBeenCalledTimes(1);

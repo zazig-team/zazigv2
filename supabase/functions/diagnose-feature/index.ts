@@ -200,7 +200,7 @@ This format is required for the system to capture your report. Do NOT skip this 
       job_type: "code",
       complexity: "simple",
       slot_type: "claude_code",
-      status: "queued",
+      status: "created",
       context: diagnosticContext,
     }).select("id").single();
 

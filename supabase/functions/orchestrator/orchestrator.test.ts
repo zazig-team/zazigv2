@@ -430,7 +430,7 @@ Deno.test("handleJobComplete — feature-linked completion does not auto-deploy 
   });
 
   // checkUnblockedJobs candidate scan
-  setResponse("jobs:select.eq.eq.contains", { data: [], error: null });
+  setResponse("jobs:select.eq.in.contains", { data: [], error: null });
 
   const msg = {
     type: "job_complete" as const,
@@ -495,7 +495,7 @@ Deno.test("handleJobComplete — reviewer NO_REPORT triggers request-feature-fix
       },
       error: null,
     });
-    setResponse("jobs:select.eq.eq.contains", { data: [], error: null });
+    setResponse("jobs:select.eq.in.contains", { data: [], error: null });
     setResponse("rpc:release_machine_slot", { data: null, error: null });
 
     const msg = {
@@ -584,7 +584,7 @@ Deno.test("triggerFeatureVerification — sets feature to verifying and inserts 
   assertEquals(payload.job_type, "verify");
   assertEquals(payload.complexity, "simple");
   assertEquals(payload.slot_type, "claude_code");
-  assertEquals(payload.status, "queued");
+  assertEquals(payload.status, "created");
   assertEquals(payload.branch, "feature/payment-flow");
 
   const context = JSON.parse(payload.context);
@@ -724,7 +724,7 @@ Deno.test("handleFeatureApproved — feature in ready_to_test → marks deployin
   const deployPayload = jobsChains[1].operations[0].args[0] as any;
   assertEquals(deployPayload.job_type, "deploy_to_prod");
   assertEquals(deployPayload.role, "deployer");
-  assertEquals(deployPayload.status, "queued");
+  assertEquals(deployPayload.status, "created");
   assertEquals(JSON.parse(deployPayload.context).target, "prod");
 
   // Events table: log approval
@@ -943,7 +943,7 @@ Deno.test("handleFeatureRejected — severity=big + in ready_to_test → resets 
   // deno-lint-ignore no-explicit-any
   const jobPayload = jobsChains[0].operations[0].args[0] as any;
   assertEquals(jobPayload.role, "engineer");
-  assertEquals(jobPayload.status, "queued");
+  assertEquals(jobPayload.status, "created");
   assertEquals(jobPayload.rejection_feedback, "Auth flow is completely broken");
   assertEquals(jobPayload.branch, "feat/auth");
   const ctx = JSON.parse(jobPayload.context);
@@ -1234,7 +1234,7 @@ Deno.test("triggerBreakdown — creates queued breakdown job with correct contex
   assertEquals(payload.feature_id, "feat-10");
   assertEquals(payload.role, "breakdown-specialist");
   assertEquals(payload.job_type, "breakdown");
-  assertEquals(payload.status, "queued");
+  assertEquals(payload.status, "created");
 
   const context = JSON.parse(payload.context);
   assertEquals(context.type, "breakdown");
@@ -1302,7 +1302,7 @@ Deno.test("checkUnblockedJobs — all deps complete → logs unblocked", async (
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
   // Candidates query: jobs that depend on the completed job
-  setResponse("jobs:select.eq.eq.contains", {
+  setResponse("jobs:select.eq.in.contains", {
     data: [{ id: "job-A", depends_on: ["job-X", "job-Y"] }],
     error: null,
   });
@@ -1348,7 +1348,7 @@ Deno.test("checkUnblockedJobs — partial deps incomplete → stays blocked", as
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
   // Candidates query
-  setResponse("jobs:select.eq.eq.contains", {
+  setResponse("jobs:select.eq.in.contains", {
     data: [{ id: "job-A", depends_on: ["job-X", "job-Y"] }],
     error: null,
   });
@@ -1394,7 +1394,7 @@ Deno.test("checkUnblockedJobs — no candidates → early return", async () => {
   const { client, chainedCalls, setResponse } = createSmartMockSupabase();
 
   // Candidates query returns empty
-  setResponse("jobs:select.eq.eq.contains", {
+  setResponse("jobs:select.eq.in.contains", {
     data: [],
     error: null,
   });

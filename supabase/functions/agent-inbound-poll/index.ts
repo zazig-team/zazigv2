@@ -186,7 +186,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
       )
       .eq("company_id", companyId)
       .eq("status", "queued")
-      .or("prompt_stack.not.is.null,context.not.is.null")
       .order("created_at", { ascending: true });
 
     if (queueErr) {

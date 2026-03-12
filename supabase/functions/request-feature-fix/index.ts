@@ -170,7 +170,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         job_type: job.job_type,
         complexity: job.complexity,
         slot_type: job.slot_type,
-        status: "queued",
+        status: "created",
         context: JSON.stringify({
           type: "retry",
           originalContext,

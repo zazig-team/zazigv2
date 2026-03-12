@@ -123,6 +123,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           if (job.status === "complete") jobCounts.complete++;
           else if (job.status === "failed") jobCounts.failed++;
           else if (job.status === "in_progress") jobCounts.in_progress++;
+          else if (job.status === "created") jobCounts.queued++;
           else if (job.status === "queued") jobCounts.queued++;
         }
       }

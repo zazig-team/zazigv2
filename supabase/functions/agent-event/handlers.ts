@@ -275,7 +275,7 @@ export async function handleJobComplete(
       .from("jobs")
       .select("id, depends_on")
       .eq("feature_id", jobRow.feature_id)
-      .eq("status", "queued")
+      .in("status", ["created", "queued"])
       .neq("job_type", "breakdown");
     const totalJobs = featureJobs?.length ?? 0;
     const dispatchable = featureJobs?.filter(

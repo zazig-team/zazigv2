@@ -151,7 +151,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           feature_id: null,
           title: resolvedTitle,
           context: idea.raw_text,
-          status: "queued",
+          status: "created",
           role: "senior-engineer",
           job_type: "code",
           complexity: "simple",

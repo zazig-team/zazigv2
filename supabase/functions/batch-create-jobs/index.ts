@@ -103,7 +103,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .from("jobs")
       .delete()
       .eq("feature_id", feature_id)
-      .eq("status", "queued")
+      .in("status", ["created", "queued"])
       .select("id");
 
     if (deleteQueuedErr) {
@@ -242,7 +242,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           model,
           depends_on: resolvedDeps,
           sequence: i + 1,
-          status: "queued",
+          status: "created",
         })
         .select("id")
         .single();
@@ -285,7 +285,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const result = jobs.map((job: { title: string }, i: number) => ({
       job_id: createdJobIds[i],
       title: job.title,
-      status: "queued",
+      status: "created",
     }));
 
     return jsonResponse({ jobs: result });

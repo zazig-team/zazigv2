@@ -168,7 +168,7 @@ export async function checkUnblockedJobs(
     .from("jobs")
     .select("id, depends_on")
     .eq("feature_id", featureId)
-    .eq("status", "queued")
+    .in("status", ["created", "queued"])
     .contains("depends_on", [completedJobId]);
 
   if (candErr) {
@@ -399,7 +399,7 @@ export async function triggerCombining(
       job_type: "combine",
       complexity: "simple",
       slot_type: "claude_code",
-      status: "queued",
+      status: "created",
       context: combineContext,
       branch: feature.branch,
     })
@@ -441,7 +441,7 @@ export async function triggerCombining(
         result: "combine_not_started_feature_not_building",
       })
       .eq("id", combineJob.id)
-      .eq("status", "queued");
+      .in("status", ["created", "queued"]);
     if (rollbackErr) {
       console.error(
         `[pipeline] triggerCombining: failed to cancel queued combine job ${combineJob.id} after CAS miss:`,
@@ -528,7 +528,7 @@ export async function triggerFeatureVerification(
       job_type: "verify",
       complexity: "medium",
       slot_type: "claude_code",
-      status: "queued",
+      status: "created",
       context: verifyContext,
     }
     : {
@@ -540,7 +540,7 @@ export async function triggerFeatureVerification(
       job_type: "verify",
       complexity: "simple",
       slot_type: "claude_code",
-      status: "queued",
+      status: "created",
       context: verifyContext,
       branch: feature.branch,
     };
@@ -588,7 +588,7 @@ export async function triggerFeatureVerification(
         result: "verification_not_started_feature_status_changed",
       })
       .eq("id", insertedJobId)
-      .eq("status", "queued");
+      .in("status", ["created", "queued"]);
     if (rollbackErr) {
       console.error(
         `[pipeline] Failed to cancel queued verify job ${insertedJobId} after status CAS miss:`,
@@ -652,7 +652,7 @@ export async function triggerMerging(
     .select("id, status")
     .eq("feature_id", featureId)
     .eq("job_type", "merge")
-    .in("status", ["queued", "executing", "complete"])
+    .in("status", ["created", "queued", "executing", "complete"])
     .limit(1);
 
   if (existingMerge && existingMerge.length > 0) {
@@ -683,7 +683,7 @@ export async function triggerMerging(
       job_type: "merge",
       complexity: "simple",
       slot_type: "claude_code",
-      status: "queued",
+      status: "created",
       context: mergeContext,
       branch: feature.branch,
     })
@@ -725,7 +725,7 @@ export async function triggerMerging(
         result: "merge_not_started_feature_not_verifying",
       })
       .eq("id", mergeJob.id)
-      .eq("status", "queued");
+      .in("status", ["created", "queued"]);
     if (rollbackErr) {
       console.error(
         `[pipeline] triggerMerging: failed to cancel queued merge job ${mergeJob.id} after CAS miss:`,

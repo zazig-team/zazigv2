@@ -427,23 +427,23 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     .select(
       "id, company_id, project_id, feature_id, role, job_type, complexity, slot_type, model, machine_id, status, context, acceptance_tests, verify_context, branch, result, created_at, depends_on, source",
     )
-    .in("status", ["queued", "verify_failed"])
+    .in("status", ["created", "verify_failed"])
     .order("created_at", { ascending: true });
 
   if (jobsErr) {
     console.error(
-      "[orchestrator] Error fetching queued jobs:",
+      "[orchestrator] Error fetching created jobs:",
       jobsErr.message,
     );
     return;
   }
 
   if (!queuedJobs || queuedJobs.length === 0) {
-    console.log("[orchestrator] No queued jobs.");
+    console.log("[orchestrator] No created jobs to enrich.");
     return;
   }
 
-  console.log(`[orchestrator] ${queuedJobs.length} queued job(s) to process.`);
+  console.log(`[orchestrator] ${queuedJobs.length} created job(s) to enrich.`);
 
   // Build a feature status cache for code jobs so we can cheaply gate dispatch
   // while a feature is still in breaking_down.
@@ -545,7 +545,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
             completed_at: new Date().toISOString(),
           })
           .eq("id", job.id)
-          .in("status", ["queued", "verify_failed", "executing"])
+          .in("status", ["created", "queued", "verify_failed", "executing"])
           .select("id");
 
         if (failErr) {
@@ -811,18 +811,18 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     promptParts.push(completionInstructions(resolvedRole));
     const promptStackMinusSkills = promptParts.join("\n\n---\n\n");
 
-    // Enrich queued jobs for poll-based dispatch.
-    // Do not mutate status or machine_id; the poll endpoint claims jobs.
+    // Enrich created jobs and transition to queued for poll-based dispatch.
     const { data: enrichedRows, error: updateJobErr } = await supabase
       .from("jobs")
       .update({
+        status: "queued",
         role: resolvedRole,
         model,
         slot_type: slotType,
         prompt_stack: promptStackMinusSkills || null,
       })
       .eq("id", job.id)
-      .in("status", ["queued", "verify_failed"]) // optimistic lock
+      .in("status", ["created", "verify_failed"]) // optimistic lock
       .select("id");
 
     if (updateJobErr) {
@@ -839,7 +839,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       continue;
     }
     console.log(
-      `[orchestrator] Enriched queued job ${job.id} with role=${resolvedRole}, slot=${slotType}, model=${model}`,
+      `[orchestrator] Enriched and queued job ${job.id} with role=${resolvedRole}, slot=${slotType}, model=${model}`,
     );
   }
 }
@@ -1301,7 +1301,7 @@ export async function handleFeatureRejected(
       job_type: "code",
       complexity: "medium",
       slot_type: "claude_code",
-      status: "queued",
+      status: "created",
       context: fixContext,
       branch: feature.branch,
       rejection_feedback: feedback,
@@ -1500,7 +1500,7 @@ export async function triggerBreakdown(
     .select("id, status")
     .eq("feature_id", featureId)
     .eq("job_type", "breakdown")
-    .in("status", ["queued", "executing", "blocked", "complete"])
+    .in("status", ["created", "queued", "executing", "blocked", "complete"])
     .maybeSingle();
 
   if (existing) {
@@ -1573,7 +1573,7 @@ export async function triggerBreakdown(
         complexity: "simple",
         model: fastTrackModel,
         slot_type: fastTrackSlotType,
-        status: "queued",
+        status: "created",
         context: fastTrackContext,
         acceptance_tests: feature.acceptance_tests ?? null,
       })
@@ -1614,7 +1614,7 @@ export async function triggerBreakdown(
           result: "fast_track_not_started_feature_status_changed",
         })
         .eq("id", fastTrackJob.id)
-        .eq("status", "queued");
+        .in("status", ["created", "queued"]);
       return;
     }
 
@@ -1636,7 +1636,7 @@ export async function triggerBreakdown(
       job_type: "breakdown",
       complexity: "simple",
       slot_type: "claude_code",
-      status: "queued",
+      status: "created",
       context: JSON.stringify({
         type: "breakdown",
         featureId,
@@ -1954,7 +1954,7 @@ async function processFeatureLifecycle(
       .select("id, feature_id")
       .eq("job_type", "deploy_to_test")
       .in("feature_id", [...terminalStatusByFeatureId.keys()])
-      .in("status", ["queued", "executing"])
+      .in("status", ["created", "queued", "executing"])
       .limit(100);
 
     if (invalidDeployErr) {
@@ -1981,7 +1981,7 @@ async function processFeatureLifecycle(
           completed_at: new Date().toISOString(),
         })
         .eq("id", job.id)
-        .in("status", ["queued", "executing"])
+        .in("status", ["created", "queued", "executing"])
         .select("id");
 
       if (updated && updated.length > 0) {
@@ -2082,7 +2082,7 @@ async function processFeatureLifecycle(
           .from("jobs")
           .select("id, depends_on")
           .eq("feature_id", feature.id)
-          .eq("status", "queued")
+          .in("status", ["created", "queued"])
           .neq("job_type", "breakdown");
         const totalJobs = featureJobs?.length ?? 0;
         const dispatchable = featureJobs?.filter(
@@ -2486,7 +2486,7 @@ async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void
       .select("id")
       .eq("role", "triage-analyst")
       .eq("context", idea.id)
-      .in("status", ["queued", "executing"])
+      .in("status", ["created", "queued", "executing"])
       .limit(1);
 
     if (activeJobs && activeJobs.length > 0) continue;

@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "639b63d";
+const AGENT_BUILD_HASH = "012da8c";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -16577,11 +16577,12 @@ function resolveSkillSourcePath(config, skillName) {
   return null;
 }
 function generateMcpConfig(mcpServerPath, env) {
+  const isCompiledBinary = !mcpServerPath.endsWith(".js") && !mcpServerPath.endsWith(".mjs");
   return {
     mcpServers: {
       "zazig-messaging": {
-        command: "node",
-        args: [mcpServerPath],
+        command: isCompiledBinary ? mcpServerPath : "node",
+        args: isCompiledBinary ? [] : [mcpServerPath],
         env: {
           SUPABASE_URL: env.supabaseUrl,
           SUPABASE_ANON_KEY: env.supabaseAnonKey,
@@ -17373,6 +17374,9 @@ var RepoManager = class {
 
 // ../local-agent/dist/executor.js
 function resolveMcpServerPath() {
+  const binPath = join4(homedir2(), ".zazigv2", "bin", "agent-mcp-server");
+  if (existsSync4(binPath))
+    return binPath;
   const thisDir = dirname2(fileURLToPath(import.meta.url));
   const mjsPath = join4(thisDir, "agent-mcp-server.mjs");
   if (existsSync4(mjsPath))
@@ -19952,6 +19956,9 @@ function assembleExpertBrief(brief) {
 ${AVAILABLE_CONTEXT_SECTION}`;
 }
 function resolveMcpServerPath2() {
+  const binPath = join6(homedir4(), ".zazigv2", "bin", "agent-mcp-server");
+  if (existsSync5(binPath))
+    return binPath;
   const thisDir = dirname3(fileURLToPath2(import.meta.url));
   const mjsPath = join6(thisDir, "agent-mcp-server.mjs");
   if (existsSync5(mjsPath))

@@ -1,21 +1,23 @@
 #!/bin/bash
-# Pull latest from master after a zazig promote and link the pre-built CLI.
-# No build step — zazig start runs from the bundled .mjs files committed at promote time.
-# For staging (zazig-staging start), run npm run build separately.
+# Pull latest from production after a zazig promote.
+# The release bundle (packages/cli/releases/zazig.mjs) is self-contained —
+# git pull is all that's needed. npm link only runs on first setup.
 set -e
 
 cd "$(dirname "$0")/.."
 
 echo "Pulling latest..."
 git stash --quiet 2>/dev/null || true
-git pull origin master
+git pull origin production
 git stash pop --quiet 2>/dev/null || true
 
-echo "Installing dependencies..."
-npm install
+# First-time setup: link the CLI binary if not already linked
+if ! command -v zazig &>/dev/null; then
+  echo "First-time setup: linking CLI..."
+  cd packages/cli
+  npm link
+  cd ../..
+fi
 
-echo "Linking CLI..."
-cd packages/cli
-npm link
-
-echo "Done. Run 'zazig start' to use the new build."
+VERSION=$(node -e "console.log(require('./packages/cli/package.json').version)" 2>/dev/null || echo "unknown")
+echo "Done. zazig v${VERSION} ready. Run 'zazig start' to use the new build."

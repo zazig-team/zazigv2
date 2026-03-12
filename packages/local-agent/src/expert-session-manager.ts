@@ -103,6 +103,10 @@ function assembleExpertBrief(brief: string): string {
 
 /** Resolve the MCP server entry point from the executor's dist directory. */
 function resolveMcpServerPath(): string {
+  // Check for compiled binary in ~/.zazigv2/bin/ first
+  const binPath = join(homedir(), ".zazigv2", "bin", "agent-mcp-server");
+  if (existsSync(binPath)) return binPath;
+
   const thisDir = dirname(fileURLToPath(import.meta.url));
   const mjsPath = join(thisDir, "agent-mcp-server.mjs");
   if (existsSync(mjsPath)) return mjsPath;

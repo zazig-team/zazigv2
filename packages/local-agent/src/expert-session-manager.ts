@@ -173,6 +173,12 @@ export class ExpertSessionManager {
 
   async handleStartExpert(msg: StartExpertMessage): Promise<void> {
     const sessionId = msg.session_id;
+
+    // Deduplicate: skip sessions we're already handling (poll re-delivers while status is still "requested")
+    if (this.activeSessions.has(sessionId)) {
+      return;
+    }
+
     const shortId = sessionId.slice(0, 8);
     const roleName =
       (msg as StartExpertMessage & { role_name?: string }).role_name
@@ -358,14 +364,17 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
 
     if (msg.headless === true) {
       try {
+        // Write prompt to a file and pipe it to avoid ARG_MAX limits on long briefs
+        const promptFilePath = join(effectiveWorkspaceDir, ".zazig-prompt.txt");
+        writeFileSync(promptFilePath, msg.brief);
+
         const claudeCmd = shellEscape([
           "claude",
           "--model",
           msg.model,
           "-p",
-          msg.brief,
         ]);
-        const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
+        const shellCmd = `unset CLAUDECODE; cat ${shellEscape([promptFilePath])} | ${claudeCmd}`;
 
         // Kill any stale session from interrupted runs.
         await killTmuxSession(tmuxSessionName);
@@ -472,12 +481,17 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       if (status === "running") {
         update.started_at = new Date().toISOString();
       }
-      const { error } = await this.supabase
+      const { error, data } = await this.supabase
         .from("expert_sessions")
         .update(update)
-        .eq("id", sessionId);
+        .eq("id", sessionId)
+        .select("id");
       if (error) {
         console.warn(`[expert] DB update failed for session ${sessionId}: ${error.message}`);
+      } else if (!data || data.length === 0) {
+        console.warn(`[expert] DB update for session ${sessionId} matched 0 rows (RLS may be blocking)`);
+      } else {
+        console.log(`[expert] Updated session ${sessionId} → ${status}`);
       }
     } catch (err) {
       console.error(`[expert] DB update error for session ${sessionId}:`, err);

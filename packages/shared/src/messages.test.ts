@@ -21,7 +21,7 @@ describe("Pipeline statuses", () => {
 
   it("JOB_STATUSES contains key pipeline states", () => {
     expect(JOB_STATUSES).toContain("queued");
-    expect(JOB_STATUSES).toContain("dispatched");
+    expect(JOB_STATUSES).toContain("executing");
     expect(JOB_STATUSES).toContain("complete");
     expect(JOB_STATUSES).toContain("failed");
     expect(JOB_STATUSES).toContain("cancelled");

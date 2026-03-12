@@ -131,11 +131,35 @@ Deno.serve(async (req: Request): Promise<Response> => {
       // Don't fail the whole request — still try to return jobs
     }
 
+    const env = Deno.env.get("ZAZIG_ENV") ?? "production";
+    const { data: latestVersion, error: latestVersionErr } = await supabaseAdmin
+      .from("agent_versions")
+      .select("version")
+      .eq("env", env)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestVersionErr) {
+      console.error("[agent-inbound-poll] agent_versions lookup failed:", latestVersionErr.message);
+    }
+
+    const versionMetadata: Record<string, unknown> = {};
+    if (latestVersion?.version && latestVersion.version !== agentVersion) {
+      versionMetadata.outdated = true;
+      versionMetadata.required_version = latestVersion.version;
+    }
+
+    const baseResponse: Record<string, unknown> = {
+      heartbeat: "ok",
+      ...versionMetadata,
+    };
+
     // ---------------------------------------------------------------
     // 2. Find queued jobs this machine can handle
     // ---------------------------------------------------------------
     if (slotsClaudeCode <= 0 && slotsCodex <= 0) {
-      return jsonResponse({ jobs: [], heartbeat: "ok" });
+      return jsonResponse({ jobs: [], ...baseResponse });
     }
 
     // Resolve machine ID for claiming
@@ -147,7 +171,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .single();
 
     if (machineErr || !machineRow) {
-      return jsonResponse({ jobs: [], heartbeat: "ok", error: "Machine not found" });
+      return jsonResponse({ jobs: [], ...baseResponse, error: "Machine not found" });
     }
 
     const machineId = machineRow.id;
@@ -162,6 +186,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       )
       .eq("company_id", companyId)
       .eq("status", "queued")
+      .or("prompt_stack.not.is.null,context.not.is.null")
       .order("created_at", { ascending: true });
 
     if (queueErr) {
@@ -238,7 +263,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (remainingClaude <= 0 && remainingCodex <= 0) break;
     }
 
-    return jsonResponse({ jobs: claimedMessages, heartbeat: "ok" });
+    return jsonResponse({ jobs: claimedMessages, ...baseResponse });
   } catch (err) {
     console.error("[agent-inbound-poll] Error:", err);
     return jsonResponse({ error: String(err) }, 500);

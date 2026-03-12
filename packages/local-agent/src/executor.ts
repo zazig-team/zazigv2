@@ -1,7 +1,7 @@
 /**
  * executor.ts — Job execution manager
  *
- * Handles the lifecycle of AI agent jobs dispatched by the orchestrator:
+ * Handles the lifecycle of AI agent jobs claimed by the orchestrator:
  *   1. Receives StartJob → acquires slot → spawns tmux session → sends JobAck + JobStatusMessage(executing)
  *   2. Polls the tmux session every 30 s to detect completion
  *   3. On success: reads output file if present → sends JobComplete → releases slot
@@ -372,7 +372,7 @@ export class JobExecutor {
 
   /** Jobs that have been attempted (including failures) — prevents duplicate dispatch. */
 
-  /** Manages bare repo clones and job worktrees for all dispatched jobs. */
+  /** Manages bare repo clones and job worktrees for all active jobs. */
   public readonly repoManager = new RepoManager();
 
   /** Map of role → active persistent agent state. Supports simultaneous CPO, CTO, etc. */
@@ -587,7 +587,7 @@ export class JobExecutor {
       return;
     }
 
-    // --- 1. Acquire slot (soft — never reject a dispatched job) ---
+    // --- 1. Acquire slot (soft — never reject a claimed job) ---
     const slotAcquired = this.slots.tryAcquire(slotType);
     if (slotAcquired) {
       jobLog(jobId, `Slot acquired: ${slotType}`);
@@ -900,7 +900,7 @@ export class JobExecutor {
       companyProjects: job.projects?.length ? job.projects : undefined,
     };
 
-    // Persistent agents don't consume slots — they run alongside dispatched jobs.
+    // Persistent agents don't consume slots — they run alongside claimed jobs.
     await this.handlePersistentJob(
       `persistent-${job.role}`,
       syntheticMsg as PersistentStartJob,

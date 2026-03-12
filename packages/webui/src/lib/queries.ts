@@ -483,9 +483,7 @@ export async function fetchPulseMetrics(companyId: string): Promise<PulseMetrics
       feature.status === "verifying",
   ).length;
 
-  const activeJobs = jobs.filter(
-    (job) => job.status === "dispatched" || job.status === "executing",
-  ).length;
+  const activeJobs = jobs.filter((job) => job.status === "executing").length;
   const totalJobs = jobs.length;
   const successfulJobs = jobs.filter((job) => job.status === "complete").length;
   const shipRate = totalJobs === 0 ? 0 : Math.round((successfulJobs / totalJobs) * 100);
@@ -508,7 +506,7 @@ export async function fetchDashboardTeam(
       .from("jobs")
       .select("role, status, machine_id")
       .eq("company_id", companyId)
-      .in("status", ["dispatched", "executing"]),
+      .in("status", ["executing"]),
     supabase
       .from("machines")
       .select("id, last_heartbeat")
@@ -814,7 +812,7 @@ export async function fetchTeamPageData(companyId: string): Promise<TeamPageData
       .from("jobs")
       .select("id, role, status, title")
       .eq("company_id", companyId)
-      .in("status", ["dispatched", "executing"]),
+      .in("status", ["executing"]),
     supabase
       .from("machines")
       .select("id, name, status, last_heartbeat, slots_claude_code, slots_codex")

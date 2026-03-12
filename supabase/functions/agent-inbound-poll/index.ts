@@ -282,13 +282,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // ---------------------------------------------------------------
     // 4. Find requested expert sessions for this machine
     // ---------------------------------------------------------------
+    const thirtySecondsAgo = new Date(Date.now() - 30_000).toISOString();
     const { data: sessionsData, error: sessionsErr } = await supabaseAdmin
       .from("expert_sessions")
       .select(
         "id, brief, headless, batch_id, items_total, status, expert_roles(name, display_name, model, prompt, skills, mcp_tools, settings_overrides)",
       )
       .eq("status", "requested")
-      .eq("machine_id", machineId);
+      .eq("machine_id", machineId)
+      .gte("created_at", thirtySecondsAgo);
 
     if (sessionsErr) {
       console.error("[agent-inbound-poll] Expert sessions query failed:", sessionsErr.message);

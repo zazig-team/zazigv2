@@ -183,6 +183,9 @@ export class ExpertSessionManager {
       return;
     }
 
+    // Immediately mark as "starting" so the poll endpoint stops re-sending
+    await this.updateSessionStatus(sessionId, "starting");
+
     const shortId = sessionId.slice(0, 8);
     const roleName =
       (msg as StartExpertMessage & { role_name?: string }).role_name

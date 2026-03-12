@@ -1360,7 +1360,7 @@ input {
 
 .ideas-submit-button {
   border: none;
-  background: var(--ember);
+  background: #22c55e;
   color: #fff;
   border-radius: var(--radius-sm);
   padding: 8px 12px;

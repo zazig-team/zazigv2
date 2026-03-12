@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "012da8c";
+const AGENT_BUILD_HASH = "dc40e19";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -20020,6 +20020,7 @@ var ExpertSessionManager = class {
     if (this.activeSessions.has(sessionId)) {
       return;
     }
+    await this.updateSessionStatus(sessionId, "starting");
     const shortId = sessionId.slice(0, 8);
     const roleName = msg.role_name ?? msg.display_name ?? "expert";
     const expertBranch = `expert/${slugifyBranchSegment(roleName)}-${shortId}`;

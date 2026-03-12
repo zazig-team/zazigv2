@@ -30,10 +30,14 @@ import type { SlotTracker } from "./slots.js";
 import { generateExecSkill, publishSharedExecSkill, setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
 
 /**
- * Resolve the MCP server path — prefers the bundled .mjs (production),
- * falls back to the tsc-compiled .js (dev mode).
+ * Resolve the MCP server path — prefers compiled binary in ~/.zazigv2/bin/,
+ * then bundled .mjs (production), then tsc-compiled .js (dev mode).
  */
 function resolveMcpServerPath(): string {
+  // Check for compiled binary first
+  const binPath = join(homedir(), ".zazigv2", "bin", "agent-mcp-server");
+  if (existsSync(binPath)) return binPath;
+
   const thisDir = dirname(fileURLToPath(import.meta.url));
   const mjsPath = join(thisDir, "agent-mcp-server.mjs");
   if (existsSync(mjsPath)) return mjsPath;

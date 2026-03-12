@@ -12,6 +12,7 @@ WHERE status = 'dispatched';
 -- Re-add status constraint without 'dispatched'.
 ALTER TABLE public.jobs ADD CONSTRAINT jobs_status_check
   CHECK (status IN (
+    'created',
     'queued',
     'executing',
     'verify_queued',

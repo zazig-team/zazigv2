@@ -11,9 +11,9 @@ export default function Landing(): JSX.Element {
             zazig<span className="landing-nav-dot" />
           </Link>
           <div className="landing-nav-links">
-            <Link to="/about" className="landing-nav-link">
+            <a className="landing-nav-link" href="#" onClick={(event) => event.preventDefault()}>
               About
-            </Link>
+            </a>
             <a className="landing-nav-link" href="#" onClick={(event) => event.preventDefault()}>
               Docs
             </a>

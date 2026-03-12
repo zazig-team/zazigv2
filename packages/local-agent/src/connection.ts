@@ -7,6 +7,7 @@
  */
 
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
+import WebSocket from "ws";
 import { execFile } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -61,7 +62,17 @@ export class AgentConnection {
       throw new Error("[local-agent] refresh_token is required when access_token is set — daemon refused to start");
     }
 
-    this.supabase = createClient(config.supabase.url, config.supabase.anon_key);
+    this.supabase = createClient(config.supabase.url, config.supabase.anon_key, {
+      realtime: {
+        // Node.js requires an explicit WebSocket implementation; the ws package
+        // types don't perfectly align with supabase-js's WebSocketLikeConstructor.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        transport: WebSocket as any,
+        params: {
+          eventsPerSecond: 10,
+        },
+      },
+    });
 
     // Prefer authenticated JWT with auto-refresh for DB writes (respects RLS).
     // Fall back to service_role key (bypasses RLS), then anon client.
@@ -353,7 +364,7 @@ export class AgentConnection {
     }
 
     const channelName = `agent:${this.machineName}:${this.primaryCompanyId}`;
-    this.realtimeChannel = this.dbClient
+    this.realtimeChannel = this.supabase
       .channel(channelName)
       .on("broadcast", { event: "start_expert" }, (msg) => {
         if (msg.payload) {

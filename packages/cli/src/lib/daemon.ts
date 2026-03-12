@@ -153,7 +153,13 @@ export function startDaemonForCompany(
   const logPath = logPathForCompany(companyId);
   const logFd = openSync(logPath, "a");
 
-  const child = spawn(process.execPath, [agentEntry], {
+  // Compiled binaries (no .mjs/.js extension) run directly.
+  // Script entries need to be run via node.
+  const isScript = agentEntry.endsWith(".mjs") || agentEntry.endsWith(".js");
+  const command = isScript ? process.execPath : agentEntry;
+  const args = isScript ? [agentEntry] : [];
+
+  const child = spawn(command, args, {
     detached: true,
     stdio: ["ignore", logFd, logFd],
     env,

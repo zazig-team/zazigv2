@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "9ec97ae";
+const AGENT_BUILD_HASH = "639b63d";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -2144,8 +2144,8 @@ var require_RealtimeChannel = __commonJS({
       _trigger(type, payload, ref) {
         var _a, _b;
         const typeLower = type.toLocaleLowerCase();
-        const { close, error, leave, join: join8 } = constants_1.CHANNEL_EVENTS;
-        const events = [close, error, leave, join8];
+        const { close, error, leave, join: join9 } = constants_1.CHANNEL_EVENTS;
+        const events = [close, error, leave, join9];
         if (ref && events.indexOf(typeLower) >= 0 && ref !== this._joinRef()) {
           return;
         }
@@ -11697,8 +11697,8 @@ var require_websocket_server = __commonJS({
 
 // ../local-agent/dist/index.js
 import { createWriteStream } from "node:fs";
-import { homedir as homedir5 } from "node:os";
-import { join as join7 } from "node:path";
+import { homedir as homedir6 } from "node:os";
+import { join as join8 } from "node:path";
 
 // ../local-agent/dist/config.js
 import { readFileSync, existsSync } from "node:fs";
@@ -16660,8 +16660,8 @@ function publishSharedExecSkill(role, workspacePath, repoRoot) {
   const skillDir = join2(repoRoot, ".claude", "skills", `as-${role.name}`);
   mkdirSync(skillDir, { recursive: true });
   const displayName = role.name.toUpperCase();
-  const homedir6 = process.env.HOME ?? "/root";
-  const portablePath = workspacePath.startsWith(homedir6) ? workspacePath.replace(homedir6, "~") : workspacePath;
+  const homedir7 = process.env.HOME ?? "/root";
+  const portablePath = workspacePath.startsWith(homedir7) ? workspacePath.replace(homedir7, "~") : workspacePath;
   const promptLines = role.prompt.split("\n").filter((l) => l.trim());
   const summary = promptLines.slice(0, 5).join("\n");
   const truncated = summary.length < role.prompt.length ? `${summary}
@@ -20762,6 +20762,9 @@ ${typecheckStep.output}`,
 
 // ../local-agent/dist/version.js
 import { execSync } from "node:child_process";
+import { readFileSync as readFileSync6 } from "node:fs";
+import { join as join7 } from "node:path";
+import { homedir as homedir5 } from "node:os";
 function runGitCommand(command, cwd) {
   try {
     const output = execSync(command, {
@@ -20774,6 +20777,13 @@ function runGitCommand(command, cwd) {
     return null;
   }
 }
+function readBinVersion() {
+  try {
+    return readFileSync6(join7(homedir5(), ".zazigv2", "bin", ".version"), "utf8").trim() || null;
+  } catch {
+    return null;
+  }
+}
 function resolveAgentVersion() {
   const env = process.env["ZAZIG_ENV"] ?? "production";
   const repoRoot = process.env["ZAZIG_REPO_PATH"] ?? process.cwd();
@@ -20782,6 +20792,9 @@ function resolveAgentVersion() {
     if (localAgentHash)
       return localAgentHash;
   }
+  const binVersion = readBinVersion();
+  if (binVersion)
+    return binVersion;
   if (typeof AGENT_BUILD_HASH !== "undefined" && AGENT_BUILD_HASH) {
     return AGENT_BUILD_HASH;
   }
@@ -20793,7 +20806,7 @@ function resolveAgentVersion() {
 
 // ../local-agent/dist/index.js
 var companySlug = process.env["ZAZIG_COMPANY_ID"]?.slice(0, 8) ?? "default";
-var logPath = join7(homedir5(), ".zazigv2", `local-agent-${companySlug}.log`);
+var logPath = join8(homedir6(), ".zazigv2", `local-agent-${companySlug}.log`);
 var logStream = createWriteStream(logPath, { flags: "a" });
 var origLog = console.log;
 var origErr = console.error;

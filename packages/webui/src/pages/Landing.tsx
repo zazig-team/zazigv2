@@ -29,18 +29,6 @@ export default function Landing(): JSX.Element {
             <span className="landing-hero-dot" />
           </div>
           <p className="landing-hero-tagline">Your autonomous startup that scales while you sleep.</p>
-          <Link to="/login" className="landing-hero-cta">
-            Get started
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            >
-              <path d="M3 8h10M9 4l4 4-4 4" />
-            </svg>
-          </Link>
         </main>
 
         <footer className="landing-footer">

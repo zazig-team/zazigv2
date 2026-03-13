@@ -2545,6 +2545,387 @@ async function recoverStaleTriagingIdeas(
   }
 }
 
+interface DevelopingIdeaRow {
+  id: string;
+  company_id: string;
+  project_id: string | null;
+  complexity: string | null;
+}
+
+interface ExpertSessionChainRow {
+  id: string;
+  status: string;
+  createdAt: string;
+  batchId: string | null;
+  brief: string;
+  roleName: string | null;
+  route: string | null;
+}
+
+function parseSessionChainRow(
+  row: Record<string, unknown>,
+  route: string | null,
+): ExpertSessionChainRow | null {
+  const id = typeof row.id === "string" ? row.id : null;
+  const status = typeof row.status === "string" ? row.status : null;
+  const createdAt = typeof row.created_at === "string" ? row.created_at : null;
+  if (!id || !status || !createdAt) return null;
+
+  const expertRole = row.expert_role as Record<string, unknown> | null;
+  return {
+    id,
+    status,
+    createdAt,
+    batchId: typeof row.batch_id === "string" ? row.batch_id : null,
+    brief: typeof row.brief === "string" ? row.brief : "",
+    roleName: typeof expertRole?.name === "string" ? expertRole.name : null,
+    route,
+  };
+}
+
+function defaultAutoSpecBrief(roleName: string, ideaId: string): string {
+  const ideaIdsJson = JSON.stringify([ideaId]);
+  if (roleName === "spec-reviewer" || roleName === "reviewer") {
+    return `Auto-spec review continuation. Review these ideas: ${ideaIdsJson}. Validate the spec against the codebase and call record_session_item with route=approve|revise|workshop|hardening.`;
+  }
+  return `Auto-spec continuation. Write or revise specs for these ideas: ${ideaIdsJson}. Read prior review notes if present, update spec fields via update_idea, and record completion route.`;
+}
+
+async function dispatchHeadlessExpert(
+  companyId: string,
+  roleName: string,
+  brief: string,
+  projectId: string,
+  batchId: string,
+): Promise<boolean> {
+  const response = await fetch(
+    `${Deno.env.get("SUPABASE_URL")}/functions/v1/start-expert-session`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        "x-company-id": companyId,
+      },
+      body: JSON.stringify({
+        role_name: roleName,
+        brief,
+        machine_name: "auto",
+        project_id: projectId,
+        headless: true,
+        batch_id: batchId,
+      }),
+    },
+  );
+
+  return response.ok;
+}
+
+async function setDevelopingIdeaStatus(
+  supabase: SupabaseClient,
+  ideaId: string,
+  targetStatus: "specced" | "workshop" | "hardening" | "triaged",
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("ideas")
+    .update({ status: targetStatus })
+    .eq("id", ideaId)
+    .eq("status", "developing")
+    .select("id");
+
+  if (error) {
+    console.error(
+      `[orchestrator] stale-developing-recovery: failed setting idea ${ideaId} to ${targetStatus}: ${error.message}`,
+    );
+    return false;
+  }
+
+  return Boolean(data && data.length > 0);
+}
+
+async function continueAutoSpecChain(
+  supabase: SupabaseClient,
+  idea: DevelopingIdeaRow,
+  latestSession: ExpertSessionChainRow,
+  roundCount: number,
+): Promise<void> {
+  if (roundCount >= 5) {
+    const updated = await setDevelopingIdeaStatus(supabase, idea.id, "workshop");
+    if (updated) {
+      console.log(
+        `[orchestrator] stale-developing-recovery: escalated idea ${idea.id} to workshop (round cap reached: ${roundCount})`,
+      );
+    }
+    return;
+  }
+
+  const roleName = latestSession.roleName;
+  if (roleName === "spec-writer") {
+    if (idea.complexity === "simple") {
+      const updated = await setDevelopingIdeaStatus(supabase, idea.id, "specced");
+      if (updated) {
+        console.log(
+          `[orchestrator] stale-developing-recovery: completed idea ${idea.id} developing → specced after spec-writer`,
+        );
+      }
+      return;
+    }
+
+    if (!idea.project_id || !latestSession.batchId) {
+      console.log(
+        `[orchestrator] stale-developing-recovery: cannot dispatch reviewer for idea ${idea.id} (missing project_id or batch_id)`,
+      );
+      return;
+    }
+
+    const dispatched = await dispatchHeadlessExpert(
+      idea.company_id,
+      "spec-reviewer",
+      defaultAutoSpecBrief("spec-reviewer", idea.id),
+      idea.project_id,
+      latestSession.batchId,
+    );
+
+    if (dispatched) {
+      console.log(
+        `[orchestrator] stale-developing-recovery: dispatched spec-reviewer for idea ${idea.id} (batch ${latestSession.batchId})`,
+      );
+    } else {
+      console.log(
+        `[orchestrator] stale-developing-recovery: failed to dispatch spec-reviewer for idea ${idea.id} (batch ${latestSession.batchId})`,
+      );
+    }
+    return;
+  }
+
+  if (roleName === "spec-reviewer" || roleName === "reviewer") {
+    let route = latestSession.route;
+    if (!route) {
+      const { data: itemRow } = await supabase
+        .from("expert_session_items")
+        .select("route")
+        .eq("session_id", latestSession.id)
+        .eq("idea_id", idea.id)
+        .maybeSingle();
+      route = typeof itemRow?.route === "string" ? itemRow.route : null;
+    }
+
+    if (route === "approve") {
+      const updated = await setDevelopingIdeaStatus(supabase, idea.id, "specced");
+      if (updated) {
+        console.log(
+          `[orchestrator] stale-developing-recovery: reviewer approved idea ${idea.id}; set developing → specced`,
+        );
+      }
+      return;
+    }
+
+    if (route === "workshop" || route === "hardening") {
+      const updated = await setDevelopingIdeaStatus(supabase, idea.id, route);
+      if (updated) {
+        console.log(
+          `[orchestrator] stale-developing-recovery: reviewer routed idea ${idea.id} to ${route}`,
+        );
+      }
+      return;
+    }
+
+    if (route === "revise") {
+      if (!idea.project_id || !latestSession.batchId) {
+        console.log(
+          `[orchestrator] stale-developing-recovery: cannot re-dispatch spec-writer for idea ${idea.id} (missing project_id or batch_id)`,
+        );
+        return;
+      }
+
+      const dispatched = await dispatchHeadlessExpert(
+        idea.company_id,
+        "spec-writer",
+        defaultAutoSpecBrief("spec-writer", idea.id),
+        idea.project_id,
+        latestSession.batchId,
+      );
+
+      if (dispatched) {
+        console.log(
+          `[orchestrator] stale-developing-recovery: reviewer requested revision; dispatched spec-writer for idea ${idea.id} (batch ${latestSession.batchId})`,
+        );
+      } else {
+        console.log(
+          `[orchestrator] stale-developing-recovery: failed to dispatch spec-writer revision for idea ${idea.id} (batch ${latestSession.batchId})`,
+        );
+      }
+      return;
+    }
+
+    console.log(
+      `[orchestrator] stale-developing-recovery: reviewer route missing/unknown for idea ${idea.id} (session ${latestSession.id})`,
+    );
+    return;
+  }
+
+  console.log(
+    `[orchestrator] stale-developing-recovery: no continuation rule for idea ${idea.id} after role ${roleName ?? "unknown"}`,
+  );
+}
+
+/**
+ * Recover ideas stuck at 'developing' by resuming or repairing spec/review chains.
+ */
+async function recoverStaleDevelopingIdeas(supabase: SupabaseClient): Promise<void> {
+  const staleCutoffIso = new Date(Date.now() - AUTO_TRIAGE_STALE_THRESHOLD_MS).toISOString();
+  const staleCutoffMs = Date.now() - AUTO_TRIAGE_STALE_THRESHOLD_MS;
+
+  const { data: staleIdeas, error: staleErr } = await supabase
+    .from("ideas")
+    .select("id, company_id, project_id, complexity")
+    .eq("status", "developing")
+    .lt("updated_at", staleCutoffIso);
+
+  if (staleErr || !staleIdeas?.length) return;
+
+  for (const idea of staleIdeas as DevelopingIdeaRow[]) {
+    const sessionMap = new Map<string, ExpertSessionChainRow>();
+
+    const { data: itemRows } = await supabase
+      .from("expert_session_items")
+      .select(
+        "route, session:session_id!inner(id, status, created_at, batch_id, brief, expert_role:expert_role_id!inner(name))",
+      )
+      .eq("idea_id", idea.id);
+
+    for (const row of itemRows ?? []) {
+      const item = row as Record<string, unknown>;
+      const sessionRaw = item.session as Record<string, unknown> | null;
+      if (!sessionRaw) continue;
+      const route = typeof item.route === "string" ? item.route : null;
+      const parsed = parseSessionChainRow(sessionRaw, route);
+      if (parsed && (parsed.roleName === "spec-writer" || parsed.roleName === "spec-reviewer" || parsed.roleName === "reviewer")) {
+        sessionMap.set(parsed.id, parsed);
+      }
+    }
+
+    const { data: hintedSessions } = await supabase
+      .from("expert_sessions")
+      .select("id, status, created_at, batch_id, brief, expert_role:expert_role_id!inner(name)")
+      .eq("company_id", idea.company_id)
+      .eq("headless", true)
+      .ilike("brief", `%${idea.id}%`)
+      .in("expert_role.name", ["spec-writer", "spec-reviewer", "reviewer"])
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    for (const row of hintedSessions ?? []) {
+      const parsed = parseSessionChainRow(row as Record<string, unknown>, null);
+      if (parsed) {
+        const existing = sessionMap.get(parsed.id);
+        if (!existing) sessionMap.set(parsed.id, parsed);
+      }
+    }
+
+    const ideaSessions = [...sessionMap.values()].sort((a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    const hintedLatest = ideaSessions[0];
+    if (!hintedLatest?.batchId) {
+      const reverted = await setDevelopingIdeaStatus(supabase, idea.id, "triaged");
+      if (reverted) {
+        console.log(
+          `[orchestrator] stale-developing-recovery: reverted idea ${idea.id} developing → triaged (no spec-session chain found)`,
+        );
+      }
+      continue;
+    }
+
+    const { data: batchRows } = await supabase
+      .from("expert_sessions")
+      .select("id, status, created_at, batch_id, brief, expert_role:expert_role_id!inner(name)")
+      .eq("company_id", idea.company_id)
+      .eq("batch_id", hintedLatest.batchId)
+      .in("expert_role.name", ["spec-writer", "spec-reviewer", "reviewer"])
+      .order("created_at", { ascending: false });
+
+    const batchSessions = ((batchRows ?? []) as Record<string, unknown>[])
+      .map((row: Record<string, unknown>) => {
+        const existing = sessionMap.get((row as { id: string }).id);
+        if (existing) return existing;
+        return parseSessionChainRow(row as Record<string, unknown>, null);
+      })
+      .filter(
+        (row: ExpertSessionChainRow | null): row is ExpertSessionChainRow =>
+          row !== null,
+      );
+
+    if (batchSessions.length === 0) {
+      const reverted = await setDevelopingIdeaStatus(supabase, idea.id, "triaged");
+      if (reverted) {
+        console.log(
+          `[orchestrator] stale-developing-recovery: reverted idea ${idea.id} developing → triaged (orphaned batch ${hintedLatest.batchId})`,
+        );
+      }
+      continue;
+    }
+
+    const latestSession = batchSessions[0];
+    if (latestSession.status === "completed") {
+      await continueAutoSpecChain(
+        supabase,
+        idea,
+        latestSession,
+        batchSessions.length,
+      );
+      continue;
+    }
+
+    const createdAtMs = new Date(latestSession.createdAt).getTime();
+    if (
+      latestSession.status === "requested" &&
+      Number.isFinite(createdAtMs) &&
+      createdAtMs < staleCutoffMs
+    ) {
+      const { data: cancelledRows, error: cancelErr } = await supabase
+        .from("expert_sessions")
+        .update({ status: "cancelled" })
+        .eq("id", latestSession.id)
+        .eq("status", "requested")
+        .select("id");
+
+      if (cancelErr || !cancelledRows?.length) {
+        console.log(
+          `[orchestrator] stale-developing-recovery: failed to cancel stuck requested session ${latestSession.id} for idea ${idea.id}: ${cancelErr?.message ?? "race/lost update"}`,
+        );
+        continue;
+      }
+
+      if (!idea.project_id || !latestSession.batchId || !latestSession.roleName) {
+        console.log(
+          `[orchestrator] stale-developing-recovery: cancelled session ${latestSession.id} for idea ${idea.id} but cannot re-dispatch (missing project_id, batch_id, or role)`,
+        );
+        continue;
+      }
+
+      const dispatched = await dispatchHeadlessExpert(
+        idea.company_id,
+        latestSession.roleName,
+        latestSession.brief || defaultAutoSpecBrief(latestSession.roleName, idea.id),
+        idea.project_id,
+        latestSession.batchId,
+      );
+
+      if (dispatched) {
+        console.log(
+          `[orchestrator] stale-developing-recovery: cancelled stale requested session ${latestSession.id} and re-dispatched ${latestSession.roleName} for idea ${idea.id} (batch ${latestSession.batchId})`,
+        );
+      } else {
+        console.log(
+          `[orchestrator] stale-developing-recovery: cancelled stale requested session ${latestSession.id} but failed to re-dispatch ${latestSession.roleName} for idea ${idea.id}`,
+        );
+      }
+    }
+  }
+}
+
 async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
   const { data: companies } = await supabase
     .from("companies")
@@ -3162,7 +3543,10 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 4b. Recover ideas stuck at 'triaging' with no active triage job (orphan protection).
     await recoverStaleTriagingIdeas(supabase);
 
-    // 4c. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
+    // 4c. Recover ideas stuck at 'developing' in broken spec/review chains.
+    await recoverStaleDevelopingIdeas(supabase);
+
+    // 4d. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
     await autoTriageNewIdeas(supabase);
 
     // 4d. Recover stale developing ideas

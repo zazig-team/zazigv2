@@ -84,6 +84,14 @@ chmod +x "$BIN_DIR/zazig" "$BIN_DIR/zazig-agent" "$BIN_DIR/agent-mcp-server"
 # 7. Write version file
 echo "${VERSION#v}" > "$BIN_DIR/.version"
 
+# 8. Symlink zazig-staging wrapper (runs from repo source)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+STAGING_SCRIPT="$SCRIPT_DIR/zazig-staging"
+if [[ -f "$STAGING_SCRIPT" ]]; then
+  ln -sf "$STAGING_SCRIPT" "$BIN_DIR/zazig-staging"
+  echo "Linked zazig-staging → $BIN_DIR/zazig-staging"
+fi
+
 echo
 echo "Installed zazig $VERSION to $BIN_DIR"
 echo

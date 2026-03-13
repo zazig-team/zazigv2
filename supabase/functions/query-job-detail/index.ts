@@ -163,10 +163,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     return jsonResponse({
-      job: {
-        ...job,
-        machine_name: machineName,
-      },
+      ...job,
+      machine_name: machineName,
     });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);

@@ -180,11 +180,13 @@ export class RepoManager {
       if (!existsSync(repoDir)) {
         await execFileAsync("git", ["clone", "--bare", repoUrl, repoDir], { encoding: "utf8" });
       }
-      // Ensure refspec does NOT force-update (no leading "+"). Without "+",
-      // git fetch refuses to overwrite branches that have diverged from
-      // the remote, which protects job branches with active worktrees from
-      // being clobbered by a concurrent job's fetch.
-      await this.git(repoDir, "config", "remote.origin.fetch", "refs/heads/*:refs/heads/*");
+      // Configure a selective fetch strategy:
+      // - force-update master/feature/expert tracking refs
+      // - keep job/* non-force to protect active job worktrees from clobbering
+      await this.git(repoDir, "config", "remote.origin.fetch", "+refs/heads/master:refs/heads/master");
+      await this.git(repoDir, "config", "--add", "remote.origin.fetch", "+refs/heads/feature/*:refs/heads/feature/*");
+      await this.git(repoDir, "config", "--add", "remote.origin.fetch", "+refs/heads/expert/*:refs/heads/expert/*");
+      await this.git(repoDir, "config", "--add", "remote.origin.fetch", "refs/heads/job/*:refs/heads/job/*");
       // Check if repo is empty. NOTE: rev-parse HEAD without --verify returns
       // the literal string "HEAD" with exit 0 in an empty repo, so --verify
       // is required to actually detect emptiness.

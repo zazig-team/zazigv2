@@ -218,6 +218,33 @@ describe("removeWorktree", () => {
   });
 });
 
+describe("RepoManager.ensureRepo", () => {
+  it("configures selective fetch refspecs with force for master/feature/expert and non-force for job", async () => {
+    const sourceDir = createSourceRepo();
+    try {
+      const manager = new branches.RepoManager();
+      const bareDir = await manager.ensureRepo(sourceDir, "ensure-repo-fetch-config-project");
+      const fetchConfig = git(bareDir, "config", "--get-all", "remote.origin.fetch")
+        .split("\n")
+        .filter(Boolean);
+
+      expect(fetchConfig).toHaveLength(4);
+      expect(fetchConfig).toEqual([
+        "+refs/heads/master:refs/heads/master",
+        "+refs/heads/feature/*:refs/heads/feature/*",
+        "+refs/heads/expert/*:refs/heads/expert/*",
+        "refs/heads/job/*:refs/heads/job/*",
+      ]);
+      expect(fetchConfig[0]?.startsWith("+")).toBe(true);
+      expect(fetchConfig[1]?.startsWith("+")).toBe(true);
+      expect(fetchConfig[2]?.startsWith("+")).toBe(true);
+      expect(fetchConfig[3]?.startsWith("+")).toBe(false);
+    } finally {
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("RepoManager.ensureWorktree", () => {
   it("creates the shared worktree on main when master is absent", async () => {
     const sourceDir = createSourceRepo();

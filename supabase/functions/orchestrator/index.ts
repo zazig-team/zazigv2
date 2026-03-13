@@ -2818,14 +2818,26 @@ async function dispatchHeadlessSpecSession(
   brief: string,
   batchId: string,
 ): Promise<{ ok: boolean; sessionId: string | null; error: string | null }> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return {
+      ok: false,
+      sessionId: null,
+      error:
+        "Missing required environment variables: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY",
+    };
+  }
+
   try {
     const response = await fetch(
-      `${SUPABASE_URL}/functions/v1/start-expert-session`,
+      `${supabaseUrl}/functions/v1/start-expert-session`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          Authorization: `Bearer ${serviceRoleKey}`,
           "x-company-id": companyId,
         },
         body: JSON.stringify({

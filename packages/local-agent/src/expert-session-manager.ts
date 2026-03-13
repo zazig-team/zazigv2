@@ -164,6 +164,8 @@ export class ExpertSessionManager {
   private readonly activeSessions = new Map<string, ExpertSessionState>();
   private readonly activePollers = new Map<string, ReturnType<typeof setInterval>>();
   private readonly exitingSessions = new Set<string>();
+  /** Session IDs currently being set up (synchronous guard against concurrent duplicate deliveries). */
+  private readonly startingSessions = new Set<string>();
 
   constructor(opts: ExpertSessionManagerOpts) {
     this.machineId = opts.machineId;
@@ -178,10 +180,14 @@ export class ExpertSessionManager {
   async handleStartExpert(msg: StartExpertMessage): Promise<void> {
     const sessionId = msg.session_id;
 
-    // Deduplicate: skip sessions we're already handling (poll re-delivers while status is still "requested")
-    if (this.activeSessions.has(sessionId)) {
+    // Deduplicate: skip sessions we're already handling.
+    // startingSessions is checked/set synchronously (before any await) to prevent
+    // two concurrent deliveries (Realtime + poll) from both proceeding.
+    if (this.activeSessions.has(sessionId) || this.startingSessions.has(sessionId)) {
+      console.log(`[expert] Duplicate start_expert ignored for session ${sessionId}`);
       return;
     }
+    this.startingSessions.add(sessionId);
 
     // Immediately mark as "starting" so the poll endpoint stops re-sending
     await this.updateSessionStatus(sessionId, "starting");
@@ -209,6 +215,7 @@ export class ExpertSessionManager {
       console.error(
         `[expert] Invalid start_expert payload for ${sessionId}: project_id and repo_url must both be set together`,
       );
+      this.startingSessions.delete(sessionId);
       await this.updateSessionStatus(sessionId, "failed");
       return;
     }
@@ -248,6 +255,7 @@ export class ExpertSessionManager {
         console.log(`[expert] Worktree at commit: ${startCommitHash.slice(0, 8)}`);
       } catch (err) {
         console.error(`[expert] Failed to create git worktree:`, err);
+        this.startingSessions.delete(sessionId);
         await this.updateSessionStatus(sessionId, "failed");
         return;
       }
@@ -365,6 +373,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       console.log(`[expert] Workspace configured at ${effectiveWorkspaceDir}`);
     } catch (err) {
       console.error(`[expert] Failed to set up workspace:`, err);
+      this.startingSessions.delete(sessionId);
       await this.updateSessionStatus(sessionId, "failed");
       return;
     }
@@ -396,6 +405,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
         console.log(`[expert] Spawned headless tmux session: ${tmuxSessionName} (cwd=${effectiveWorkspaceDir})`);
       } catch (err) {
         console.error(`[expert] Failed to spawn headless tmux session:`, err);
+        this.startingSessions.delete(sessionId);
         await this.updateSessionStatus(sessionId, "failed");
         return;
       }
@@ -414,6 +424,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
         displayName,
         tmuxSession: tmuxSessionName,
       };
+      this.startingSessions.delete(sessionId);
       this.activeSessions.set(sessionId, sessionState);
       this.startExitPolling(sessionState);
 
@@ -445,6 +456,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       console.log(`[expert] Spawned tmux session: ${tmuxSessionName} (cwd=${effectiveWorkspaceDir})`);
     } catch (err) {
       console.error(`[expert] Failed to spawn tmux session:`, err);
+      this.startingSessions.delete(sessionId);
       await this.updateSessionStatus(sessionId, "failed");
       return;
     }
@@ -470,6 +482,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       viewerSession: viewerLink?.viewerSession,
       viewerWindowName: viewerLink?.viewerWindowName,
     };
+    this.startingSessions.delete(sessionId);
     this.activeSessions.set(sessionId, sessionState);
 
     // 14. Start polling for tmux session exit

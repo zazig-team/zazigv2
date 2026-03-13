@@ -2796,7 +2796,7 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
       .select("id")
       .eq("company_id", company.id)
       .eq("role", "triage-analyst")
-      .in("status", ["queued", "dispatched", "executing"])
+      .in("status", ["requested", "running", "queued", "dispatched", "executing"])
       .limit(1);
 
     if (activeTriageJobs && activeTriageJobs.length > 0) continue;

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Wrapper to run zazig CLI in staging mode from the repo source.
+# Usage: zazig-staging login | start | stop | status | ...
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+ZAZIG_ENV=staging ZAZIG_REPO_PATH="$REPO_ROOT" exec npx tsx "$REPO_ROOT/packages/cli/src/index.ts" "$@"

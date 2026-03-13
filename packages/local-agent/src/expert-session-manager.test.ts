@@ -300,7 +300,7 @@ describe("ExpertSessionManager", () => {
     await vi.advanceTimersByTimeAsync(20_000);
 
     expect(exitSpy).toHaveBeenCalled();
-    expect(injectSpy).toHaveBeenCalledWith(expect.objectContaining({ sessionId }), "Headless summary");
+    expect(injectSpy).toHaveBeenCalledWith(expect.objectContaining({ sessionId }), null);
     expect(fsRmMock).toHaveBeenCalledWith(expect.stringContaining(`/.zazigv2/expert-${sessionId}`), {
       recursive: true,
       force: true,
@@ -464,13 +464,7 @@ describe("ExpertSessionManager", () => {
 
     await (manager as any).handleSessionExit(session);
 
-    const dbUpdate = supabase.updates.find((u) => u.table === "expert_sessions");
-    expect(dbUpdate).toBeDefined();
-    expect(dbUpdate?.eqColumn).toBe("id");
-    expect(dbUpdate?.eqValue).toBe(session.sessionId);
-    expect(dbUpdate?.data.status).toBe("completed");
-    expect(dbUpdate?.data.summary).toBe("Expert summary line 1\nline 2");
-    expect(typeof dbUpdate?.data.completed_at).toBe("string");
+    expect(supabase.updates.find((u) => u.table === "expert_sessions")).toBeUndefined();
 
     const sendKeysLiteral = mockExecFileAsync.mock.calls.find((call) =>
       call[0] === "tmux"
@@ -479,8 +473,7 @@ describe("ExpertSessionManager", () => {
       && call[1][3] === "-l"
     );
     expect(sendKeysLiteral).toBeDefined();
-    expect(sendKeysLiteral?.[1][4]).toContain("[Expert Report - Research Expert]");
-    expect(sendKeysLiteral?.[1][4]).toContain("Expert summary line 1 line 2");
+    expect(sendKeysLiteral?.[1][4]).toContain("[Expert session ended - no report written]");
 
     expect(mockExecFileAsync).toHaveBeenCalledWith("tmux", ["select-window", "-t", "zazig-view-acme:CPO"]);
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["-C", "/tmp/repos/project.git", "worktree", "remove", "--force", "/tmp/workspace-root/repo"]);

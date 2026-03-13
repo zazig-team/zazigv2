@@ -3804,11 +3804,15 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 4. Dispatch queued jobs to available machines.
     await dispatchQueuedJobs(supabase);
 
-    // 4b. Recover ideas stuck at 'triaging' with no active triage job (orphan protection).
+    // 4a. Recover ideas stuck at 'triaging' with no active triage job (orphan protection).
     await recoverStaleTriagingIdeas(supabase);
 
-    // 4c. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
+    // 4b. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
     await autoTriageNewIdeas(supabase);
+
+    // Step 4c: Auto-spec with review loop
+    await recoverStaleDevelopingIdeas(supabase);
+    await autoSpecTriagedIdeas(supabase);
 
     // 5. Refresh pipeline snapshot cache after all state mutations.
     await refreshPipelineSnapshotCache(supabase);

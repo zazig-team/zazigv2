@@ -4375,7 +4375,7 @@ input {
 
 .job-expand {
   padding: var(--sp-4) var(--sp-5);
-  border-top: 1px solid var(--surface-raised, var(--chalk));
+  border-top: 1px solid var(--surface-raised);
 }
 
 .job-expand-meta {
@@ -4385,7 +4385,7 @@ input {
 .job-expand-progress {
   position: relative;
   height: 6px;
-  background: var(--surface-raised, var(--chalk));
+  background: var(--surface-raised);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -4426,7 +4426,7 @@ input {
   font-family: monospace;
   font-size: 0.75rem;
   white-space: pre-wrap;
-  background: var(--surface-sunken, var(--chalk-light));
+  background: var(--surface-sunken);
   max-height: 200px;
   overflow-y: auto;
   padding: 8px;

@@ -89,3 +89,28 @@ export function rollback(): boolean {
   console.log(`Rolled back to: ${sha ?? "unknown"}`);
   return true;
 }
+
+const BIN_DIR = join(homedir(), ".zazigv2", "bin");
+const BIN_PREVIOUS = join(BIN_DIR, "previous");
+
+export function rollbackBinaries(): boolean {
+  if (!existsSync(BIN_PREVIOUS)) {
+    console.error("No previous binary version to rollback to.");
+    return false;
+  }
+
+  const binaries = ["zazig", "zazig-agent", "agent-mcp-server", ".version"];
+  for (const name of binaries) {
+    const prev = join(BIN_PREVIOUS, name);
+    const curr = join(BIN_DIR, name);
+    if (existsSync(prev)) {
+      cpSync(prev, curr);
+    }
+  }
+
+  const version = existsSync(join(BIN_DIR, ".version"))
+    ? readFileSync(join(BIN_DIR, ".version"), "utf-8").trim()
+    : "unknown";
+  console.log(`Rolled back binaries to: ${version}`);
+  return true;
+}

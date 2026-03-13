@@ -19,6 +19,9 @@ projects/personality/.claude/napkin.md
 /.claude
 /.claude
 
+# Bun compile artifacts
+*.bun-build
+
 # Playwright
 /test-results/
 /playwright-report/

@@ -1,6 +1,6 @@
 status: pass
-summary: Updated orchestrator queued-job handling to enrich prompt/model/slot metadata in-place while removing start_job Realtime dispatch and machine slot claiming from the dispatch path.
+summary: Updated JobDetailExpand to render a progress bar for completed/failed jobs with a 100% fallback when progress is missing, satisfying AC-3-1.
 files_changed:
-  - supabase/functions/orchestrator/index.ts
+  - packages/webui/src/components/JobDetailExpand.tsx
   - .claude/senior-engineer-report.md
-failure_reason: n/a
+failure_reason:

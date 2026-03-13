@@ -7,7 +7,6 @@
  */
 
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
-import WebSocket from "ws";
 import { execFile } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -66,10 +65,6 @@ export class AgentConnection {
 
     this.supabase = createClient(config.supabase.url, config.supabase.anon_key, {
       realtime: {
-        // Node.js requires an explicit WebSocket implementation; the ws package
-        // types don't perfectly align with supabase-js's WebSocketLikeConstructor.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        transport: WebSocket as any,
         params: {
           eventsPerSecond: 10,
         },

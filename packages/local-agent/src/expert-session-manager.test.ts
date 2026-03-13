@@ -225,7 +225,8 @@ describe("ExpertSessionManager", () => {
     expect(shellCmd).toContain("'--model'");
     expect(shellCmd).toContain("'claude-sonnet-4-6'");
     expect(shellCmd).toContain("'-p'");
-    expect(shellCmd).toContain("'Run fully autonomously.'");
+    expect(shellCmd).toContain("cat ");
+    expect(shellCmd).toContain(".zazig-prompt.txt");
 
     expect(linkSpy).not.toHaveBeenCalled();
     expect(pollSpy).toHaveBeenCalledTimes(1);
@@ -299,16 +300,14 @@ describe("ExpertSessionManager", () => {
     await vi.advanceTimersByTimeAsync(20_000);
 
     expect(exitSpy).toHaveBeenCalled();
-    expect(injectSpy).toHaveBeenCalledWith(expect.objectContaining({ sessionId }), "Headless summary");
+    expect(injectSpy).toHaveBeenCalledWith(expect.objectContaining({ sessionId }));
     expect(fsRmMock).toHaveBeenCalledWith(expect.stringContaining(`/.zazigv2/expert-${sessionId}`), {
       recursive: true,
       force: true,
     });
     expect((manager as any).getActiveSessions().has(sessionId)).toBe(false);
 
-    const completedUpdate = supabase.updates.find((u) => u.table === "expert_sessions" && u.data.status === "completed");
-    expect(completedUpdate).toBeDefined();
-    expect(completedUpdate?.data.summary).toBe("Headless summary");
+    expect(supabase.updates.find((u) => u.table === "expert_sessions" && u.data.summary !== undefined)).toBeUndefined();
   });
 
   it("interactive regression: non-headless sessions still link to viewer TUI", async () => {
@@ -465,13 +464,7 @@ describe("ExpertSessionManager", () => {
 
     await (manager as any).handleSessionExit(session);
 
-    const dbUpdate = supabase.updates.find((u) => u.table === "expert_sessions");
-    expect(dbUpdate).toBeDefined();
-    expect(dbUpdate?.eqColumn).toBe("id");
-    expect(dbUpdate?.eqValue).toBe(session.sessionId);
-    expect(dbUpdate?.data.status).toBe("completed");
-    expect(dbUpdate?.data.summary).toBe("Expert summary line 1\nline 2");
-    expect(typeof dbUpdate?.data.completed_at).toBe("string");
+    expect(supabase.updates.find((u) => u.table === "expert_sessions")).toBeUndefined();
 
     const sendKeysLiteral = mockExecFileAsync.mock.calls.find((call) =>
       call[0] === "tmux"
@@ -480,8 +473,7 @@ describe("ExpertSessionManager", () => {
       && call[1][3] === "-l"
     );
     expect(sendKeysLiteral).toBeDefined();
-    expect(sendKeysLiteral?.[1][4]).toContain("[Expert Report - Research Expert]");
-    expect(sendKeysLiteral?.[1][4]).toContain("Expert summary line 1 line 2");
+    expect(sendKeysLiteral?.[1][4]).toContain("[Expert session ended — Research Expert]");
 
     expect(mockExecFileAsync).toHaveBeenCalledWith("tmux", ["select-window", "-t", "zazig-view-acme:CPO"]);
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["-C", "/tmp/repos/project.git", "worktree", "remove", "--force", "/tmp/workspace-root/repo"]);

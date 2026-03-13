@@ -116,11 +116,13 @@ export function generateMcpConfig(
     machineId?: string;
   },
 ): object {
+  // Compiled binaries (no .js/.mjs extension) run directly; scripts need node
+  const isCompiledBinary = !mcpServerPath.endsWith(".js") && !mcpServerPath.endsWith(".mjs");
   return {
     mcpServers: {
       "zazig-messaging": {
-        command: "node",
-        args: [mcpServerPath],
+        command: isCompiledBinary ? mcpServerPath : "node",
+        args: isCompiledBinary ? [] : [mcpServerPath],
         env: {
           SUPABASE_URL: env.supabaseUrl,
           SUPABASE_ANON_KEY: env.supabaseAnonKey,

@@ -10,7 +10,7 @@
  *   6. Waits 3s, discovers agent sessions, launches TUI (unless --no-tui).
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { hostname, homedir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
@@ -82,6 +82,20 @@ function isProcessRunning(pid: number): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+function readRecentAgentErrorLines(logPath: string): string[] | null {
+  try {
+    const content = readFileSync(logPath, "utf8");
+    const recentLines = content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .slice(-20);
+    return recentLines.filter((line) => /ERROR|FATAL/i.test(line));
+  } catch {
+    return null;
   }
 }
 
@@ -236,7 +250,17 @@ export async function start(): Promise<void> {
   while (Date.now() < spawnDeadline) {
     await sleep(2000);
     if (!isProcessRunning(pid)) {
-      console.error(`\nAgent failed to start. Check logs: ${logPathForCompany(company.id)}`);
+      const logPath = logPathForCompany(company.id);
+      const errorLines = readRecentAgentErrorLines(logPath);
+      if (!errorLines || errorLines.length === 0) {
+        console.error(`\nAgent failed to start. Check logs: ${logPath}`);
+      } else {
+        console.error("\nAgent failed to start.");
+        for (const line of errorLines) {
+          console.error(`  ${line}`);
+        }
+        console.error(`Logs: ${logPath}`);
+      }
       process.exitCode = 1;
       return;
     }

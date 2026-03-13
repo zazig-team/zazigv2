@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "4c7d5bf";
+const AGENT_BUILD_HASH = "0401050";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -20383,7 +20383,7 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       clearInterval(poller);
       this.activePollers.delete(session.sessionId);
     }
-    await this.injectSummaryIntoCpo(session, null);
+    await this.injectSummaryIntoCpo(session);
     await this.switchViewerToCpo(session);
     await this.pushUnpushedCommits(session);
     await this.cleanupWorktree(session);
@@ -20396,14 +20396,14 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
     this.exitingSessions.delete(session.sessionId);
     console.log(`[expert] Session ${session.sessionId} exited and cleaned up`);
   }
-  async injectSummaryIntoCpo(session, summary) {
+  async injectSummaryIntoCpo(session) {
     const companyPrefix = this.companyId ? `${this.companyId.slice(0, 8)}-` : "";
     const cpoSessionName = `${this.machineId}-${companyPrefix}cpo`;
     if (!await isTmuxSessionAlive2(cpoSessionName)) {
       console.warn(`[expert] CPO session ${cpoSessionName} not found; skipping summary injection`);
       return;
     }
-    const message = summary ? `[Expert Report - ${session.displayName}] ${summary}` : "[Expert session ended - no report written]";
+    const message = `[Expert session ended \u2014 ${session.displayName}]`;
     const singleLine = message.replace(/\r?\n/g, " ").trim();
     if (!singleLine)
       return;

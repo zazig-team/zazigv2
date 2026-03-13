@@ -13579,7 +13579,7 @@ Slack channel for CPO conversations [${defaultChannel}]: `)).trim() || defaultCh
 }
 
 // dist/commands/start.js
-import { existsSync as existsSync9 } from "node:fs";
+import { existsSync as existsSync9, readFileSync as readFileSync8 } from "node:fs";
 import { hostname, homedir as homedir9 } from "node:os";
 import { join as join10 } from "node:path";
 import { execSync as execSync4 } from "node:child_process";
@@ -14370,6 +14370,15 @@ function isProcessRunning(pid) {
     return false;
   }
 }
+function readRecentAgentErrorLines(logPath) {
+  try {
+    const content = readFileSync8(logPath, "utf8");
+    const recentLines = content.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0).slice(-20);
+    return recentLines.filter((line) => /ERROR|FATAL/i.test(line));
+  } catch {
+    return null;
+  }
+}
 async function start() {
   const noTui = process.argv.includes("--no-tui");
   const companyFlagIdx = process.argv.indexOf("--company");
@@ -14501,8 +14510,18 @@ Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.
   while (Date.now() < spawnDeadline) {
     await sleep(2e3);
     if (!isProcessRunning(pid)) {
-      console.error(`
-Agent failed to start. Check logs: ${logPathForCompany(company.id)}`);
+      const logPath = logPathForCompany(company.id);
+      const errorLines = readRecentAgentErrorLines(logPath);
+      if (!errorLines || errorLines.length === 0) {
+        console.error(`
+Agent failed to start. Check logs: ${logPath}`);
+      } else {
+        console.error("\nAgent failed to start.");
+        for (const line of errorLines) {
+          console.error(`  ${line}`);
+        }
+        console.error(`Logs: ${logPath}`);
+      }
       process.exitCode = 1;
       return;
     }
@@ -14862,7 +14881,7 @@ async function switchArchetype(supabaseUrl, companyId, headers, roleName, roleId
 
 // dist/commands/promote.js
 import { execSync as execSync5 } from "node:child_process";
-import { chmodSync as chmodSync3, cpSync as cpSync3, existsSync as existsSync10, mkdirSync as mkdirSync8, readFileSync as readFileSync8, rmSync as rmSync4, writeFileSync as writeFileSync8 } from "node:fs";
+import { chmodSync as chmodSync3, cpSync as cpSync3, existsSync as existsSync10, mkdirSync as mkdirSync8, readFileSync as readFileSync9, rmSync as rmSync4, writeFileSync as writeFileSync8 } from "node:fs";
 import { join as join12 } from "node:path";
 import { homedir as homedir11 } from "node:os";
 import { createInterface as createInterface5 } from "node:readline/promises";
@@ -14919,7 +14938,7 @@ function resolveDefaultBranch(repoDir) {
   throw new Error(`Cannot resolve default branch in ${repoDir}`);
 }
 function readJsonFile(path) {
-  return JSON.parse(readFileSync8(path, "utf-8"));
+  return JSON.parse(readFileSync9(path, "utf-8"));
 }
 function writeJsonFile(path, data) {
   writeFileSync8(path, `${JSON.stringify(data, null, 2)}
@@ -14978,7 +14997,7 @@ function resolveAgentBuildHash(repoRoot) {
 }
 function injectAgentBuildHash(repoRoot, agentBuildHash) {
   const bundlePath = join12(repoRoot, "packages", "local-agent", "releases", "zazig-agent.mjs");
-  const bundleContent = readFileSync8(bundlePath, "utf-8");
+  const bundleContent = readFileSync9(bundlePath, "utf-8");
   const injected = `const AGENT_BUILD_HASH = "${agentBuildHash}";
 ${bundleContent}`;
   writeFileSync8(bundlePath, injected);
@@ -15324,7 +15343,7 @@ Starting hotfix session: ${description}`);
 
 // dist/commands/staging-fix.js
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { existsSync as existsSync11, readFileSync as readFileSync9 } from "node:fs";
+import { existsSync as existsSync11, readFileSync as readFileSync10 } from "node:fs";
 import { resolve as resolve3 } from "node:path";
 async function stagingFix() {
   const repoRoot = process.cwd();
@@ -15353,7 +15372,7 @@ async function stagingFix() {
     contextParts.push("");
     contextParts.push("## Environment Config:");
     contextParts.push("```yaml");
-    contextParts.push(readFileSync9(envPath, "utf-8"));
+    contextParts.push(readFileSync10(envPath, "utf-8"));
     contextParts.push("```");
   }
   console.log("Starting staging fix session...");

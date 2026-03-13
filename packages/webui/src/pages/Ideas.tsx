@@ -9,6 +9,7 @@ import {
   setAutoTriageSetting,
   promoteIdea,
   updateIdeaStatus,
+  updateIdeaWithNote,
   requestHeadlessTriage,
   requestHeadlessSpec,
   requestEnrichmentJob,
@@ -20,7 +21,7 @@ import { supabase } from "../lib/supabase";
 import FormattedProse from "../components/FormattedProse";
 
 type TypeFilter = "all" | "idea" | "brief" | "bug" | "test";
-type SectionTab = "inbox" | "triaged" | "developing" | "workshop" | "parked" | "rejected" | "shipped";
+type SectionTab = "inbox" | "triaged" | "developing" | "workshop" | "parked" | "rejected" | "shipped" | "done";
 type SortMode = "newest" | "oldest" | "priority";
 
 const TYPE_ICON: Record<string, string> = {
@@ -107,6 +108,7 @@ const STATUS_LABELS: Record<string, string> = {
   parked: "Parked",
   rejected: "Rejected",
   promoted: "Promoted",
+  done: "Done",
   workshop: "Workshop",
 };
 
@@ -129,6 +131,10 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   const [promoting, setPromoting] = useState(false);
   const [promoteError, setPromoteError] = useState<string | null>(null);
   const [promoted, setPromoted] = useState(false);
+  const [markingDone, setMarkingDone] = useState(false);
+  const [showDoneConfirm, setShowDoneConfirm] = useState(false);
+  const [doneNote, setDoneNote] = useState("");
+  const [doneError, setDoneError] = useState<string | null>(null);
 
   // Action state (triage/park/reject/enrich)
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
@@ -141,6 +147,9 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
     setLoading(true);
     setError(null);
     setPromoted(false);
+    setShowDoneConfirm(false);
+    setDoneNote("");
+    setDoneError(null);
 
     fetchIdeaDetail(ideaId).then((result) => {
       if (!cancelled) {
@@ -205,6 +214,20 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setActionInProgress(null);
+    }
+  }
+
+  async function handleMarkDone(): Promise<void> {
+    if (!data) return;
+    setMarkingDone(true);
+    setDoneError(null);
+    try {
+      await updateIdeaWithNote(data.id, "done", doneNote || undefined);
+      onAction(ideaId, "done");
+    } catch (err) {
+      setDoneError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMarkingDone(false);
     }
   }
 
@@ -475,6 +498,17 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
             >
               {promoting ? "Promoting..." : "Promote to Feature"}
             </button>
+            <button
+              className="il-action-secondary il-action-done"
+              type="button"
+              disabled={promoting || markingDone}
+              onClick={() => {
+                setShowDoneConfirm(true);
+                setDoneError(null);
+              }}
+            >
+              Done
+            </button>
             {missingFields.length > 0 && (
               <button
                 className="il-action-secondary il-action-enrich"
@@ -486,6 +520,43 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
               </button>
             )}
           </div>
+
+          {showDoneConfirm && (
+            <div className="il-done-confirm">
+              <label className="il-promote-label" htmlFor={`done-note-${ideaId}`}>Note</label>
+              <textarea
+                id={`done-note-${ideaId}`}
+                className="il-done-note"
+                value={doneNote}
+                onChange={(e) => setDoneNote(e.target.value)}
+                placeholder="Add a note (optional)..."
+                rows={3}
+              />
+              <div className="il-promote-actions">
+                <button
+                  className="il-action-secondary il-action-done"
+                  type="button"
+                  disabled={markingDone}
+                  onClick={handleMarkDone}
+                >
+                  {markingDone ? "Marking..." : "Confirm Done"}
+                </button>
+                <button
+                  className="il-action-secondary"
+                  type="button"
+                  disabled={markingDone}
+                  onClick={() => {
+                    setShowDoneConfirm(false);
+                    setDoneNote("");
+                    setDoneError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+              {doneError && <div className="il-promote-error">{doneError}</div>}
+            </div>
+          )}
         </div>
       )}
 
@@ -671,6 +742,7 @@ export default function Ideas(): JSX.Element {
     parked: filtered.filter((i) => i.status === "parked"),
     rejected: filtered.filter((i) => i.status === "rejected"),
     shipped: filteredPromoted,
+    done: filtered.filter((i) => i.status === "done"),
   }), [filtered, filteredPromoted]);
 
   const activeItems = useMemo(() => {
@@ -694,6 +766,7 @@ export default function Ideas(): JSX.Element {
     parked: ideas.filter((i) => i.status === "parked").length,
     rejected: ideas.filter((i) => i.status === "rejected").length,
     shipped: promotedIdeas.length,
+    done: ideas.filter((i) => i.status === "done").length,
   }), [ideas, promotedIdeas]);
 
   // Type counts
@@ -814,6 +887,7 @@ export default function Ideas(): JSX.Element {
   }
 
   const isShippedTab = activeTab === "shipped";
+  const listItems = activeTab === "done" ? sections.done : activeItems;
 
   return (
     <main className="ideas-page">
@@ -836,6 +910,17 @@ export default function Ideas(): JSX.Element {
             <span className="il-tab-count">{tabCounts[tab]}</span>
           </button>
         ))}
+        {tabCounts.done > 0 && (
+          <button
+            key="done"
+            className={`il-tab${activeTab === "done" ? " active" : ""}`}
+            onClick={() => { setActiveTab("done"); setExpandedId(null); }}
+            type="button"
+          >
+            Done
+            <span className="il-tab-count">{tabCounts.done}</span>
+          </button>
+        )}
       </div>
 
       {/* Type filter (secondary) */}
@@ -887,10 +972,10 @@ export default function Ideas(): JSX.Element {
 
       {/* List */}
       <div className="il-list" ref={listRef}>
-        {activeItems.length === 0 && (
+        {listItems.length === 0 && (
           <div className="il-empty">No {activeTab} ideas{typeFilter !== "all" ? ` of type "${typeFilter}"` : ""}.</div>
         )}
-        {activeItems.map((idea, idx) => {
+        {listItems.map((idea, idx) => {
           const dismissMsg = dismissedIdeas.get(idea.id);
           if (dismissMsg) {
             return (

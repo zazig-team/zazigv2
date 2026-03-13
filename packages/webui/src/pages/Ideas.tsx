@@ -107,6 +107,7 @@ const STATUS_LABELS: Record<string, string> = {
   parked: "Parked",
   rejected: "Rejected",
   promoted: "Promoted",
+  done: "Done",
   workshop: "Workshop",
 };
 

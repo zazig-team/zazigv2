@@ -747,6 +747,16 @@ export async function updateIdeaStatus(ideaId: string, status: string): Promise<
   if (error) throw error;
 }
 
+export async function updateIdeaWithNote(
+  ideaId: string,
+  status: string,
+  triageNotes?: string,
+): Promise<void> {
+  const body: Record<string, unknown> = { idea_id: ideaId, status };
+  if (triageNotes) body.triage_notes = triageNotes;
+  await invokePost("update-idea", body);
+}
+
 export interface TeamExecCard {
   id: string;
   roleId: string;

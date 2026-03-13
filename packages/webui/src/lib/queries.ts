@@ -576,6 +576,24 @@ export interface FeatureDetail {
   sourceIdea: { title: string; raw_text: string; promoted_at: string | null } | null;
 }
 
+export interface JobDetail {
+  id: string;
+  title: string;
+  status: string;
+  role: string;
+  model: string | null;
+  job_type: string;
+  slot_type: string | null;
+  progress: number | null;
+  started_at: string | null;
+  completed_at: string | null;
+  branch: string | null;
+  blocked_reason: string | null;
+  result: string | null;
+  machine_id: string | null;
+  machine_name: string | null;
+}
+
 export interface IdeaDetail {
   id: string;
   title: string | null;
@@ -729,19 +747,15 @@ export async function updateIdeaStatus(ideaId: string, status: string): Promise<
   if (error) throw error;
 }
 
-export async function updateIdeaWithNote(ideaId: string, status: string, note?: string): Promise<void> {
-  const trimmedNote = note?.trim();
-  const updatePayload: { status: string; triage_notes?: string } = { status };
-  if (trimmedNote) {
-    updatePayload.triage_notes = trimmedNote;
-  }
-
-  const { error } = await supabase
-    .from("ideas")
-    .update(updatePayload)
-    .eq("id", ideaId);
-
-  if (error) throw error;
+export async function updateIdeaWithNote(
+  ideaId: string,
+  status: string,
+  triageNotes?: string,
+): Promise<void> {
+  const trimmed = triageNotes?.trim();
+  const body: Record<string, unknown> = { idea_id: ideaId, status };
+  if (trimmed) body.triage_notes = trimmed;
+  await invokePost("update-idea", body);
 }
 
 export interface TeamExecCard {
@@ -1118,6 +1132,61 @@ export async function fetchJobResult(jobId: string): Promise<{ status: string; r
   if (error) throw error;
   const row = data as { status: string; result: string | null };
   return { status: row.status, result: row.result };
+}
+
+export async function fetchJobDetail(jobId: string): Promise<JobDetail> {
+  const token = await getAccessToken();
+  if (!token) {
+    throw new Error("Missing access token");
+  }
+
+  const response = await fetch(`${supabaseUrl}/functions/v1/query-job-detail`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: supabaseAnonKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ job_id: jobId }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`query-job-detail failed (${response.status}): ${message}`);
+  }
+
+  return (await response.json()) as JobDetail;
+}
+
+export async function fetchJobLogs(
+  jobId: string,
+  type: "lifecycle" | "tmux",
+): Promise<{ content: string; updatedAt: string | null }> {
+  const token = await getAccessToken();
+  if (!token) {
+    throw new Error("Missing access token");
+  }
+
+  const response = await fetch(`${supabaseUrl}/functions/v1/query-job-logs`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: supabaseAnonKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ job_id: jobId, type }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`query-job-logs failed (${response.status}): ${message}`);
+  }
+
+  const data = (await response.json()) as { content: string; updated_at: string | null };
+  return {
+    content: data.content,
+    updatedAt: data.updated_at,
+  };
 }
 
 export async function fetchAutoTriageSetting(companyId: string): Promise<boolean> {

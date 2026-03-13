@@ -938,7 +938,7 @@ var require_version = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
-    exports.version = "2.98.0";
+    exports.version = "2.97.0";
   }
 });
 
@@ -2137,8 +2137,8 @@ var require_RealtimeChannel = __commonJS({
       _trigger(type, payload, ref) {
         var _a, _b;
         const typeLower = type.toLocaleLowerCase();
-        const { close, error, leave, join: join12 } = constants_1.CHANNEL_EVENTS;
-        const events = [close, error, leave, join12];
+        const { close, error, leave, join: join13 } = constants_1.CHANNEL_EVENTS;
+        const events = [close, error, leave, join13];
         if (ref && events.indexOf(typeLower) >= 0 && ref !== this._joinRef()) {
           return;
         }
@@ -2827,18 +2827,6 @@ Option 2: Install and provide the "ws" package:
         this.log("transport", `connected to ${this.endpointURL()}`);
         const authPromise = this._authPromise || (this.accessToken && !this.accessTokenValue ? this.setAuth() : Promise.resolve());
         authPromise.then(() => {
-          if (this.accessTokenValue) {
-            this.channels.forEach((channel) => {
-              channel.updateJoinPayload({ access_token: this.accessTokenValue });
-            });
-            this.sendBuffer = [];
-            this.channels.forEach((channel) => {
-              if (channel._isJoining()) {
-                channel.joinPush.sent = false;
-                channel.joinPush.send();
-              }
-            });
-          }
           this.flushSendBuffer();
         }).catch((e) => {
           this.log("error", "error waiting for auth on connect", e);
@@ -3135,7 +3123,7 @@ var require_version2 = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
-    exports.version = "2.98.0";
+    exports.version = "2.97.0";
   }
 });
 
@@ -4546,31 +4534,8 @@ var require_locks = __commonJS({
           }
         });
       } catch (e) {
-        if ((e === null || e === void 0 ? void 0 : e.name) === "AbortError" && acquireTimeout > 0) {
-          if (exports.internals.debug) {
-            console.log("@supabase/gotrue-js: navigatorLock: acquire timeout, recovering by stealing lock", name);
-          }
-          console.warn(`@supabase/gotrue-js: Lock "${name}" was not released within ${acquireTimeout}ms. This may indicate an orphaned lock from a component unmount (e.g., React Strict Mode). Forcefully acquiring the lock to recover.`);
-          return await Promise.resolve().then(() => globalThis.navigator.locks.request(name, {
-            mode: "exclusive",
-            steal: true
-          }, async (lock) => {
-            if (lock) {
-              if (exports.internals.debug) {
-                console.log("@supabase/gotrue-js: navigatorLock: recovered (stolen)", name, lock.name);
-              }
-              try {
-                return await fn();
-              } finally {
-                if (exports.internals.debug) {
-                  console.log("@supabase/gotrue-js: navigatorLock: released (stolen)", name, lock.name);
-                }
-              }
-            } else {
-              console.warn("@supabase/gotrue-js: Navigator LockManager returned null lock even with steal: true");
-              return await fn();
-            }
-          }));
+        if ((e === null || e === void 0 ? void 0 : e.name) === "AbortError") {
+          throw new NavigatorLockAcquireTimeoutError(`Acquiring an exclusive Navigator LockManager lock "${name}" timed out waiting ${acquireTimeout}ms`);
         }
         throw e;
       }
@@ -5506,8 +5471,8 @@ var require_GoTrueClient = __commonJS({
       debug: false,
       hasCustomAuthorizationHeader: false,
       throwOnError: false,
-      lockAcquireTimeout: 5e3,
-      // 5 seconds
+      lockAcquireTimeout: 1e4,
+      // 10 seconds
       skipAutoInitialize: false
     };
     async function lockNoOp(name, acquireTimeout, fn) {
@@ -11535,7 +11500,7 @@ var StorageFileApi = class extends BaseApiClient {
     return params.join("&");
   }
 };
-var version = "2.98.0";
+var version = "2.97.0";
 var DEFAULT_HEADERS = { "X-Client-Info": `storage-js/${version}` };
 var StorageBucketApi = class extends BaseApiClient {
   constructor(url, headers = {}, fetch$1, opts) {
@@ -12783,7 +12748,7 @@ var StorageClient = class extends StorageBucketApi {
 var import_auth_js = __toESM(require_main3(), 1);
 __reExport(dist_exports, __toESM(require_main2(), 1));
 __reExport(dist_exports, __toESM(require_main3(), 1));
-var version2 = "2.98.0";
+var version2 = "2.97.0";
 var JS_ENV = "";
 if (typeof Deno !== "undefined") JS_ENV = "deno";
 else if (typeof document !== "undefined") JS_ENV = "web";
@@ -13396,12 +13361,12 @@ ${readFileSync2(p, "utf-8").slice(0, 4e3)}
           break;
         }
       }
-      const pkgPath2 = join3(localRepoPath, "package.json");
-      if (existsSync3(pkgPath2)) {
+      const pkgPath = join3(localRepoPath, "package.json");
+      if (existsSync3(pkgPath)) {
         try {
           repoContext += `
 --- package.json ---
-${readFileSync2(pkgPath2, "utf-8").slice(0, 2e3)}
+${readFileSync2(pkgPath, "utf-8").slice(0, 2e3)}
 `;
         } catch {
         }
@@ -13614,9 +13579,10 @@ Slack channel for CPO conversations [${defaultChannel}]: `)).trim() || defaultCh
 }
 
 // dist/commands/start.js
-import { hostname, homedir as homedir7 } from "node:os";
-import { join as join9 } from "node:path";
-import { execSync as execSync5 } from "node:child_process";
+import { existsSync as existsSync9, readFileSync as readFileSync8 } from "node:fs";
+import { hostname, homedir as homedir9 } from "node:os";
+import { join as join10 } from "node:path";
+import { execSync as execSync4 } from "node:child_process";
 import { createInterface as createInterface4 } from "node:readline/promises";
 
 // dist/lib/config.js
@@ -13772,7 +13738,10 @@ function startDaemonForCompany(env, companyId, agentEntryOverride) {
   const agentEntry = agentEntryOverride ?? resolveAgentEntry();
   const logPath = logPathForCompany(companyId);
   const logFd = openSync(logPath, "a");
-  const child = spawn(process.execPath, [agentEntry], {
+  const isScript = agentEntry.endsWith(".mjs") || agentEntry.endsWith(".js");
+  const command = isScript ? process.execPath : agentEntry;
+  const args2 = isScript ? [agentEntry] : [];
+  const child = spawn(command, args2, {
     detached: true,
     stdio: ["ignore", logFd, logFd],
     env
@@ -14211,7 +14180,11 @@ import { execSync as execSync3 } from "node:child_process";
 import { existsSync as existsSync6, readFileSync as readFileSync5 } from "node:fs";
 import { join as join7, dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
+import { homedir as homedir6 } from "node:os";
 var thisDir = dirname3(fileURLToPath3(import.meta.url));
+function isCompiledBinary() {
+  return thisDir.startsWith("/$bunfs") || !existsSync6(thisDir);
+}
 function findPackageJson() {
   for (const rel of ["../../package.json", "../package.json"]) {
     const candidate = join7(thisDir, rel);
@@ -14220,8 +14193,16 @@ function findPackageJson() {
   }
   return join7(thisDir, "../../package.json");
 }
-var pkgPath = findPackageJson();
 function getVersion() {
+  if (isCompiledBinary()) {
+    const versionFile = join7(homedir6(), ".zazigv2", "bin", ".version");
+    try {
+      return readFileSync5(versionFile, "utf8").trim();
+    } catch {
+      return "0.0.0";
+    }
+  }
+  const pkgPath = findPackageJson();
   const pkg = JSON.parse(readFileSync5(pkgPath, "utf8"));
   const base = pkg.version ?? "0.0.0";
   let hash = "";
@@ -14240,11 +14221,10 @@ function getVersion() {
 }
 
 // dist/lib/builds.js
-import { execSync as execSync4 } from "node:child_process";
 import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync6, writeFileSync as writeFileSync6, cpSync, renameSync, rmSync as rmSync2 } from "node:fs";
 import { join as join8 } from "node:path";
-import { homedir as homedir6 } from "node:os";
-var BUILDS_DIR = join8(homedir6(), ".zazigv2", "builds");
+import { homedir as homedir7 } from "node:os";
+var BUILDS_DIR = join8(homedir7(), ".zazigv2", "builds");
 var CURRENT = join8(BUILDS_DIR, "current");
 var PREVIOUS = join8(BUILDS_DIR, "previous");
 function getCurrentBuildSha() {
@@ -14256,56 +14236,96 @@ function getCurrentBuildSha() {
 function hasPinnedBuild() {
   return existsSync7(join8(CURRENT, "packages", "local-agent", "releases", "zazig-agent.mjs"));
 }
-function pinCurrentBuild(repoRoot) {
-  const sha = execSync4("git rev-parse HEAD", { cwd: repoRoot, encoding: "utf-8" }).trim();
-  if (existsSync7(CURRENT)) {
-    if (existsSync7(PREVIOUS)) {
-      rmSync2(PREVIOUS, { recursive: true, force: true });
-    }
-    renameSync(CURRENT, PREVIOUS);
-  }
-  mkdirSync6(CURRENT, { recursive: true });
-  const toCopy = [
-    "packages/local-agent/releases/zazig-agent.mjs",
-    "packages/local-agent/releases/agent-mcp-server.mjs"
-  ];
-  for (const rel of toCopy) {
-    const src = join8(repoRoot, rel);
-    const dest = join8(CURRENT, rel);
-    if (existsSync7(src)) {
-      mkdirSync6(join8(dest, ".."), { recursive: true });
-      cpSync(src, dest);
-    }
-  }
-  const extras = [
-    "projects/skills",
-    "zazig.environments.yaml"
-  ];
-  for (const rel of extras) {
-    const src = join8(repoRoot, rel);
-    const dest = join8(CURRENT, rel);
-    if (existsSync7(src)) {
-      mkdirSync6(join8(dest, ".."), { recursive: true });
-      cpSync(src, dest, { recursive: true });
-    }
-  }
-  writeFileSync6(join8(CURRENT, ".version"), sha);
-  console.log(`Build pinned: ${sha}`);
-}
-function rollback() {
-  if (!existsSync7(PREVIOUS)) {
-    console.error("No previous build to rollback to.");
+var BIN_DIR = join8(homedir7(), ".zazigv2", "bin");
+var BIN_PREVIOUS = join8(BIN_DIR, "previous");
+function rollbackBinaries() {
+  if (!existsSync7(BIN_PREVIOUS)) {
+    console.error("No previous binary version to rollback to.");
     return false;
   }
-  const tempDir = join8(BUILDS_DIR, "swap-temp");
-  if (existsSync7(tempDir))
-    rmSync2(tempDir, { recursive: true, force: true });
-  renameSync(CURRENT, tempDir);
-  renameSync(PREVIOUS, CURRENT);
-  renameSync(tempDir, PREVIOUS);
-  const sha = getCurrentBuildSha();
-  console.log(`Rolled back to: ${sha ?? "unknown"}`);
+  const binaries = ["zazig", "zazig-agent", "agent-mcp-server", ".version"];
+  for (const name of binaries) {
+    const prev = join8(BIN_PREVIOUS, name);
+    const curr = join8(BIN_DIR, name);
+    if (existsSync7(prev)) {
+      cpSync(prev, curr);
+    }
+  }
+  const version3 = existsSync7(join8(BIN_DIR, ".version")) ? readFileSync6(join8(BIN_DIR, ".version"), "utf-8").trim() : "unknown";
+  console.log(`Rolled back binaries to: ${version3}`);
   return true;
+}
+
+// dist/lib/auto-update.js
+import { existsSync as existsSync8, readFileSync as readFileSync7, mkdirSync as mkdirSync7, writeFileSync as writeFileSync7, chmodSync as chmodSync2, rmSync as rmSync3, cpSync as cpSync2 } from "node:fs";
+import { join as join9 } from "node:path";
+import { homedir as homedir8 } from "node:os";
+var BIN_DIR2 = join9(homedir8(), ".zazigv2", "bin");
+var VERSION_FILE = join9(BIN_DIR2, ".version");
+var GITHUB_REPO = "zazig-team/zazigv2";
+var PREVIOUS_DIR = join9(BIN_DIR2, "previous");
+var ASSETS = [
+  { remote: "zazig-cli-darwin-arm64", local: "zazig" },
+  { remote: "zazig-agent-darwin-arm64", local: "zazig-agent" },
+  { remote: "agent-mcp-server-darwin-arm64", local: "agent-mcp-server" }
+];
+function getLocalVersion() {
+  if (!existsSync8(VERSION_FILE))
+    return null;
+  return readFileSync7(VERSION_FILE, "utf-8").trim() || null;
+}
+async function getRemoteVersion(supabaseUrl, anonKey, env) {
+  try {
+    const res = await fetch(`${supabaseUrl}/rest/v1/agent_versions?env=eq.${env}&order=created_at.desc&limit=1&select=version,commit_sha`, { headers: { apikey: anonKey } });
+    if (!res.ok)
+      return null;
+    const rows = await res.json();
+    if (rows.length === 0)
+      return null;
+    return { version: rows[0].version, commitSha: rows[0].commit_sha };
+  } catch {
+    return null;
+  }
+}
+async function downloadAndInstall(version3) {
+  mkdirSync7(BIN_DIR2, { recursive: true });
+  if (existsSync8(join9(BIN_DIR2, "zazig"))) {
+    if (existsSync8(PREVIOUS_DIR)) {
+      rmSync3(PREVIOUS_DIR, { recursive: true, force: true });
+    }
+    mkdirSync7(PREVIOUS_DIR, { recursive: true });
+    for (const { local } of ASSETS) {
+      const src = join9(BIN_DIR2, local);
+      if (existsSync8(src)) {
+        cpSync2(src, join9(PREVIOUS_DIR, local));
+      }
+    }
+    if (existsSync8(VERSION_FILE)) {
+      cpSync2(VERSION_FILE, join9(PREVIOUS_DIR, ".version"));
+    }
+  }
+  const tag = `v${version3}`;
+  for (const { remote, local } of ASSETS) {
+    const url = `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${remote}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Download failed for ${remote}: ${res.status} ${res.statusText}`);
+    }
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const dest = join9(BIN_DIR2, local);
+    writeFileSync7(dest, buffer);
+    chmodSync2(dest, 493);
+  }
+  writeFileSync7(VERSION_FILE, version3);
+}
+async function checkForUpdate(supabaseUrl, anonKey, env) {
+  const remote = await getRemoteVersion(supabaseUrl, anonKey, env);
+  if (!remote)
+    return { status: "no-remote" };
+  const local = getLocalVersion();
+  if (local === remote.version)
+    return { status: "up-to-date" };
+  return { status: "update-available", remoteVersion: remote.version };
 }
 
 // dist/commands/start.js
@@ -14350,13 +14370,22 @@ function isProcessRunning(pid) {
     return false;
   }
 }
+function readRecentAgentErrorLines(logPath) {
+  try {
+    const content = readFileSync8(logPath, "utf8");
+    const recentLines = content.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0).slice(-20);
+    return recentLines.filter((line) => /ERROR|FATAL/i.test(line));
+  } catch {
+    return null;
+  }
+}
 async function start() {
   const noTui = process.argv.includes("--no-tui");
   const companyFlagIdx = process.argv.indexOf("--company");
   const companyFlagValue = companyFlagIdx !== -1 ? process.argv[companyFlagIdx + 1] : void 0;
   let claudeInstalled = false;
   try {
-    execSync5("claude --version", { stdio: "pipe" });
+    execSync4("claude --version", { stdio: "pipe" });
     claudeInstalled = true;
   } catch {
   }
@@ -14371,7 +14400,7 @@ async function start() {
   }
   let codexInstalled = false;
   try {
-    execSync5("codex --version", { stdio: "pipe" });
+    execSync4("codex --version", { stdio: "pipe" });
     codexInstalled = true;
   } catch {
   }
@@ -14397,6 +14426,22 @@ async function start() {
   }
   console.log(`zazig ${getVersion()}`);
   console.log(`Starting zazig for ${company.name}...`);
+  const zazigEnv = process.env["ZAZIG_ENV"] ?? "production";
+  if (zazigEnv === "production") {
+    try {
+      const updateResult = await checkForUpdate(creds.supabaseUrl, anonKey, "production");
+      if (updateResult.status === "update-available") {
+        console.log(`Update available: v${updateResult.remoteVersion}`);
+        console.log("Downloading...");
+        await downloadAndInstall(updateResult.remoteVersion);
+        console.log(`
+Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.`);
+        return;
+      }
+    } catch (err) {
+      console.warn(`Auto-update check failed (continuing with current version): ${String(err)}`);
+    }
+  }
   if (isDaemonRunningForCompany(company.id)) {
     const oldPid = readPidForCompany(company.id);
     if (oldPid && isProcessRunning(oldPid)) {
@@ -14432,17 +14477,21 @@ async function start() {
     ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
     ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2)
   };
-  const zazigEnv = process.env["ZAZIG_ENV"] ?? "production";
   let agentEntryOverride;
-  if (zazigEnv === "production" && hasPinnedBuild()) {
-    const buildDir = join9(homedir7(), ".zazigv2", "builds", "current");
-    agentEntryOverride = join9(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
-    const sha = getCurrentBuildSha();
-    console.log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);
+  if (zazigEnv === "production") {
+    const binAgent = join10(homedir9(), ".zazigv2", "bin", "zazig-agent");
+    if (existsSync9(binAgent)) {
+      agentEntryOverride = binAgent;
+      const ver = getLocalVersion();
+      console.log(`Using zazig-agent binary${ver ? ` (v${ver})` : ""}`);
+    } else if (hasPinnedBuild()) {
+      const buildDir = join10(homedir9(), ".zazigv2", "builds", "current");
+      agentEntryOverride = join10(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
+      const sha = getCurrentBuildSha();
+      console.log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);
+    }
   } else if (zazigEnv === "staging") {
-    const repoRoot = process.env["ZAZIG_REPO_PATH"] ?? process.cwd();
-    agentEntryOverride = join9(repoRoot, "packages", "local-agent", "releases", "zazig-agent.mjs");
-    console.log(`Using releases bundle (staging mode): ${agentEntryOverride}`);
+    console.log("Using repo build (staging mode)");
   }
   let pid;
   try {
@@ -14461,8 +14510,18 @@ async function start() {
   while (Date.now() < spawnDeadline) {
     await sleep(2e3);
     if (!isProcessRunning(pid)) {
-      console.error(`
-Agent failed to start. Check logs: ${logPathForCompany(company.id)}`);
+      const logPath = logPathForCompany(company.id);
+      const errorLines = readRecentAgentErrorLines(logPath);
+      if (!errorLines || errorLines.length === 0) {
+        console.error(`
+Agent failed to start. Check logs: ${logPath}`);
+      } else {
+        console.error("\nAgent failed to start.");
+        for (const line of errorLines) {
+          console.error(`  ${line}`);
+        }
+        console.error(`Logs: ${logPath}`);
+      }
       process.exitCode = 1;
       return;
     }
@@ -14557,8 +14616,8 @@ async function stop() {
 
 // dist/commands/status.js
 import { readdirSync as readdirSync2 } from "node:fs";
-import { homedir as homedir8 } from "node:os";
-import { join as join10 } from "node:path";
+import { homedir as homedir10 } from "node:os";
+import { join as join11 } from "node:path";
 function apiFetch(url, headers) {
   return fetch(url, { headers }).then(async (r) => {
     if (!r.ok)
@@ -14567,7 +14626,7 @@ function apiFetch(url, headers) {
   });
 }
 function findRunningDaemon() {
-  const zazigDir = join10(homedir8(), ".zazigv2");
+  const zazigDir = join11(homedir10(), ".zazigv2");
   try {
     const uuidPattern = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.pid$/;
     for (const entry of readdirSync2(zazigDir)) {
@@ -14821,12 +14880,12 @@ async function switchArchetype(supabaseUrl, companyId, headers, roleName, roleId
 }
 
 // dist/commands/promote.js
-import { execSync as execSync6 } from "node:child_process";
-import { existsSync as existsSync8, readFileSync as readFileSync7, rmSync as rmSync3, writeFileSync as writeFileSync7 } from "node:fs";
-import { join as join11 } from "node:path";
-import { homedir as homedir9 } from "node:os";
+import { execSync as execSync5 } from "node:child_process";
+import { chmodSync as chmodSync3, cpSync as cpSync3, existsSync as existsSync10, mkdirSync as mkdirSync8, readFileSync as readFileSync9, rmSync as rmSync4, writeFileSync as writeFileSync8 } from "node:fs";
+import { join as join12 } from "node:path";
+import { homedir as homedir11 } from "node:os";
 import { createInterface as createInterface5 } from "node:readline/promises";
-var REPOS_BASE = join11(homedir9(), ".zazigv2", "repos");
+var REPOS_BASE = join12(homedir11(), ".zazigv2", "repos");
 async function fetchProjects(supabaseUrl, anonKey, accessToken, companyId) {
   const res = await fetch(`${supabaseUrl}/rest/v1/projects?select=id,name,repo_url&company_id=eq.${companyId}`, {
     headers: {
@@ -14864,13 +14923,13 @@ Choice [1]: `);
 }
 function resolveDefaultBranch(repoDir) {
   try {
-    const ref = execSync6("git symbolic-ref HEAD", { encoding: "utf-8", cwd: repoDir }).trim();
+    const ref = execSync5("git symbolic-ref HEAD", { encoding: "utf-8", cwd: repoDir }).trim();
     return ref.replace(/^refs\/heads\//, "");
   } catch {
   }
   for (const name of ["main", "master"]) {
     try {
-      execSync6(`git rev-parse --verify refs/heads/${name}`, { cwd: repoDir, stdio: "pipe" });
+      execSync5(`git rev-parse --verify refs/heads/${name}`, { cwd: repoDir, stdio: "pipe" });
       return name;
     } catch {
       continue;
@@ -14879,10 +14938,10 @@ function resolveDefaultBranch(repoDir) {
   throw new Error(`Cannot resolve default branch in ${repoDir}`);
 }
 function readJsonFile(path) {
-  return JSON.parse(readFileSync7(path, "utf-8"));
+  return JSON.parse(readFileSync9(path, "utf-8"));
 }
 function writeJsonFile(path, data) {
-  writeFileSync7(path, `${JSON.stringify(data, null, 2)}
+  writeFileSync8(path, `${JSON.stringify(data, null, 2)}
 `);
 }
 function bumpMinorVersion(version3) {
@@ -14899,8 +14958,8 @@ function bumpMinorVersion(version3) {
   return `${major}.${minor + 1}.0`;
 }
 function bumpAgentPackageVersions(repoRoot) {
-  const cliPackagePath = join11(repoRoot, "packages", "cli", "package.json");
-  const localAgentPackagePath = join11(repoRoot, "packages", "local-agent", "package.json");
+  const cliPackagePath = join12(repoRoot, "packages", "cli", "package.json");
+  const localAgentPackagePath = join12(repoRoot, "packages", "local-agent", "package.json");
   const cliPackage = readJsonFile(cliPackagePath);
   if (typeof cliPackage.version !== "string") {
     throw new Error("packages/cli/package.json is missing a valid version field.");
@@ -14912,6 +14971,36 @@ function bumpAgentPackageVersions(repoRoot) {
   writeJsonFile(cliPackagePath, cliPackage);
   writeJsonFile(localAgentPackagePath, localAgentPackage);
   return newVersion;
+}
+function resolveAgentBuildHash(repoRoot) {
+  let agentBuildHash = "";
+  try {
+    agentBuildHash = execSync5("git log -1 --format=%h -- packages/local-agent/", {
+      encoding: "utf-8",
+      cwd: repoRoot,
+      stdio: "pipe"
+    }).trim();
+  } catch {
+  }
+  if (agentBuildHash) {
+    return agentBuildHash;
+  }
+  const headHash = execSync5("git rev-parse --short HEAD", {
+    encoding: "utf-8",
+    cwd: repoRoot,
+    stdio: "pipe"
+  }).trim();
+  if (!headHash) {
+    throw new Error("Unable to resolve an agent build hash.");
+  }
+  return headHash;
+}
+function injectAgentBuildHash(repoRoot, agentBuildHash) {
+  const bundlePath = join12(repoRoot, "packages", "local-agent", "releases", "zazig-agent.mjs");
+  const bundleContent = readFileSync9(bundlePath, "utf-8");
+  const injected = `const AGENT_BUILD_HASH = "${agentBuildHash}";
+${bundleContent}`;
+  writeFileSync8(bundlePath, injected);
 }
 async function registerAgentVersion(creds, anonKey, env, version3, commitSha) {
   const supabase = createClient(creds.supabaseUrl, anonKey);
@@ -14933,7 +15022,7 @@ async function registerAgentVersion(creds, anonKey, env, version3, commitSha) {
 }
 async function promote(args2) {
   if (args2.includes("--rollback")) {
-    const ok = rollback();
+    const ok = rollbackBinaries();
     process.exitCode = ok ? 0 : 1;
     return;
   }
@@ -14961,8 +15050,8 @@ Company: ${company.name}`);
   const projects = await fetchProjects(creds.supabaseUrl, anonKey, creds.accessToken, company.id);
   const project = await pickProject(projects);
   console.log(`Project: ${project.name}`);
-  const bareRepoDir = join11(REPOS_BASE, project.name);
-  if (!existsSync8(bareRepoDir)) {
+  const bareRepoDir = join12(REPOS_BASE, project.name);
+  if (!existsSync10(bareRepoDir)) {
     console.error(`No local repo clone found at ${bareRepoDir}.`);
     console.error("Run 'zazig start' first to clone the project repo.");
     process.exitCode = 1;
@@ -14970,31 +15059,31 @@ Company: ${company.name}`);
   }
   console.log("\nFetching latest from origin...");
   try {
-    execSync6("git fetch origin", { cwd: bareRepoDir, stdio: "pipe" });
+    execSync5("git fetch origin", { cwd: bareRepoDir, stdio: "pipe" });
   } catch (err) {
     console.warn(`Fetch warning (non-fatal): ${String(err)}`);
   }
   const defaultBranch = resolveDefaultBranch(bareRepoDir);
   try {
-    execSync6(`git update-ref refs/remotes/origin/${defaultBranch} refs/heads/${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
+    execSync5(`git update-ref refs/remotes/origin/${defaultBranch} refs/heads/${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
   } catch {
   }
-  const worktreePath = join11(homedir9(), ".zazigv2", "worktrees", "promote-tmp");
+  const worktreePath = join12(homedir11(), ".zazigv2", "worktrees", "promote-tmp");
   try {
-    execSync6(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" });
-  } catch {
-  }
-  try {
-    rmSync3(worktreePath, { recursive: true, force: true });
+    execSync5(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" });
   } catch {
   }
   try {
-    execSync6("git worktree prune", { cwd: bareRepoDir, stdio: "pipe" });
+    rmSync4(worktreePath, { recursive: true, force: true });
+  } catch {
+  }
+  try {
+    execSync5("git worktree prune", { cwd: bareRepoDir, stdio: "pipe" });
   } catch {
   }
   console.log(`Creating worktree on ${defaultBranch}...`);
   try {
-    execSync6(`git worktree add --force "${worktreePath}" ${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
+    execSync5(`git worktree add --force "${worktreePath}" ${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
   } catch (err) {
     console.error(`Failed to create worktree: ${String(err)}`);
     process.exitCode = 1;
@@ -15006,30 +15095,30 @@ Company: ${company.name}`);
   } finally {
     console.log("\nCleaning up temporary worktree...");
     try {
-      execSync6(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" });
+      execSync5(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" });
     } catch {
     }
     try {
-      rmSync3(worktreePath, { recursive: true, force: true });
+      rmSync4(worktreePath, { recursive: true, force: true });
     } catch {
     }
     try {
-      execSync6("git worktree prune", { cwd: bareRepoDir, stdio: "pipe" });
+      execSync5("git worktree prune", { cwd: bareRepoDir, stdio: "pipe" });
     } catch {
     }
   }
 }
 async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   try {
-    const branch = execSync6("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
+    const branch = execSync5("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
     if (branch !== defaultBranch) {
       console.error(`Worktree is on ${branch}, expected ${defaultBranch}.`);
       process.exitCode = 1;
       return;
     }
     try {
-      const local = execSync6("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-      const remote = execSync6(`git rev-parse origin/${branch}`, { encoding: "utf-8", cwd: repoRoot, stdio: ["pipe", "pipe", "pipe"] }).trim();
+      const local = execSync5("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
+      const remote = execSync5(`git rev-parse origin/${branch}`, { encoding: "utf-8", cwd: repoRoot, stdio: ["pipe", "pipe", "pipe"] }).trim();
       if (local !== remote) {
         console.error(`Local ${branch} (${local.slice(0, 7)}) differs from origin (${remote.slice(0, 7)}).`);
         process.exitCode = 1;
@@ -15044,7 +15133,7 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   }
   console.log("\nInstalling dependencies...");
   try {
-    execSync6("npm ci", { cwd: repoRoot, stdio: "inherit" });
+    execSync5("npm ci", { cwd: repoRoot, stdio: "inherit" });
   } catch {
     console.error("npm ci failed.");
     process.exitCode = 1;
@@ -15052,7 +15141,7 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   }
   console.log("\nRunning build...");
   try {
-    execSync6("npm run build", { cwd: repoRoot, stdio: "inherit" });
+    execSync5("npm run build", { cwd: repoRoot, stdio: "inherit" });
   } catch {
     console.error("Build failed. Fix build errors before promoting.");
     process.exitCode = 1;
@@ -15068,29 +15157,55 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
     process.exitCode = 1;
     return;
   }
+  console.log("\nResolving agent build hash...");
+  let agentBuildHash;
+  try {
+    agentBuildHash = resolveAgentBuildHash(repoRoot);
+    console.log(`Using agent build hash ${agentBuildHash}.`);
+  } catch (err) {
+    console.error(`Failed to resolve agent build hash: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
   console.log("\nBundling CLI...");
   try {
-    execSync6("node scripts/bundle.js", { cwd: join11(repoRoot, "packages", "cli"), stdio: "inherit" });
+    execSync5("node scripts/bundle.js", { cwd: join12(repoRoot, "packages", "cli"), stdio: "inherit" });
   } catch {
     console.error("Bundle failed.");
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    injectAgentBuildHash(repoRoot, agentBuildHash);
+  } catch (err) {
+    console.error(`Failed to inject agent build hash into bundle: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log("\nCompiling native binaries...");
+  const compileOutDir = join12(homedir11(), ".zazigv2", "compile-tmp");
+  try {
+    execSync5(`bash "${join12(repoRoot, "packages", "cli", "scripts", "compile.sh")}" "${compileOutDir}" "${repoRoot}"`, { stdio: "inherit" });
+  } catch {
+    console.error("Bun compile failed. Is bun installed? (brew install oven-sh/bun/bun)");
     process.exitCode = 1;
     return;
   }
   let commitSha;
   console.log("\nCommitting bundles and version bump...");
   try {
-    execSync6("git add " + [
+    execSync5("git add " + [
       "packages/cli/releases/zazig.mjs",
       "packages/local-agent/releases/zazig-agent.mjs",
       "packages/local-agent/releases/agent-mcp-server.mjs",
       "packages/cli/package.json",
       "packages/local-agent/package.json"
     ].join(" "), { cwd: repoRoot, stdio: "pipe" });
-    const diff = execSync6("git diff --cached --name-only", { encoding: "utf-8", cwd: repoRoot }).trim();
+    const diff = execSync5("git diff --cached --name-only", { encoding: "utf-8", cwd: repoRoot }).trim();
     if (diff) {
-      execSync6(`git commit -m "chore: update production bundles and bump version to ${newVersion}"`, { cwd: repoRoot, stdio: "pipe" });
-      commitSha = execSync6("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-      execSync6(`git push origin ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
+      execSync5(`git commit -m "chore: update production bundles and bump version to ${newVersion}"`, { cwd: repoRoot, stdio: "pipe" });
+      commitSha = execSync5("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
+      execSync5(`git push origin ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
       console.log(`Bundles and version bump committed and pushed (${commitSha.slice(0, 7)}).`);
     } else {
       console.error("No staged changes detected after bundle/version bump; promote cannot continue.");
@@ -15105,23 +15220,23 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   console.log("\nUpdating production branch...");
   try {
     try {
-      execSync6("git rev-parse --verify production", { cwd: repoRoot, stdio: "pipe" });
+      execSync5("git rev-parse --verify production", { cwd: repoRoot, stdio: "pipe" });
     } catch {
       try {
-        execSync6("git branch production origin/production", { cwd: repoRoot, stdio: "pipe" });
+        execSync5("git branch production origin/production", { cwd: repoRoot, stdio: "pipe" });
       } catch {
-        execSync6("git branch production", { cwd: repoRoot, stdio: "pipe" });
+        execSync5("git branch production", { cwd: repoRoot, stdio: "pipe" });
       }
     }
-    execSync6("git checkout production", { cwd: repoRoot, stdio: "pipe" });
+    execSync5("git checkout production", { cwd: repoRoot, stdio: "pipe" });
     try {
-      execSync6(`git merge ${defaultBranch} --ff-only`, { cwd: repoRoot, stdio: "pipe" });
+      execSync5(`git merge ${defaultBranch} --ff-only`, { cwd: repoRoot, stdio: "pipe" });
     } catch {
       console.error("Fast-forward merge into production failed. The production branch has diverged from master.\nTo fix: git checkout production && git reset --hard master && git push --force-with-lease origin production");
       process.exitCode = 1;
       return;
     }
-    execSync6("git push origin production", { cwd: repoRoot, stdio: "pipe" });
+    execSync5("git push origin production", { cwd: repoRoot, stdio: "pipe" });
     console.log("Production branch updated and pushed (triggers CI for Supabase deployment).");
   } catch (err) {
     console.error(`Production branch update failed: ${String(err)}`);
@@ -15137,17 +15252,44 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
     process.exitCode = 1;
     return;
   }
-  console.log("\nPinning local agent build...");
-  pinCurrentBuild(repoRoot);
+  console.log("\nInstalling binaries locally...");
+  const binDir = join12(homedir11(), ".zazigv2", "bin");
+  mkdirSync8(binDir, { recursive: true });
+  const localBinaries = [
+    { src: join12(compileOutDir, "zazig-cli-darwin-arm64"), dest: join12(binDir, "zazig") },
+    { src: join12(compileOutDir, "zazig-agent-darwin-arm64"), dest: join12(binDir, "zazig-agent") },
+    { src: join12(compileOutDir, "agent-mcp-server-darwin-arm64"), dest: join12(binDir, "agent-mcp-server") }
+  ];
+  for (const { src, dest } of localBinaries) {
+    if (existsSync10(src)) {
+      cpSync3(src, dest);
+      chmodSync3(dest, 493);
+    }
+  }
+  writeFileSync8(join12(binDir, ".version"), newVersion);
+  console.log(`Binaries installed to ${binDir}`);
+  console.log("\nCreating GitHub Release...");
+  const tag = `v${newVersion}`;
+  try {
+    execSync5(`gh release create "${tag}" --repo zazig-team/zazigv2 --title "v${newVersion}" --notes "Production release ${newVersion} (${commitSha.slice(0, 7)})" --target "${commitSha}" "${join12(compileOutDir, "zazig-cli-darwin-arm64")}" "${join12(compileOutDir, "zazig-agent-darwin-arm64")}" "${join12(compileOutDir, "agent-mcp-server-darwin-arm64")}"`, { stdio: "inherit" });
+    console.log(`GitHub Release ${tag} created with 3 binary assets.`);
+  } catch (err) {
+    console.error(`GitHub Release creation failed: ${String(err)}`);
+    console.error("Binaries were not uploaded. You can retry with: gh release create ...");
+  }
+  try {
+    rmSync4(compileOutDir, { recursive: true, force: true });
+  } catch {
+  }
   const sha = commitSha.slice(0, 7);
   console.log(`
-Promoted to production ${newVersion} (${sha}).`);
+Promoted to production v${newVersion} (${sha}).`);
   console.log("CI will deploy Supabase migrations and edge functions.");
   console.log("Restart your production agent to use the new build: zazig stop && zazig start");
 }
 
 // dist/commands/hotfix.js
-import { execSync as execSync7, spawnSync as spawnSync2 } from "node:child_process";
+import { execSync as execSync6, spawnSync as spawnSync2 } from "node:child_process";
 async function hotfix(args2) {
   const description = args2.join(" ");
   if (!description) {
@@ -15156,19 +15298,19 @@ async function hotfix(args2) {
     return;
   }
   try {
-    const branch = execSync7("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8" }).trim();
+    const branch = execSync6("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8" }).trim();
     if (branch !== "master" && branch !== "main") {
       console.error(`Must be on master/main for hotfix. Currently on: ${branch}`);
       process.exitCode = 1;
       return;
     }
-    const status2 = execSync7("git status --porcelain", { encoding: "utf-8" }).trim();
+    const status2 = execSync6("git status --porcelain", { encoding: "utf-8" }).trim();
     if (status2) {
       console.error("Working tree is dirty. Commit or stash changes first.");
       process.exitCode = 1;
       return;
     }
-    execSync7("git pull origin " + branch, { stdio: "inherit" });
+    execSync6("git pull origin " + branch, { stdio: "inherit" });
   } catch (err) {
     console.error(`Git check failed: ${String(err)}`);
     process.exitCode = 1;
@@ -15201,7 +15343,7 @@ Starting hotfix session: ${description}`);
 
 // dist/commands/staging-fix.js
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { existsSync as existsSync9, readFileSync as readFileSync8 } from "node:fs";
+import { existsSync as existsSync11, readFileSync as readFileSync10 } from "node:fs";
 import { resolve as resolve3 } from "node:path";
 async function stagingFix() {
   const repoRoot = process.cwd();
@@ -15226,11 +15368,11 @@ async function stagingFix() {
     "- After committing, CI will auto-deploy to staging"
   ];
   const envPath = resolve3(repoRoot, "zazig.environments.yaml");
-  if (existsSync9(envPath)) {
+  if (existsSync11(envPath)) {
     contextParts.push("");
     contextParts.push("## Environment Config:");
     contextParts.push("```yaml");
-    contextParts.push(readFileSync8(envPath, "utf-8"));
+    contextParts.push(readFileSync10(envPath, "utf-8"));
     contextParts.push("```");
   }
   console.log("Starting staging fix session...");

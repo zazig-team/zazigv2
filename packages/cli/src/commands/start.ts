@@ -10,6 +10,7 @@
  *   6. Waits 3s, discovers agent sessions, launches TUI (unless --no-tui).
  */
 
+import { existsSync, readFileSync } from "node:fs";
 import { hostname, homedir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
@@ -29,6 +30,7 @@ import { launchTui, discoverAgentSessions } from "./chat.js";
 import { syncSkillsForCompany } from "./skills.js";
 import { getVersion } from "../lib/version.js";
 import { hasPinnedBuild, getCurrentBuildSha } from "../lib/builds.js";
+import { checkForUpdate, downloadAndInstall, getLocalVersion } from "../lib/auto-update.js";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -80,6 +82,20 @@ function isProcessRunning(pid: number): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+function readRecentAgentErrorLines(logPath: string): string[] | null {
+  try {
+    const content = readFileSync(logPath, "utf8");
+    const recentLines = content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .slice(-20);
+    return recentLines.filter((line) => /ERROR|FATAL/i.test(line));
+  } catch {
+    return null;
   }
 }
 
@@ -143,6 +159,23 @@ export async function start(): Promise<void> {
   console.log(`zazig ${getVersion()}`);
   console.log(`Starting zazig for ${company.name}...`);
 
+  // Auto-update check (production only)
+  const zazigEnv = process.env["ZAZIG_ENV"] ?? "production";
+  if (zazigEnv === "production") {
+    try {
+      const updateResult = await checkForUpdate(creds.supabaseUrl, anonKey, "production");
+      if (updateResult.status === "update-available") {
+        console.log(`Update available: v${updateResult.remoteVersion}`);
+        console.log("Downloading...");
+        await downloadAndInstall(updateResult.remoteVersion);
+        console.log(`\nUpdated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.`);
+        return;
+      }
+    } catch (err) {
+      console.warn(`Auto-update check failed (continuing with current version): ${String(err)}`);
+    }
+  }
+
   // Stop existing daemon before (re)starting
   if (isDaemonRunningForCompany(company.id)) {
     const oldPid = readPidForCompany(company.id);
@@ -176,15 +209,22 @@ export async function start(): Promise<void> {
     ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
   };
 
-  // Resolve agent entry point: use pinned build for production, repo for staging
-  const zazigEnv = process.env["ZAZIG_ENV"] ?? "production";
+  // Resolve agent entry point: use standalone binary, pinned build, or repo
   let agentEntryOverride: string | undefined;
 
-  if (zazigEnv === "production" && hasPinnedBuild()) {
-    const buildDir = join(homedir(), ".zazigv2", "builds", "current");
-    agentEntryOverride = join(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
-    const sha = getCurrentBuildSha();
-    console.log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);
+  if (zazigEnv === "production") {
+    const binAgent = join(homedir(), ".zazigv2", "bin", "zazig-agent");
+    if (existsSync(binAgent)) {
+      agentEntryOverride = binAgent;
+      const ver = getLocalVersion();
+      console.log(`Using zazig-agent binary${ver ? ` (v${ver})` : ""}`);
+    } else if (hasPinnedBuild()) {
+      // Legacy fallback — old pinned .mjs build
+      const buildDir = join(homedir(), ".zazigv2", "builds", "current");
+      agentEntryOverride = join(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
+      const sha = getCurrentBuildSha();
+      console.log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);
+    }
   } else if (zazigEnv === "staging") {
     console.log("Using repo build (staging mode)");
   }
@@ -210,7 +250,17 @@ export async function start(): Promise<void> {
   while (Date.now() < spawnDeadline) {
     await sleep(2000);
     if (!isProcessRunning(pid)) {
-      console.error(`\nAgent failed to start. Check logs: ${logPathForCompany(company.id)}`);
+      const logPath = logPathForCompany(company.id);
+      const errorLines = readRecentAgentErrorLines(logPath);
+      if (!errorLines || errorLines.length === 0) {
+        console.error(`\nAgent failed to start. Check logs: ${logPath}`);
+      } else {
+        console.error("\nAgent failed to start.");
+        for (const line of errorLines) {
+          console.error(`  ${line}`);
+        }
+        console.error(`Logs: ${logPath}`);
+      }
       process.exitCode = 1;
       return;
     }

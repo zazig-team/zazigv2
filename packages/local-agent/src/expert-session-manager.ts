@@ -103,6 +103,10 @@ function assembleExpertBrief(brief: string): string {
 
 /** Resolve the MCP server entry point from the executor's dist directory. */
 function resolveMcpServerPath(): string {
+  // Check for compiled binary in ~/.zazigv2/bin/ first
+  const binPath = join(homedir(), ".zazigv2", "bin", "agent-mcp-server");
+  if (existsSync(binPath)) return binPath;
+
   const thisDir = dirname(fileURLToPath(import.meta.url));
   const mjsPath = join(thisDir, "agent-mcp-server.mjs");
   if (existsSync(mjsPath)) return mjsPath;
@@ -160,6 +164,8 @@ export class ExpertSessionManager {
   private readonly activeSessions = new Map<string, ExpertSessionState>();
   private readonly activePollers = new Map<string, ReturnType<typeof setInterval>>();
   private readonly exitingSessions = new Set<string>();
+  /** Session IDs currently being set up (synchronous guard against concurrent duplicate deliveries). */
+  private readonly startingSessions = new Set<string>();
 
   constructor(opts: ExpertSessionManagerOpts) {
     this.machineId = opts.machineId;
@@ -174,10 +180,17 @@ export class ExpertSessionManager {
   async handleStartExpert(msg: StartExpertMessage): Promise<void> {
     const sessionId = msg.session_id;
 
-    // Deduplicate: skip sessions we're already handling (poll re-delivers while status is still "requested")
-    if (this.activeSessions.has(sessionId)) {
+    // Deduplicate: skip sessions we're already handling.
+    // startingSessions is checked/set synchronously (before any await) to prevent
+    // two concurrent deliveries (Realtime + poll) from both proceeding.
+    if (this.activeSessions.has(sessionId) || this.startingSessions.has(sessionId)) {
+      console.log(`[expert] Duplicate start_expert ignored for session ${sessionId}`);
       return;
     }
+    this.startingSessions.add(sessionId);
+
+    // Immediately mark as "starting" so the poll endpoint stops re-sending
+    await this.updateSessionStatus(sessionId, "starting");
 
     const shortId = sessionId.slice(0, 8);
     const roleName =
@@ -202,6 +215,7 @@ export class ExpertSessionManager {
       console.error(
         `[expert] Invalid start_expert payload for ${sessionId}: project_id and repo_url must both be set together`,
       );
+      this.startingSessions.delete(sessionId);
       await this.updateSessionStatus(sessionId, "failed");
       return;
     }
@@ -241,6 +255,7 @@ export class ExpertSessionManager {
         console.log(`[expert] Worktree at commit: ${startCommitHash.slice(0, 8)}`);
       } catch (err) {
         console.error(`[expert] Failed to create git worktree:`, err);
+        this.startingSessions.delete(sessionId);
         await this.updateSessionStatus(sessionId, "failed");
         return;
       }
@@ -278,14 +293,6 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
    - \`git checkout master && git merge ${expertBranch} && git push origin master\`
    - \`git push origin --delete ${expertBranch}\`
 
-### Ending the Session
-When the user says "wrap up", "I'm done", "finish up", or similar:
-1. Write a 2-3 sentence summary of what was accomplished to \`.claude/expert-report.md\`
-2. Tell the user: "Report written. Type /quit (or press Ctrl+C) to close this session."
-
-When greeting the user, always include: "When you're done, say 'wrap up' and I'll write a summary report. Then type /quit (or press Ctrl+C) to close the session."
-
-**Always write the report before the session ends.** The report is read by the CPO after the session closes.
 `);
 
       const claudeMdContent = claudeMdParts.join("\n\n");
@@ -335,7 +342,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
             matcher: "",
             hooks: [{
               type: "command",
-              command: `cat ${shellEscape([join(claudeDir, "expert-brief.md")])} && echo "" && echo "---" && echo "When you're finished, say 'wrap up' — the expert will write a summary report. Then type /quit (or press Ctrl+C) to close."`,
+              command: `cat ${shellEscape([join(claudeDir, "expert-brief.md")])}`,
             }],
           },
         ],
@@ -358,6 +365,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       console.log(`[expert] Workspace configured at ${effectiveWorkspaceDir}`);
     } catch (err) {
       console.error(`[expert] Failed to set up workspace:`, err);
+      this.startingSessions.delete(sessionId);
       await this.updateSessionStatus(sessionId, "failed");
       return;
     }
@@ -389,6 +397,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
         console.log(`[expert] Spawned headless tmux session: ${tmuxSessionName} (cwd=${effectiveWorkspaceDir})`);
       } catch (err) {
         console.error(`[expert] Failed to spawn headless tmux session:`, err);
+        this.startingSessions.delete(sessionId);
         await this.updateSessionStatus(sessionId, "failed");
         return;
       }
@@ -407,6 +416,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
         displayName,
         tmuxSession: tmuxSessionName,
       };
+      this.startingSessions.delete(sessionId);
       this.activeSessions.set(sessionId, sessionState);
       this.startExitPolling(sessionState);
 
@@ -438,6 +448,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       console.log(`[expert] Spawned tmux session: ${tmuxSessionName} (cwd=${effectiveWorkspaceDir})`);
     } catch (err) {
       console.error(`[expert] Failed to spawn tmux session:`, err);
+      this.startingSessions.delete(sessionId);
       await this.updateSessionStatus(sessionId, "failed");
       return;
     }
@@ -463,6 +474,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       viewerSession: viewerLink?.viewerSession,
       viewerWindowName: viewerLink?.viewerWindowName,
     };
+    this.startingSessions.delete(sessionId);
     this.activeSessions.set(sessionId, sessionState);
 
     // 14. Start polling for tmux session exit
@@ -614,33 +626,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       this.activePollers.delete(session.sessionId);
     }
 
-    let summary: string | null = null;
-    const reportPath = join(session.effectiveWorkspaceDir, ".claude", "expert-report.md");
-    try {
-      if (existsSync(reportPath)) {
-        summary = readFileSync(reportPath, "utf8");
-      }
-    } catch (err) {
-      console.warn(`[expert] Failed to read report for session ${session.sessionId}:`, err);
-    }
-
-    try {
-      const { error } = await this.supabase
-        .from("expert_sessions")
-        .update({
-          status: "completed",
-          summary,
-          completed_at: new Date().toISOString(),
-        })
-        .eq("id", session.sessionId);
-      if (error) {
-        console.warn(`[expert] Failed to mark session ${session.sessionId} completed: ${error.message}`);
-      }
-    } catch (err) {
-      console.warn(`[expert] Error updating expert session ${session.sessionId}:`, err);
-    }
-
-    await this.injectSummaryIntoCpo(session, summary);
+    await this.injectSummaryIntoCpo(session);
     await this.switchViewerToCpo(session);
     await this.pushUnpushedCommits(session);
     await this.cleanupWorktree(session);
@@ -656,7 +642,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
     console.log(`[expert] Session ${session.sessionId} exited and cleaned up`);
   }
 
-  private async injectSummaryIntoCpo(session: ExpertSessionState, summary: string | null): Promise<void> {
+  private async injectSummaryIntoCpo(session: ExpertSessionState): Promise<void> {
     const companyPrefix = this.companyId ? `${this.companyId.slice(0, 8)}-` : "";
     const cpoSessionName = `${this.machineId}-${companyPrefix}cpo`;
 
@@ -665,9 +651,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       return;
     }
 
-    const message = summary
-      ? `[Expert Report - ${session.displayName}] ${summary}`
-      : "[Expert session ended - no report written]";
+    const message = `[Expert session ended — ${session.displayName}]`;
     const singleLine = message.replace(/\r?\n/g, " ").trim();
     if (!singleLine) return;
 

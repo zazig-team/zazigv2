@@ -10,7 +10,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
@@ -18,7 +18,7 @@ import { createClient } from "@supabase/supabase-js";
 import { getValidCredentials, type Credentials } from "../lib/credentials.js";
 import { fetchUserCompanies, pickCompany } from "../lib/company-picker.js";
 import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
-import { pinCurrentBuild, rollback as rollbackBuild } from "../lib/builds.js";
+import { rollbackBinaries } from "../lib/builds.js";
 
 const REPOS_BASE = join(homedir(), ".zazigv2", "repos");
 
@@ -214,7 +214,7 @@ async function registerAgentVersion(
 export async function promote(args: string[]): Promise<void> {
   // Handle --rollback (doesn't need company/project)
   if (args.includes("--rollback")) {
-    const ok = rollbackBuild();
+    const ok = rollbackBinaries();
     process.exitCode = ok ? 0 : 1;
     return;
   }
@@ -403,6 +403,20 @@ async function runPromote(
     return;
   }
 
+  // 5b. Compile native binaries from bundles
+  console.log("\nCompiling native binaries...");
+  const compileOutDir = join(homedir(), ".zazigv2", "compile-tmp");
+  try {
+    execSync(
+      `bash "${join(repoRoot, "packages", "cli", "scripts", "compile.sh")}" "${compileOutDir}" "${repoRoot}"`,
+      { stdio: "inherit" },
+    );
+  } catch {
+    console.error("Bun compile failed. Is bun installed? (brew install oven-sh/bun/bun)");
+    process.exitCode = 1;
+    return;
+  }
+
   // 6. Commit bundles + version bump to default branch and push
   let commitSha: string;
   console.log("\nCommitting bundles and version bump...");
@@ -479,21 +493,58 @@ async function runPromote(
   // 8. Register promoted version in agent_versions
   console.log("\nRegistering production version...");
   try {
-    await registerAgentVersion(creds, anonKey, "production", agentBuildHash, commitSha);
-    console.log(`Registered production agent version ${agentBuildHash} (${commitSha.slice(0, 7)}).`);
+    await registerAgentVersion(creds, anonKey, "production", newVersion, commitSha);
+    console.log(`Registered production agent version ${newVersion} (${commitSha.slice(0, 7)}).`);
   } catch (err) {
     console.error(`Version registration failed: ${String(err)}`);
     process.exitCode = 1;
     return;
   }
 
-  // 9. Pin local agent build
-  console.log("\nPinning local agent build...");
-  pinCurrentBuild(repoRoot);
+  // 9. Install binaries locally
+  console.log("\nInstalling binaries locally...");
+  const binDir = join(homedir(), ".zazigv2", "bin");
+  mkdirSync(binDir, { recursive: true });
+  const localBinaries = [
+    { src: join(compileOutDir, "zazig-cli-darwin-arm64"), dest: join(binDir, "zazig") },
+    { src: join(compileOutDir, "zazig-agent-darwin-arm64"), dest: join(binDir, "zazig-agent") },
+    { src: join(compileOutDir, "agent-mcp-server-darwin-arm64"), dest: join(binDir, "agent-mcp-server") },
+  ];
+  for (const { src, dest } of localBinaries) {
+    if (existsSync(src)) {
+      cpSync(src, dest);
+      chmodSync(dest, 0o755);
+    }
+  }
+  writeFileSync(join(binDir, ".version"), newVersion);
+  console.log(`Binaries installed to ${binDir}`);
+
+  // 10. Create GitHub Release and upload binaries
+  console.log("\nCreating GitHub Release...");
+  const tag = `v${newVersion}`;
+  try {
+    execSync(
+      `gh release create "${tag}" ` +
+        `--repo zazig-team/zazigv2 ` +
+        `--title "v${newVersion}" ` +
+        `--notes "Production release ${newVersion} (${commitSha.slice(0, 7)})" ` +
+        `--target "${commitSha}" ` +
+        `"${join(compileOutDir, "zazig-cli-darwin-arm64")}" ` +
+        `"${join(compileOutDir, "zazig-agent-darwin-arm64")}" ` +
+        `"${join(compileOutDir, "agent-mcp-server-darwin-arm64")}"`,
+      { stdio: "inherit" },
+    );
+    console.log(`GitHub Release ${tag} created with 3 binary assets.`);
+  } catch (err) {
+    console.error(`GitHub Release creation failed: ${String(err)}`);
+    console.error("Binaries were not uploaded. You can retry with: gh release create ...");
+  }
+
+  // 11. Cleanup compile temp dir
+  try { rmSync(compileOutDir, { recursive: true, force: true }); } catch { /* */ }
 
   const sha = commitSha.slice(0, 7);
-  console.log(`\nPromoted to production ${agentBuildHash} (${sha}).`);
-  console.log(`Bumped package semver to ${newVersion}.`);
+  console.log(`\nPromoted to production v${newVersion} (${sha}).`);
   console.log("CI will deploy Supabase migrations and edge functions.");
   console.log("Restart your production agent to use the new build: zazig stop && zazig start");
 }

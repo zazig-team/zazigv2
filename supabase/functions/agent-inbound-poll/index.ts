@@ -280,25 +280,45 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     // ---------------------------------------------------------------
-    // 4. Find requested expert sessions for this machine
+    // 4. Find requested expert sessions for this machine (poll fallback)
+    //
+    // Atomically claim each session by CAS-updating status from
+    // "requested" → "claimed". Only sessions that are successfully
+    // updated are returned, so a session is never delivered twice —
+    // even if Realtime already dispatched it to the daemon.
     // ---------------------------------------------------------------
-    const { data: sessionsData, error: sessionsErr } = await supabaseAdmin
+    const thirtySecondsAgo = new Date(Date.now() - 30_000).toISOString();
+    const { data: candidateSessions, error: sessionsErr } = await supabaseAdmin
       .from("expert_sessions")
       .select(
         "id, brief, headless, batch_id, items_total, status, expert_roles(name, display_name, model, prompt, skills, mcp_tools, settings_overrides)",
       )
       .eq("status", "requested")
-      .eq("machine_id", machineId);
+      .eq("machine_id", machineId)
+      .gte("created_at", thirtySecondsAgo);
 
     if (sessionsErr) {
       console.error("[agent-inbound-poll] Expert sessions query failed:", sessionsErr.message);
       // Don't fail — still return jobs
     }
 
-    const expertMessages = (sessionsData ?? []).map((row) => {
+    const expertMessages: Record<string, unknown>[] = [];
+    for (const row of candidateSessions ?? []) {
       const record = row as unknown as ExpertSessionRow;
+
+      // Atomic CAS claim: only succeeds if still "requested"
+      const { data: claimed, error: claimErr } = await supabaseAdmin
+        .from("expert_sessions")
+        .update({ status: "claimed" })
+        .eq("id", record.id)
+        .eq("status", "requested")
+        .select("id")
+        .maybeSingle();
+
+      if (claimErr || !claimed) continue; // Already claimed (by Realtime path) — skip
+
       const role = record.expert_roles;
-      return {
+      expertMessages.push({
         type: "start_expert",
         protocolVersion: PROTOCOL_VERSION,
         session_id: record.id,
@@ -314,8 +334,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
           mcp_tools: role?.mcp_tools ?? { allowed: [] },
           settings_overrides: role?.settings_overrides ?? undefined,
         },
-      };
-    });
+      });
+    }
 
     return jsonResponse({
       jobs: claimedMessages,

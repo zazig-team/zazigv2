@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Wrapper to run zazig CLI in staging mode from the repo source.
+# Usage: zazig-staging login | start | stop | status | ...
+
+# Resolve symlinks to find the real script location in the repo
+SOURCE="$0"
+while [[ -L "$SOURCE" ]]; do
+  DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+ZAZIG_REPO_PATH="$REPO_ROOT" exec bun "$REPO_ROOT/packages/cli/src/staging-index.ts" "$@"

@@ -5,8 +5,6 @@ import {
   fetchIdeas,
   fetchIdeaDetail,
   fetchProjects,
-  fetchAutoTriageSetting,
-  setAutoTriageSetting,
   promoteIdea,
   updateIdeaStatus,
   requestTriageJob,
@@ -19,7 +17,15 @@ import { supabase } from "../lib/supabase";
 import FormattedProse from "../components/FormattedProse";
 
 type TypeFilter = "all" | "idea" | "brief" | "bug" | "test";
-type SectionTab = "inbox" | "triaged" | "workshop" | "parked" | "rejected" | "shipped";
+type SectionTab =
+  | "inbox"
+  | "readyForSpec"
+  | "specInProgress"
+  | "triaged"
+  | "workshop"
+  | "parked"
+  | "rejected"
+  | "shipped";
 type SortMode = "newest" | "oldest" | "priority";
 
 const TYPE_ICON: Record<string, string> = {
@@ -78,6 +84,26 @@ function formatDate(iso: string | null): string {
 }
 
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+const TAB_ORDER: SectionTab[] = [
+  "inbox",
+  "readyForSpec",
+  "specInProgress",
+  "triaged",
+  "workshop",
+  "parked",
+  "rejected",
+  "shipped",
+];
+const TAB_LABELS: Record<SectionTab, string> = {
+  inbox: "Inbox",
+  readyForSpec: "Ready for Spec",
+  specInProgress: "Spec In Progress",
+  triaged: "Triaged",
+  workshop: "Workshop",
+  parked: "Parked",
+  rejected: "Rejected",
+  shipped: "Shipped",
+};
 
 function priorityRank(priority: string | null): number {
   return PRIORITY_RANK[(priority ?? "medium").toLowerCase()] ?? 2;
@@ -95,11 +121,17 @@ function featureStatusClass(status: string): string {
   return "il-feature-status";
 }
 
+function ideaTriageRoute(idea: Idea): string | null {
+  const route = (idea as Idea & { triage_route?: string | null }).triage_route;
+  return typeof route === "string" ? route : null;
+}
+
 /* ── Inline Detail (expanded row content) ── */
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Inbox",
   triaging: "Analysing",
+  developing: "Spec In Progress",
   triaged: "Triaged",
   parked: "Parked",
   rejected: "Rejected",
@@ -110,11 +142,12 @@ const STATUS_LABELS: Record<string, string> = {
 interface InlineDetailProps {
   ideaId: string;
   colorVar: string;
+  triageRoute: string | null;
   isShipped: boolean;
   onAction: (ideaId: string, newStatus: string) => void;
 }
 
-function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailProps): JSX.Element {
+function InlineDetail({ ideaId, colorVar, triageRoute, isShipped, onAction }: InlineDetailProps): JSX.Element {
   const { activeCompanyId } = useCompany();
   const [data, setData] = useState<IdeaDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -231,6 +264,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   if (!data) return <div className="il-detail-loading">No data</div>;
 
   const canPromote = data.status === "triaged" && !promoted && !isShipped;
+  const canWriteSpec = data.status === "triaged" && triageRoute === "develop" && !isShipped;
   const readiness = canPromote ? [
     { label: "Has title", ok: Boolean(data.title?.trim()), hint: "Needs a clear title", field: "title" },
     { label: "Has description", ok: Boolean(data.description?.trim()) || Boolean(data.raw_text && data.raw_text.length > 20), hint: "Needs description or detailed raw text", field: "description" },
@@ -255,6 +289,21 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setEnriching(false);
+    }
+  }
+
+  async function handleWriteSpec(): Promise<void> {
+    setActionInProgress("Write Spec");
+    setActionError(null);
+    try {
+      await updateIdeaStatus(ideaId, "developing");
+      setData((prev) => prev ? { ...prev, status: "developing" } : prev);
+      setActionDone("Write Spec");
+      onAction(ideaId, "developing");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setActionInProgress(null);
     }
   }
 
@@ -407,6 +456,16 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
                 {enriching ? "Enriching..." : `Enrich (${missingFields.join(", ")})`}
               </button>
             )}
+            {canWriteSpec && (
+              <button
+                className="il-action-secondary il-action-triage"
+                type="button"
+                disabled={!!actionInProgress}
+                onClick={handleWriteSpec}
+              >
+                {actionInProgress === "Write Spec" ? "Starting..." : "Write Spec"}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -442,7 +501,11 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
       )}
 
       {actionError && <div className="il-promote-error">{actionError}</div>}
-      {actionDone && <div className="il-promote-success">Idea {actionDone.toLowerCase()}d successfully.</div>}
+      {actionDone && (
+        <div className="il-promote-success">
+          {actionDone === "Write Spec" ? "Spec writing started." : `Idea ${actionDone.toLowerCase()}d successfully.`}
+        </div>
+      )}
     </div>
   );
 }
@@ -462,8 +525,6 @@ export default function Ideas(): JSX.Element {
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [dismissedIdeas, setDismissedIdeas] = useState<Map<string, string>>(new Map());
   const [batchTriaging, setBatchTriaging] = useState(false);
-  const [autoTriage, setAutoTriage] = useState(false);
-  const [autoTriageLoading, setAutoTriageLoading] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   const loadIdeas = useCallback(async () => {
@@ -503,26 +564,6 @@ export default function Ideas(): JSX.Element {
   useEffect(() => {
     void loadIdeas();
   }, [loadIdeas]);
-
-  // Auto-triage toggle
-  useEffect(() => {
-    if (!activeCompanyId) return;
-    fetchAutoTriageSetting(activeCompanyId).then(setAutoTriage).catch(() => {});
-  }, [activeCompanyId]);
-
-  async function handleAutoTriageToggle(): Promise<void> {
-    if (!activeCompanyId || autoTriageLoading) return;
-    setAutoTriageLoading(true);
-    try {
-      const next = !autoTriage;
-      await setAutoTriageSetting(activeCompanyId, next);
-      setAutoTriage(next);
-    } catch (err) {
-      console.error("Auto-triage toggle error:", err);
-    } finally {
-      setAutoTriageLoading(false);
-    }
-  }
 
   // Realtime
   const handleInsert = useCallback((row: Record<string, unknown>) => {
@@ -582,7 +623,9 @@ export default function Ideas(): JSX.Element {
   // Group by section
   const sections = useMemo(() => ({
     inbox: filtered.filter((i) => i.status === "new" || i.status === "triaging"),
-    triaged: filtered.filter((i) => i.status === "triaged"),
+    readyForSpec: filtered.filter((i) => i.status === "triaged" && ideaTriageRoute(i) === "develop"),
+    specInProgress: filtered.filter((i) => i.status === "developing"),
+    triaged: filtered.filter((i) => i.status === "triaged" && ideaTriageRoute(i) !== "develop"),
     workshop: filtered.filter((i) => i.status === "workshop"),
     parked: filtered.filter((i) => i.status === "parked"),
     rejected: filtered.filter((i) => i.status === "rejected"),
@@ -604,7 +647,9 @@ export default function Ideas(): JSX.Element {
   // Section counts (unfiltered for tab badges)
   const tabCounts = useMemo(() => ({
     inbox: ideas.filter((i) => i.status === "new" || i.status === "triaging").length,
-    triaged: ideas.filter((i) => i.status === "triaged").length,
+    readyForSpec: ideas.filter((i) => i.status === "triaged" && ideaTriageRoute(i) === "develop").length,
+    specInProgress: ideas.filter((i) => i.status === "developing").length,
+    triaged: ideas.filter((i) => i.status === "triaged" && ideaTriageRoute(i) !== "develop").length,
     workshop: ideas.filter((i) => i.status === "workshop").length,
     parked: ideas.filter((i) => i.status === "parked").length,
     rejected: ideas.filter((i) => i.status === "rejected").length,
@@ -722,19 +767,18 @@ export default function Ideas(): JSX.Element {
       {/* Header */}
       <div className="il-header">
         <h1 className="il-title">Ideas</h1>
-        {/* Auto-triage toggle hidden until orchestrator is deployed to production */}
       </div>
 
       {/* Section tabs */}
       <div className="il-tabs">
-        {(["inbox", "triaged", "workshop", "parked", "rejected", "shipped"] as SectionTab[]).map((tab) => (
+        {TAB_ORDER.map((tab) => (
           <button
             key={tab}
             className={`il-tab${activeTab === tab ? " active" : ""}`}
             onClick={() => { setActiveTab(tab); setExpandedId(null); }}
             type="button"
           >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {TAB_LABELS[tab]}
             <span className="il-tab-count">{tabCounts[tab]}</span>
           </button>
         ))}
@@ -790,7 +834,7 @@ export default function Ideas(): JSX.Element {
       {/* List */}
       <div className="il-list" ref={listRef}>
         {activeItems.length === 0 && (
-          <div className="il-empty">No {activeTab} ideas{typeFilter !== "all" ? ` of type "${typeFilter}"` : ""}.</div>
+          <div className="il-empty">No {TAB_LABELS[activeTab].toLowerCase()} ideas{typeFilter !== "all" ? ` of type "${typeFilter}"` : ""}.</div>
         )}
         {activeItems.map((idea, idx) => {
           const dismissMsg = dismissedIdeas.get(idea.id);
@@ -807,6 +851,8 @@ export default function Ideas(): JSX.Element {
           const colorVar = TYPE_COLOR_VAR[type] ?? "--col-ideas";
           const isExpanded = expandedId === idea.id;
           const isTriaging = idea.status === "triaging";
+          const isDeveloping = idea.status === "developing";
+          const triageRoute = ideaTriageRoute(idea);
           const fInfo = isShippedTab && idea.promoted_to_id ? featureStatuses.get(idea.promoted_to_id) ?? null : null;
 
           return (
@@ -832,6 +878,10 @@ export default function Ideas(): JSX.Element {
                 <div className="il-row-meta">
                   {isTriaging ? (
                     <span className="il-triaging-badge">triaging</span>
+                  ) : isDeveloping ? (
+                    <span className="il-triaging-badge" style={{ animation: "ilTriagingPulse 2s ease-in-out infinite" }}>
+                      spec in progress
+                    </span>
                   ) : isShippedTab && fInfo ? (
                     <span className={featureStatusClass(fInfo.status)}>{featureStatusLabel(fInfo.status)}</span>
                   ) : (
@@ -847,6 +897,7 @@ export default function Ideas(): JSX.Element {
                 <InlineDetail
                   ideaId={idea.id}
                   colorVar={colorVar}
+                  triageRoute={triageRoute}
                   isShipped={isShippedTab}
                   onAction={handleIdeaAction}
                 />

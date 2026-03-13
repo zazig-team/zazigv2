@@ -293,14 +293,6 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
    - \`git checkout master && git merge ${expertBranch} && git push origin master\`
    - \`git push origin --delete ${expertBranch}\`
 
-### Ending the Session
-When the user says "wrap up", "I'm done", "finish up", or similar:
-1. Write a 2-3 sentence summary of what was accomplished to \`.claude/expert-report.md\`
-2. Tell the user: "Report written. Type /quit (or press Ctrl+C) to close this session."
-
-When greeting the user, always include: "When you're done, say 'wrap up' and I'll write a summary report. Then type /quit (or press Ctrl+C) to close the session."
-
-**Always write the report before the session ends.** The report is read by the CPO after the session closes.
 `);
 
       const claudeMdContent = claudeMdParts.join("\n\n");
@@ -350,7 +342,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
             matcher: "",
             hooks: [{
               type: "command",
-              command: `cat ${shellEscape([join(claudeDir, "expert-brief.md")])} && echo "" && echo "---" && echo "When you're finished, say 'wrap up' — the expert will write a summary report. Then type /quit (or press Ctrl+C) to close."`,
+              command: `cat ${shellEscape([join(claudeDir, "expert-brief.md")])}`,
             }],
           },
         ],
@@ -634,33 +626,7 @@ When greeting the user, always include: "When you're done, say 'wrap up' and I'l
       this.activePollers.delete(session.sessionId);
     }
 
-    let summary: string | null = null;
-    const reportPath = join(session.effectiveWorkspaceDir, ".claude", "expert-report.md");
-    try {
-      if (existsSync(reportPath)) {
-        summary = readFileSync(reportPath, "utf8");
-      }
-    } catch (err) {
-      console.warn(`[expert] Failed to read report for session ${session.sessionId}:`, err);
-    }
-
-    try {
-      const { error } = await this.supabase
-        .from("expert_sessions")
-        .update({
-          status: "completed",
-          summary,
-          completed_at: new Date().toISOString(),
-        })
-        .eq("id", session.sessionId);
-      if (error) {
-        console.warn(`[expert] Failed to mark session ${session.sessionId} completed: ${error.message}`);
-      }
-    } catch (err) {
-      console.warn(`[expert] Error updating expert session ${session.sessionId}:`, err);
-    }
-
-    await this.injectSummaryIntoCpo(session, summary);
+    await this.injectSummaryIntoCpo(session, null);
     await this.switchViewerToCpo(session);
     await this.pushUnpushedCommits(session);
     await this.cleanupWorktree(session);

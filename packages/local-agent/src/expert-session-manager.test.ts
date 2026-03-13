@@ -300,7 +300,7 @@ describe("ExpertSessionManager", () => {
     await vi.advanceTimersByTimeAsync(20_000);
 
     expect(exitSpy).toHaveBeenCalled();
-    expect(injectSpy).toHaveBeenCalledWith(expect.objectContaining({ sessionId }), null);
+    expect(injectSpy).toHaveBeenCalledWith(expect.objectContaining({ sessionId }));
     expect(fsRmMock).toHaveBeenCalledWith(expect.stringContaining(`/.zazigv2/expert-${sessionId}`), {
       recursive: true,
       force: true,

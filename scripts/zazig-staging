@@ -12,4 +12,4 @@ done
 SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-ZAZIG_ENV=staging ZAZIG_REPO_PATH="$REPO_ROOT" exec npx tsx "$REPO_ROOT/packages/cli/src/index.ts" "$@"
+ZAZIG_REPO_PATH="$REPO_ROOT" exec npx tsx "$REPO_ROOT/packages/cli/src/staging-index.ts" "$@"

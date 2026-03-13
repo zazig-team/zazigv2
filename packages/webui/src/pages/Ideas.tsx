@@ -731,7 +731,11 @@ export default function Ideas(): JSX.Element {
   }), [filtered, filteredPromoted]);
 
   const activeItems = useMemo(() => {
-    return sortIdeasByMode(sections[activeTab], sortMode);
+    const sorted = sortIdeasByMode(sections[activeTab], sortMode);
+    if (activeTab !== "triaged") return sorted;
+    const readyForSpec = sorted.filter((idea) => idea.triage_route === "develop");
+    const remainingTriaged = sorted.filter((idea) => idea.triage_route !== "develop");
+    return [...readyForSpec, ...remainingTriaged];
   }, [sections, activeTab, sortMode]);
 
   const triagedReadyItems = useMemo(() => {

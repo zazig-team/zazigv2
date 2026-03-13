@@ -9,11 +9,14 @@ import {
   setAutoTriageSetting,
   promoteIdea,
   updateIdeaStatus,
+  requestHeadlessSpec,
   requestTriageJob,
   requestEnrichmentJob,
+  fetchIdeaSpecSessions,
   type Idea,
   type IdeaDetail,
   type Project,
+  type SpecSession,
 } from "../lib/queries";
 import { supabase } from "../lib/supabase";
 import FormattedProse from "../components/FormattedProse";
@@ -95,12 +98,31 @@ function featureStatusClass(status: string): string {
   return "il-feature-status";
 }
 
+function asGithubSpecUrl(specUrl: string | null): string | null {
+  if (!specUrl) return null;
+  if (specUrl.startsWith("https://github.com/")) return specUrl;
+  if (specUrl.startsWith("http://github.com/")) return specUrl.replace("http://", "https://");
+  if (specUrl.startsWith("github.com/")) return `https://${specUrl}`;
+
+  const rawPrefix = "https://raw.githubusercontent.com/";
+  if (specUrl.startsWith(rawPrefix)) {
+    const parts = specUrl.slice(rawPrefix.length).split("/");
+    if (parts.length >= 4) {
+      const [owner, repo, branch, ...pathParts] = parts;
+      return `https://github.com/${owner}/${repo}/blob/${branch}/${pathParts.join("/")}`;
+    }
+  }
+  return specUrl;
+}
+
 /* ── Inline Detail (expanded row content) ── */
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Inbox",
   triaging: "Analysing",
   triaged: "Triaged",
+  developing: "Developing",
+  specced: "Specced",
   parked: "Parked",
   rejected: "Rejected",
   promoted: "Promoted",
@@ -132,6 +154,8 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionDone, setActionDone] = useState<string | null>(null);
   const [enriching, setEnriching] = useState(false);
+  const [specSessions, setSpecSessions] = useState<SpecSession[]>([]);
+  const [specLoading, setSpecLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -169,6 +193,23 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
 
     return () => { cancelled = true; };
   }, [activeCompanyId, data?.status]);
+
+  useEffect(() => {
+    if (!data || !["developing", "specced"].includes(data.status)) {
+      setSpecSessions([]);
+      return;
+    }
+    let cancelled = false;
+    setSpecLoading(true);
+    fetchIdeaSpecSessions(ideaId).then((result) => {
+      if (!cancelled) setSpecSessions(result);
+    }).catch(() => {
+      if (!cancelled) setSpecSessions([]);
+    }).finally(() => {
+      if (!cancelled) setSpecLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [ideaId, data?.status]);
 
   async function handlePromote(): Promise<void> {
     if (!data || !selectedProjectId) return;
@@ -230,7 +271,8 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   if (error) return <div className="il-detail-error">{error}</div>;
   if (!data) return <div className="il-detail-loading">No data</div>;
 
-  const canPromote = data.status === "triaged" && !promoted && !isShipped;
+  const canWriteSpec = data.status === "triaged" && data.triage_route === "develop" && !promoted && !isShipped;
+  const canPromote = data.status === "triaged" && data.triage_route !== "develop" && !promoted && !isShipped;
   const readiness = canPromote ? [
     { label: "Has title", ok: Boolean(data.title?.trim()), hint: "Needs a clear title", field: "title" },
     { label: "Has description", ok: Boolean(data.description?.trim()) || Boolean(data.raw_text && data.raw_text.length > 20), hint: "Needs description or detailed raw text", field: "description" },
@@ -238,6 +280,16 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   ] : [];
   const allReady = readiness.every((r) => r.ok);
   const missingFields = readiness.filter((r) => !r.ok && r.field !== "project").map((r) => r.field);
+  const roundCount = Math.max(1, specSessions.length);
+  const latestSpecSession = specSessions[specSessions.length - 1] ?? null;
+  const phaseLabel = data.spec_url
+    ? "Approved"
+    : latestSpecSession?.role.toLowerCase().includes("reviewer")
+      ? "Under review..."
+      : roundCount > 1
+        ? "Revising..."
+        : "Writing spec...";
+  const specFileUrl = asGithubSpecUrl(data.spec_url);
 
   async function handleEnrich(): Promise<void> {
     if (!activeCompanyId || missingFields.length === 0) return;
@@ -255,6 +307,37 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setEnriching(false);
+    }
+  }
+
+  async function handleWriteSpec(): Promise<void> {
+    if (!activeCompanyId) return;
+    const projectId = selectedProjectId ?? data.project_id ?? projects[0]?.id;
+    if (!projectId) {
+      setActionError("No project available for spec job");
+      return;
+    }
+
+    setActionInProgress("Write Spec");
+    setActionError(null);
+
+    const batchId = crypto.randomUUID();
+    let claimedDeveloping = false;
+
+    try {
+      await updateIdeaStatus(ideaId, "developing");
+      onAction(ideaId, "developing");
+      claimedDeveloping = true;
+      await requestHeadlessSpec({ companyId: activeCompanyId, projectId, ideaIds: [ideaId], batchId });
+      setActionDone("Write Spec");
+    } catch (err) {
+      if (claimedDeveloping) {
+        await updateIdeaStatus(ideaId, "triaged").catch(() => {});
+        onAction(ideaId, "triaged");
+      }
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setActionInProgress(null);
     }
   }
 
@@ -331,6 +414,30 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
               <span className="il-detail-meta-val">{data.suggested_exec}</span>
             </div>
           )}
+        </div>
+      )}
+
+      {["developing", "specced"].includes(data.status) && (
+        <div className="il-detail-section">
+          <div className="il-detail-section-label">Spec Progress</div>
+          <div className="il-detail-meta-row">
+            <div className="il-detail-meta-item">
+              <span className="il-detail-meta-key">Round</span>
+              <span className="il-detail-meta-val">Round {roundCount}</span>
+            </div>
+            <div className="il-detail-meta-item">
+              <span className="il-detail-meta-key">Phase</span>
+              <span className="il-detail-meta-val">{specLoading ? "Loading..." : phaseLabel}</span>
+            </div>
+            {specFileUrl && (
+              <div className="il-detail-meta-item">
+                <span className="il-detail-meta-key">Spec</span>
+                <a className="il-detail-meta-val" href={specFileUrl} target="_blank" rel="noreferrer">
+                  Open spec
+                </a>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -411,12 +518,42 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
         </div>
       )}
 
+      {canWriteSpec && (
+        <div className="il-detail-section">
+          <div className="il-detail-section-label">Spec</div>
+          {projects.length > 0 && (
+            <div className="il-promote-project">
+              <label className="il-promote-label" htmlFor={`spec-project-${ideaId}`}>Project</label>
+              <select
+                id={`spec-project-${ideaId}`}
+                className="il-promote-select"
+                value={selectedProjectId ?? ""}
+                onChange={(e) => setSelectedProjectId(e.target.value || null)}
+              >
+                <option value="">Select project...</option>
+                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="il-promote-actions">
+            <button
+              className="il-action-primary"
+              type="button"
+              disabled={actionInProgress === "Write Spec"}
+              onClick={handleWriteSpec}
+            >
+              {actionInProgress === "Write Spec" ? "Writing..." : "Write Spec"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {promoted && (
         <div className="il-promote-success">Idea promoted to feature and pushed into the pipeline.</div>
       )}
 
       {/* Actions row for non-triaged items */}
-      {!canPromote && !isShipped && !promoted && !actionDone && (
+      {!canPromote && !canWriteSpec && !isShipped && !promoted && !actionDone && (
         <div className="il-detail-actions">
           {data.status === "new" && (
             <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleBackgroundTriage}>
@@ -583,7 +720,7 @@ export default function Ideas(): JSX.Element {
   const sections = useMemo(() => ({
     inbox: filtered.filter((i) => i.status === "new" || i.status === "triaging"),
     triaged: filtered.filter((i) => i.status === "triaged"),
-    workshop: filtered.filter((i) => i.status === "workshop"),
+    workshop: filtered.filter((i) => i.status === "workshop" || i.status === "developing" || i.status === "specced"),
     parked: filtered.filter((i) => i.status === "parked"),
     rejected: filtered.filter((i) => i.status === "rejected"),
     shipped: filteredPromoted,
@@ -605,7 +742,7 @@ export default function Ideas(): JSX.Element {
   const tabCounts = useMemo(() => ({
     inbox: ideas.filter((i) => i.status === "new" || i.status === "triaging").length,
     triaged: ideas.filter((i) => i.status === "triaged").length,
-    workshop: ideas.filter((i) => i.status === "workshop").length,
+    workshop: ideas.filter((i) => i.status === "workshop" || i.status === "developing" || i.status === "specced").length,
     parked: ideas.filter((i) => i.status === "parked").length,
     rejected: ideas.filter((i) => i.status === "rejected").length,
     shipped: promotedIdeas.length,

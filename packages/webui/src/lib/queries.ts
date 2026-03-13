@@ -596,9 +596,20 @@ export interface IdeaDetail {
   item_type: string | null;
   horizon: string | null;
   project_id: string | null;
+  triage_route: string | null;
+  spec_url: string | null;
   suggested_exec: string | null;
   triage_notes: string | null;
   promotedFeature: { title: string; status: string } | null;
+}
+
+export interface SpecSession {
+  id: string;
+  batch_id: string | null;
+  role: string;
+  created_at: string;
+  brief: string | null;
+  status: string | null;
 }
 
 export async function fetchFeatureDetail(featureId: string): Promise<FeatureDetail> {
@@ -662,7 +673,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
 export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
   const { data: idea, error: ideaError } = await supabase
     .from("ideas")
-    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon, project_id, suggested_exec, triage_notes")
+    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon, project_id, triage_route, spec_url, suggested_exec, triage_notes")
     .eq("id", ideaId)
     .single();
 
@@ -704,10 +715,51 @@ export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
     item_type: (row.item_type as string | null) ?? null,
     horizon: (row.horizon as string | null) ?? null,
     project_id: (row.project_id as string | null) ?? null,
+    triage_route: (row.triage_route as string | null) ?? null,
+    spec_url: (row.spec_url as string | null) ?? null,
     suggested_exec: (row.suggested_exec as string | null) ?? null,
     triage_notes: (row.triage_notes as string | null) ?? null,
     promotedFeature,
   };
+}
+
+export async function fetchIdeaSpecSessions(ideaId: string): Promise<SpecSession[]> {
+  const { data, error } = await supabase
+    .from("expert_sessions")
+    .select("id, batch_id, created_at, brief, status, expert_roles(name)")
+    .ilike("brief", `%${ideaId}%`)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      return [];
+    }
+    throw error;
+  }
+
+  const latestByBatch = new Map<string, SpecSession>();
+  const rows = (data ?? []) as Array<Record<string, unknown>>;
+
+  for (const row of rows) {
+    const roleRelation = relationObject<{ name: string }>(
+      row.expert_roles as { name: string } | Array<{ name: string }> | null,
+    );
+    const session: SpecSession = {
+      id: String(row.id),
+      batch_id: typeof row.batch_id === "string" ? row.batch_id : null,
+      role: roleRelation?.name ?? "unknown",
+      created_at: String(row.created_at),
+      brief: typeof row.brief === "string" ? row.brief : null,
+      status: typeof row.status === "string" ? row.status : null,
+    };
+
+    const key = session.batch_id ?? `session:${session.id}`;
+    latestByBatch.set(key, session);
+  }
+
+  return [...latestByBatch.values()].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
 }
 
 export async function updateIdeaStatus(ideaId: string, status: string): Promise<void> {
@@ -1043,6 +1095,50 @@ export async function requestEnrichmentJob(params: {
     role: "triage-analyst",
     context: JSON.stringify({ idea_id: params.ideaId, action: "enrich", missing: params.missing }),
   });
+}
+
+export async function requestHeadlessSpec(params: {
+  companyId: string;
+  projectId: string;
+  ideaIds: string[];
+  batchId: string;
+}): Promise<{ sessions_started: number; sessions: Array<{ session_id?: string; status?: string }> }> {
+  const { data: machines, error: machineError } = await supabase
+    .from("machines")
+    .select("name")
+    .eq("company_id", params.companyId)
+    .order("last_heartbeat", { ascending: false })
+    .limit(1);
+
+  if (machineError) {
+    throw machineError;
+  }
+
+  const machineName = (machines?.[0] as { name?: string } | undefined)?.name;
+  if (!machineName) {
+    throw new Error("No machine available to start a spec session");
+  }
+
+  const sessions: Array<{ session_id?: string; status?: string }> = [];
+  for (const ideaId of params.ideaIds) {
+    const brief = [
+      "Draft an implementation-ready specification for this idea.",
+      `idea_id: ${ideaId}`,
+      `batch_id: ${params.batchId}`,
+      "Include scope, architecture, delivery phases, risks, and acceptance criteria.",
+    ].join("\n");
+
+    const session = await invokePost<{ session_id?: string; status?: string }>("start-expert-session", {
+      role_name: "spec-writer",
+      brief,
+      machine_name: machineName,
+      project_id: params.projectId,
+      batch_id: params.batchId,
+    });
+    sessions.push(session);
+  }
+
+  return { sessions_started: sessions.length, sessions };
 }
 
 export async function requestFeatureFix(params: {

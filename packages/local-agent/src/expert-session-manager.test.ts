@@ -473,7 +473,7 @@ describe("ExpertSessionManager", () => {
       && call[1][3] === "-l"
     );
     expect(sendKeysLiteral).toBeDefined();
-    expect(sendKeysLiteral?.[1][4]).toContain("[Expert session ended - no report written]");
+    expect(sendKeysLiteral?.[1][4]).toContain("[Expert session ended — Research Expert]");
 
     expect(mockExecFileAsync).toHaveBeenCalledWith("tmux", ["select-window", "-t", "zazig-view-acme:CPO"]);
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["-C", "/tmp/repos/project.git", "worktree", "remove", "--force", "/tmp/workspace-root/repo"]);

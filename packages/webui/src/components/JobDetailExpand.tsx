@@ -200,10 +200,10 @@ export default function JobDetailExpand({ jobId }: JobDetailExpandProps): JSX.El
   const progress = clampProgress(job?.progress ?? null);
 
   const resultText = (job?.result ?? "").trim();
-  const hasResultSummary = Boolean(job) && isCompletedOrFailed(status) && resultText.length > 0;
+  const hasResultSummary = Boolean(job) && isCompletedOrFailed(status);
   const resultPreview = useMemo(() => {
     if (resultText.length <= 200) {
-      return resultText;
+      return resultText || "—";
     }
     return `${resultText.slice(0, 200)}...`;
   }, [resultText]);
@@ -273,7 +273,7 @@ export default function JobDetailExpand({ jobId }: JobDetailExpandProps): JSX.El
             <div className="detail-section">
               <div className="detail-section-title">Result Summary</div>
               <div className="detail-prose detail-prose--pre">
-                {showFullResult || resultText.length <= 200 ? resultText : resultPreview}
+                {showFullResult || resultText.length <= 200 ? (resultText || "—") : resultPreview}
               </div>
               {resultText.length > 200 ? (
                 <button

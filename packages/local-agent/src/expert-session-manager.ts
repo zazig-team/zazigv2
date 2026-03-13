@@ -626,7 +626,7 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       this.activePollers.delete(session.sessionId);
     }
 
-    await this.injectSummaryIntoCpo(session, null);
+    await this.injectSummaryIntoCpo(session);
     await this.switchViewerToCpo(session);
     await this.pushUnpushedCommits(session);
     await this.cleanupWorktree(session);
@@ -642,7 +642,7 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
     console.log(`[expert] Session ${session.sessionId} exited and cleaned up`);
   }
 
-  private async injectSummaryIntoCpo(session: ExpertSessionState, summary: string | null): Promise<void> {
+  private async injectSummaryIntoCpo(session: ExpertSessionState): Promise<void> {
     const companyPrefix = this.companyId ? `${this.companyId.slice(0, 8)}-` : "";
     const cpoSessionName = `${this.machineId}-${companyPrefix}cpo`;
 
@@ -651,9 +651,7 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       return;
     }
 
-    const message = summary
-      ? `[Expert Report - ${session.displayName}] ${summary}`
-      : "[Expert session ended - no report written]";
+    const message = `[Expert session ended — ${session.displayName}]`;
     const singleLine = message.replace(/\r?\n/g, " ").trim();
     if (!singleLine) return;
 

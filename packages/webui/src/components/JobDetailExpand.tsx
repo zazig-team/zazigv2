@@ -58,6 +58,15 @@ function clampProgress(progress: number | null): number {
   return Math.min(100, Math.max(0, Math.round(progress)));
 }
 
+function resolvedProgress(status: string, progress: number | null | undefined): number {
+  const hasNumericProgress = typeof progress === "number" && !Number.isNaN(progress);
+  if (isCompletedOrFailed(status) && !hasNumericProgress) {
+    return 100;
+  }
+
+  return clampProgress(hasNumericProgress ? progress : null);
+}
+
 function trimToLast100Lines(text: string): string {
   return text.split(/\r?\n/).slice(-100).join("\n");
 }
@@ -195,12 +204,13 @@ export default function JobDetailExpand({ jobId }: JobDetailExpandProps): JSX.El
     };
   }, [jobId]);
 
-  const status = job?.status ?? "";
   const isActive = job ? isActiveStatus(job.status) : false;
-  const progress = clampProgress(job?.progress ?? null);
+  const isCompletedOrFailedJob = job ? isCompletedOrFailed(job.status) : false;
+  const showProgress = Boolean(job) && (isActive || isCompletedOrFailedJob);
+  const progress = job ? resolvedProgress(job.status, job.progress) : 0;
 
   const resultText = (job?.result ?? "").trim();
-  const hasResultSummary = Boolean(job) && isCompletedOrFailed(status);
+  const hasResultSummary = Boolean(job) && isCompletedOrFailedJob;
   const resultPreview = useMemo(() => {
     if (resultText.length <= 200) {
       return resultText || "—";
@@ -230,7 +240,7 @@ export default function JobDetailExpand({ jobId }: JobDetailExpandProps): JSX.El
                 <td className="detail-meta-key">Model</td>
                 <td className="detail-meta-val">{job.model ?? "—"}</td>
               </tr>
-              {isActive ? (
+              {showProgress ? (
                 <tr>
                   <td className="detail-meta-key">Progress</td>
                   <td className="detail-meta-val">

@@ -12,10 +12,7 @@
  */
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import {
-  MACHINE_DEAD_THRESHOLD_MS,
-  PROTOCOL_VERSION,
-} from "@zazigv2/shared";
+import { MACHINE_DEAD_THRESHOLD_MS, PROTOCOL_VERSION } from "@zazigv2/shared";
 import type {
   DeployComplete,
   FeatureApproved,
@@ -461,7 +458,10 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       .select("id, status")
       .in("id", codeFeatureIds);
     if (featureRowsErr) {
-      console.error("[orchestrator] Failed to preload feature statuses for code-job gate:", featureRowsErr.message);
+      console.error(
+        "[orchestrator] Failed to preload feature statuses for code-job gate:",
+        featureRowsErr.message,
+      );
       return;
     }
     for (const row of featureRows ?? []) {
@@ -2467,8 +2467,11 @@ const autoTriageLastRun = new Map<string, number>();
  * Recover ideas stuck at 'triaging' with no active triage-analyst job.
  * This handles: batch-orphaning, agent crashes, tool failures, prompt non-compliance.
  */
-async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void> {
-  const staleCutoff = new Date(Date.now() - AUTO_TRIAGE_STALE_THRESHOLD_MS).toISOString();
+async function recoverStaleTriagingIdeas(
+  supabase: SupabaseClient,
+): Promise<void> {
+  const staleCutoff = new Date(Date.now() - AUTO_TRIAGE_STALE_THRESHOLD_MS)
+    .toISOString();
 
   // Find ideas stuck at 'triaging' for longer than the threshold.
   const { data: staleIdeas, error: staleErr } = await supabase
@@ -2505,7 +2508,7 @@ async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void
       (item: Record<string, unknown>) => {
         const session = item.session as Record<string, unknown> | null;
         return session?.status === "running";
-      }
+      },
     );
     if (hasActiveItem) continue;
 
@@ -2517,7 +2520,7 @@ async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void
       .eq("status", "running");
 
     const briefMentionsIdea = runningSessions?.some(
-      (s: { brief: string | null }) => s.brief && s.brief.includes(idea.id)
+      (s: { brief: string | null }) => s.brief && s.brief.includes(idea.id),
     );
     if (briefMentionsIdea) continue;
 
@@ -2534,7 +2537,9 @@ async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void
       );
     } else {
       console.warn(
-        `[orchestrator] stale-triage-recovery: reverted idea ${idea.id} from triaging → new (no active triage job after ${AUTO_TRIAGE_STALE_THRESHOLD_MS / 60000} min)`,
+        `[orchestrator] stale-triage-recovery: reverted idea ${idea.id} from triaging → new (no active triage job after ${
+          AUTO_TRIAGE_STALE_THRESHOLD_MS / 60000
+        } min)`,
       );
     }
   }
@@ -2543,7 +2548,9 @@ async function recoverStaleTriagingIdeas(supabase: SupabaseClient): Promise<void
 async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
   const { data: companies } = await supabase
     .from("companies")
-    .select("id, auto_triage, triage_batch_size, triage_max_concurrent, triage_delay_minutes")
+    .select(
+      "id, auto_triage, triage_batch_size, triage_max_concurrent, triage_delay_minutes",
+    )
     .eq("auto_triage", true)
     .eq("status", "active");
 
@@ -2557,10 +2564,13 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
     // Check active headless triage expert sessions (not all headless — only triage)
     const { count: activeSessions } = await supabase
       .from("expert_sessions")
-      .select("id, expert_role:expert_role_id!inner(name)", { count: "exact", head: true })
+      .select("id, expert_role:expert_role_id!inner(name)", {
+        count: "exact",
+        head: true,
+      })
       .eq("company_id", companyId)
       .eq("headless", true)
-      .eq("status", "running")
+      .in("status", ["requested", "running"])
       .eq("expert_role.name", "triage-analyst");
 
     const maxConcurrent = company.triage_max_concurrent ?? 3;
@@ -2569,7 +2579,8 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
 
     // Only triage ideas older than the configured delay
     const delayMinutes = company.triage_delay_minutes ?? 5;
-    const cutoff = new Date(Date.now() - delayMinutes * 60 * 1000).toISOString();
+    const cutoff = new Date(Date.now() - delayMinutes * 60 * 1000)
+      .toISOString();
     const batchSize = company.triage_batch_size ?? 5;
 
     // Fetch enough ideas to fill available concurrent slots
@@ -2621,7 +2632,9 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
         .eq("status", "new")
         .select("id");
 
-      const claimedIds = (claimed as { id: string }[] | null)?.map(r => r.id) ?? [];
+      const claimedIds = (claimed as { id: string }[] | null)?.map((r) =>
+        r.id
+      ) ?? [];
       if (claimedIds.length === 0) continue;
 
       // Dispatch via headless expert session
@@ -2631,12 +2644,16 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            Authorization: `Bearer ${
+              Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
+            }`,
             "x-company-id": companyId,
           },
           body: JSON.stringify({
             role_name: "triage-analyst",
-            brief: `Auto-triage batch. Triage these ideas: ${JSON.stringify(claimedIds)}`,
+            brief: `Auto-triage batch. Triage these ideas: ${
+              JSON.stringify(claimedIds)
+            }`,
             machine_name: "auto",
             project_id: projectId,
             headless: true,
@@ -2662,6 +2679,646 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
     }
 
     autoTriageLastRun.set(companyId, Date.now());
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Auto-spec: dispatch spec jobs for triaged ideas with iterative review loops
+// ---------------------------------------------------------------------------
+
+const AUTO_SPEC_COOLDOWN_MS = 2 * 60 * 1000; // 2 min between dispatches per company
+const AUTO_SPEC_STALE_THRESHOLD_MS = 15 * 60 * 1000; // 15 min stale threshold for recovery
+const AUTO_SPEC_MAX_ROUNDS = 5;
+const SPEC_ROLE_NAMES = ["spec-writer", "spec-reviewer"] as const;
+type SpecRoleName = (typeof SPEC_ROLE_NAMES)[number];
+const SPEC_ROLE_SET = new Set<string>(SPEC_ROLE_NAMES);
+const autoSpecLastRun = new Map<string, number>();
+
+interface AutoSpecCompanyRow {
+  id: string;
+  spec_max_concurrent: number | null;
+  spec_delay_minutes: number | null;
+}
+
+interface AutoSpecIdeaRow {
+  id: string;
+  company_id: string;
+  project_id: string | null;
+  complexity: string | null;
+  status: string;
+  triage_route: string | null;
+  updated_at: string | null;
+}
+
+interface SpecSessionSummary {
+  id: string;
+  status: string;
+  batchId: string | null;
+  createdAt: string | null;
+  completedAt: string | null;
+  roleName: SpecRoleName;
+  brief: string | null;
+}
+
+interface SpecChainState {
+  batchId: string | null;
+  roundCount: number;
+  latestSession: SpecSessionSummary | null;
+  latestRoute: string | null;
+  hasActiveSession: boolean;
+}
+
+function parseJoinedRoleName(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    return parseJoinedRoleName(value[0]);
+  }
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  return typeof row.name === "string" ? row.name : null;
+}
+
+function isSpecRoleName(value: string): value is SpecRoleName {
+  return SPEC_ROLE_SET.has(value);
+}
+
+function toEpochMs(value: string | null | undefined): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function parseSpecSessions(rows: unknown): SpecSessionSummary[] {
+  if (!Array.isArray(rows)) return [];
+
+  const parsed: SpecSessionSummary[] = [];
+  for (const item of rows) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+
+    const id = typeof row.id === "string" ? row.id : null;
+    const status = typeof row.status === "string" ? row.status : null;
+    const roleName = parseJoinedRoleName(row.expert_role);
+    if (!id || !status || !roleName || !isSpecRoleName(roleName)) continue;
+
+    parsed.push({
+      id,
+      status,
+      batchId: typeof row.batch_id === "string" ? row.batch_id : null,
+      createdAt: typeof row.created_at === "string" ? row.created_at : null,
+      completedAt: typeof row.completed_at === "string"
+        ? row.completed_at
+        : null,
+      roleName,
+      brief: typeof row.brief === "string" ? row.brief : null,
+    });
+  }
+
+  parsed.sort((a, b) => toEpochMs(a.createdAt) - toEpochMs(b.createdAt));
+  return parsed;
+}
+
+function isActiveSpecSessionStatus(status: string): boolean {
+  return status === "requested" || status === "running";
+}
+
+function buildSpecWriterBrief(ideaId: string): string {
+  return `Auto-spec chain for one idea: ["${ideaId}"]. Write/update docs/specs/idea-${ideaId}-spec.md, dual-write summary fields via update_idea, and record_session_item route when complete.`;
+}
+
+function buildSpecReviewerBrief(ideaId: string, roundCount: number): string {
+  return `Auto-spec review round ${roundCount} for one idea: ["${ideaId}"]. Review the existing spec file, append review notes, verify claims against code, and set route=approve|revise|workshop|hardening via record_session_item.`;
+}
+
+async function cancelRequestedExpertSession(
+  supabase: SupabaseClient,
+  sessionId: string,
+  reason: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("expert_sessions")
+    .update({
+      status: "cancelled",
+      summary: reason,
+      completed_at: new Date().toISOString(),
+    })
+    .eq("id", sessionId)
+    .eq("status", "requested");
+
+  if (error) {
+    console.error(
+      `[orchestrator] auto-spec: failed to cancel requested session ${sessionId}: ${error.message}`,
+    );
+  }
+}
+
+async function dispatchHeadlessSpecSession(
+  companyId: string,
+  projectId: string,
+  roleName: SpecRoleName,
+  brief: string,
+  batchId: string,
+): Promise<{ ok: boolean; sessionId: string | null; error: string | null }> {
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/functions/v1/start-expert-session`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          "x-company-id": companyId,
+        },
+        body: JSON.stringify({
+          role_name: roleName,
+          brief,
+          machine_name: "auto",
+          project_id: projectId,
+          headless: true,
+          batch_id: batchId,
+        }),
+      },
+    );
+
+    let payload: Record<string, unknown> | null = null;
+    try {
+      payload = await response.json() as Record<string, unknown>;
+    } catch {
+      payload = null;
+    }
+
+    const sessionId = typeof payload?.session_id === "string"
+      ? payload.session_id
+      : null;
+    const error = typeof payload?.error === "string"
+      ? payload.error
+      : `${response.status} ${response.statusText}`;
+
+    if (!response.ok) {
+      return { ok: false, sessionId, error };
+    }
+
+    return { ok: true, sessionId, error: null };
+  } catch (err) {
+    return {
+      ok: false,
+      sessionId: null,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function dispatchSpecRoleForIdea(
+  supabase: SupabaseClient,
+  idea: AutoSpecIdeaRow,
+  roleName: SpecRoleName,
+  batchId: string,
+  roundCount: number,
+): Promise<boolean> {
+  if (!idea.project_id) {
+    console.warn(
+      `[orchestrator] auto-spec: cannot dispatch ${roleName} for idea ${idea.id} without project_id`,
+    );
+    return false;
+  }
+
+  const brief = roleName === "spec-writer"
+    ? buildSpecWriterBrief(idea.id)
+    : buildSpecReviewerBrief(idea.id, roundCount);
+  const dispatchResult = await dispatchHeadlessSpecSession(
+    idea.company_id,
+    idea.project_id,
+    roleName,
+    brief,
+    batchId,
+  );
+
+  if (dispatchResult.ok) {
+    console.log(
+      `[orchestrator] auto-spec: dispatched ${roleName} for idea ${idea.id}`,
+    );
+    return true;
+  }
+
+  console.error(
+    `[orchestrator] auto-spec: failed to dispatch ${roleName} for idea ${idea.id}: ${dispatchResult.error}`,
+  );
+
+  if (dispatchResult.sessionId) {
+    await cancelRequestedExpertSession(
+      supabase,
+      dispatchResult.sessionId,
+      "auto_spec_dispatch_failed",
+    );
+  }
+  return false;
+}
+
+async function setIdeaStatusFromDeveloping(
+  supabase: SupabaseClient,
+  ideaId: string,
+  nextStatus: "specced" | "workshop" | "hardening" | "triaged",
+): Promise<void> {
+  const { error } = await supabase
+    .from("ideas")
+    .update({ status: nextStatus })
+    .eq("id", ideaId)
+    .eq("status", "developing");
+
+  if (error) {
+    console.error(
+      `[orchestrator] auto-spec: failed to set idea ${ideaId} -> ${nextStatus}: ${error.message}`,
+    );
+  }
+}
+
+async function loadSpecChainState(
+  supabase: SupabaseClient,
+  companyId: string,
+  ideaId: string,
+): Promise<SpecChainState> {
+  const routeBySessionId = new Map<string, string | null>();
+
+  const { data: itemRows, error: itemErr } = await supabase
+    .from("expert_session_items")
+    .select("session_id, route")
+    .eq("idea_id", ideaId);
+
+  if (itemErr) {
+    console.error(
+      `[orchestrator] auto-spec: failed to read session items for idea ${ideaId}: ${itemErr.message}`,
+    );
+    return {
+      batchId: null,
+      roundCount: 0,
+      latestSession: null,
+      latestRoute: null,
+      hasActiveSession: false,
+    };
+  }
+
+  for (const item of (itemRows ?? []) as Record<string, unknown>[]) {
+    const sessionId = typeof item.session_id === "string"
+      ? item.session_id
+      : null;
+    if (!sessionId) continue;
+    routeBySessionId.set(
+      sessionId,
+      typeof item.route === "string" ? item.route : null,
+    );
+  }
+
+  const sessionIds = [...routeBySessionId.keys()];
+  const sessionsById = new Map<string, SpecSessionSummary>();
+
+  if (sessionIds.length > 0) {
+    const { data: sessions, error: sessionsErr } = await supabase
+      .from("expert_sessions")
+      .select(
+        "id, status, batch_id, created_at, completed_at, brief, headless, expert_role:expert_role_id!inner(name)",
+      )
+      .eq("company_id", companyId)
+      .in("id", sessionIds);
+
+    if (sessionsErr) {
+      console.error(
+        `[orchestrator] auto-spec: failed to read session rows for idea ${ideaId}: ${sessionsErr.message}`,
+      );
+    } else {
+      for (const session of parseSpecSessions(sessions)) {
+        sessionsById.set(session.id, session);
+      }
+    }
+  }
+
+  let chainSessions = [...sessionsById.values()];
+  let batchId: string | null = chainSessions.at(-1)?.batchId ?? null;
+
+  if (batchId) {
+    const { data: batchSessions, error: batchErr } = await supabase
+      .from("expert_sessions")
+      .select(
+        "id, status, batch_id, created_at, completed_at, brief, headless, expert_role:expert_role_id!inner(name)",
+      )
+      .eq("company_id", companyId)
+      .eq("headless", true)
+      .eq("batch_id", batchId);
+
+    if (batchErr) {
+      console.error(
+        `[orchestrator] auto-spec: failed to read batch sessions for idea ${ideaId}: ${batchErr.message}`,
+      );
+    } else {
+      for (const session of parseSpecSessions(batchSessions)) {
+        sessionsById.set(session.id, session);
+      }
+      chainSessions = [...sessionsById.values()];
+      chainSessions.sort((a, b) =>
+        toEpochMs(a.createdAt) - toEpochMs(b.createdAt)
+      );
+    }
+  } else {
+    // Fallback for legacy/manual chains without batch_id where an item row may not
+    // exist yet for requested/running sessions.
+    const { data: fallbackSessions, error: fallbackErr } = await supabase
+      .from("expert_sessions")
+      .select(
+        "id, status, batch_id, created_at, completed_at, brief, headless, expert_role:expert_role_id!inner(name)",
+      )
+      .eq("company_id", companyId)
+      .eq("headless", true)
+      .in("status", ["requested", "running"])
+      .ilike("brief", `%${ideaId}%`);
+
+    if (!fallbackErr) {
+      for (const session of parseSpecSessions(fallbackSessions)) {
+        sessionsById.set(session.id, session);
+      }
+      chainSessions = [...sessionsById.values()];
+      chainSessions.sort((a, b) =>
+        toEpochMs(a.createdAt) - toEpochMs(b.createdAt)
+      );
+      batchId = chainSessions.at(-1)?.batchId ?? null;
+    }
+  }
+
+  const latestSession = chainSessions.at(-1) ?? null;
+  let latestRoute = latestSession
+    ? (routeBySessionId.get(latestSession.id) ?? null)
+    : null;
+
+  if (!latestRoute && latestSession) {
+    const { data: latestItem } = await supabase
+      .from("expert_session_items")
+      .select("route")
+      .eq("session_id", latestSession.id)
+      .eq("idea_id", ideaId)
+      .maybeSingle();
+    latestRoute = typeof latestItem?.route === "string"
+      ? latestItem.route
+      : null;
+  }
+
+  return {
+    batchId,
+    roundCount: chainSessions.length,
+    latestSession,
+    latestRoute,
+    hasActiveSession: chainSessions.some((s) =>
+      isActiveSpecSessionStatus(s.status)
+    ),
+  };
+}
+
+async function continueSpecChainForIdea(
+  supabase: SupabaseClient,
+  idea: AutoSpecIdeaRow,
+  dispatchSlots: { remaining: number },
+  forceDispatch: boolean,
+): Promise<void> {
+  const chain = await loadSpecChainState(supabase, idea.company_id, idea.id);
+  const latest = chain.latestSession;
+  if (!latest || latest.status !== "completed") return;
+
+  if (latest.roleName === "spec-writer") {
+    const normalizedComplexity = (idea.complexity ?? "").toLowerCase();
+    if (normalizedComplexity === "simple") {
+      await setIdeaStatusFromDeveloping(supabase, idea.id, "specced");
+      return;
+    }
+
+    if (!forceDispatch && dispatchSlots.remaining <= 0) return;
+    const started = await dispatchSpecRoleForIdea(
+      supabase,
+      idea,
+      "spec-reviewer",
+      chain.batchId ?? crypto.randomUUID(),
+      chain.roundCount,
+    );
+    if (started && !forceDispatch) {
+      dispatchSlots.remaining -= 1;
+    }
+    return;
+  }
+
+  if (chain.roundCount >= AUTO_SPEC_MAX_ROUNDS) {
+    await setIdeaStatusFromDeveloping(supabase, idea.id, "workshop");
+    return;
+  }
+
+  const route = (chain.latestRoute ?? "").toLowerCase();
+  if (route === "approve") {
+    await setIdeaStatusFromDeveloping(supabase, idea.id, "specced");
+    return;
+  }
+  if (route === "workshop") {
+    await setIdeaStatusFromDeveloping(supabase, idea.id, "workshop");
+    return;
+  }
+  if (route === "hardening") {
+    await setIdeaStatusFromDeveloping(supabase, idea.id, "hardening");
+    return;
+  }
+  if (route === "revise") {
+    if (!forceDispatch && dispatchSlots.remaining <= 0) return;
+    const started = await dispatchSpecRoleForIdea(
+      supabase,
+      idea,
+      "spec-writer",
+      chain.batchId ?? crypto.randomUUID(),
+      chain.roundCount,
+    );
+    if (started && !forceDispatch) {
+      dispatchSlots.remaining -= 1;
+    }
+    return;
+  }
+
+  console.warn(
+    `[orchestrator] auto-spec: unknown reviewer route '${chain.latestRoute}' for idea ${idea.id}`,
+  );
+}
+
+/**
+ * Recover ideas stuck at 'developing' with stale or orphaned auto-spec chains.
+ */
+async function recoverStaleDevelopingIdeas(
+  supabase: SupabaseClient,
+): Promise<void> {
+  const staleCutoff = new Date(Date.now() - AUTO_SPEC_STALE_THRESHOLD_MS)
+    .toISOString();
+  const { data: staleIdeas, error: staleErr } = await supabase
+    .from("ideas")
+    .select(
+      "id, company_id, project_id, complexity, status, triage_route, updated_at",
+    )
+    .eq("status", "developing")
+    .eq("triage_route", "develop")
+    .lt("updated_at", staleCutoff);
+
+  if (staleErr || !staleIdeas?.length) return;
+
+  for (const idea of staleIdeas as AutoSpecIdeaRow[]) {
+    const chain = await loadSpecChainState(supabase, idea.company_id, idea.id);
+    const latest = chain.latestSession;
+
+    if (!latest) {
+      await setIdeaStatusFromDeveloping(supabase, idea.id, "triaged");
+      console.warn(
+        `[orchestrator] auto-spec-recovery: reverted orphaned idea ${idea.id} from developing -> triaged`,
+      );
+      continue;
+    }
+
+    const requestedTimedOut = latest.status === "requested" &&
+      (Date.now() - toEpochMs(latest.createdAt) > AUTO_SPEC_STALE_THRESHOLD_MS);
+    if (requestedTimedOut) {
+      await cancelRequestedExpertSession(
+        supabase,
+        latest.id,
+        "auto_spec_requested_timeout",
+      );
+      await dispatchSpecRoleForIdea(
+        supabase,
+        idea,
+        latest.roleName,
+        latest.batchId ?? chain.batchId ?? crypto.randomUUID(),
+        chain.roundCount,
+      );
+      continue;
+    }
+
+    if (chain.hasActiveSession) continue;
+
+    if (latest.status === "completed") {
+      await continueSpecChainForIdea(
+        supabase,
+        idea,
+        { remaining: Number.MAX_SAFE_INTEGER },
+        true,
+      );
+      continue;
+    }
+
+    await dispatchSpecRoleForIdea(
+      supabase,
+      idea,
+      latest.roleName,
+      latest.batchId ?? chain.batchId ?? crypto.randomUUID(),
+      chain.roundCount,
+    );
+  }
+}
+
+/**
+ * Auto-dispatch spec writing/review loops for triaged ideas.
+ */
+async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
+  const { data: companies } = await supabase
+    .from("companies")
+    .select("id, spec_max_concurrent, spec_delay_minutes")
+    .eq("auto_spec", true)
+    .eq("status", "active");
+
+  if (!companies?.length) return;
+
+  for (const company of companies as AutoSpecCompanyRow[]) {
+    const companyId = company.id;
+    const lastRun = autoSpecLastRun.get(companyId) ?? 0;
+    if (Date.now() - lastRun < AUTO_SPEC_COOLDOWN_MS) continue;
+
+    const { count: activeSessions } = await supabase
+      .from("expert_sessions")
+      .select("id, expert_role:expert_role_id!inner(name)", {
+        count: "exact",
+        head: true,
+      })
+      .eq("company_id", companyId)
+      .eq("headless", true)
+      .in("status", ["requested", "running"])
+      .in("expert_role.name", [...SPEC_ROLE_NAMES]);
+
+    const maxConcurrent = company.spec_max_concurrent ?? 2;
+    const dispatchSlots = {
+      remaining: Math.max(0, maxConcurrent - (activeSessions ?? 0)),
+    };
+
+    // Continue existing developing chains first so completed sessions advance quickly.
+    const { data: developingIdeas } = await supabase
+      .from("ideas")
+      .select(
+        "id, company_id, project_id, complexity, status, triage_route, updated_at",
+      )
+      .eq("company_id", companyId)
+      .eq("status", "developing")
+      .eq("triage_route", "develop")
+      .order("updated_at", { ascending: true });
+
+    for (const idea of (developingIdeas ?? []) as AutoSpecIdeaRow[]) {
+      await continueSpecChainForIdea(supabase, idea, dispatchSlots, false);
+    }
+
+    if (dispatchSlots.remaining > 0) {
+      const delayMinutes = company.spec_delay_minutes ?? 5;
+      const cutoff = new Date(Date.now() - delayMinutes * 60 * 1000)
+        .toISOString();
+
+      const { data: triagedIdeas } = await supabase
+        .from("ideas")
+        .select(
+          "id, company_id, project_id, complexity, status, triage_route, updated_at",
+        )
+        .eq("company_id", companyId)
+        .eq("status", "triaged")
+        .eq("triage_route", "develop")
+        .not("project_id", "is", null)
+        .lt("updated_at", cutoff)
+        .order("updated_at", { ascending: true })
+        .limit(dispatchSlots.remaining);
+
+      for (const idea of (triagedIdeas ?? []) as AutoSpecIdeaRow[]) {
+        const { data: claimedRows, error: claimErr } = await supabase
+          .from("ideas")
+          .update({ status: "developing" })
+          .eq("id", idea.id)
+          .eq("status", "triaged")
+          .eq("triage_route", "develop")
+          .select(
+            "id, company_id, project_id, complexity, status, triage_route, updated_at",
+          );
+
+        if (claimErr) {
+          console.error(
+            `[orchestrator] auto-spec: failed to claim idea ${idea.id}: ${claimErr.message}`,
+          );
+          continue;
+        }
+
+        const claimedIdea = (claimedRows as AutoSpecIdeaRow[] | null)?.[0];
+        if (!claimedIdea) continue;
+
+        const started = await dispatchSpecRoleForIdea(
+          supabase,
+          claimedIdea,
+          "spec-writer",
+          crypto.randomUUID(),
+          0,
+        );
+
+        if (!started) {
+          await supabase
+            .from("ideas")
+            .update({ status: "triaged" })
+            .eq("id", claimedIdea.id)
+            .eq("status", "developing");
+          continue;
+        }
+
+        dispatchSlots.remaining -= 1;
+        if (dispatchSlots.remaining <= 0) break;
+      }
+    }
+
+    autoSpecLastRun.set(companyId, Date.now());
   }
 }
 
@@ -2697,6 +3354,10 @@ Deno.serve(async (_req: Request): Promise<Response> => {
 
     // 4c. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
     await autoTriageNewIdeas(supabase);
+
+    // 4d. Auto-spec with review loops + stale chain recovery.
+    await recoverStaleDevelopingIdeas(supabase);
+    await autoSpecTriagedIdeas(supabase);
 
     // 5. Refresh pipeline snapshot cache after all state mutations.
     await refreshPipelineSnapshotCache(supabase);

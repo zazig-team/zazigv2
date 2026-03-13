@@ -119,7 +119,7 @@ export default function JobDetailExpand({ jobId }: JobDetailExpandProps): JSX.El
 
     async function refreshLogs(): Promise<void> {
       const logNode = logContainerRef.current;
-      const shouldAutoScroll = Boolean(logNode)
+      const shouldAutoScroll = logNode != null
         && logNode.scrollTop + logNode.clientHeight >= logNode.scrollHeight - 20;
 
       try {

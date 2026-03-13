@@ -493,6 +493,9 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       if (status === "running") {
         update.started_at = new Date().toISOString();
       }
+      if (status === "completed") {
+        update.completed_at = new Date().toISOString();
+      }
       const { error, data } = await this.supabase
         .from("expert_sessions")
         .update(update)
@@ -626,6 +629,7 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       this.activePollers.delete(session.sessionId);
     }
 
+    await this.updateSessionStatus(session.sessionId, "completed");
     await this.injectSummaryIntoCpo(session);
     await this.switchViewerToCpo(session);
     await this.pushUnpushedCommits(session);

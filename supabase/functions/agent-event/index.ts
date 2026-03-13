@@ -93,13 +93,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
     auth: { persistSession: false },
   });
 
-  const {
-    data: { user },
-    error: userErr,
-  } = await supabaseAdmin.auth.getUser(token);
+  // Accept service_role JWT tokens (legacy JWT format)
+  let isServiceRole = false;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
+    if (payload.role === "service_role") isServiceRole = true;
+  } catch { /* not a JWT */ }
 
-  if (userErr || !user) {
-    return jsonResponse({ ok: false, error: "Forbidden" }, 403);
+  if (!isServiceRole) {
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabaseAdmin.auth.getUser(token);
+
+    if (userErr || !user) {
+      return jsonResponse({ ok: false, error: "Forbidden" }, 403);
+    }
   }
 
   let body: unknown;

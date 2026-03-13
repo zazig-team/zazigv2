@@ -40,6 +40,7 @@ interface ExpertSessionRow {
   batch_id: string | null;
   items_total: number;
   status: string;
+  project_id: string | null;
   expert_roles: {
     name: string;
     display_name: string;
@@ -49,6 +50,9 @@ interface ExpertSessionRow {
     mcp_tools: unknown;
     settings_overrides: unknown;
   };
+  projects: {
+    repo_url: string | null;
+  } | null;
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -67,7 +71,13 @@ function parseBearerToken(authHeader: string | null): string | null {
 }
 
 async function authenticateRequest(token: string): Promise<boolean> {
+  // Direct match against runtime-injected key (works for both v1 JWT and v2 sb_secret keys)
   if (token === SUPABASE_SERVICE_ROLE_KEY) return true;
+  // Accept legacy JWT service_role tokens by checking the role claim
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
+    if (payload.role === "service_role") return true;
+  } catch { /* not a JWT — fall through */ }
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
   return !error && !!user;
 }
@@ -291,7 +301,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { data: candidateSessions, error: sessionsErr } = await supabaseAdmin
       .from("expert_sessions")
       .select(
-        "id, brief, headless, batch_id, items_total, status, expert_roles(name, display_name, model, prompt, skills, mcp_tools, settings_overrides)",
+        "id, brief, headless, batch_id, items_total, status, project_id, expert_roles(name, display_name, model, prompt, skills, mcp_tools, settings_overrides), projects(repo_url)",
       )
       .eq("status", "requested")
       .eq("machine_id", machineId)
@@ -318,7 +328,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (claimErr || !claimed) continue; // Already claimed (by Realtime path) — skip
 
       const role = record.expert_roles;
-      expertMessages.push({
+      const repoUrl = record.projects?.repo_url;
+      const msg: Record<string, unknown> = {
         type: "start_expert",
         protocolVersion: PROTOCOL_VERSION,
         session_id: record.id,
@@ -334,7 +345,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
           mcp_tools: role?.mcp_tools ?? { allowed: [] },
           settings_overrides: role?.settings_overrides ?? undefined,
         },
-      });
+      };
+      if (record.project_id) msg.project_id = record.project_id;
+      if (repoUrl) msg.repo_url = repoUrl;
+      if (repoUrl) msg.branch = "master";
+      expertMessages.push(msg);
     }
 
     return jsonResponse({

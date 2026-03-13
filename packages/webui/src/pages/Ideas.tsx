@@ -1011,7 +1011,7 @@ export default function Ideas(): JSX.Element {
 
       {/* Section tabs */}
       <div className="il-tabs">
-        {(["inbox", "triaged", "developing", "workshop", "parked", "rejected", "shipped"] as SectionTab[]).map((tab) => (
+        {(["inbox", "triaged", "developing", "workshop", "parked", "rejected", "shipped", "done"] as SectionTab[]).map((tab) => (
           <button
             key={tab}
             className={`il-tab${activeTab === tab ? " active" : ""}`}

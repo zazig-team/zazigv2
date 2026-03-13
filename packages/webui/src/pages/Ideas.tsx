@@ -130,6 +130,7 @@ const TAB_LABELS: Record<SectionTab, string> = {
   parked: "Parked",
   rejected: "Rejected",
   shipped: "Shipped",
+  done: "Done",
 };
 
 interface InlineDetailProps {

@@ -9,6 +9,7 @@ import {
   setAutoTriageSetting,
   promoteIdea,
   updateIdeaStatus,
+  updateIdeaWithNote,
   requestHeadlessTriage,
   requestHeadlessSpec,
   requestEnrichmentJob,
@@ -107,6 +108,7 @@ const STATUS_LABELS: Record<string, string> = {
   parked: "Parked",
   rejected: "Rejected",
   promoted: "Promoted",
+  done: "Done",
   workshop: "Workshop",
 };
 
@@ -129,6 +131,10 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   const [promoting, setPromoting] = useState(false);
   const [promoteError, setPromoteError] = useState<string | null>(null);
   const [promoted, setPromoted] = useState(false);
+  const [markingDone, setMarkingDone] = useState(false);
+  const [showDoneConfirm, setShowDoneConfirm] = useState(false);
+  const [doneNote, setDoneNote] = useState("");
+  const [doneError, setDoneError] = useState<string | null>(null);
 
   // Action state (triage/park/reject/enrich)
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
@@ -141,6 +147,9 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
     setLoading(true);
     setError(null);
     setPromoted(false);
+    setShowDoneConfirm(false);
+    setDoneNote("");
+    setDoneError(null);
 
     fetchIdeaDetail(ideaId).then((result) => {
       if (!cancelled) {
@@ -205,6 +214,20 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setActionInProgress(null);
+    }
+  }
+
+  async function handleMarkDone(): Promise<void> {
+    if (!data) return;
+    setMarkingDone(true);
+    setDoneError(null);
+    try {
+      await updateIdeaWithNote(data.id, "done", doneNote || undefined);
+      onAction(ideaId, "done");
+    } catch (err) {
+      setDoneError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMarkingDone(false);
     }
   }
 
@@ -475,6 +498,17 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
             >
               {promoting ? "Promoting..." : "Promote to Feature"}
             </button>
+            <button
+              className="il-action-secondary il-action-done"
+              type="button"
+              disabled={promoting || markingDone}
+              onClick={() => {
+                setShowDoneConfirm(true);
+                setDoneError(null);
+              }}
+            >
+              Done
+            </button>
             {missingFields.length > 0 && (
               <button
                 className="il-action-secondary il-action-enrich"
@@ -486,6 +520,43 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
               </button>
             )}
           </div>
+
+          {showDoneConfirm && (
+            <div className="il-done-confirm">
+              <label className="il-promote-label" htmlFor={`done-note-${ideaId}`}>Note</label>
+              <textarea
+                id={`done-note-${ideaId}`}
+                className="il-done-note"
+                value={doneNote}
+                onChange={(e) => setDoneNote(e.target.value)}
+                placeholder="Add a note (optional)..."
+                rows={3}
+              />
+              <div className="il-promote-actions">
+                <button
+                  className="il-action-secondary il-action-done"
+                  type="button"
+                  disabled={markingDone}
+                  onClick={handleMarkDone}
+                >
+                  {markingDone ? "Marking..." : "Confirm Done"}
+                </button>
+                <button
+                  className="il-action-secondary"
+                  type="button"
+                  disabled={markingDone}
+                  onClick={() => {
+                    setShowDoneConfirm(false);
+                    setDoneNote("");
+                    setDoneError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+              {doneError && <div className="il-promote-error">{doneError}</div>}
+            </div>
+          )}
         </div>
       )}
 

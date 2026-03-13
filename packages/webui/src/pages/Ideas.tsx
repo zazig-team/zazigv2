@@ -242,16 +242,44 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
       setActionError("No project available for spec");
       return;
     }
+    const batchId = crypto.randomUUID();
     setActionInProgress("Spec");
     setActionError(null);
+    let claimedIdea = false;
     try {
+      const { data: claimedRows, error: claimError } = await supabase
+        .from("ideas")
+        .update({ status: "developing" })
+        .eq("id", ideaId)
+        .eq("status", "triaged")
+        .select("id");
+
+      if (claimError) {
+        throw claimError;
+      }
+
+      const claimedCount = claimedRows?.length ?? 0;
+      if (claimedCount === 0) {
+        setActionError("Idea was already claimed by another process.");
+        return;
+      }
+      claimedIdea = true;
+
       await requestHeadlessSpec({
         companyId: activeCompanyId,
         projectId,
         ideaIds: [ideaId],
+        batchId,
       });
       setActionDone("Spec");
     } catch (err) {
+      if (claimedIdea) {
+        await supabase
+          .from("ideas")
+          .update({ status: "triaged" })
+          .eq("id", ideaId)
+          .eq("status", "developing");
+      }
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setActionInProgress(null);

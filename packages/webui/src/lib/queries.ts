@@ -1064,12 +1064,14 @@ export async function requestHeadlessSpec(params: {
   companyId: string;
   projectId: string;
   ideaIds: string[];
+  batchId: string;
 }): Promise<{ session_id?: string }> {
   return invokePost<{ session_id?: string }>("start-expert-session", {
     role_name: "spec-writer",
     brief: `Write specs for these ideas: ${JSON.stringify(params.ideaIds)}. For each, read triage notes, explore codebase, write spec with acceptance criteria and human checklist, estimate complexity, then call update_idea with spec, acceptance_tests, human_checklist, complexity, and set status to 'specced'.`,
     machine_name: "auto",
     project_id: params.projectId,
+    batch_id: params.batchId,
     headless: true,
   }, { "x-company-id": params.companyId });
 }

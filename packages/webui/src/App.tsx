@@ -12,6 +12,7 @@ import Team from "./pages/Team";
 import AuthCallback from "./pages/AuthCallback";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
+import Settings from "./pages/Settings";
 
 function RouteLoading(): JSX.Element {
   return <div className="route-loading">Loading…</div>;
@@ -67,6 +68,7 @@ export default function App(): JSX.Element {
         <Route path="/ideas" element={<Ideas />} />
         <Route path="/roadmap" element={<Roadmap />} />
         <Route path="/team" element={<Team />} />
+        <Route path="/settings" element={<Settings />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -39,6 +39,16 @@ export interface Idea {
   promoted_at: string | null;
 }
 
+export interface CompanySettings {
+  auto_triage: boolean;
+  triage_batch_size: number;
+  triage_max_concurrent: number;
+  triage_delay_minutes: number;
+  auto_spec: boolean;
+  spec_max_concurrent: number;
+  spec_delay_minutes: number;
+}
+
 export interface DecisionOption {
   label: string;
   description?: string;
@@ -1080,20 +1090,34 @@ export async function fetchJobResult(jobId: string): Promise<{ status: string; r
 }
 
 export async function fetchAutoTriageSetting(companyId: string): Promise<boolean> {
+  const settings = await fetchCompanySettings(companyId);
+  return settings.auto_triage;
+}
+
+export async function fetchCompanySettings(companyId: string): Promise<CompanySettings> {
   const { data, error } = await supabase
     .from("companies")
-    .select("auto_triage")
+    .select(
+      "auto_triage, triage_batch_size, triage_max_concurrent, triage_delay_minutes, auto_spec, spec_max_concurrent, spec_delay_minutes",
+    )
     .eq("id", companyId)
     .single();
 
   if (error) throw error;
-  return (data as { auto_triage: boolean }).auto_triage;
+  return data as CompanySettings;
 }
 
 export async function setAutoTriageSetting(companyId: string, enabled: boolean): Promise<void> {
+  await updateCompanySettings(companyId, { auto_triage: enabled });
+}
+
+export async function updateCompanySettings(
+  companyId: string,
+  settings: Partial<CompanySettings>,
+): Promise<void> {
   const { error } = await supabase
     .from("companies")
-    .update({ auto_triage: enabled })
+    .update(settings)
     .eq("id", companyId);
 
   if (error) throw error;

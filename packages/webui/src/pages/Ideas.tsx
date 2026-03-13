@@ -695,8 +695,8 @@ export default function Ideas(): JSX.Element {
     parked: ideas.filter((i) => i.status === "parked").length,
     rejected: ideas.filter((i) => i.status === "rejected").length,
     shipped: promotedIdeas.length,
-    done: sections.done.length,
-  }), [ideas, promotedIdeas, sections.done.length]);
+    done: ideas.filter((i) => i.status === "done").length,
+  }), [ideas, promotedIdeas]);
 
   // Type counts
   const typeCounts = useMemo(() => {
@@ -816,6 +816,7 @@ export default function Ideas(): JSX.Element {
   }
 
   const isShippedTab = activeTab === "shipped";
+  const listItems = activeTab === "done" ? sections.done : activeItems;
 
   return (
     <main className="ideas-page">
@@ -900,10 +901,10 @@ export default function Ideas(): JSX.Element {
 
       {/* List */}
       <div className="il-list" ref={listRef}>
-        {activeItems.length === 0 && (
+        {listItems.length === 0 && (
           <div className="il-empty">No {activeTab} ideas{typeFilter !== "all" ? ` of type "${typeFilter}"` : ""}.</div>
         )}
-        {activeItems.map((idea, idx) => {
+        {listItems.map((idea, idx) => {
           const dismissMsg = dismissedIdeas.get(idea.id);
           if (dismissMsg) {
             return (

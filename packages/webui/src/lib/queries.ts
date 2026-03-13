@@ -729,6 +729,21 @@ export async function updateIdeaStatus(ideaId: string, status: string): Promise<
   if (error) throw error;
 }
 
+export async function updateIdeaWithNote(ideaId: string, status: string, note?: string): Promise<void> {
+  const trimmedNote = note?.trim();
+  const updatePayload: { status: string; triage_notes?: string } = { status };
+  if (trimmedNote) {
+    updatePayload.triage_notes = trimmedNote;
+  }
+
+  const { error } = await supabase
+    .from("ideas")
+    .update(updatePayload)
+    .eq("id", ideaId);
+
+  if (error) throw error;
+}
+
 export interface TeamExecCard {
   id: string;
   roleId: string;

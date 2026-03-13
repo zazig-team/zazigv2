@@ -2560,7 +2560,7 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
       .select("id, expert_role:expert_role_id!inner(name)", { count: "exact", head: true })
       .eq("company_id", companyId)
       .eq("headless", true)
-      .eq("status", "running")
+      .in("status", ["requested", "running"])
       .eq("expert_role.name", "triage-analyst");
 
     const maxConcurrent = company.triage_max_concurrent ?? 3;

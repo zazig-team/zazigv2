@@ -3101,11 +3101,30 @@ input {
   gap: 6px;
 }
 
+.il-triaged-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.il-triaged-subheader {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: var(--dust);
+  margin: 2px 2px 0;
+}
+
 .il-empty {
   text-align: center;
   padding: var(--sp-7) 0;
   color: var(--stone);
   font-size: 13px;
+}
+
+.il-empty.il-empty-subsection {
+  padding: var(--sp-5) 0;
 }
 
 /* Row */
@@ -3353,6 +3372,17 @@ input {
 .il-detail-meta-val {
   font-size: 12px;
   color: var(--stone);
+}
+
+.il-detail-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--info);
+  text-decoration: none;
+}
+
+.il-detail-link:hover {
+  text-decoration: underline;
 }
 
 .il-detail-tags {

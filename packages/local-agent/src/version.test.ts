@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const execSyncMock = vi.hoisted(() => vi.fn());
+const readFileSyncMock = vi.hoisted(() => vi.fn().mockImplementation(() => { throw new Error("no .version"); }));
 
 vi.mock("node:child_process", () => ({
   execSync: execSyncMock,
 }));
+vi.mock("node:fs", () => ({ readFileSync: readFileSyncMock }));
 
 import { resolveAgentVersion } from "./version.js";
 

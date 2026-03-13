@@ -757,7 +757,6 @@ export async function updateIdeaWithNote(
   if (trimmed) body.triage_notes = trimmed;
   await invokePost("update-idea", body);
 }
-}
 
 export interface TeamExecCard {
   id: string;

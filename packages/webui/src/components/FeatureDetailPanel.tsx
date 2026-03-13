@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { fetchFeatureDetail, diagnoseFeature, fetchJobResult, requestFeatureFix, type FeatureDetail } from "../lib/queries";
 import { useCompany } from "../hooks/useCompany";
 import FormattedProse from "./FormattedProse";
+import JobDetailExpand from "./JobDetailExpand";
 
 interface FeatureDetailPanelProps {
   featureId: string;
@@ -47,6 +48,7 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [retried, setRetried] = useState(false);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const { activeCompanyId } = useCompany();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -190,19 +192,30 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
               {data.jobs.length > 0 ? (
                 <div className="detail-section">
                   <div className="detail-section-title">Jobs ({data.jobs.length})</div>
-                  <div className="detail-jobs">
-                    {data.jobs.map((job) => (
-                      <div className="detail-job-row" key={job.id}>
-                        <span className="detail-job-dot" style={{ background: jobDotColor(job.status) }} />
-                        <div className="detail-job-info">
-                          <div className="detail-job-title">{job.title}</div>
-                          <div className="detail-job-meta">{job.status} · {job.role}{job.model ? ` · ${job.model}` : ""}</div>
-                        </div>
-                      </div>
-                    ))}
+                    <div className="detail-jobs">
+                      {data.jobs.map((job, index) => (
+                        <Fragment key={job.id}>
+                          <div
+                            className="detail-job-row"
+                            onClick={() => setExpandedJobId((prev) => (prev === job.id ? null : job.id))}
+                            style={{
+                              cursor: "pointer",
+                              borderBottom: index === data.jobs.length - 1 ? "none" : undefined,
+                            }}
+                          >
+                            <span className="detail-job-dot" style={{ background: jobDotColor(job.status) }} />
+                            <div className="detail-job-info">
+                              <div className="detail-job-title">{job.title}</div>
+                              <div className="detail-job-meta">{job.status} · {job.role}{job.model ? ` · ${job.model}` : ""}</div>
+                            </div>
+                            <span aria-hidden="true">{expandedJobId === job.id ? "▼" : "▶"}</span>
+                          </div>
+                          {expandedJobId === job.id ? <JobDetailExpand jobId={job.id} /> : null}
+                        </Fragment>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ) : null}
+                ) : null}
 
               {data.spec ? (
                 <div className="detail-section">

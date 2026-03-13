@@ -83,6 +83,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       triage_notes,
       triage_route,
       spec,
+      spec_url,
       acceptance_tests,
       human_checklist,
       complexity,
@@ -116,6 +117,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (triage_notes !== undefined) updates.triage_notes = triage_notes;
     if (triage_route !== undefined) updates.triage_route = triage_route;
     if (spec !== undefined) updates.spec = spec;
+    if (spec_url !== undefined) updates.spec_url = spec_url;
     if (acceptance_tests !== undefined) updates.acceptance_tests = acceptance_tests;
     if (human_checklist !== undefined) updates.human_checklist = human_checklist;
     if (complexity !== undefined) updates.complexity = complexity;

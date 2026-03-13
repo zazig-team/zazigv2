@@ -2698,6 +2698,11 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 4c. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
     await autoTriageNewIdeas(supabase);
 
+    // 4d. Recover stale developing ideas
+    await recoverStaleDevelopingIdeas(supabase);
+    // 4e. Auto-spec triaged ideas
+    await autoSpecTriagedIdeas(supabase);
+
     // 5. Refresh pipeline snapshot cache after all state mutations.
     await refreshPipelineSnapshotCache(supabase);
   } catch (err) {

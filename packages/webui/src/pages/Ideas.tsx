@@ -5,8 +5,6 @@ import {
   fetchIdeas,
   fetchIdeaDetail,
   fetchProjects,
-  fetchAutoTriageSetting,
-  setAutoTriageSetting,
   promoteIdea,
   updateIdeaStatus,
   updateIdeaWithNote,
@@ -85,6 +83,18 @@ function priorityRank(priority: string | null): number {
   return PRIORITY_RANK[(priority ?? "medium").toLowerCase()] ?? 2;
 }
 
+function sortIdeasByMode(items: Idea[], sortMode: SortMode): Idea[] {
+  const sorted = [...items];
+  if (sortMode === "oldest") {
+    sorted.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  } else if (sortMode === "newest") {
+    sorted.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  } else if (sortMode === "priority") {
+    sorted.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+  }
+  return sorted;
+}
+
 function featureStatusLabel(status: string): string {
   return status.replace(/_/g, " ");
 }
@@ -103,13 +113,23 @@ const STATUS_LABELS: Record<string, string> = {
   new: "Inbox",
   triaging: "Analysing",
   triaged: "Triaged",
-  developing: "Developing",
+  developing: "Spec In Progress",
   specced: "Specced",
   parked: "Parked",
   rejected: "Rejected",
   promoted: "Promoted",
   done: "Done",
   workshop: "Workshop",
+};
+
+const TAB_LABELS: Record<SectionTab, string> = {
+  inbox: "Inbox",
+  triaged: "Triaged",
+  developing: "Spec In Progress",
+  workshop: "Workshop",
+  parked: "Parked",
+  rejected: "Rejected",
+  shipped: "Shipped",
 };
 
 interface InlineDetailProps {
@@ -265,16 +285,44 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
       setActionError("No project available for spec");
       return;
     }
+    const batchId = crypto.randomUUID();
     setActionInProgress("Spec");
     setActionError(null);
+    let claimedIdea = false;
     try {
+      const { data: claimedRows, error: claimError } = await supabase
+        .from("ideas")
+        .update({ status: "developing" })
+        .eq("id", ideaId)
+        .eq("status", "triaged")
+        .select("id");
+
+      if (claimError) {
+        throw claimError;
+      }
+
+      const claimedCount = claimedRows?.length ?? 0;
+      if (claimedCount === 0) {
+        setActionError("Idea was already claimed by another process.");
+        return;
+      }
+      claimedIdea = true;
+
       await requestHeadlessSpec({
         companyId: activeCompanyId,
         projectId,
         ideaIds: [ideaId],
+        batchId,
       });
       setActionDone("Spec");
     } catch (err) {
+      if (claimedIdea) {
+        await supabase
+          .from("ideas")
+          .update({ status: "triaged" })
+          .eq("id", ideaId)
+          .eq("status", "developing");
+      }
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setActionInProgress(null);
@@ -285,7 +333,8 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   if (error) return <div className="il-detail-error">{error}</div>;
   if (!data) return <div className="il-detail-loading">No data</div>;
 
-  const canPromote = (data.status === "triaged" || data.status === "specced") && !promoted && !isShipped;
+  const canWriteSpec = data.status === "triaged" && data.triage_route === "develop";
+  const canPromote = (data.status === "specced" || (data.status === "triaged" && data.triage_route !== "develop")) && !promoted && !isShipped;
   const readiness = canPromote ? [
     { label: "Has title", ok: Boolean(data.title?.trim()), hint: "Needs a clear title", field: "title" },
     { label: "Has description", ok: Boolean(data.description?.trim()) || Boolean(data.raw_text && data.raw_text.length > 20), hint: "Needs description or detailed raw text", field: "description" },
@@ -362,6 +411,12 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
           <div className="il-detail-meta-item">
             <span className="il-detail-meta-key">Promoted</span>
             <span className="il-detail-meta-val">{formatDate(data.promoted_at)}</span>
+          </div>
+        )}
+        {typeof data.spec_url === "string" && data.spec_url.trim() && (
+          <div className="il-detail-meta-item">
+            <span className="il-detail-meta-key">Spec</span>
+            <a className="il-detail-link" href={data.spec_url} target="_blank" rel="noopener noreferrer">View Spec</a>
           </div>
         )}
       </div>
@@ -572,7 +627,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
               {actionInProgress === "Triage" ? "Commissioning..." : "Triage"}
             </button>
           )}
-          {data.status === "developing" && (
+          {canWriteSpec && (
             <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleWriteSpec}>
               {actionInProgress === "Spec" ? "Dispatching..." : "Write Spec"}
             </button>
@@ -616,8 +671,6 @@ export default function Ideas(): JSX.Element {
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [dismissedIdeas, setDismissedIdeas] = useState<Map<string, string>>(new Map());
   const [batchTriaging, setBatchTriaging] = useState(false);
-  const [autoTriage, setAutoTriage] = useState(false);
-  const [autoTriageLoading, setAutoTriageLoading] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   const loadIdeas = useCallback(async () => {
@@ -657,26 +710,6 @@ export default function Ideas(): JSX.Element {
   useEffect(() => {
     void loadIdeas();
   }, [loadIdeas]);
-
-  // Auto-triage toggle
-  useEffect(() => {
-    if (!activeCompanyId) return;
-    fetchAutoTriageSetting(activeCompanyId).then(setAutoTriage).catch(() => {});
-  }, [activeCompanyId]);
-
-  async function handleAutoTriageToggle(): Promise<void> {
-    if (!activeCompanyId || autoTriageLoading) return;
-    setAutoTriageLoading(true);
-    try {
-      const next = !autoTriage;
-      await setAutoTriageSetting(activeCompanyId, next);
-      setAutoTriage(next);
-    } catch (err) {
-      console.error("Auto-triage toggle error:", err);
-    } finally {
-      setAutoTriageLoading(false);
-    }
-  }
 
   // Realtime
   const handleInsert = useCallback((row: Record<string, unknown>) => {
@@ -746,16 +779,22 @@ export default function Ideas(): JSX.Element {
   }), [filtered, filteredPromoted]);
 
   const activeItems = useMemo(() => {
-    const items = [...sections[activeTab]];
-    if (sortMode === "oldest") {
-      items.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    } else if (sortMode === "newest") {
-      items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    } else if (sortMode === "priority") {
-      items.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
-    }
-    return items;
+    const sorted = sortIdeasByMode(sections[activeTab], sortMode);
+    if (activeTab !== "triaged") return sorted;
+    const readyForSpec = sorted.filter((idea) => idea.triage_route === "develop");
+    const remainingTriaged = sorted.filter((idea) => idea.triage_route !== "develop");
+    return [...readyForSpec, ...remainingTriaged];
   }, [sections, activeTab, sortMode]);
+
+  const triagedReadyItems = useMemo(() => {
+    if (activeTab !== "triaged") return [];
+    return activeItems.filter((idea) => idea.triage_route === "develop");
+  }, [activeItems, activeTab]);
+
+  const triagedOtherItems = useMemo(() => {
+    if (activeTab !== "triaged") return [];
+    return activeItems.filter((idea) => idea.triage_route !== "develop");
+  }, [activeItems, activeTab]);
 
   // Section counts (unfiltered for tab badges)
   const tabCounts = useMemo(() => ({
@@ -887,14 +926,86 @@ export default function Ideas(): JSX.Element {
   }
 
   const isShippedTab = activeTab === "shipped";
-  const listItems = activeTab === "done" ? sections.done : activeItems;
+  const isTriagedTab = activeTab === "triaged";
+  const activeTabLabel = TAB_LABELS[activeTab];
+  const typeFilterSuffix = typeFilter !== "all" ? ` of type "${typeFilter}"` : "";
+
+  function renderIdeaRows(items: Idea[], startIndex = 0): JSX.Element[] {
+    return items.map((idea, idx) => {
+      const dismissMsg = dismissedIdeas.get(idea.id);
+      if (dismissMsg) {
+        return (
+          <div key={idea.id} className="il-row-dismissed">
+            <span className="il-dismissed-text">{dismissMsg}</span>
+            <span className="il-dismissed-title">{idea.title ?? idea.raw_text}</span>
+          </div>
+        );
+      }
+
+      const type = idea.item_type ?? "idea";
+      const colorVar = TYPE_COLOR_VAR[type] ?? "--col-ideas";
+      const isExpanded = expandedId === idea.id;
+      const isTriaging = idea.status === "triaging";
+      const isDeveloping = idea.status === "developing";
+      const isSpecced = idea.status === "specced";
+      const fInfo = isShippedTab && idea.promoted_to_id ? featureStatuses.get(idea.promoted_to_id) ?? null : null;
+
+      return (
+        <div
+          key={idea.id}
+          id={`il-row-${idea.id}`}
+          className={`il-row${isExpanded ? " expanded" : ""}${isTriaging ? " triaging" : ""}`}
+          style={{ animationDelay: `${Math.min((startIndex + idx) * 0.02, 0.3)}s` }}
+        >
+          <div className="il-row-summary" onClick={() => !isTriaging && toggleExpand(idea.id)}>
+            <div className="il-row-accent" style={{ background: `var(${colorVar})` }} />
+            <div className="il-row-icon">{TYPE_ICON[type] ?? "\u{1F4A1}"}</div>
+            <div className="il-row-body">
+              <div className="il-row-title">{idea.title ?? idea.raw_text}</div>
+              {isTriaging ? (
+                <div className="il-row-analysing">Analysing... an agent is triaging this idea</div>
+              ) : (
+                <div className="il-row-desc">
+                  {idea.description ?? idea.raw_text}
+                </div>
+              )}
+            </div>
+            <div className="il-row-meta">
+              {isTriaging ? (
+                <span className="il-triaging-badge">triaging</span>
+              ) : isDeveloping ? (
+                <span className="il-triaging-badge">developing</span>
+              ) : isSpecced ? (
+                <span className="il-feature-status positive">specced</span>
+              ) : isShippedTab && fInfo ? (
+                <span className={featureStatusClass(fInfo.status)}>{featureStatusLabel(fInfo.status)}</span>
+              ) : (
+                <span className={priorityClass(idea.priority)}>{priorityLabel(idea.priority)}</span>
+              )}
+              <span className="il-source">{sourceLabel(idea)}</span>
+              <span className="il-age">{ageLabel(isShippedTab && idea.promoted_at ? idea.promoted_at : idea.created_at)}</span>
+            </div>
+            <div className="il-chevron">{!isTriaging && <span className="il-chevron-icon">{"\u25B6"}</span>}</div>
+          </div>
+
+          {isExpanded && (
+            <InlineDetail
+              ideaId={idea.id}
+              colorVar={colorVar}
+              isShipped={isShippedTab}
+              onAction={handleIdeaAction}
+            />
+          )}
+        </div>
+      );
+    });
+  }
 
   return (
     <main className="ideas-page">
       {/* Header */}
       <div className="il-header">
         <h1 className="il-title">Ideas</h1>
-        {/* Auto-triage toggle hidden until orchestrator is deployed to production */}
       </div>
 
       {/* Section tabs */}
@@ -906,7 +1017,7 @@ export default function Ideas(): JSX.Element {
             onClick={() => { setActiveTab(tab); setExpandedId(null); }}
             type="button"
           >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {TAB_LABELS[tab]}
             <span className="il-tab-count">{tabCounts[tab]}</span>
           </button>
         ))}
@@ -972,77 +1083,25 @@ export default function Ideas(): JSX.Element {
 
       {/* List */}
       <div className="il-list" ref={listRef}>
-        {listItems.length === 0 && (
-          <div className="il-empty">No {activeTab} ideas{typeFilter !== "all" ? ` of type "${typeFilter}"` : ""}.</div>
+        {!isTriagedTab && activeItems.length === 0 && (
+          <div className="il-empty">No {activeTabLabel.toLowerCase()} ideas{typeFilterSuffix}.</div>
         )}
-        {listItems.map((idea, idx) => {
-          const dismissMsg = dismissedIdeas.get(idea.id);
-          if (dismissMsg) {
-            return (
-              <div key={idea.id} className="il-row-dismissed">
-                <span className="il-dismissed-text">{dismissMsg}</span>
-                <span className="il-dismissed-title">{idea.title ?? idea.raw_text}</span>
-              </div>
-            );
-          }
-
-          const type = idea.item_type ?? "idea";
-          const colorVar = TYPE_COLOR_VAR[type] ?? "--col-ideas";
-          const isExpanded = expandedId === idea.id;
-          const isTriaging = idea.status === "triaging";
-          const isDeveloping = idea.status === "developing";
-          const isSpecced = idea.status === "specced";
-          const fInfo = isShippedTab && idea.promoted_to_id ? featureStatuses.get(idea.promoted_to_id) ?? null : null;
-
-          return (
-            <div
-              key={idea.id}
-              id={`il-row-${idea.id}`}
-              className={`il-row${isExpanded ? " expanded" : ""}${isTriaging ? " triaging" : ""}`}
-              style={{ animationDelay: `${Math.min(idx * 0.02, 0.3)}s` }}
-            >
-              <div className="il-row-summary" onClick={() => !isTriaging && toggleExpand(idea.id)}>
-                <div className="il-row-accent" style={{ background: `var(${colorVar})` }} />
-                <div className="il-row-icon">{TYPE_ICON[type] ?? "\u{1F4A1}"}</div>
-                <div className="il-row-body">
-                  <div className="il-row-title">{idea.title ?? idea.raw_text}</div>
-                  {isTriaging ? (
-                    <div className="il-row-analysing">Analysing... an agent is triaging this idea</div>
-                  ) : (
-                    <div className="il-row-desc">
-                      {idea.description ?? idea.raw_text}
-                    </div>
-                  )}
-                </div>
-                <div className="il-row-meta">
-                  {isTriaging ? (
-                    <span className="il-triaging-badge">triaging</span>
-                  ) : isDeveloping ? (
-                    <span className="il-triaging-badge">developing</span>
-                  ) : isSpecced ? (
-                    <span className="il-feature-status positive">specced</span>
-                  ) : isShippedTab && fInfo ? (
-                    <span className={featureStatusClass(fInfo.status)}>{featureStatusLabel(fInfo.status)}</span>
-                  ) : (
-                    <span className={priorityClass(idea.priority)}>{priorityLabel(idea.priority)}</span>
-                  )}
-                  <span className="il-source">{sourceLabel(idea)}</span>
-                  <span className="il-age">{ageLabel(isShippedTab && idea.promoted_at ? idea.promoted_at : idea.created_at)}</span>
-                </div>
-                <div className="il-chevron">{!isTriaging && <span className="il-chevron-icon">{"\u25B6"}</span>}</div>
-              </div>
-
-              {isExpanded && (
-                <InlineDetail
-                  ideaId={idea.id}
-                  colorVar={colorVar}
-                  isShipped={isShippedTab}
-                  onAction={handleIdeaAction}
-                />
-              )}
+        {isTriagedTab ? (
+          <>
+            <div className="il-triaged-subsection">
+              <div className="il-triaged-subheader">Ready for Spec</div>
+              {triagedReadyItems.length > 0
+                ? renderIdeaRows(triagedReadyItems)
+                : <div className="il-empty il-empty-subsection">No ideas ready for spec{typeFilterSuffix}.</div>}
             </div>
-          );
-        })}
+            <div className="il-triaged-subsection">
+              <div className="il-triaged-subheader">Triaged</div>
+              {triagedOtherItems.length > 0
+                ? renderIdeaRows(triagedOtherItems, triagedReadyItems.length)
+                : <div className="il-empty il-empty-subsection">No other triaged ideas{typeFilterSuffix}.</div>}
+            </div>
+          </>
+        ) : renderIdeaRows(activeItems)}
       </div>
     </main>
   );

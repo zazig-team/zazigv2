@@ -33,6 +33,7 @@ export class AgentConnection {
   readonly dbClient: SupabaseClient;
   private readonly supabaseUrl: string;
   private readonly supabaseAnonKey: string;
+  private readonly serviceRoleKey: string | undefined;
   private readonly machineName: string;
   private readonly primaryCompanyId: string | undefined;
   private readonly agentVersion: string;
@@ -54,6 +55,7 @@ export class AgentConnection {
     this.config = config;
     this.supabaseUrl = config.supabase.url;
     this.supabaseAnonKey = config.supabase.anon_key;
+    this.serviceRoleKey = config.supabase.service_role_key;
     this.machineName = config.name;
     this.primaryCompanyId = config.company_id;
     this.agentVersion = agentVersion;
@@ -106,7 +108,7 @@ export class AgentConnection {
   private async sendToOrchestrator(msg: AgentMessage): Promise<boolean> {
     const url = `${this.config.supabase.url}/functions/v1/agent-event`;
     const { data: { session } } = await this.dbClient.auth.getSession();
-    const token = session?.access_token ?? this.config.supabase.anon_key;
+    const token = session?.access_token ?? this.serviceRoleKey ?? this.config.supabase.anon_key;
 
     for (const delay of [0, 1000, 5000, 15000]) {
       if (delay > 0) await sleep(delay);
@@ -266,7 +268,7 @@ export class AgentConnection {
 
       const url = `${this.supabaseUrl}/functions/v1/agent-inbound-poll`;
       const { data: { session } } = await this.dbClient.auth.getSession();
-      const token = session?.access_token ?? this.supabaseAnonKey;
+      const token = session?.access_token ?? this.serviceRoleKey ?? this.supabaseAnonKey;
       const slotsAvailable = this.slots.getAvailable();
 
       const response = await fetch(url, {

@@ -368,6 +368,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         batch_id: batchId ?? null,
         items_total: itemsTotal,
         status: "requested",
+        project_id: resolvedProjectId,
       })
       .select("id")
       .single();

@@ -5,8 +5,6 @@ import {
   fetchIdeas,
   fetchIdeaDetail,
   fetchProjects,
-  fetchAutoTriageSetting,
-  setAutoTriageSetting,
   promoteIdea,
   updateIdeaStatus,
   requestHeadlessTriage,
@@ -545,8 +543,6 @@ export default function Ideas(): JSX.Element {
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [dismissedIdeas, setDismissedIdeas] = useState<Map<string, string>>(new Map());
   const [batchTriaging, setBatchTriaging] = useState(false);
-  const [autoTriage, setAutoTriage] = useState(false);
-  const [autoTriageLoading, setAutoTriageLoading] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   const loadIdeas = useCallback(async () => {
@@ -586,26 +582,6 @@ export default function Ideas(): JSX.Element {
   useEffect(() => {
     void loadIdeas();
   }, [loadIdeas]);
-
-  // Auto-triage toggle
-  useEffect(() => {
-    if (!activeCompanyId) return;
-    fetchAutoTriageSetting(activeCompanyId).then(setAutoTriage).catch(() => {});
-  }, [activeCompanyId]);
-
-  async function handleAutoTriageToggle(): Promise<void> {
-    if (!activeCompanyId || autoTriageLoading) return;
-    setAutoTriageLoading(true);
-    try {
-      const next = !autoTriage;
-      await setAutoTriageSetting(activeCompanyId, next);
-      setAutoTriage(next);
-    } catch (err) {
-      console.error("Auto-triage toggle error:", err);
-    } finally {
-      setAutoTriageLoading(false);
-    }
-  }
 
   // Realtime
   const handleInsert = useCallback((row: Record<string, unknown>) => {
@@ -820,7 +796,6 @@ export default function Ideas(): JSX.Element {
       {/* Header */}
       <div className="il-header">
         <h1 className="il-title">Ideas</h1>
-        {/* Auto-triage toggle hidden until orchestrator is deployed to production */}
       </div>
 
       {/* Section tabs */}

@@ -307,9 +307,7 @@ describe("ExpertSessionManager", () => {
     });
     expect((manager as any).getActiveSessions().has(sessionId)).toBe(false);
 
-    const completedUpdate = supabase.updates.find((u) => u.table === "expert_sessions" && u.data.status === "completed");
-    expect(completedUpdate).toBeDefined();
-    expect(completedUpdate?.data.summary).toBe("Headless summary");
+    expect(supabase.updates.find((u) => u.table === "expert_sessions" && u.data.summary !== undefined)).toBeUndefined();
   });
 
   it("interactive regression: non-headless sessions still link to viewer TUI", async () => {

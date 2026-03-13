@@ -32,6 +32,8 @@ export interface Idea {
   priority: string | null;
   item_type: "idea" | "brief" | "bug" | "test";
   horizon: "soon" | "later" | null;
+  triage_route?: string | null;
+  spec_url?: string | null;
   created_at: string;
   originator: string | null;
   promoted_to_type: string | null;
@@ -618,6 +620,7 @@ export interface IdeaDetail {
   triage_notes: string | null;
   triage_route: string | null;
   spec: string | null;
+  spec_url?: string | null;
   acceptance_tests: string | null;
   human_checklist: string | null;
   complexity: string | null;
@@ -685,7 +688,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
 export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
   const { data: idea, error: ideaError } = await supabase
     .from("ideas")
-    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon, project_id, suggested_exec, triage_notes, triage_route, spec, acceptance_tests, human_checklist, complexity")
+    .select("id, title, raw_text, status, priority, description, originator, source, source_ref, tags, clarification_notes, promoted_to_type, promoted_to_id, promoted_at, created_at, updated_at, item_type, horizon, project_id, suggested_exec, triage_notes, triage_route, spec, spec_url, acceptance_tests, human_checklist, complexity")
     .eq("id", ideaId)
     .single();
 
@@ -731,6 +734,7 @@ export async function fetchIdeaDetail(ideaId: string): Promise<IdeaDetail> {
     triage_notes: (row.triage_notes as string | null) ?? null,
     triage_route: (row.triage_route as string | null) ?? null,
     spec: (row.spec as string | null) ?? null,
+    spec_url: (row.spec_url as string | null) ?? null,
     acceptance_tests: (row.acceptance_tests as string | null) ?? null,
     human_checklist: (row.human_checklist as string | null) ?? null,
     complexity: (row.complexity as string | null) ?? null,

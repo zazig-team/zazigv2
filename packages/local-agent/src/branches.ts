@@ -502,9 +502,9 @@ export class RepoManager {
 
   /**
    * Create a job worktree that inherits code from dependency branches.
-   * For single dep: branches from depBranches[0].
-   * For fan-in (multiple deps): branches from depBranches[0], merges remaining.
-   * Falls back to featureBranch if no dep branches are valid after verification.
+   * Validates all dependency branches exist in the bare repo and then creates
+   * job/{jobId} from depBranches[0]. No infrastructure-level merges are done here;
+   * conflict handling is delegated to the combiner agent.
    */
   async createDependentJobWorktree(
     repoDir: string,
@@ -526,8 +526,12 @@ export class RepoManager {
       const { stdout: branchList } = await execFileAsync("git", ["-C", repoDir, "branch", "--list", "job/*"], { encoding: "utf8" });
       console.log(`[RepoManager] Branches after fetch: ${branchList.trim().split("\n").map(b => b.trim()).join(", ")}`);
 
-      // Verify each dep branch exists; skip missing ones with a warning
-      const validBranches: string[] = [];
+      if (depBranches.length === 0) {
+        throw new Error("createDependentJobWorktree requires at least one dependency branch");
+      }
+
+      // Verify each dep branch exists before creating the worktree.
+      const missingBranches: string[] = [];
       for (const branch of depBranches) {
         try {
           const { stdout: sha } = await execFileAsync("git", ["-C", repoDir, "rev-parse", "--verify", `refs/heads/${branch}`], { encoding: "utf8" });
@@ -548,19 +552,25 @@ export class RepoManager {
             }
           }
           console.log(`[RepoManager] Dep branch "${branch}": sha=${sha.trim().slice(0,8)}, log="${logLine.trim()}", ancestry=${ancestry}`);
-          validBranches.push(branch);
         } catch {
-          console.warn(`[RepoManager] createDependentJobWorktree: dep branch "${branch}" not found in ${repoDir} — skipping`);
+          missingBranches.push(branch);
         }
+      }
+
+      if (missingBranches.length > 0) {
+        throw new Error(
+          `createDependentJobWorktree: dependency branch not found: ${missingBranches.join(", ")}`
+        );
       }
 
       const jobBranch = `job/${jobId}`;
       const worktreePath = join(WORKTREE_BASE, `job-${jobId}`);
       await mkdir(WORKTREE_BASE, { recursive: true });
 
-      // Determine base branch: first valid dep branch, or fall back to feature branch
-      const baseBranch = validBranches.length > 0 ? validBranches[0] : featureBranch;
-      console.log(`[RepoManager] Creating jobBranch="${jobBranch}" from baseBranch="${baseBranch}", validBranches=${JSON.stringify(validBranches)}`);
+      // Base from first dependency branch. featureBranch remains part of the
+      // signature for compatibility with existing call sites.
+      const baseBranch = depBranches[0] ?? featureBranch;
+      console.log(`[RepoManager] Creating jobBranch="${jobBranch}" from baseBranch="${baseBranch}", depBranches=${JSON.stringify(depBranches)}`);
 
       // Find and remove any existing worktree for this job branch (may be at old/different path)
       try {
@@ -583,25 +593,6 @@ export class RepoManager {
 
       await this.git(repoDir, "branch", jobBranch, baseBranch);
       await this.git(repoDir, "worktree", "add", worktreePath, jobBranch);
-
-      // Fan-in: merge additional dep branches into the worktree
-      for (const branch of validBranches.slice(1)) {
-        console.log(`[RepoManager] Fan-in merging "${branch}" into worktree at ${worktreePath}`);
-        try {
-          await execFileAsync("git", ["-C", worktreePath, "merge", "--no-ff", branch], { encoding: "utf8" });
-          console.log(`[RepoManager] Fan-in merge of "${branch}" succeeded`);
-        } catch (mergeErr) {
-          // Abort the merge, clean up worktree and branch, then re-throw
-          try {
-            await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
-          } catch {
-            // ignore abort failure
-          }
-          await this.git(repoDir, "worktree", "remove", "--force", worktreePath);
-          try { await this.git(repoDir, "branch", "-D", jobBranch); } catch { /* ignore */ }
-          throw new Error(`Fan-in merge of "${branch}" into job/${jobId} failed: ${String(mergeErr)}`);
-        }
-      }
 
       return { worktreePath, jobBranch };
     });

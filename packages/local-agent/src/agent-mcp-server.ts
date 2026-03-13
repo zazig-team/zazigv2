@@ -848,6 +848,7 @@ server.tool(
     idea_id: z.string().describe("ID of the idea to update"),
     title: z.string().optional().describe("New title"),
     description: z.string().optional().describe("New description"),
+    spec_url: z.string().optional().describe("Path to the spec document in the repository"),
     status: z.enum(["new", "triaged", "parked", "rejected", "done"]).optional().describe("New status"),
     priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("New priority"),
     suggested_exec: z.string().optional().describe("Suggested executor"),
@@ -857,7 +858,7 @@ server.tool(
     triage_notes: z.string().optional().describe("Notes from triage"),
     project_id: z.string().optional().describe("Associated project ID"),
   },
-  async ({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id }) => {
+  async ({ idea_id, title, description, spec_url, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -876,7 +877,7 @@ server.tool(
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id, job_id: jobId, company_id: companyId }),
+      body: JSON.stringify({ idea_id, title, description, spec_url, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, project_id, job_id: jobId, company_id: companyId }),
     });
 
     if (response.ok) {

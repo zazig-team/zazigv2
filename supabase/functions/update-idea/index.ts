@@ -72,6 +72,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       idea_id,
       title,
       description,
+      spec_url,
       status,
       item_type,
       horizon,
@@ -100,6 +101,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const updates: Record<string, unknown> = {};
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
+    if (spec_url !== undefined) updates.spec_url = spec_url;
     if (status !== undefined) updates.status = status;
     if (item_type !== undefined) updates.item_type = item_type;
     if (horizon !== undefined) updates.horizon = horizon;

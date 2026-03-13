@@ -20,7 +20,7 @@ import { supabase } from "../lib/supabase";
 import FormattedProse from "../components/FormattedProse";
 
 type TypeFilter = "all" | "idea" | "brief" | "bug" | "test";
-type SectionTab = "inbox" | "triaged" | "developing" | "workshop" | "parked" | "rejected" | "shipped";
+type SectionTab = "inbox" | "triaged" | "developing" | "workshop" | "parked" | "rejected" | "shipped" | "done";
 type SortMode = "newest" | "oldest" | "priority";
 
 const TYPE_ICON: Record<string, string> = {
@@ -671,6 +671,7 @@ export default function Ideas(): JSX.Element {
     parked: filtered.filter((i) => i.status === "parked"),
     rejected: filtered.filter((i) => i.status === "rejected"),
     shipped: filteredPromoted,
+    done: filtered.filter((i) => i.status === "done"),
   }), [filtered, filteredPromoted]);
 
   const activeItems = useMemo(() => {
@@ -694,7 +695,8 @@ export default function Ideas(): JSX.Element {
     parked: ideas.filter((i) => i.status === "parked").length,
     rejected: ideas.filter((i) => i.status === "rejected").length,
     shipped: promotedIdeas.length,
-  }), [ideas, promotedIdeas]);
+    done: sections.done.length,
+  }), [ideas, promotedIdeas, sections.done.length]);
 
   // Type counts
   const typeCounts = useMemo(() => {
@@ -836,6 +838,17 @@ export default function Ideas(): JSX.Element {
             <span className="il-tab-count">{tabCounts[tab]}</span>
           </button>
         ))}
+        {tabCounts.done > 0 && (
+          <button
+            key="done"
+            className={`il-tab${activeTab === "done" ? " active" : ""}`}
+            onClick={() => { setActiveTab("done"); setExpandedId(null); }}
+            type="button"
+          >
+            Done
+            <span className="il-tab-count">{tabCounts.done}</span>
+          </button>
+        )}
       </div>
 
       {/* Type filter (secondary) */}

@@ -400,3 +400,107 @@ describe("RepoManager.fetchBranchForExpert", () => {
     gitSpy.mockRestore();
   });
 });
+
+describe("RepoManager.createDependentJobWorktree", () => {
+  it("creates from the first dependency branch without fan-in merge commits", async () => {
+    const sourceDir = createSourceRepo();
+    const manager = new branches.RepoManager();
+    let bareDir = "";
+    let worktreePath = "";
+
+    try {
+      git(sourceDir, "checkout", "-b", "job/dep-one");
+      const depOneHead = commitFileInRepo(sourceDir, "dep-one.txt", "dep one\n", "dep one commit");
+      git(sourceDir, "checkout", "main");
+
+      git(sourceDir, "checkout", "-b", "job/dep-two");
+      const depTwoHead = commitFileInRepo(sourceDir, "dep-two.txt", "dep two\n", "dep two commit");
+      git(sourceDir, "checkout", "main");
+
+      bareDir = await manager.ensureRepo(sourceDir, "dependent-job-no-merge-project");
+      await manager.ensureFeatureBranch(bareDir, "feature/dependent-base");
+      const result = await manager.createDependentJobWorktree(
+        bareDir,
+        "feature/dependent-base",
+        "dependent-no-merge",
+        ["job/dep-one", "job/dep-two"],
+      );
+      worktreePath = result.worktreePath;
+
+      expect(result.jobBranch).toBe("job/dependent-no-merge");
+      expect(git(worktreePath, "rev-parse", "HEAD")).toBe(depOneHead);
+      expect(git(bareDir, "rev-parse", "refs/heads/job/dep-two")).toBe(depTwoHead);
+      expect(() => git(worktreePath, "rev-parse", "HEAD^2")).toThrow();
+      expect(existsSync(join(worktreePath, "dep-one.txt"))).toBe(true);
+      expect(existsSync(join(worktreePath, "dep-two.txt"))).toBe(false);
+    } finally {
+      if (bareDir && worktreePath) {
+        await manager.removeJobWorktree(bareDir, worktreePath);
+      }
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not throw when dependency branches conflict with each other", async () => {
+    const sourceDir = createSourceRepo();
+    const manager = new branches.RepoManager();
+    let bareDir = "";
+    let worktreePath = "";
+
+    try {
+      git(sourceDir, "checkout", "-b", "job/conflict-one");
+      const depOneHead = commitFileInRepo(sourceDir, "conflict.txt", "from dep one\n", "dep one change");
+      git(sourceDir, "checkout", "main");
+
+      git(sourceDir, "checkout", "-b", "job/conflict-two");
+      commitFileInRepo(sourceDir, "conflict.txt", "from dep two\n", "dep two change");
+      git(sourceDir, "checkout", "main");
+
+      bareDir = await manager.ensureRepo(sourceDir, "dependent-job-conflict-project");
+      await manager.ensureFeatureBranch(bareDir, "feature/dependent-conflict");
+
+      const result = await manager.createDependentJobWorktree(
+        bareDir,
+        "feature/dependent-conflict",
+        "dependent-conflict",
+        ["job/conflict-one", "job/conflict-two"],
+      );
+      worktreePath = result.worktreePath;
+
+      expect(git(worktreePath, "rev-parse", "HEAD")).toBe(depOneHead);
+      expect(git(worktreePath, "show", "HEAD:conflict.txt")).toBe("from dep one");
+      expect(() => git(worktreePath, "rev-parse", "HEAD^2")).toThrow();
+    } finally {
+      if (bareDir && worktreePath) {
+        await manager.removeJobWorktree(bareDir, worktreePath);
+      }
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws validation errors when a dependency branch is missing", async () => {
+    const sourceDir = createSourceRepo();
+    const manager = new branches.RepoManager();
+
+    try {
+      git(sourceDir, "checkout", "-b", "job/existing-dep");
+      commitFileInRepo(sourceDir, "existing.txt", "existing dep\n", "existing dep commit");
+      git(sourceDir, "checkout", "main");
+
+      const bareDir = await manager.ensureRepo(sourceDir, "dependent-job-missing-branch-project");
+      await manager.ensureFeatureBranch(bareDir, "feature/dependent-validation");
+
+      await expect(
+        manager.createDependentJobWorktree(
+          bareDir,
+          "feature/dependent-validation",
+          "dependent-missing",
+          ["job/existing-dep", "job/missing-dep"],
+        ),
+      ).rejects.toThrow('dependency branch not found: job/missing-dep');
+      expect(git(bareDir, "branch", "--list", "job/dependent-missing")).toBe("");
+    } finally {
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+});

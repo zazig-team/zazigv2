@@ -156,48 +156,276 @@ Domain: Revenue (CRO)
 └── churn-analyst          ← retention analysis, risk identification
 ```
 
+## Two Types of Domain Workers
+
+Within each domain there are fundamentally **two types of workers**, and the plan must handle them differently:
+
+### Type 1: Pipeline Workers (Reactive, Dispatched)
+
+These are the workhorses dispatched by the orchestrator when work reaches a specific pipeline stage. They are the domain equivalent of junior/senior engineers in the engineering pipeline.
+
+```
+Engineering domain (current):
+  build stage → junior-engineer (simple) or senior-engineer (medium/complex)
+
+Marketing domain (new):
+  create stage → content-writer (blog) or social-manager (social) or seo-specialist (seo)
+  research stage → market-researcher (competitor) or market-researcher (user)
+
+Revenue domain (new):
+  experiment stage → growth-hacker (conversion) or pricing-analyst (pricing)
+```
+
+**The routing problem**: Engineering routes by a single axis (complexity → role). Other domains need multi-axis routing — a marketing "create" task could be a blog post, a social campaign, or an SEO audit. Complexity alone doesn't determine the right worker.
+
+### Type 2: Autonomous Workers (Proactive, Self-Starting)
+
+These workers run on schedules or event triggers. They monitor, research, and generate ideas that feed back into the ideas inbox. They are *not* dispatched by the pipeline — they generate work *for* the pipeline.
+
+```
+Marketing domain:
+  competitor-scanner    — weekly scan of competitor websites/social → ideas
+  trend-watcher         — monitors industry trends → ideas
+  content-auditor       — analyses existing content gaps → ideas
+
+Revenue domain:
+  churn-monitor         — watches usage patterns → flags at-risk accounts → ideas
+  pricing-scanner       — monitors competitor pricing → ideas
+  conversion-tracker    — identifies drop-off points → ideas
+
+Finance domain:
+  burn-rate-monitor     — tracks spend vs forecast → alerts/ideas
+  vendor-auditor        — reviews recurring costs → optimisation ideas
+```
+
+These are distinct from pipeline workers because:
+1. They are not triggered by pipeline stage transitions
+2. They generate ideas rather than processing them
+3. They need their own scheduling/trigger infrastructure
+4. They may run even when the domain pipeline has no active work
+
+## Intra-Domain Routing: Generalising `complexity_routing`
+
+### Current State: Single-Axis Routing
+
+The existing `complexity_routing` table maps one dimension:
+
+```
+complexity_routing:
+  simple  → junior-engineer (codex)
+  medium  → senior-engineer (sonnet)
+  complex → senior-engineer (opus)
+```
+
+This works for engineering where complexity is the primary routing signal. But it's insufficient for domains where the *type of work* matters more than its complexity.
+
+### Target State: Multi-Axis Routing Table
+
+Generalise to a `stage_routing` table that supports multiple routing dimensions per domain pipeline stage:
+
+```sql
+CREATE TABLE stage_routing (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID REFERENCES companies(id),
+  domain TEXT NOT NULL,              -- 'engineering', 'marketing', etc.
+  stage TEXT NOT NULL,               -- pipeline stage this applies to ('build', 'create', etc.)
+
+  -- Routing axes (all nullable — match on non-null axes)
+  complexity TEXT,                   -- 'simple' | 'medium' | 'complex'
+  task_type TEXT,                    -- 'blog' | 'social' | 'seo' | 'email' | etc.
+
+  -- Resolution
+  expert_role_id UUID NOT NULL REFERENCES expert_roles(id),
+  priority INT DEFAULT 0,           -- higher = preferred when multiple rows match
+
+  UNIQUE(company_id, domain, stage, complexity, task_type)
+);
+```
+
+### How It Works
+
+**Engineering (backwards-compatible with current behaviour):**
+```
+domain=engineering, stage=build, complexity=simple  → junior-engineer
+domain=engineering, stage=build, complexity=medium  → senior-engineer
+domain=engineering, stage=build, complexity=complex → senior-engineer (opus)
+domain=engineering, stage=review, complexity=*      → reviewer
+```
+
+**Marketing:**
+```
+domain=marketing, stage=create, task_type=blog      → content-writer
+domain=marketing, stage=create, task_type=social    → social-manager
+domain=marketing, stage=create, task_type=seo       → seo-specialist
+domain=marketing, stage=create, task_type=email     → email-copywriter
+domain=marketing, stage=research, task_type=*       → market-researcher
+domain=marketing, stage=review, complexity=*        → brand-strategist
+```
+
+**Revenue:**
+```
+domain=revenue, stage=experiment, task_type=pricing    → pricing-analyst
+domain=revenue, stage=experiment, task_type=conversion → growth-hacker
+domain=revenue, stage=experiment, task_type=retention  → churn-analyst
+domain=revenue, stage=measure, task_type=*             → growth-hacker
+```
+
+### Where Does `task_type` Come From?
+
+During triage (or domain-specific auto-triage), the triage-analyst classifies the idea with both `complexity` and a new `task_type` field. This is analogous to how the current triage-analyst already sets `complexity` and `card-type` — we just formalise `task_type` as a routing-relevant field.
+
+```sql
+-- Add to ideas table
+ALTER TABLE ideas ADD COLUMN task_type TEXT;
+-- Values are domain-specific and freeform, validated by stage_routing matches
+```
+
+The domain exec (or their triage specialist) is responsible for setting `task_type` as ideas enter their pipeline. The orchestrator then does a deterministic lookup: `(domain, stage, complexity, task_type) → expert_role`.
+
+### Fallback Chain
+
+When no exact match exists, the orchestrator falls back:
+1. Match on all axes (domain + stage + complexity + task_type)
+2. Match on (domain + stage + task_type) — ignore complexity
+3. Match on (domain + stage + complexity) — ignore task_type
+4. Match on (domain + stage) alone — catch-all for the stage
+5. No match → flag for domain exec to handle manually
+
+This keeps the orchestrator deterministic while giving each domain rich routing control.
+
+### Migration Path from `complexity_routing`
+
+The existing `complexity_routing` table becomes a special case of `stage_routing`:
+```
+complexity_routing(simple, junior-engineer)
+  → stage_routing(engineering, build, simple, NULL, junior-engineer)
+```
+
+We can migrate existing rows and deprecate the old table.
+
+## Autonomous Worker Infrastructure
+
+Autonomous workers are a distinct subsystem from pipeline dispatch. They need their own table and scheduling.
+
+### New Table: `autonomous_workers`
+
+```sql
+CREATE TABLE autonomous_workers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL REFERENCES companies(id),
+  domain TEXT NOT NULL,
+  name TEXT NOT NULL,
+  expert_role_id UUID NOT NULL REFERENCES expert_roles(id),
+
+  -- Trigger configuration (one of these must be set)
+  schedule TEXT,                    -- cron expression: '0 9 * * MON' (every Monday 9am)
+  event_trigger TEXT,               -- event name: 'feature_shipped', 'sprint_complete', etc.
+
+  -- Behaviour
+  brief_template TEXT NOT NULL,     -- prompt template, may include {{variables}}
+  output_mode TEXT NOT NULL DEFAULT 'ideas',  -- 'ideas' | 'report' | 'alert'
+  enabled BOOLEAN DEFAULT true,
+
+  -- Rate limiting
+  min_interval_minutes INT DEFAULT 60,
+  last_run_at TIMESTAMPTZ,
+
+  UNIQUE(company_id, name)
+);
+```
+
+### Output Modes
+
+| Mode | Behaviour |
+|------|-----------|
+| `ideas` | Worker generates ideas, pushes them into the ideas inbox with `source='agent'` and pre-classified domain. They enter the normal triage pipeline. |
+| `report` | Worker generates a report/analysis. Stored as an artifact, surfaced to domain exec. Does not create ideas unless the exec decides to act. |
+| `alert` | Worker detects a threshold/anomaly. Creates a high-priority idea flagged for immediate attention. |
+
+### Example Configurations
+
+```yaml
+# CMO domain autonomous workers
+- name: competitor-scanner
+  domain: marketing
+  role: market-researcher
+  schedule: "0 9 * * MON"           # Every Monday 9am
+  brief: "Scan competitor websites and social channels for {{company_name}}.
+          Identify new features, campaigns, and positioning changes.
+          Generate ideas for competitive responses."
+  output_mode: ideas
+
+- name: content-gap-auditor
+  domain: marketing
+  role: seo-specialist
+  schedule: "0 10 1 * *"            # 1st of every month
+  brief: "Analyse our published content against target keywords.
+          Identify gaps and opportunities. Generate content ideas."
+  output_mode: ideas
+
+# CRO domain autonomous workers
+- name: churn-risk-monitor
+  domain: revenue
+  role: churn-analyst
+  event_trigger: usage_drop_detected
+  brief: "Usage dropped for {{account_name}}. Analyse patterns,
+          identify risk level, recommend retention actions."
+  output_mode: alert
+
+# CFO domain autonomous workers
+- name: burn-rate-tracker
+  domain: finance
+  role: financial-analyst
+  schedule: "0 8 * * *"             # Every morning
+  brief: "Calculate current burn rate, compare to forecast.
+          Flag if runway projection changes by >1 month."
+  output_mode: report
+```
+
+### Orchestrator Integration
+
+The orchestrator gets a new phase in its 10-second loop:
+
+```
+Existing phases:
+  1. Refresh cache
+  2. Recover stale triaging
+  3. Auto-triage new ideas
+  4. Recover stale developing
+  5. Auto-spec triaged ideas
+  6. Continue spec chains
+  7. Dispatch jobs
+  ...
+
+New phase (insert after auto-spec):
+  6b. Check autonomous worker schedules
+      - For each worker where enabled=true:
+        - If schedule-based: is it past the next cron tick + min_interval?
+        - If event-based: has the event fired since last_run_at?
+      - Dispatch matching workers as headless expert sessions
+      - Update last_run_at
+```
+
+Same dispatch mechanism as auto-triage — headless expert sessions on available slots. The only difference is the trigger (schedule/event vs new-idea-arrived).
+
 ## Skills Marketplace Integration
 
-External marketplaces like [Agency Agents](https://github.com/msitarzewski/agency-agents) provide 128+ pre-crafted agent personalities across 11 divisions (Engineering, Design, Marketing, Sales, Product, PM, Testing, Support, Spatial Computing, Specialised). These map directly to expert role prompts.
+External marketplaces like [Agency Agents](https://github.com/msitarzewski/agency-agents) provide 128+ pre-crafted agent personalities across 11 divisions (Engineering, Design, Marketing, Sales, Product, PM, Testing, Support, Spatial Computing, Specialised).
 
-**Implementation**: Expert role `prompt` field gets sourced/adapted from marketplace agents. The `skills` array on expert_roles can reference marketplace skill IDs. Skills are hot-swappable — update the prompt, next dispatch uses the new version.
+These map to both worker types:
 
-## Autonomous / Proactive Work
+| Marketplace Agent | Zazig Worker Type | Domain |
+|-------------------|-------------------|--------|
+| SEO Content Strategist | Pipeline (create stage) | Marketing |
+| Social Media Strategist | Pipeline (create stage) | Marketing |
+| Market Intelligence Analyst | Autonomous (weekly scan) | Marketing |
+| Growth Strategist | Pipeline (experiment stage) | Revenue |
+| Strategic Outbound Specialist | Pipeline (outreach stage) | Revenue |
+| Financial Compliance Analyst | Autonomous (monthly audit) | Finance |
+| Brand Identity Architect | Pipeline (review stage) | Marketing |
+| Technical Sales Engineer | Pipeline (demo stage) | Revenue |
 
-Three patterns for self-starting work:
-
-### Pattern 1: Scheduled Sweeps (Cron-Driven)
-
-```
-Every Monday:    CMO → "content-calendar-review" → generates week's content plan
-Every morning:   CRO → "pipeline-health-check" → flags at-risk conversions
-Monthly:         CFO → "burn-rate-analysis" → generates financial summary
-Post-sprint:     CPO → "improvement-scan" → suggests refinements to shipped features
-```
-
-Implementation: `proactive_schedules` in domain_pipelines config. Orchestrator dispatches expert sessions on schedule — same mechanism as auto-triage, just time-triggered.
-
-### Pattern 2: Event-Driven Reactions (Webhook/Monitoring)
-
-```
-PR merged       → CRO: "update changelog for customers"
-Sprint done     → CMO: "draft release announcement"
-Runway < 6mo    → CFO: "flag to CEO, draft fundraising prep"
-NPS drops       → CPO: "investigate, create improvement ideas"
-```
-
-Implementation: Monitoring agents push ideas into the inbox with pre-classified domains (`source = 'monitoring'`). The routing layer handles the rest.
-
-### Pattern 3: Self-Generating Loops (Agent-Initiated Ideas)
-
-```
-CMO analyses competitors weekly    → generates marketing ideas → inbox
-CRO analyses usage data            → identifies upsell opportunities → inbox
-CTO reviews tech debt              → proposes refactoring → inbox
-CPO reviews shipped features       → suggests improvements → inbox
-```
-
-The auto-triage + auto-spec pipeline already handles agent-originated ideas (`source = 'agent'`). Exec agents just need a proactive loop that runs analysis, generates ideas, and pushes them into the inbox.
+**Implementation**: Expert role `prompt` field gets sourced/adapted from marketplace agents. The `skills` array on expert_roles can reference marketplace skill IDs. Skills are hot-swappable — update the prompt, next dispatch uses the new version. Each marketplace agent gets classified as pipeline or autonomous based on whether it processes existing work or generates new work.
 
 ## Cross-Domain Coordination
 
@@ -260,33 +488,41 @@ This is straightforward because:
 - Proves the multi-exec pattern works
 - Minimal orchestrator changes (just routing by domain)
 
-### Phase 2: Domain Pipelines Table + Generalised Auto-Advance
+### Phase 2: `stage_routing` Table — Generalise Intra-Domain Routing
+- Create `stage_routing` table
+- Migrate existing `complexity_routing` rows into `stage_routing`
+- Add `task_type` to ideas table
+- Update orchestrator dispatch to use new routing table
+- Backwards-compatible: engineering routing works identically, just via new table
+
+### Phase 3: Domain Pipelines Table + Generalised Auto-Advance
 - Create `domain_pipelines` table
 - Refactor orchestrator auto-spec into generic "auto-advance" per pipeline stage
 - Each domain defines its own stages and advance rules
 
-### Phase 3: CMO + Marketing Pipeline + Marketplace Skills
+### Phase 4: CMO + Marketing Pipeline + Marketplace Skills
 - Add CMO persistent agent
 - Define marketing pipeline stages
-- Import first marketplace skills as expert roles (content-strategist, seo-specialist)
-- First proactive loop: weekly competitor scan
+- Import first marketplace skills as expert roles (content-writer, seo-specialist)
+- Configure `stage_routing` for marketing stages (create → content-writer/social-manager/etc.)
 
-### Phase 4: Proactive Loops Infrastructure
-- Add scheduled expert session dispatch to orchestrator
-- Event-driven idea generation (monitoring → inbox)
-- Self-generating loops for each active domain
+### Phase 5: Autonomous Worker Infrastructure
+- Create `autonomous_workers` table
+- Add schedule/event check phase to orchestrator loop
+- First autonomous worker: competitor-scanner for CMO domain
+- Self-generating loops: autonomous workers push ideas into inbox
 
-### Phase 5: CEO as Cross-Domain Coordinator
+### Phase 6: CEO as Cross-Domain Coordinator
 - CEO persistent agent watches for `cross-cutting` and `strategy` ideas
 - Decomposition logic: one idea → multiple domain-specific ideas
 - Cross-domain initiative tracking
 
-### Phase 6: CFO + CRO
-- Finance pipeline + expert roles
-- Revenue/growth pipeline + expert roles
-- Proactive loops for financial monitoring and growth experiments
+### Phase 7: CFO + CRO
+- Finance pipeline + expert roles + stage routing
+- Revenue/growth pipeline + expert roles + stage routing
+- Autonomous workers for financial monitoring and growth experiments
 
-### Phase 7: UI — Domain Pipeline Views
+### Phase 8: UI — Domain Pipeline Views
 - Hide Ideas Inbox / Triage / Proposal from engineering board
 - Add domain selector / tabs for pipeline views
 - Each domain shows its own pipeline columns
@@ -300,7 +536,18 @@ This is straightforward because:
 4. **Cross-domain dependencies**: Beyond CEO coordination, do we need explicit dependency tracking between domain pipelines?
 5. **Domain exec model selection**: All Opus? Or lighter models for lower-stakes domains?
 6. **Skill marketplace curation**: Import all 128 agents? Or curate per-company?
+7. **Autonomous worker slot contention**: Should autonomous workers have their own slot pool, or compete with pipeline workers? (Probably: lower priority, only use idle slots, with a reserved minimum for time-sensitive monitors.)
+8. **`task_type` taxonomy**: Freeform per-domain? Or a curated enum per domain pipeline? (Probably: freeform initially, evolve to validated sets as domains mature.)
+9. **Autonomous worker observability**: How do we surface what autonomous workers discovered vs what got triaged into the pipeline? Need a dashboard or report view.
 
 ## Summary
 
-The core insight: **one inbox, many pipelines**. The orchestrator routes by domain. Each domain exec owns their pipeline, expert roles, and proactive loops. Skills from marketplaces equip the workers. The orchestrator stays deterministic. Cross-cutting work flows through CEO. The existing primitives (ideas table, expert_roles, auto-triage, orchestrator dispatch) support this with surprisingly few changes.
+Three core insights:
+
+1. **One inbox, many pipelines.** The orchestrator routes ideas by domain to domain-specific pipelines, each owned by a persistent exec agent.
+
+2. **Two types of workers, not one.** Pipeline workers are reactive — dispatched when work hits their stage, routed by multi-axis `stage_routing` (complexity + task_type → expert_role). Autonomous workers are proactive — scheduled or event-triggered, they monitor, research, and generate ideas that feed back into the inbox.
+
+3. **The orchestrator stays dumb.** All routing is config-driven and deterministic. Domain pipelines, stage routing, and autonomous worker schedules are all DB tables. The LLM reasoning happens in the exec agents and workers, never in the orchestrator.
+
+The existing primitives (ideas table with domain field, expert_roles, auto-triage, orchestrator dispatch loop) support this with surprisingly few new tables: `domain_pipelines`, `stage_routing`, and `autonomous_workers`.

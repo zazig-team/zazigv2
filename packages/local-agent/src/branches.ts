@@ -572,11 +572,13 @@ export class RepoManager {
         return { worktreePath, jobBranch, conflictBranches: [] };
       }
 
-      // Multi-dep: merge remaining branches into the worktree
+      // Multi-dep: merge remaining branches into the worktree.
+      // Use refs/heads/ prefix so the ref resolves unambiguously in bare-repo worktrees.
       const conflictBranches: string[] = [];
       for (const branch of depBranches.slice(1)) {
+        const ref = `refs/heads/${branch}`;
         try {
-          await execFileAsync("git", ["-C", worktreePath, "merge", "--no-edit", branch], { encoding: "utf8" });
+          await execFileAsync("git", ["-C", worktreePath, "merge", "--no-edit", ref], { encoding: "utf8" });
           console.log(`[RepoManager] Merged dep branch "${branch}" cleanly into ${jobBranch}`);
         } catch {
           // Merge conflict — abort this merge, record the branch

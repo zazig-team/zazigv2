@@ -68,6 +68,7 @@ export type AgentJobStatus = "executing" | "reviewing" | "blocked" | "complete" 
 export type FailureReason =
   | "agent_crash"
   | "ci_failure"
+  | "merge_conflict"
   | "timeout"
   | "unknown"
   | "daemon_heartbeat_gap"

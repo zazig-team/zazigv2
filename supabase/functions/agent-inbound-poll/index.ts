@@ -283,6 +283,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (str(r.title)) msg.title = str(r.title);
       if (str(r.acceptance_tests)) msg.acceptanceCriteria = str(r.acceptance_tests);
 
+      // Resolve dependency branches for jobs with depends_on
+      const dependsOn = r.depends_on as string[] | null;
+      if (dependsOn && dependsOn.length > 0) {
+        const { data: depJobs, error: depErr } = await supabaseAdmin
+          .from("jobs")
+          .select("branch")
+          .in("id", dependsOn);
+
+        if (!depErr && depJobs) {
+          const depBranches = depJobs
+            .map((d: { branch?: string | null }) => d.branch)
+            .filter((b): b is string => typeof b === "string" && b.length > 0);
+          if (depBranches.length > 0) {
+            msg.dependencyBranches = depBranches;
+          }
+        }
+      }
+
       claimedMessages.push(msg);
 
       // Stop if no capacity left

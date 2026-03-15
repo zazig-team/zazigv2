@@ -16,7 +16,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync, symlinkSync, appendFileSync, createWriteStream, statSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync, rmSync, symlinkSync, appendFileSync, createWriteStream, statSync } from "node:fs";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -662,11 +662,39 @@ export class JobExecutor {
         jobLog(jobId, `Branch routing: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
         jobLog(jobId, `featureBranch=${msg.featureBranch}, repoDir=${repoDir}`);
         console.log(`[executor] Branch routing for jobId=${jobId}: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
-        const worktreeResult = (msg.dependencyBranches && msg.dependencyBranches.length > 0)
-          ? await this.repoManager.createDependentJobWorktree(repoDir, msg.featureBranch, jobId, msg.dependencyBranches)
-          : await this.repoManager.createJobWorktree(repoDir, msg.featureBranch, jobId);
-        worktreePath = worktreeResult.worktreePath;
-        jobBranch = worktreeResult.jobBranch;
+
+        if (msg.dependencyBranches && msg.dependencyBranches.length > 0) {
+          const depResult = await this.repoManager.createDependentJobWorktree(repoDir, msg.featureBranch, jobId, msg.dependencyBranches);
+          worktreePath = depResult.worktreePath;
+          jobBranch = depResult.jobBranch;
+
+          // Handle merge conflicts from multi-dep fan-in
+          if (depResult.conflictBranches.length > 0) {
+            jobLog(jobId, `Merge conflicts with branches: ${depResult.conflictBranches.join(", ")} — spawning conflict resolution agent`);
+            console.log(`[executor] Merge conflicts for jobId=${jobId}: ${depResult.conflictBranches.join(", ")}`);
+
+            const resolved = await this.resolveDepMergeConflicts(
+              jobId, worktreePath, msg.dependencyBranches[0], depResult.conflictBranches, msg.model,
+            );
+
+            if (!resolved) {
+              jobLog(jobId, `FAILED to resolve merge conflicts — failing job`);
+              if (slotAcquired) this.slots.release(slotType);
+              await this.sendJobFailed(
+                jobId,
+                `Merge conflict resolution failed for dependency branches: ${depResult.conflictBranches.join(", ")}. Requires human attention.`,
+                "merge_conflict",
+              );
+              return;
+            }
+            jobLog(jobId, `Merge conflicts resolved successfully`);
+          }
+        } else {
+          const simpleResult = await this.repoManager.createJobWorktree(repoDir, msg.featureBranch, jobId);
+          worktreePath = simpleResult.worktreePath;
+          jobBranch = simpleResult.jobBranch;
+        }
+
         ephemeralWorkspaceDir = worktreePath;
 
         jobLog(jobId, `Worktree created at ${worktreePath} (branch: ${jobBranch})`);
@@ -2543,6 +2571,108 @@ export class JobExecutor {
       ...(pr !== undefined ? { pr } : {}),
       ...(report !== undefined ? { report } : {}),
     });
+  }
+
+  /**
+   * Attempt to merge conflicting dependency branches one at a time, using
+   * a short-lived `claude -p` agent to resolve each conflict inline.
+   * Returns true if all conflicts were resolved, false otherwise.
+   */
+  private async resolveDepMergeConflicts(
+    jobId: string,
+    worktreePath: string,
+    baseBranch: string,
+    conflictBranches: string[],
+    model: string,
+  ): Promise<boolean> {
+    for (const branch of conflictBranches) {
+      jobLog(jobId, `Attempting merge + conflict resolution for branch: ${branch}`);
+
+      // Start the merge (will leave conflict markers in working tree)
+      try {
+        await execFileAsync("git", ["-C", worktreePath, "merge", "--no-edit", branch], { encoding: "utf8" });
+        // Merged cleanly on retry (shouldn't happen but handle gracefully)
+        jobLog(jobId, `Branch "${branch}" merged cleanly on retry`);
+        continue;
+      } catch {
+        // Expected — conflicts exist. Check if it's actually a conflict vs other error.
+        try {
+          const { stdout: status } = await execFileAsync("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" });
+          const hasConflicts = status.split("\n").some(line => line.startsWith("UU ") || line.startsWith("AA ") || line.startsWith("DD "));
+          if (!hasConflicts) {
+            jobLog(jobId, `Merge of "${branch}" failed but no conflict markers found — aborting`);
+            try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
+            return false;
+          }
+        } catch {
+          try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
+          return false;
+        }
+      }
+
+      // List conflicted files for the agent prompt
+      let conflictedFiles: string;
+      try {
+        const { stdout } = await execFileAsync("git", ["-C", worktreePath, "diff", "--name-only", "--diff-filter=U"], { encoding: "utf8" });
+        conflictedFiles = stdout.trim();
+      } catch {
+        conflictedFiles = "(could not list conflicted files)";
+      }
+
+      const prompt = [
+        `You are resolving git merge conflicts in a worktree.`,
+        `The current branch was created from dependency branch "${baseBranch}".`,
+        `A merge of branch "${branch}" has produced conflicts in these files:`,
+        ``,
+        conflictedFiles,
+        ``,
+        `Your job:`,
+        `1. Read each conflicted file`,
+        `2. Resolve the conflict markers (<<<<<<< / ======= / >>>>>>>) by keeping the combined intent of both sides`,
+        `3. Stage the resolved files with git add`,
+        `4. Complete the merge with: git commit --no-edit`,
+        ``,
+        `Do NOT modify any files beyond resolving the conflict markers.`,
+        `Do NOT create new branches or push.`,
+      ].join("\n");
+
+      // Write prompt to temp file to avoid ARG_MAX
+      const promptPath = join(worktreePath, ".merge-resolve-prompt.tmp");
+      writeFileSync(promptPath, prompt);
+
+      try {
+        const shellCmd = `cat ${shellEscape([promptPath])} | claude --model ${shellEscape([model])} -p`;
+        const { stdout } = await execFileAsync("bash", ["-c", shellCmd], {
+          cwd: worktreePath,
+          encoding: "utf8",
+          timeout: 120_000,
+          env: { ...process.env, CLAUDECODE: undefined },
+        });
+        jobLog(jobId, `Conflict resolution agent output for "${branch}": ${stdout.slice(0, 500)}`);
+
+        // Verify merge completed (no more conflict markers)
+        try {
+          const { stdout: status } = await execFileAsync("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" });
+          const stillConflicted = status.split("\n").some(line => line.startsWith("UU ") || line.startsWith("AA ") || line.startsWith("DD "));
+          if (stillConflicted) {
+            jobLog(jobId, `Conflict resolution agent did not resolve all conflicts for "${branch}"`);
+            try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
+            return false;
+          }
+        } catch {
+          try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
+          return false;
+        }
+      } catch (err) {
+        jobLog(jobId, `Conflict resolution agent failed for "${branch}": ${String(err)}`);
+        try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
+        return false;
+      } finally {
+        try { unlinkSync(promptPath); } catch {}
+      }
+    }
+
+    return true;
   }
 
   private async sendJobFailed(

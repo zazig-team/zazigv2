@@ -402,7 +402,7 @@ describe("RepoManager.fetchBranchForExpert", () => {
 });
 
 describe("RepoManager.createDependentJobWorktree", () => {
-  it("creates from the first dependency branch without fan-in merge commits", async () => {
+  it("merges multiple dependency branches into the worktree", async () => {
     const sourceDir = createSourceRepo();
     const manager = new branches.RepoManager();
     let bareDir = "";
@@ -410,29 +410,65 @@ describe("RepoManager.createDependentJobWorktree", () => {
 
     try {
       git(sourceDir, "checkout", "-b", "job/dep-one");
-      const depOneHead = commitFileInRepo(sourceDir, "dep-one.txt", "dep one\n", "dep one commit");
+      commitFileInRepo(sourceDir, "dep-one.txt", "dep one\n", "dep one commit");
       git(sourceDir, "checkout", "main");
 
       git(sourceDir, "checkout", "-b", "job/dep-two");
-      const depTwoHead = commitFileInRepo(sourceDir, "dep-two.txt", "dep two\n", "dep two commit");
+      commitFileInRepo(sourceDir, "dep-two.txt", "dep two\n", "dep two commit");
       git(sourceDir, "checkout", "main");
 
-      bareDir = await manager.ensureRepo(sourceDir, "dependent-job-no-merge-project");
+      bareDir = await manager.ensureRepo(sourceDir, "dependent-job-merge-project");
       await manager.ensureFeatureBranch(bareDir, "feature/dependent-base");
       const result = await manager.createDependentJobWorktree(
         bareDir,
         "feature/dependent-base",
-        "dependent-no-merge",
+        "dependent-merge",
         ["job/dep-one", "job/dep-two"],
       );
       worktreePath = result.worktreePath;
 
-      expect(result.jobBranch).toBe("job/dependent-no-merge");
-      expect(git(worktreePath, "rev-parse", "HEAD")).toBe(depOneHead);
-      expect(git(bareDir, "rev-parse", "refs/heads/job/dep-two")).toBe(depTwoHead);
-      expect(() => git(worktreePath, "rev-parse", "HEAD^2")).toThrow();
+      expect(result.jobBranch).toBe("job/dependent-merge");
+      expect(result.conflictBranches).toEqual([]);
+      // Both dep files should be present (merged)
       expect(existsSync(join(worktreePath, "dep-one.txt"))).toBe(true);
-      expect(existsSync(join(worktreePath, "dep-two.txt"))).toBe(false);
+      expect(existsSync(join(worktreePath, "dep-two.txt"))).toBe(true);
+      // HEAD should be a merge commit (has two parents)
+      expect(() => git(worktreePath, "rev-parse", "HEAD^2")).not.toThrow();
+    } finally {
+      if (bareDir && worktreePath) {
+        await manager.removeJobWorktree(bareDir, worktreePath);
+      }
+      rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("single dep branch creates worktree without merge", async () => {
+    const sourceDir = createSourceRepo();
+    const manager = new branches.RepoManager();
+    let bareDir = "";
+    let worktreePath = "";
+
+    try {
+      git(sourceDir, "checkout", "-b", "job/dep-single");
+      const depHead = commitFileInRepo(sourceDir, "dep.txt", "dep\n", "dep commit");
+      git(sourceDir, "checkout", "main");
+
+      bareDir = await manager.ensureRepo(sourceDir, "dependent-job-single-project");
+      await manager.ensureFeatureBranch(bareDir, "feature/dependent-base");
+      const result = await manager.createDependentJobWorktree(
+        bareDir,
+        "feature/dependent-base",
+        "dependent-single",
+        ["job/dep-single"],
+      );
+      worktreePath = result.worktreePath;
+
+      expect(result.jobBranch).toBe("job/dependent-single");
+      expect(result.conflictBranches).toEqual([]);
+      expect(git(worktreePath, "rev-parse", "HEAD")).toBe(depHead);
+      // No merge commit — HEAD^2 should not exist
+      expect(() => git(worktreePath, "rev-parse", "HEAD^2")).toThrow();
+      expect(existsSync(join(worktreePath, "dep.txt"))).toBe(true);
     } finally {
       if (bareDir && worktreePath) {
         await manager.removeJobWorktree(bareDir, worktreePath);
@@ -467,6 +503,8 @@ describe("RepoManager.createDependentJobWorktree", () => {
       );
       worktreePath = result.worktreePath;
 
+      // Conflict branch is reported, merge was aborted, HEAD stays on dep-one
+      expect(result.conflictBranches).toEqual(["job/conflict-two"]);
       expect(git(worktreePath, "rev-parse", "HEAD")).toBe(depOneHead);
       expect(git(worktreePath, "show", "HEAD:conflict.txt")).toBe("from dep one");
       expect(() => git(worktreePath, "rev-parse", "HEAD^2")).toThrow();

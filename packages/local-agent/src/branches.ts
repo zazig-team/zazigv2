@@ -511,20 +511,13 @@ export class RepoManager {
     featureBranch: string,
     jobId: string,
     depBranches: string[],
-  ): Promise<{ worktreePath: string; jobBranch: string }> {
+  ): Promise<{ worktreePath: string; jobBranch: string; conflictBranches: string[] }> {
     return this.withLock(repoDir, async () => {
-      // Fetch to ensure remote dep branches are available in the bare repo
       console.log(`[RepoManager] createDependentJobWorktree: jobId=${jobId}, depBranches=${JSON.stringify(depBranches)}`);
       // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
-      // That's expected — diverged branches are intentionally protected. The other
-      // branches are still updated, so we log and continue.
       try { await this.git(repoDir, "fetch", "origin"); } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
-
-      // List all branches after fetch for debugging
-      const { stdout: branchList } = await execFileAsync("git", ["-C", repoDir, "branch", "--list", "job/*"], { encoding: "utf8" });
-      console.log(`[RepoManager] Branches after fetch: ${branchList.trim().split("\n").map(b => b.trim()).join(", ")}`);
 
       if (depBranches.length === 0) {
         throw new Error("createDependentJobWorktree requires at least one dependency branch");
@@ -534,24 +527,7 @@ export class RepoManager {
       const missingBranches: string[] = [];
       for (const branch of depBranches) {
         try {
-          const { stdout: sha } = await execFileAsync("git", ["-C", repoDir, "rev-parse", "--verify", `refs/heads/${branch}`], { encoding: "utf8" });
-          const { stdout: logLine } = await execFileAsync("git", ["-C", repoDir, "log", "--oneline", "-1", branch], { encoding: "utf8" });
-          // Check if this branch shares history with the repo root
-          let ancestry = "UNKNOWN";
-          try {
-            await execFileAsync("git", ["-C", repoDir, "merge-base", "--is-ancestor", "HEAD~100", branch], { encoding: "utf8" });
-            ancestry = "shares-history";
-          } catch {
-            // Try checking against a known good branch
-            try {
-              const { stdout: roots } = await execFileAsync("git", ["-C", repoDir, "rev-list", "--max-parents=0", branch], { encoding: "utf8" });
-              const { stdout: mainRoots } = await execFileAsync("git", ["-C", repoDir, "rev-list", "--max-parents=0", "master"], { encoding: "utf8" });
-              ancestry = roots.trim() === mainRoots.trim() ? "same-root" : `DIFFERENT-ROOT(branch=${roots.trim().slice(0,8)},master=${mainRoots.trim().slice(0,8)})`;
-            } catch {
-              ancestry = "root-check-failed";
-            }
-          }
-          console.log(`[RepoManager] Dep branch "${branch}": sha=${sha.trim().slice(0,8)}, log="${logLine.trim()}", ancestry=${ancestry}`);
+          await execFileAsync("git", ["-C", repoDir, "rev-parse", "--verify", `refs/heads/${branch}`], { encoding: "utf8" });
         } catch {
           missingBranches.push(branch);
         }
@@ -567,12 +543,10 @@ export class RepoManager {
       const worktreePath = join(WORKTREE_BASE, `job-${jobId}`);
       await mkdir(WORKTREE_BASE, { recursive: true });
 
-      // Base from first dependency branch. featureBranch remains part of the
-      // signature for compatibility with existing call sites.
       const baseBranch = depBranches[0] ?? featureBranch;
       console.log(`[RepoManager] Creating jobBranch="${jobBranch}" from baseBranch="${baseBranch}", depBranches=${JSON.stringify(depBranches)}`);
 
-      // Find and remove any existing worktree for this job branch (may be at old/different path)
+      // Clean up any existing worktree for this job branch
       try {
         const wtList = await this.git(repoDir, "worktree", "list", "--porcelain");
         const entries = wtList.split("\n\n");
@@ -586,7 +560,6 @@ export class RepoManager {
           }
         }
       } catch { /* worktree list failed — continue with best-effort cleanup below */ }
-      // Also clean up the expected path in case it exists without git tracking it
       try { await rm(worktreePath, { recursive: true, force: true }); } catch {}
       try { await this.git(repoDir, "worktree", "prune"); } catch {}
       try { await this.git(repoDir, "branch", "-D", jobBranch); } catch {}
@@ -594,7 +567,26 @@ export class RepoManager {
       await this.git(repoDir, "branch", jobBranch, baseBranch);
       await this.git(repoDir, "worktree", "add", worktreePath, jobBranch);
 
-      return { worktreePath, jobBranch };
+      // Single dep: no merge needed (branched directly from it)
+      if (depBranches.length === 1) {
+        return { worktreePath, jobBranch, conflictBranches: [] };
+      }
+
+      // Multi-dep: merge remaining branches into the worktree
+      const conflictBranches: string[] = [];
+      for (const branch of depBranches.slice(1)) {
+        try {
+          await execFileAsync("git", ["-C", worktreePath, "merge", "--no-edit", branch], { encoding: "utf8" });
+          console.log(`[RepoManager] Merged dep branch "${branch}" cleanly into ${jobBranch}`);
+        } catch {
+          // Merge conflict — abort this merge, record the branch
+          console.warn(`[RepoManager] Merge conflict merging "${branch}" into ${jobBranch}`);
+          try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
+          conflictBranches.push(branch);
+        }
+      }
+
+      return { worktreePath, jobBranch, conflictBranches };
     });
   }
 

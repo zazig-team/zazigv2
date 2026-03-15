@@ -573,6 +573,13 @@ export class RepoManager {
       }
 
       // Multi-dep: merge remaining branches into the worktree.
+      // Ensure git user config exists for merge commits (CI may lack global config).
+      try {
+        await execFileAsync("git", ["-C", worktreePath, "config", "user.email"], { encoding: "utf8" });
+      } catch {
+        await execFileAsync("git", ["-C", worktreePath, "config", "user.email", "zazig-agent@zazig.com"], { encoding: "utf8" });
+        await execFileAsync("git", ["-C", worktreePath, "config", "user.name", "zazig-agent"], { encoding: "utf8" });
+      }
       // Use refs/heads/ prefix so the ref resolves unambiguously in bare-repo worktrees.
       const conflictBranches: string[] = [];
       for (const branch of depBranches.slice(1)) {
@@ -580,9 +587,10 @@ export class RepoManager {
         try {
           await execFileAsync("git", ["-C", worktreePath, "merge", "--no-edit", ref], { encoding: "utf8" });
           console.log(`[RepoManager] Merged dep branch "${branch}" cleanly into ${jobBranch}`);
-        } catch {
-          // Merge conflict — abort this merge, record the branch
-          console.warn(`[RepoManager] Merge conflict merging "${branch}" into ${jobBranch}`);
+        } catch (mergeErr) {
+          // Merge failed — could be conflict or unrelated histories
+          const errMsg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
+          console.warn(`[RepoManager] Merge failed for "${branch}" into ${jobBranch}: ${errMsg}`);
           try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
           conflictBranches.push(branch);
         }

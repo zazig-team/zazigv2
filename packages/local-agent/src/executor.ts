@@ -16,7 +16,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync, rmSync, symlinkSync, appendFileSync, createWriteStream, statSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync, symlinkSync, appendFileSync, createWriteStream, statSync } from "node:fs";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";

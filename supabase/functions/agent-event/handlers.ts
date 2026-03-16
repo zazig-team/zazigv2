@@ -18,7 +18,10 @@ import type {
 import {
   checkUnblockedJobs,
   notifyCPO,
+  parseGitHubRepoUrl,
   releaseSlot,
+  triggerCICheck,
+  triggerMerging,
 } from "../_shared/pipeline-utils.ts";
 
 // ---------------------------------------------------------------------------
@@ -282,6 +285,218 @@ export async function handleJobComplete(
           featureCount ?? 0
         } feature outlines. Ready for your review.`,
       );
+    }
+  }
+
+  // Handle combine job completion: if PR was created, trigger CI checking.
+  if (jobRow?.job_type === "combine" && jobRow?.feature_id) {
+    const prUrl = msg.pr ?? null;
+    if (!prUrl) {
+      console.warn(
+        `[agent-event job=${jobId}] Combine complete for feature ${jobRow.feature_id} but no PR URL — leaving in combining_and_pr`,
+      );
+    } else {
+      // Look up project repo_url for owner/repo
+      const { data: feat } = await supabase
+        .from("features")
+        .select("project_id, branch")
+        .eq("id", jobRow.feature_id)
+        .single();
+
+      const projectId = feat?.project_id ?? null;
+      const branch = feat?.branch ?? jobRow.branch ?? null;
+
+      if (!projectId || !branch) {
+        console.warn(
+          `[agent-event job=${jobId}] Combine complete: feature ${jobRow.feature_id} missing project_id or branch — skipping CI check`,
+        );
+      } else {
+        const { data: project } = await supabase
+          .from("projects")
+          .select("repo_url")
+          .eq("id", projectId)
+          .maybeSingle();
+
+        const repoUrl = (project as { repo_url?: string | null } | null)?.repo_url ?? null;
+        if (!repoUrl) {
+          console.warn(
+            `[agent-event job=${jobId}] Combine complete: project ${projectId} has no repo_url — skipping CI check`,
+          );
+        } else {
+          let owner: string;
+          let repo: string;
+          try {
+            ({ owner, repo } = parseGitHubRepoUrl(repoUrl));
+          } catch {
+            console.warn(
+              `[agent-event job=${jobId}] Combine complete: invalid repo_url "${repoUrl}" for feature ${jobRow.feature_id}`,
+            );
+            return;
+          }
+
+          // Parse PR number from URL (e.g. https://github.com/owner/repo/pull/42)
+          const prNumberMatch = prUrl.match(/\/pull\/(\d+)/);
+          const prNumber = prNumberMatch ? parseInt(prNumberMatch[1], 10) : null;
+
+          await triggerCICheck(supabase, jobRow.feature_id, prUrl, prNumber, owner, repo, branch);
+        }
+      }
+    }
+  }
+
+  // Handle ci_check job completion: route based on PASSED/FAILED result.
+  if (jobRow?.job_type === "ci_check" && jobRow?.feature_id) {
+    const reportText = msg.report ?? msg.result ?? "";
+    const passed = reportText.includes("status: passed");
+
+    if (passed) {
+      console.log(
+        `[agent-event job=${jobId}] CI check PASSED for feature ${jobRow.feature_id} — triggering merge`,
+      );
+      await triggerMerging(supabase, jobRow.feature_id);
+    } else {
+      // CI failed — increment ci_fail_count and decide whether to retry
+      const { data: failedFeature, error: failCountErr } = await supabase
+        .from("features")
+        .select("ci_fail_count, company_id, project_id, spec, acceptance_tests, branch, pr_url, title")
+        .eq("id", jobRow.feature_id)
+        .single();
+
+      if (failCountErr || !failedFeature) {
+        console.error(
+          `[agent-event job=${jobId}] CI check FAILED but could not fetch feature ${jobRow.feature_id}:`,
+          failCountErr?.message,
+        );
+        return;
+      }
+
+      const newFailCount = ((failedFeature as { ci_fail_count?: number }).ci_fail_count ?? 0) + 1;
+
+      // Increment ci_fail_count
+      await supabase
+        .from("features")
+        .update({ ci_fail_count: newFailCount, updated_at: new Date().toISOString() })
+        .eq("id", jobRow.feature_id);
+
+      console.warn(
+        `[agent-event job=${jobId}] CI check FAILED for feature ${jobRow.feature_id} (ci_fail_count now ${newFailCount})`,
+      );
+
+      if (newFailCount >= 3) {
+        // Max retries reached — fail the feature
+        await supabase
+          .from("features")
+          .update({
+            status: "failed",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", jobRow.feature_id)
+          .eq("status", "ci_checking");
+
+        console.error(
+          `[agent-event job=${jobId}] Feature ${jobRow.feature_id} moved to failed after ${newFailCount} CI failures`,
+        );
+
+        await notifyCPO(
+          supabase,
+          (failedFeature as { company_id: string }).company_id,
+          `Feature "${(failedFeature as { title?: string }).title ?? jobRow.feature_id}" failed after ${newFailCount} CI check failures. Manual intervention required.`,
+        );
+      } else {
+        // Create a fix job for the CI failures
+        const ciFailureDetails = reportText;
+        const featureSpec = (failedFeature as { spec?: string }).spec ?? "";
+        const acceptanceTests = (failedFeature as { acceptance_tests?: string }).acceptance_tests ?? "";
+        const featureBranch = (failedFeature as { branch?: string }).branch ?? "";
+        const prUrl = (failedFeature as { pr_url?: string }).pr_url ?? "";
+
+        // Parse context from the original ci_check job to get owner/repo
+        let owner = "";
+        let repo = "";
+        let prNumber: number | null = null;
+        try {
+          const ciCtx = JSON.parse(jobRow.context ?? "{}") as {
+            owner?: string;
+            repo?: string;
+            prNumber?: number | null;
+          };
+          owner = ciCtx.owner ?? "";
+          repo = ciCtx.repo ?? "";
+          prNumber = ciCtx.prNumber ?? null;
+        } catch {
+          // best effort
+        }
+
+        const fixContext = JSON.stringify({
+          type: "ci_fix",
+          featureId: jobRow.feature_id,
+          featureBranch,
+          prUrl,
+          ciFailureDetails,
+          spec: featureSpec,
+          acceptanceTests,
+          failAttempt: newFailCount,
+        });
+
+        const { data: fixJob, error: fixInsertErr } = await supabase
+          .from("jobs")
+          .insert({
+            company_id: (failedFeature as { company_id: string }).company_id,
+            project_id: (failedFeature as { project_id?: string | null }).project_id ?? null,
+            feature_id: jobRow.feature_id,
+            title: `Fix CI failures (attempt ${newFailCount})`,
+            role: "senior-engineer",
+            job_type: "code",
+            complexity: "medium",
+            slot_type: "claude_code",
+            status: "created",
+            context: fixContext,
+            branch: featureBranch,
+            source: "ci_failure",
+          })
+          .select("id")
+          .single();
+
+        if (fixInsertErr || !fixJob) {
+          console.error(
+            `[agent-event job=${jobId}] Failed to create CI fix job for feature ${jobRow.feature_id}:`,
+            fixInsertErr?.message,
+          );
+          return;
+        }
+
+        // Pre-create the follow-up ci-checker job (depends on fix job completing)
+        if (owner && repo && featureBranch) {
+          await supabase
+            .from("jobs")
+            .insert({
+              company_id: (failedFeature as { company_id: string }).company_id,
+              project_id: (failedFeature as { project_id?: string | null }).project_id ?? null,
+              feature_id: jobRow.feature_id,
+              title: `CI check after fix (attempt ${newFailCount + 1})`,
+              role: "ci-checker",
+              job_type: "ci_check",
+              complexity: "simple",
+              slot_type: "codex",
+              status: "created",
+              context: JSON.stringify({
+                type: "ci_check",
+                featureId: jobRow.feature_id,
+                prUrl,
+                prNumber,
+                owner,
+                repo,
+                branch: featureBranch,
+              }),
+              branch: featureBranch,
+              depends_on: [fixJob.id],
+            });
+        }
+
+        console.log(
+          `[agent-event job=${jobId}] Created CI fix job ${fixJob.id} for feature ${jobRow.feature_id} (fail attempt ${newFailCount})`,
+        );
+      }
     }
   }
 

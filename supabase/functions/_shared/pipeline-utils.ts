@@ -32,56 +32,6 @@ export function parseGitHubRepoUrl(url: string): { owner: string; repo: string }
   return { owner, repo };
 }
 
-export async function checkPRCIStatus(
-  owner: string,
-  repo: string,
-  ref: string,
-): Promise<"passing" | "failing" | "pending" | "no_checks"> {
-  const githubToken = Deno.env.get("GITHUB_TOKEN");
-  if (!githubToken) {
-    throw new Error("GITHUB_TOKEN not set");
-  }
-
-  const response = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/commits/${
-      encodeURIComponent(ref)
-    }/check-runs`,
-    {
-      headers: {
-        "Authorization": `Bearer ${githubToken}`,
-        "Accept": "application/vnd.github+json",
-      },
-    },
-  );
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      `GitHub check-runs request failed (${response.status}): ${body}`,
-    );
-  }
-
-  const data = await response.json() as {
-    check_runs?: Array<{ status?: string; conclusion?: string | null }>;
-  };
-
-  const checkRuns = data.check_runs ?? [];
-  if (checkRuns.length === 0) return "no_checks";
-
-  const allPassing = checkRuns.every((run) =>
-    run.status === "completed" && run.conclusion === "success"
-  );
-  if (allPassing) return "passing";
-
-  const hasFailure = checkRuns.some((run) =>
-    run.conclusion === "failure" || run.conclusion === "cancelled" ||
-    run.conclusion === "timed_out"
-  );
-  if (hasFailure) return "failing";
-
-  return "pending";
-}
-
 // ---------------------------------------------------------------------------
 // Channel naming — scoped by company to support multiple instances per machine
 // ---------------------------------------------------------------------------
@@ -533,6 +483,101 @@ export async function triggerCombining(
 }
 
 /**
+ * Triggers CI checking for a feature pull request.
+ * Inserts a ci_check job and transitions the feature from combining_and_pr → ci_checking.
+ * Returns the created ci_check job id, or null if no job was created.
+ */
+export async function triggerCICheck(
+  supabase: SupabaseClient,
+  featureId: string,
+  context: {
+    pr_url: string;
+    pr_number: number;
+    owner: string;
+    repo: string;
+    branch: string;
+  },
+): Promise<string | null> {
+  // Fetch feature details
+  const { data: feature, error: fetchErr } = await supabase
+    .from("features")
+    .select("company_id, project_id")
+    .eq("id", featureId)
+    .single();
+
+  if (fetchErr || !feature) {
+    console.error(
+      `[pipeline] triggerCICheck: feature ${featureId} not found`,
+    );
+    return null;
+  }
+
+  const ciContext = JSON.stringify(context);
+
+  // Insert ci_check job first
+  const { data: ciJob, error: insertErr } = await supabase
+    .from("jobs")
+    .insert({
+      company_id: feature.company_id,
+      project_id: feature.project_id,
+      feature_id: featureId,
+      role: "ci-checker",
+      job_type: "ci_check",
+      slot_type: "codex",
+      status: "queued",
+      context: ciContext,
+    })
+    .select("id")
+    .single();
+
+  if (insertErr || !ciJob) {
+    console.error(
+      `[pipeline] triggerCICheck: failed to insert ci_check job for feature ${featureId}:`,
+      insertErr?.message,
+    );
+    return null;
+  }
+
+  // CAS transition: combining_and_pr → ci_checking
+  const { data: updated, error: updateErr } = await supabase
+    .from("features")
+    .update({ status: "ci_checking", updated_at: new Date().toISOString() })
+    .eq("id", featureId)
+    .eq("status", "combining_and_pr")
+    .select("id");
+
+  if (updateErr || !updated || updated.length === 0) {
+    if (updateErr) {
+      console.error(
+        `[pipeline] triggerCICheck: failed to set feature ${featureId} to ci_checking:`,
+        updateErr.message,
+      );
+    }
+
+    const { error: rollbackErr } = await supabase
+      .from("jobs")
+      .update({
+        status: "cancelled",
+        result: "ci_check_not_started_feature_not_combining_and_pr",
+      })
+      .eq("id", ciJob.id)
+      .in("status", ["created", "queued"]);
+    if (rollbackErr) {
+      console.error(
+        `[pipeline] triggerCICheck: failed to cancel queued ci_check job ${ciJob.id} after CAS miss:`,
+        rollbackErr.message,
+      );
+    }
+    return null;
+  }
+
+  console.log(
+    `[pipeline] Created ci_check job ${ciJob.id} for feature ${featureId}`,
+  );
+  return ciJob.id;
+}
+
+/**
  * Triggers the merge step for a combined feature.
  * Inserts a merge job and transitions the feature from combining_and_pr → merging.
  */
@@ -618,7 +663,7 @@ export async function triggerMerging(
     .from("features")
     .update({ status: "merging", updated_at: new Date().toISOString() })
     .eq("id", featureId)
-    .eq("status", "combining_and_pr")
+    .eq("status", "ci_checking")
     .select("id");
 
   if (updateErr || !updated || updated.length === 0) {

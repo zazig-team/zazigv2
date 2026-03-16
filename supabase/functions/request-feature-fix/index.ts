@@ -239,6 +239,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
+    const newJobId = (newJob as { id: string }).id;
+
     // 7. Rewire downstream job dependencies from old job to new job
     const { data: rewiredCount, error: rewireErr } = await supabase.rpc(
       "rewire_job_dependencies",
@@ -270,7 +272,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
     }
 
-    const newJobId = (newJob as { id: string }).id;
     console.log(
       `[request-feature-fix] Retry job ${newJobId} created for failed job ${job_id} (feature ${jobRow.feature_id}), escalated ${jobRow.slot_type}/${jobRow.model} → ${escalation.slot_type}/${escalation.model}`,
     );

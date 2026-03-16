@@ -596,7 +596,16 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     // Loaded once per company per dispatch pass (cached inside loadRouting).
     // Hoisted here so the codex→claude_code fallback below can always access it.
     const routing = await loadRouting(supabase, job.company_id);
-    if (job.role && !ENGINEER_ROLES.has(job.role)) {
+    if (job.model && job.slot_type) {
+      // Job is fully pre-configured (e.g. retry jobs from request-feature-fix).
+      // Respect the explicit model and slot_type — do not override via routing.
+      resolvedRole = job.role ?? "senior-engineer";
+      model = job.model;
+      slotType = job.slot_type as SlotType;
+      console.log(
+        `[orchestrator] Job ${job.id} is pre-configured — using job's own role=${resolvedRole}, model=${model}, slot=${slotType}`,
+      );
+    } else if (job.role && !ENGINEER_ROLES.has(job.role)) {
       // Role-based routing: look up the role's defaults from the roles table.
       const { data: roleDefaults } = await supabase
         .from("roles")

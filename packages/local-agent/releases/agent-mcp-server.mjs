@@ -36299,11 +36299,12 @@ server.tool("update_idea", "Update triage metadata on an existing idea", {
   triage_notes: external_exports3.string().optional().describe("Notes from triage"),
   triage_route: external_exports3.string().optional().describe("Triage routing decision: promote, develop, workshop, harden, park, reject, founder-review"),
   spec: external_exports3.string().optional().describe("Feature spec written by spec expert"),
+  spec_url: external_exports3.string().optional().describe("URL to the feature spec document"),
   acceptance_tests: external_exports3.string().optional().describe("Acceptance criteria"),
   human_checklist: external_exports3.string().optional().describe("Items requiring human verification"),
   complexity: external_exports3.string().optional().describe("Estimated complexity: simple, medium, complex"),
   project_id: external_exports3.string().optional().describe("Associated project ID")
-}, async ({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, triage_route, spec, acceptance_tests, human_checklist, complexity, project_id }) => {
+}, async ({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, triage_route, spec, spec_url, acceptance_tests, human_checklist, complexity, project_id }) => {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
   const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -36320,7 +36321,7 @@ server.tool("update_idea", "Update triage metadata on an existing idea", {
       "Content-Type": "application/json",
       Authorization: `Bearer ${supabaseAnonKey}`
     },
-    body: JSON.stringify({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, triage_route, spec, acceptance_tests, human_checklist, complexity, project_id, job_id: jobId, company_id: companyId })
+    body: JSON.stringify({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, triage_route, spec, spec_url, acceptance_tests, human_checklist, complexity, project_id, job_id: jobId, company_id: companyId })
   });
   if (response.ok) {
     return {

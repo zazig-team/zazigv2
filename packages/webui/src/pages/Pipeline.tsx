@@ -438,7 +438,7 @@ export default function Pipeline(): JSX.Element {
       breaking_down: [],
       building: [],
       combining_and_pr: [],
-      verifying: [],
+      ci_checking: [],
       pr_ready: [],
       complete: [],
       failed: [],
@@ -521,7 +521,7 @@ export default function Pipeline(): JSX.Element {
       filteredByStatus.breaking_down.length +
       filteredByStatus.building.length +
       filteredByStatus.combining_and_pr.length +
-      filteredByStatus.verifying.length +
+      filteredByStatus.ci_checking.length +
       filteredByStatus.pr_ready.length;
 
     return {

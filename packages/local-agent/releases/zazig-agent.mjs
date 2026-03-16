@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "3613bbf";
+const AGENT_BUILD_HASH = "be8ade2";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -13624,9 +13624,9 @@ var RepoManager = class {
   }
   /**
    * Create a job worktree that inherits code from dependency branches.
-   * For single dep: branches from depBranches[0].
-   * For fan-in (multiple deps): branches from depBranches[0], merges remaining.
-   * Falls back to featureBranch if no dep branches are valid after verification.
+   * Validates all dependency branches exist in the bare repo and then creates
+   * job/{jobId} from depBranches[0]. No infrastructure-level merges are done here;
+   * conflict handling is delegated to the combiner agent.
    */
   async createDependentJobWorktree(repoDir, featureBranch, jobId, depBranches) {
     return this.withLock(repoDir, async () => {
@@ -13636,37 +13636,25 @@ var RepoManager = class {
       } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
-      const { stdout: branchList } = await execFileAsync("git", ["-C", repoDir, "branch", "--list", "job/*"], { encoding: "utf8" });
-      console.log(`[RepoManager] Branches after fetch: ${branchList.trim().split("\n").map((b) => b.trim()).join(", ")}`);
-      const validBranches = [];
+      if (depBranches.length === 0) {
+        throw new Error("createDependentJobWorktree requires at least one dependency branch");
+      }
+      const missingBranches = [];
       for (const branch of depBranches) {
         try {
-          const { stdout: sha } = await execFileAsync("git", ["-C", repoDir, "rev-parse", "--verify", `refs/heads/${branch}`], { encoding: "utf8" });
-          const { stdout: logLine } = await execFileAsync("git", ["-C", repoDir, "log", "--oneline", "-1", branch], { encoding: "utf8" });
-          let ancestry = "UNKNOWN";
-          try {
-            await execFileAsync("git", ["-C", repoDir, "merge-base", "--is-ancestor", "HEAD~100", branch], { encoding: "utf8" });
-            ancestry = "shares-history";
-          } catch {
-            try {
-              const { stdout: roots } = await execFileAsync("git", ["-C", repoDir, "rev-list", "--max-parents=0", branch], { encoding: "utf8" });
-              const { stdout: mainRoots } = await execFileAsync("git", ["-C", repoDir, "rev-list", "--max-parents=0", "master"], { encoding: "utf8" });
-              ancestry = roots.trim() === mainRoots.trim() ? "same-root" : `DIFFERENT-ROOT(branch=${roots.trim().slice(0, 8)},master=${mainRoots.trim().slice(0, 8)})`;
-            } catch {
-              ancestry = "root-check-failed";
-            }
-          }
-          console.log(`[RepoManager] Dep branch "${branch}": sha=${sha.trim().slice(0, 8)}, log="${logLine.trim()}", ancestry=${ancestry}`);
-          validBranches.push(branch);
+          await execFileAsync("git", ["-C", repoDir, "rev-parse", "--verify", `refs/heads/${branch}`], { encoding: "utf8" });
         } catch {
-          console.warn(`[RepoManager] createDependentJobWorktree: dep branch "${branch}" not found in ${repoDir} \u2014 skipping`);
+          missingBranches.push(branch);
         }
+      }
+      if (missingBranches.length > 0) {
+        throw new Error(`createDependentJobWorktree: dependency branch not found: ${missingBranches.join(", ")}`);
       }
       const jobBranch = `job/${jobId}`;
       const worktreePath = join3(WORKTREE_BASE, `job-${jobId}`);
       await mkdir(WORKTREE_BASE, { recursive: true });
-      const baseBranch = validBranches.length > 0 ? validBranches[0] : featureBranch;
-      console.log(`[RepoManager] Creating jobBranch="${jobBranch}" from baseBranch="${baseBranch}", validBranches=${JSON.stringify(validBranches)}`);
+      const baseBranch = depBranches[0] ?? featureBranch;
+      console.log(`[RepoManager] Creating jobBranch="${jobBranch}" from baseBranch="${baseBranch}", depBranches=${JSON.stringify(depBranches)}`);
       try {
         const wtList = await this.git(repoDir, "worktree", "list", "--porcelain");
         const entries = wtList.split("\n\n");
@@ -13701,25 +13689,32 @@ var RepoManager = class {
       }
       await this.git(repoDir, "branch", jobBranch, baseBranch);
       await this.git(repoDir, "worktree", "add", worktreePath, jobBranch);
-      for (const branch of validBranches.slice(1)) {
-        console.log(`[RepoManager] Fan-in merging "${branch}" into worktree at ${worktreePath}`);
+      if (depBranches.length === 1) {
+        return { worktreePath, jobBranch, conflictBranches: [] };
+      }
+      try {
+        await execFileAsync("git", ["-C", worktreePath, "config", "user.email"], { encoding: "utf8" });
+      } catch {
+        await execFileAsync("git", ["-C", worktreePath, "config", "user.email", "zazig-agent@zazig.com"], { encoding: "utf8" });
+        await execFileAsync("git", ["-C", worktreePath, "config", "user.name", "zazig-agent"], { encoding: "utf8" });
+      }
+      const conflictBranches = [];
+      for (const branch of depBranches.slice(1)) {
+        const ref = `refs/heads/${branch}`;
         try {
-          await execFileAsync("git", ["-C", worktreePath, "merge", "--no-ff", branch], { encoding: "utf8" });
-          console.log(`[RepoManager] Fan-in merge of "${branch}" succeeded`);
+          await execFileAsync("git", ["-C", worktreePath, "merge", "--no-edit", ref], { encoding: "utf8" });
+          console.log(`[RepoManager] Merged dep branch "${branch}" cleanly into ${jobBranch}`);
         } catch (mergeErr) {
+          const errMsg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
+          console.warn(`[RepoManager] Merge failed for "${branch}" into ${jobBranch}: ${errMsg}`);
           try {
             await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
           } catch {
           }
-          await this.git(repoDir, "worktree", "remove", "--force", worktreePath);
-          try {
-            await this.git(repoDir, "branch", "-D", jobBranch);
-          } catch {
-          }
-          throw new Error(`Fan-in merge of "${branch}" into job/${jobId} failed: ${String(mergeErr)}`);
+          conflictBranches.push(branch);
         }
       }
-      return { worktreePath, jobBranch };
+      return { worktreePath, jobBranch, conflictBranches };
     });
   }
   /**
@@ -14070,9 +14065,28 @@ ${cpoContext}`);
         jobLog(jobId, `Branch routing: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
         jobLog(jobId, `featureBranch=${msg.featureBranch}, repoDir=${repoDir}`);
         console.log(`[executor] Branch routing for jobId=${jobId}: dependencyBranches=${JSON.stringify(msg.dependencyBranches)}, using=${routing}`);
-        const worktreeResult = msg.dependencyBranches && msg.dependencyBranches.length > 0 ? await this.repoManager.createDependentJobWorktree(repoDir, msg.featureBranch, jobId, msg.dependencyBranches) : await this.repoManager.createJobWorktree(repoDir, msg.featureBranch, jobId);
-        worktreePath = worktreeResult.worktreePath;
-        jobBranch = worktreeResult.jobBranch;
+        if (msg.dependencyBranches && msg.dependencyBranches.length > 0) {
+          const depResult = await this.repoManager.createDependentJobWorktree(repoDir, msg.featureBranch, jobId, msg.dependencyBranches);
+          worktreePath = depResult.worktreePath;
+          jobBranch = depResult.jobBranch;
+          if (depResult.conflictBranches.length > 0) {
+            jobLog(jobId, `Merge conflicts with branches: ${depResult.conflictBranches.join(", ")} \u2014 spawning conflict resolution agent`);
+            console.log(`[executor] Merge conflicts for jobId=${jobId}: ${depResult.conflictBranches.join(", ")}`);
+            const resolved = await this.resolveDepMergeConflicts(jobId, worktreePath, msg.dependencyBranches[0], depResult.conflictBranches, msg.model);
+            if (!resolved) {
+              jobLog(jobId, `FAILED to resolve merge conflicts \u2014 failing job`);
+              if (slotAcquired)
+                this.slots.release(slotType);
+              await this.sendJobFailed(jobId, `Merge conflict resolution failed for dependency branches: ${depResult.conflictBranches.join(", ")}. Requires human attention.`, "merge_conflict");
+              return;
+            }
+            jobLog(jobId, `Merge conflicts resolved successfully`);
+          }
+        } else {
+          const simpleResult = await this.repoManager.createJobWorktree(repoDir, msg.featureBranch, jobId);
+          worktreePath = simpleResult.worktreePath;
+          jobBranch = simpleResult.jobBranch;
+        }
         ephemeralWorkspaceDir = worktreePath;
         jobLog(jobId, `Worktree created at ${worktreePath} (branch: ${jobBranch})`);
         console.log(`[executor] Git worktree created at ${worktreePath} (branch: ${jobBranch}) for jobId=${jobId}`);
@@ -15565,6 +15579,106 @@ ${msg.text}`;
       ...report !== void 0 ? { report } : {}
     });
   }
+  /**
+   * Attempt to merge conflicting dependency branches one at a time, using
+   * a short-lived `claude -p` agent to resolve each conflict inline.
+   * Returns true if all conflicts were resolved, false otherwise.
+   */
+  async resolveDepMergeConflicts(jobId, worktreePath, baseBranch, conflictBranches, model) {
+    for (const branch of conflictBranches) {
+      jobLog(jobId, `Attempting merge + conflict resolution for branch: ${branch}`);
+      try {
+        await execFileAsync2("git", ["-C", worktreePath, "merge", "--no-edit", branch], { encoding: "utf8" });
+        jobLog(jobId, `Branch "${branch}" merged cleanly on retry`);
+        continue;
+      } catch {
+        try {
+          const { stdout: status } = await execFileAsync2("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" });
+          const hasConflicts = status.split("\n").some((line) => line.startsWith("UU ") || line.startsWith("AA ") || line.startsWith("DD "));
+          if (!hasConflicts) {
+            jobLog(jobId, `Merge of "${branch}" failed but no conflict markers found \u2014 aborting`);
+            try {
+              await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
+            } catch {
+            }
+            return false;
+          }
+        } catch {
+          try {
+            await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
+          } catch {
+          }
+          return false;
+        }
+      }
+      let conflictedFiles;
+      try {
+        const { stdout } = await execFileAsync2("git", ["-C", worktreePath, "diff", "--name-only", "--diff-filter=U"], { encoding: "utf8" });
+        conflictedFiles = stdout.trim();
+      } catch {
+        conflictedFiles = "(could not list conflicted files)";
+      }
+      const prompt = [
+        `You are resolving git merge conflicts in a worktree.`,
+        `The current branch was created from dependency branch "${baseBranch}".`,
+        `A merge of branch "${branch}" has produced conflicts in these files:`,
+        ``,
+        conflictedFiles,
+        ``,
+        `Your job:`,
+        `1. Read each conflicted file`,
+        `2. Resolve the conflict markers (<<<<<<< / ======= / >>>>>>>) by keeping the combined intent of both sides`,
+        `3. Stage the resolved files with git add`,
+        `4. Complete the merge with: git commit --no-edit`,
+        ``,
+        `Do NOT modify any files beyond resolving the conflict markers.`,
+        `Do NOT create new branches or push.`
+      ].join("\n");
+      const promptPath = join4(worktreePath, ".merge-resolve-prompt.tmp");
+      writeFileSync2(promptPath, prompt);
+      try {
+        const shellCmd = `cat ${shellEscape([promptPath])} | claude --model ${shellEscape([model])} -p`;
+        const { stdout } = await execFileAsync2("bash", ["-c", shellCmd], {
+          cwd: worktreePath,
+          encoding: "utf8",
+          timeout: 12e4,
+          env: { ...process.env, CLAUDECODE: void 0 }
+        });
+        jobLog(jobId, `Conflict resolution agent output for "${branch}": ${stdout.slice(0, 500)}`);
+        try {
+          const { stdout: status } = await execFileAsync2("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" });
+          const stillConflicted = status.split("\n").some((line) => line.startsWith("UU ") || line.startsWith("AA ") || line.startsWith("DD "));
+          if (stillConflicted) {
+            jobLog(jobId, `Conflict resolution agent did not resolve all conflicts for "${branch}"`);
+            try {
+              await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
+            } catch {
+            }
+            return false;
+          }
+        } catch {
+          try {
+            await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
+          } catch {
+          }
+          return false;
+        }
+      } catch (err) {
+        jobLog(jobId, `Conflict resolution agent failed for "${branch}": ${String(err)}`);
+        try {
+          await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
+        } catch {
+        }
+        return false;
+      } finally {
+        try {
+          unlinkSync(promptPath);
+        } catch {
+        }
+      }
+    }
+    return true;
+  }
   async sendJobFailed(jobId, result, failureReason) {
     jobLog(jobId, `FAILED \u2014 reason=${failureReason}, error="${result.slice(0, 200)}"`);
     await this.send({
@@ -15882,6 +15996,7 @@ var AgentConnection = class {
   dbClient;
   supabaseUrl;
   supabaseAnonKey;
+  serviceRoleKey;
   machineName;
   primaryCompanyId;
   agentVersion;
@@ -15901,6 +16016,7 @@ var AgentConnection = class {
     this.config = config;
     this.supabaseUrl = config.supabase.url;
     this.supabaseAnonKey = config.supabase.anon_key;
+    this.serviceRoleKey = config.supabase.service_role_key;
     this.machineName = config.name;
     this.primaryCompanyId = config.company_id;
     this.agentVersion = agentVersion;
@@ -15943,7 +16059,7 @@ var AgentConnection = class {
   async sendToOrchestrator(msg) {
     const url = `${this.config.supabase.url}/functions/v1/agent-event`;
     const { data: { session } } = await this.dbClient.auth.getSession();
-    const token = session?.access_token ?? this.config.supabase.anon_key;
+    const token = session?.access_token ?? this.serviceRoleKey ?? this.config.supabase.anon_key;
     for (const delay of [0, 1e3, 5e3, 15e3]) {
       if (delay > 0)
         await sleep2(delay);
@@ -16080,7 +16196,7 @@ var AgentConnection = class {
       }
       const url = `${this.supabaseUrl}/functions/v1/agent-inbound-poll`;
       const { data: { session } } = await this.dbClient.auth.getSession();
-      const token = session?.access_token ?? this.supabaseAnonKey;
+      const token = session?.access_token ?? this.serviceRoleKey ?? this.supabaseAnonKey;
       const slotsAvailable = this.slots.getAvailable();
       const response = await fetch(url, {
         method: "POST",
@@ -16638,6 +16754,9 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       if (status === "running") {
         update.started_at = (/* @__PURE__ */ new Date()).toISOString();
       }
+      if (status === "completed") {
+        update.completed_at = (/* @__PURE__ */ new Date()).toISOString();
+      }
       const { error, data } = await this.supabase.from("expert_sessions").update(update).eq("id", sessionId).select("id");
       if (error) {
         console.warn(`[expert] DB update failed for session ${sessionId}: ${error.message}`);
@@ -16749,6 +16868,7 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       clearInterval(poller);
       this.activePollers.delete(session.sessionId);
     }
+    await this.updateSessionStatus(session.sessionId, "completed");
     await this.injectSummaryIntoCpo(session);
     await this.switchViewerToCpo(session);
     await this.pushUnpushedCommits(session);

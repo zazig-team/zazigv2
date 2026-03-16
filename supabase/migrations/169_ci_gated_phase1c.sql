@@ -125,6 +125,7 @@ $$,
 ON CONFLICT (name) DO UPDATE SET
   description = EXCLUDED.description,
   prompt = EXCLUDED.prompt,
-  slot_type = EXCLUDED.slot_type;
+  slot_type = EXCLUDED.slot_type,
+  default_model = EXCLUDED.default_model;
 
 COMMIT;

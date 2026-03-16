@@ -24,6 +24,8 @@ import {
   triggerMerging,
 } from "../_shared/pipeline-utils.ts";
 
+const MAX_RETRIES = 5;
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -198,7 +200,7 @@ export async function handleJobComplete(
   if (jobRow?.job_type === "breakdown" && jobRow?.feature_id) {
     const { data: transitioned } = await supabase
       .from("features")
-      .update({ status: "building", ci_fail_count: 0 })
+      .update({ status: "building" })
       .eq("id", jobRow.feature_id)
       .eq("status", "breaking_down")
       .select("id");
@@ -355,10 +357,10 @@ export async function handleJobComplete(
       );
       await triggerMerging(supabase, jobRow.feature_id);
     } else {
-      // CI failed — increment ci_fail_count and decide whether to retry
+      // CI failed — increment retry_count and decide whether to retry
       const { data: failedFeature, error: failCountErr } = await supabase
         .from("features")
-        .select("ci_fail_count, company_id, project_id, spec, acceptance_tests, branch, pr_url, title")
+        .select("retry_count, company_id, project_id, spec, acceptance_tests, branch, pr_url, title")
         .eq("id", jobRow.feature_id)
         .single();
 
@@ -370,19 +372,20 @@ export async function handleJobComplete(
         return;
       }
 
-      const newFailCount = ((failedFeature as { ci_fail_count?: number }).ci_fail_count ?? 0) + 1;
+      const currentRetryCount = ((failedFeature as { retry_count?: number }).retry_count ?? 0);
+      const newRetryCount = currentRetryCount + 1;
 
-      // Increment ci_fail_count
+      // Increment retry_count
       await supabase
         .from("features")
-        .update({ ci_fail_count: newFailCount, updated_at: new Date().toISOString() })
+        .update({ retry_count: newRetryCount, updated_at: new Date().toISOString() })
         .eq("id", jobRow.feature_id);
 
       console.warn(
-        `[agent-event job=${jobId}] CI check FAILED for feature ${jobRow.feature_id} (ci_fail_count now ${newFailCount})`,
+        `[agent-event job=${jobId}] CI check FAILED for feature ${jobRow.feature_id} (retry_count now ${newRetryCount})`,
       );
 
-      if (newFailCount >= 3) {
+      if (newRetryCount >= MAX_RETRIES) {
         // Max retries reached — fail the feature
         await supabase
           .from("features")
@@ -394,13 +397,13 @@ export async function handleJobComplete(
           .eq("status", "ci_checking");
 
         console.error(
-          `[agent-event job=${jobId}] Feature ${jobRow.feature_id} moved to failed after ${newFailCount} CI failures`,
+          `[agent-event job=${jobId}] Feature ${jobRow.feature_id} moved to failed after ${newRetryCount} total retries`,
         );
 
         await notifyCPO(
           supabase,
           (failedFeature as { company_id: string }).company_id,
-          `Feature "${(failedFeature as { title?: string }).title ?? jobRow.feature_id}" failed after ${newFailCount} CI check failures. Manual intervention required.`,
+          `Feature "${(failedFeature as { title?: string }).title ?? jobRow.feature_id}" failed after ${newRetryCount} total retries (last: CI check failure). Manual intervention required.`,
         );
       } else {
         // Create a fix job for the CI failures
@@ -435,7 +438,7 @@ export async function handleJobComplete(
           ciFailureDetails,
           spec: featureSpec,
           acceptanceTests,
-          failAttempt: newFailCount,
+          failAttempt: newRetryCount,
         });
 
         const { data: fixJob, error: fixInsertErr } = await supabase
@@ -444,7 +447,7 @@ export async function handleJobComplete(
             company_id: (failedFeature as { company_id: string }).company_id,
             project_id: (failedFeature as { project_id?: string | null }).project_id ?? null,
             feature_id: jobRow.feature_id,
-            title: `Fix CI failures (attempt ${newFailCount})`,
+            title: `Fix CI failures (attempt ${newRetryCount})`,
             role: "senior-engineer",
             job_type: "code",
             complexity: "medium",
@@ -473,7 +476,7 @@ export async function handleJobComplete(
               company_id: (failedFeature as { company_id: string }).company_id,
               project_id: (failedFeature as { project_id?: string | null }).project_id ?? null,
               feature_id: jobRow.feature_id,
-              title: `CI check after fix (attempt ${newFailCount + 1})`,
+              title: `CI check after fix (attempt ${newRetryCount + 1})`,
               role: "ci-checker",
               job_type: "ci_check",
               complexity: "simple",
@@ -498,7 +501,7 @@ export async function handleJobComplete(
         }
 
         console.log(
-          `[agent-event job=${jobId}] Created CI fix job ${fixJob.id} for feature ${jobRow.feature_id} (fail attempt ${newFailCount})`,
+          `[agent-event job=${jobId}] Created CI fix job ${fixJob.id} for feature ${jobRow.feature_id} (retry_count now ${newRetryCount})`,
         );
       }
     }

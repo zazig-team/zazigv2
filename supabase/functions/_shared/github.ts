@@ -3,4 +3,4 @@
  *
  * This shim keeps imports stable while implementations remain in pipeline-utils.
  */
-export { checkPRCIStatus, parseGitHubRepoUrl } from "./pipeline-utils.ts";
+export { parseGitHubRepoUrl, triggerCICheck } from "./pipeline-utils.ts";

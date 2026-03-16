@@ -1,11 +1,10 @@
 /**
  * zazigv2 — request-feature-fix Edge Function
  *
- * Re-queues only the failed jobs for a feature, moves it back to "building",
- * and clears the feature error so the orchestrator can continue from the
- * existing completed work.
+ * Given a failed job_id, clones the job with an escalated model,
+ * moves the original to `failed_retrying`, and increments retry_count on the feature.
  *
- * Called by: orchestrator (handleVerificationFailed) and CPO (via MCP tool).
+ * Called by: orchestrator (failed job catch-up) and CPO (via MCP tool).
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -19,13 +18,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   );
 }
 
-const ALLOWED_STATUSES = [
-  "building",
-  "combining",
-  "verifying",
-  "pr_ready",
-  "failed",
-];
+const MAX_RETRIES = 5;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,7 +26,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-interface FailedJobRow {
+interface JobRow {
   id: string;
   company_id: string;
   project_id: string | null;
@@ -47,25 +40,31 @@ interface FailedJobRow {
   branch: string | null;
   depends_on: string[] | null;
   model: string | null;
+  source: string | null;
 }
 
-function escalateModel(
-  failedJob: FailedJobRow,
-): { slot_type: string; model: string; role: string } | null {
-  if (failedJob.slot_type === "codex") {
+interface Escalation {
+  slot_type: string;
+  model: string;
+  role: string;
+}
+
+function escalateModel(job: JobRow): Escalation | null {
+  if (job.slot_type === "codex") {
     return {
       slot_type: "claude_code",
       model: "claude-sonnet-4-6",
       role: "senior-engineer",
     };
   }
-  if (failedJob.model === "claude-sonnet-4-6") {
+  if (job.slot_type === "claude_code" && job.model === "claude-sonnet-4-6") {
     return {
       slot_type: "claude_code",
       model: "claude-opus-4-6",
       role: "senior-engineer",
     };
   }
+  // claude-opus-4-6 or unknown — escalation exhausted
   return null;
 }
 
@@ -80,7 +79,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
-
   if (req.method !== "POST") {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
@@ -96,224 +94,177 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     const body = await req.json();
-    const { company_id, feature_id, reason } = body as {
-      company_id?: string;
-      feature_id?: string;
-      reason?: string;
-    };
+    const { job_id, reason } = body as { job_id?: string; reason?: string };
 
-    if (!company_id) {
-      return jsonResponse({ error: "company_id is required" }, 400);
-    }
-    if (!feature_id) {
-      return jsonResponse({ error: "feature_id is required" }, 400);
+    if (!job_id) {
+      return jsonResponse({ error: "job_id is required" }, 400);
     }
     if (!reason || reason.trim().length === 0) {
       return jsonResponse({ error: "reason is required" }, 400);
     }
 
-    // 1. Fetch feature details
-    const { data: feature, error: fetchErr } = await supabase
-      .from("features")
-      .select("company_id, project_id, branch, spec, status")
-      .eq("id", feature_id)
-      .eq("company_id", company_id)
+    // 1. Fetch the failed job
+    const { data: job, error: jobErr } = await supabase
+      .from("jobs")
+      .select(
+        "id, company_id, project_id, feature_id, title, role, job_type, complexity, slot_type, context, branch, depends_on, model, source",
+      )
+      .eq("id", job_id)
+      .eq("status", "failed")
       .single();
 
-    if (fetchErr || !feature) {
+    if (jobErr || !job) {
       return jsonResponse(
         {
-          error: `Failed to fetch feature ${feature_id}: ${
-            fetchErr?.message ?? "not found"
-          }`,
+          error:
+            `Failed job ${job_id} not found or not in failed status: ${
+              jobErr?.message ?? "not found"
+            }`,
         },
         404,
       );
     }
 
-    // 2. Validate status
-    if (!ALLOWED_STATUSES.includes(feature.status)) {
-      return jsonResponse(
-        {
-          error: `Feature status is '${feature.status}', must be one of: ${
-            ALLOWED_STATUSES.join(", ")
-          }`,
-        },
-        409,
-      );
+    const jobRow = job as JobRow;
+
+    // 2. Check feature retry_count guard
+    if (jobRow.feature_id) {
+      const { data: feature, error: featureErr } = await supabase
+        .from("features")
+        .select("retry_count")
+        .eq("id", jobRow.feature_id)
+        .single();
+
+      if (featureErr || !feature) {
+        return jsonResponse(
+          {
+            error: `Could not fetch feature ${jobRow.feature_id}: ${
+              featureErr?.message ?? "not found"
+            }`,
+          },
+          404,
+        );
+      }
+
+      const currentRetryCount =
+        (feature as { retry_count: number }).retry_count ?? 0;
+      if (currentRetryCount >= MAX_RETRIES) {
+        return jsonResponse(
+          {
+            error:
+              `Retry limit reached for feature ${jobRow.feature_id} (retry_count=${currentRetryCount}). Human attention required.`,
+            retry_count: currentRetryCount,
+          },
+          409,
+        );
+      }
     }
 
-    const previousStatus = feature.status;
-
-    // 3. Find the failed jobs for this feature. Only these jobs get retried.
-    const { data: failedJobs, error: failedJobsErr } = await supabase
-      .from("jobs")
-      .select(
-        "id, company_id, project_id, feature_id, title, role, job_type, complexity, slot_type, context, branch, depends_on, model",
-      )
-      .eq("feature_id", feature_id)
-      .eq("status", "failed");
-
-    if (failedJobsErr) {
+    // 3. Determine model escalation
+    const escalation = escalateModel(jobRow);
+    if (!escalation) {
       return jsonResponse(
         {
           error:
-            `Failed to fetch failed jobs for feature ${feature_id}: ${failedJobsErr.message}`,
+            `Model escalation exhausted for job ${job_id} (slot_type=${jobRow.slot_type}, model=${jobRow.model}). Human attention required.`,
         },
-        500,
-      );
-    }
-
-    if (!failedJobs || failedJobs.length === 0) {
-      return jsonResponse(
-        { error: `No failed jobs found for feature ${feature_id}` },
         409,
       );
     }
 
-    const retryJobs = (failedJobs as FailedJobRow[]).flatMap((job) => {
-      const escalation = escalateModel(job);
-      if (!escalation) {
-        return [];
+    // 4. Parse original context
+    let originalContext: unknown = jobRow.context;
+    if (typeof jobRow.context === "string" && jobRow.context.trim().length > 0) {
+      try {
+        originalContext = JSON.parse(jobRow.context);
+      } catch {
+        originalContext = jobRow.context;
       }
+    }
 
-      let originalContext: unknown = job.context;
-      if (typeof job.context === "string" && job.context.trim().length > 0) {
-        try {
-          originalContext = JSON.parse(job.context);
-        } catch {
-          originalContext = job.context;
-        }
-      }
-
-      return [{
-        company_id: job.company_id,
-        project_id: job.project_id,
-        feature_id: job.feature_id,
-        title: job.title,
+    // 5. Insert the new retry job
+    const { data: newJob, error: insertErr } = await supabase
+      .from("jobs")
+      .insert({
+        company_id: jobRow.company_id,
+        project_id: jobRow.project_id,
+        feature_id: jobRow.feature_id,
+        title: jobRow.title,
         role: escalation.role,
-        job_type: job.job_type,
-        complexity: job.complexity,
+        job_type: jobRow.job_type,
+        complexity: jobRow.complexity,
         slot_type: escalation.slot_type,
+        model: escalation.model,
         status: "created",
         context: JSON.stringify({
           type: "retry",
-          escalated_from_model: job.model,
+          original_job_id: job_id,
+          escalated_from_model: jobRow.model,
+          escalated_from_slot_type: jobRow.slot_type,
           originalContext,
           failureDiagnosis: reason,
         }),
-        branch: job.branch,
-        depends_on: job.depends_on ?? [],
-        model: escalation.model,
-      }];
-    });
+        branch: jobRow.branch,
+        depends_on: jobRow.depends_on ?? [],
+        source: jobRow.source ?? "pipeline",
+      })
+      .select("id")
+      .single();
 
-    if (retryJobs.length === 0) {
+    if (insertErr || !newJob) {
       return jsonResponse(
-        {
-          error:
-            `Model escalation exhausted for failed jobs on feature ${feature_id}; human attention required`,
-        },
-        409,
-      );
-    }
-
-    const { data: insertedRetryRows, error: insertErr } = await supabase
-      .from("jobs")
-      .insert(retryJobs)
-      .select("id");
-
-    if (insertErr) {
-      return jsonResponse(
-        { error: `Failed to queue retry jobs: ${insertErr.message}` },
+        { error: `Failed to insert retry job: ${insertErr?.message}` },
         500,
       );
     }
 
-    const insertedRetryIds = (insertedRetryRows ?? []).map((
-      row: { id: string },
-    ) => row.id);
-
-    // 4. Cancel the old failed jobs so Task 0 does not immediately fail the feature again.
-    const failedJobIds = (failedJobs as FailedJobRow[]).map((job) => job.id);
-    const { error: cancelFailedErr } = await supabase
+    // 6. Move original job to failed_retrying
+    const { error: archiveErr } = await supabase
       .from("jobs")
-      .update({ status: "cancelled" })
-      .in("id", failedJobIds)
+      .update({ status: "failed_retrying" })
+      .eq("id", job_id)
       .eq("status", "failed");
 
-    if (cancelFailedErr) {
+    if (archiveErr) {
+      // Rollback the new job
       await supabase
         .from("jobs")
-        .update({
-          status: "cancelled",
-          result: "rollback_request_feature_fix_cancel_failed_jobs",
-        })
-        .in("id", insertedRetryIds);
+        .update({ status: "cancelled", result: "rollback_archive_failed" })
+        .eq("id", (newJob as { id: string }).id);
       return jsonResponse(
         {
-          error:
-            `Failed to cancel failed jobs for feature ${feature_id}: ${cancelFailedErr.message}`,
+          error: `Failed to archive original job to failed_retrying: ${archiveErr.message}`,
         },
         500,
       );
     }
 
-    // 5. Move feature to building (CAS guard on current status) and clear the error.
-    const { data: updated, error: updateErr } = await supabase
-      .from("features")
-      .update({
-        status: "building",
-        error: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", feature_id)
-      .eq("status", previousStatus)
-      .select("id");
+    // 7. Increment retry_count on feature
+    if (jobRow.feature_id) {
+      const { error: retryCountErr } = await supabase.rpc(
+        "increment_feature_retry_count",
+        { p_feature_id: jobRow.feature_id },
+      );
 
-    if (updateErr) {
-      await supabase
-        .from("jobs")
-        .update({
-          status: "cancelled",
-          result: "rollback_request_feature_fix_feature_update_failed",
-        })
-        .in("id", insertedRetryIds);
-      return jsonResponse(
-        { error: `Failed to reset feature to building: ${updateErr.message}` },
-        500,
-      );
-    }
-    if (!updated || updated.length === 0) {
-      await supabase
-        .from("jobs")
-        .update({
-          status: "cancelled",
-          result: "rollback_request_feature_fix_feature_cas_failed",
-        })
-        .in("id", insertedRetryIds);
-      return jsonResponse(
-        {
-          error:
-            `Feature ${feature_id} status changed concurrently — CAS failed`,
-        },
-        409,
-      );
+      if (retryCountErr) {
+        // Non-fatal: log but don't fail the whole operation
+        console.error(
+          `[request-feature-fix] Failed to increment retry_count for feature ${jobRow.feature_id}: ${retryCountErr.message}`,
+        );
+      }
     }
 
-    // 5. Log event
-    await supabase.from("events").insert({
-      company_id: feature.company_id,
-      event_type: "feature_status_changed",
-      detail: {
-        featureId: feature_id,
-        from: previousStatus,
-        to: "building",
-        reason: reason.slice(0, 500),
-      },
+    const newJobId = (newJob as { id: string }).id;
+    console.log(
+      `[request-feature-fix] Retry job ${newJobId} created for failed job ${job_id} (feature ${jobRow.feature_id}), escalated ${jobRow.slot_type}/${jobRow.model} → ${escalation.slot_type}/${escalation.model}`,
+    );
+
+    return jsonResponse({
+      new_job_id: newJobId,
+      feature_id: jobRow.feature_id,
+      escalated_to_model: escalation.model,
+      escalated_to_slot_type: escalation.slot_type,
     });
-
-    return jsonResponse({ retried_job_ids: insertedRetryIds, feature_id });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

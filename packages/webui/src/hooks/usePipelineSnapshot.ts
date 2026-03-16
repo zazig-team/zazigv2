@@ -8,7 +8,7 @@ export type PipelineStatus =
   | "breaking_down"
   | "building"
   | "combining_and_pr"
-  | "verifying"
+  | "ci_checking"
   | "pr_ready"
   | "complete"
   | "failed"
@@ -73,7 +73,7 @@ const EMPTY_SNAPSHOT: NormalizedPipelineSnapshot = {
     breaking_down: [],
     building: [],
     combining_and_pr: [],
-    verifying: [],
+    ci_checking: [],
     pr_ready: [],
     complete: [],
     failed: [],
@@ -104,8 +104,8 @@ function toPipelineStatus(rawStatus: string | null | undefined): PipelineStatus 
     case "combining":
     case "combining_and_pr":
       return "combining_and_pr";
-    case "verifying":
-      return "verifying";
+    case "ci_checking":
+      return "ci_checking";
     case "pr_ready":
     case "merging":
       return "pr_ready";
@@ -375,7 +375,7 @@ function normalizeSnapshot(
     breaking_down: [],
     building: [],
     combining_and_pr: [],
-    verifying: [],
+    ci_checking: [],
     pr_ready: [],
     complete: [],
     failed: [],

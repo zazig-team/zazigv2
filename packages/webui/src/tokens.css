@@ -52,7 +52,7 @@
   --col-breakdown: #9e5580;
   --col-building: #c54b2a;
   --col-combining: #b8860b;
-  --col-verifying: #4a8fa5;
+  --col-ci-checking: #4a8fa5;
   --col-pr: #4a6fa5;
   --col-merging: #4a6fa5;
   --col-complete: #2b7a4b;
@@ -98,7 +98,7 @@
   --col-breakdown: #c478a0;
   --col-building: #e8553a;
   --col-combining: #e5b835;
-  --col-verifying: #50b8d0;
+  --col-ci-checking: #50b8d0;
   --col-pr: #6b9fd4;
   --col-merging: #6b9fd4;
   --col-complete: #3ecf71;

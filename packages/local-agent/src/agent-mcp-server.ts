@@ -497,6 +497,51 @@ server.tool(
 );
 
 server.tool(
+  "update_project",
+  "Update project settings. Set test_command and build_command to enable automatic CI workflow injection on PRs.",
+  {
+    project_id: z.string().describe("ID of the project to update"),
+    name: z.string().optional().describe("New project name"),
+    description: z.string().optional().describe("New project description"),
+    test_command: z.string().optional().describe("Test command used by CI workflow injection"),
+    build_command: z.string().optional().describe("Build command used by CI workflow injection"),
+  },
+  guardedHandler("update_project", async ({ project_id, name, description, test_command, build_command }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/update-project`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ project_id, name, description, test_command, build_command }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { project: Record<string, unknown> };
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(data.project, null, 2) }],
+      };
+    }
+
+    const errorBody = await response.text().catch(() => "unknown error");
+    return {
+      content: [{ type: "text" as const, text: `Failed to update project (HTTP ${response.status}): ${errorBody}` }],
+      isError: true,
+    };
+  }),
+);
+
+server.tool(
   "batch_create_features",
   "Atomically create multiple feature outlines for a project. Used by the Project Architect after decomposing a plan into features via featurify.",
   {

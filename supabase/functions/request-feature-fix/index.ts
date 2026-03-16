@@ -239,7 +239,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // 7. Increment retry_count on feature
+    // 7. Rewire downstream job dependencies from old job to new job
+    const { data: rewiredCount, error: rewireErr } = await supabase.rpc(
+      "rewire_job_dependencies",
+      { p_old_job_id: job_id, p_new_job_id: newJobId },
+    );
+
+    if (rewireErr) {
+      console.error(
+        `[request-feature-fix] Failed to rewire dependencies for job ${job_id}: ${rewireErr.message}`,
+      );
+    } else if (rewiredCount > 0) {
+      console.log(
+        `[request-feature-fix] Rewired ${rewiredCount} downstream job(s) from ${job_id} → ${newJobId}`,
+      );
+    }
+
+    // 8. Increment retry_count on feature
     if (jobRow.feature_id) {
       const { error: retryCountErr } = await supabase.rpc(
         "increment_feature_retry_count",

@@ -75,9 +75,13 @@ export async function downloadAndInstall(version: string): Promise<void> {
 
   // Download each asset
   const tag = `v${version}`;
+  const githubToken = process.env["GITHUB_TOKEN"];
+  const authHeaders: Record<string, string> = githubToken
+    ? { Authorization: `Bearer ${githubToken}` }
+    : {};
   for (const { remote, local } of ASSETS) {
     const url = `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${remote}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: authHeaders });
     if (!res.ok) {
       throw new Error(`Download failed for ${remote}: ${res.status} ${res.statusText}`);
     }

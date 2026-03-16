@@ -10,7 +10,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
@@ -501,25 +501,7 @@ async function runPromote(
     return;
   }
 
-  // 9. Install binaries locally
-  console.log("\nInstalling binaries locally...");
-  const binDir = join(homedir(), ".zazigv2", "bin");
-  mkdirSync(binDir, { recursive: true });
-  const localBinaries = [
-    { src: join(compileOutDir, "zazig-cli-darwin-arm64"), dest: join(binDir, "zazig") },
-    { src: join(compileOutDir, "zazig-agent-darwin-arm64"), dest: join(binDir, "zazig-agent") },
-    { src: join(compileOutDir, "agent-mcp-server-darwin-arm64"), dest: join(binDir, "agent-mcp-server") },
-  ];
-  for (const { src, dest } of localBinaries) {
-    if (existsSync(src)) {
-      cpSync(src, dest);
-      chmodSync(dest, 0o755);
-    }
-  }
-  writeFileSync(join(binDir, ".version"), newVersion);
-  console.log(`Binaries installed to ${binDir}`);
-
-  // 10. Create GitHub Release and upload binaries
+  // 9. Create GitHub Release and upload binaries
   console.log("\nCreating GitHub Release...");
   const tag = `v${newVersion}`;
   try {
@@ -546,5 +528,5 @@ async function runPromote(
   const sha = commitSha.slice(0, 7);
   console.log(`\nPromoted to production v${newVersion} (${sha}).`);
   console.log("CI will deploy Supabase migrations and edge functions.");
-  console.log("Restart your production agent to use the new build: zazig stop && zazig start");
+  console.log("Run 'zazig start' to auto-update to the new version.");
 }

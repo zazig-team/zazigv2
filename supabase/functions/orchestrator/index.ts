@@ -35,9 +35,9 @@ import {
   notifyCPO,
   TERMINAL_FEATURE_STATUSES_FOR_DEPLOY,
   triggerCombining,
-  triggerFeatureVerification,
   triggerMerging,
 } from "../_shared/pipeline-utils.ts";
+import { checkPRCIStatus, parseGitHubRepoUrl } from "../_shared/github.ts";
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -305,6 +305,8 @@ const EXECUTING_JOB_STARTED_AT_COLUMN_CANDIDATES = [
   "started_at",
   "assigned_at",
 ] as const;
+const CI_NO_CHECKS_TIMEOUT_MS = 10 * 60 * 1000;
+const CI_PENDING_WARNING_THRESHOLD_MS = 20 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Core orchestrator operations
@@ -1016,18 +1018,16 @@ async function createGitHubPR(
     return null;
   }
 
-  // Parse owner/repo from the repo URL.
-  // Handles: https://github.com/owner/repo, https://github.com/owner/repo.git, git@github.com:owner/repo.git
-  const match = repoUrl.match(
-    /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/,
-  );
-  if (!match) {
+  let owner: string;
+  let repo: string;
+  try {
+    ({ owner, repo } = parseGitHubRepoUrl(repoUrl));
+  } catch {
     console.warn(
       `[orchestrator] Cannot parse GitHub owner/repo from URL "${repoUrl}" — skipping PR creation for feature ${featureId}`,
     );
     return null;
   }
-  const [, owner, repo] = match;
 
   const prTitle = `feat: ${featureTitle}`;
   const prBody = [
@@ -1237,7 +1237,7 @@ export async function handleFeatureRejected(
   // 1. Fetch feature details
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
-    .select("company_id, project_id, branch, spec")
+    .select("company_id, project_id, status, branch, spec")
     .eq("id", featureId)
     .single();
 
@@ -1249,12 +1249,12 @@ export async function handleFeatureRejected(
     return;
   }
 
-  // 2. Reset feature to building (CAS: only if currently in verifying, merging, or complete)
+  // 2. Reset feature to building (CAS: only if currently in combining_and_pr, merging, or complete)
   const { data: updated, error: updateErr } = await supabase
     .from("features")
     .update({ status: "building" })
     .eq("id", featureId)
-    .in("status", ["verifying", "merging", "complete"])
+    .in("status", ["combining_and_pr", "merging", "complete"])
     .select("id");
 
   if (updateErr) {
@@ -1266,7 +1266,7 @@ export async function handleFeatureRejected(
   }
   if (!updated || updated.length === 0) {
     console.log(
-      `[orchestrator] Feature ${featureId} not in verifying/merging/complete — skipping rejection`,
+      `[orchestrator] Feature ${featureId} not in combining_and_pr/merging/complete — skipping rejection`,
     );
     return;
   }
@@ -1277,7 +1277,7 @@ export async function handleFeatureRejected(
     event_type: "feature_status_changed",
     detail: {
       featureId,
-      from: "verifying",
+      from: (feature as { status?: string }).status ?? "unknown",
       to: "building",
       reason: "human_rejected",
       feedback,
@@ -1885,9 +1885,8 @@ async function checkExecutingJobsForHeartbeatTimeout(
  *   1b. deploy_to_test guard: fails queued/executing deploy jobs for terminal features
  *   2. breaking_down → building: all breakdown jobs for the feature are complete
  *   3. building → combining_and_pr: all implementation jobs are complete
- *   4. combining_and_pr → verifying: the latest combine job is complete
- *   5. verifying → merging: the latest verify job is complete and passed
- *   6. merging → complete: the latest merge job is complete and passed
+ *   4. combining_and_pr → merging: CI checks on the PR head branch are passing
+ *   5. merging → complete: the latest merge job is complete and passed
  */
 async function processFeatureLifecycle(
   supabase: SupabaseClient,
@@ -2143,12 +2142,12 @@ async function processFeatureLifecycle(
     }
   }
 
-  // --- 4. combining_and_pr → verifying ---
-  // Features stuck in 'combining_and_pr' where the latest combine job is already complete.
-  // Uses latest job by created_at to avoid advancing on stale jobs from prior rejection cycles.
+  // --- 4. combining_and_pr → merging (CI polling) ---
+  // Features in combining_and_pr wait for PR CI checks. Once CI passes, trigger merge.
+  // If no checks are detected, wait briefly for CI to appear before failing.
   const { data: combiningFeatures, error: combineErr } = await supabase
     .from("features")
-    .select("id")
+    .select("*")
     .eq("status", "combining_and_pr")
     .limit(50);
 
@@ -2159,77 +2158,247 @@ async function processFeatureLifecycle(
     );
   }
 
-  for (const feature of (combiningFeatures ?? []) as { id: string }[]) {
-    const { data: latestCombine } = await supabase
-      .from("jobs")
-      .select("id, status")
-      .eq("feature_id", feature.id)
-      .eq("job_type", "combine")
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (
-      latestCombine && latestCombine.length > 0 &&
-      latestCombine[0].status === "complete"
-    ) {
-      console.log(
-        `[orchestrator] processFeatureLifecycle: combine done for feature ${feature.id} — triggering verification`,
-      );
-      await triggerFeatureVerification(supabase, feature.id);
-    }
-    // Failed combine jobs are handled by Task 0's central catch-up — no action needed here.
-  }
-
-  // --- 5. verifying → merging (catch-up) ---
-  // Features stuck in 'verifying' where the latest verify job is already complete and passed.
-  // The live path (handleJobComplete) triggers merging on receipt of the job_complete message.
-  // This catch-up handles cases where that message was missed.
-  const { data: verifyingFeatures, error: verifyErr } = await supabase
-    .from("features")
-    .select("id")
-    .eq("status", "verifying")
-    .limit(50);
-
-  if (verifyErr) {
-    console.error(
-      "[orchestrator] processFeatureLifecycle: error querying verifying features:",
-      verifyErr.message,
-    );
-  }
-
+  const repoUrlByProjectId = new Map<string, string>();
   for (
-    const feature of (verifyingFeatures ?? []) as {
+    const feature of (combiningFeatures ?? []) as Array<{
       id: string;
-    }[]
-  ) {
-    const { data: latestVerify } = await supabase
-      .from("jobs")
-      .select("id, status")
-      .eq("feature_id", feature.id)
-      .eq("job_type", "verify")
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (!latestVerify || latestVerify.length === 0) continue;
-    const job = latestVerify[0] as {
-      id: string;
+      project_id: string | null;
       status: string;
-    };
+      branch: string | null;
+      pr_url: string | null;
+      updated_at: string | null;
+      created_at: string | null;
+      pr_number?: number | null;
+      branch_name?: string | null;
+      pr_created_at?: string | null;
+      combining_started_at?: string | null;
+    }>
+  ) {
+    const prUrl = feature.pr_url ?? null;
+    const prNumber = feature.pr_number ?? null;
+    if (!prUrl && prNumber === null) {
+      // Combine/PR job likely still creating the PR.
+      continue;
+    }
 
-    if (job.status === "complete") {
+    const branchOrRef = feature.branch ?? feature.branch_name ?? null;
+    if (!branchOrRef) {
+      console.warn(
+        `[orchestrator] processFeatureLifecycle: feature ${feature.id} has PR metadata but no branch ref — skipping CI poll`,
+      );
+      continue;
+    }
+
+    if (!feature.project_id) {
+      console.warn(
+        `[orchestrator] processFeatureLifecycle: feature ${feature.id} has no project_id — cannot resolve repo for CI poll`,
+      );
+      continue;
+    }
+
+    let repoUrl = repoUrlByProjectId.get(feature.project_id) ?? null;
+    if (!repoUrl) {
+      const { data: project, error: projectErr } = await supabase
+        .from("projects")
+        .select("repo_url")
+        .eq("id", feature.project_id)
+        .maybeSingle();
+
+      if (projectErr) {
+        console.error(
+          `[orchestrator] processFeatureLifecycle: failed to load project repo_url for feature ${feature.id}:`,
+          projectErr.message,
+        );
+        continue;
+      }
+
+      repoUrl = (project as { repo_url?: string | null } | null)?.repo_url ??
+        null;
+      if (!repoUrl) {
+        console.warn(
+          `[orchestrator] processFeatureLifecycle: feature ${feature.id} project ${feature.project_id} has no repo_url — skipping CI poll`,
+        );
+        continue;
+      }
+      repoUrlByProjectId.set(feature.project_id, repoUrl);
+    }
+
+    let owner: string;
+    let repo: string;
+    try {
+      ({ owner, repo } = parseGitHubRepoUrl(repoUrl));
+    } catch {
+      console.warn(
+        `[orchestrator] processFeatureLifecycle: invalid repo_url "${repoUrl}" for feature ${feature.id} — skipping CI poll`,
+      );
+      continue;
+    }
+
+    let ciStatus: "passing" | "failing" | "pending" | "no_checks";
+    try {
+      ciStatus = await checkPRCIStatus(owner, repo, branchOrRef);
+    } catch (err) {
+      console.error(
+        `[orchestrator] processFeatureLifecycle: CI status check failed for feature ${feature.id} (${owner}/${repo}@${branchOrRef}):`,
+        err,
+      );
+      continue;
+    }
+
+    if (ciStatus === "passing") {
       console.log(
-        `[orchestrator] processFeatureLifecycle: verify PASSED for feature ${feature.id} — triggering merge (catch-up)`,
+        `[orchestrator] processFeatureLifecycle: CI passing for feature ${feature.id} — triggering merge`,
       );
       await triggerMerging(supabase, feature.id);
-    } else if (job.status === "failed") {
+      continue;
+    }
+
+    if (ciStatus === "no_checks") {
       console.warn(
-        `[orchestrator] processFeatureLifecycle: verify FAILED for feature ${feature.id} — staying at verifying, needs attention`,
+        `[orchestrator] processFeatureLifecycle: PR has zero check runs — waiting for CI (feature ${feature.id})`,
+      );
+
+      const noChecksSinceIso = feature.pr_created_at ??
+        feature.combining_started_at ??
+        feature.updated_at;
+      if (!noChecksSinceIso) {
+        continue;
+      }
+
+      const noChecksMs = Date.now() - Date.parse(noChecksSinceIso);
+      if (!Number.isFinite(noChecksMs)) {
+        console.warn(
+          `[orchestrator] processFeatureLifecycle: invalid no_checks timestamp for feature ${feature.id} (${noChecksSinceIso})`,
+        );
+        continue;
+      }
+
+      if (noChecksMs < CI_NO_CHECKS_TIMEOUT_MS) {
+        continue;
+      }
+
+      const noChecksFailReason =
+        "No CI workflow detected — configure test_command/build_command on the project";
+      const failPayload: Record<string, unknown> = {
+        status: "failed",
+        fail_reason: noChecksFailReason,
+        error: noChecksFailReason,
+      };
+
+      let { data: failedRows, error: failFeatureErr } = await supabase
+        .from("features")
+        .update(failPayload)
+        .eq("id", feature.id)
+        .eq("status", "combining_and_pr")
+        .select("id");
+
+      if (
+        failFeatureErr &&
+        failFeatureErr.message.toLowerCase().includes("fail_reason")
+      ) {
+        const fallbackPayload: Record<string, unknown> = {
+          status: "failed",
+          error: noChecksFailReason,
+        };
+        const fallbackResult = await supabase
+          .from("features")
+          .update(fallbackPayload)
+          .eq("id", feature.id)
+          .eq("status", "combining_and_pr")
+          .select("id");
+        failedRows = fallbackResult.data;
+        failFeatureErr = fallbackResult.error;
+      }
+
+      if (failFeatureErr) {
+        console.error(
+          `[orchestrator] processFeatureLifecycle: failed to mark feature ${feature.id} as failed after no_checks timeout:`,
+          failFeatureErr.message,
+        );
+      } else if (failedRows && failedRows.length > 0) {
+        console.warn(
+          `[orchestrator] processFeatureLifecycle: no CI checks detected for feature ${feature.id} for >= 10 minutes — moved to failed`,
+        );
+      }
+      continue;
+    }
+
+    if (ciStatus === "failing") {
+      const ciFailReason =
+        "CI checks failed on PR (one or more required checks reported failure)";
+      const failPayload: Record<string, unknown> = {
+        status: "failed",
+        fail_reason: ciFailReason,
+        error: ciFailReason,
+      };
+
+      let { data: failedRows, error: failFeatureErr } = await supabase
+        .from("features")
+        .update(failPayload)
+        .eq("id", feature.id)
+        .eq("status", "combining_and_pr")
+        .select("id");
+
+      if (
+        failFeatureErr &&
+        failFeatureErr.message.toLowerCase().includes("fail_reason")
+      ) {
+        const fallbackPayload: Record<string, unknown> = {
+          status: "failed",
+          error: ciFailReason,
+        };
+        const fallbackResult = await supabase
+          .from("features")
+          .update(fallbackPayload)
+          .eq("id", feature.id)
+          .eq("status", "combining_and_pr")
+          .select("id");
+        failedRows = fallbackResult.data;
+        failFeatureErr = fallbackResult.error;
+      }
+
+      if (failFeatureErr) {
+        console.error(
+          `[orchestrator] processFeatureLifecycle: failed to mark feature ${feature.id} as failed after CI failure:`,
+          failFeatureErr.message,
+        );
+      } else if (failedRows && failedRows.length > 0) {
+        console.warn(
+          `[orchestrator] processFeatureLifecycle: CI failing for feature ${feature.id} — moved to failed`,
+        );
+      }
+      continue;
+    }
+
+    // ciStatus === "pending"
+    const pendingSinceIso = feature.combining_started_at ??
+      feature.updated_at ??
+      feature.created_at;
+    if (!pendingSinceIso) {
+      continue;
+    }
+    const pendingMs = Date.now() - Date.parse(pendingSinceIso);
+    if (!Number.isFinite(pendingMs)) {
+      console.warn(
+        `[orchestrator] processFeatureLifecycle: invalid pending timestamp for feature ${feature.id} (${pendingSinceIso})`,
+      );
+      continue;
+    }
+    if (
+      pendingMs > CI_PENDING_WARNING_THRESHOLD_MS &&
+      feature.status === "combining_and_pr"
+    ) {
+      console.warn(
+        `[WARN] Feature ${feature.id} has been awaiting CI for > 20 minutes — human review recommended`,
+      );
+    } else {
+      console.log(
+        `[orchestrator] processFeatureLifecycle: CI pending for feature ${feature.id} — waiting`,
       );
     }
-    // if still 'executing' or 'queued', do nothing — let it run
   }
 
-  // --- 6. merging → complete (catch-up) ---
+  // --- 5. merging → complete (catch-up) ---
   // Features stuck in 'merging' where the latest merge job is already complete.
   const { data: mergingFeatures, error: mergeErr } = await supabase
     .from("features")

@@ -182,11 +182,6 @@ batch_insert_rows() {
     jq '[.[] | .text //= ""]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
   fi
 
-  # Map legacy feature statuses that staging no longer allows
-  if [[ "${table}" == "features" ]]; then
-    jq '[.[] | if .status == "verifying" then .status = "complete" else . end]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
-  fi
-
   # Clean up jobs for staging: null machine_id, strip raw_log (column removed from staging)
   if [[ "${table}" == "jobs" ]]; then
     jq '[.[] | .machine_id = null | del(.raw_log)]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"

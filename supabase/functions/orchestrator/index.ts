@@ -305,6 +305,7 @@ const EXECUTING_JOB_STARTED_AT_COLUMN_CANDIDATES = [
   "started_at",
   "assigned_at",
 ] as const;
+const CI_NO_CHECKS_TIMEOUT_MS = 10 * 60 * 1000;
 const CI_PENDING_WARNING_THRESHOLD_MS = 20 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
@@ -2143,7 +2144,7 @@ async function processFeatureLifecycle(
 
   // --- 4. combining_and_pr → merging (CI polling) ---
   // Features in combining_and_pr wait for PR CI checks. Once CI passes, trigger merge.
-  // If no checks are configured, auto-advance to merging.
+  // If no checks are detected, wait briefly for CI to appear before failing.
   const { data: combiningFeatures, error: combineErr } = await supabase
     .from("features")
     .select("*")
@@ -2169,6 +2170,7 @@ async function processFeatureLifecycle(
       created_at: string | null;
       pr_number?: number | null;
       branch_name?: string | null;
+      pr_created_at?: string | null;
       combining_started_at?: string | null;
     }>
   ) {
@@ -2252,10 +2254,72 @@ async function processFeatureLifecycle(
     }
 
     if (ciStatus === "no_checks") {
-      console.log(
-        `[orchestrator] processFeatureLifecycle: no CI checks configured for feature ${feature.id} — triggering merge`,
+      console.warn(
+        `[orchestrator] processFeatureLifecycle: PR has zero check runs — waiting for CI (feature ${feature.id})`,
       );
-      await triggerMerging(supabase, feature.id);
+
+      const noChecksSinceIso = feature.pr_created_at ??
+        feature.combining_started_at ??
+        feature.updated_at;
+      if (!noChecksSinceIso) {
+        continue;
+      }
+
+      const noChecksMs = Date.now() - Date.parse(noChecksSinceIso);
+      if (!Number.isFinite(noChecksMs)) {
+        console.warn(
+          `[orchestrator] processFeatureLifecycle: invalid no_checks timestamp for feature ${feature.id} (${noChecksSinceIso})`,
+        );
+        continue;
+      }
+
+      if (noChecksMs < CI_NO_CHECKS_TIMEOUT_MS) {
+        continue;
+      }
+
+      const noChecksFailReason =
+        "No CI workflow detected — configure test_command/build_command on the project";
+      const failPayload: Record<string, unknown> = {
+        status: "failed",
+        fail_reason: noChecksFailReason,
+        error: noChecksFailReason,
+      };
+
+      let { data: failedRows, error: failFeatureErr } = await supabase
+        .from("features")
+        .update(failPayload)
+        .eq("id", feature.id)
+        .eq("status", "combining_and_pr")
+        .select("id");
+
+      if (
+        failFeatureErr &&
+        failFeatureErr.message.toLowerCase().includes("fail_reason")
+      ) {
+        const fallbackPayload: Record<string, unknown> = {
+          status: "failed",
+          error: noChecksFailReason,
+        };
+        const fallbackResult = await supabase
+          .from("features")
+          .update(fallbackPayload)
+          .eq("id", feature.id)
+          .eq("status", "combining_and_pr")
+          .select("id");
+        failedRows = fallbackResult.data;
+        failFeatureErr = fallbackResult.error;
+      }
+
+      if (failFeatureErr) {
+        console.error(
+          `[orchestrator] processFeatureLifecycle: failed to mark feature ${feature.id} as failed after no_checks timeout:`,
+          failFeatureErr.message,
+        );
+      } else if (failedRows && failedRows.length > 0) {
+        console.warn(
+          `[orchestrator] processFeatureLifecycle: no CI checks detected for feature ${feature.id} for >= 10 minutes — moved to failed`,
+        );
+      }
       continue;
     }
 

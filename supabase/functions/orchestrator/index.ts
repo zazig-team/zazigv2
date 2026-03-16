@@ -34,6 +34,7 @@ import {
   generateTitle,
   notifyCPO,
   TERMINAL_FEATURE_STATUSES_FOR_DEPLOY,
+  triggerCICheck,
   triggerCombining,
   triggerMerging,
 } from "../_shared/pipeline-utils.ts";
@@ -2137,6 +2138,88 @@ async function processFeatureLifecycle(
       );
       await triggerCombining(supabase, feature.id);
     }
+  }
+
+  // --- 3b. combining_and_pr catch-up: transition to ci_checking if combine is done and PR exists ---
+  // Catches features that missed the event-driven triggerCICheck (e.g. Realtime miss or race).
+  const { data: combiningFeatures, error: combiningErr } = await supabase
+    .from("features")
+    .select("id, branch, pr_url, project_id, company_id")
+    .eq("status", "combining_and_pr")
+    .not("pr_url", "is", null)
+    .limit(50);
+
+  if (combiningErr) {
+    console.error(
+      "[orchestrator] processFeatureLifecycle: error querying combining_and_pr features:",
+      combiningErr.message,
+    );
+  }
+
+  for (
+    const feature of (combiningFeatures ?? []) as Array<{
+      id: string;
+      branch: string | null;
+      pr_url: string | null;
+      project_id: string | null;
+      company_id: string;
+    }>
+  ) {
+    // Check if the combine job is complete
+    const { data: combineJob } = await supabase
+      .from("jobs")
+      .select("id, status")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "combine")
+      .eq("status", "complete")
+      .limit(1);
+
+    if (!combineJob || combineJob.length === 0) {
+      continue; // Combine job not yet complete — not ready to advance
+    }
+
+    const prUrl = feature.pr_url ?? null;
+    const branch = feature.branch ?? null;
+    if (!prUrl || !branch || !feature.project_id) {
+      console.warn(
+        `[orchestrator] combining_and_pr feature ${feature.id} missing pr_url/branch/project_id — cannot trigger CI check`,
+      );
+      continue;
+    }
+
+    const { data: project } = await supabase
+      .from("projects")
+      .select("repo_url")
+      .eq("id", feature.project_id)
+      .maybeSingle();
+
+    const repoUrl = (project as { repo_url?: string | null } | null)?.repo_url ?? null;
+    if (!repoUrl) {
+      console.warn(
+        `[orchestrator] combining_and_pr feature ${feature.id} project has no repo_url — cannot trigger CI check`,
+      );
+      continue;
+    }
+
+    let owner: string;
+    let repo: string;
+    try {
+      ({ owner, repo } = parseGitHubRepoUrl(repoUrl));
+    } catch {
+      console.warn(
+        `[orchestrator] combining_and_pr feature ${feature.id}: invalid repo_url "${repoUrl}"`,
+      );
+      continue;
+    }
+
+    const prNumberMatch = prUrl.match(/\/pull\/(\d+)/);
+    const prNumber = prNumberMatch ? parseInt(prNumberMatch[1], 10) : null;
+
+    console.log(
+      `[orchestrator] combining_and_pr feature ${feature.id} has completed combine job and PR — triggering CI check (catch-up)`,
+    );
+
+    await triggerCICheck(supabase, feature.id, prUrl, prNumber, owner, repo, branch);
   }
 
   // --- 4. ci_checking catch-up: re-create ci_check job if none is active ---

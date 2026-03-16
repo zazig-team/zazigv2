@@ -1250,7 +1250,7 @@ export async function handleFeatureRejected(
   // 2. Reset feature to building (CAS: only if currently in combining_and_pr, ci_checking, merging, or complete)
   const { data: updated, error: updateErr } = await supabase
     .from("features")
-    .update({ status: "building", ci_fail_count: 0 })
+    .update({ status: "building" })
     .eq("id", featureId)
     .in("status", ["combining_and_pr", "ci_checking", "merging", "complete"])
     .select("id");
@@ -1893,10 +1893,10 @@ async function processFeatureLifecycle(
   await checkExecutingJobsForHeartbeatTimeout(supabase);
 
   // --- 1. Failed job catch-up (all stages) ---
-  // If a failed-job event was missed, surface it here for manual attention.
+  // If a failed-job event was missed, trigger request-feature-fix to retry with escalated model.
   const { data: activeFeatures, error: activeErr } = await supabase
     .from("features")
-    .select("id")
+    .select("id, retry_count")
     .not("status", "in", '("complete","failed","cancelled")')
     .limit(100);
 
@@ -1907,7 +1907,7 @@ async function processFeatureLifecycle(
     );
   }
 
-  for (const feature of (activeFeatures ?? []) as { id: string }[]) {
+  for (const feature of (activeFeatures ?? []) as { id: string; retry_count: number }[]) {
     const { data: failedJob } = await supabase
       .from("jobs")
       .select("id")
@@ -1917,12 +1917,58 @@ async function processFeatureLifecycle(
       .limit(1);
 
     if (failedJob && failedJob.length > 0) {
-      const job = failedJob[0] as {
-        id: string;
-      };
-      console.warn(
-        `[orchestrator] Feature ${feature.id} has failed job ${job.id} — needs attention (not changing feature status)`,
+      const job = failedJob[0] as { id: string };
+      const retryCount = feature.retry_count ?? 0;
+
+      if (retryCount >= 5) {
+        console.warn(
+          `[orchestrator] Feature ${feature.id} has failed job ${job.id} — retry_count=${retryCount} at limit, needs human attention`,
+        );
+        continue;
+      }
+
+      console.log(
+        `[orchestrator] Feature ${feature.id} has failed job ${job.id} — triggering fix (retry_count=${retryCount})`,
       );
+
+      try {
+        const fixResp = await fetch(
+          `${Deno.env.get("SUPABASE_URL")}/functions/v1/request-feature-fix`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            },
+            body: JSON.stringify({
+              job_id: job.id,
+              reason:
+                "Orchestrator catch-up: failed job detected, triggering escalated retry",
+            }),
+          },
+        );
+
+        if (!fixResp.ok) {
+          const errBody = await fixResp.text();
+          console.error(
+            `[orchestrator] request-feature-fix failed for job ${job.id} (feature ${feature.id}): ${fixResp.status} ${errBody}`,
+          );
+        } else {
+          const result = await fixResp.json() as {
+            new_job_id?: string;
+            escalated_to_model?: string;
+          };
+          console.log(
+            `[orchestrator] Fix triggered for feature ${feature.id}: new job ${result.new_job_id} (model: ${result.escalated_to_model})`,
+          );
+        }
+      } catch (fetchErr) {
+        console.error(
+          `[orchestrator] Failed to call request-feature-fix for job ${job.id}: ${
+            String(fetchErr)
+          }`,
+        );
+      }
     }
   }
 

@@ -600,7 +600,7 @@ export async function triggerCICheck(
 
 /**
  * Triggers the merge step for a combined feature.
- * Inserts a merge job and transitions the feature from combining_and_pr → merging.
+ * Inserts a merge job and transitions the feature from ci_checking → merging.
  */
 export async function triggerMerging(
   supabase: SupabaseClient,
@@ -679,7 +679,7 @@ export async function triggerMerging(
     return;
   }
 
-  // CAS transition: combining_and_pr → merging
+  // CAS transition: ci_checking → merging
   const { data: updated, error: updateErr } = await supabase
     .from("features")
     .update({ status: "merging", updated_at: new Date().toISOString() })

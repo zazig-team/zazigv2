@@ -491,6 +491,10 @@ export async function handleJobComplete(
               branch: featureBranch,
               depends_on: [fixJob.id],
             });
+        } else {
+          console.warn(
+            `[agent-event job=${jobId}] Skipping follow-up ci_check job — missing owner/repo/featureBranch for feature ${jobRow.feature_id}. Orchestrator catch-up will recover.`,
+          );
         }
 
         console.log(

@@ -16,6 +16,73 @@ import type { SlotType } from "@zazigv2/shared";
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 
 // ---------------------------------------------------------------------------
+// GitHub helpers
+// ---------------------------------------------------------------------------
+
+export function parseGitHubRepoUrl(url: string): { owner: string; repo: string } {
+  const match = url.match(
+    /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/,
+  );
+
+  if (!match) {
+    throw new Error(`Invalid GitHub repository URL: ${url}`);
+  }
+
+  const [, owner, repo] = match;
+  return { owner, repo };
+}
+
+export async function checkPRCIStatus(
+  owner: string,
+  repo: string,
+  ref: string,
+): Promise<"passing" | "failing" | "pending" | "no_checks"> {
+  const githubToken = Deno.env.get("GITHUB_TOKEN");
+  if (!githubToken) {
+    throw new Error("GITHUB_TOKEN not set");
+  }
+
+  const response = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/commits/${
+      encodeURIComponent(ref)
+    }/check-runs`,
+    {
+      headers: {
+        "Authorization": `Bearer ${githubToken}`,
+        "Accept": "application/vnd.github+json",
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `GitHub check-runs request failed (${response.status}): ${body}`,
+    );
+  }
+
+  const data = await response.json() as {
+    check_runs?: Array<{ status?: string; conclusion?: string | null }>;
+  };
+
+  const checkRuns = data.check_runs ?? [];
+  if (checkRuns.length === 0) return "no_checks";
+
+  const allPassing = checkRuns.every((run) =>
+    run.status === "completed" && run.conclusion === "success"
+  );
+  if (allPassing) return "passing";
+
+  const hasFailure = checkRuns.some((run) =>
+    run.conclusion === "failure" || run.conclusion === "cancelled" ||
+    run.conclusion === "timed_out"
+  );
+  if (hasFailure) return "failing";
+
+  return "pending";
+}
+
+// ---------------------------------------------------------------------------
 // Channel naming — scoped by company to support multiple instances per machine
 // ---------------------------------------------------------------------------
 

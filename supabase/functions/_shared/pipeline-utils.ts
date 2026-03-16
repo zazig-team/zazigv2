@@ -16,73 +16,6 @@ import type { SlotType } from "@zazigv2/shared";
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 
 // ---------------------------------------------------------------------------
-// GitHub helpers
-// ---------------------------------------------------------------------------
-
-export function parseGitHubRepoUrl(url: string): { owner: string; repo: string } {
-  const match = url.match(
-    /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/,
-  );
-
-  if (!match) {
-    throw new Error(`Invalid GitHub repository URL: ${url}`);
-  }
-
-  const [, owner, repo] = match;
-  return { owner, repo };
-}
-
-export async function checkPRCIStatus(
-  owner: string,
-  repo: string,
-  ref: string,
-): Promise<"passing" | "failing" | "pending" | "no_checks"> {
-  const githubToken = Deno.env.get("GITHUB_TOKEN");
-  if (!githubToken) {
-    throw new Error("GITHUB_TOKEN not set");
-  }
-
-  const response = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/commits/${
-      encodeURIComponent(ref)
-    }/check-runs`,
-    {
-      headers: {
-        "Authorization": `Bearer ${githubToken}`,
-        "Accept": "application/vnd.github+json",
-      },
-    },
-  );
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      `GitHub check-runs request failed (${response.status}): ${body}`,
-    );
-  }
-
-  const data = await response.json() as {
-    check_runs?: Array<{ status?: string; conclusion?: string | null }>;
-  };
-
-  const checkRuns = data.check_runs ?? [];
-  if (checkRuns.length === 0) return "no_checks";
-
-  const allPassing = checkRuns.every((run) =>
-    run.status === "completed" && run.conclusion === "success"
-  );
-  if (allPassing) return "passing";
-
-  const hasFailure = checkRuns.some((run) =>
-    run.conclusion === "failure" || run.conclusion === "cancelled" ||
-    run.conclusion === "timed_out"
-  );
-  if (hasFailure) return "failing";
-
-  return "pending";
-}
-
-// ---------------------------------------------------------------------------
 // Channel naming — scoped by company to support multiple instances per machine
 // ---------------------------------------------------------------------------
 
@@ -532,9 +465,161 @@ export async function triggerCombining(
   }).catch(() => {});
 }
 
+export async function triggerFeatureVerification(
+  supabase: SupabaseClient,
+  featureId: string,
+): Promise<void> {
+  // Fetch current feature state and details before creating a verify job.
+  const { data: feature, error: fetchErr } = await supabase
+    .from("features")
+    .select(
+      "status, branch, project_id, company_id, acceptance_tests, verification_type",
+    )
+    .eq("id", featureId)
+    .single();
+  if (fetchErr || !feature) {
+    console.error(
+      `[pipeline] Failed to fetch feature ${featureId}:`,
+      fetchErr?.message,
+    );
+    return;
+  }
+
+  const lateStageStatuses = new Set([
+    "verifying",
+    "merging",
+    "complete",
+    "cancelled",
+  ]);
+
+  if (lateStageStatuses.has(feature.status as string)) {
+    console.log(
+      `[pipeline] Feature ${featureId} already in late-stage status (${feature.status}) — skipping verification trigger`,
+    );
+    return;
+  }
+
+  if (!feature.branch) {
+    console.error(
+      `[pipeline] triggerFeatureVerification: feature ${featureId} has no branch — cannot verify`,
+    );
+    return;
+  }
+
+  const isActive = feature.verification_type === "active";
+  const verifyContext = isActive
+    ? JSON.stringify({
+      type: "active_feature_verification",
+      feature_id: featureId,
+      acceptanceTests: feature.acceptance_tests ?? "",
+    })
+    : JSON.stringify({
+      type: "feature_verification",
+      featureBranch: feature.branch,
+      acceptanceTests: feature.acceptance_tests ?? "",
+    });
+
+  const insertPayload = isActive
+    ? {
+      company_id: feature.company_id,
+      project_id: feature.project_id,
+      feature_id: featureId,
+      role: "verification-specialist",
+      job_type: "verify",
+      complexity: "medium",
+      slot_type: "claude_code",
+      status: "created",
+      context: verifyContext,
+    }
+    : {
+      company_id: feature.company_id,
+      project_id: feature.project_id,
+      feature_id: featureId,
+      title: "Review combined code",
+      role: "reviewer",
+      job_type: "verify",
+      complexity: "simple",
+      slot_type: "claude_code",
+      status: "created",
+      context: verifyContext,
+      branch: feature.branch,
+    };
+
+  // Insert verify job first so a failed insert never leaves the feature stuck in "verifying".
+  const { data: insertedRows, error: insertErr } = await supabase
+    .from("jobs")
+    .insert(insertPayload)
+    .select("id");
+
+  if (insertErr || !insertedRows || insertedRows.length === 0) {
+    console.error(
+      `[pipeline] Failed to insert verification job for ${featureId}:`,
+      insertErr?.message,
+    );
+    return;
+  }
+
+  const insertedJobId = insertedRows[0].id as string;
+
+  // CAS transition to verifying only after the verify job exists.
+  const { data: updated, error: featureErr } = await supabase
+    .from("features")
+    .update({ status: "verifying" })
+    .eq("id", featureId)
+    .eq("status", feature.status as string)
+    .select("id");
+
+  if (featureErr || !updated || updated.length === 0) {
+    if (featureErr) {
+      console.error(
+        `[pipeline] Failed to set feature ${featureId} to verifying:`,
+        featureErr.message,
+      );
+    } else {
+      console.log(
+        `[pipeline] Feature ${featureId} status changed before verify transition — cancelling queued verify job ${insertedJobId}`,
+      );
+    }
+
+    const { error: rollbackErr } = await supabase
+      .from("jobs")
+      .update({
+        status: "cancelled",
+        result: "verification_not_started_feature_status_changed",
+      })
+      .eq("id", insertedJobId)
+      .in("status", ["created", "queued"]);
+    if (rollbackErr) {
+      console.error(
+        `[pipeline] Failed to cancel queued verify job ${insertedJobId} after status CAS miss:`,
+        rollbackErr.message,
+      );
+    }
+    return;
+  }
+
+  if (isActive) {
+    console.log(
+      `[pipeline] Queued active verification (verification-specialist) for feature ${featureId}`,
+    );
+  } else {
+    console.log(
+      `[pipeline] Queued passive verification (reviewer) for feature ${featureId} branch ${feature.branch}`,
+    );
+  }
+
+  generateTitle(verifyContext).then((title) => {
+    if (title) {
+      supabase.from("jobs").update({ title }).eq("id", insertedJobId).then(
+        () => {},
+      );
+    }
+  }).catch(() => {});
+}
+
 /**
- * Triggers the merge step for a combined feature.
- * Inserts a merge job and transitions the feature from combining_and_pr → merging.
+ * Triggers the merge step for a verified feature.
+ * Inserts a merge job and transitions the feature from verifying → merging.
  */
 export async function triggerMerging(
   supabase: SupabaseClient,
@@ -613,12 +698,12 @@ export async function triggerMerging(
     return;
   }
 
-  // CAS transition: combining_and_pr → merging
+  // CAS transition: verifying → merging
   const { data: updated, error: updateErr } = await supabase
     .from("features")
     .update({ status: "merging", updated_at: new Date().toISOString() })
     .eq("id", featureId)
-    .eq("status", "combining_and_pr")
+    .eq("status", "verifying")
     .select("id");
 
   if (updateErr || !updated || updated.length === 0) {
@@ -629,7 +714,7 @@ export async function triggerMerging(
       );
     } else {
       console.log(
-        `[pipeline] triggerMerging: feature ${featureId} not in combining_and_pr — rolling back queued merge job`,
+        `[pipeline] triggerMerging: feature ${featureId} not in verifying — rolling back queued merge job`,
       );
     }
 
@@ -637,7 +722,7 @@ export async function triggerMerging(
       .from("jobs")
       .update({
         status: "cancelled",
-        result: "merge_not_started_feature_not_combining_and_pr",
+        result: "merge_not_started_feature_not_verifying",
       })
       .eq("id", mergeJob.id)
       .in("status", ["created", "queued"]);

@@ -49,26 +49,6 @@ interface FailedJobRow {
   model: string | null;
 }
 
-function escalateModel(
-  failedJob: FailedJobRow,
-): { slot_type: string; model: string; role: string } | null {
-  if (failedJob.slot_type === "codex") {
-    return {
-      slot_type: "claude_code",
-      model: "claude-sonnet-4-6",
-      role: "senior-engineer",
-    };
-  }
-  if (failedJob.model === "claude-sonnet-4-6") {
-    return {
-      slot_type: "claude_code",
-      model: "claude-opus-4-6",
-      role: "senior-engineer",
-    };
-  }
-  return null;
-}
-
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -171,12 +151,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    const retryJobs = (failedJobs as FailedJobRow[]).flatMap((job) => {
-      const escalation = escalateModel(job);
-      if (!escalation) {
-        return [];
-      }
-
+    const retryJobs = (failedJobs as FailedJobRow[]).map((job) => {
       let originalContext: unknown = job.context;
       if (typeof job.context === "string" && job.context.trim().length > 0) {
         try {
@@ -186,37 +161,26 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }
       }
 
-      return [{
+      return {
         company_id: job.company_id,
         project_id: job.project_id,
         feature_id: job.feature_id,
         title: job.title,
-        role: escalation.role,
+        role: job.role,
         job_type: job.job_type,
         complexity: job.complexity,
-        slot_type: escalation.slot_type,
+        slot_type: job.slot_type,
         status: "created",
         context: JSON.stringify({
           type: "retry",
-          escalated_from_model: job.model,
           originalContext,
           failureDiagnosis: reason,
         }),
         branch: job.branch,
         depends_on: job.depends_on ?? [],
-        model: escalation.model,
-      }];
+        model: job.model,
+      };
     });
-
-    if (retryJobs.length === 0) {
-      return jsonResponse(
-        {
-          error:
-            `Model escalation exhausted for failed jobs on feature ${feature_id}; human attention required`,
-        },
-        409,
-      );
-    }
 
     const { data: insertedRetryRows, error: insertErr } = await supabase
       .from("jobs")

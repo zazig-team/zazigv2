@@ -19,6 +19,8 @@ import {
   checkUnblockedJobs,
   notifyCPO,
   releaseSlot,
+  triggerFeatureVerification,
+  triggerMerging,
 } from "../_shared/pipeline-utils.ts";
 
 // ---------------------------------------------------------------------------
@@ -191,6 +193,40 @@ export async function handleJobComplete(
     await checkUnblockedJobs(supabase, jobRow.feature_id, jobId);
   }
 
+  // Check if this is a verification job that completed.
+  const contextStr = jobRow?.context ?? "{}";
+  let ctx: { type?: string; target?: string } = {};
+  try {
+    ctx = JSON.parse(contextStr);
+  } catch { /* ignore */ }
+
+  // Active verification (verification-specialist): check result for pass/fail
+  if (ctx.type === "active_feature_verification" && jobRow?.feature_id) {
+    const passed = result?.toUpperCase().startsWith("PASSED");
+    if (passed) {
+      console.log(
+        `[agent-event job=${jobId}] Active verification PASSED for feature ${jobRow.feature_id} — triggering merge`,
+      );
+      await triggerMerging(supabase, jobRow.feature_id);
+    } else {
+      console.log(
+        `[agent-event job=${jobId}] Active verification FAILED for feature ${jobRow.feature_id} — notifying CPO`,
+      );
+      await notifyCPO(
+        supabase,
+        jobRow.company_id,
+        `Active verification failed for feature ${jobRow.feature_id}: result=${
+          result ?? "unknown"
+        }. Needs triage.`,
+      );
+    }
+  }
+
+  // Passive verification (reviewer): trigger merge on success
+  if (ctx.type === "feature_verification" && jobRow?.feature_id) {
+    await triggerMerging(supabase, jobRow.feature_id);
+  }
+
   // Handle breakdown job completion: feature transitions breakdown → building
   if (jobRow?.job_type === "breakdown" && jobRow?.feature_id) {
     const { data: transitioned } = await supabase
@@ -283,6 +319,27 @@ export async function handleJobComplete(
         } feature outlines. Ready for your review.`,
       );
     }
+  }
+
+  // Handle combine job completion: trigger verification
+  // (PR creation is now handled by the local agent in executor.ts after branch push)
+  if (jobRow?.job_type === "combine" && jobRow?.feature_id) {
+    console.log(
+      `[agent-event job=${jobId}] Combine complete — triggering verification for ${jobRow.feature_id}`,
+    );
+    await triggerFeatureVerification(supabase, jobRow.feature_id);
+  }
+
+  // Handle reviewer verify job completion: job_complete means verification passed.
+  // (Failed verification arrives via job_failed broadcast → handleJobFailed)
+  if (
+    jobRow?.job_type === "verify" && jobRow?.role === "reviewer" &&
+    jobRow?.feature_id
+  ) {
+    console.log(
+      `[agent-event job=${jobId}] Verification PASSED for feature ${jobRow.feature_id} — triggering merge`,
+    );
+    await triggerMerging(supabase, jobRow.feature_id);
   }
 
   // Handle merge job completion: job_complete means merge succeeded.
@@ -445,7 +502,21 @@ export async function handleVerifyResult(
 
   if (!job.feature_id) return;
 
-  console.log(
-    `[agent-event job=${jobId}] Verification passed for feature ${job.feature_id}; no follow-up verification trigger required`,
-  );
+  const { data: allDone, error: allDoneErr } = await supabase
+    .rpc("all_feature_jobs_complete", { p_feature_id: job.feature_id });
+
+  if (allDoneErr) {
+    console.error(
+      `[agent-event job=${jobId}] handleVerifyResult: all_feature_jobs_complete failed for ${job.feature_id}:`,
+      allDoneErr.message,
+    );
+    return;
+  }
+
+  if (allDone) {
+    console.log(
+      `[agent-event job=${jobId}] All jobs complete for feature ${job.feature_id} — triggering feature verification`,
+    );
+    await triggerFeatureVerification(supabase, job.feature_id);
+  }
 }

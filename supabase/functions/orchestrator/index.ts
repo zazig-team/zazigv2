@@ -305,9 +305,6 @@ const EXECUTING_JOB_STARTED_AT_COLUMN_CANDIDATES = [
   "started_at",
   "assigned_at",
 ] as const;
-const CI_NO_CHECKS_TIMEOUT_MS = 10 * 60 * 1000;
-const CI_PENDING_WARNING_THRESHOLD_MS = 20 * 60 * 1000;
-
 // ---------------------------------------------------------------------------
 // Core orchestrator operations
 // ---------------------------------------------------------------------------

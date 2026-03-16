@@ -33,6 +33,7 @@ import {
   agentChannelName,
   generateTitle,
   notifyCPO,
+  parseGitHubRepoUrl,
   TERMINAL_FEATURE_STATUSES_FOR_DEPLOY,
   triggerCombining,
   triggerFeatureVerification,
@@ -1016,18 +1017,16 @@ async function createGitHubPR(
     return null;
   }
 
-  // Parse owner/repo from the repo URL.
-  // Handles: https://github.com/owner/repo, https://github.com/owner/repo.git, git@github.com:owner/repo.git
-  const match = repoUrl.match(
-    /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/,
-  );
-  if (!match) {
+  let owner: string;
+  let repo: string;
+  try {
+    ({ owner, repo } = parseGitHubRepoUrl(repoUrl));
+  } catch {
     console.warn(
       `[orchestrator] Cannot parse GitHub owner/repo from URL "${repoUrl}" — skipping PR creation for feature ${featureId}`,
     );
     return null;
   }
-  const [, owner, repo] = match;
 
   const prTitle = `feat: ${featureTitle}`;
   const prBody = [

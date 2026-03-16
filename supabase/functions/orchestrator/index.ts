@@ -1249,7 +1249,7 @@ export async function handleFeatureRejected(
   // 2. Reset feature to building (CAS: only if currently in combining_and_pr, ci_checking, merging, or complete)
   const { data: updated, error: updateErr } = await supabase
     .from("features")
-    .update({ status: "building" })
+    .update({ status: "building", ci_fail_count: 0 })
     .eq("id", featureId)
     .in("status", ["combining_and_pr", "ci_checking", "merging", "complete"])
     .select("id");

@@ -198,7 +198,7 @@ export async function handleJobComplete(
   if (jobRow?.job_type === "breakdown" && jobRow?.feature_id) {
     const { data: transitioned } = await supabase
       .from("features")
-      .update({ status: "building" })
+      .update({ status: "building", ci_fail_count: 0 })
       .eq("id", jobRow.feature_id)
       .eq("status", "breaking_down")
       .select("id");

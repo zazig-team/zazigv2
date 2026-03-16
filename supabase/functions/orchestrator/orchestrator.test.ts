@@ -267,7 +267,7 @@ function createSmartMockSupabase() {
 // Tests
 // ---------------------------------------------------------------------------
 
-Deno.test("resolveModelAndSlot — simple feature with retry_count 0 stays on junior-engineer codex", () => {
+Deno.test("resolveModelAndSlot — simple complexity routes to junior-engineer codex", () => {
   const routing = new Map([
     ["simple", {
       complexity: "simple",
@@ -283,20 +283,14 @@ Deno.test("resolveModelAndSlot — simple feature with retry_count 0 stays on ju
     }],
   ]);
 
-  const resolved = resolveModelAndSlot(
-    routing,
-    "simple",
-    null,
-    0,
-    "job-simple-no-retry",
-  );
+  const resolved = resolveModelAndSlot(routing, "simple", null, "job-simple");
 
   assertEquals(resolved.role, "junior-engineer");
   assertEquals(resolved.model, "codex");
   assertEquals(resolved.slotType, "codex");
 });
 
-Deno.test("resolveModelAndSlot — simple feature with retry_count 1 escalates to junior-engineer-cc", () => {
+Deno.test("resolveModelAndSlot — medium complexity routes to senior-engineer", () => {
   const routing = new Map([
     ["simple", {
       complexity: "simple",
@@ -312,42 +306,7 @@ Deno.test("resolveModelAndSlot — simple feature with retry_count 1 escalates t
     }],
   ]);
 
-  const resolved = resolveModelAndSlot(
-    routing,
-    "simple",
-    null,
-    1,
-    "job-simple-retry",
-  );
-
-  assertEquals(resolved.role, "junior-engineer-cc");
-  assertEquals(resolved.model, "claude-sonnet-4-6");
-  assertEquals(resolved.slotType, "claude_code");
-});
-
-Deno.test("resolveModelAndSlot — medium feature with retry_count 1 stays on senior-engineer", () => {
-  const routing = new Map([
-    ["simple", {
-      complexity: "simple",
-      role: "junior-engineer",
-      model: "codex",
-      slotType: "codex",
-    }],
-    ["medium", {
-      complexity: "medium",
-      role: "senior-engineer",
-      model: "claude-sonnet-4-6",
-      slotType: "claude_code",
-    }],
-  ]);
-
-  const resolved = resolveModelAndSlot(
-    routing,
-    "medium",
-    null,
-    1,
-    "job-medium-retry",
-  );
+  const resolved = resolveModelAndSlot(routing, "medium", null, "job-medium");
 
   assertEquals(resolved.role, "senior-engineer");
   assertEquals(resolved.model, "claude-sonnet-4-6");

@@ -141,12 +141,6 @@ interface RoutingEntry {
   slotType: SlotType;
 }
 
-const RETRY_ESCALATION_ROUTE: Omit<RoutingEntry, "complexity"> = {
-  role: "junior-engineer-cc",
-  model: "claude-sonnet-4-6",
-  slotType: "claude_code",
-};
-
 /** Cached routing table, loaded once per orchestrator invocation. */
 let routingCache: Map<string, RoutingEntry> | null = null;
 
@@ -245,36 +239,23 @@ export function resolveModelAndSlot(
   routing: Map<string, RoutingEntry>,
   complexity: string | null,
   existingModel: string | null,
-  retryCount = 0,
   jobId?: string,
 ): { role: string; model: string; slotType: SlotType } {
-  const maybeEscalateRetry = (
-    resolved: { role: string; model: string; slotType: SlotType },
-  ) => {
-    if (retryCount > 0 && resolved.role === "junior-engineer") {
-      console.log(
-        `[orchestrator] Retry escalation: routing job to junior-engineer-cc (feature retry_count=${retryCount}, was junior-engineer/codex)`,
-      );
-      return { ...RETRY_ESCALATION_ROUTE };
-    }
-    return resolved;
-  };
-
   // Explicit model override on the job takes precedence.
   if (existingModel) {
     const entry = routing.get(complexity ?? "medium");
     const slotType = entry?.slotType ?? "claude_code";
     const role = entry?.role ?? "senior-engineer";
-    return maybeEscalateRetry({ role, model: existingModel, slotType });
+    return { role, model: existingModel, slotType };
   }
 
   const entry = routing.get(complexity ?? "medium");
   if (entry) {
-    return maybeEscalateRetry({
+    return {
       role: entry.role,
       model: entry.model,
       slotType: entry.slotType,
-    });
+    };
   }
 
   // Fallback if complexity not in routing table
@@ -283,11 +264,11 @@ export function resolveModelAndSlot(
       jobId ?? "?"
     }, defaulting to sonnet`,
   );
-  return maybeEscalateRetry({
+  return {
     role: "senior-engineer",
     model: "claude-sonnet-4-6",
     slotType: "claude_code",
-  });
+  };
 }
 
 const NO_CODE_CONTEXT_ROLES = new Set([
@@ -615,27 +596,6 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     // Loaded once per company per dispatch pass (cached inside loadRouting).
     // Hoisted here so the codex→claude_code fallback below can always access it.
     const routing = await loadRouting(supabase, job.company_id);
-    let featureRetryCount = 0;
-
-    if (job.feature_id) {
-      const { data: featureRoutingRow, error: featureRoutingErr } =
-        await supabase
-          .from("features")
-          .select("retry_count")
-          .eq("id", job.feature_id)
-          .single();
-
-      if (featureRoutingErr) {
-        console.warn(
-          `[orchestrator] Failed to fetch retry_count for feature ${job.feature_id} while routing job ${job.id}: ${featureRoutingErr.message}`,
-        );
-      } else {
-        featureRetryCount =
-          (featureRoutingRow as { retry_count?: number | null } | null)
-            ?.retry_count ?? 0;
-      }
-    }
-
     if (job.role && !ENGINEER_ROLES.has(job.role)) {
       // Role-based routing: look up the role's defaults from the roles table.
       const { data: roleDefaults } = await supabase
@@ -660,7 +620,6 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
           routing,
           job.complexity,
           job.model,
-          featureRetryCount,
           job.id,
         ));
       }
@@ -670,7 +629,6 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         routing,
         job.complexity,
         job.model,
-        featureRetryCount,
         job.id,
       ));
     }

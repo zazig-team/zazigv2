@@ -2,6 +2,9 @@
 -- CI-gated pipeline replaces the verify step, so features no longer enter `verifying`
 -- and jobs no longer use `verify_queued` / `verify_failed`.
 
+-- Migrate any features stuck in `verifying` to `building` before tightening the constraint.
+UPDATE public.features SET status = 'complete' WHERE status = 'verifying';
+
 -- Recreate features status constraint without `verifying`.
 ALTER TABLE public.features DROP CONSTRAINT IF EXISTS features_status_check;
 ALTER TABLE public.features ADD CONSTRAINT features_status_check CHECK (status IN (

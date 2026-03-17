@@ -3,7 +3,9 @@ import { getValidCredentials } from "../lib/credentials.js";
 import { fetchUserCompanies, pickCompany } from "../lib/company-picker.js";
 import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 import {
+  collectAvailableSkills,
   collectWorkspaceSkillStatus,
+  fetchAllRoleSkills,
   fetchPersistentRoleSkills,
   resolveRepoRoot,
   syncWorkspaceSkills,
@@ -72,17 +74,45 @@ function printSyncSummary(summary: ReturnType<typeof syncWorkspaceSkills>): void
   }
 }
 
+function printAllRoleSkills(roleSkills: Awaited<ReturnType<typeof fetchAllRoleSkills>>): void {
+  console.log("Role Skills (all roles):");
+
+  if (roleSkills.length === 0) {
+    console.log("  (none)");
+    console.log("");
+    return;
+  }
+
+  const sorted = [...roleSkills].sort((a, b) => a.role.localeCompare(b.role));
+  const maxRoleWidth = sorted.reduce((max, row) => Math.max(max, row.role.length), 0);
+  for (const row of sorted) {
+    const skillText = row.skills.length > 0 ? row.skills.join(", ") : "(none)";
+    console.log(`  ${row.role.padEnd(maxRoleWidth)}   ${skillText}`);
+  }
+  console.log("");
+}
+
+function printAvailableSkills(available: ReturnType<typeof collectAvailableSkills>): void {
+  const pipeline = available.pipeline.length > 0 ? available.pipeline.join(", ") : "(none)";
+  const interactive = available.interactive.length > 0 ? available.interactive.join(", ") : "(none)";
+
+  console.log("Available Skills (repo):");
+  console.log(`  Pipeline:    ${pipeline}`);
+  console.log(`  Interactive: ${interactive}`);
+}
+
 async function loadContext(args: string[]): Promise<{
   company: Company;
   anonKey: string;
   supabaseUrl: string;
+  accessToken: string;
 }> {
   const creds = await getValidCredentials();
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
   const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
   const selected = await pickCompany(companies);
   const company = resolveCompany(companies, selected, parseCompanyFlag(args));
-  return { company, anonKey, supabaseUrl: creds.supabaseUrl };
+  return { company, anonKey, supabaseUrl: creds.supabaseUrl, accessToken: creds.accessToken };
 }
 
 export async function skills(args: string[]): Promise<void> {
@@ -115,6 +145,24 @@ export async function skills(args: string[]): Promise<void> {
   if (subcommand === "status") {
     const status = collectWorkspaceSkillStatus(context.company.id, roleSkills, repoRoot);
     printSkillStatus(status);
+
+    let allRoleSkills;
+    try {
+      allRoleSkills = await fetchAllRoleSkills(
+        context.supabaseUrl,
+        context.anonKey,
+        context.accessToken,
+        context.company.id,
+      );
+    } catch (err) {
+      console.error(String(err));
+      process.exitCode = 1;
+      return;
+    }
+
+    const availableSkills = collectAvailableSkills(repoRoot);
+    printAllRoleSkills(allRoleSkills);
+    printAvailableSkills(availableSkills);
     return;
   }
 

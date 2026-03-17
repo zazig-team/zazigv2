@@ -61,6 +61,13 @@ const SKILLS_MARKER = "<!-- SKILLS -->";
 
 function completionInstructions(role?: string): string {
   const reportFile = role ? `${role}-report.md` : "cpo-report.md";
+  // ci-checker has its own CRITICAL output format in the role prompt — don't override it.
+  if (role === "ci-checker") {
+    return `## On Completion
+
+Commit all work to the current branch. Do NOT commit .mcp.json, .claude/, or CLAUDE.md.
+Then exit.`;
+  }
   return `## On Completion
 
 Commit all work to the current branch. Do NOT commit .mcp.json, .claude/, or CLAUDE.md.

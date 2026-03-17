@@ -1486,7 +1486,7 @@ export async function triggerBreakdown(
     .from("jobs")
     .select("id")
     .eq("feature_id", featureId)
-    .in("status", ["failed", "cancelled"]);
+    .in("status", ["failed", "cancelled", "failed_retrying"]);
 
   if (!staleErr && staleJobs && staleJobs.length > 0) {
     const staleIds = staleJobs.map((j: { id: string }) => j.id);
@@ -2024,7 +2024,7 @@ async function processFeatureLifecycle(
       .select("id")
       .eq("feature_id", feature.id)
       .eq("job_type", "breakdown")
-      .not("status", "in", '("complete","failed","cancelled")')
+      .not("status", "in", '("complete","failed","cancelled","failed_retrying")')
       .limit(1);
 
     if (!pendingBreakdown || pendingBreakdown.length === 0) {

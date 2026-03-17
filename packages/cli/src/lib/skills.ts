@@ -10,6 +10,11 @@ export interface PersistentRoleSkills {
   skills: string[];
 }
 
+export interface AvailableSkills {
+  pipeline: string[];
+  interactive: string[];
+}
+
 export interface SkillStatus {
   skill: string;
   state: "ok_symlink" | "symlink_mismatch" | "broken_symlink" | "copy" | "missing" | "source_missing";
@@ -79,6 +84,74 @@ export async function fetchPersistentRoleSkills(
   return rows
     .filter((r): r is { role: string; skills?: string[] } => typeof r.role === "string")
     .map((r) => ({ role: r.role, skills: Array.isArray(r.skills) ? r.skills : [] }));
+}
+
+export async function fetchAllRoleSkills(
+  supabaseUrl: string,
+  anonKey: string,
+  accessToken: string,
+  companyId: string,
+): Promise<PersistentRoleSkills[]> {
+  const url = new URL(`${supabaseUrl}/rest/v1/roles`);
+  url.searchParams.set("select", "role,skills");
+  url.searchParams.set("company_id", `eq.${companyId}`);
+  url.searchParams.set("order", "role.asc");
+
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      apikey: anonKey,
+    },
+  });
+
+  if (!res.ok) {
+    // Fall back to persistent-role function if direct REST access is unavailable.
+    if ([401, 403, 404].includes(res.status)) {
+      return fetchPersistentRoleSkills(supabaseUrl, anonKey, companyId);
+    }
+    const body = await res.text().catch(() => "");
+    throw new Error(`Failed to fetch all roles (HTTP ${res.status}): ${body.slice(0, 300)}`);
+  }
+
+  const rows = (await res.json()) as Array<{ role?: string; skills?: string[] | null }>;
+  return rows
+    .filter((r): r is { role: string; skills?: string[] | null } => typeof r.role === "string")
+    .map((r) => ({
+      role: r.role,
+      skills: Array.isArray(r.skills) ? r.skills.filter((skill): skill is string => typeof skill === "string") : [],
+    }));
+}
+
+export function collectAvailableSkills(repoRoot: string): AvailableSkills {
+  const pipelineRoot = join(repoRoot, "projects", "skills");
+  const interactiveRoot = join(repoRoot, ".claude", "skills");
+  const pipeline = new Set<string>();
+  const interactive = new Set<string>();
+
+  if (existsSync(pipelineRoot)) {
+    for (const entry of readdirSync(pipelineRoot, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".md")) {
+        pipeline.add(entry.name.slice(0, -3));
+        continue;
+      }
+      if ((entry.isDirectory() || entry.isSymbolicLink()) && existsSync(join(pipelineRoot, entry.name, "SKILL.md"))) {
+        pipeline.add(entry.name);
+      }
+    }
+  }
+
+  if (existsSync(interactiveRoot)) {
+    for (const entry of readdirSync(interactiveRoot, { withFileTypes: true })) {
+      if ((entry.isDirectory() || entry.isSymbolicLink()) && existsSync(join(interactiveRoot, entry.name, "SKILL.md"))) {
+        interactive.add(entry.name);
+      }
+    }
+  }
+
+  return {
+    pipeline: [...pipeline].sort((a, b) => a.localeCompare(b)),
+    interactive: [...interactive].sort((a, b) => a.localeCompare(b)),
+  };
 }
 
 function resolveSkillSourcePath(repoRoot: string, skillName: string): string | null {

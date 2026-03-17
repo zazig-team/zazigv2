@@ -28,7 +28,8 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
@@ -81,7 +82,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return jsonResponse({ error: error.message }, 404);
       }
 
-      return jsonResponse({ goals: [data] });
+      const goals = [data];
+      await attachProgress(supabase, goals);
+
+      return jsonResponse({ goals });
     }
 
     // List query — resolve company_id: explicit param > job lookup
@@ -97,7 +101,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (!company_id) {
       return jsonResponse(
-        { error: "Cannot resolve company_id — provide goal_id, company_id, or valid job_id" },
+        {
+          error:
+            "Cannot resolve company_id — provide goal_id, company_id, or valid job_id",
+        },
         400,
       );
     }
@@ -105,7 +112,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     let query = supabase
       .from("goals")
       .select(GOAL_SELECT)
-      .eq("company_id", company_id);
+      .eq("company_id", company_id)
+      .order("position", { ascending: true });
 
     if (status) {
       query = query.eq("status", status);
@@ -121,8 +129,131 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    return jsonResponse({ goals: data ?? [] });
+    const goals = data ?? [];
+    await attachProgress(supabase, goals);
+
+    return jsonResponse({ goals });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Goal progress helper
+// ---------------------------------------------------------------------------
+
+// deno-lint-ignore no-explicit-any
+async function attachProgress(supabase: any, goals: any[]): Promise<void> {
+  if (goals.length === 0) return;
+
+  const goalIds = goals.map((goal) => goal.id);
+
+  const { data: goalFocusLinks, error: goalFocusError } = await supabase
+    .from("focus_area_goals")
+    .select("goal_id, focus_area_id")
+    .in("goal_id", goalIds);
+
+  if (goalFocusError) {
+    throw new Error(
+      `Failed to fetch goal-focus links: ${goalFocusError.message}`,
+    );
+  }
+
+  if (!goalFocusLinks || goalFocusLinks.length === 0) {
+    for (const goal of goals) {
+      goal.progress = 0;
+    }
+    return;
+  }
+
+  const focusAreaIds = [
+    ...new Set(
+      goalFocusLinks.map((link: { focus_area_id: string }) =>
+        link.focus_area_id
+      ),
+    ),
+  ];
+
+  const { data: focusFeatureLinks, error: focusFeatureError } = await supabase
+    .from("feature_focus_areas")
+    .select("focus_area_id, feature_id")
+    .in("focus_area_id", focusAreaIds);
+
+  if (focusFeatureError) {
+    throw new Error(
+      `Failed to fetch focus-feature links: ${focusFeatureError.message}`,
+    );
+  }
+
+  if (!focusFeatureLinks || focusFeatureLinks.length === 0) {
+    for (const goal of goals) {
+      goal.progress = 0;
+    }
+    return;
+  }
+
+  const featureIds = [
+    ...new Set(
+      focusFeatureLinks.map((link: { feature_id: string }) => link.feature_id),
+    ),
+  ];
+
+  const { data: features, error: featureError } = await supabase
+    .from("features")
+    .select("id, status")
+    .in("id", featureIds);
+
+  if (featureError) {
+    throw new Error(`Failed to fetch features: ${featureError.message}`);
+  }
+
+  const completedFeatureIds = new Set(
+    (features ?? [])
+      .filter((feature: { status: string }) =>
+        feature.status === "complete" || feature.status === "shipped"
+      )
+      .map((feature: { id: string }) => feature.id),
+  );
+
+  const featuresByFocusArea = new Map<string, Set<string>>();
+  for (const link of focusFeatureLinks) {
+    if (!featuresByFocusArea.has(link.focus_area_id)) {
+      featuresByFocusArea.set(link.focus_area_id, new Set());
+    }
+    featuresByFocusArea.get(link.focus_area_id)!.add(link.feature_id);
+  }
+
+  const featuresByGoal = new Map<string, Set<string>>();
+  for (const link of goalFocusLinks) {
+    const linkedFeatures = featuresByFocusArea.get(link.focus_area_id);
+    if (!linkedFeatures) continue;
+
+    if (!featuresByGoal.has(link.goal_id)) {
+      featuresByGoal.set(link.goal_id, new Set());
+    }
+
+    const goalFeatures = featuresByGoal.get(link.goal_id)!;
+    for (const featureId of linkedFeatures) {
+      goalFeatures.add(featureId);
+    }
+  }
+
+  for (const goal of goals) {
+    const goalFeatureIds = featuresByGoal.get(goal.id) ?? new Set<string>();
+    const totalFeatures = goalFeatureIds.size;
+
+    if (totalFeatures === 0) {
+      goal.progress = 0;
+      continue;
+    }
+
+    let completedFeatures = 0;
+    for (const featureId of goalFeatureIds) {
+      if (completedFeatureIds.has(featureId)) {
+        completedFeatures += 1;
+      }
+    }
+
+    goal.progress = Math.round((completedFeatures / totalFeatures) * 100);
+  }
+}

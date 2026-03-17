@@ -349,7 +349,7 @@ export async function handleJobComplete(
   // Handle ci_check job completion: route based on PASSED/FAILED result.
   if (jobRow?.job_type === "ci_check" && jobRow?.feature_id) {
     const reportText = msg.report ?? msg.result ?? "";
-    const passed = reportText.includes("status: passed");
+    const passed = reportText.startsWith("PASSED") || reportText.includes("status: passed");
 
     if (passed) {
       console.log(

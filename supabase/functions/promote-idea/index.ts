@@ -112,8 +112,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const isFirstPromotion = !idea.promoted_to_id;
-    const requiresProjectId = isFirstPromotion &&
-      (promote_to === "feature" || promote_to === "job");
+    const requiresProjectId = promote_to === "feature" || promote_to === "job";
     if (requiresProjectId && !project_id) {
       return jsonResponse(
         { error: `project_id is required when promote_to is '${promote_to}'` },
@@ -130,80 +129,75 @@ Deno.serve(async (req: Request): Promise<Response> => {
     let promoted_to_id: string | null = null;
     let created_table: string | null = null;
 
-    if (isFirstPromotion) {
-      if (promote_to === "feature") {
-        const { data: feature, error: featureError } = await supabase
-          .from("features")
-          .insert({
-            company_id: idea.company_id,
-            project_id,
-            title: resolvedTitle,
-            description: idea.description || idea.raw_text,
-            spec: idea.spec || null,
-            acceptance_tests: idea.acceptance_tests || null,
-            human_checklist: idea.human_checklist || null,
-            priority: idea.priority || "medium",
-            status: "breaking_down",
-            source_idea_id: idea.id,
-          })
-          .select("id")
-          .single();
+    if (promote_to === "feature") {
+      const { data: feature, error: featureError } = await supabase
+        .from("features")
+        .insert({
+          company_id: idea.company_id,
+          project_id,
+          title: resolvedTitle,
+          description: idea.description || idea.raw_text,
+          spec: idea.spec || null,
+          acceptance_tests: idea.acceptance_tests || null,
+          human_checklist: idea.human_checklist || null,
+          priority: idea.priority || "medium",
+          status: "breaking_down",
+          source_idea_id: idea.id,
+        })
+        .select("id")
+        .single();
 
-        if (featureError || !feature) {
-          return jsonResponse(
-            {
-              error: `Failed to create feature: ${
-                featureError?.message ?? "unknown error"
-              }`,
-            },
-            500,
-          );
-        }
-
-        promoted_to_id = feature.id;
-        created_table = "features";
-      } else if (promote_to === "job") {
-        // Note: jobs table uses `context` for description, not `spec`
-        const { data: job, error: jobError } = await supabase
-          .from("jobs")
-          .insert({
-            company_id: idea.company_id,
-            feature_id: null,
-            title: resolvedTitle,
-            context: idea.raw_text,
-            status: "created",
-            role: "senior-engineer",
-            job_type: "code",
-            complexity: "simple",
-          })
-          .select("id")
-          .single();
-
-        if (jobError || !job) {
-          return jsonResponse(
-            {
-              error: `Failed to create job: ${
-                jobError?.message ?? "unknown error"
-              }`,
-            },
-            500,
-          );
-        }
-
-        promoted_to_id = job.id;
-        created_table = "jobs";
-      } else if (promote_to === "research") {
-        // No entity created for research promotions.
-        promoted_to_id = null;
-      } else if (promote_to === "capability") {
-        // Do NOT create a capability entity here.
-        // Set idea status to 'hardening' — the hardening pipeline runs asynchronously.
-        // promoted_to_id remains null (set after hardening completes).
-        promoted_to_id = null;
+      if (featureError || !feature) {
+        return jsonResponse(
+          {
+            error: `Failed to create feature: ${
+              featureError?.message ?? "unknown error"
+            }`,
+          },
+          500,
+        );
       }
-    } else {
-      // Subsequent promotions link to the existing singular target on the idea.
-      promoted_to_id = idea.promoted_to_id;
+
+      promoted_to_id = feature.id;
+      created_table = "features";
+    } else if (promote_to === "job") {
+      // Note: jobs table uses `context` for description, not `spec`
+      const { data: job, error: jobError } = await supabase
+        .from("jobs")
+        .insert({
+          company_id: idea.company_id,
+          feature_id: null,
+          title: resolvedTitle,
+          context: idea.raw_text,
+          status: "created",
+          role: "senior-engineer",
+          job_type: "code",
+          complexity: "simple",
+        })
+        .select("id")
+        .single();
+
+      if (jobError || !job) {
+        return jsonResponse(
+          {
+            error: `Failed to create job: ${
+              jobError?.message ?? "unknown error"
+            }`,
+          },
+          500,
+        );
+      }
+
+      promoted_to_id = job.id;
+      created_table = "jobs";
+    } else if (promote_to === "research") {
+      // No entity created for research promotions.
+      promoted_to_id = null;
+    } else if (promote_to === "capability") {
+      // Do NOT create a capability entity here.
+      // Set idea status to 'hardening' — the hardening pipeline runs asynchronously.
+      // promoted_to_id remains null (set after hardening completes).
+      promoted_to_id = null;
     }
 
     // --- Update idea atomically on first promotion ---

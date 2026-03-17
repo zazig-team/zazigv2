@@ -2134,6 +2134,19 @@ export class JobExecutor {
       }
     }
 
+    // DEBUG: log prompt stack so we can inspect what was sent to the agent
+    try {
+      const promptPath = job.worktreePath
+        ? join(job.worktreePath, ".zazig-prompt.txt")
+        : job.workspaceDir
+          ? join(job.workspaceDir, ".zazig-prompt.txt")
+          : null;
+      if (promptPath) {
+        const promptContent = readFileSync(promptPath, "utf-8");
+        jobLog(jobId, `DEBUG prompt_stack (${promptContent.length} chars):\n${promptContent}`);
+      }
+    } catch { /* best-effort */ }
+
     if (report) {
       jobLog(jobId, `Report raw content (${report.length} chars): ${JSON.stringify(report)}`);
       // Check for structured report format (status: pass/passed/success/fail/failed)

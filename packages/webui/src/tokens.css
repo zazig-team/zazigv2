@@ -50,6 +50,7 @@
   --col-proposal: #c54b2a;
   --col-ready: #6b7fa5;
   --col-breakdown: #9e5580;
+  --col-writing-tests: #2a7a8c;
   --col-building: #c54b2a;
   --col-combining: #b8860b;
   --col-ci-checking: #4a8fa5;
@@ -96,6 +97,7 @@
   --col-proposal: #e8553a;
   --col-ready: #6b9fd4;
   --col-breakdown: #c478a0;
+  --col-writing-tests: #3a9ab0;
   --col-building: #e8553a;
   --col-combining: #e5b835;
   --col-ci-checking: #50b8d0;

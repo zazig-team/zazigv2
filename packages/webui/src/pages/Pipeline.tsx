@@ -26,6 +26,7 @@ const COLUMN_DEFINITIONS: ColumnDefinition[] = [
   { key: "proposal", label: "Proposal", colorVar: "--col-proposal" },
   { key: "ready", label: "Ready", colorVar: "--col-ready" },
   { key: "breaking_down", label: "Breakdown", colorVar: "--col-breakdown" },
+  { key: "writing_tests", label: "Writing Tests", colorVar: "--col-writing-tests" },
   { key: "building", label: "Building", colorVar: "--col-building" },
   { key: "combining_and_pr", label: "Combining", colorVar: "--col-combining" },
   { key: "ci_checking", label: "CI Check", colorVar: "--col-ci-checking" },
@@ -37,6 +38,7 @@ const COLUMN_DEFINITIONS: ColumnDefinition[] = [
 
 const ACTIVE_FEATURE_STATUSES = new Set<PipelineStatus>([
   "breaking_down",
+  "writing_tests",
   "building",
   "combining_and_pr",
   "ci_checking",
@@ -436,6 +438,7 @@ export default function Pipeline(): JSX.Element {
       proposal: [],
       ready: [],
       breaking_down: [],
+      writing_tests: [],
       building: [],
       combining_and_pr: [],
       ci_checking: [],
@@ -519,6 +522,7 @@ export default function Pipeline(): JSX.Element {
   const metrics = useMemo(() => {
     const active =
       filteredByStatus.breaking_down.length +
+      filteredByStatus.writing_tests.length +
       filteredByStatus.building.length +
       filteredByStatus.combining_and_pr.length +
       filteredByStatus.ci_checking.length +

@@ -2135,10 +2135,10 @@ export class JobExecutor {
     }
 
     if (report) {
-      // Check for structured report format (status: pass/success/fail)
-      const passMatch = report.match(/^status:\s*(pass|success|fail)\s*$/m);
+      // Check for structured report format (status: pass/passed/success/fail/failed)
+      const passMatch = report.match(/^status:\s*(pass(?:ed)?|success|fail(?:ed)?)\s*$/m);
       if (passMatch) {
-        const prefix = passMatch[1] === "fail" ? "FAILED" : "PASSED";
+        const prefix = passMatch[1].startsWith("fail") ? "FAILED" : "PASSED";
         const reasonMatch = report.match(/^failure_reason:\s*(.+)$/m);
         result = reasonMatch?.[1]?.trim() ? `${prefix}: ${reasonMatch[1].trim()}` : prefix;
       } else {

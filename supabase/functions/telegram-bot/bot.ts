@@ -27,6 +27,8 @@ export interface TelegramMessage {
   text?: string;
   voice?: TelegramVoice;
   audio?: TelegramAudio;
+  photo?: TelegramPhotoSize[];
+  caption?: string;
 }
 
 export interface TelegramUser {
@@ -57,6 +59,14 @@ export interface TelegramAudio {
   file_size?: number;
 }
 
+export interface TelegramPhotoSize {
+  file_id: string;
+  file_unique_id: string;
+  width: number;
+  height: number;
+  file_size?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Handler Context
 // ---------------------------------------------------------------------------
@@ -72,32 +82,50 @@ export interface BotContext {
 // Telegram API helpers
 // ---------------------------------------------------------------------------
 
-async function sendMessage(token: string, chatId: number, text: string): Promise<void> {
+async function sendMessage(
+  token: string,
+  chatId: number,
+  text: string,
+): Promise<void> {
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text }),
-    });
+    const res = await fetch(
+      `https://api.telegram.org/bot${token}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text }),
+      },
+    );
     if (!res.ok) {
       const err = await res.text();
-      console.error(`[telegram-bot] sendMessage failed (${res.status}): ${err}`);
+      console.error(
+        `[telegram-bot] sendMessage failed (${res.status}): ${err}`,
+      );
     }
   } catch (err) {
     console.error("[telegram-bot] sendMessage threw:", err);
   }
 }
 
-export async function sendMessageDraft(token: string, chatId: number, text: string): Promise<void> {
+export async function sendMessageDraft(
+  token: string,
+  chatId: number,
+  text: string,
+): Promise<void> {
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessageDraft`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text }),
-    });
+    const res = await fetch(
+      `https://api.telegram.org/bot${token}/sendMessageDraft`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text }),
+      },
+    );
     if (!res.ok) {
       const err = await res.text();
-      console.error(`[telegram-bot] sendMessageDraft failed (${res.status}): ${err}`);
+      console.error(
+        `[telegram-bot] sendMessageDraft failed (${res.status}): ${err}`,
+      );
     }
   } catch (err) {
     console.error("[telegram-bot] sendMessageDraft threw:", err);
@@ -123,7 +151,8 @@ export async function streamToTelegram(
       buffer += chunk;
       const now = Date.now();
       const shouldSendByTime = now - lastDraftAt >= throttleMs;
-      const shouldSendByGrowth = buffer.length - lastDraftLength >= growthThreshold;
+      const shouldSendByGrowth =
+        buffer.length - lastDraftLength >= growthThreshold;
 
       if (shouldSendByTime || shouldSendByGrowth) {
         await sendMessageDraft(token, chatId, buffer);
@@ -143,13 +172,21 @@ export async function streamToTelegram(
   }
 }
 
-async function getFileDownloadUrl(token: string, fileId: string): Promise<string | null> {
+async function getFileDownloadUrl(
+  token: string,
+  fileId: string,
+): Promise<string | null> {
   try {
     const res = await fetch(
-      `https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`,
+      `https://api.telegram.org/bot${token}/getFile?file_id=${
+        encodeURIComponent(fileId)
+      }`,
     );
     if (!res.ok) return null;
-    const json = await res.json() as { ok: boolean; result?: { file_path?: string } };
+    const json = await res.json() as {
+      ok: boolean;
+      result?: { file_path?: string };
+    };
     if (!json.ok || !json.result?.file_path) return null;
     return `https://api.telegram.org/file/bot${token}/${json.result.file_path}`;
   } catch {
@@ -181,7 +218,9 @@ async function lookupTelegramUserMapping(
     if (error || !data) return null;
     return {
       company_id: String(data.company_id),
-      telegram_username: typeof data.telegram_username === "string" ? data.telegram_username : null,
+      telegram_username: typeof data.telegram_username === "string"
+        ? data.telegram_username
+        : null,
     };
   } catch {
     return null;
@@ -199,7 +238,10 @@ function normalizeOriginator(value: string | null | undefined): string | null {
   return normalized || null;
 }
 
-function resolveOriginator(message: TelegramMessage, mapping: TelegramUserMapping): string {
+function resolveOriginator(
+  message: TelegramMessage,
+  mapping: TelegramUserMapping,
+): string {
   const candidates = [
     mapping.telegram_username,
     message.from?.username,
@@ -211,7 +253,9 @@ function resolveOriginator(message: TelegramMessage, mapping: TelegramUserMappin
     if (normalized) return normalized;
   }
 
-  return message.from?.id ? `telegram-user-${message.from.id}` : "telegram-user-unknown";
+  return message.from?.id
+    ? `telegram-user-${message.from.id}`
+    : "telegram-user-unknown";
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +283,9 @@ async function transcribeAudio(
     });
     if (!res.ok) {
       const err = await res.text();
-      console.error(`[telegram-bot] transcribeAudio failed (${res.status}): ${err}`);
+      console.error(
+        `[telegram-bot] transcribeAudio failed (${res.status}): ${err}`,
+      );
       return null;
     }
     const json = await res.json() as { text?: string };
@@ -248,6 +294,89 @@ async function transcribeAudio(
     console.error("[telegram-bot] transcribeAudio threw:", err);
     return null;
   }
+}
+
+interface AnthropicVisionTextBlock {
+  type?: string;
+  text?: string;
+}
+
+interface AnthropicVisionResponse {
+  content?: AnthropicVisionTextBlock[];
+}
+
+async function describeImageWithAnthropic(
+  anthropicKey: string,
+  mimeType: string,
+  base64Data: string,
+): Promise<string | null> {
+  if (!anthropicKey) return null;
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5",
+        max_tokens: 1024,
+        messages: [{
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: mimeType,
+                data: base64Data,
+              },
+            },
+            {
+              type: "text",
+              text:
+                "Extract all text and describe what you see in this image. Be concise.",
+            },
+          ],
+        }],
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(
+        `[telegram-bot] describeImageWithAnthropic failed (${res.status}): ${err}`,
+      );
+      return null;
+    }
+
+    const json = await res.json() as AnthropicVisionResponse;
+    const text = (json.content ?? [])
+      .filter((block) =>
+        block.type === "text" && typeof block.text === "string"
+      )
+      .map((block) => block.text?.trim() ?? "")
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+
+    return text || null;
+  } catch (err) {
+    console.error("[telegram-bot] describeImageWithAnthropic threw:", err);
+    return null;
+  }
+}
+
+function isFlagsSchemaCompatibilityError(
+  error: { code?: string; message?: string } | null,
+): boolean {
+  if (!error) return false;
+  if (error.code === "42703" || error.code === "PGRST204") return true;
+  const message = (error.message ?? "").toLowerCase();
+  return message.includes("flags") &&
+    (message.includes("column") || message.includes("schema"));
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +405,10 @@ async function queryIdeasCountToday(
       .gte("created_at", start.toISOString());
 
     if (error) {
-      console.error("[telegram-bot] queryIdeasCountToday failed:", error.message);
+      console.error(
+        "[telegram-bot] queryIdeasCountToday failed:",
+        error.message,
+      );
       return null;
     }
     return count ?? 0;
@@ -322,7 +454,9 @@ function formatUtcTimestamp(iso: string): string {
 }
 
 function formatTextCaptureConfirmation(rawText: string): string {
-  const preview = rawText.length > 200 ? rawText.slice(0, 200) + "..." : rawText;
+  const preview = rawText.length > 200
+    ? rawText.slice(0, 200) + "..."
+    : rawText;
   return `Got it. Captured as an idea.\n\n"${preview}"\n\nYour CPO will triage it soon.`;
 }
 
@@ -434,7 +568,9 @@ export async function generateStreamingIdeaResponse(
 
   if (!res.ok) {
     const errBody = await res.text();
-    console.error(`[telegram-bot] Anthropic API error (${res.status}): ${errBody}`);
+    console.error(
+      `[telegram-bot] Anthropic API error (${res.status}): ${errBody}`,
+    );
     throw new Error(`Anthropic API returned ${res.status}`);
   }
 
@@ -443,7 +579,9 @@ export async function generateStreamingIdeaResponse(
     throw new Error("Anthropic API returned no response body");
   }
 
-  async function* parseSSEStream(stream: ReadableStream<Uint8Array>): AsyncIterable<string> {
+  async function* parseSSEStream(
+    stream: ReadableStream<Uint8Array>,
+  ): AsyncIterable<string> {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -506,8 +644,8 @@ export async function handleCommand(
         ctx.token,
         chatId,
         "Welcome to the Zazig Ideas Bot.\n\n" +
-          "Send me a voice note or text message to capture an idea into your inbox. " +
-          "Voice notes are transcribed automatically.\n\n" +
+          "Send me a voice note, photo, or text message (including links) to capture an idea into your inbox. " +
+          "Voice notes are transcribed automatically, photos are described by AI, and links are summarised.\n\n" +
           "Type /help for more info.",
       );
       break;
@@ -518,7 +656,9 @@ export async function handleCommand(
         chatId,
         "Zazig Ideas Bot\n\n" +
           "• Voice note → transcribed and saved as an idea\n" +
+          "• Photo → image is described by AI and saved as an idea\n" +
           "• Text message → saved directly as an idea\n" +
+          "• Text with a link → page is summarised and saved as an idea\n" +
           "• Your CPO will triage ideas during the next session\n\n" +
           "Commands:\n" +
           "/start – Welcome message\n" +
@@ -549,7 +689,10 @@ export async function handleCommand(
         break;
       }
 
-      const count = await queryIdeasCountToday(ctx.supabase, mapping.company_id);
+      const count = await queryIdeasCountToday(
+        ctx.supabase,
+        mapping.company_id,
+      );
       if (count === null) {
         await sendMessage(
           ctx.token,
@@ -609,7 +752,8 @@ export async function handleCommand(
 
       const lines = ideas.map((idea, idx) => {
         const raw = (idea.raw_text ?? "").replace(/\s+/g, " ").trim();
-        const label = (idea.title ?? "").trim() || (raw ? truncate(raw, 60) : "(empty)");
+        const label = (idea.title ?? "").trim() ||
+          (raw ? truncate(raw, 60) : "(empty)");
         return `${idx + 1}. ${label} — ${formatUtcTimestamp(idea.created_at)}`;
       });
 
@@ -664,7 +808,11 @@ export async function handleVoice(
   }
   const originator = resolveOriginator(message, mapping);
 
-  await sendMessageDraft(ctx.token, chatId, "Got it. Transcribing your voice note...");
+  await sendMessageDraft(
+    ctx.token,
+    chatId,
+    "Got it. Transcribing your voice note...",
+  );
 
   // Download audio from Telegram
   const fileUrl = await getFileDownloadUrl(ctx.token, voice.file_id);
@@ -721,7 +869,9 @@ export async function handleVoice(
   if (error) {
     if (error.code === "23505") {
       // Unique constraint — duplicate delivery, already processed
-      console.log(`[telegram-bot] handleVoice: duplicate ignored for ${sourceRef}`);
+      console.log(
+        `[telegram-bot] handleVoice: duplicate ignored for ${sourceRef}`,
+      );
       return;
     }
     console.error(
@@ -736,7 +886,10 @@ export async function handleVoice(
     return;
   }
 
-  const fallbackText = formatVoiceCaptureConfirmation(transcript, voice.duration);
+  const fallbackText = formatVoiceCaptureConfirmation(
+    transcript,
+    voice.duration,
+  );
 
   if (!ctx.anthropicKey) {
     await sendMessage(ctx.token, chatId, fallbackText);
@@ -744,11 +897,158 @@ export async function handleVoice(
   }
 
   try {
-    const chunkIterator = await generateStreamingIdeaResponse(transcript, ctx.anthropicKey);
+    const chunkIterator = await generateStreamingIdeaResponse(
+      transcript,
+      ctx.anthropicKey,
+    );
     await streamToTelegram(ctx.token, chatId, chunkIterator);
     return;
   } catch (err) {
     console.error("[telegram-bot] handleVoice: Claude streaming failed:", err);
+  }
+
+  await sendMessage(ctx.token, chatId, fallbackText);
+}
+
+// ---------------------------------------------------------------------------
+// handlePhoto — download image, describe with vision, save idea
+// ---------------------------------------------------------------------------
+
+export async function handlePhoto(
+  message: TelegramMessage,
+  ctx: BotContext,
+): Promise<void> {
+  const chatId = message.chat.id;
+  const fromId = message.from?.id;
+  const messageId = message.message_id;
+  const caption = message.caption?.trim();
+  const photo = message.photo?.[message.photo.length - 1];
+
+  if (!fromId) {
+    console.warn("[telegram-bot] handlePhoto: missing from.id");
+    return;
+  }
+
+  if (!photo) {
+    console.warn("[telegram-bot] handlePhoto: no photo on message");
+    return;
+  }
+
+  const mapping = await lookupTelegramUserMapping(ctx.supabase, fromId);
+  if (!mapping) {
+    await sendMessage(
+      ctx.token,
+      chatId,
+      "You are not registered with a Zazig company. Please contact your administrator.",
+    );
+    return;
+  }
+  const originator = resolveOriginator(message, mapping);
+
+  const fileUrl = await getFileDownloadUrl(ctx.token, photo.file_id);
+  if (!fileUrl) {
+    console.error(
+      `[telegram-bot] handlePhoto: could not resolve file URL for file_id=${photo.file_id}`,
+    );
+    await sendMessage(
+      ctx.token,
+      chatId,
+      "Sorry, I could not download your photo. Please try again.",
+    );
+    return;
+  }
+
+  const imageRes = await fetch(fileUrl);
+  if (!imageRes.ok) {
+    console.error(
+      `[telegram-bot] handlePhoto: image download failed (${imageRes.status})`,
+    );
+    await sendMessage(
+      ctx.token,
+      chatId,
+      "Sorry, I could not download your photo. Please try again.",
+    );
+    return;
+  }
+
+  const mimeType =
+    imageRes.headers.get("Content-Type")?.split(";")[0]?.trim() || "image/jpeg";
+  const imageBase64 = btoa(
+    String.fromCharCode(...new Uint8Array(await imageRes.arrayBuffer())),
+  );
+  const visionText = await describeImageWithAnthropic(
+    ctx.anthropicKey,
+    mimeType,
+    imageBase64,
+  );
+  const visionSucceeded = Boolean(visionText);
+
+  let rawText = "[Image — description unavailable]";
+  if (visionSucceeded && caption) {
+    rawText = `${caption}\n\n[Image description]: ${visionText}`;
+  } else if (visionSucceeded && visionText) {
+    rawText = visionText;
+  } else if (caption) {
+    rawText = `${caption}\n\n[Image — description unavailable]`;
+  }
+
+  const sourceRef = `telegram:${chatId}:${messageId}`;
+  const insertPayload: Record<string, unknown> = {
+    company_id: mapping.company_id,
+    raw_text: rawText,
+    source: "telegram",
+    originator,
+    source_ref: sourceRef,
+    status: "new",
+  };
+  if (!visionSucceeded) {
+    insertPayload.flags = ["vision-failed"];
+  }
+
+  let { error } = await ctx.supabase.from("ideas").insert(insertPayload);
+
+  if (error && !visionSucceeded && isFlagsSchemaCompatibilityError(error)) {
+    const { flags: _ignored, ...withoutFlags } = insertPayload;
+    const retry = await ctx.supabase.from("ideas").insert(withoutFlags);
+    error = retry.error;
+  }
+
+  if (error) {
+    if (error.code === "23505") {
+      // Unique constraint — duplicate delivery, already processed
+      console.log(
+        `[telegram-bot] handlePhoto: duplicate ignored for ${sourceRef}`,
+      );
+      return;
+    }
+    console.error(
+      `[telegram-bot] handlePhoto: ideas insert failed for ${sourceRef}:`,
+      error.message,
+    );
+    await sendMessage(
+      ctx.token,
+      chatId,
+      "Sorry, I could not save your idea. Please try again.",
+    );
+    return;
+  }
+
+  const fallbackText = formatTextCaptureConfirmation(rawText);
+
+  if (!ctx.anthropicKey) {
+    await sendMessage(ctx.token, chatId, fallbackText);
+    return;
+  }
+
+  try {
+    const chunkIterator = await generateStreamingIdeaResponse(
+      rawText,
+      ctx.anthropicKey,
+    );
+    await streamToTelegram(ctx.token, chatId, chunkIterator);
+    return;
+  } catch (err) {
+    console.error("[telegram-bot] handlePhoto: Claude streaming failed:", err);
   }
 
   await sendMessage(ctx.token, chatId, fallbackText);
@@ -797,7 +1097,9 @@ export async function handleText(
   if (error) {
     if (error.code === "23505") {
       // Unique constraint — duplicate delivery, already processed
-      console.log(`[telegram-bot] handleText: duplicate ignored for ${sourceRef}`);
+      console.log(
+        `[telegram-bot] handleText: duplicate ignored for ${sourceRef}`,
+      );
       return;
     }
     console.error(
@@ -820,7 +1122,10 @@ export async function handleText(
   }
 
   try {
-    const chunkIterator = await generateStreamingIdeaResponse(rawText, ctx.anthropicKey);
+    const chunkIterator = await generateStreamingIdeaResponse(
+      rawText,
+      ctx.anthropicKey,
+    );
     await streamToTelegram(ctx.token, chatId, chunkIterator);
     return;
   } catch (err) {

@@ -59,19 +59,10 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 
 const SKILLS_MARKER = "<!-- SKILLS -->";
 
-function completionInstructions(role?: string): string {
-  const reportFile = role ? `${role}-report.md` : "cpo-report.md";
-  // ci-checker has its own CRITICAL output format in the role prompt — don't override it.
-  if (role === "ci-checker") {
-    return `## On Completion
-
-Commit all work to the current branch. Do NOT commit .mcp.json, .claude/, or CLAUDE.md.
-Then exit.`;
-  }
+function completionInstructions(): string {
   return `## On Completion
 
 Commit all work to the current branch. Do NOT commit .mcp.json, .claude/, or CLAUDE.md.
-Write your results to .claude/${reportFile} including what was done and any issues.
 Then exit.`;
 }
 
@@ -782,7 +773,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     if (rolePrompt) promptParts.push(rolePrompt);
     promptParts.push(SKILLS_MARKER);
     if (dispatchContext) promptParts.push(dispatchContext);
-    promptParts.push(completionInstructions(resolvedRole));
+    promptParts.push(completionInstructions());
     const promptStackMinusSkills = promptParts.join("\n\n---\n\n");
 
     // Enrich created jobs and transition to queued for poll-based dispatch.

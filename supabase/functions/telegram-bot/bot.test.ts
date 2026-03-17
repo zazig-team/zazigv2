@@ -147,6 +147,11 @@ function extractMessageText(init: unknown): string {
   return body.text ?? "";
 }
 
+function extractJsonBody(init: unknown): Record<string, unknown> {
+  const maybeInit = init as { body?: BodyInit | null } | undefined;
+  return JSON.parse(String(maybeInit?.body ?? "{}")) as Record<string, unknown>;
+}
+
 async function* toAsyncChunks(chunks: string[]): AsyncIterable<string> {
   for (const chunk of chunks) {
     yield chunk;
@@ -384,6 +389,259 @@ Deno.test("handleText streams Claude response when anthropic key is set", async 
   assertEquals(finalTexts.length, 1);
   assertEquals(draftTexts[0], streamedChunkA);
   assertEquals(finalTexts[0], `${streamedChunkA}${streamedChunkB}`);
+});
+
+Deno.test("handleText appends first URL summary to raw_text and streams enriched prompt", async () => {
+  const draftTexts: string[] = [];
+  const finalTexts: string[] = [];
+  const fetchedUrls: string[] = [];
+  const streamedChunk = "C".repeat(64);
+  const summary = "Clear summary from the linked page.";
+  let streamPrompt = "";
+
+  const restoreFetch = installFetchMock(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/sendMessageDraft")) {
+      draftTexts.push(extractMessageText(init));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.endsWith("/sendMessage")) {
+      finalTexts.push(extractMessageText(init));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.startsWith("https://example.com/first")) {
+      fetchedUrls.push(url);
+      return new Response("<html><body>First URL body text for summary.</body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    if (url.startsWith("https://example.com/second")) {
+      throw new Error("Second URL should not be fetched");
+    }
+
+    if (url === "https://api.anthropic.com/v1/messages") {
+      const body = extractJsonBody(init);
+      const model = String(body["model"] ?? "");
+
+      if (model === "claude-haiku-4-5") {
+        const messages = body["messages"] as Array<{ content?: string }> | undefined;
+        const summaryPrompt = messages?.[0]?.content ?? "";
+        assertStringIncludes(summaryPrompt, "Summarise this web page content in 2-3 sentences:");
+        assertStringIncludes(summaryPrompt, "First URL body text for summary.");
+        return new Response(JSON.stringify({ content: [{ text: summary }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      const messages = body["messages"] as Array<{ content?: string }> | undefined;
+      streamPrompt = messages?.[0]?.content ?? "";
+
+      const streamBody = [
+        `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"${streamedChunk}"}}\n\n`,
+        "data: {\"type\":\"message_stop\"}\n\n",
+      ].join("");
+      return new Response(streamBody, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }
+
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  });
+
+  const { supabase, insertCalls } = createMockSupabase();
+  const originalText =
+    "Please review https://example.com/first and https://example.com/second";
+  const expectedRawText = `${originalText}\n\n[Link summary]: ${summary}`;
+
+  try {
+    await handleText(
+      makeMessage({
+        text: originalText,
+      }),
+      makeContext(supabase, { anthropicKey: "anthropic-test-key" }),
+    );
+  } finally {
+    restoreFetch();
+  }
+
+  assertEquals(insertCalls.length, 1);
+  assertEquals(insertCalls[0]["raw_text"], expectedRawText);
+  assertEquals(streamPrompt, expectedRawText);
+  assertEquals(fetchedUrls, ["https://example.com/first"]);
+  assertEquals(draftTexts.length, 1);
+  assertEquals(draftTexts[0], streamedChunk);
+  assertEquals(finalTexts.length, 1);
+  assertEquals(finalTexts[0], streamedChunk);
+});
+
+Deno.test("handleText keeps original text when URL fetch fails", async () => {
+  const streamedChunk = "D".repeat(64);
+  const finalTexts: string[] = [];
+  const draftTexts: string[] = [];
+  let streamPrompt = "";
+  let summaryCallCount = 0;
+
+  const restoreFetch = installFetchMock(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/sendMessageDraft")) {
+      draftTexts.push(extractMessageText(init));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.endsWith("/sendMessage")) {
+      finalTexts.push(extractMessageText(init));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.startsWith("https://broken.example.com/page")) {
+      return new Response("bad gateway", { status: 502 });
+    }
+
+    if (url === "https://api.anthropic.com/v1/messages") {
+      const body = extractJsonBody(init);
+      if (String(body["model"] ?? "") === "claude-haiku-4-5") {
+        summaryCallCount += 1;
+        throw new Error("Summary API should not be called when link fetch fails");
+      }
+
+      const messages = body["messages"] as Array<{ content?: string }> | undefined;
+      streamPrompt = messages?.[0]?.content ?? "";
+
+      const streamBody = [
+        `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"${streamedChunk}"}}\n\n`,
+        "data: {\"type\":\"message_stop\"}\n\n",
+      ].join("");
+      return new Response(streamBody, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }
+
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  });
+
+  const { supabase, insertCalls } = createMockSupabase();
+  const originalText = "Broken URL test https://broken.example.com/page";
+
+  try {
+    await handleText(
+      makeMessage({
+        text: originalText,
+      }),
+      makeContext(supabase, { anthropicKey: "anthropic-test-key" }),
+    );
+  } finally {
+    restoreFetch();
+  }
+
+  assertEquals(insertCalls.length, 1);
+  assertEquals(insertCalls[0]["raw_text"], originalText);
+  assertEquals(streamPrompt, originalText);
+  assertEquals(summaryCallCount, 0);
+  assertEquals(draftTexts.length, 1);
+  assertEquals(draftTexts[0], streamedChunk);
+  assertEquals(finalTexts.length, 1);
+  assertEquals(finalTexts[0], streamedChunk);
+});
+
+Deno.test("handleText keeps original text when URL summarization fails", async () => {
+  const streamedChunk = "E".repeat(64);
+  const draftTexts: string[] = [];
+  const finalTexts: string[] = [];
+  let streamPrompt = "";
+  let summaryCallCount = 0;
+
+  const restoreFetch = installFetchMock(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/sendMessageDraft")) {
+      draftTexts.push(extractMessageText(init));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.endsWith("/sendMessage")) {
+      finalTexts.push(extractMessageText(init));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.startsWith("https://example.com/fails-summary")) {
+      return new Response("<html><body>Body that can be summarized.</body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    if (url === "https://api.anthropic.com/v1/messages") {
+      const body = extractJsonBody(init);
+      if (String(body["model"] ?? "") === "claude-haiku-4-5") {
+        summaryCallCount += 1;
+        return new Response("summary failed", { status: 500 });
+      }
+
+      const messages = body["messages"] as Array<{ content?: string }> | undefined;
+      streamPrompt = messages?.[0]?.content ?? "";
+
+      const streamBody = [
+        `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"${streamedChunk}"}}\n\n`,
+        "data: {\"type\":\"message_stop\"}\n\n",
+      ].join("");
+      return new Response(streamBody, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }
+
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  });
+
+  const { supabase, insertCalls } = createMockSupabase();
+  const originalText = "Summary failure URL test https://example.com/fails-summary";
+
+  try {
+    await handleText(
+      makeMessage({
+        text: originalText,
+      }),
+      makeContext(supabase, { anthropicKey: "anthropic-test-key" }),
+    );
+  } finally {
+    restoreFetch();
+  }
+
+  assertEquals(insertCalls.length, 1);
+  assertEquals(insertCalls[0]["raw_text"], originalText);
+  assertEquals(streamPrompt, originalText);
+  assertEquals(summaryCallCount, 1);
+  assertEquals(draftTexts.length, 1);
+  assertEquals(draftTexts[0], streamedChunk);
+  assertEquals(finalTexts.length, 1);
+  assertEquals(finalTexts[0], streamedChunk);
 });
 
 Deno.test("handleText falls back to static confirmation on Claude error", async () => {

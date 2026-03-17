@@ -3145,15 +3145,8 @@ function deleteLogFile(logPath: string): void {
   }
 }
 
-function // DEBUG: cleanupJobWorkspace(jobId: string, workspaceDir?: string): void {
-  try {
-    const target = workspaceDir && workspaceDir.trim().length > 0
-      ? workspaceDir
-      : join(homedir(), ".zazigv2", `job-${jobId}`);
-    rmSync(target, { recursive: true });
-  } catch {
-    // workspace may not exist (no subAgentPrompt was written) -- fine
-  }
+function cleanupJobWorkspace(_jobId: string, _workspaceDir?: string): void {
+  // DEBUG: disabled to preserve job artifacts for inspection
 }
 
 // ---------------------------------------------------------------------------

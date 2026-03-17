@@ -1,6 +1,7 @@
 status: pass
-summary: Updated JobDetailExpand to render a progress bar for completed/failed jobs with a 100% fallback when progress is missing, satisfying AC-3-1.
+summary: Added Telegram photo handling with Anthropic vision extraction, resilient idea insertion, and test coverage for success and vision-failure paths.
 files_changed:
-  - packages/webui/src/components/JobDetailExpand.tsx
+  - supabase/functions/telegram-bot/bot.ts
+  - supabase/functions/telegram-bot/bot.test.ts
   - .claude/senior-engineer-report.md
-failure_reason:
+failure_reason: ""

@@ -2135,6 +2135,7 @@ export class JobExecutor {
     }
 
     if (report) {
+      jobLog(jobId, `Report raw content (${report.length} chars): ${JSON.stringify(report)}`);
       // Check for structured report format (status: pass/passed/success/fail/failed)
       const passMatch = report.match(/^status:\s*(pass(?:ed)?|success|fail(?:ed)?)\s*$/m);
       if (passMatch) {

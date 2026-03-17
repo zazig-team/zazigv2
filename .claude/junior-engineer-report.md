@@ -1,6 +1,8 @@
 status: pass
-summary: Removed the inline verify-time PR merge logic from onJobEnded so merging is handled only by orchestrator merge jobs.
+summary: Added the new writing_tests pipeline status across WebUI pipeline typing, grouping, filtering, metrics, and color tokens.
 files_changed:
-  - packages/local-agent/src/executor.ts
+  - packages/webui/src/pages/Pipeline.tsx
+  - packages/webui/src/hooks/usePipelineSnapshot.ts
+  - packages/webui/src/tokens.css
   - .claude/junior-engineer-report.md
-failure_reason: 
+failure_reason:

@@ -1629,6 +1629,94 @@ export async function triggerBreakdown(
   );
 }
 
+export async function triggerTestWriting(
+  supabase: SupabaseClient,
+  featureId: string,
+): Promise<void> {
+  const { data: feature, error } = await supabase
+    .from("features")
+    .select("company_id, project_id, title, spec, acceptance_tests")
+    .eq("id", featureId)
+    .single();
+
+  if (error || !feature) {
+    console.error(
+      `[orchestrator] triggerTestWriting: feature ${featureId} not found`,
+    );
+    return;
+  }
+
+  const { data: updated, error: transitionErr } = await supabase
+    .from("features")
+    .update({ status: "writing_tests" })
+    .eq("id", featureId)
+    .eq("status", "breaking_down")
+    .select("id");
+
+  if (transitionErr) {
+    console.error(
+      `[orchestrator] triggerTestWriting: failed to transition feature ${featureId} to writing_tests:`,
+      transitionErr.message,
+    );
+    return;
+  }
+
+  if (!updated || updated.length === 0) return;
+
+  const { data: existing } = await supabase
+    .from("jobs")
+    .select("id, status")
+    .eq("feature_id", featureId)
+    .eq("job_type", "test")
+    .in("status", ["created", "queued", "executing", "blocked", "complete"])
+    .maybeSingle();
+
+  if (existing) {
+    console.log(
+      `[orchestrator] triggerTestWriting: test job ${existing.id} (${existing.status}) already exists for feature ${featureId}, skipping`,
+    );
+    return;
+  }
+
+  const { data: job, error: insertErr } = await supabase
+    .from("jobs")
+    .insert({
+      company_id: feature.company_id,
+      project_id: feature.project_id,
+      feature_id: featureId,
+      title: "Writing tests for feature",
+      role: "test-engineer",
+      job_type: "test",
+      slot_type: "claude_code",
+      model: "claude-sonnet-4-6",
+      complexity: "medium",
+      status: "created",
+      context: JSON.stringify({
+        type: "test",
+        featureId,
+        title: feature.title,
+        spec: feature.spec,
+        acceptance_tests: feature.acceptance_tests,
+        test_dir: "tests/features/",
+        example_tests: ["packages/local-agent/src/executor.test.ts"],
+      }),
+    })
+    .select("id")
+    .single();
+
+  if (insertErr || !job) {
+    console.error(
+      `[orchestrator] triggerTestWriting: failed to insert test job for feature ${featureId}:`,
+      insertErr?.message,
+    );
+    return;
+  }
+
+  console.log(
+    `[orchestrator] triggerTestWriting: queued test job ${job.id} for feature ${featureId}`,
+  );
+}
+
 // processReadyForBreakdown: polls for features in 'breaking_down' that need a breakdown job created.
 // Features enter 'breaking_down' when the CPO approves them for development.
 async function processReadyForBreakdown(
@@ -1846,7 +1934,8 @@ async function checkExecutingJobsForHeartbeatTimeout(
  *   0. Executing-job heartbeat timeout check for long-running jobs
  *   1. Failed job catch-up: logs features with failed jobs for attention
  *   1b. deploy_to_test guard: fails queued/executing deploy jobs for terminal features
- *   2. breaking_down → building: all breakdown jobs for the feature are complete
+ *   2. breaking_down → writing_tests: all breakdown jobs for the feature are complete
+ *   2b. writing_tests → building: the test job for the feature is complete
  *   3. building → combining_and_pr: all implementation jobs are complete
  *   4. ci_checking catch-up: re-create ci_check job if none is active (Realtime miss recovery)
  *   5. merging → complete: the latest merge job is complete and passed
@@ -2000,7 +2089,7 @@ async function processFeatureLifecycle(
     }
   }
 
-  // --- 2. breaking_down → building ---
+  // --- 2. breaking_down → writing_tests ---
   // Features stuck in 'breaking_down' where the breakdown job is complete
   const { data: breakdownFeatures, error: bErr } = await supabase
     .from("features")
@@ -2049,17 +2138,18 @@ async function processFeatureLifecycle(
       if (!completeBreakdown || completeBreakdown.length === 0) {
         continue; // No complete breakdown — wait for one to finish
       }
-      // All breakdown jobs done — transition to building
-      const { data: updated } = await supabase
-        .from("features")
-        .update({ status: "building" })
-        .eq("id", feature.id)
-        .eq("status", "breaking_down")
-        .select("id");
+      // All breakdown jobs done — transition to writing_tests and queue test job
+      await triggerTestWriting(supabase, feature.id);
 
-      if (updated && updated.length > 0) {
+      const { data: transitionedFeature } = await supabase
+        .from("features")
+        .select("status")
+        .eq("id", feature.id)
+        .maybeSingle();
+
+      if (transitionedFeature?.status === "writing_tests") {
         console.log(
-          `[orchestrator] processFeatureLifecycle: feature ${feature.id} breaking_down → building`,
+          `[orchestrator] processFeatureLifecycle: feature ${feature.id} breaking_down → writing_tests`,
         );
 
         // Auto-generate branch name if not already set.
@@ -2110,6 +2200,81 @@ async function processFeatureLifecycle(
           }" broken into ${totalJobs} jobs. ${dispatchable} immediately dispatchable.`,
         );
       }
+    }
+  }
+
+  // --- 2b. writing_tests → building ---
+  // Features in writing_tests where test job is complete
+  const { data: writingTestsFeatures, error: writingTestsErr } = await supabase
+    .from("features")
+    .select("id, company_id")
+    .eq("status", "writing_tests")
+    .limit(50);
+
+  if (writingTestsErr) {
+    console.error(
+      "[orchestrator] processFeatureLifecycle: error querying writing_tests features:",
+      writingTestsErr.message,
+    );
+  }
+
+  for (const feature of writingTestsFeatures ?? []) {
+    const { data: testJob } = await supabase
+      .from("jobs")
+      .select("id, status")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "test")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (!testJob || testJob.length === 0) {
+      continue;
+    }
+
+    const latestTestJob = testJob[0] as { id: string; status: string };
+    if (latestTestJob.status === "failed") {
+      continue; // Retry/escalation is handled elsewhere
+    }
+    if (latestTestJob.status !== "complete") {
+      continue; // Test job still running/in progress
+    }
+
+    const { data: updated } = await supabase
+      .from("features")
+      .update({ status: "building" })
+      .eq("id", feature.id)
+      .eq("status", "writing_tests")
+      .select("id");
+
+    if (updated && updated.length > 0) {
+      console.log(
+        `[orchestrator] processFeatureLifecycle: feature ${feature.id} writing_tests → building`,
+      );
+
+      // Notify CPO
+      const { data: featureJobs } = await supabase
+        .from("jobs")
+        .select("id, depends_on")
+        .eq("feature_id", feature.id)
+        .in("status", ["created", "queued"])
+        .neq("job_type", "breakdown");
+      const totalJobs = featureJobs?.length ?? 0;
+      const dispatchable = featureJobs?.filter(
+        (j: { depends_on: string[] | null }) =>
+          !j.depends_on || j.depends_on.length === 0,
+      ).length ?? 0;
+      const { data: feat } = await supabase
+        .from("features")
+        .select("title")
+        .eq("id", feature.id)
+        .single();
+      await notifyCPO(
+        supabase,
+        feature.company_id,
+        `Feature "${
+          feat?.title ?? feature.id
+        }" broken into ${totalJobs} jobs. ${dispatchable} immediately dispatchable.`,
+      );
     }
   }
 
@@ -3651,7 +3816,8 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 2. Process breaking_down features → create breakdown jobs.
     await processReadyForBreakdown(supabase);
 
-    // 3. Catch missed feature lifecycle transitions (breakdown→building, building→combining).
+    // 3. Catch missed feature lifecycle transitions
+    //    (breakdown→writing_tests→building, building→combining).
     //    The executor writes job status directly to DB — if the Realtime broadcast was
     //    missed during the 4s listen window, these transitions would never fire.
     await processFeatureLifecycle(supabase);

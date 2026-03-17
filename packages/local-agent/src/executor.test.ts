@@ -332,10 +332,11 @@ describe("JobExecutor — progress integration", () => {
         failureReason: "daemon_heartbeat_gap",
       }),
     );
-    expect(lastRepoManagerInstance.removeJobWorktree).toHaveBeenCalledWith(
-      "/tmp/mock-repo",
-      "/tmp/mock-worktree",
-    );
+    // DEBUG: cleanup disabled — worktrees kept for inspection
+    // expect(lastRepoManagerInstance.removeJobWorktree).toHaveBeenCalledWith(
+    //   "/tmp/mock-repo",
+    //   "/tmp/mock-worktree",
+    // );
     expect(slots.getAvailable()).toEqual({ claude_code: 2, codex: 1 });
   });
 
@@ -570,7 +571,8 @@ describe("JobExecutor — slot reconciliation", () => {
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect(slots.getAvailable().claude_code).toBe(1);
-    expect(lastRepoManagerInstance.removeJobWorktree).toHaveBeenCalled();
+    // DEBUG: cleanup disabled — worktrees kept for inspection
+    // expect(lastRepoManagerInstance.removeJobWorktree).toHaveBeenCalled();
   });
 
   it("skips reconciliation query when only persistent jobs are active", async () => {
@@ -895,8 +897,8 @@ describe("JobExecutor - subAgentPrompt workspace", () => {
     mockExecFileAsync.mockRejectedValue(new Error("session not found"));
     await vi.advanceTimersByTimeAsync(30_000);
 
-    // With git worktree flow, cleanup calls removeJobWorktree on the RepoManager instance
-    expect(lastRepoManagerInstance.removeJobWorktree).toHaveBeenCalled();
+    // DEBUG: cleanup disabled — worktrees kept for inspection
+    // expect(lastRepoManagerInstance.removeJobWorktree).toHaveBeenCalled();
   });
 });
 

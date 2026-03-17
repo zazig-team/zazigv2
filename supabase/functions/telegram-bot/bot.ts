@@ -580,8 +580,8 @@ export async function handleCommand(
         ctx.token,
         chatId,
         "Welcome to the Zazig Ideas Bot.\n\n" +
-          "Send me a voice note or text message to capture an idea into your inbox. " +
-          "Voice notes are transcribed automatically.\n\n" +
+          "Send me a voice note, photo, or text message (including links) to capture an idea into your inbox. " +
+          "Voice notes are transcribed automatically, photos are described by AI, and links are summarised.\n\n" +
           "Type /help for more info.",
       );
       break;
@@ -592,7 +592,9 @@ export async function handleCommand(
         chatId,
         "Zazig Ideas Bot\n\n" +
           "• Voice note → transcribed and saved as an idea\n" +
+          "• Photo → image is described by AI and saved as an idea\n" +
           "• Text message → saved directly as an idea\n" +
+          "• Text with a link → page is summarised and saved as an idea\n" +
           "• Your CPO will triage ideas during the next session\n\n" +
           "Commands:\n" +
           "/start – Welcome message\n" +

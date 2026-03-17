@@ -16,6 +16,7 @@ import {
   type TelegramMessage,
   type TelegramUpdate,
   handleCommand,
+  handlePhoto,
   handleText,
   handleVoice,
 } from "./bot.ts";
@@ -133,6 +134,8 @@ async function processUpdate(update: TelegramUpdate): Promise<void> {
   // Route by message type
   if (message.voice || message.audio) {
     await handleVoice(message, ctx);
+  } else if (message.photo) {
+    await handlePhoto(message, ctx);
   } else if (message.text?.startsWith("/")) {
     await handleCommand(message, ctx);
   } else if (message.text) {

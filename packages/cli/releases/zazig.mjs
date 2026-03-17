@@ -13672,9 +13672,16 @@ var ZAZIGV2_DIR3 = join5(homedir4(), ".zazigv2");
 var PID_PATH = join5(ZAZIGV2_DIR3, "daemon.pid");
 var LOG_DIR = join5(ZAZIGV2_DIR3, "logs");
 var LOG_PATH = join5(LOG_DIR, "agent.log");
+var IS_STAGING = process.env["ZAZIG_ENV"] === "staging";
 function resolveAgentEntry() {
   try {
     const resolved = fileURLToPath(import.meta.resolve("@zazigv2/local-agent"));
+    if (IS_STAGING) {
+      if (resolved.includes("/src/") || resolved.endsWith(".ts"))
+        return resolved;
+      const pkgDir = resolved.replace(/\/dist\/.*$/, "");
+      return resolve(pkgDir, "src/index.ts");
+    }
     if (resolved.includes("/src/") || resolved.endsWith(".ts")) {
       const pkgDir = resolved.replace(/\/src\/.*$/, "");
       return resolve(pkgDir, "dist/index.js");
@@ -13682,6 +13689,8 @@ function resolveAgentEntry() {
     return resolved;
   } catch {
     const thisDir2 = dirname(fileURLToPath(import.meta.url));
+    if (IS_STAGING)
+      return resolve(thisDir2, "../../local-agent/src/index.ts");
     return resolve(thisDir2, "../../local-agent/dist/index.js");
   }
 }
@@ -13738,8 +13747,8 @@ function startDaemonForCompany(env, companyId, agentEntryOverride) {
   const agentEntry = agentEntryOverride ?? resolveAgentEntry();
   const logPath = logPathForCompany(companyId);
   const logFd = openSync(logPath, "a");
-  const isScript = agentEntry.endsWith(".mjs") || agentEntry.endsWith(".js");
-  const command = isScript ? process.execPath : agentEntry;
+  const isScript = agentEntry.endsWith(".mjs") || agentEntry.endsWith(".js") || agentEntry.endsWith(".ts");
+  const command = IS_STAGING ? "bun" : isScript ? process.execPath : agentEntry;
   const args2 = isScript ? [agentEntry] : [];
   const child = spawn(command, args2, {
     detached: true,
@@ -14305,9 +14314,11 @@ async function downloadAndInstall(version3) {
     }
   }
   const tag = `v${version3}`;
+  const githubToken = process.env["GITHUB_TOKEN"];
+  const authHeaders = githubToken ? { Authorization: `Bearer ${githubToken}` } : {};
   for (const { remote, local } of ASSETS) {
     const url = `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${remote}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: authHeaders });
     if (!res.ok) {
       throw new Error(`Download failed for ${remote}: ${res.status} ${res.statusText}`);
     }
@@ -14881,7 +14892,7 @@ async function switchArchetype(supabaseUrl, companyId, headers, roleName, roleId
 
 // dist/commands/promote.js
 import { execSync as execSync5 } from "node:child_process";
-import { chmodSync as chmodSync3, cpSync as cpSync3, existsSync as existsSync10, mkdirSync as mkdirSync8, readFileSync as readFileSync9, rmSync as rmSync4, writeFileSync as writeFileSync8 } from "node:fs";
+import { existsSync as existsSync10, readFileSync as readFileSync9, rmSync as rmSync4, writeFileSync as writeFileSync8 } from "node:fs";
 import { join as join12 } from "node:path";
 import { homedir as homedir11 } from "node:os";
 import { createInterface as createInterface5 } from "node:readline/promises";
@@ -15252,22 +15263,6 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
     process.exitCode = 1;
     return;
   }
-  console.log("\nInstalling binaries locally...");
-  const binDir = join12(homedir11(), ".zazigv2", "bin");
-  mkdirSync8(binDir, { recursive: true });
-  const localBinaries = [
-    { src: join12(compileOutDir, "zazig-cli-darwin-arm64"), dest: join12(binDir, "zazig") },
-    { src: join12(compileOutDir, "zazig-agent-darwin-arm64"), dest: join12(binDir, "zazig-agent") },
-    { src: join12(compileOutDir, "agent-mcp-server-darwin-arm64"), dest: join12(binDir, "agent-mcp-server") }
-  ];
-  for (const { src, dest } of localBinaries) {
-    if (existsSync10(src)) {
-      cpSync3(src, dest);
-      chmodSync3(dest, 493);
-    }
-  }
-  writeFileSync8(join12(binDir, ".version"), newVersion);
-  console.log(`Binaries installed to ${binDir}`);
   console.log("\nCreating GitHub Release...");
   const tag = `v${newVersion}`;
   try {
@@ -15285,7 +15280,7 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   console.log(`
 Promoted to production v${newVersion} (${sha}).`);
   console.log("CI will deploy Supabase migrations and edge functions.");
-  console.log("Restart your production agent to use the new build: zazig stop && zazig start");
+  console.log("Run 'zazig start' to auto-update to the new version.");
 }
 
 // dist/commands/hotfix.js

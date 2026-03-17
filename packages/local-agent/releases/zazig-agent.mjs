@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "be8ade2";
+const AGENT_BUILD_HASH = "80cc2bd";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -8107,7 +8107,7 @@ function isStartJob(v) {
   if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(v.jobId)) return false;
   if (!isString(v.cardId) || v.cardId.length === 0) return false;
-  if (!["code", "infra", "design", "research", "docs", "persistent_agent", "verify", "breakdown", "combine", "merge", "deploy_to_test", "deploy_to_prod", "review", "bug", "feature_test"].includes(v.cardType)) return false;
+  if (!["code", "infra", "design", "research", "docs", "persistent_agent", "verify", "breakdown", "combine", "merge", "deploy_to_test", "deploy_to_prod", "review", "bug", "feature_test", "ci_check"].includes(v.cardType)) return false;
   if (!["simple", "medium", "complex"].includes(v.complexity)) return false;
   if (!["claude_code", "codex"].includes(v.slotType)) return false;
   if (!isString(v.model) || !ALLOWED_MODELS.has(v.model)) return false;
@@ -15229,9 +15229,9 @@ ${msg.text}`;
       }
     }
     if (report) {
-      const passMatch = report.match(/^status:\s*(pass|success|fail)\s*$/m);
+      const passMatch = report.match(/^status:\s*(pass(?:ed)?|success|fail(?:ed)?)\s*$/m);
       if (passMatch) {
-        const prefix = passMatch[1] === "fail" ? "FAILED" : "PASSED";
+        const prefix = passMatch[1].startsWith("fail") ? "FAILED" : "PASSED";
         const reasonMatch = report.match(/^failure_reason:\s*(.+)$/m);
         result = reasonMatch?.[1]?.trim() ? `${prefix}: ${reasonMatch[1].trim()}` : prefix;
       } else {

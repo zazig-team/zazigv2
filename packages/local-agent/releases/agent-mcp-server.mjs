@@ -36009,6 +36009,41 @@ server.tool("create_project", "Create a new project for a company. Used by the P
     isError: true
   };
 }));
+server.tool("update_project", "Update project settings. Set test_command and build_command to enable automatic CI workflow injection on PRs.", {
+  project_id: external_exports3.string().describe("ID of the project to update"),
+  name: external_exports3.string().optional().describe("New project name"),
+  description: external_exports3.string().optional().describe("New project description"),
+  test_command: external_exports3.string().optional().describe("Test command used by CI workflow injection"),
+  build_command: external_exports3.string().optional().describe("Build command used by CI workflow injection")
+}, guardedHandler("update_project", async ({ project_id, name, description, test_command, build_command }) => {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return {
+      content: [{ type: "text", text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+      isError: true
+    };
+  }
+  const response = await fetch(`${supabaseUrl}/functions/v1/update-project`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${supabaseAnonKey}`
+    },
+    body: JSON.stringify({ project_id, name, description, test_command, build_command })
+  });
+  if (response.ok) {
+    const data = await response.json();
+    return {
+      content: [{ type: "text", text: JSON.stringify(data.project, null, 2) }]
+    };
+  }
+  const errorBody = await response.text().catch(() => "unknown error");
+  return {
+    content: [{ type: "text", text: `Failed to update project (HTTP ${response.status}): ${errorBody}` }],
+    isError: true
+  };
+}));
 server.tool("batch_create_features", "Atomically create multiple feature outlines for a project. Used by the Project Architect after decomposing a plan into features via featurify.", {
   project_id: external_exports3.string().describe("Parent project UUID"),
   features: external_exports3.array(external_exports3.object({

@@ -630,9 +630,9 @@ export class JobExecutor {
 
     const cleanupPreparedWorkspace = async (): Promise<void> => {
       if (worktreePath && repoDir) {
-        await this.repoManager.removeJobWorktree(repoDir, worktreePath);
+        // DEBUG: await this.repoManager.removeJobWorktree(repoDir, worktreePath);
       } else if (ephemeralWorkspaceDir) {
-        cleanupJobWorkspace(jobId, ephemeralWorkspaceDir);
+        // DEBUG: cleanupJobWorkspace(jobId, ephemeralWorkspaceDir);
       }
     };
 
@@ -1113,9 +1113,9 @@ export class JobExecutor {
       this.clearJobTimers(job);
       await killTmuxSession(job.sessionName);
       if (job.worktreePath && job.repoDir) {
-        await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+        // DEBUG: await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
       } else {
-        cleanupJobWorkspace(job.jobId, job.workspaceDir);
+        // DEBUG: cleanupJobWorkspace(job.jobId, job.workspaceDir);
       }
       if (job.slotAcquired) this.slots.release(job.slotType);
     }
@@ -1229,9 +1229,9 @@ export class JobExecutor {
     }
 
     if (job.worktreePath && job.repoDir) {
-      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      // DEBUG: await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
-      cleanupJobWorkspace(job.jobId, job.workspaceDir);
+      // DEBUG: cleanupJobWorkspace(job.jobId, job.workspaceDir);
     }
 
     if (job.slotAcquired) this.slots.release(job.slotType);
@@ -1726,9 +1726,9 @@ export class JobExecutor {
     // Clean up log file and worktree
     // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
     if (job.worktreePath && job.repoDir) {
-      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      // DEBUG: await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
-      cleanupJobWorkspace(jobId, job.workspaceDir);
+      // DEBUG: cleanupJobWorkspace(jobId, job.workspaceDir);
     }
 
     // Release the slot (persistent agents don't consume slots)
@@ -1892,9 +1892,9 @@ export class JobExecutor {
 
     // deleteLogFile(job.logPath); // Disabled — keeping logs for debugging
     if (job.worktreePath && job.repoDir) {
-      await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+      // DEBUG: await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
     } else {
-      cleanupJobWorkspace(jobId, job.workspaceDir);
+      // DEBUG: cleanupJobWorkspace(jobId, job.workspaceDir);
     }
 
     // Only release slot for non-persistent jobs
@@ -2208,7 +2208,7 @@ export class JobExecutor {
         console.warn(`[executor] onJobEnded: push failed for jobId=${jobId}: ${String(pushErr)}`);
       }
       try {
-        await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
+        // DEBUG: await this.repoManager.removeJobWorktree(job.repoDir!, job.worktreePath);
       } catch (worktreeErr) {
         jobLog(jobId, `Worktree cleanup failed (non-fatal): ${String(worktreeErr)}`);
         console.warn(`[executor] Worktree cleanup failed for jobId=${jobId}: ${String(worktreeErr)}`);
@@ -2219,7 +2219,7 @@ export class JobExecutor {
         pr = await this.createPRForCombineJob(jobId, job);
       }
     } else {
-      cleanupJobWorkspace(jobId, job.workspaceDir);
+      // DEBUG: cleanupJobWorkspace(jobId, job.workspaceDir);
     }
 
     if (result === "PASSED" || result.startsWith("PASSED:")) {
@@ -2479,12 +2479,12 @@ export class JobExecutor {
 
     if (job.worktreePath && job.repoDir) {
       try {
-        await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
+        // DEBUG: await this.repoManager.removeJobWorktree(job.repoDir, job.worktreePath);
       } catch (err) {
         console.warn(`[executor] Failed to clean worktree for jobId=${jobId}: ${String(err)}`);
       }
     } else {
-      cleanupJobWorkspace(jobId, job.workspaceDir);
+      // DEBUG: cleanupJobWorkspace(jobId, job.workspaceDir);
     }
   }
 
@@ -3145,7 +3145,7 @@ function deleteLogFile(logPath: string): void {
   }
 }
 
-function cleanupJobWorkspace(jobId: string, workspaceDir?: string): void {
+function // DEBUG: cleanupJobWorkspace(jobId: string, workspaceDir?: string): void {
   try {
     const target = workspaceDir && workspaceDir.trim().length > 0
       ? workspaceDir

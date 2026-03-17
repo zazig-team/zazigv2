@@ -76,6 +76,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: "Idea not found" }, 404);
     }
 
+    const { data: promotions } = await supabase
+      .from("idea_promotions")
+      .select("*")
+      .eq("idea_id", idea_id)
+      .order("promoted_at", { ascending: true });
+
     const ideaSummary = {
       id: idea.id,
       title: idea.title,
@@ -89,6 +95,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!idea.promoted_to_type) {
       return jsonResponse({
         idea: ideaSummary,
+        promotions: promotions ?? [],
         promoted_to: null,
         summary: `Idea '${idea.title || idea.raw_text}' is ${idea.status}. Not yet promoted.`,
       });
@@ -105,6 +112,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (!feature) {
         return jsonResponse({
           idea: ideaSummary,
+          promotions: promotions ?? [],
           promoted_to: { type: "feature", id: idea.promoted_to_id, error: "Feature not found" },
           summary: `Idea '${idea.title || idea.raw_text}' was promoted to a feature but the feature was not found.`,
         });
@@ -134,6 +142,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
       return jsonResponse({
         idea: ideaSummary,
+        promotions: promotions ?? [],
         promoted_to: {
           type: "feature",
           id: feature.id,
@@ -158,6 +167,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (!job) {
         return jsonResponse({
           idea: ideaSummary,
+          promotions: promotions ?? [],
           promoted_to: { type: "job", id: idea.promoted_to_id, error: "Job not found" },
           summary: `Idea '${idea.title || idea.raw_text}' was promoted to a job but the job was not found.`,
         });
@@ -165,6 +175,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
       return jsonResponse({
         idea: ideaSummary,
+        promotions: promotions ?? [],
         promoted_to: {
           type: "job",
           id: job.id,
@@ -179,6 +190,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (idea.promoted_to_type === "research") {
       return jsonResponse({
         idea: ideaSummary,
+        promotions: promotions ?? [],
         promoted_to: { type: "research" },
         summary: `Idea '${idea.title || idea.raw_text}' has been promoted to research.`,
       });
@@ -187,6 +199,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Fallback for unknown promoted_to_type
     return jsonResponse({
       idea: ideaSummary,
+      promotions: promotions ?? [],
       promoted_to: { type: idea.promoted_to_type },
       summary: `Idea '${idea.title || idea.raw_text}' promoted to ${idea.promoted_to_type}.`,
     });

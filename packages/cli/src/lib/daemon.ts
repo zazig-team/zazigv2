@@ -23,25 +23,31 @@ const PID_PATH = join(ZAZIGV2_DIR, "daemon.pid");
 const LOG_DIR = join(ZAZIGV2_DIR, "logs");
 export const LOG_PATH = join(LOG_DIR, "agent.log");
 
+const IS_STAGING = process.env["ZAZIG_ENV"] === "staging";
+
 /**
- * Resolve the local-agent's entry point (dist/index.js).
- * Primary: import.meta.resolve (ESM-aware, correct for "type":"module" packages).
- * Fallback: adjacent package path (monorepo dev mode, no node_modules installed).
+ * Resolve the local-agent's entry point.
+ * Staging: returns src/index.ts so bun runs it directly from source.
+ * Production: returns dist/index.js (compiled binary path).
  */
 function resolveAgentEntry(): string {
   try {
     const resolved = fileURLToPath(import.meta.resolve("@zazigv2/local-agent"));
-    // When CLI is run via tsx, import.meta.resolve returns the .ts source path.
-    // The daemon spawns with raw node, so we must always point to dist/index.js.
+    if (IS_STAGING) {
+      // bun runs TypeScript directly — use the source file
+      if (resolved.includes("/src/") || resolved.endsWith(".ts")) return resolved;
+      const pkgDir = resolved.replace(/\/dist\/.*$/, "");
+      return resolve(pkgDir, "src/index.ts");
+    }
+    // node: must use compiled dist/index.js
     if (resolved.includes("/src/") || resolved.endsWith(".ts")) {
       const pkgDir = resolved.replace(/\/src\/.*$/, "");
       return resolve(pkgDir, "dist/index.js");
     }
     return resolved;
   } catch {
-    // Dev fallback: CLI is at packages/cli/dist/index.js,
-    // local-agent is at packages/local-agent/dist/index.js
     const thisDir = dirname(fileURLToPath(import.meta.url));
+    if (IS_STAGING) return resolve(thisDir, "../../local-agent/src/index.ts");
     return resolve(thisDir, "../../local-agent/dist/index.js");
   }
 }
@@ -83,7 +89,8 @@ export function startDaemon(env: NodeJS.ProcessEnv): number {
   const agentEntry = resolveAgentEntry();
   const logFd = openSync(LOG_PATH, "a");
 
-  const child = spawn(process.execPath, [agentEntry], {
+  const command = IS_STAGING ? "bun" : process.execPath;
+  const child = spawn(command, [agentEntry], {
     detached: true,
     stdio: ["ignore", logFd, logFd],
     env,
@@ -153,10 +160,10 @@ export function startDaemonForCompany(
   const logPath = logPathForCompany(companyId);
   const logFd = openSync(logPath, "a");
 
-  // Compiled binaries (no .mjs/.js extension) run directly.
-  // Script entries need to be run via node.
-  const isScript = agentEntry.endsWith(".mjs") || agentEntry.endsWith(".js");
-  const command = isScript ? process.execPath : agentEntry;
+  // Staging: spawn with bun (runs .ts source directly).
+  // Production: compiled binaries run directly; .mjs/.js need node.
+  const isScript = agentEntry.endsWith(".mjs") || agentEntry.endsWith(".js") || agentEntry.endsWith(".ts");
+  const command = IS_STAGING ? "bun" : (isScript ? process.execPath : agentEntry);
   const args = isScript ? [agentEntry] : [];
 
   const child = spawn(command, args, {

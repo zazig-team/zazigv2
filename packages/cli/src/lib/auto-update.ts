@@ -10,6 +10,7 @@ import {
   existsSync, readFileSync, mkdirSync, writeFileSync,
   chmodSync, rmSync, cpSync,
 } from "node:fs";
+import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -23,6 +24,16 @@ const ASSETS = [
   { remote: "zazig-agent-darwin-arm64", local: "zazig-agent" },
   { remote: "agent-mcp-server-darwin-arm64", local: "agent-mcp-server" },
 ] as const;
+
+function resolveGithubToken(): string | null {
+  const envToken = process.env["GITHUB_TOKEN"];
+  if (envToken) return envToken;
+  try {
+    return execSync("gh auth token", { encoding: "utf-8", stdio: "pipe" }).trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 export function getLocalVersion(): string | null {
   if (!existsSync(VERSION_FILE)) return null;
@@ -73,15 +84,44 @@ export async function downloadAndInstall(version: string): Promise<void> {
     }
   }
 
-  // Download each asset
+  // Download each asset via GitHub API (private repos need API, not direct URLs)
   const tag = `v${version}`;
-  const githubToken = process.env["GITHUB_TOKEN"];
-  const authHeaders: Record<string, string> = githubToken
-    ? { Authorization: `Bearer ${githubToken}` }
-    : {};
+  const githubToken = resolveGithubToken();
+  if (!githubToken) {
+    throw new Error(
+      "No GitHub token found. Run 'gh auth login' or set GITHUB_TOKEN.",
+    );
+  }
+
+  // Fetch release metadata to get asset download URLs
+  const releaseRes = await fetch(
+    `https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${tag}`,
+    {
+      headers: {
+        Authorization: `Bearer ${githubToken}`,
+        Accept: "application/vnd.github+json",
+      },
+    },
+  );
+  if (!releaseRes.ok) {
+    throw new Error(`Failed to fetch release ${tag}: ${releaseRes.status} ${releaseRes.statusText}`);
+  }
+  const release = (await releaseRes.json()) as {
+    assets: Array<{ name: string; url: string }>;
+  };
+
   for (const { remote, local } of ASSETS) {
-    const url = `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${remote}`;
-    const res = await fetch(url, { headers: authHeaders });
+    const asset = release.assets.find((a) => a.name === remote);
+    if (!asset) {
+      throw new Error(`Asset ${remote} not found in release ${tag}`);
+    }
+    // Download via API URL with octet-stream accept header
+    const res = await fetch(asset.url, {
+      headers: {
+        Authorization: `Bearer ${githubToken}`,
+        Accept: "application/octet-stream",
+      },
+    });
     if (!res.ok) {
       throw new Error(`Download failed for ${remote}: ${res.status} ${res.statusText}`);
     }

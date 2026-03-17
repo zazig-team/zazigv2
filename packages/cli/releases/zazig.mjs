@@ -13582,7 +13582,7 @@ Slack channel for CPO conversations [${defaultChannel}]: `)).trim() || defaultCh
 import { existsSync as existsSync9, readFileSync as readFileSync8 } from "node:fs";
 import { hostname, homedir as homedir9 } from "node:os";
 import { join as join10 } from "node:path";
-import { execSync as execSync4 } from "node:child_process";
+import { execSync as execSync5 } from "node:child_process";
 import { createInterface as createInterface4 } from "node:readline/promises";
 
 // dist/lib/config.js
@@ -14267,6 +14267,7 @@ function rollbackBinaries() {
 
 // dist/lib/auto-update.js
 import { existsSync as existsSync8, readFileSync as readFileSync7, mkdirSync as mkdirSync7, writeFileSync as writeFileSync7, chmodSync as chmodSync2, rmSync as rmSync3, cpSync as cpSync2 } from "node:fs";
+import { execSync as execSync4 } from "node:child_process";
 import { join as join9 } from "node:path";
 import { homedir as homedir8 } from "node:os";
 var BIN_DIR2 = join9(homedir8(), ".zazigv2", "bin");
@@ -14278,6 +14279,16 @@ var ASSETS = [
   { remote: "zazig-agent-darwin-arm64", local: "zazig-agent" },
   { remote: "agent-mcp-server-darwin-arm64", local: "agent-mcp-server" }
 ];
+function resolveGithubToken() {
+  const envToken = process.env["GITHUB_TOKEN"];
+  if (envToken)
+    return envToken;
+  try {
+    return execSync4("gh auth token", { encoding: "utf-8", stdio: "pipe" }).trim() || null;
+  } catch {
+    return null;
+  }
+}
 function getLocalVersion() {
   if (!existsSync8(VERSION_FILE))
     return null;
@@ -14314,11 +14325,31 @@ async function downloadAndInstall(version3) {
     }
   }
   const tag = `v${version3}`;
-  const githubToken = process.env["GITHUB_TOKEN"];
-  const authHeaders = githubToken ? { Authorization: `Bearer ${githubToken}` } : {};
+  const githubToken = resolveGithubToken();
+  if (!githubToken) {
+    throw new Error("No GitHub token found. Run 'gh auth login' or set GITHUB_TOKEN.");
+  }
+  const releaseRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${tag}`, {
+    headers: {
+      Authorization: `Bearer ${githubToken}`,
+      Accept: "application/vnd.github+json"
+    }
+  });
+  if (!releaseRes.ok) {
+    throw new Error(`Failed to fetch release ${tag}: ${releaseRes.status} ${releaseRes.statusText}`);
+  }
+  const release = await releaseRes.json();
   for (const { remote, local } of ASSETS) {
-    const url = `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${remote}`;
-    const res = await fetch(url, { headers: authHeaders });
+    const asset = release.assets.find((a) => a.name === remote);
+    if (!asset) {
+      throw new Error(`Asset ${remote} not found in release ${tag}`);
+    }
+    const res = await fetch(asset.url, {
+      headers: {
+        Authorization: `Bearer ${githubToken}`,
+        Accept: "application/octet-stream"
+      }
+    });
     if (!res.ok) {
       throw new Error(`Download failed for ${remote}: ${res.status} ${res.statusText}`);
     }
@@ -14396,7 +14427,7 @@ async function start() {
   const companyFlagValue = companyFlagIdx !== -1 ? process.argv[companyFlagIdx + 1] : void 0;
   let claudeInstalled = false;
   try {
-    execSync4("claude --version", { stdio: "pipe" });
+    execSync5("claude --version", { stdio: "pipe" });
     claudeInstalled = true;
   } catch {
   }
@@ -14411,7 +14442,7 @@ async function start() {
   }
   let codexInstalled = false;
   try {
-    execSync4("codex --version", { stdio: "pipe" });
+    execSync5("codex --version", { stdio: "pipe" });
     codexInstalled = true;
   } catch {
   }
@@ -14891,7 +14922,7 @@ async function switchArchetype(supabaseUrl, companyId, headers, roleName, roleId
 }
 
 // dist/commands/promote.js
-import { execSync as execSync5 } from "node:child_process";
+import { execSync as execSync6 } from "node:child_process";
 import { existsSync as existsSync10, readFileSync as readFileSync9, rmSync as rmSync4, writeFileSync as writeFileSync8 } from "node:fs";
 import { join as join12 } from "node:path";
 import { homedir as homedir11 } from "node:os";
@@ -14934,13 +14965,13 @@ Choice [1]: `);
 }
 function resolveDefaultBranch(repoDir) {
   try {
-    const ref = execSync5("git symbolic-ref HEAD", { encoding: "utf-8", cwd: repoDir }).trim();
+    const ref = execSync6("git symbolic-ref HEAD", { encoding: "utf-8", cwd: repoDir }).trim();
     return ref.replace(/^refs\/heads\//, "");
   } catch {
   }
   for (const name of ["main", "master"]) {
     try {
-      execSync5(`git rev-parse --verify refs/heads/${name}`, { cwd: repoDir, stdio: "pipe" });
+      execSync6(`git rev-parse --verify refs/heads/${name}`, { cwd: repoDir, stdio: "pipe" });
       return name;
     } catch {
       continue;
@@ -14986,7 +15017,7 @@ function bumpAgentPackageVersions(repoRoot) {
 function resolveAgentBuildHash(repoRoot) {
   let agentBuildHash = "";
   try {
-    agentBuildHash = execSync5("git log -1 --format=%h -- packages/local-agent/", {
+    agentBuildHash = execSync6("git log -1 --format=%h -- packages/local-agent/", {
       encoding: "utf-8",
       cwd: repoRoot,
       stdio: "pipe"
@@ -14996,7 +15027,7 @@ function resolveAgentBuildHash(repoRoot) {
   if (agentBuildHash) {
     return agentBuildHash;
   }
-  const headHash = execSync5("git rev-parse --short HEAD", {
+  const headHash = execSync6("git rev-parse --short HEAD", {
     encoding: "utf-8",
     cwd: repoRoot,
     stdio: "pipe"
@@ -15070,18 +15101,18 @@ Company: ${company.name}`);
   }
   console.log("\nFetching latest from origin...");
   try {
-    execSync5("git fetch origin", { cwd: bareRepoDir, stdio: "pipe" });
+    execSync6("git fetch origin", { cwd: bareRepoDir, stdio: "pipe" });
   } catch (err) {
     console.warn(`Fetch warning (non-fatal): ${String(err)}`);
   }
   const defaultBranch = resolveDefaultBranch(bareRepoDir);
   try {
-    execSync5(`git update-ref refs/remotes/origin/${defaultBranch} refs/heads/${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
+    execSync6(`git update-ref refs/remotes/origin/${defaultBranch} refs/heads/${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
   } catch {
   }
   const worktreePath = join12(homedir11(), ".zazigv2", "worktrees", "promote-tmp");
   try {
-    execSync5(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" });
+    execSync6(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" });
   } catch {
   }
   try {
@@ -15089,12 +15120,12 @@ Company: ${company.name}`);
   } catch {
   }
   try {
-    execSync5("git worktree prune", { cwd: bareRepoDir, stdio: "pipe" });
+    execSync6("git worktree prune", { cwd: bareRepoDir, stdio: "pipe" });
   } catch {
   }
   console.log(`Creating worktree on ${defaultBranch}...`);
   try {
-    execSync5(`git worktree add --force "${worktreePath}" ${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
+    execSync6(`git worktree add --force "${worktreePath}" ${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
   } catch (err) {
     console.error(`Failed to create worktree: ${String(err)}`);
     process.exitCode = 1;
@@ -15106,7 +15137,7 @@ Company: ${company.name}`);
   } finally {
     console.log("\nCleaning up temporary worktree...");
     try {
-      execSync5(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" });
+      execSync6(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" });
     } catch {
     }
     try {
@@ -15114,22 +15145,22 @@ Company: ${company.name}`);
     } catch {
     }
     try {
-      execSync5("git worktree prune", { cwd: bareRepoDir, stdio: "pipe" });
+      execSync6("git worktree prune", { cwd: bareRepoDir, stdio: "pipe" });
     } catch {
     }
   }
 }
 async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   try {
-    const branch = execSync5("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
+    const branch = execSync6("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
     if (branch !== defaultBranch) {
       console.error(`Worktree is on ${branch}, expected ${defaultBranch}.`);
       process.exitCode = 1;
       return;
     }
     try {
-      const local = execSync5("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-      const remote = execSync5(`git rev-parse origin/${branch}`, { encoding: "utf-8", cwd: repoRoot, stdio: ["pipe", "pipe", "pipe"] }).trim();
+      const local = execSync6("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
+      const remote = execSync6(`git rev-parse origin/${branch}`, { encoding: "utf-8", cwd: repoRoot, stdio: ["pipe", "pipe", "pipe"] }).trim();
       if (local !== remote) {
         console.error(`Local ${branch} (${local.slice(0, 7)}) differs from origin (${remote.slice(0, 7)}).`);
         process.exitCode = 1;
@@ -15144,7 +15175,7 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   }
   console.log("\nInstalling dependencies...");
   try {
-    execSync5("npm ci", { cwd: repoRoot, stdio: "inherit" });
+    execSync6("npm ci", { cwd: repoRoot, stdio: "inherit" });
   } catch {
     console.error("npm ci failed.");
     process.exitCode = 1;
@@ -15152,7 +15183,7 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   }
   console.log("\nRunning build...");
   try {
-    execSync5("npm run build", { cwd: repoRoot, stdio: "inherit" });
+    execSync6("npm run build", { cwd: repoRoot, stdio: "inherit" });
   } catch {
     console.error("Build failed. Fix build errors before promoting.");
     process.exitCode = 1;
@@ -15180,7 +15211,7 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   }
   console.log("\nBundling CLI...");
   try {
-    execSync5("node scripts/bundle.js", { cwd: join12(repoRoot, "packages", "cli"), stdio: "inherit" });
+    execSync6("node scripts/bundle.js", { cwd: join12(repoRoot, "packages", "cli"), stdio: "inherit" });
   } catch {
     console.error("Bundle failed.");
     process.exitCode = 1;
@@ -15196,7 +15227,7 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   console.log("\nCompiling native binaries...");
   const compileOutDir = join12(homedir11(), ".zazigv2", "compile-tmp");
   try {
-    execSync5(`bash "${join12(repoRoot, "packages", "cli", "scripts", "compile.sh")}" "${compileOutDir}" "${repoRoot}"`, { stdio: "inherit" });
+    execSync6(`bash "${join12(repoRoot, "packages", "cli", "scripts", "compile.sh")}" "${compileOutDir}" "${repoRoot}"`, { stdio: "inherit" });
   } catch {
     console.error("Bun compile failed. Is bun installed? (brew install oven-sh/bun/bun)");
     process.exitCode = 1;
@@ -15205,18 +15236,18 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   let commitSha;
   console.log("\nCommitting bundles and version bump...");
   try {
-    execSync5("git add " + [
+    execSync6("git add " + [
       "packages/cli/releases/zazig.mjs",
       "packages/local-agent/releases/zazig-agent.mjs",
       "packages/local-agent/releases/agent-mcp-server.mjs",
       "packages/cli/package.json",
       "packages/local-agent/package.json"
     ].join(" "), { cwd: repoRoot, stdio: "pipe" });
-    const diff = execSync5("git diff --cached --name-only", { encoding: "utf-8", cwd: repoRoot }).trim();
+    const diff = execSync6("git diff --cached --name-only", { encoding: "utf-8", cwd: repoRoot }).trim();
     if (diff) {
-      execSync5(`git commit -m "chore: update production bundles and bump version to ${newVersion}"`, { cwd: repoRoot, stdio: "pipe" });
-      commitSha = execSync5("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-      execSync5(`git push origin ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
+      execSync6(`git commit -m "chore: update production bundles and bump version to ${newVersion}"`, { cwd: repoRoot, stdio: "pipe" });
+      commitSha = execSync6("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
+      execSync6(`git push origin ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
       console.log(`Bundles and version bump committed and pushed (${commitSha.slice(0, 7)}).`);
     } else {
       console.error("No staged changes detected after bundle/version bump; promote cannot continue.");
@@ -15231,23 +15262,23 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   console.log("\nUpdating production branch...");
   try {
     try {
-      execSync5("git rev-parse --verify production", { cwd: repoRoot, stdio: "pipe" });
+      execSync6("git rev-parse --verify production", { cwd: repoRoot, stdio: "pipe" });
     } catch {
       try {
-        execSync5("git branch production origin/production", { cwd: repoRoot, stdio: "pipe" });
+        execSync6("git branch production origin/production", { cwd: repoRoot, stdio: "pipe" });
       } catch {
-        execSync5("git branch production", { cwd: repoRoot, stdio: "pipe" });
+        execSync6("git branch production", { cwd: repoRoot, stdio: "pipe" });
       }
     }
-    execSync5("git checkout production", { cwd: repoRoot, stdio: "pipe" });
+    execSync6("git checkout production", { cwd: repoRoot, stdio: "pipe" });
     try {
-      execSync5(`git merge ${defaultBranch} --ff-only`, { cwd: repoRoot, stdio: "pipe" });
+      execSync6(`git merge ${defaultBranch} --ff-only`, { cwd: repoRoot, stdio: "pipe" });
     } catch {
       console.error("Fast-forward merge into production failed. The production branch has diverged from master.\nTo fix: git checkout production && git reset --hard master && git push --force-with-lease origin production");
       process.exitCode = 1;
       return;
     }
-    execSync5("git push origin production", { cwd: repoRoot, stdio: "pipe" });
+    execSync6("git push origin production", { cwd: repoRoot, stdio: "pipe" });
     console.log("Production branch updated and pushed (triggers CI for Supabase deployment).");
   } catch (err) {
     console.error(`Production branch update failed: ${String(err)}`);
@@ -15266,7 +15297,7 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   console.log("\nCreating GitHub Release...");
   const tag = `v${newVersion}`;
   try {
-    execSync5(`gh release create "${tag}" --repo zazig-team/zazigv2 --title "v${newVersion}" --notes "Production release ${newVersion} (${commitSha.slice(0, 7)})" --target "${commitSha}" "${join12(compileOutDir, "zazig-cli-darwin-arm64")}" "${join12(compileOutDir, "zazig-agent-darwin-arm64")}" "${join12(compileOutDir, "agent-mcp-server-darwin-arm64")}"`, { stdio: "inherit" });
+    execSync6(`gh release create "${tag}" --repo zazig-team/zazigv2 --title "v${newVersion}" --notes "Production release ${newVersion} (${commitSha.slice(0, 7)})" --target "${commitSha}" "${join12(compileOutDir, "zazig-cli-darwin-arm64")}" "${join12(compileOutDir, "zazig-agent-darwin-arm64")}" "${join12(compileOutDir, "agent-mcp-server-darwin-arm64")}"`, { stdio: "inherit" });
     console.log(`GitHub Release ${tag} created with 3 binary assets.`);
   } catch (err) {
     console.error(`GitHub Release creation failed: ${String(err)}`);
@@ -15284,7 +15315,7 @@ Promoted to production v${newVersion} (${sha}).`);
 }
 
 // dist/commands/hotfix.js
-import { execSync as execSync6, spawnSync as spawnSync2 } from "node:child_process";
+import { execSync as execSync7, spawnSync as spawnSync2 } from "node:child_process";
 async function hotfix(args2) {
   const description = args2.join(" ");
   if (!description) {
@@ -15293,19 +15324,19 @@ async function hotfix(args2) {
     return;
   }
   try {
-    const branch = execSync6("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8" }).trim();
+    const branch = execSync7("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8" }).trim();
     if (branch !== "master" && branch !== "main") {
       console.error(`Must be on master/main for hotfix. Currently on: ${branch}`);
       process.exitCode = 1;
       return;
     }
-    const status2 = execSync6("git status --porcelain", { encoding: "utf-8" }).trim();
+    const status2 = execSync7("git status --porcelain", { encoding: "utf-8" }).trim();
     if (status2) {
       console.error("Working tree is dirty. Commit or stash changes first.");
       process.exitCode = 1;
       return;
     }
-    execSync6("git pull origin " + branch, { stdio: "inherit" });
+    execSync7("git pull origin " + branch, { stdio: "inherit" });
   } catch (err) {
     console.error(`Git check failed: ${String(err)}`);
     process.exitCode = 1;

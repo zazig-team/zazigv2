@@ -2257,17 +2257,17 @@ async function processFeatureLifecycle(
       company_id: string;
     }>
   ) {
-    // Check if an active ci_check job exists
-    const { data: activeCIJob } = await supabase
+    // Check if an active or complete ci_check job exists
+    const { data: existingCIJob } = await supabase
       .from("jobs")
       .select("id")
       .eq("feature_id", feature.id)
       .eq("job_type", "ci_check")
-      .in("status", ["created", "queued", "executing"])
+      .in("status", ["created", "queued", "executing", "complete"])
       .limit(1);
 
-    if (activeCIJob && activeCIJob.length > 0) {
-      continue; // Already has an active ci_check job
+    if (existingCIJob && existingCIJob.length > 0) {
+      continue; // Already has an active or completed ci_check job
     }
 
     // Also skip if a fix job is active (fix completes → ci_check will be created via depends_on)

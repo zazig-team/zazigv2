@@ -2335,7 +2335,7 @@ async function processFeatureLifecycle(
       role: "ci-checker",
       job_type: "ci_check",
       complexity: "simple",
-      slot_type: "codex",
+      slot_type: "claude_code",
       status: "created",
       context: JSON.stringify({
         type: "ci_check",

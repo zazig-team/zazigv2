@@ -546,7 +546,7 @@ export async function triggerCICheck(
       role: "ci-checker",
       job_type: "ci_check",
       complexity: "simple",
-      slot_type: "codex",
+      slot_type: "claude_code",
       status: "created",
       context: ciContext,
       branch,

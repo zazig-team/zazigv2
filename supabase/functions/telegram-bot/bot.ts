@@ -337,6 +337,70 @@ function formatVoiceCaptureConfirmation(
   return `Got it. Captured your voice note${durationNote} as an idea.\n\n"${preview}"\n\nYour CPO will triage it soon.`;
 }
 
+async function buildRawTextWithLinkSummary(
+  text: string,
+  anthropicKey: string,
+): Promise<string> {
+  const URL_REGEX = /https?:\/\/\S+/;
+  const urlMatch = text.match(URL_REGEX);
+  const firstUrl = urlMatch?.[0] ?? null;
+  if (!firstUrl) return text;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000);
+  let body = "";
+
+  try {
+    const res = await fetch(firstUrl, { signal: controller.signal });
+    if (!res.ok) return text;
+
+    const buf = await res.arrayBuffer();
+    body = new TextDecoder().decode(buf.slice(0, 50_000));
+  } catch {
+    // Timeout or network error.
+    return text;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  const extractedText = body
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 2000);
+
+  if (!extractedText || !anthropicKey) return text;
+
+  try {
+    const summaryRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5",
+        max_tokens: 256,
+        messages: [{
+          role: "user",
+          content: `Summarise this web page content in 2-3 sentences: ${extractedText}`,
+        }],
+      }),
+    });
+
+    if (!summaryRes.ok) return text;
+
+    const summaryPayload = await summaryRes.json() as { content?: Array<{ text?: string }> };
+    const summary = summaryPayload.content?.[0]?.text?.trim() ?? "";
+    if (!summary) return text;
+
+    return `${text}\n\n[Link summary]: ${summary}`;
+  } catch {
+    return text;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Claude AI streaming response generation
 // ---------------------------------------------------------------------------
@@ -718,11 +782,12 @@ export async function handleText(
     return;
   }
   const originator = resolveOriginator(message, mapping);
+  const rawText = await buildRawTextWithLinkSummary(text, ctx.anthropicKey);
 
   const sourceRef = `telegram:${chatId}:${messageId}`;
   const { error } = await ctx.supabase.from("ideas").insert({
     company_id: mapping.company_id,
-    raw_text: text,
+    raw_text: rawText,
     source: "telegram",
     originator,
     source_ref: sourceRef,
@@ -747,7 +812,7 @@ export async function handleText(
     return;
   }
 
-  const fallbackText = formatTextCaptureConfirmation(text);
+  const fallbackText = formatTextCaptureConfirmation(rawText);
 
   if (!ctx.anthropicKey) {
     await sendMessage(ctx.token, chatId, fallbackText);
@@ -755,7 +820,7 @@ export async function handleText(
   }
 
   try {
-    const chunkIterator = await generateStreamingIdeaResponse(text, ctx.anthropicKey);
+    const chunkIterator = await generateStreamingIdeaResponse(rawText, ctx.anthropicKey);
     await streamToTelegram(ctx.token, chatId, chunkIterator);
     return;
   } catch (err) {

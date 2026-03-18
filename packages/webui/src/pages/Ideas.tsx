@@ -336,13 +336,18 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   if (error) return <div className="il-detail-error">{error}</div>;
   if (!data) return <div className="il-detail-loading">No data</div>;
 
-  const canWriteSpec = data.status === "triaged" && data.triage_route === "develop";
-  const canPromote = (data.status === "specced" || (data.status === "triaged" && data.triage_route !== "develop")) && !promoted && !isShipped;
+  const canPromote = data.status === "specced" && !promoted && !isShipped;
+  const canSendToSpec = data.status === "triaged" && !promoted && !isShipped;
   const readiness = canPromote ? [
     { label: "Has title", ok: Boolean(data.title?.trim()), hint: "Needs a clear title", field: "title" },
     { label: "Has description", ok: Boolean(data.description?.trim()) || Boolean(data.raw_text && data.raw_text.length > 20), hint: "Needs description or detailed raw text", field: "description" },
     { label: "Has project", ok: Boolean(selectedProjectId ?? data.project_id), hint: "Select a project below", field: "project" },
   ] : [];
+  const specReadiness = canPromote ? [
+    { label: "Has spec", ok: Boolean(data.spec?.trim()), hint: "Spec content is missing" },
+    { label: "Has acceptance tests", ok: Boolean(data.acceptance_tests?.trim()), hint: "Acceptance tests are missing" },
+  ] : [];
+  const readinessChecks = [...readiness, ...specReadiness];
   const allReady = readiness.every((r) => r.ok);
   const missingFields = readiness.filter((r) => !r.ok && r.field !== "project").map((r) => r.field);
 
@@ -519,7 +524,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
         <div className="il-detail-section">
           <div className="il-detail-section-label">Push to Pipeline</div>
           <div className="il-promote-readiness">
-            {readiness.map((r) => (
+            {readinessChecks.map((r) => (
               <div className="il-promote-check" key={r.label}>
                 <span className={r.ok ? "il-promote-icon ok" : "il-promote-icon missing"}>
                   {r.ok ? "\u2713" : "\u2717"}
@@ -577,16 +582,22 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
                 {enriching ? "Enriching..." : `Enrich (${missingFields.join(", ")})`}
               </button>
             )}
-            {data.status === "triaged" && (
-              <button
-                className="il-action-secondary il-action-park"
-                type="button"
-                disabled={promoting || !!actionInProgress || parkConfirm}
-                onClick={() => setParkConfirm(true)}
-              >
-                Park
-              </button>
-            )}
+            <button
+              className="il-action-secondary il-action-park"
+              type="button"
+              disabled={promoting || !!actionInProgress || parkConfirm}
+              onClick={() => setParkConfirm(true)}
+            >
+              Park
+            </button>
+            <button
+              className="il-action-secondary il-action-reject"
+              type="button"
+              disabled={promoting || !!actionInProgress}
+              onClick={() => handleAction("rejected", "Reject")}
+            >
+              {actionInProgress === "Reject" ? "Rejecting..." : "Reject"}
+            </button>
           </div>
 
           {showDoneConfirm && (
@@ -672,7 +683,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
         <div className="il-promote-success">Idea promoted to feature and pushed into the pipeline.</div>
       )}
 
-      {/* Actions row for non-triaged items */}
+      {/* Actions row for items outside promote flow */}
       {!canPromote && !isShipped && !promoted && !actionDone && (
         <div className="il-detail-actions">
           {data.status === "new" && (
@@ -680,9 +691,9 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
               {actionInProgress === "Triage" ? "Commissioning..." : "Triage"}
             </button>
           )}
-          {canWriteSpec && (
+          {canSendToSpec && (
             <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleWriteSpec}>
-              {actionInProgress === "Spec" ? "Dispatching..." : "Write Spec"}
+              {actionInProgress === "Spec" ? "Dispatching..." : "Send to Spec"}
             </button>
           )}
           {(data.status === "parked" || data.status === "rejected") && (

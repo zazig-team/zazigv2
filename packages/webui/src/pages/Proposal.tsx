@@ -514,29 +514,15 @@ function ProposalContent({
             {hasPricing && (
               <button
                 type="button"
-                className={`proposal-nav-item${activeSection === "pricing" ? " proposal-nav-item--active" : ""}`}
+                className={`proposal-nav-item${activeSection === "accept" ? " proposal-nav-item--active" : ""}`}
                 style={
-                  activeSection === "pricing"
+                  activeSection === "accept"
                     ? { color: accentColor, borderLeftColor: accentColor }
                     : undefined
                 }
-                onClick={() => scrollToSection("pricing")}
+                onClick={() => scrollToSection("accept")}
               >
-                Pricing
-              </button>
-            )}
-            {proposal.valid_until && (
-              <button
-                type="button"
-                className={`proposal-nav-item${activeSection === "timeline" ? " proposal-nav-item--active" : ""}`}
-                style={
-                  activeSection === "timeline"
-                    ? { color: accentColor, borderLeftColor: accentColor }
-                    : undefined
-                }
-                onClick={() => scrollToSection("timeline")}
-              >
-                Timeline
+                Accept
               </button>
             )}
           </nav>
@@ -758,7 +744,7 @@ function ProposalContent({
 
           {/* Accept Proposal Section */}
           {hasPricing && (
-            <div className="proposal-accept-section">
+            <div id="accept" className="proposal-accept-section">
               <style>{`
                 .proposal-accept-section::before {
                   background: linear-gradient(90deg, ${accentColor}, ${accentColor}44);

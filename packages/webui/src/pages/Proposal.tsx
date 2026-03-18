@@ -52,9 +52,14 @@ function renderMarkdown(src: string): string {
     },
   );
 
+  // Images: ![alt](src)
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="proposal-bio-photo" />');
+
   html = html.replace(/^### (.+)$/gm, "<h4>$1</h4>");
   html = html.replace(/^## (.+)$/gm, "<h3>$1</h3>");
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  // Links (non-image): [text](url) — must not be preceded by !
+  html = html.replace(/(?<!!)\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
   html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
 
   html = html.replace(/((?:^- .+$\n?)+)/gm, (m: string) => {
@@ -73,6 +78,16 @@ function renderMarkdown(src: string): string {
       .map((l: string) => `<li>${l.replace(/^\d+\.\s*/, "")}</li>`)
       .join("");
     return `<ol>${items}</ol>`;
+  });
+
+  // Blockquotes
+  html = html.replace(/((?:^> .+$\n?)+)/gm, (m: string) => {
+    const inner = m
+      .trim()
+      .split("\n")
+      .map((l: string) => l.replace(/^> ?/, ""))
+      .join(" ");
+    return `<blockquote>${inner}</blockquote>`;
   });
 
   html = html
@@ -292,15 +307,15 @@ function GatePage({
   );
 }
 
+const ZAZIG_GREEN = "#00C853";
+
 function AcceptModal({
   proposal,
-  accentColor,
   onClose,
   onConfirm,
   confirming,
 }: {
   proposal: ProposalFull;
-  accentColor: string;
   onClose: () => void;
   onConfirm: () => void;
   confirming: boolean;
@@ -370,7 +385,7 @@ function AcceptModal({
           <button
             type="button"
             className="proposal-modal-confirm"
-            style={{ background: accentColor }}
+            style={{ background: ZAZIG_GREEN }}
             onClick={onConfirm}
             disabled={confirming}
           >
@@ -502,7 +517,7 @@ function ProposalContent({
                   className={`proposal-nav-item${activeSection === slug ? " proposal-nav-item--active" : ""}`}
                   style={
                     activeSection === slug
-                      ? { color: accentColor, borderLeftColor: accentColor }
+                      ? { color: ZAZIG_GREEN, borderLeftColor: ZAZIG_GREEN }
                       : undefined
                   }
                   onClick={() => scrollToSection(slug)}
@@ -517,7 +532,7 @@ function ProposalContent({
                 className={`proposal-nav-item${activeSection === "accept" ? " proposal-nav-item--active" : ""}`}
                 style={
                   activeSection === "accept"
-                    ? { color: accentColor, borderLeftColor: accentColor }
+                    ? { color: ZAZIG_GREEN, borderLeftColor: ZAZIG_GREEN }
                     : undefined
                 }
                 onClick={() => scrollToSection("accept")}
@@ -576,13 +591,13 @@ function ProposalContent({
                 className="proposal-section-title"
                 style={
                   {
-                    "--accent": accentColor,
+                    "--accent": ZAZIG_GREEN,
                   } as React.CSSProperties
                 }
               >
                 <style>{`
                   #${sectionSlug(section.title)} .proposal-section-title::after {
-                    background: linear-gradient(90deg, ${accentColor}, ${accentColor}44);
+                    background: linear-gradient(90deg, ${ZAZIG_GREEN}, ${ZAZIG_GREEN}44);
                   }
                 `}</style>
                 {section.title}
@@ -608,7 +623,7 @@ function ProposalContent({
               <h2 className="proposal-section-title">
                 <style>{`
                   #pricing .proposal-section-title::after {
-                    background: linear-gradient(90deg, ${accentColor}, ${accentColor}44);
+                    background: linear-gradient(90deg, ${ZAZIG_GREEN}, ${ZAZIG_GREEN}44);
                   }
                 `}</style>
                 Pricing
@@ -649,13 +664,13 @@ function ProposalContent({
                             key={j}
                             style={
                               {
-                                "--dot-color": `${accentColor}66`,
+                                "--dot-color": `${ZAZIG_GREEN}66`,
                               } as React.CSSProperties
                             }
                           >
                             <style>{`
                               .proposal-phase-card:nth-child(${i + 1}) .proposal-phase-deliverables li::before {
-                                background: ${accentColor}55;
+                                background: ${ZAZIG_GREEN}55;
                               }
                             `}</style>
                             {d}
@@ -691,63 +706,12 @@ function ProposalContent({
             </section>
           )}
 
-          {/* Timeline */}
-          {hasPricing && (
-            <section
-              id="timeline"
-              className="proposal-section"
-              style={{
-                animationDelay: `${0.15 + sortedSections.length * 0.05}s`,
-              }}
-            >
-              <h2 className="proposal-section-title">
-                <style>{`
-                  #timeline .proposal-section-title::after {
-                    background: linear-gradient(90deg, ${accentColor}, ${accentColor}44);
-                  }
-                `}</style>
-                Timeline
-              </h2>
-              <div className="proposal-timeline">
-                {proposal.pricing.phases.map((phase, i) => {
-                  const widthPct =
-                    (phase.duration_months / totalMonths) * 100;
-                  const opacity = 1 - i * 0.15;
-                  return (
-                    <div
-                      key={i}
-                      className="proposal-timeline-segment"
-                      style={{
-                        width: `${widthPct}%`,
-                        background: `${accentColor}${Math.round(opacity * 12)
-                          .toString(16)
-                          .padStart(2, "0")}`,
-                      }}
-                    >
-                      <style>{`
-                        .proposal-timeline-segment:nth-child(${i + 1})::before {
-                          background: ${accentColor};
-                        }
-                      `}</style>
-                      <div className="proposal-timeline-label">
-                        {phase.name}
-                      </div>
-                      <div className="proposal-timeline-duration">
-                        {phase.duration_months} mo
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
           {/* Accept Proposal Section */}
           {hasPricing && (
             <div id="accept" className="proposal-accept-section">
               <style>{`
                 .proposal-accept-section::before {
-                  background: linear-gradient(90deg, ${accentColor}, ${accentColor}44);
+                  background: linear-gradient(90deg, ${ZAZIG_GREEN}, ${ZAZIG_GREEN}44);
                 }
               `}</style>
               <div className="proposal-accept-title">
@@ -811,7 +775,7 @@ function ProposalContent({
                 <button
                   type="button"
                   className="proposal-accept-btn"
-                  style={{ background: accentColor }}
+                  style={{ background: ZAZIG_GREEN }}
                   onClick={() => setShowAcceptModal(true)}
                 >
                   Accept Proposal
@@ -822,13 +786,7 @@ function ProposalContent({
 
           {/* Footer */}
           <footer className="proposal-footer">
-            <div className="proposal-footer-brands">
-              <span className="proposal-footer-wordmark">zazig</span>
-              <span className="proposal-footer-dot" />
-            </div>
-            <a href="https://zazig.com" target="_blank" rel="noreferrer">
-              zazig.com
-            </a>
+            <span>&copy; {new Date().getFullYear()} Zazig &middot; <a href="https://zazig.com" target="_blank" rel="noreferrer">zazig.com</a></span>
           </footer>
         </main>
       </div>
@@ -837,7 +795,6 @@ function ProposalContent({
       {showAcceptModal && (
         <AcceptModal
           proposal={proposal}
-          accentColor={accentColor}
           onClose={() => setShowAcceptModal(false)}
           onConfirm={() => void handleAcceptProposal()}
           confirming={accepting}

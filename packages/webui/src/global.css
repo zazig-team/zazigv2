@@ -4858,6 +4858,23 @@ input {
   }
 }
 
+/* Also respect the app's data-theme attribute so the proposal matches
+   the dashboard theme regardless of system preference */
+[data-theme="dark"] .proposal-page {
+  --p-bg: #0e0f12;
+  --p-surface: #181a1f;
+  --p-border: #2a2d35;
+  --p-border-light: #1f2128;
+  --p-text: #eaecf1;
+  --p-text-secondary: #8b90a0;
+  --p-text-muted: #5a5f70;
+  --p-code-bg: #1a1c22;
+  --p-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --p-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --p-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --p-shadow-xl: 0 24px 64px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
 /* Proposal-specific animations */
 @keyframes proposalGradientShift {
   0%, 100% { opacity: 0.6; transform: translate(-50%, -50%) scale(1); }
@@ -5202,6 +5219,10 @@ input {
   }
 }
 
+[data-theme="dark"] .proposal-gate-requested {
+  color: #3ecf71;
+}
+
 .proposal-spinner {
   width: 18px;
   height: 18px;
@@ -5400,6 +5421,10 @@ input {
   }
 }
 
+[data-theme="dark"] .proposal-nav-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
 .proposal-nav-item--active {
   font-weight: 600;
   background: rgba(0, 0, 0, 0.03);
@@ -5409,6 +5434,10 @@ input {
   .proposal-nav-item--active {
     background: rgba(255, 255, 255, 0.04);
   }
+}
+
+[data-theme="dark"] .proposal-nav-item--active {
+  background: rgba(255, 255, 255, 0.04);
 }
 
 /* Main content */
@@ -6135,6 +6164,12 @@ input {
   }
 }
 
+[data-theme="dark"] .proposal-accept-confirmed {
+  background: rgba(62, 207, 113, 0.08);
+  border-color: rgba(62, 207, 113, 0.15);
+  color: #3ecf71;
+}
+
 .proposal-accept-check {
   width: 24px;
   height: 24px;
@@ -6153,6 +6188,11 @@ input {
     background: #3ecf71;
     color: #0e0f12;
   }
+}
+
+[data-theme="dark"] .proposal-accept-check {
+  background: #3ecf71;
+  color: #0e0f12;
 }
 
 /* ─── Accept Modal ────────────────────────────────────────────────── */

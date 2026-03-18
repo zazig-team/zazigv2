@@ -78,6 +78,7 @@ function formatDate(iso: string | null): string {
 }
 
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+const INBOX_LEAVE_MS = 260;
 
 function priorityRank(priority: string | null): number {
   return PRIORITY_RANK[(priority ?? "medium").toLowerCase()] ?? 2;
@@ -744,7 +745,11 @@ export default function Ideas(): JSX.Element {
     failed: number;
     retrying: boolean;
   } | null>(null);
+  const [dispatchingIds, setDispatchingIds] = useState<Set<string>>(new Set());
+  const [leavingIdeas, setLeavingIdeas] = useState<Map<string, Idea>>(new Map());
   const listRef = useRef<HTMLDivElement>(null);
+  const ideasByIdRef = useRef<Map<string, Idea>>(new Map());
+  const leavingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const loadIdeas = useCallback(async () => {
     if (!activeCompanyId) return;
@@ -784,18 +789,77 @@ export default function Ideas(): JSX.Element {
     void loadIdeas();
   }, [loadIdeas]);
 
+  useEffect(() => {
+    ideasByIdRef.current = new Map(ideas.map((idea) => [idea.id, idea]));
+  }, [ideas]);
+
+  const clearLeavingIdea = useCallback((ideaId: string) => {
+    const timeoutId = leavingTimeoutsRef.current.get(ideaId);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      leavingTimeoutsRef.current.delete(ideaId);
+    }
+    setLeavingIdeas((prev) => {
+      if (!prev.has(ideaId)) return prev;
+      const next = new Map(prev);
+      next.delete(ideaId);
+      return next;
+    });
+  }, []);
+
+  const markIdeaLeaving = useCallback((ideaId: string) => {
+    const existing = ideasByIdRef.current.get(ideaId);
+    if (!existing || existing.status !== "triaging") return;
+
+    setLeavingIdeas((prev) => {
+      if (prev.has(ideaId)) return prev;
+      const next = new Map(prev);
+      next.set(ideaId, existing);
+      return next;
+    });
+
+    const priorTimeout = leavingTimeoutsRef.current.get(ideaId);
+    if (priorTimeout) clearTimeout(priorTimeout);
+
+    const timeoutId = setTimeout(() => {
+      leavingTimeoutsRef.current.delete(ideaId);
+      setLeavingIdeas((prev) => {
+        if (!prev.has(ideaId)) return prev;
+        const next = new Map(prev);
+        next.delete(ideaId);
+        return next;
+      });
+    }, INBOX_LEAVE_MS);
+    leavingTimeoutsRef.current.set(ideaId, timeoutId);
+  }, []);
+
+  useEffect(() => () => {
+    leavingTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+    leavingTimeoutsRef.current.clear();
+  }, []);
+
   // Realtime
   const handleInsert = useCallback((row: Record<string, unknown>) => {
     const idea = row as unknown as Idea;
+    clearLeavingIdea(idea.id);
     if (idea.status === "promoted") {
       setPromotedIdeas((prev) => [idea, ...prev]);
     } else {
       setIdeas((prev) => [idea, ...prev]);
     }
-  }, []);
+  }, [clearLeavingIdea]);
 
   const handleUpdate = useCallback((row: Record<string, unknown>) => {
     const updated = row as unknown as Idea;
+    const previous = ideasByIdRef.current.get(updated.id);
+    const shouldLeaveInbox = previous?.status === "triaging" && updated.status !== "triaging" && updated.status !== "new";
+    if (shouldLeaveInbox) {
+      markIdeaLeaving(updated.id);
+      setExpandedId((prevExpanded) => (prevExpanded === updated.id ? null : prevExpanded));
+    } else if (updated.status === "triaging" || updated.status === "new") {
+      clearLeavingIdea(updated.id);
+    }
+
     if (updated.status === "promoted") {
       setIdeas((prev) => prev.filter((i) => i.id !== updated.id));
       setPromotedIdeas((prev) => {
@@ -809,15 +873,16 @@ export default function Ideas(): JSX.Element {
         return exists ? prev.map((i) => (i.id === updated.id ? updated : i)) : [updated, ...prev];
       });
     }
-  }, []);
+  }, [clearLeavingIdea, markIdeaLeaving]);
 
   const handleDelete = useCallback((row: Record<string, unknown>) => {
     const id = (row as { id?: string }).id;
     if (id) {
+      clearLeavingIdea(id);
       setIdeas((prev) => prev.filter((i) => i.id !== id));
       setPromotedIdeas((prev) => prev.filter((i) => i.id !== id));
     }
-  }, []);
+  }, [clearLeavingIdea]);
 
   useRealtimeTable({
     table: "ideas",
@@ -858,6 +923,17 @@ export default function Ideas(): JSX.Element {
     const remainingTriaged = sorted.filter((idea) => idea.triage_route !== "develop");
     return [...readyForSpec, ...remainingTriaged];
   }, [sections, activeTab, sortMode]);
+
+  const displayedItems = useMemo(() => {
+    if (activeTab !== "inbox" || leavingIdeas.size === 0) return activeItems;
+    const ids = new Set(activeItems.map((idea) => idea.id));
+    const leaving = Array.from(leavingIdeas.values()).filter((idea) => {
+      if (ids.has(idea.id)) return false;
+      if (typeFilter === "all") return true;
+      return idea.item_type === typeFilter;
+    });
+    return [...activeItems, ...leaving];
+  }, [activeTab, activeItems, leavingIdeas, typeFilter]);
 
   const triagedReadyItems = useMemo(() => {
     if (activeTab !== "triaged") return [];
@@ -929,25 +1005,44 @@ export default function Ideas(): JSX.Element {
       for (let i = 0; i < newIdeas.length; i += 5) {
         const batch = newIdeas.slice(i, i + 5);
         const batchIds = batch.map((idea) => idea.id);
-        await Promise.all(batch.map((idea) => updateIdeaStatus(idea.id, "triaging")));
-        const triageResult = await requestHeadlessTriage({
-          companyId: activeCompanyId,
-          projectId,
-          ideaIds: batchIds,
+        setDispatchingIds((prev) => {
+          const next = new Set(prev);
+          batchIds.forEach((id) => next.add(id));
+          return next;
         });
-        if (triageResult.ok) {
-          setTriageProgress((prev) => (
-            prev ? { ...prev, dispatched: prev.dispatched + batchIds.length } : prev
-          ));
-        } else {
+        await Promise.all(batch.map((idea) => updateIdeaStatus(idea.id, "triaging")));
+        try {
+          const triageResult = await requestHeadlessTriage({
+            companyId: activeCompanyId,
+            projectId,
+            ideaIds: batchIds,
+          });
+          if (triageResult.ok) {
+            setTriageProgress((prev) => (
+              prev ? { ...prev, dispatched: prev.dispatched + batchIds.length } : prev
+            ));
+          } else {
+            setTriageProgress((prev) => (
+              prev ? { ...prev, failed: prev.failed + batchIds.length } : prev
+            ));
+            // Revert this batch back to 'new'
+            await Promise.all(batchIds.map((id) => updateIdeaStatus(id, "new").catch(() => {})));
+          }
+        } catch {
           setTriageProgress((prev) => (
             prev ? { ...prev, failed: prev.failed + batchIds.length } : prev
           ));
-          // Revert this batch back to 'new'
           await Promise.all(batchIds.map((id) => updateIdeaStatus(id, "new").catch(() => {})));
+        } finally {
+          setDispatchingIds((prev) => {
+            const next = new Set(prev);
+            batchIds.forEach((id) => next.delete(id));
+            return next;
+          });
         }
       }
     } finally {
+      setDispatchingIds(new Set());
       setTriageProgress(null);
     }
   }
@@ -1021,7 +1116,10 @@ export default function Ideas(): JSX.Element {
       const type = idea.item_type ?? "idea";
       const colorVar = TYPE_COLOR_VAR[type] ?? "--col-ideas";
       const isExpanded = expandedId === idea.id;
-      const isTriaging = idea.status === "triaging";
+      const isLeaving = leavingIdeas.has(idea.id);
+      const isDispatching = dispatchingIds.has(idea.id);
+      const isTriaging = idea.status === "triaging" && !isLeaving;
+      const showTriagingChip = isTriaging || isDispatching;
       const isDeveloping = idea.status === "developing";
       const isSpecced = idea.status === "specced";
       const fInfo = isShippedTab && idea.promoted_to_id ? featureStatuses.get(idea.promoted_to_id) ?? null : null;
@@ -1030,15 +1128,15 @@ export default function Ideas(): JSX.Element {
         <div
           key={idea.id}
           id={`il-row-${idea.id}`}
-          className={`il-row${isExpanded ? " expanded" : ""}${isTriaging ? " triaging" : ""}`}
+          className={`il-row${isExpanded ? " expanded" : ""}${isTriaging ? " triaging" : ""}${isDispatching ? " il-row--dispatching" : ""}${isLeaving ? " il-row--leaving" : ""}`}
           style={{ animationDelay: `${Math.min((startIndex + idx) * 0.02, 0.3)}s` }}
         >
-          <div className="il-row-summary" onClick={() => !isTriaging && toggleExpand(idea.id)}>
+          <div className="il-row-summary" onClick={() => !isTriaging && !isDispatching && !isLeaving && toggleExpand(idea.id)}>
             <div className="il-row-accent" style={{ background: `var(${colorVar})` }} />
             <div className="il-row-icon">{TYPE_ICON[type] ?? "\u{1F4A1}"}</div>
             <div className="il-row-body">
               <div className="il-row-title">{idea.title ?? idea.raw_text}</div>
-              {isTriaging ? (
+              {showTriagingChip ? (
                 <div className="il-row-analysing">Analysing... an agent is triaging this idea</div>
               ) : (
                 <div className="il-row-desc">
@@ -1047,8 +1145,11 @@ export default function Ideas(): JSX.Element {
               )}
             </div>
             <div className="il-row-meta">
-              {isTriaging ? (
-                <span className="il-triaging-badge">triaging</span>
+              {showTriagingChip ? (
+                <span className="il-triaging-badge">
+                  <span className="il-chip-spinner" aria-hidden="true" />
+                  <span>triaging</span>
+                </span>
               ) : isDeveloping ? (
                 <span className="il-triaging-badge">developing</span>
               ) : isSpecced ? (
@@ -1061,7 +1162,7 @@ export default function Ideas(): JSX.Element {
               <span className="il-source">{sourceLabel(idea)}</span>
               <span className="il-age">{ageLabel(isShippedTab && idea.promoted_at ? idea.promoted_at : idea.created_at)}</span>
             </div>
-            <div className="il-chevron">{!isTriaging && <span className="il-chevron-icon">{"\u25B6"}</span>}</div>
+            <div className="il-chevron">{!isTriaging && !isDispatching && !isLeaving && <span className="il-chevron-icon">{"\u25B6"}</span>}</div>
           </div>
 
           {isExpanded && (
@@ -1164,7 +1265,7 @@ export default function Ideas(): JSX.Element {
 
       {/* List */}
       <div className="il-list" ref={listRef}>
-        {!isTriagedTab && activeItems.length === 0 && (
+        {!isTriagedTab && displayedItems.length === 0 && (
           <div className="il-empty">No {activeTabLabel.toLowerCase()} ideas{typeFilterSuffix}.</div>
         )}
         {isTriagedTab ? (
@@ -1182,7 +1283,7 @@ export default function Ideas(): JSX.Element {
                 : <div className="il-empty il-empty-subsection">No other triaged ideas{typeFilterSuffix}.</div>}
             </div>
           </>
-        ) : renderIdeaRows(activeItems)}
+        ) : renderIdeaRows(displayedItems)}
       </div>
     </main>
   );

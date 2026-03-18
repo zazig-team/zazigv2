@@ -436,7 +436,25 @@ export class RepoManager {
         // Not found — create off default branch
       }
       const defaultBranch = await this.resolveDefaultBranch(repoDir);
-      await this.git(repoDir, "branch", featureBranch, defaultBranch);
+
+      // Fetch the default branch into a temp ref so we can read current remote
+      // head without trying to update refs/heads/{defaultBranch} directly.
+      const tempRef = `refs/zazig-tmp/${defaultBranch}`;
+      try {
+        await this.git(repoDir, "fetch", "--refmap=", "origin",
+          `+refs/heads/${defaultBranch}:${tempRef}`);
+      } catch (e) {
+        console.warn(`[RepoManager] ensureFeatureBranch: temp-ref fetch warning: ${getErrorMessage(e)}`);
+      }
+
+      // Create feature branch from the fetched temp ref when available.
+      // Fall back to local default branch if temp-ref fetch failed.
+      try {
+        await this.git(repoDir, "rev-parse", "--verify", tempRef);
+        await this.git(repoDir, "branch", featureBranch, tempRef);
+      } catch {
+        await this.git(repoDir, "branch", featureBranch, defaultBranch);
+      }
     });
   }
 

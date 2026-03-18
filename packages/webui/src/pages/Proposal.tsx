@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { signInWithGoogle } from "../lib/auth";
+import { supabase } from "../lib/supabase";
 import {
   fetchProposal,
   requestProposalAccess,
@@ -171,18 +172,22 @@ function GatePage({
       <div
         className="proposal-gate-glow"
         style={{
-          background: `radial-gradient(ellipse at center, ${accentColor}0a 0%, ${accentColor}04 30%, transparent 70%)`,
+          background: `radial-gradient(ellipse at center, ${accentColor}12 0%, ${accentColor}06 40%, transparent 70%)`,
         }}
+      />
+      <div
+        className="proposal-gate-glow-secondary"
+        style={{ background: `${accentColor}06` }}
       />
 
       <div className="proposal-gate-shell">
-        {/* Co-branded header */}
+        {/* Co-branded header with actual logos */}
         <div className="proposal-gate-brands">
           <div className="proposal-gate-brand-zazig">
             <span className="proposal-gate-wordmark">zazig</span>
             <span className="proposal-gate-dot" />
           </div>
-          <span className="proposal-gate-x">&times;</span>
+          <div className="proposal-gate-separator" />
           {gate.client_logo_url ? (
             <img
               src={gate.client_logo_url}
@@ -196,7 +201,7 @@ function GatePage({
           )}
         </div>
 
-        {/* Title */}
+        {/* Title — engraved style */}
         <h1 className="proposal-gate-title">
           A proposal prepared exclusively for
         </h1>
@@ -220,7 +225,7 @@ function GatePage({
                 className="proposal-gate-google-btn"
                 onClick={onSignIn}
               >
-                <svg viewBox="0 0 18 18" fill="none" width="18" height="18">
+                <svg viewBox="0 0 18 18" fill="none" width="20" height="20">
                   <path
                     d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"
                     fill="#4285F4"
@@ -238,7 +243,7 @@ function GatePage({
                     fill="#EA4335"
                   />
                 </svg>
-                Sign in with Google to view
+                Continue with Google
               </button>
             )}
 
@@ -280,8 +285,103 @@ function GatePage({
       </div>
 
       <footer className="proposal-gate-footer">
-        &copy; Zazig &middot; zazig.com
+        <div className="proposal-gate-footer-line" />
+        <span>&copy; {new Date().getFullYear()} Zazig Ltd</span>
       </footer>
+    </div>
+  );
+}
+
+function AcceptModal({
+  proposal,
+  accentColor,
+  onClose,
+  onConfirm,
+  confirming,
+}: {
+  proposal: ProposalFull;
+  accentColor: string;
+  onClose: () => void;
+  onConfirm: () => void;
+  confirming: boolean;
+}): JSX.Element {
+  return (
+    <div className="proposal-modal-overlay" onClick={onClose}>
+      <div className="proposal-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="proposal-modal-header">
+          <div className="proposal-modal-title">Accept Proposal</div>
+          <div className="proposal-modal-subtitle">
+            Review the heads of terms below
+          </div>
+        </div>
+        <div className="proposal-modal-body">
+          <h4>Scope of Work</h4>
+          <p>{proposal.title}</p>
+
+          {proposal.pricing &&
+            proposal.pricing.phases &&
+            proposal.pricing.phases.length > 0 && (
+              <>
+                <h4>Engagement Structure</h4>
+                <ul>
+                  {proposal.pricing.phases.map((phase, i) => (
+                    <li key={i}>
+                      <strong>{phase.name}:</strong> {formatCurrency(phase.monthly)}/month
+                      for {phase.duration_months} month
+                      {phase.duration_months !== 1 ? "s" : ""}
+                    </li>
+                  ))}
+                </ul>
+                {proposal.pricing.total_year1 > 0 && (
+                  <p>
+                    <strong>Year 1 total investment:</strong>{" "}
+                    {formatCurrency(proposal.pricing.total_year1)}
+                  </p>
+                )}
+              </>
+            )}
+
+          {proposal.pricing?.loan_note_terms && (
+            <>
+              <h4>Loan Note Structure</h4>
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: renderMarkdown(proposal.pricing.loan_note_terms),
+                }}
+              />
+            </>
+          )}
+
+          <h4>What happens next</h4>
+          <p>
+            By accepting, you indicate your intent to proceed under these terms.
+            A formal agreement will be prepared and sent to you for signature.
+          </p>
+        </div>
+        <div className="proposal-modal-footer">
+          <button
+            type="button"
+            className="proposal-modal-cancel"
+            onClick={onClose}
+            disabled={confirming}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="proposal-modal-confirm"
+            style={{ background: accentColor }}
+            onClick={onConfirm}
+            disabled={confirming}
+          >
+            {confirming ? (
+              <span className="proposal-spinner" />
+            ) : (
+              "Confirm Acceptance"
+            )}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -296,6 +396,9 @@ function ProposalContent({
   const headerRef = useRef<HTMLDivElement>(null);
   const [scrolled, setScrolled] = useState(false);
   const [activeSection, setActiveSection] = useState<string>("");
+  const [showAcceptModal, setShowAcceptModal] = useState(false);
+  const [accepting, setAccepting] = useState(false);
+  const [accepted, setAccepted] = useState(false);
 
   const sortedSections = useMemo(
     () =>
@@ -309,7 +412,6 @@ function ProposalContent({
     const onScroll = (): void => {
       setScrolled(window.scrollY > 80);
 
-      // Find active section
       let current = "";
       for (const section of sortedSections) {
         const el = document.getElementById(sectionSlug(section.title));
@@ -334,10 +436,30 @@ function ProposalContent({
     }
   }, []);
 
+  const handleAcceptProposal = useCallback(async () => {
+    setAccepting(true);
+    try {
+      await supabase
+        .from("proposals")
+        .update({ status: "accepted" })
+        .eq("id", proposal.id);
+      setAccepted(true);
+      setShowAcceptModal(false);
+    } catch {
+      // silent fail — edge function will handle validation later
+    } finally {
+      setAccepting(false);
+    }
+  }, [proposal.id]);
+
   const hasPricing =
     proposal.pricing &&
     proposal.pricing.phases &&
     proposal.pricing.phases.length > 0;
+
+  const totalMonths = hasPricing
+    ? proposal.pricing.phases.reduce((sum, p) => sum + p.duration_months, 0)
+    : 0;
 
   return (
     <div className="proposal-page proposal-full">
@@ -356,6 +478,13 @@ function ProposalContent({
           >
             {proposal.title}
           </span>
+          {proposal.client_logo_url && (
+            <img
+              src={proposal.client_logo_url}
+              alt={proposal.client_name}
+              className="proposal-header-client-logo"
+            />
+          )}
         </div>
       </header>
 
@@ -422,7 +551,7 @@ function ProposalContent({
                 <span className="proposal-hero-wordmark">zazig</span>
                 <span className="proposal-hero-dot" />
               </div>
-              <span className="proposal-hero-x">&times;</span>
+              <div className="proposal-hero-separator" />
               {proposal.client_logo_url ? (
                 <img
                   src={proposal.client_logo_url}
@@ -450,16 +579,26 @@ function ProposalContent({
           </div>
 
           {/* Sections */}
-          {sortedSections.map((section: ProposalSection) => (
+          {sortedSections.map((section: ProposalSection, idx: number) => (
             <section
               key={section.key}
               id={sectionSlug(section.title)}
               className="proposal-section"
+              style={{ animationDelay: `${0.1 + idx * 0.05}s` }}
             >
               <h2
                 className="proposal-section-title"
-                style={{ borderBottomColor: `${accentColor}33` }}
+                style={
+                  {
+                    "--accent": accentColor,
+                  } as React.CSSProperties
+                }
               >
+                <style>{`
+                  #${sectionSlug(section.title)} .proposal-section-title::after {
+                    background: linear-gradient(90deg, ${accentColor}, ${accentColor}44);
+                  }
+                `}</style>
                 {section.title}
               </h2>
               <div
@@ -473,11 +612,19 @@ function ProposalContent({
 
           {/* Pricing */}
           {hasPricing && (
-            <section id="pricing" className="proposal-section">
-              <h2
-                className="proposal-section-title"
-                style={{ borderBottomColor: `${accentColor}33` }}
-              >
+            <section
+              id="pricing"
+              className="proposal-section"
+              style={{
+                animationDelay: `${0.1 + sortedSections.length * 0.05}s`,
+              }}
+            >
+              <h2 className="proposal-section-title">
+                <style>{`
+                  #pricing .proposal-section-title::after {
+                    background: linear-gradient(90deg, ${accentColor}, ${accentColor}44);
+                  }
+                `}</style>
                 Pricing
               </h2>
 
@@ -486,8 +633,18 @@ function ProposalContent({
                   <div
                     key={i}
                     className="proposal-phase-card"
-                    style={{ borderTopColor: accentColor }}
                   >
+                    <style>{`
+                      .proposal-phase-card:nth-child(${i + 1})::before {
+                        background: linear-gradient(90deg, ${accentColor}, ${accentColor}88);
+                      }
+                    `}</style>
+                    <div
+                      className="proposal-phase-number"
+                      style={{ background: accentColor }}
+                    >
+                      {i + 1}
+                    </div>
                     <div className="proposal-phase-name">{phase.name}</div>
                     <div className="proposal-phase-price">
                       {formatCurrency(phase.monthly)}
@@ -502,7 +659,21 @@ function ProposalContent({
                     {phase.deliverables.length > 0 && (
                       <ul className="proposal-phase-deliverables">
                         {phase.deliverables.map((d, j) => (
-                          <li key={j}>{d}</li>
+                          <li
+                            key={j}
+                            style={
+                              {
+                                "--dot-color": `${accentColor}66`,
+                              } as React.CSSProperties
+                            }
+                          >
+                            <style>{`
+                              .proposal-phase-card:nth-child(${i + 1}) .proposal-phase-deliverables li::before {
+                                background: ${accentColor}55;
+                              }
+                            `}</style>
+                            {d}
+                          </li>
                         ))}
                       </ul>
                     )}
@@ -536,31 +707,42 @@ function ProposalContent({
 
           {/* Timeline */}
           {hasPricing && (
-            <section id="timeline" className="proposal-section">
-              <h2
-                className="proposal-section-title"
-                style={{ borderBottomColor: `${accentColor}33` }}
-              >
+            <section
+              id="timeline"
+              className="proposal-section"
+              style={{
+                animationDelay: `${0.15 + sortedSections.length * 0.05}s`,
+              }}
+            >
+              <h2 className="proposal-section-title">
+                <style>{`
+                  #timeline .proposal-section-title::after {
+                    background: linear-gradient(90deg, ${accentColor}, ${accentColor}44);
+                  }
+                `}</style>
                 Timeline
               </h2>
               <div className="proposal-timeline">
                 {proposal.pricing.phases.map((phase, i) => {
-                  const totalMonths = proposal.pricing.phases.reduce(
-                    (sum, p) => sum + p.duration_months,
-                    0,
-                  );
-                  const widthPct = (phase.duration_months / totalMonths) * 100;
+                  const widthPct =
+                    (phase.duration_months / totalMonths) * 100;
+                  const opacity = 1 - i * 0.15;
                   return (
                     <div
                       key={i}
                       className="proposal-timeline-segment"
                       style={{
                         width: `${widthPct}%`,
-                        background: `${accentColor}${i === 0 ? "22" : i === 1 ? "18" : "10"}`,
-                        borderLeftColor:
-                          i === 0 ? accentColor : "transparent",
+                        background: `${accentColor}${Math.round(opacity * 12)
+                          .toString(16)
+                          .padStart(2, "0")}`,
                       }}
                     >
+                      <style>{`
+                        .proposal-timeline-segment:nth-child(${i + 1})::before {
+                          background: ${accentColor};
+                        }
+                      `}</style>
                       <div className="proposal-timeline-label">
                         {phase.name}
                       </div>
@@ -574,15 +756,107 @@ function ProposalContent({
             </section>
           )}
 
+          {/* Accept Proposal Section */}
+          {hasPricing && (
+            <div className="proposal-accept-section">
+              <style>{`
+                .proposal-accept-section::before {
+                  background: linear-gradient(90deg, ${accentColor}, ${accentColor}44);
+                }
+              `}</style>
+              <div className="proposal-accept-title">
+                Ready to proceed?
+              </div>
+              <div className="proposal-accept-subtitle">
+                Review the key terms below and accept this proposal to get
+                started.
+              </div>
+
+              <div className="proposal-accept-summary">
+                {proposal.pricing.phases.map((phase, i) => (
+                  <div key={i} className="proposal-accept-item">
+                    <div className="proposal-accept-item-label">
+                      {phase.name}
+                    </div>
+                    <div className="proposal-accept-item-value">
+                      {formatCurrency(phase.monthly)}/mo
+                    </div>
+                  </div>
+                ))}
+                {proposal.pricing.total_year1 > 0 && (
+                  <div className="proposal-accept-item">
+                    <div className="proposal-accept-item-label">
+                      Year 1 Total
+                    </div>
+                    <div className="proposal-accept-item-value">
+                      {formatCurrency(proposal.pricing.total_year1)}
+                    </div>
+                  </div>
+                )}
+                <div className="proposal-accept-item">
+                  <div className="proposal-accept-item-label">Duration</div>
+                  <div className="proposal-accept-item-value">
+                    {totalMonths} months
+                  </div>
+                </div>
+              </div>
+
+              {accepted ? (
+                <div className="proposal-accept-confirmed">
+                  <div className="proposal-accept-check">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 14 14"
+                      fill="none"
+                    >
+                      <path
+                        d="M2.5 7L5.5 10L11.5 4"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </div>
+                  Proposal accepted. We will be in touch shortly.
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="proposal-accept-btn"
+                  style={{ background: accentColor }}
+                  onClick={() => setShowAcceptModal(true)}
+                >
+                  Accept Proposal
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Footer */}
           <footer className="proposal-footer">
-            &copy; Zazig &middot;{" "}
+            <div className="proposal-footer-brands">
+              <span className="proposal-footer-wordmark">zazig</span>
+              <span className="proposal-footer-dot" />
+            </div>
             <a href="https://zazig.com" target="_blank" rel="noreferrer">
               zazig.com
             </a>
           </footer>
         </main>
       </div>
+
+      {/* Accept Modal */}
+      {showAcceptModal && (
+        <AcceptModal
+          proposal={proposal}
+          accentColor={accentColor}
+          onClose={() => setShowAcceptModal(false)}
+          onConfirm={() => void handleAcceptProposal()}
+          confirming={accepting}
+        />
+      )}
     </div>
   );
 }

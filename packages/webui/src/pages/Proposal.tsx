@@ -326,53 +326,32 @@ function AcceptModal({
     <div className="proposal-modal-overlay" onClick={onClose}>
       <div className="proposal-modal" onClick={(e) => e.stopPropagation()}>
         <div className="proposal-modal-header">
-          <div className="proposal-modal-title">Accept Proposal</div>
+          <div className="proposal-modal-title">Start the Pilot Sprint</div>
           <div className="proposal-modal-subtitle">
-            Review the heads of terms below
+            Two weeks, zero cost, one deliverable
           </div>
         </div>
         <div className="proposal-modal-body">
-          <h4>Scope of Work</h4>
-          <p>{proposal.title}</p>
+          <h4>What we&apos;ll do</h4>
+          <p>
+            We&apos;ll deliver one high-impact item from Phase 1 within two weeks
+            — most likely the investor one-pager and cost projection. This gives
+            you something tangible immediately and gives both sides confidence to
+            proceed.
+          </p>
 
-          {proposal.pricing &&
-            proposal.pricing.phases &&
-            proposal.pricing.phases.length > 0 && (
-              <>
-                <h4>Engagement Structure</h4>
-                <ul>
-                  {proposal.pricing.phases.map((phase, i) => (
-                    <li key={i}>
-                      <strong>{phase.name}:</strong> {formatCurrency(phase.monthly)}/month
-                      for {phase.duration_months} month
-                      {phase.duration_months !== 1 ? "s" : ""}
-                    </li>
-                  ))}
-                </ul>
-                {proposal.pricing.total_year1 > 0 && (
-                  <p>
-                    <strong>Total investment:</strong>{" "}
-                    {formatCurrency(proposal.pricing.total_year1)}
-                  </p>
-                )}
-              </>
-            )}
-
-          {proposal.pricing?.loan_note_terms && (
-            <>
-              <h4>Loan Note Structure</h4>
-              <div
-                dangerouslySetInnerHTML={{
-                  __html: renderMarkdown(proposal.pricing.loan_note_terms),
-                }}
-              />
-            </>
-          )}
+          <h4>No cost, no obligation</h4>
+          <p>
+            The pilot sprint is completely free. If we&apos;re both happy, we move
+            forward into Phase 1 under the terms in this proposal. If either side
+            feels it isn&apos;t the right fit, we walk away cleanly — no cost, no
+            hard feelings. The deliverable is yours to keep regardless.
+          </p>
 
           <h4>What happens next</h4>
           <p>
-            By accepting, you indicate your intent to proceed under these terms.
-            A formal agreement will be prepared and sent to you for signature.
+            We&apos;ll be in touch within 24 hours to kick off the pilot sprint
+            and agree on the specific deliverable.
           </p>
         </div>
         <div className="proposal-modal-footer">
@@ -394,7 +373,7 @@ function AcceptModal({
             {confirming ? (
               <span className="proposal-spinner" />
             ) : (
-              "Confirm Acceptance"
+              "Let\u2019s Go"
             )}
           </button>
         </div>
@@ -583,6 +562,88 @@ function ProposalContent({
 
           {/* Sections */}
           {sortedSections.map((section: ProposalSection, idx: number) => {
+            // Team section — structured layout with photos
+            if (section.key === "team") {
+              // Parse team members: split on ### headings
+              const parts = section.body_md.split(/^### /m).filter(Boolean);
+              const members: {
+                name: string;
+                photo: string | null;
+                bio: string;
+              }[] = [];
+              let platformSection = "";
+
+              for (const part of parts) {
+                const lines = part.trim().split("\n");
+                const heading = lines[0].trim();
+                const body = lines.slice(1).join("\n").trim();
+
+                // Check if this has a photo
+                const photoMatch = body.match(
+                  /!\[([^\]]*)\]\(([^)]+)\)/,
+                );
+                if (
+                  photoMatch &&
+                  (heading.includes("Officer") ||
+                    heading.includes("CPO") ||
+                    heading.includes("CTO"))
+                ) {
+                  const bio = body
+                    .replace(/!\[[^\]]*\]\([^)]+\)/, "")
+                    .trim();
+                  members.push({
+                    name: heading,
+                    photo: photoMatch[2],
+                    bio,
+                  });
+                } else {
+                  // Non-person section (e.g. "The Zazig Platform")
+                  platformSection += `### ${heading}\n${body}\n\n`;
+                }
+              }
+
+              return (
+                <section
+                  key={section.key}
+                  id={sectionSlug(section.title)}
+                  className="proposal-section"
+                  style={{ animationDelay: `${0.1 + idx * 0.05}s` }}
+                >
+                  <h2 className="proposal-section-title">
+                    {section.title}
+                  </h2>
+                  <div className="proposal-section-body">
+                    {members.map((member, i) => (
+                      <div key={i} className="proposal-team-member">
+                        {member.photo && (
+                          <img
+                            src={member.photo}
+                            alt={member.name}
+                            className="proposal-team-member-photo"
+                          />
+                        )}
+                        <div className="proposal-team-member-info">
+                          <h4>{member.name}</h4>
+                          <div
+                            dangerouslySetInnerHTML={{
+                              __html: renderMarkdown(member.bio),
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    {platformSection && (
+                      <div
+                        dangerouslySetInnerHTML={{
+                          __html: renderMarkdown(platformSection),
+                        }}
+                      />
+                    )}
+                  </div>
+                </section>
+              );
+            }
+
             // Timeline carousel
             if (section.key === "timeline") {
               const milestones = section.body_md
@@ -739,11 +800,11 @@ function ProposalContent({
           {hasPricing && (
             <div id="accept" className="proposal-accept-section">
               <div className="proposal-accept-title">
-                Ready to proceed?
+                Ready to start?
               </div>
               <div className="proposal-accept-subtitle">
-                Review the key terms below and accept this proposal to get
-                started.
+                Kick off with a free two-week pilot sprint — no cost, no
+                obligation.
               </div>
 
               <div className="proposal-accept-summary">
@@ -793,7 +854,7 @@ function ProposalContent({
                       />
                     </svg>
                   </div>
-                  Proposal accepted. We will be in touch shortly.
+                  Thank you! We&apos;ll be in touch within 24 hours to kick off your pilot sprint.
                 </div>
               ) : (
                 <button
@@ -802,7 +863,7 @@ function ProposalContent({
                   style={{ background: ZAZIG_GREEN }}
                   onClick={() => setShowAcceptModal(true)}
                 >
-                  Accept Proposal
+                  Start Pilot Sprint
                 </button>
               )}
             </div>

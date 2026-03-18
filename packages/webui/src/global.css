@@ -5653,16 +5653,40 @@ input {
   border-radius: 50%;
   object-fit: cover;
   object-position: center 20%;
-  float: left;
-  margin: 4px 24px 16px 0;
   border: none;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-  shape-outside: circle(50%);
+  flex-shrink: 0;
 }
 
-.proposal-section-body h4 {
-  clear: both;
-  padding-top: 8px;
+.proposal-team-member {
+  display: flex;
+  gap: 28px;
+  align-items: flex-start;
+  margin-bottom: 36px;
+}
+
+.proposal-team-member-photo {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center 20%;
+  border: none;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+.proposal-team-member-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.proposal-team-member-info h4 {
+  margin: 0 0 12px;
+}
+
+.proposal-team-member-info p {
+  margin: 0 0 8px;
 }
 
 .proposal-pre {

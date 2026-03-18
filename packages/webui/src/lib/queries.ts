@@ -762,6 +762,21 @@ export async function updateIdeaWithNote(
   await invokePost("update-idea", body);
 }
 
+export async function appendFounderInput(
+  ideaId: string,
+  text: string,
+  currentTriageNotes: string | null,
+): Promise<void> {
+  const mergedNotes = currentTriageNotes && currentTriageNotes.length > 0
+    ? `${currentTriageNotes}\n\nFOUNDER INPUT: ${text}`
+    : `FOUNDER INPUT: ${text}`;
+
+  await invokePost("update-idea", {
+    id: ideaId,
+    triage_notes: mergedNotes,
+  });
+}
+
 export interface TeamExecCard {
   id: string;
   roleId: string;

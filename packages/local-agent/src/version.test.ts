@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const execSyncMock = vi.hoisted(() => vi.fn());
+const readFileSyncMock = vi.hoisted(() => vi.fn());
 
 vi.mock("node:child_process", () => ({
   execSync: execSyncMock,
+}));
+
+vi.mock("node:fs", () => ({
+  readFileSync: readFileSyncMock,
 }));
 
 import { resolveAgentVersion } from "./version.js";
@@ -21,6 +26,9 @@ beforeEach(() => {
   delete process.env["ZAZIG_ENV"];
   delete process.env["ZAZIG_REPO_PATH"];
   delete (globalThis as GlobalWithBuildHash).AGENT_BUILD_HASH;
+  readFileSyncMock.mockImplementation(() => {
+    throw new Error("ENOENT");
+  });
 });
 
 afterEach(() => {

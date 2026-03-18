@@ -135,12 +135,14 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionDone, setActionDone] = useState<string | null>(null);
   const [enriching, setEnriching] = useState(false);
+  const [parkConfirm, setParkConfirm] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
     setPromoted(false);
+    setParkConfirm(false);
 
     fetchIdeaDetail(ideaId).then((result) => {
       if (!cancelled) {
@@ -485,7 +487,56 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
                 {enriching ? "Enriching..." : `Enrich (${missingFields.join(", ")})`}
               </button>
             )}
+            {data.status === "triaged" && (
+              <button
+                className="il-action-secondary il-action-park"
+                type="button"
+                disabled={promoting || !!actionInProgress || parkConfirm}
+                onClick={() => setParkConfirm(true)}
+              >
+                Park
+              </button>
+            )}
           </div>
+          {parkConfirm && (
+            <div
+              className="il-park-confirm"
+              style={{
+                marginTop: 8,
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: "1px solid color-mix(in oklab, var(--hairline) 80%, var(--text-color) 20%)",
+                background: "color-mix(in oklab, var(--panel-bg, #fff) 95%, var(--text-color, #000) 5%)",
+                display: "grid",
+                gap: 8,
+              }}
+            >
+              <div style={{ fontSize: "0.9rem", opacity: 0.86 }}>
+                Park this idea? It won&apos;t appear in the active list but can be recovered later.
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  className="il-action-secondary il-action-park"
+                  type="button"
+                  disabled={!!actionInProgress}
+                  onClick={() => {
+                    void handleAction("parked", "Park");
+                    setParkConfirm(false);
+                  }}
+                >
+                  {actionInProgress === "Park" ? "Parking..." : "Confirm Park"}
+                </button>
+                <button
+                  className="il-action-secondary"
+                  type="button"
+                  disabled={!!actionInProgress}
+                  onClick={() => setParkConfirm(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

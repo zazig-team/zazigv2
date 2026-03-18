@@ -185,6 +185,23 @@ function GatePage({
 
   return (
     <div className="proposal-page proposal-gate">
+      <button
+        type="button"
+        className="proposal-theme-toggle"
+        onClick={() => {
+          const html = document.documentElement;
+          const current = html.getAttribute("data-theme");
+          const next = current === "dark" ? "light" : "dark";
+          html.setAttribute("data-theme", next);
+          localStorage.setItem("theme", next);
+        }}
+        aria-label="Toggle theme"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path className="proposal-theme-sun" d="M8 1a.5.5 0 01.5.5v1a.5.5 0 01-1 0v-1A.5.5 0 018 1zm0 11a.5.5 0 01.5.5v1a.5.5 0 01-1 0v-1A.5.5 0 018 12zm7-4a.5.5 0 010 1h-1a.5.5 0 010-1h1zM4 8a.5.5 0 010 1H3a.5.5 0 010-1h1zm8.354-3.646a.5.5 0 010 .708l-.708.707a.5.5 0 01-.707-.708l.707-.707a.5.5 0 01.708 0zM5.354 10.354a.5.5 0 010 .707l-.708.708a.5.5 0 01-.707-.708l.707-.707a.5.5 0 01.708 0zm6.292.354a.5.5 0 01.708 0l.707.707a.5.5 0 01-.707.708l-.708-.708a.5.5 0 010-.707zM5.354 5.646a.5.5 0 01-.708 0l-.707-.707a.5.5 0 11.707-.708l.708.708a.5.5 0 010 .707zM8 4a4 4 0 100 8 4 4 0 000-8z" />
+          <path className="proposal-theme-moon" d="M6 .278a.768.768 0 01.08.858 7.208 7.208 0 00-.878 3.46c0 4.021 3.278 7.277 7.318 7.277.527 0 1.04-.055 1.533-.16a.787.787 0 01.81.316.733.733 0 01-.031.893A8.349 8.349 0 018.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.752.752 0 016 .278z" />
+        </svg>
+      </button>
       <div className="proposal-gate-noise" />
       <div
         className="proposal-gate-glow"
@@ -481,6 +498,23 @@ function ProposalContent({
               className="proposal-header-client-logo"
             />
           )}
+          <button
+            type="button"
+            className="proposal-theme-toggle"
+            onClick={() => {
+              const html = document.documentElement;
+              const current = html.getAttribute("data-theme");
+              const next = current === "dark" ? "light" : "dark";
+              html.setAttribute("data-theme", next);
+              localStorage.setItem("theme", next);
+            }}
+            aria-label="Toggle theme"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path className="proposal-theme-sun" d="M8 1a.5.5 0 01.5.5v1a.5.5 0 01-1 0v-1A.5.5 0 018 1zm0 11a.5.5 0 01.5.5v1a.5.5 0 01-1 0v-1A.5.5 0 018 12zm7-4a.5.5 0 010 1h-1a.5.5 0 010-1h1zM4 8a.5.5 0 010 1H3a.5.5 0 010-1h1zm8.354-3.646a.5.5 0 010 .708l-.708.707a.5.5 0 01-.707-.708l.707-.707a.5.5 0 01.708 0zM5.354 10.354a.5.5 0 010 .707l-.708.708a.5.5 0 01-.707-.708l.707-.707a.5.5 0 01.708 0zm6.292.354a.5.5 0 01.708 0l.707.707a.5.5 0 01-.707.708l-.708-.708a.5.5 0 010-.707zM5.354 5.646a.5.5 0 01-.708 0l-.707-.707a.5.5 0 11.707-.708l.708.708a.5.5 0 010 .707zM8 4a4 4 0 100 8 4 4 0 000-8z" />
+              <path className="proposal-theme-moon" d="M6 .278a.768.768 0 01.08.858 7.208 7.208 0 00-.878 3.46c0 4.021 3.278 7.277 7.318 7.277.527 0 1.04-.055 1.533-.16a.787.787 0 01.81.316.733.733 0 01-.031.893A8.349 8.349 0 018.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.752.752 0 016 .278z" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -898,6 +932,13 @@ export default function Proposal(): JSX.Element {
   const [data, setData] = useState<ViewProposalResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("theme");
+    if (saved) {
+      document.documentElement.setAttribute("data-theme", saved);
+    }
+  }, []);
 
   useEffect(() => {
     if (authLoading) return;

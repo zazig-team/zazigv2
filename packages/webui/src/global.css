@@ -5360,6 +5360,46 @@ input {
   opacity: 0.6;
 }
 
+/* Theme toggle (shared by header + gate page) */
+.proposal-theme-toggle {
+  background: none;
+  border: 1px solid var(--p-border);
+  border-radius: 8px;
+  padding: 6px;
+  cursor: pointer;
+  color: var(--p-text-secondary);
+  transition: color 0.2s, border-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.proposal-theme-toggle:hover {
+  color: var(--p-text);
+  border-color: var(--p-text-secondary);
+}
+
+/* Show sun in dark mode, moon in light mode */
+.proposal-theme-sun { display: none; }
+.proposal-theme-moon { display: block; }
+
+[data-theme="dark"] .proposal-theme-sun { display: block; }
+[data-theme="dark"] .proposal-theme-moon { display: none; }
+
+@media (prefers-color-scheme: dark) {
+  :not([data-theme="light"]) .proposal-theme-sun { display: block; }
+  :not([data-theme="light"]) .proposal-theme-moon { display: none; }
+}
+
+/* Gate page: position toggle in top-right corner */
+.proposal-gate .proposal-theme-toggle {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  z-index: 2;
+}
+
 /* Layout */
 .proposal-layout {
   display: grid;

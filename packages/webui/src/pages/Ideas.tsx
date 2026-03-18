@@ -265,16 +265,20 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
     setActionError(null);
     try {
       await updateIdeaStatus(ideaId, "triaging");
-      await requestHeadlessTriage({
+      const triageResult = await requestHeadlessTriage({
         companyId: activeCompanyId,
         projectId,
         ideaIds: [ideaId],
       });
+      if (!triageResult.ok) {
+        // Revert to 'new' on dispatch failure
+        await updateIdeaStatus(ideaId, "new").catch(() => {});
+        setActionError(triageResult.error);
+        return;
+      }
       setActionDone("Triage");
       onAction(ideaId, "triaging");
     } catch (err) {
-      // Revert to 'new' on dispatch failure
-      await updateIdeaStatus(ideaId, "new").catch(() => {});
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setActionInProgress(null);
@@ -921,14 +925,13 @@ export default function Ideas(): JSX.Element {
         const batch = newIdeas.slice(i, i + 5);
         const batchIds = batch.map((idea) => idea.id);
         await Promise.all(batch.map((idea) => updateIdeaStatus(idea.id, "triaging")));
-        try {
-          await requestHeadlessTriage({
-            companyId: activeCompanyId,
-            projectId,
-            ideaIds: batchIds,
-          });
-        } catch (batchErr) {
-          console.error("Batch triage dispatch error:", batchErr);
+        const triageResult = await requestHeadlessTriage({
+          companyId: activeCompanyId,
+          projectId,
+          ideaIds: batchIds,
+        });
+        if (!triageResult.ok) {
+          console.error("Batch triage dispatch error:", triageResult.error);
           // Revert this batch back to 'new'
           await Promise.all(batchIds.map((id) => updateIdeaStatus(id, "new").catch(() => {})));
         }

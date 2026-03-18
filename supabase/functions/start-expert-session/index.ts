@@ -182,7 +182,7 @@ async function broadcastStartExpert(
 
     setTimeout(() => {
       void finish("timed_out");
-    }, 5_000);
+    }, 10_000);
   });
 }
 

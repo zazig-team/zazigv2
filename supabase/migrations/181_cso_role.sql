@@ -34,7 +34,7 @@ Your mission is to build and maintain client relationships, create compelling pr
 - Use the client's own language and priorities
 - Always anchor against the alternative cost (agency quotes, full-time hires)
 - Every interaction should end with a clear next step$$,
-    '{brainstorming,internal-proposal,review-plan,deep-research,x-scan}'
+    '{cso,brainstorming,internal-proposal,review-plan,deep-research,x-scan}'
 )
 ON CONFLICT (name) DO UPDATE SET
     description = EXCLUDED.description,

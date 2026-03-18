@@ -21,6 +21,15 @@ import FormattedProse from "../components/FormattedProse";
 type TypeFilter = "all" | "idea" | "brief" | "bug" | "test";
 type SectionTab = "inbox" | "triaged" | "developing" | "workshop" | "parked" | "rejected" | "shipped" | "done";
 type SortMode = "newest" | "oldest" | "priority";
+type ToastTone = "success" | "info" | "error";
+
+interface BatchToast {
+  id: string;
+  tone: ToastTone;
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}
 
 const TYPE_ICON: Record<string, string> = {
   idea: "\u{1F4A1}",
@@ -747,9 +756,50 @@ export default function Ideas(): JSX.Element {
   } | null>(null);
   const [dispatchingIds, setDispatchingIds] = useState<Set<string>>(new Set());
   const [leavingIdeas, setLeavingIdeas] = useState<Map<string, Idea>>(new Map());
+  const [batchToasts, setBatchToasts] = useState<BatchToast[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const ideasByIdRef = useRef<Map<string, Idea>>(new Map());
   const leavingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const batchToastTimeoutsRef = useRef<Map<string, number>>(new Map());
+
+  const dismissBatchToast = useCallback((id: string): void => {
+    const timeoutId = batchToastTimeoutsRef.current.get(id);
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+      batchToastTimeoutsRef.current.delete(id);
+    }
+    setBatchToasts((prev) => prev.filter((toast) => toast.id !== id));
+  }, []);
+
+  const showBatchToast = useCallback((
+    {
+      tone,
+      message,
+      actionLabel,
+      onAction,
+    }: Omit<BatchToast, "id">,
+    autoDismissMs = 7000,
+  ): void => {
+    const id = crypto.randomUUID();
+    setBatchToasts((prev) => [...prev, { id, tone, message, actionLabel, onAction }]);
+
+    if (autoDismissMs > 0) {
+      const timeoutId = window.setTimeout(() => {
+        setBatchToasts((prev) => prev.filter((toast) => toast.id !== id));
+        batchToastTimeoutsRef.current.delete(id);
+      }, autoDismissMs);
+      batchToastTimeoutsRef.current.set(id, timeoutId);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      for (const timeoutId of batchToastTimeoutsRef.current.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      batchToastTimeoutsRef.current.clear();
+    };
+  }, []);
 
   const loadIdeas = useCallback(async () => {
     if (!activeCompanyId) return;
@@ -995,13 +1045,94 @@ export default function Ideas(): JSX.Element {
     const newIdeas = sections.inbox.filter((i) => i.status === "new");
     if (newIdeas.length === 0) return;
 
-    const projectsData = await fetchProjects(activeCompanyId);
-    const projectId = projectsData[0]?.id;
-    if (!projectId) return;
+    const toErrorMessage = (error: unknown): string => error instanceof Error ? error.message : String(error);
+    const sleep = (ms: number): Promise<void> => new Promise((resolve) => {
+      window.setTimeout(resolve, ms);
+    });
 
-    setTriageProgress({ total: newIdeas.length, dispatched: 0, failed: 0, retrying: false });
+    let projectId: string | null = null;
     try {
-      // Batch into groups of 5 — mark and dispatch per-batch to enable partial rollback
+      const projectsData = await fetchProjects(activeCompanyId);
+      projectId = projectsData[0]?.id ?? null;
+    } catch (err) {
+      showBatchToast({ tone: "error", message: `Batch triage error: ${toErrorMessage(err)}` }, 0);
+      return;
+    }
+
+    if (!projectId) {
+      showBatchToast({ tone: "error", message: "Batch triage error: No project available for triage" }, 0);
+      return;
+    }
+
+    const requestBatch = async (ideaIds: string[]): Promise<{ ok: boolean; error: string }> => {
+      try {
+        const triageResult = await requestHeadlessTriage({
+          companyId: activeCompanyId,
+          projectId,
+          ideaIds,
+        });
+        if (triageResult.ok) {
+          return { ok: true, error: "" };
+        }
+        return { ok: false, error: triageResult.error || "Unknown error" };
+      } catch (err) {
+        return { ok: false, error: toErrorMessage(err) };
+      }
+    };
+
+    const revertBatchToNew = async (batchIds: string[]): Promise<void> => {
+      await Promise.all(batchIds.map((id) => updateIdeaStatus(id, "new").catch(() => {})));
+    };
+
+    const makeManualRetryAction = (batchIds: string[]): (() => void) => {
+      return () => {
+        void (async () => {
+          await Promise.all(batchIds.map((id) => updateIdeaStatus(id, "triaging").catch(() => {})));
+          const retryResult = await requestBatch(batchIds);
+
+          if (retryResult.ok) {
+            setTriageProgress((prev) => (
+              prev
+                ? {
+                  ...prev,
+                  dispatched: prev.dispatched + batchIds.length,
+                  failed: Math.max(0, prev.failed - batchIds.length),
+                }
+                : prev
+            ));
+            showBatchToast({ tone: "success", message: `Batch retry complete: ${batchIds.length} sent` });
+            return;
+          }
+
+          await revertBatchToNew(batchIds);
+          showBatchToast({
+            tone: "error",
+            message: `Batch failed: ${retryResult.error}`,
+            actionLabel: "Retry",
+            onAction: makeManualRetryAction(batchIds),
+          }, 0);
+        })();
+      };
+    };
+
+    let dispatched = 0;
+    let failed = 0;
+    const total = newIdeas.length;
+    const updateProgress = (retrying: boolean): void => {
+      setTriageProgress((prev) => (
+        prev
+          ? {
+            ...prev,
+            dispatched,
+            failed,
+            retrying,
+          }
+          : prev
+      ));
+    };
+
+    setTriageProgress({ total, dispatched, failed, retrying: false });
+    try {
       for (let i = 0; i < newIdeas.length; i += 5) {
         const batch = newIdeas.slice(i, i + 5);
         const batchIds = batch.map((idea) => idea.id);
@@ -1011,29 +1142,40 @@ export default function Ideas(): JSX.Element {
           return next;
         });
         await Promise.all(batch.map((idea) => updateIdeaStatus(idea.id, "triaging")));
-        try {
-          const triageResult = await requestHeadlessTriage({
-            companyId: activeCompanyId,
-            projectId,
-            ideaIds: batchIds,
+
+        const triageResult = await requestBatch(batchIds);
+        if (triageResult.ok) {
+          dispatched += batchIds.length;
+          updateProgress(false);
+          setDispatchingIds((prev) => {
+            const next = new Set(prev);
+            batchIds.forEach((id) => next.delete(id));
+            return next;
           });
-          if (triageResult.ok) {
-            setTriageProgress((prev) => (
-              prev ? { ...prev, dispatched: prev.dispatched + batchIds.length } : prev
-            ));
+          continue;
+        }
+
+        failed += batchIds.length;
+        updateProgress(true);
+
+        try {
+          await sleep(2000);
+          const retryResult = await requestBatch(batchIds);
+          if (retryResult.ok) {
+            dispatched += batchIds.length;
+            failed -= batchIds.length;
+            updateProgress(false);
           } else {
-            setTriageProgress((prev) => (
-              prev ? { ...prev, failed: prev.failed + batchIds.length } : prev
-            ));
-            // Revert this batch back to 'new'
-            await Promise.all(batchIds.map((id) => updateIdeaStatus(id, "new").catch(() => {})));
+            await revertBatchToNew(batchIds);
+            showBatchToast({
+              tone: "error",
+              message: `Batch failed: ${retryResult.error}`,
+              actionLabel: "Retry",
+              onAction: makeManualRetryAction(batchIds),
+            }, 0);
           }
-        } catch {
-          setTriageProgress((prev) => (
-            prev ? { ...prev, failed: prev.failed + batchIds.length } : prev
-          ));
-          await Promise.all(batchIds.map((id) => updateIdeaStatus(id, "new").catch(() => {})));
         } finally {
+          updateProgress(false);
           setDispatchingIds((prev) => {
             const next = new Set(prev);
             batchIds.forEach((id) => next.delete(id));
@@ -1041,6 +1183,14 @@ export default function Ideas(): JSX.Element {
           });
         }
       }
+
+      if (failed === 0) {
+        showBatchToast({ tone: "success", message: `Triage complete: ${dispatched} sent` });
+      } else {
+        showBatchToast({ tone: "error", message: `${dispatched} of ${total} sent, ${failed} failed` }, 0);
+      }
+    } catch (err) {
+      showBatchToast({ tone: "error", message: `Batch triage error: ${toErrorMessage(err)}` }, 0);
     } finally {
       setDispatchingIds(new Set());
       setTriageProgress(null);
@@ -1256,10 +1406,45 @@ export default function Ideas(): JSX.Element {
             {triageProgress !== null ? (
               <>
                 <span className="il-triage-spinner" aria-hidden="true" />
-                <span>{`Triaging... ${triageProgress.dispatched}/${triageProgress.total}`}</span>
+                <span>{`${triageProgress.retrying ? "Retrying failed batch..." : "Triaging..."} ${triageProgress.dispatched}/${triageProgress.total}`}</span>
               </>
             ) : `Triage All (${sections.inbox.filter((i) => i.status === "new").length})`}
           </button>
+        </div>
+      )}
+
+      {batchToasts.length > 0 && (
+        <div className="il-toast-stack" aria-live="polite">
+          {batchToasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`il-toast il-toast-${toast.tone}`}
+              role={toast.tone === "error" ? "alert" : "status"}
+            >
+              <span className="il-toast-message">{toast.message}</span>
+              <div className="il-toast-actions">
+                {toast.actionLabel && toast.onAction && (
+                  <button
+                    type="button"
+                    className="il-toast-action"
+                    onClick={() => {
+                      dismissBatchToast(toast.id);
+                      toast.onAction?.();
+                    }}
+                  >
+                    {toast.actionLabel}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="il-toast-dismiss"
+                  onClick={() => dismissBatchToast(toast.id)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

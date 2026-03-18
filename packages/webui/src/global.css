@@ -3817,6 +3817,17 @@ input {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.il-row-batch-error {
+  font-size: 11px;
+  color: var(--negative);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.il-row--queued {
+  opacity: 0.5;
+}
 .il-triaging-badge {
   display: inline-flex;
   align-items: center;

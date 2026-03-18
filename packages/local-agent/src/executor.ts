@@ -2216,7 +2216,16 @@ export class JobExecutor {
 
       // Create GitHub PR for combine jobs (after branch push succeeds)
       if (job.cardType === "combine" && job.repoUrl && job.featureBranch) {
-        pr = await this.createPRForCombineJob(jobId, job);
+        // If the agent already created the PR and reported the URL in its result,
+        // extract it and skip the redundant gh pr create call (which would fail with
+        // "PR already exists"). Still pass to createPRForCombineJob for DB persistence.
+        const prUrlInResult = result.match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/)?.[0];
+        if (prUrlInResult) {
+          jobLog(jobId, `PR already created by agent — using URL from report: ${prUrlInResult}`);
+          pr = await this.createPRForCombineJob(jobId, job, prUrlInResult);
+        } else {
+          pr = await this.createPRForCombineJob(jobId, job);
+        }
       }
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
@@ -2258,7 +2267,7 @@ export class JobExecutor {
   // Private: PR creation for combine jobs
   // ---------------------------------------------------------------------------
 
-  private async createPRForCombineJob(jobId: string, job: ActiveJob): Promise<string | undefined> {
+  private async createPRForCombineJob(jobId: string, job: ActiveJob, existingPrUrl?: string): Promise<string | undefined> {
     const repoUrl = job.repoUrl!;
     const featureBranch = job.featureBranch!;
 
@@ -2279,6 +2288,15 @@ export class JobExecutor {
         .eq("id", featureId)
         .single();
       featureTitle = (feature as { title?: string } | null)?.title ?? undefined;
+    }
+
+    // If the agent already created the PR, just persist the URL to the DB and return.
+    if (existingPrUrl && featureId) {
+      await this.supabase.from("features")
+        .update({ pr_url: existingPrUrl })
+        .eq("id", featureId);
+      jobLog(jobId, `PR URL persisted for feature ${featureId}: ${existingPrUrl}`);
+      return existingPrUrl;
     }
 
     const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);

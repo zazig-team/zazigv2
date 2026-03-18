@@ -163,6 +163,19 @@
 - **Critical**: Diagnosis jobs must instruct the agent to write report to `.claude/{role}-report.md` with `status: pass` prefix. Without this, executor defaults to `NO_REPORT`. The executor looks for report files at specific paths based on role name.
 - **Executor result storage**: `sendJobComplete` now stores full report text (not just verdict string) in `jobs.result`. Changed in executor.ts — `report ?? result` ensures the full report is available for UI polling.
 
+## Proposal System (2026-03-18)
+- `proposals` + `proposal_views` tables live (migration 184)
+- CSO role: persistent, opus, 3 archetypes (Relationship Builder, Closer, Evangelist) — migrations 181-183
+- Edge functions: `view-proposal` (3-tier auth: gate/unauthorized/full), `create-proposal`, `request-proposal-access`
+- `user_can_view_proposal()` SECURITY DEFINER function: `@zazig.com` always passes, or email in `allowed_emails` array
+- Proposal page: `/proposals/:id` — standalone route (NOT inside ProtectedLayout), own auth handling
+- AuthCallback supports redirect-back via `sessionStorage.setItem("auth_redirect", ...)` — proposal page sets this before calling `signInWithGoogle()`
+- Live Beyond proposal ID: `2e18af38-9ade-42c3-90cb-384556f602ce`
+- Proposal URL: `zazig.com/proposals/2e18af38-9ade-42c3-90cb-384556f602ce`
+- Pricing in USD, not GBP — `formatCurrency` uses `en-US` / `USD`
+- Resend email integration deferred — proposals work without it, event log tracks access requests
+- No CRM table yet — future CSO capability
+
 ## Active Design Docs
 - Model & Subscription Flexibility: `docs/plans/active/2026-03-06-model-flexibility-design.md` — decouples roles from hardcoded models, introduces `machine_backends` table, Backend interface, runtime probing, model preference chains
 - Dynamic Roadmap: `docs/plans/active/2026-03-07-dynamic-roadmap-design.md` — DB-driven tech tree, Phase 1 shipped (read-only), Phases 2-4 (CPO management, automated audit, generative roadmap) captured as idea

@@ -37,6 +37,7 @@ import {
   triggerCICheck,
   triggerCombining,
   triggerMerging,
+  triggerTestWriting,
 } from "../_shared/pipeline-utils.ts";
 import { parseGitHubRepoUrl } from "../_shared/github.ts";
 
@@ -1626,94 +1627,6 @@ export async function triggerBreakdown(
 
   console.log(
     `[orchestrator] Created breakdown job ${job.id} for feature ${featureId}`,
-  );
-}
-
-export async function triggerTestWriting(
-  supabase: SupabaseClient,
-  featureId: string,
-): Promise<void> {
-  const { data: feature, error } = await supabase
-    .from("features")
-    .select("company_id, project_id, title, spec, acceptance_tests")
-    .eq("id", featureId)
-    .single();
-
-  if (error || !feature) {
-    console.error(
-      `[orchestrator] triggerTestWriting: feature ${featureId} not found`,
-    );
-    return;
-  }
-
-  const { data: updated, error: transitionErr } = await supabase
-    .from("features")
-    .update({ status: "writing_tests" })
-    .eq("id", featureId)
-    .eq("status", "breaking_down")
-    .select("id");
-
-  if (transitionErr) {
-    console.error(
-      `[orchestrator] triggerTestWriting: failed to transition feature ${featureId} to writing_tests:`,
-      transitionErr.message,
-    );
-    return;
-  }
-
-  if (!updated || updated.length === 0) return;
-
-  const { data: existing } = await supabase
-    .from("jobs")
-    .select("id, status")
-    .eq("feature_id", featureId)
-    .eq("job_type", "test")
-    .in("status", ["created", "queued", "executing", "blocked", "complete"])
-    .maybeSingle();
-
-  if (existing) {
-    console.log(
-      `[orchestrator] triggerTestWriting: test job ${existing.id} (${existing.status}) already exists for feature ${featureId}, skipping`,
-    );
-    return;
-  }
-
-  const { data: job, error: insertErr } = await supabase
-    .from("jobs")
-    .insert({
-      company_id: feature.company_id,
-      project_id: feature.project_id,
-      feature_id: featureId,
-      title: "Writing tests for feature",
-      role: "test-engineer",
-      job_type: "test",
-      slot_type: "claude_code",
-      model: "claude-sonnet-4-6",
-      complexity: "medium",
-      status: "created",
-      context: JSON.stringify({
-        type: "test",
-        featureId,
-        title: feature.title,
-        spec: feature.spec,
-        acceptance_tests: feature.acceptance_tests,
-        test_dir: "tests/features/",
-        example_tests: ["packages/local-agent/src/executor.test.ts"],
-      }),
-    })
-    .select("id")
-    .single();
-
-  if (insertErr || !job) {
-    console.error(
-      `[orchestrator] triggerTestWriting: failed to insert test job for feature ${featureId}:`,
-      insertErr?.message,
-    );
-    return;
-  }
-
-  console.log(
-    `[orchestrator] triggerTestWriting: queued test job ${job.id} for feature ${featureId}`,
   );
 }
 

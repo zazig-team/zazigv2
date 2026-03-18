@@ -420,23 +420,39 @@ export class RepoManager {
    */
   async ensureFeatureBranch(repoDir: string, featureBranch: string): Promise<void> {
     return this.withLock(repoDir, async () => {
-      // Fetch to ensure remote branches are available (ensureRepo no longer fetches)
-      // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
-      // That's expected — diverged branches are intentionally protected. The other
-      // branches are still updated, so we log and continue.
-      try { await this.git(repoDir, "fetch", "origin"); } catch (e) {
-        console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
-      }
-
-      // Check if branch already exists (covers both local and fetched-from-remote)
+      // Check if branch already exists locally
       try {
         await this.git(repoDir, "rev-parse", "--verify", `refs/heads/${featureBranch}`);
         return; // Already exists
       } catch {
         // Not found — create off default branch
       }
+
       const defaultBranch = await this.resolveDefaultBranch(repoDir);
-      await this.git(repoDir, "branch", featureBranch, defaultBranch);
+
+      // Fetch the default branch into a temp ref. Git refuses to update
+      // refs/heads/{branch} when that branch is checked out in a linked worktree,
+      // even with --force. Fetching into a separate ref sidesteps this protection.
+      // --refmap="" suppresses the configured refspec so Git doesn't also try
+      // refs/heads/{branch}:refs/heads/{branch} (which would trigger the protection).
+      const tempRef = `refs/zazig-tmp/${defaultBranch}`;
+      try {
+        await this.git(repoDir, "fetch", "--refmap=", "origin",
+          `+refs/heads/${defaultBranch}:${tempRef}`);
+      } catch (e) {
+        console.warn(`[RepoManager] ensureFeatureBranch: fetch warning (non-fatal): ${getErrorMessage(e)}`);
+      }
+
+      // Use the temp ref if available (fresh from origin); fall back to local ref.
+      let baseRef: string;
+      try {
+        await this.git(repoDir, "rev-parse", "--verify", tempRef);
+        baseRef = tempRef;
+      } catch {
+        baseRef = defaultBranch;
+      }
+
+      await this.git(repoDir, "branch", featureBranch, baseRef);
     });
   }
 

@@ -22,6 +22,7 @@ import {
   releaseSlot,
   triggerCICheck,
   triggerMerging,
+  triggerTestWriting,
 } from "../_shared/pipeline-utils.ts";
 
 const MAX_RETRIES = 5;
@@ -196,23 +197,12 @@ export async function handleJobComplete(
     await checkUnblockedJobs(supabase, jobRow.feature_id, jobId);
   }
 
-  // Handle breakdown job completion: feature transitions breakdown → building
+  // Handle breakdown job completion: feature transitions breakdown → writing_tests (→ building)
   if (jobRow?.job_type === "breakdown" && jobRow?.feature_id) {
-    const { data: transitioned } = await supabase
-      .from("features")
-      .update({ status: "building" })
-      .eq("id", jobRow.feature_id)
-      .eq("status", "breaking_down")
-      .select("id");
-    if (transitioned && transitioned.length > 0) {
-      console.log(
-        `[agent-event job=${jobId}] Breakdown complete — feature ${jobRow.feature_id} → building`,
-      );
-    } else {
-      console.warn(
-        `[agent-event job=${jobId}] Breakdown complete but feature ${jobRow.feature_id} was not in breaking_down (may have already transitioned)`,
-      );
-    }
+    await triggerTestWriting(supabase, jobRow.feature_id);
+    console.log(
+      `[agent-event job=${jobId}] Breakdown complete — triggered writing_tests for feature ${jobRow.feature_id}`,
+    );
 
     // Auto-generate branch name if not already set (matches processFeatureLifecycle logic).
     // This prevents a race where this Realtime handler transitions the feature before the

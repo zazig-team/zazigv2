@@ -69,7 +69,11 @@ function makeSupabaseClientMock(options: { setSessionError?: string } = {}): Moc
   const client = {
     auth: {
       getSession: vi.fn().mockResolvedValue({
-        data: { session: { access_token: "session-token" } },
+        data: { session: { access_token: "session-token", expires_at: Math.floor(Date.now() / 1000) + 3600 } },
+      }),
+      refreshSession: vi.fn().mockResolvedValue({
+        data: { session: { access_token: "refreshed-token", expires_at: Math.floor(Date.now() / 1000) + 3600 } },
+        error: null,
       }),
       setSession: setSessionMock,
       onAuthStateChange: vi.fn(),

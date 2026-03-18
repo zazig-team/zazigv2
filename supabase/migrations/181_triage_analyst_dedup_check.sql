@@ -1,4 +1,4 @@
--- 161_triage_analyst_dedup_check.sql
+-- 160_triage_analyst_dedup_check.sql
 -- Add a mandatory implementation deduplication check before routing decisions.
 
 UPDATE public.expert_roles

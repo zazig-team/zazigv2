@@ -5540,9 +5540,10 @@ input {
   position: absolute;
   bottom: 0;
   left: 0;
-  width: 60px;
+  width: 48px;
   height: 3px;
-  border-radius: 3px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--zazig-green, #00C853), var(--zazig-green-fade, #00C85344));
 }
 
 .proposal-section-body {
@@ -5636,14 +5637,17 @@ input {
 }
 
 .proposal-bio-photo {
-  width: 120px;
-  height: 120px;
+  width: 140px;
+  height: 140px;
   border-radius: 50%;
   object-fit: cover;
-  float: left;
-  margin: 0 24px 16px 0;
-  border: 3px solid var(--p-border);
-  shape-outside: circle();
+  object-position: center 20%;
+  display: block;
+  margin: 0 auto 16px;
+  border: none;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+  float: none;
+  shape-outside: none;
 }
 
 .proposal-pre {
@@ -5720,7 +5724,7 @@ input {
   box-shadow: var(--p-shadow-md);
 }
 
-/* Top gradient border — replaces solid 3px top border */
+/* Top gradient border — uses --phase-accent custom property */
 .proposal-phase-card::before {
   content: "";
   position: absolute;
@@ -5729,6 +5733,7 @@ input {
   right: 0;
   height: 3px;
   border-radius: 16px 16px 0 0;
+  background: linear-gradient(90deg, var(--phase-accent, #00C853), color-mix(in srgb, var(--phase-accent, #00C853) 53%, transparent));
 }
 
 /* Phase number badge */
@@ -5801,9 +5806,10 @@ input {
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  background: #00C85355;
 }
 
-/* Year 1 total */
+/* Pricing total */
 .proposal-pricing-total {
   display: flex;
   align-items: center;
@@ -5856,7 +5862,61 @@ input {
   letter-spacing: 0.02em;
 }
 
-/* ─── Timeline ────────────────────────────────────────────────────── */
+/* ─── Timeline Carousel ──────────────────────────────────────────── */
+
+.proposal-timeline-carousel {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding: 24px 0;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.proposal-timeline-card {
+  flex: 0 0 280px;
+  scroll-snap-align: start;
+  border-radius: 12px;
+  padding: 24px;
+  background: var(--p-surface);
+  border: 1px solid var(--p-border);
+  border-top: 3px solid var(--p-border);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.proposal-timeline-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+}
+
+.proposal-timeline-card-date {
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 8px;
+  color: var(--p-text);
+}
+
+.proposal-timeline-card-desc {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--p-text-secondary);
+}
+
+.proposal-timeline-card-badge {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 4px 12px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #00C85315;
+  color: #00C853;
+}
+
+/* ─── Legacy Timeline (unused, kept for reference) ───────────────── */
 
 .proposal-timeline {
   display: flex;
@@ -5931,6 +5991,7 @@ input {
   left: 0;
   right: 0;
   height: 3px;
+  background: linear-gradient(90deg, var(--zazig-green, #00C853), var(--zazig-green-fade, #00C85344));
 }
 
 .proposal-accept-title {

@@ -349,7 +349,7 @@ function AcceptModal({
                 </ul>
                 {proposal.pricing.total_year1 > 0 && (
                   <p>
-                    <strong>Year 1 total investment:</strong>{" "}
+                    <strong>Total investment:</strong>{" "}
                     {formatCurrency(proposal.pricing.total_year1)}
                   </p>
                 )}
@@ -580,36 +580,84 @@ function ProposalContent({
           </div>
 
           {/* Sections */}
-          {sortedSections.map((section: ProposalSection, idx: number) => (
-            <section
-              key={section.key}
-              id={sectionSlug(section.title)}
-              className="proposal-section"
-              style={{ animationDelay: `${0.1 + idx * 0.05}s` }}
-            >
-              <h2
-                className="proposal-section-title"
-                style={
-                  {
-                    "--accent": ZAZIG_GREEN,
-                  } as React.CSSProperties
-                }
+          {sortedSections.map((section: ProposalSection, idx: number) => {
+            // Timeline carousel
+            if (section.key === "timeline") {
+              const milestones = section.body_md
+                .split("\n\n")
+                .filter(Boolean)
+                .map((block) => {
+                  const match = block.match(/\*\*(.+?)\*\*\s*[—–-]\s*(.*)/s);
+                  if (match)
+                    return {
+                      date: match[1],
+                      description: match[2].replace(/\n/g, " ").trim(),
+                    };
+                  return null;
+                })
+                .filter(
+                  (m): m is { date: string; description: string } => m !== null,
+                );
+
+              return (
+                <section
+                  key={section.key}
+                  id={sectionSlug(section.title)}
+                  className="proposal-section"
+                  style={{ animationDelay: `${0.1 + idx * 0.05}s` }}
+                >
+                  <h2 className="proposal-section-title">{section.title}</h2>
+                  <div className="proposal-timeline-carousel">
+                    {milestones.map((m, i) => (
+                      <div
+                        key={i}
+                        className="proposal-timeline-card"
+                        style={{
+                          borderTopColor:
+                            i === 2 ? ZAZIG_GREEN : undefined,
+                        }}
+                      >
+                        <div className="proposal-timeline-card-date">
+                          {m.date}
+                        </div>
+                        <div className="proposal-timeline-card-desc">
+                          {m.description}
+                        </div>
+                        {m.date.includes("May") && (
+                          <div className="proposal-timeline-card-badge">
+                            MVP Launch
+                          </div>
+                        )}
+                        {m.date.includes("September") && (
+                          <div className="proposal-timeline-card-badge">
+                            Documentary Launch
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            }
+
+            // Standard section
+            return (
+              <section
+                key={section.key}
+                id={sectionSlug(section.title)}
+                className="proposal-section"
+                style={{ animationDelay: `${0.1 + idx * 0.05}s` }}
               >
-                <style>{`
-                  #${sectionSlug(section.title)} .proposal-section-title::after {
-                    background: linear-gradient(90deg, ${ZAZIG_GREEN}, ${ZAZIG_GREEN}44);
-                  }
-                `}</style>
-                {section.title}
-              </h2>
-              <div
-                className="proposal-section-body"
-                dangerouslySetInnerHTML={{
-                  __html: renderMarkdown(section.body_md),
-                }}
-              />
-            </section>
-          ))}
+                <h2 className="proposal-section-title">{section.title}</h2>
+                <div
+                  className="proposal-section-body"
+                  dangerouslySetInnerHTML={{
+                    __html: renderMarkdown(section.body_md),
+                  }}
+                />
+              </section>
+            );
+          })}
 
           {/* Pricing */}
           {hasPricing && (
@@ -620,26 +668,19 @@ function ProposalContent({
                 animationDelay: `${0.1 + sortedSections.length * 0.05}s`,
               }}
             >
-              <h2 className="proposal-section-title">
-                <style>{`
-                  #pricing .proposal-section-title::after {
-                    background: linear-gradient(90deg, ${ZAZIG_GREEN}, ${ZAZIG_GREEN}44);
-                  }
-                `}</style>
-                Pricing
-              </h2>
+              <h2 className="proposal-section-title">Pricing</h2>
 
               <div className="proposal-pricing-grid">
                 {proposal.pricing.phases.map((phase, i) => (
                   <div
                     key={i}
                     className="proposal-phase-card"
+                    style={
+                      {
+                        "--phase-accent": accentColor,
+                      } as React.CSSProperties
+                    }
                   >
-                    <style>{`
-                      .proposal-phase-card:nth-child(${i + 1})::before {
-                        background: linear-gradient(90deg, ${accentColor}, ${accentColor}88);
-                      }
-                    `}</style>
                     <div
                       className="proposal-phase-number"
                       style={{ background: accentColor }}
@@ -660,21 +701,7 @@ function ProposalContent({
                     {phase.deliverables.length > 0 && (
                       <ul className="proposal-phase-deliverables">
                         {phase.deliverables.map((d, j) => (
-                          <li
-                            key={j}
-                            style={
-                              {
-                                "--dot-color": `${ZAZIG_GREEN}66`,
-                              } as React.CSSProperties
-                            }
-                          >
-                            <style>{`
-                              .proposal-phase-card:nth-child(${i + 1}) .proposal-phase-deliverables li::before {
-                                background: ${ZAZIG_GREEN}55;
-                              }
-                            `}</style>
-                            {d}
-                          </li>
+                          <li key={j}>{d}</li>
                         ))}
                       </ul>
                     )}
@@ -684,7 +711,7 @@ function ProposalContent({
 
               {proposal.pricing.total_year1 > 0 && (
                 <div className="proposal-pricing-total">
-                  <span>Year 1 Total</span>
+                  <span>Total</span>
                   <span className="proposal-pricing-total-value">
                     {formatCurrency(proposal.pricing.total_year1)}
                   </span>
@@ -709,11 +736,6 @@ function ProposalContent({
           {/* Accept Proposal Section */}
           {hasPricing && (
             <div id="accept" className="proposal-accept-section">
-              <style>{`
-                .proposal-accept-section::before {
-                  background: linear-gradient(90deg, ${ZAZIG_GREEN}, ${ZAZIG_GREEN}44);
-                }
-              `}</style>
               <div className="proposal-accept-title">
                 Ready to proceed?
               </div>
@@ -736,7 +758,7 @@ function ProposalContent({
                 {proposal.pricing.total_year1 > 0 && (
                   <div className="proposal-accept-item">
                     <div className="proposal-accept-item-label">
-                      Year 1 Total
+                      Total
                     </div>
                     <div className="proposal-accept-item-value">
                       {formatCurrency(proposal.pricing.total_year1)}

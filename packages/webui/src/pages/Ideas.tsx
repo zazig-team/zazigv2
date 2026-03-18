@@ -738,7 +738,12 @@ export default function Ideas(): JSX.Element {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [dismissedIdeas, setDismissedIdeas] = useState<Map<string, string>>(new Map());
-  const [batchTriaging, setBatchTriaging] = useState(false);
+  const [triageProgress, setTriageProgress] = useState<{
+    total: number;
+    dispatched: number;
+    failed: number;
+    retrying: boolean;
+  } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const loadIdeas = useCallback(async () => {
@@ -910,7 +915,7 @@ export default function Ideas(): JSX.Element {
 
   // Batch triage all new ideas via headless expert sessions (batches of 5)
   async function handleBatchTriage(): Promise<void> {
-    if (!activeCompanyId) return;
+    if (!activeCompanyId || triageProgress !== null) return;
     const newIdeas = sections.inbox.filter((i) => i.status === "new");
     if (newIdeas.length === 0) return;
 
@@ -918,7 +923,7 @@ export default function Ideas(): JSX.Element {
     const projectId = projectsData[0]?.id;
     if (!projectId) return;
 
-    setBatchTriaging(true);
+    setTriageProgress({ total: newIdeas.length, dispatched: 0, failed: 0, retrying: false });
     try {
       // Batch into groups of 5 — mark and dispatch per-batch to enable partial rollback
       for (let i = 0; i < newIdeas.length; i += 5) {
@@ -930,16 +935,20 @@ export default function Ideas(): JSX.Element {
           projectId,
           ideaIds: batchIds,
         });
-        if (!triageResult.ok) {
-          console.error("Batch triage dispatch error:", triageResult.error);
+        if (triageResult.ok) {
+          setTriageProgress((prev) => (
+            prev ? { ...prev, dispatched: prev.dispatched + batchIds.length } : prev
+          ));
+        } else {
+          setTriageProgress((prev) => (
+            prev ? { ...prev, failed: prev.failed + batchIds.length } : prev
+          ));
           // Revert this batch back to 'new'
           await Promise.all(batchIds.map((id) => updateIdeaStatus(id, "new").catch(() => {})));
         }
       }
-    } catch (err) {
-      console.error("Batch triage error:", err);
     } finally {
-      setBatchTriaging(false);
+      setTriageProgress(null);
     }
   }
 
@@ -1135,15 +1144,20 @@ export default function Ideas(): JSX.Element {
       </div>
 
       {/* Batch triage bar */}
-      {activeTab === "inbox" && sections.inbox.some((i) => i.status === "new") && (
+      {activeTab === "inbox" && (sections.inbox.some((i) => i.status === "new") || triageProgress !== null) && (
         <div className="il-batch-bar">
           <button
             className="il-action-secondary il-action-triage"
             type="button"
-            disabled={batchTriaging}
+            disabled={triageProgress !== null}
             onClick={handleBatchTriage}
           >
-            {batchTriaging ? "Triaging..." : `Triage All (${sections.inbox.filter((i) => i.status === "new").length})`}
+            {triageProgress !== null ? (
+              <>
+                <span className="il-triage-spinner" aria-hidden="true" />
+                <span>{`Triaging... ${triageProgress.dispatched}/${triageProgress.total}`}</span>
+              </>
+            ) : `Triage All (${sections.inbox.filter((i) => i.status === "new").length})`}
           </button>
         </div>
       )}

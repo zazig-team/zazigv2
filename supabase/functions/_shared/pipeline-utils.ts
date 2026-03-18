@@ -411,6 +411,46 @@ export async function triggerTestWriting(
   console.log(
     `[pipeline] triggerTestWriting: queued test job ${job.id} for feature ${featureId}`,
   );
+
+  // Wire root code jobs to depend on the test job so they start with test files in their branch.
+  // Only jobs with no existing dependencies are updated — jobs that already depend on something
+  // will inherit the test branch transitively through their dependency chain.
+  const { data: rootJobs, error: rootJobsErr } = await supabase
+    .from("jobs")
+    .select("id, depends_on")
+    .eq("feature_id", featureId)
+    .eq("job_type", "code")
+    .in("status", ["created", "queued"]);
+
+  if (rootJobsErr) {
+    console.error(
+      `[pipeline] triggerTestWriting: failed to query code jobs for feature ${featureId}:`,
+      rootJobsErr.message,
+    );
+    return;
+  }
+
+  const rootJobIds = (rootJobs ?? [])
+    .filter((j: { depends_on: string[] | null }) => !j.depends_on || j.depends_on.length === 0)
+    .map((j: { id: string }) => j.id);
+
+  if (rootJobIds.length > 0) {
+    const { error: depErr } = await supabase
+      .from("jobs")
+      .update({ depends_on: [job.id] })
+      .in("id", rootJobIds);
+
+    if (depErr) {
+      console.error(
+        `[pipeline] triggerTestWriting: failed to set test dependency on ${rootJobIds.length} code jobs:`,
+        depErr.message,
+      );
+    } else {
+      console.log(
+        `[pipeline] triggerTestWriting: wired ${rootJobIds.length} root code jobs to depend on test job ${job.id}`,
+      );
+    }
+  }
 }
 
 /**

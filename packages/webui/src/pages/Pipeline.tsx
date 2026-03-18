@@ -264,6 +264,10 @@ function featurePrUrl(feature: PipelineFeature): string | null {
 }
 
 function getCardAccentColor(feature: PipelineFeature, activeJobs: PipelineActiveJob[]): string {
+  if (feature.status === "complete" || feature.status === "shipped") {
+    return "var(--positive)";
+  }
+
   if (feature.hasFailedJobs) {
     return "var(--negative)";
   }

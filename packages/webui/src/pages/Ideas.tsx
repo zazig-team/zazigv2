@@ -732,6 +732,7 @@ export default function Ideas(): JSX.Element {
   const [promotedIdeas, setPromotedIdeas] = useState<Idea[]>([]);
   const [featureStatuses, setFeatureStatuses] = useState<Map<string, { title: string; status: string }>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [loadedCompanyId, setLoadedCompanyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [activeTab, setActiveTab] = useState<SectionTab>("inbox");
@@ -745,6 +746,7 @@ export default function Ideas(): JSX.Element {
     retrying: boolean;
   } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const staleCleanupRunForCompanyRef = useRef<string | null>(null);
 
   const loadIdeas = useCallback(async () => {
     if (!activeCompanyId) return;
@@ -777,12 +779,81 @@ export default function Ideas(): JSX.Element {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+      setLoadedCompanyId(activeCompanyId);
     }
   }, [activeCompanyId]);
 
   useEffect(() => {
     void loadIdeas();
   }, [loadIdeas]);
+
+  useEffect(() => {
+    if (!activeCompanyId || loadedCompanyId !== activeCompanyId) return;
+    if (staleCleanupRunForCompanyRef.current === activeCompanyId) return;
+    staleCleanupRunForCompanyRef.current = activeCompanyId;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const { data: triagingIdeas, error: triagingIdeasError } = await supabase
+          .from("ideas")
+          .select("id")
+          .eq("company_id", activeCompanyId)
+          .eq("status", "triaging");
+
+        if (triagingIdeasError || !triagingIdeas?.length || cancelled) return;
+
+        const triagingIdeaIds = triagingIdeas
+          .map((idea) => idea.id)
+          .filter((id): id is string => typeof id === "string");
+
+        if (triagingIdeaIds.length === 0) return;
+
+        const tenMinutesAgoIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        const { data: recentSessions, error: recentSessionsError } = await supabase
+          .from("expert_sessions")
+          .select("id")
+          .eq("company_id", activeCompanyId)
+          .gt("created_at", tenMinutesAgoIso);
+
+        if (recentSessionsError || cancelled) return;
+
+        const recentSessionIds = (recentSessions ?? [])
+          .map((session) => session.id)
+          .filter((id): id is string => typeof id === "string");
+
+        const activeTriagingIdeaIds = new Set<string>();
+        if (recentSessionIds.length > 0) {
+          const { data: recentSessionItems, error: recentSessionItemsError } = await supabase
+            .from("expert_session_items")
+            .select("idea_id")
+            .in("session_id", recentSessionIds)
+            .in("idea_id", triagingIdeaIds);
+
+          if (recentSessionItemsError || cancelled) return;
+
+          for (const item of recentSessionItems ?? []) {
+            if (typeof item.idea_id === "string") {
+              activeTriagingIdeaIds.add(item.idea_id);
+            }
+          }
+        }
+
+        const staleIdeaIds = triagingIdeaIds.filter((ideaId) => !activeTriagingIdeaIds.has(ideaId));
+        if (staleIdeaIds.length === 0 || cancelled) return;
+
+        await Promise.all(staleIdeaIds.map((ideaId) => updateIdeaStatus(ideaId, "new")));
+        await loadIdeas();
+      } catch (cleanupError) {
+        console.error("Failed to revert stale triaging ideas", cleanupError);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCompanyId, loadedCompanyId, loadIdeas]);
 
   // Realtime
   const handleInsert = useCallback((row: Record<string, unknown>) => {

@@ -5637,17 +5637,21 @@ input {
 }
 
 .proposal-bio-photo {
-  width: 140px;
-  height: 140px;
+  width: 120px;
+  height: 120px;
   border-radius: 50%;
   object-fit: cover;
   object-position: center 20%;
-  display: block;
-  margin: 0 auto 16px;
+  float: left;
+  margin: 4px 24px 16px 0;
   border: none;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-  float: none;
-  shape-outside: none;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  shape-outside: circle(50%);
+}
+
+.proposal-section-body h4 {
+  clear: both;
+  padding-top: 8px;
 }
 
 .proposal-pre {

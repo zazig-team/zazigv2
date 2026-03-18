@@ -36044,6 +36044,55 @@ server.tool("update_project", "Update project settings. Set test_command and bui
     isError: true
   };
 }));
+server.tool("create_project_rule", "Create a project rule that will be automatically injected into future agent prompts. Use when you identify a preventable pattern that future agents should know about.", {
+  project_id: external_exports3.string().describe("UUID of the project"),
+  rule_text: external_exports3.string().describe("The rule in plain language \u2014 what agents should do or avoid"),
+  applies_to: external_exports3.array(external_exports3.string()).describe("Job types this rule applies to, e.g. ['code', 'combine', 'test']")
+}, guardedHandler("create_project_rule", async ({ project_id, rule_text, applies_to }) => {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+  const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+  const jobId = process.env.ZAZIG_JOB_ID ?? "";
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return {
+      content: [{ type: "text", text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+      isError: true
+    };
+  }
+  if (!companyId) {
+    return {
+      content: [{ type: "text", text: "Error: ZAZIG_COMPANY_ID is required for create_project_rule" }],
+      isError: true
+    };
+  }
+  if (!jobId) {
+    return {
+      content: [{ type: "text", text: "Error: ZAZIG_JOB_ID is required for create_project_rule" }],
+      isError: true
+    };
+  }
+  const response = await fetch(`${supabaseUrl}/functions/v1/create-project-rule`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${supabaseAnonKey}`,
+      "x-company-id": companyId,
+      "x-job-id": jobId
+    },
+    body: JSON.stringify({ project_id, rule_text, applies_to })
+  });
+  if (response.ok) {
+    const data = await response.json();
+    return {
+      content: [{ type: "text", text: `Project rule created successfully. rule_id: ${data.rule_id}` }]
+    };
+  }
+  const errorBody = await response.text().catch(() => "unknown error");
+  return {
+    content: [{ type: "text", text: `Failed to create project rule (HTTP ${response.status}): ${errorBody}` }],
+    isError: true
+  };
+}));
 server.tool("batch_create_features", "Atomically create multiple feature outlines for a project. Used by the Project Architect after decomposing a plan into features via featurify.", {
   project_id: external_exports3.string().describe("Parent project UUID"),
   features: external_exports3.array(external_exports3.object({

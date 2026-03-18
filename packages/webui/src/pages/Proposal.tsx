@@ -871,7 +871,7 @@ function ProposalContent({
 
           {/* Footer */}
           <footer className="proposal-footer">
-            <span>&copy; {new Date().getFullYear()} Zazig &middot; <a href="https://zazig.com" target="_blank" rel="noreferrer">zazig.com</a></span>
+            <span>Crafted by Tom Weaver &amp; the Zazig Autonomous Chief Sales Officer</span>
           </footer>
         </main>
       </div>

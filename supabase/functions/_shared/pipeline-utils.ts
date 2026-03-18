@@ -54,6 +54,60 @@ export const TERMINAL_FEATURE_STATUSES_FOR_DEPLOY = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
+// Context enrichment
+// ---------------------------------------------------------------------------
+
+/**
+ * Injects project_rules into JSON job context for the target project/job type.
+ * On query failures, logs and returns the original context.
+ */
+export async function injectProjectRulesIntoContext(
+  supabase: SupabaseClient,
+  projectId: string | null,
+  jobType: string,
+  context: string | null,
+): Promise<string | null> {
+  if (!projectId) return context;
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(context ?? "{}") as Record<string, unknown>;
+  } catch {
+    console.warn(
+      `[pipeline] injectProjectRulesIntoContext: context is not valid JSON for project ${projectId}, job_type=${jobType}; skipping`,
+    );
+    return context;
+  }
+
+  const { data: rules, error: rulesErr } = await supabase
+    .from("project_rules")
+    .select("rule_text")
+    .eq("project_id", projectId)
+    .contains("applies_to", [jobType])
+    .order("created_at", { ascending: true });
+
+  if (rulesErr) {
+    console.error(
+      `[pipeline] injectProjectRulesIntoContext: failed to query project_rules for project ${projectId}, job_type=${jobType}:`,
+      rulesErr.message,
+    );
+    return context;
+  }
+
+  const ruleTexts = (rules ?? [])
+    .map((rule) => rule.rule_text)
+    .filter((text): text is string => typeof text === "string");
+
+  if (ruleTexts.length > 0) {
+    parsed.project_rules = ruleTexts;
+  } else {
+    delete parsed.project_rules;
+  }
+
+  return JSON.stringify(parsed);
+}
+
+// ---------------------------------------------------------------------------
 // Title generation — short human-readable labels for jobs via Claude Haiku
 // ---------------------------------------------------------------------------
 
@@ -397,12 +451,18 @@ export async function triggerCombining(
     .filter((j) => !supersededIds.has(j.id))
     .map((j) => j.branch)
     .filter((b): b is string => b !== null && b.length > 0);
-  const combineContext = JSON.stringify({
+  let combineContext = JSON.stringify({
     type: "combine",
     featureId,
     featureBranch: feature.branch,
     jobBranches,
   });
+  combineContext = await injectProjectRulesIntoContext(
+    supabase,
+    feature.project_id,
+    "combine",
+    combineContext,
+  ) ?? combineContext;
 
   // 4. Insert combine job first. If this fails, feature remains in building and will retry.
   const { data: combineJob, error: insertErr } = await supabase

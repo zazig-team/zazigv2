@@ -32,6 +32,7 @@ import type {
 import {
   agentChannelName,
   generateTitle,
+  injectProjectRulesIntoContext,
   notifyCPO,
   TERMINAL_FEATURE_STATUSES_FOR_DEPLOY,
   triggerCICheck,
@@ -679,11 +680,18 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       continue;
     }
 
+    // Inject project rules into JSON context before building dispatch prompt.
+    let dispatchContext = await injectProjectRulesIntoContext(
+      supabase,
+      job.project_id,
+      job.job_type,
+      job.context,
+    );
+
     // Verify-failed jobs are retried with failure context attached.
-    let dispatchContext = job.context;
     if (job.status === "verify_failed" && job.verify_context) {
       try {
-        const parsed = JSON.parse(job.context ?? "{}") as Record<
+        const parsed = JSON.parse(dispatchContext ?? "{}") as Record<
           string,
           unknown
         >;
@@ -693,7 +701,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         });
       } catch {
         dispatchContext = `${
-          job.context ?? ""
+          dispatchContext ?? ""
         }\n\nVerification failure context:\n${job.verify_context}`;
       }
     }

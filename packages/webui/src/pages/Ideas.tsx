@@ -813,7 +813,7 @@ export default function Ideas(): JSX.Element {
         const tenMinutesAgoIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
         const { data: recentSessions, error: recentSessionsError } = await supabase
           .from("expert_sessions")
-          .select("id")
+          .select("id, brief")
           .eq("company_id", activeCompanyId)
           .gt("created_at", tenMinutesAgoIso);
 
@@ -824,6 +824,15 @@ export default function Ideas(): JSX.Element {
           .filter((id): id is string => typeof id === "string");
 
         const activeTriagingIdeaIds = new Set<string>();
+        for (const ideaId of triagingIdeaIds) {
+          const hasRecentSession = (recentSessions ?? []).some((session) => (
+            typeof session.brief === "string" && session.brief.includes(ideaId)
+          ));
+          if (hasRecentSession) {
+            activeTriagingIdeaIds.add(ideaId);
+          }
+        }
+
         if (recentSessionIds.length > 0) {
           const { data: recentSessionItems, error: recentSessionItemsError } = await supabase
             .from("expert_session_items")

@@ -1234,3 +1234,89 @@ export async function updateExecArchetype(
     throw error;
   }
 }
+
+// --- Proposals ---
+
+export interface ProposalGateData {
+  title: string;
+  client_name: string;
+  client_logo_url: string | null;
+  client_brand_color: string | null;
+  prepared_by: string;
+  created_at: string;
+}
+
+export interface ProposalSection {
+  key: string;
+  title: string;
+  body_md: string;
+  order: number;
+}
+
+export interface ProposalPhase {
+  name: string;
+  monthly: number;
+  duration_months: number;
+  deliverables: string[];
+}
+
+export interface ProposalPricing {
+  phases: ProposalPhase[];
+  total_year1: number;
+  loan_note_terms: string;
+}
+
+export interface ProposalFull {
+  id: string;
+  title: string;
+  content: { sections: ProposalSection[] };
+  client_name: string;
+  client_logo_url: string | null;
+  client_brand_color: string | null;
+  prepared_by: string;
+  pricing: ProposalPricing;
+  valid_until: string | null;
+  created_at: string;
+}
+
+export interface ViewProposalResponse {
+  gate?: ProposalGateData;
+  proposal?: ProposalFull;
+  authenticated: boolean;
+  authorized?: boolean;
+  expired?: boolean;
+  email?: string;
+}
+
+export async function fetchProposal(
+  proposalId: string,
+): Promise<ViewProposalResponse> {
+  const token = await getAccessToken();
+  const headers: Record<string, string> = {
+    apikey: supabaseAnonKey,
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(
+    `${supabaseUrl}/functions/v1/view-proposal?id=${proposalId}`,
+    { method: "GET", headers },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`view-proposal failed: ${text}`);
+  }
+
+  return (await response.json()) as ViewProposalResponse;
+}
+
+export async function requestProposalAccess(
+  proposalId: string,
+): Promise<void> {
+  await invokePost("request-proposal-access", {
+    proposal_id: proposalId,
+  });
+}

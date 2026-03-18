@@ -1065,14 +1065,20 @@ export async function requestHeadlessTriage(params: {
   companyId: string;
   projectId: string;
   ideaIds: string[];
-}): Promise<{ session_id?: string }> {
-  return invokePost<{ session_id?: string }>("start-expert-session", {
-    role_name: "triage-analyst",
-    brief: `Triage these ideas: ${JSON.stringify(params.ideaIds)}. For each idea, evaluate against org goals, check for duplicates, set priority, and route to the appropriate track (promote/develop/workshop/harden/park/reject). Call update_idea for each with your triage_notes and triage_route.`,
-    machine_name: "auto",
-    project_id: params.projectId,
-    headless: true,
-  }, { "x-company-id": params.companyId });
+}): Promise<{ ok: true; session_id?: string } | { ok: false; error: string }> {
+  try {
+    const response = await invokePost<{ session_id?: string }>("start-expert-session", {
+      role_name: "triage-analyst",
+      brief: `Triage these ideas: ${JSON.stringify(params.ideaIds)}. For each idea, evaluate against org goals, check for duplicates, set priority, and route to the appropriate track (promote/develop/workshop/harden/park/reject). Call update_idea for each with your triage_notes and triage_route.`,
+      machine_name: "auto",
+      project_id: params.projectId,
+      headless: true,
+    }, { "x-company-id": params.companyId });
+
+    return { ok: true, session_id: response.session_id };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export async function requestHeadlessSpec(params: {

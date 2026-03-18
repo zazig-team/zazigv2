@@ -101,9 +101,9 @@ function formatDate(dateStr: string): string {
 }
 
 function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-GB", {
+  return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "GBP",
+    currency: "USD",
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(value);

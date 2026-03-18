@@ -94,7 +94,9 @@ function renderMarkdown(src: string): string {
     .split("\n\n")
     .map((block) => {
       const t = block.trim();
-      if (!t || t.startsWith("<") || t.startsWith("\x00")) return t;
+      if (!t || t.startsWith("\x00")) return t;
+      // Block-level elements that should NOT be wrapped in <p>
+      if (/^<(h[1-6]|ul|ol|table|pre|blockquote|div|section|img )/.test(t)) return t;
       return `<p>${t.replace(/\n/g, " ")}</p>`;
     })
     .join("\n");

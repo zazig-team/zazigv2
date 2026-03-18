@@ -11,6 +11,7 @@ import Roadmap from "./pages/Roadmap";
 import Settings from "./pages/Settings";
 import Team from "./pages/Team";
 import AuthCallback from "./pages/AuthCallback";
+import Proposal from "./pages/Proposal";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 
@@ -59,6 +60,7 @@ export default function App(): JSX.Element {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/proposals/:id" element={<Proposal />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/tos" element={<Terms />} />
 

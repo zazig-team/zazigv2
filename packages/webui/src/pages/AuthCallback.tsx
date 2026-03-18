@@ -12,7 +12,13 @@ export default function AuthCallback(): JSX.Element {
     }
 
     if (session) {
-      navigate("/dashboard", { replace: true });
+      const redirectTo = sessionStorage.getItem("auth_redirect");
+      if (redirectTo) {
+        sessionStorage.removeItem("auth_redirect");
+        navigate(redirectTo, { replace: true });
+      } else {
+        navigate("/dashboard", { replace: true });
+      }
       return;
     }
 

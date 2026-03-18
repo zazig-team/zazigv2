@@ -52,6 +52,15 @@ Capture, at minimum, each candidate idea's `title`, `description`, `flags`, `cla
 For each idea selected for triage:
 
 1. Read the full `title`, `description`, `flags`, `clarification_notes`, and `originator`.
+1a. Run a structured implementation deduplication check before routing:
+   - Extract 2-5 keywords from the idea `title` and `description`
+   - Call `query_features` filtered to statuses `complete`, `building`, `breaking_down` to get a bounded list of existing features (avoids context overflow from full unfiltered results)
+   - Compare extracted keywords against feature titles and descriptions
+   - Apply deduplication routing decision:
+     - **High confidence match** (feature with `status=complete` fully covers the idea): park with feature ID in `triage_notes` (for example: "Already implemented: feature {id} — {title}")
+     - **Partial match** (feature exists but does not fully cover the idea): flag in `triage_notes` with feature ID and gap description, then route normally
+     - **No match**: proceed with standard routing unchanged
+   - Bias: err on the side of keeping (not parking) when uncertain
 2. Refine if needed via `update_idea`:
    - Improve the description for clarity
    - Add or correct tags
@@ -116,6 +125,7 @@ During standup or when running triage:
 - Only triage ideas in your originator namespace by default
 - Never call `promote_idea` without explicit human approval
 - Perform content-level duplicate checking before any promote recommendation
+- Deduplication check is mandatory before routing — query features filtered by status before deciding route
 - Every promote recommendation must specify `feature`, `job`, or `research`
 - An idea must be triaged before `promote_idea` can be called
 - `project_id` is required when promoting to `feature`
@@ -129,4 +139,4 @@ During standup or when running triage:
 | query_ideas | Fetch new ideas from inbox | Phase 1 |
 | update_idea | Refine idea, set priority, mark triaged | Phase 2 |
 | promote_idea | Promote idea to feature/job/research | Phase 4 |
-| query_features | Check if idea overlaps with existing features (content-level) | Phase 2 duplicate check |
+| query_features | Phase 2 deduplication check and overlap validation against existing features (content-level) | Phase 2 deduplication check and overlap validation |

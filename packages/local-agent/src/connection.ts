@@ -95,6 +95,29 @@ export class AgentConnection {
   }
 
   /**
+   * Get a valid auth token, force-refreshing if the current session is expired.
+   * Safety net for when supabase-js auto-refresh silently fails.
+   */
+  private async getAuthToken(): Promise<string> {
+    const { data: { session } } = await this.dbClient.auth.getSession();
+    if (session?.access_token) {
+      const expiry = session.expires_at ?? 0;
+      if (expiry > Math.floor(Date.now() / 1000) + 30) {
+        return session.access_token;
+      }
+      // Token expired or expiring soon — force refresh
+      console.log("[Connection] Token expired, forcing refresh...");
+      const { data: { session: refreshed }, error } = await this.dbClient.auth.refreshSession();
+      if (!error && refreshed?.access_token) {
+        console.log("[Connection] Token force-refreshed successfully");
+        return refreshed.access_token;
+      }
+      console.warn(`[Connection] Token force-refresh failed: ${error?.message ?? "no session"}`);
+    }
+    return this.serviceRoleKey ?? this.supabaseAnonKey;
+  }
+
+  /**
    * Send an AgentMessage to the orchestrator via the `agent-event` edge function.
    */
   async sendMessage(msg: AgentMessage): Promise<void> {
@@ -107,8 +130,7 @@ export class AgentConnection {
 
   private async sendToOrchestrator(msg: AgentMessage): Promise<boolean> {
     const url = `${this.config.supabase.url}/functions/v1/agent-event`;
-    const { data: { session } } = await this.dbClient.auth.getSession();
-    const token = session?.access_token ?? this.serviceRoleKey ?? this.config.supabase.anon_key;
+    const token = await this.getAuthToken();
 
     for (const delay of [0, 1000, 5000, 15000]) {
       if (delay > 0) await sleep(delay);
@@ -267,8 +289,7 @@ export class AgentConnection {
       }
 
       const url = `${this.supabaseUrl}/functions/v1/agent-inbound-poll`;
-      const { data: { session } } = await this.dbClient.auth.getSession();
-      const token = session?.access_token ?? this.serviceRoleKey ?? this.supabaseAnonKey;
+      const token = await this.getAuthToken();
       const slotsAvailable = this.slots.getAvailable();
 
       const response = await fetch(url, {

@@ -742,6 +742,7 @@ export default function Ideas(): JSX.Element {
   const [promotedIdeas, setPromotedIdeas] = useState<Idea[]>([]);
   const [featureStatuses, setFeatureStatuses] = useState<Map<string, { title: string; status: string }>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [loadedCompanyId, setLoadedCompanyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [activeTab, setActiveTab] = useState<SectionTab>("inbox");
@@ -757,10 +758,12 @@ export default function Ideas(): JSX.Element {
   const [dispatchingIds, setDispatchingIds] = useState<Set<string>>(new Set());
   const [leavingIdeas, setLeavingIdeas] = useState<Map<string, Idea>>(new Map());
   const [batchToasts, setBatchToasts] = useState<BatchToast[]>([]);
+  const [staleCleanupToast, setStaleCleanupToast] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const ideasByIdRef = useRef<Map<string, Idea>>(new Map());
   const leavingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const batchToastTimeoutsRef = useRef<Map<string, number>>(new Map());
+  const staleCleanupRunForCompanyRef = useRef<string | null>(null);
 
   const dismissBatchToast = useCallback((id: string): void => {
     const timeoutId = batchToastTimeoutsRef.current.get(id);
@@ -832,6 +835,7 @@ export default function Ideas(): JSX.Element {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+      setLoadedCompanyId(activeCompanyId);
     }
   }, [activeCompanyId]);
 
@@ -887,6 +891,93 @@ export default function Ideas(): JSX.Element {
     leavingTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
     leavingTimeoutsRef.current.clear();
   }, []);
+
+  useEffect(() => {
+    if (!activeCompanyId || loadedCompanyId !== activeCompanyId) return;
+    if (staleCleanupRunForCompanyRef.current === activeCompanyId) return;
+    staleCleanupRunForCompanyRef.current = activeCompanyId;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const { data: triagingIdeas, error: triagingIdeasError } = await supabase
+          .from("ideas")
+          .select("id")
+          .eq("company_id", activeCompanyId)
+          .eq("status", "triaging");
+
+        if (triagingIdeasError || !triagingIdeas?.length || cancelled) return;
+
+        const triagingIdeaIds = triagingIdeas
+          .map((idea) => idea.id)
+          .filter((id): id is string => typeof id === "string");
+
+        if (triagingIdeaIds.length === 0) return;
+
+        const tenMinutesAgoIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        const { data: recentSessions, error: recentSessionsError } = await supabase
+          .from("expert_sessions")
+          .select("id, brief")
+          .eq("company_id", activeCompanyId)
+          .gt("created_at", tenMinutesAgoIso);
+
+        if (recentSessionsError || cancelled) return;
+
+        const recentSessionIds = (recentSessions ?? [])
+          .map((session) => session.id)
+          .filter((id): id is string => typeof id === "string");
+
+        const activeTriagingIdeaIds = new Set<string>();
+        for (const ideaId of triagingIdeaIds) {
+          const hasRecentSession = (recentSessions ?? []).some((session) => (
+            typeof session.brief === "string" && session.brief.includes(ideaId)
+          ));
+          if (hasRecentSession) {
+            activeTriagingIdeaIds.add(ideaId);
+          }
+        }
+
+        if (recentSessionIds.length > 0) {
+          const { data: recentSessionItems, error: recentSessionItemsError } = await supabase
+            .from("expert_session_items")
+            .select("idea_id")
+            .in("session_id", recentSessionIds)
+            .in("idea_id", triagingIdeaIds);
+
+          if (recentSessionItemsError || cancelled) return;
+
+          for (const item of recentSessionItems ?? []) {
+            if (typeof item.idea_id === "string") {
+              activeTriagingIdeaIds.add(item.idea_id);
+            }
+          }
+        }
+
+        const staleIdeaIds = triagingIdeaIds.filter((ideaId) => !activeTriagingIdeaIds.has(ideaId));
+        if (staleIdeaIds.length === 0 || cancelled) return;
+
+        await Promise.all(staleIdeaIds.map((ideaId) => updateIdeaStatus(ideaId, "new")));
+        if (!cancelled) {
+          const suffix = staleIdeaIds.length === 1 ? "" : "s";
+          setStaleCleanupToast(`Reverted ${staleIdeaIds.length} stale triaging idea${suffix} to new`);
+        }
+        await loadIdeas();
+      } catch (cleanupError) {
+        console.error("Failed to revert stale triaging ideas", cleanupError);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCompanyId, loadedCompanyId, loadIdeas]);
+
+  useEffect(() => {
+    if (!staleCleanupToast) return;
+    const timeoutId = window.setTimeout(() => setStaleCleanupToast(null), 4000);
+    return () => window.clearTimeout(timeoutId);
+  }, [staleCleanupToast]);
 
   // Realtime
   const handleInsert = useCallback((row: Record<string, unknown>) => {
@@ -1334,6 +1425,11 @@ export default function Ideas(): JSX.Element {
       <div className="il-header">
         <h1 className="il-title">Ideas</h1>
       </div>
+      {staleCleanupToast && (
+        <div className="il-info-toast" role="status" aria-live="polite">
+          {staleCleanupToast}
+        </div>
+      )}
 
       {/* Section tabs */}
       <div className="il-tabs">

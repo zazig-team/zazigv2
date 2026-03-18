@@ -745,6 +745,7 @@ export default function Ideas(): JSX.Element {
     failed: number;
     retrying: boolean;
   } | null>(null);
+  const [staleCleanupToast, setStaleCleanupToast] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const staleCleanupRunForCompanyRef = useRef<string | null>(null);
 
@@ -853,6 +854,10 @@ export default function Ideas(): JSX.Element {
         if (staleIdeaIds.length === 0 || cancelled) return;
 
         await Promise.all(staleIdeaIds.map((ideaId) => updateIdeaStatus(ideaId, "new")));
+        if (!cancelled) {
+          const suffix = staleIdeaIds.length === 1 ? "" : "s";
+          setStaleCleanupToast(`Reverted ${staleIdeaIds.length} stale triaging idea${suffix} to new`);
+        }
         await loadIdeas();
       } catch (cleanupError) {
         console.error("Failed to revert stale triaging ideas", cleanupError);
@@ -863,6 +868,12 @@ export default function Ideas(): JSX.Element {
       cancelled = true;
     };
   }, [activeCompanyId, loadedCompanyId, loadIdeas]);
+
+  useEffect(() => {
+    if (!staleCleanupToast) return;
+    const timeoutId = window.setTimeout(() => setStaleCleanupToast(null), 4000);
+    return () => window.clearTimeout(timeoutId);
+  }, [staleCleanupToast]);
 
   // Realtime
   const handleInsert = useCallback((row: Record<string, unknown>) => {
@@ -1163,6 +1174,11 @@ export default function Ideas(): JSX.Element {
       <div className="il-header">
         <h1 className="il-title">Ideas</h1>
       </div>
+      {staleCleanupToast && (
+        <div className="il-info-toast" role="status" aria-live="polite">
+          {staleCleanupToast}
+        </div>
+      )}
 
       {/* Section tabs */}
       <div className="il-tabs">

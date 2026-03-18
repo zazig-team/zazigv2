@@ -2932,6 +2932,17 @@ input {
   letter-spacing: -0.03em;
 }
 
+.il-info-toast {
+  margin-bottom: var(--sp-4);
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--positive) 22%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--positive) 9%, var(--white));
+  color: color-mix(in srgb, var(--positive) 80%, var(--ink));
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .il-auto-triage-toggle {
   margin-left: auto;
   padding: 4px 12px;

@@ -542,12 +542,13 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       }
     }
 
-    // Do not dispatch code jobs while the parent feature is still breaking_down.
+    // Do not dispatch code jobs while the parent feature is still breaking_down or writing_tests.
+    // Code jobs must wait until the feature reaches 'building' status.
     if (job.job_type === "code" && job.feature_id) {
       const featureStatus = featureStatusById.get(job.feature_id);
-      if (featureStatus === "breaking_down") {
+      if (featureStatus === "breaking_down" || featureStatus === "writing_tests") {
         console.log(
-          `[orchestrator] Skipping job ${job.id} — feature ${job.feature_id} still breaking_down`,
+          `[orchestrator] Skipping job ${job.id} — feature ${job.feature_id} still in ${featureStatus}`,
         );
         continue;
       }

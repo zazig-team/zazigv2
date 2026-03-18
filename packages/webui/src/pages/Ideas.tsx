@@ -857,9 +857,10 @@ export default function Ideas(): JSX.Element {
     });
   }, []);
 
-  const markIdeaLeaving = useCallback((ideaId: string) => {
+  const markIdeaLeaving = useCallback((ideaId: string, opts?: { allowAnyStatus?: boolean }) => {
     const existing = ideasByIdRef.current.get(ideaId);
-    if (!existing || existing.status !== "triaging") return;
+    if (!existing) return;
+    if (!opts?.allowAnyStatus && existing.status !== "triaging") return;
 
     setLeavingIdeas((prev) => {
       if (prev.has(ideaId)) return prev;
@@ -989,12 +990,22 @@ export default function Ideas(): JSX.Element {
   const handleUpdate = useCallback((row: Record<string, unknown>) => {
     const updated = row as unknown as Idea;
     const previous = ideasByIdRef.current.get(updated.id);
+    const isBatchDone = batchTriageStates.get(updated.id) === "done";
     const shouldLeaveInbox = previous?.status === "triaging" && updated.status !== "triaging" && updated.status !== "new";
     if (shouldLeaveInbox) {
       markIdeaLeaving(updated.id);
       setExpandedId((prevExpanded) => (prevExpanded === updated.id ? null : prevExpanded));
-    } else if (updated.status === "triaging" || updated.status === "new") {
+    } else if ((updated.status === "triaging" || updated.status === "new") && !isBatchDone) {
       clearLeavingIdea(updated.id);
+    }
+
+    if (updated.status !== "new" && updated.status !== "triaging") {
+      setBatchTriageStates((prev) => {
+        if (!prev.has(updated.id)) return prev;
+        const next = new Map(prev);
+        next.delete(updated.id);
+        return next;
+      });
     }
 
     if (updated.status !== "new") {
@@ -1019,7 +1030,7 @@ export default function Ideas(): JSX.Element {
         return exists ? prev.map((i) => (i.id === updated.id ? updated : i)) : [updated, ...prev];
       });
     }
-  }, [clearLeavingIdea, markIdeaLeaving]);
+  }, [batchTriageStates, clearLeavingIdea, markIdeaLeaving]);
 
   const handleDelete = useCallback((row: Record<string, unknown>) => {
     const id = (row as { id?: string }).id;
@@ -1062,9 +1073,17 @@ export default function Ideas(): JSX.Element {
     return promotedIdeas.filter((i) => i.item_type === typeFilter);
   }, [promotedIdeas, typeFilter]);
 
+  const completedBatchIdeaIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [ideaId, state] of batchTriageStates.entries()) {
+      if (state === "done") ids.add(ideaId);
+    }
+    return ids;
+  }, [batchTriageStates]);
+
   // Group by section
   const sections = useMemo(() => ({
-    inbox: filtered.filter((i) => i.status === "new" || i.status === "triaging"),
+    inbox: filtered.filter((i) => (i.status === "new" || i.status === "triaging") && !completedBatchIdeaIds.has(i.id)),
     triaged: filtered.filter((i) => i.status === "triaged"),
     developing: filtered.filter((i) => i.status === "developing" || i.status === "specced"),
     workshop: filtered.filter((i) => i.status === "workshop"),
@@ -1072,7 +1091,7 @@ export default function Ideas(): JSX.Element {
     rejected: filtered.filter((i) => i.status === "rejected"),
     shipped: filteredPromoted,
     done: filtered.filter((i) => i.status === "done"),
-  }), [filtered, filteredPromoted]);
+  }), [completedBatchIdeaIds, filtered, filteredPromoted]);
 
   const activeItems = useMemo(() => {
     const sorted = sortIdeasByMode(sections[activeTab], sortMode);
@@ -1129,7 +1148,7 @@ export default function Ideas(): JSX.Element {
 
   // Section counts (unfiltered for tab badges)
   const tabCounts = useMemo(() => ({
-    inbox: ideas.filter((i) => i.status === "new" || i.status === "triaging").length,
+    inbox: ideas.filter((i) => (i.status === "new" || i.status === "triaging") && !completedBatchIdeaIds.has(i.id)).length,
     triaged: ideas.filter((i) => i.status === "triaged").length,
     developing: ideas.filter((i) => i.status === "developing" || i.status === "specced").length,
     workshop: ideas.filter((i) => i.status === "workshop").length,
@@ -1137,7 +1156,7 @@ export default function Ideas(): JSX.Element {
     rejected: ideas.filter((i) => i.status === "rejected").length,
     shipped: promotedIdeas.length,
     done: ideas.filter((i) => i.status === "done").length,
-  }), [ideas, promotedIdeas]);
+  }), [completedBatchIdeaIds, ideas, promotedIdeas]);
 
   // Type counts
   const typeCounts = useMemo(() => {
@@ -1185,6 +1204,9 @@ export default function Ideas(): JSX.Element {
         next.set(ideaId, state);
         return next;
       });
+      if (state === "done") {
+        markIdeaLeaving(ideaId, { allowAnyStatus: true });
+      }
     };
     const setIdeaBatchError = (ideaId: string, message: string | null): void => {
       setBatchTriageErrors((prev) => {
@@ -1271,7 +1293,16 @@ export default function Ideas(): JSX.Element {
       });
       showBatchToast({ tone: "error", message: `Batch triage error: ${message}` }, 0);
     } finally {
-      setBatchTriageStates(new Map());
+      setBatchTriageStates((prev) => {
+        if (prev.size === 0) return prev;
+        const next = new Map(prev);
+        for (const [ideaId, state] of prev.entries()) {
+          if (state === "queued" || state === "triaging") {
+            next.delete(ideaId);
+          }
+        }
+        return next;
+      });
     }
   }
 
@@ -1356,7 +1387,7 @@ export default function Ideas(): JSX.Element {
       const isDispatching = isQueued || isBatchTriaging;
       const isTriaging = (idea.status === "triaging" || isBatchTriaging) && !isLeaving;
       const showBatchError = batchState === "idle" && typeof batchError === "string";
-      const showTriagingChip = isTriaging || isQueued;
+      const showTriagingChip = isBatchTriaging || isTriaging || isDispatching;
       const isDeveloping = idea.status === "developing";
       const isSpecced = idea.status === "specced";
       const fInfo = isShippedTab && idea.promoted_to_id ? featureStatuses.get(idea.promoted_to_id) ?? null : null;
@@ -1365,7 +1396,7 @@ export default function Ideas(): JSX.Element {
         <div
           key={idea.id}
           id={`il-row-${idea.id}`}
-          className={`il-row${isExpanded ? " expanded" : ""}${isTriaging ? " triaging" : ""}${isDispatching ? " il-row--dispatching" : ""}${isLeaving ? " il-row--leaving" : ""}`}
+          className={`il-row${isExpanded ? " expanded" : ""}${isTriaging ? " triaging" : ""}${isQueued ? " il-row--queued" : ""}${isDispatching ? " il-row--dispatching" : ""}${isLeaving ? " il-row--leaving" : ""}`}
           style={{ animationDelay: `${Math.min((startIndex + idx) * 0.02, 0.3)}s` }}
         >
           <div className="il-row-summary" onClick={() => !isTriaging && !isQueued && !isLeaving && toggleExpand(idea.id)}>
@@ -1375,10 +1406,10 @@ export default function Ideas(): JSX.Element {
               <div className="il-row-title">{idea.title ?? idea.raw_text}</div>
               {showTriagingChip ? (
                 <div className="il-row-analysing">
-                  {isQueued ? "Queued... waiting to triage this idea" : "Analysing... an agent is triaging this idea"}
+                  {isQueued ? "Queued for triage" : "Analysing... an agent is triaging this idea"}
                 </div>
               ) : showBatchError ? (
-                <div className="il-row-analysing">{`Triage failed: ${batchError}`}</div>
+                <div className="il-row-batch-error">{`Triage failed: ${batchError}`}</div>
               ) : (
                 <div className="il-row-desc">
                   {idea.description ?? idea.raw_text}

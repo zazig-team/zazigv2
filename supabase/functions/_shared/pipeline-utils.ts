@@ -648,6 +648,29 @@ export async function triggerCICheck(
     return;
   }
 
+  // CAS transition: combining_and_pr → ci_checking (must succeed before creating the job)
+  const { data: updated, error: updateErr } = await supabase
+    .from("features")
+    .update({ status: "ci_checking", updated_at: new Date().toISOString() })
+    .eq("id", featureId)
+    .eq("status", "combining_and_pr")
+    .select("id");
+
+  if (updateErr) {
+    console.error(
+      `[pipeline] triggerCICheck: failed to set feature ${featureId} to ci_checking:`,
+      updateErr.message,
+    );
+    return;
+  }
+
+  if (!updated || updated.length === 0) {
+    console.log(
+      `[pipeline] triggerCICheck: feature ${featureId} not in combining_and_pr — skipping`,
+    );
+    return;
+  }
+
   // Idempotency: check no active ci_check job exists
   const { data: existingCICheck } = await supabase
     .from("jobs")
@@ -674,7 +697,6 @@ export async function triggerCICheck(
     branch,
   });
 
-  // Insert ci-checker job first
   const { data: ciJob, error: insertErr } = await supabase
     .from("jobs")
     .insert({
@@ -698,37 +720,6 @@ export async function triggerCICheck(
       `[pipeline] triggerCICheck: failed to insert ci_check job for feature ${featureId}:`,
       insertErr?.message,
     );
-    return;
-  }
-
-  // CAS transition: combining_and_pr → ci_checking
-  const { data: updated, error: updateErr } = await supabase
-    .from("features")
-    .update({ status: "ci_checking", updated_at: new Date().toISOString() })
-    .eq("id", featureId)
-    .eq("status", "combining_and_pr")
-    .select("id");
-
-  if (updateErr || !updated || updated.length === 0) {
-    if (updateErr) {
-      console.error(
-        `[pipeline] triggerCICheck: failed to set feature ${featureId} to ci_checking:`,
-        updateErr.message,
-      );
-    } else {
-      console.log(
-        `[pipeline] triggerCICheck: feature ${featureId} not in combining_and_pr — rolling back ci_check job`,
-      );
-    }
-
-    await supabase
-      .from("jobs")
-      .update({
-        status: "cancelled",
-        result: "ci_check_not_started_feature_not_combining_and_pr",
-      })
-      .eq("id", ciJob.id)
-      .in("status", ["created", "queued"]);
     return;
   }
 

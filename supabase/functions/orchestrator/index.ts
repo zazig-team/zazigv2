@@ -2623,13 +2623,13 @@ async function processFeatureLifecycle(
       company_id: string;
     }>
   ) {
-    // Check if an active or complete ci_check job exists
+    // Check if a ci_check job already exists (any non-failed terminal state counts)
     const { data: existingCIJob } = await supabase
       .from("jobs")
       .select("id")
       .eq("feature_id", feature.id)
       .eq("job_type", "ci_check")
-      .in("status", ["created", "queued", "executing", "complete"])
+      .in("status", ["created", "queued", "executing", "complete", "cancelled"])
       .limit(1);
 
     if (existingCIJob && existingCIJob.length > 0) {

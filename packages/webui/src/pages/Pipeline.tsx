@@ -832,6 +832,14 @@ export default function Pipeline(): JSX.Element {
                     </span>
                   </div>
                 ) : null}
+                {feature.hasJobErrors && (
+                  <div className="card-error-indicator">
+                    <span className="error-icon">⚠</span>
+                    <span className="error-label">
+                      {feature.criticalJobErrorCount} job error{feature.criticalJobErrorCount !== 1 ? "s" : ""} detected
+                    </span>
+                  </div>
+                )}
               </div>
             </article>
             );

@@ -4,6 +4,10 @@
  * Given a failed job_id, clones the job with an escalated model,
  * moves the original to `failed_retrying`, and increments retry_count on the feature.
  *
+ * The retry job keeps the original role and context so the same agent type
+ * handles the fix. Failure info is appended to the context so the agent
+ * knows what went wrong and can fix it while still completing the original task.
+ *
  * Called by: orchestrator (failed job catch-up) and CPO (via MCP tool).
  */
 
@@ -46,7 +50,6 @@ interface JobRow {
 interface Escalation {
   slot_type: string;
   model: string;
-  role: string;
 }
 
 function escalateModel(job: JobRow): Escalation | null {
@@ -54,18 +57,62 @@ function escalateModel(job: JobRow): Escalation | null {
     return {
       slot_type: "claude_code",
       model: "claude-sonnet-4-6",
-      role: "senior-engineer",
     };
   }
-  if (job.slot_type === "claude_code" && job.model === "claude-sonnet-4-6") {
-    return {
-      slot_type: "claude_code",
-      model: "claude-opus-4-6",
-      role: "senior-engineer",
-    };
+  if (job.slot_type === "claude_code") {
+    if (!job.model || job.model === "claude-sonnet-4-6") {
+      return {
+        slot_type: "claude_code",
+        model: "claude-opus-4-6",
+      };
+    }
   }
   // claude-opus-4-6 or unknown — escalation exhausted
   return null;
+}
+
+/**
+ * Build the retry context: original context + failure diagnosis + fix instruction.
+ * The original context structure is preserved so the role prompt can parse it normally.
+ */
+function buildRetryContext(
+  originalContext: string | null,
+  reason: string,
+  originalJobId: string,
+): string {
+  let parsed: Record<string, unknown> | null = null;
+  if (typeof originalContext === "string" && originalContext.trim().length > 0) {
+    try {
+      parsed = JSON.parse(originalContext);
+    } catch {
+      // non-JSON context — treat as plain text
+    }
+  }
+
+  if (parsed && typeof parsed === "object") {
+    return JSON.stringify({
+      ...parsed,
+      _retry: {
+        original_job_id: originalJobId,
+        failure_diagnosis: reason,
+        instruction:
+          "The previous attempt at this job failed. Fix the error described above, then complete the original task.",
+      },
+    });
+  }
+
+  // Plain text context — append failure info
+  return [
+    originalContext ?? "",
+    "",
+    "---",
+    "",
+    "## Previous Attempt Failed",
+    `Original job: ${originalJobId}`,
+    `Error: ${reason}`,
+    "",
+    "Fix the error described above, then complete the original task.",
+  ].join("\n");
 }
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
@@ -172,17 +219,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // 4. Parse original context
-    let originalContext: unknown = jobRow.context;
-    if (typeof jobRow.context === "string" && jobRow.context.trim().length > 0) {
-      try {
-        originalContext = JSON.parse(jobRow.context);
-      } catch {
-        originalContext = jobRow.context;
-      }
-    }
+    // 4. Build retry context: original context + failure info + fix instruction
+    const retryContext = buildRetryContext(jobRow.context, reason, job_id);
 
-    // 5. Insert the new retry job
+    // 5. Insert the new retry job — same role, escalated model
     const { data: newJob, error: insertErr } = await supabase
       .from("jobs")
       .insert({
@@ -190,20 +230,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
         project_id: jobRow.project_id,
         feature_id: jobRow.feature_id,
         title: jobRow.title,
-        role: escalation.role,
+        role: jobRow.role,
         job_type: jobRow.job_type,
         complexity: jobRow.complexity,
         slot_type: escalation.slot_type,
         model: escalation.model,
         status: "created",
-        context: JSON.stringify({
-          type: "retry",
-          original_job_id: job_id,
-          escalated_from_model: jobRow.model,
-          escalated_from_slot_type: jobRow.slot_type,
-          originalContext,
-          failureDiagnosis: reason,
-        }),
+        context: retryContext,
         branch: jobRow.branch,
         depends_on: jobRow.depends_on ?? [],
         source: jobRow.source ?? "pipeline",
@@ -273,7 +306,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     console.log(
-      `[request-feature-fix] Retry job ${newJobId} created for failed job ${job_id} (feature ${jobRow.feature_id}), escalated ${jobRow.slot_type}/${jobRow.model} → ${escalation.slot_type}/${escalation.model}`,
+      `[request-feature-fix] Retry job ${newJobId} created for failed job ${job_id} (feature ${jobRow.feature_id}), role=${jobRow.role}, escalated ${jobRow.slot_type}/${jobRow.model} → ${escalation.slot_type}/${escalation.model}`,
     );
 
     return jsonResponse({

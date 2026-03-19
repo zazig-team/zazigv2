@@ -12,6 +12,7 @@ import {
   requestHeadlessTriage,
   requestHeadlessSpec,
   requestEnrichmentJob,
+  appendFounderInput,
   type Idea,
   type IdeaDetail,
   type Project,
@@ -135,6 +136,9 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionDone, setActionDone] = useState<string | null>(null);
   const [enriching, setEnriching] = useState(false);
+  const [founderInput, setFounderInput] = useState("");
+  const [founderSubmitting, setFounderSubmitting] = useState(false);
+  const [founderError, setFounderError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -290,6 +294,29 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
     }
   }
 
+  async function handleFounderInputSubmit(): Promise<void> {
+    if (founderSubmitting) return;
+    const trimmedInput = founderInput.trim();
+    if (!trimmedInput) return;
+
+    setFounderSubmitting(true);
+    setFounderError(null);
+
+    const mergedNotes = data.triage_notes && data.triage_notes.length > 0
+      ? `${data.triage_notes}\n\nFOUNDER INPUT: ${trimmedInput}`
+      : `FOUNDER INPUT: ${trimmedInput}`;
+
+    try {
+      await appendFounderInput(data.id, trimmedInput, data.triage_notes);
+      setData((prev) => prev ? { ...prev, triage_notes: mergedNotes } : prev);
+      setFounderInput("");
+    } catch (err) {
+      setFounderError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setFounderSubmitting(false);
+    }
+  }
+
   return (
     <div className="il-detail">
       <div className="il-detail-divider" />
@@ -363,6 +390,35 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
               <span className="il-detail-meta-val">{data.suggested_exec}</span>
             </div>
           )}
+        </div>
+      )}
+
+      {(data.status === "triaged" || data.status === "developing") && (
+        <div className="il-detail-section">
+          <div className="il-detail-section-label">Founder Input</div>
+          <textarea
+            className="il-founder-textarea"
+            rows={3}
+            value={founderInput}
+            onChange={(e) => {
+              setFounderInput(e.target.value);
+              if (founderError) setFounderError(null);
+            }}
+            disabled={founderSubmitting}
+            placeholder="Add context, constraints, or directional input..."
+            aria-label="Founder input"
+          />
+          {founderError && <div className="il-founder-error">{founderError}</div>}
+          <div className="il-founder-actions">
+            <button
+              className="il-action-primary"
+              type="button"
+              disabled={founderSubmitting || founderInput.trim().length === 0}
+              onClick={handleFounderInputSubmit}
+            >
+              {founderSubmitting ? "Submitting..." : "Add Founder Input"}
+            </button>
+          </div>
         </div>
       )}
 

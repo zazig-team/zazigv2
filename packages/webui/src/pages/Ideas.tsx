@@ -394,6 +394,8 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
     const trimmedInput = founderInput.trim();
     if (!trimmedInput) return;
 
+    if (!data) return;
+
     setFounderSubmitting(true);
     setFounderError(null);
 

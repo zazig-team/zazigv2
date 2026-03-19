@@ -31,6 +31,8 @@ export interface PipelineFeature {
   capability_icon: string | null;
   capability_title: string | null;
   hasFailedJobs: boolean;
+  hasJobErrors: boolean;
+  criticalJobErrorCount: number;
   branch: string | null;
   jobs: PipelineFeatureJob[];
 }
@@ -342,6 +344,18 @@ function parseFeature(
     stringValue(raw.capabilityTitle) ??
     capability?.title ??
     null;
+  const criticalJobErrorCount = Math.max(
+    0,
+    Math.floor(
+      numericValue(raw.critical_job_error_count) ??
+      numericValue(raw.criticalJobErrorCount) ??
+      0,
+    ),
+  );
+  const hasJobErrors =
+    raw.has_job_errors === true ||
+    raw.hasJobErrors === true ||
+    criticalJobErrorCount > 0;
 
   return {
     id,
@@ -360,6 +374,8 @@ function parseFeature(
     capability_icon: capabilityIcon,
     capability_title: capabilityTitle,
     hasFailedJobs: raw.has_failed_jobs === true,
+    hasJobErrors,
+    criticalJobErrorCount,
     branch:
       stringValue(raw.branch) ??
       stringValue(raw.feature_branch) ??
@@ -526,6 +542,8 @@ export function usePipelineSnapshot(companyId: string | null): {
           capability_icon: null,
           capability_title: null,
           hasFailedJobs: false,
+          hasJobErrors: false,
+          criticalJobErrorCount: 0,
           branch: null,
           jobs: [],
         };

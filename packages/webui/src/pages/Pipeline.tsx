@@ -7,6 +7,7 @@ import {
   type PipelineFeature,
   type PipelineStatus,
 } from "../hooks/usePipelineSnapshot";
+import { usePolling } from "../hooks/usePolling";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
 import { fetchIdeas, getAccessToken, type Idea } from "../lib/queries";
 import FeatureDetailPanel from "../components/FeatureDetailPanel";
@@ -308,39 +309,59 @@ export default function Pipeline(): JSX.Element {
   const [selectedFeature, setSelectedFeature] = useState<{ id: string; colorVar: string } | null>(null);
   const [selectedIdea, setSelectedIdea] = useState<{ id: string; colorVar: string } | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
+  const ideasCountsRef = useRef({ ideas: 0, triaged: 0, parked: 0 });
 
   useEffect(() => {
-    async function loadIdeas(): Promise<void> {
-      if (!activeCompany?.id) {
-        setIdeas([]);
-        setTriagedIdeas([]);
-        setParkedIdeas([]);
-        return;
-      }
+    ideasCountsRef.current = {
+      ideas: ideas.length,
+      triaged: triagedIdeas.length,
+      parked: parkedIdeas.length,
+    };
+  }, [ideas.length, parkedIdeas.length, triagedIdeas.length]);
 
+  const loadIdeasData = useCallback(async (): Promise<void> => {
+    if (!activeCompany?.id) {
+      setIdeas([]);
+      setTriagedIdeas([]);
+      setParkedIdeas([]);
+      setIdeasLoading(false);
+      return;
+    }
+
+    const shouldShowInitialLoading =
+      ideasCountsRef.current.ideas === 0 &&
+      ideasCountsRef.current.triaged === 0 &&
+      ideasCountsRef.current.parked === 0;
+
+    if (shouldShowInitialLoading) {
       setIdeasLoading(true);
-      setIdeasError(null);
+    }
 
-      try {
-        await getAccessToken();
-        const [newIdeas, triaged, parked] = await Promise.all([
-          fetchIdeas(activeCompany.id, ["new"]),
-          fetchIdeas(activeCompany.id, ["triaged"]),
-          fetchIdeas(activeCompany.id, ["parked"]),
-        ]);
+    setIdeasError(null);
 
-        setIdeas(newIdeas);
-        setTriagedIdeas(triaged);
-        setParkedIdeas(parked);
-      } catch (loadError) {
-        setIdeasError(loadError instanceof Error ? loadError.message : String(loadError));
-      } finally {
+    try {
+      await getAccessToken();
+      const [newIdeas, triaged, parked] = await Promise.all([
+        fetchIdeas(activeCompany.id, ["new"]),
+        fetchIdeas(activeCompany.id, ["triaged"]),
+        fetchIdeas(activeCompany.id, ["parked"]),
+      ]);
+
+      setIdeas(newIdeas);
+      setTriagedIdeas(triaged);
+      setParkedIdeas(parked);
+    } catch (loadError) {
+      setIdeasError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      if (shouldShowInitialLoading) {
         setIdeasLoading(false);
       }
     }
-
-    void loadIdeas();
   }, [activeCompany?.id]);
+
+  useEffect(() => {
+    void loadIdeasData();
+  }, [loadIdeasData]);
 
   useEffect(() => {
     return () => {
@@ -360,6 +381,16 @@ export default function Pipeline(): JSX.Element {
       refreshTimerRef.current = null;
     }, 300);
   }, [refresh]);
+
+  const refreshAll = useCallback(async (): Promise<void> => {
+    try {
+      await Promise.all([refresh(), loadIdeasData()]);
+    } catch {
+      // Silent failure for background refresh.
+    }
+  }, [loadIdeasData, refresh]);
+
+  usePolling(refreshAll, 15000, Boolean(activeCompany?.id));
 
   const realtimeEnabled = Boolean(activeCompany?.id);
   const realtimeFilter = activeCompany?.id

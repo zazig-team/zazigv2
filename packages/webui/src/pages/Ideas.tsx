@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCompany } from "../hooks/useCompany";
+import { usePolling } from "../hooks/usePolling";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
 import {
   fetchIdeas,
@@ -965,6 +966,7 @@ export default function Ideas(): JSX.Element {
   useEffect(() => {
     void loadIdeas();
   }, [loadIdeas]);
+  usePolling(loadIdeas, 15000, Boolean(activeCompanyId));
 
   useEffect(() => {
     ideasByIdRef.current = new Map(ideas.map((idea) => [idea.id, idea]));

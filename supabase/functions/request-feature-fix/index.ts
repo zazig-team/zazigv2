@@ -60,14 +60,11 @@ function escalateModel(job: JobRow): Escalation | null {
     };
   }
   if (job.slot_type === "claude_code") {
-    if (!job.model || job.model === "claude-sonnet-4-6") {
-      return {
-        slot_type: "claude_code",
-        model: "claude-opus-4-6",
-      };
-    }
+    return {
+      slot_type: "codex",
+      model: "codex",
+    };
   }
-  // claude-opus-4-6 or unknown — escalation exhausted
   return null;
 }
 

@@ -115,6 +115,144 @@ function isDecisionResolved(msg: unknown): msg is DecisionResolved {
     (typeof row.note === "string" || row.note === null);
 }
 
+type JobLogSeverity = "critical" | "warning" | "info";
+
+interface JobLogErrorMatch {
+  category: string;
+  severity: JobLogSeverity;
+  pattern: string;
+  snippet: string;
+}
+
+interface JobLogAnalysisResult {
+  errors: JobLogErrorMatch[];
+  scanned_at: string;
+}
+
+interface JobLogPattern {
+  category: string;
+  severity: JobLogSeverity;
+  pattern: string;
+  regex: RegExp;
+}
+
+const JOB_LOG_SNIPPET_RADIUS = 140;
+const JOB_LOG_PATTERNS: JobLogPattern[] = [
+  // build_error (critical)
+  {
+    category: "build_error",
+    severity: "critical",
+    pattern: "error TS\\d+",
+    regex: /error TS\d+/i,
+  },
+  {
+    category: "build_error",
+    severity: "critical",
+    pattern: "Cannot find module",
+    regex: /Cannot find module/i,
+  },
+  {
+    category: "build_error",
+    severity: "critical",
+    pattern: "Type '.*' is not assignable",
+    regex: /Type '.*' is not assignable/i,
+  },
+  // test_failure (critical)
+  {
+    category: "test_failure",
+    severity: "critical",
+    pattern: "\\d+ (failing|failed)",
+    regex: /\d+ (failing|failed)/i,
+  },
+  {
+    category: "test_failure",
+    severity: "critical",
+    pattern: "AssertionError",
+    regex: /AssertionError/i,
+  },
+  {
+    category: "test_failure",
+    severity: "critical",
+    pattern: "Test.*FAIL",
+    regex: /Test.*FAIL/i,
+  },
+  // runtime_error (critical)
+  {
+    category: "runtime_error",
+    severity: "critical",
+    pattern: "UnhandledPromiseRejection",
+    regex: /UnhandledPromiseRejection/i,
+  },
+  {
+    category: "runtime_error",
+    severity: "critical",
+    pattern: "Uncaught Error:",
+    regex: /Uncaught Error:/i,
+  },
+  {
+    category: "runtime_error",
+    severity: "critical",
+    pattern: "Segmentation fault",
+    regex: /Segmentation fault/i,
+  },
+  {
+    category: "runtime_error",
+    severity: "critical",
+    pattern: "Out of memory",
+    regex: /Out of memory/i,
+  },
+  // permission_error (warning)
+  {
+    category: "permission_error",
+    severity: "warning",
+    pattern: "401",
+    regex: /\b401\b/,
+  },
+  {
+    category: "permission_error",
+    severity: "warning",
+    pattern: "403",
+    regex: /\b403\b/,
+  },
+  {
+    category: "permission_error",
+    severity: "warning",
+    pattern: "EACCES",
+    regex: /EACCES/i,
+  },
+  {
+    category: "permission_error",
+    severity: "warning",
+    pattern: "Permission denied",
+    regex: /Permission denied/i,
+  },
+  // pipeline_error (warning)
+  {
+    category: "pipeline_error",
+    severity: "warning",
+    pattern: "sandbox violation",
+    regex: /sandbox violation/i,
+  },
+  {
+    category: "pipeline_error",
+    severity: "warning",
+    pattern: "git conflict",
+    regex: /git conflict/i,
+  },
+  {
+    category: "pipeline_error",
+    severity: "warning",
+    pattern: "slot exhausted",
+    regex: /slot exhausted/i,
+  },
+  {
+    category: "pipeline_error",
+    severity: "warning",
+    pattern: "CONFLICT (content)",
+    regex: /CONFLICT \(content\)/i,
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -127,6 +265,82 @@ function makeAdminClient(): SupabaseClient {
   return createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
     auth: { persistSession: false },
   });
+}
+
+function extractLogSnippet(
+  content: string,
+  startIndex: number,
+  matchLength: number,
+): string {
+  if (startIndex < 0) return "";
+
+  const snippetStart = Math.max(0, startIndex - JOB_LOG_SNIPPET_RADIUS);
+  const snippetEnd = Math.min(
+    content.length,
+    startIndex + Math.max(matchLength, 1) + JOB_LOG_SNIPPET_RADIUS,
+  );
+  return content
+    .slice(snippetStart, snippetEnd)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export async function analyzeJobLogs(jobId: string): Promise<JobLogAnalysisResult> {
+  const scannedAt = new Date().toISOString();
+  const supabaseAdmin = makeAdminClient();
+
+  const { data: tmuxLogs, error: logsError } = await supabaseAdmin
+    .from("job_logs")
+    .select("content")
+    .eq("job_id", jobId)
+    .eq("type", "tmux")
+    .order("created_at", { ascending: true });
+
+  if (logsError) {
+    console.error(
+      `[orchestrator] analyzeJobLogs: failed to fetch tmux logs for job ${jobId}:`,
+      logsError.message,
+    );
+    return { errors: [], scanned_at: scannedAt };
+  }
+
+  const concatenatedLogs = (tmuxLogs ?? [])
+    .map((row) => {
+      const logRow = row as { content?: unknown };
+      return typeof logRow.content === "string" ? logRow.content : "";
+    })
+    .filter((chunk) => chunk.length > 0)
+    .join("\n");
+
+  if (!concatenatedLogs) {
+    return { errors: [], scanned_at: scannedAt };
+  }
+
+  const errors: JobLogErrorMatch[] = [];
+  const seenCategories = new Set<string>();
+
+  for (const logPattern of JOB_LOG_PATTERNS) {
+    const match = logPattern.regex.exec(concatenatedLogs);
+    if (
+      !match ||
+      typeof match.index !== "number" ||
+      seenCategories.has(logPattern.category)
+    ) continue;
+
+    seenCategories.add(logPattern.category);
+    errors.push({
+      category: logPattern.category,
+      severity: logPattern.severity,
+      pattern: logPattern.pattern,
+      snippet: extractLogSnippet(
+        concatenatedLogs,
+        match.index,
+        match[0]?.length ?? 0,
+      ),
+    });
+  }
+
+  return { errors, scanned_at: scannedAt };
 }
 
 // ---------------------------------------------------------------------------
@@ -2500,6 +2714,112 @@ async function processFeatureLifecycle(
   // Feature pipeline ends at 'complete'.
 }
 
+export async function analyzeRecentlyCompletedJobs(
+  supabase: SupabaseClient,
+  analyzeLogsFn: (jobId: string) => Promise<JobLogAnalysisResult> =
+    analyzeJobLogs,
+): Promise<void> {
+  const completedCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const { data: recentJobs, error: recentJobsErr } = await supabase
+    .from("jobs")
+    .select("id, feature_id, company_id")
+    .in("status", ["complete", "failed"])
+    .filter("error_analysis", "is", null)
+    .gt("completed_at", completedCutoff)
+    .order("completed_at", { ascending: true })
+    .limit(100);
+
+  if (recentJobsErr) {
+    console.error(
+      "[orchestrator] analyzeRecentlyCompletedJobs: error querying recently completed jobs:",
+      recentJobsErr.message,
+    );
+    return;
+  }
+
+  for (const row of recentJobs ?? []) {
+    const job = row as {
+      id: string;
+      feature_id: string | null;
+      company_id: string;
+    };
+
+    let analysis: JobLogAnalysisResult;
+    try {
+      analysis = await analyzeLogsFn(job.id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[orchestrator] analyzeRecentlyCompletedJobs: failed to analyze logs for job ${job.id}:`,
+        message,
+      );
+      continue;
+    }
+
+    const { error: updateErr } = await supabase
+      .from("jobs")
+      .update({ error_analysis: analysis })
+      .eq("id", job.id);
+
+    if (updateErr) {
+      console.error(
+        `[orchestrator] analyzeRecentlyCompletedJobs: failed to write error_analysis for job ${job.id}:`,
+        updateErr.message,
+      );
+      continue;
+    }
+
+    const criticalCategories = Array.from(
+      new Set(
+        analysis.errors
+          .filter((entry) => entry.severity === "critical")
+          .map((entry) => entry.category),
+      ),
+    );
+
+    if (criticalCategories.length === 0) {
+      continue;
+    }
+
+    const summary = criticalCategories.join(", ");
+    console.warn(
+      `[orchestrator] Job ${job.id} completed with critical errors: ${summary}`,
+    );
+
+    if (!job.feature_id) {
+      continue;
+    }
+
+    const { error: featureNoteErr } = await supabase
+      .from("events")
+      .insert({
+        company_id: job.company_id,
+        feature_id: job.feature_id,
+        event_type: "escalation",
+        detail: {
+          type: "job_error_analysis",
+          jobId: job.id,
+          severity: "critical",
+          summary,
+          categories: criticalCategories,
+        },
+      });
+
+    if (featureNoteErr) {
+      console.error(
+        `[orchestrator] analyzeRecentlyCompletedJobs: failed to append feature note for feature ${job.feature_id}:`,
+        featureNoteErr.message,
+      );
+    }
+
+    await notifyCPO(
+      supabase,
+      job.company_id,
+      `Feature ${job.feature_id}: job ${job.id} completed with critical errors (${summary}).`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Slack helpers (orchestrator-side)
 // ---------------------------------------------------------------------------
@@ -3736,25 +4056,28 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     //    missed during the 4s listen window, these transitions would never fire.
     await processFeatureLifecycle(supabase);
 
-    // 4. Dispatch queued jobs to available machines.
+    // 4. Analyze newly completed/failed jobs and persist log-derived error analysis.
+    await analyzeRecentlyCompletedJobs(supabase);
+
+    // 5. Dispatch queued jobs to available machines.
     await dispatchQueuedJobs(supabase);
 
-    // 4b. Recover ideas stuck at 'triaging' with no active triage job (orphan protection).
+    // 5b. Recover ideas stuck at 'triaging' with no active triage job (orphan protection).
     await recoverStaleTriagingIdeas(supabase);
 
-    // 4c. Recover ideas stuck at 'developing' in broken spec/review chains.
+    // 5c. Recover ideas stuck at 'developing' in broken spec/review chains.
     await recoverStaleDevelopingIdeas(supabase);
 
-    // 4d. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
+    // 5d. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
     await autoTriageNewIdeas(supabase);
 
-    // 4d. Recover stale developing ideas
+    // 5e. Recover stale developing ideas
     await recoverStaleDevelopingIdeas(supabase);
 
-    // 4e. Auto-spec: dispatch/continue spec session chains for develop-routed ideas.
+    // 5f. Auto-spec: dispatch/continue spec session chains for develop-routed ideas.
     await autoSpecTriagedIdeas(supabase);
 
-    // 5. Refresh pipeline snapshot cache after all state mutations.
+    // 6. Refresh pipeline snapshot cache after all state mutations.
     await refreshPipelineSnapshotCache(supabase);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

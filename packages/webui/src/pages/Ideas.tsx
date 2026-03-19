@@ -437,6 +437,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
   }
 
   async function handleFounderInputSubmit(): Promise<void> {
+    if (!data) return;
     if (founderSubmitting) return;
     const trimmedInput = founderInput.trim();
     if (!trimmedInput) return;

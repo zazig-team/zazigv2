@@ -115,6 +115,144 @@ function isDecisionResolved(msg: unknown): msg is DecisionResolved {
     (typeof row.note === "string" || row.note === null);
 }
 
+type JobLogSeverity = "critical" | "warning" | "info";
+
+interface JobLogErrorMatch {
+  category: string;
+  severity: JobLogSeverity;
+  pattern: string;
+  snippet: string;
+}
+
+interface JobLogAnalysisResult {
+  errors: JobLogErrorMatch[];
+  scanned_at: string;
+}
+
+interface JobLogPattern {
+  category: string;
+  severity: JobLogSeverity;
+  pattern: string;
+  regex: RegExp;
+}
+
+const JOB_LOG_SNIPPET_RADIUS = 140;
+const JOB_LOG_PATTERNS: JobLogPattern[] = [
+  // build_error (critical)
+  {
+    category: "build_error",
+    severity: "critical",
+    pattern: "error TS\\d+",
+    regex: /error TS\d+/i,
+  },
+  {
+    category: "build_error",
+    severity: "critical",
+    pattern: "Cannot find module",
+    regex: /Cannot find module/i,
+  },
+  {
+    category: "build_error",
+    severity: "critical",
+    pattern: "Type '.*' is not assignable",
+    regex: /Type '.*' is not assignable/i,
+  },
+  // test_failure (critical)
+  {
+    category: "test_failure",
+    severity: "critical",
+    pattern: "\\d+ (failing|failed)",
+    regex: /\d+ (failing|failed)/i,
+  },
+  {
+    category: "test_failure",
+    severity: "critical",
+    pattern: "AssertionError",
+    regex: /AssertionError/i,
+  },
+  {
+    category: "test_failure",
+    severity: "critical",
+    pattern: "Test.*FAIL",
+    regex: /Test.*FAIL/i,
+  },
+  // runtime_error (critical)
+  {
+    category: "runtime_error",
+    severity: "critical",
+    pattern: "UnhandledPromiseRejection",
+    regex: /UnhandledPromiseRejection/i,
+  },
+  {
+    category: "runtime_error",
+    severity: "critical",
+    pattern: "Uncaught Error:",
+    regex: /Uncaught Error:/i,
+  },
+  {
+    category: "runtime_error",
+    severity: "critical",
+    pattern: "Segmentation fault",
+    regex: /Segmentation fault/i,
+  },
+  {
+    category: "runtime_error",
+    severity: "critical",
+    pattern: "Out of memory",
+    regex: /Out of memory/i,
+  },
+  // permission_error (warning)
+  {
+    category: "permission_error",
+    severity: "warning",
+    pattern: "401",
+    regex: /\b401\b/,
+  },
+  {
+    category: "permission_error",
+    severity: "warning",
+    pattern: "403",
+    regex: /\b403\b/,
+  },
+  {
+    category: "permission_error",
+    severity: "warning",
+    pattern: "EACCES",
+    regex: /EACCES/i,
+  },
+  {
+    category: "permission_error",
+    severity: "warning",
+    pattern: "Permission denied",
+    regex: /Permission denied/i,
+  },
+  // pipeline_error (warning)
+  {
+    category: "pipeline_error",
+    severity: "warning",
+    pattern: "sandbox violation",
+    regex: /sandbox violation/i,
+  },
+  {
+    category: "pipeline_error",
+    severity: "warning",
+    pattern: "git conflict",
+    regex: /git conflict/i,
+  },
+  {
+    category: "pipeline_error",
+    severity: "warning",
+    pattern: "slot exhausted",
+    regex: /slot exhausted/i,
+  },
+  {
+    category: "pipeline_error",
+    severity: "warning",
+    pattern: "CONFLICT (content)",
+    regex: /CONFLICT \(content\)/i,
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -127,6 +265,76 @@ function makeAdminClient(): SupabaseClient {
   return createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
     auth: { persistSession: false },
   });
+}
+
+function extractLogSnippet(
+  content: string,
+  startIndex: number,
+  matchLength: number,
+): string {
+  if (startIndex < 0) return "";
+
+  const snippetStart = Math.max(0, startIndex - JOB_LOG_SNIPPET_RADIUS);
+  const snippetEnd = Math.min(
+    content.length,
+    startIndex + Math.max(matchLength, 1) + JOB_LOG_SNIPPET_RADIUS,
+  );
+  return content
+    .slice(snippetStart, snippetEnd)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export async function analyzeJobLogs(jobId: string): Promise<JobLogAnalysisResult> {
+  const scannedAt = new Date().toISOString();
+  const supabaseAdmin = makeAdminClient();
+
+  const { data: tmuxLogs, error: logsError } = await supabaseAdmin
+    .from("job_logs")
+    .select("content")
+    .eq("job_id", jobId)
+    .eq("type", "tmux")
+    .order("created_at", { ascending: true });
+
+  if (logsError) {
+    console.error(
+      `[orchestrator] analyzeJobLogs: failed to fetch tmux logs for job ${jobId}:`,
+      logsError.message,
+    );
+    return { errors: [], scanned_at: scannedAt };
+  }
+
+  const concatenatedLogs = (tmuxLogs ?? [])
+    .map((row) => {
+      const logRow = row as { content?: unknown };
+      return typeof logRow.content === "string" ? logRow.content : "";
+    })
+    .filter((chunk) => chunk.length > 0)
+    .join("\n");
+
+  if (!concatenatedLogs) {
+    return { errors: [], scanned_at: scannedAt };
+  }
+
+  const errors: JobLogErrorMatch[] = [];
+
+  for (const logPattern of JOB_LOG_PATTERNS) {
+    const match = logPattern.regex.exec(concatenatedLogs);
+    if (!match || typeof match.index !== "number") continue;
+
+    errors.push({
+      category: logPattern.category,
+      severity: logPattern.severity,
+      pattern: logPattern.pattern,
+      snippet: extractLogSnippet(
+        concatenatedLogs,
+        match.index,
+        match[0]?.length ?? 0,
+      ),
+    });
+  }
+
+  return { errors, scanned_at: scannedAt };
 }
 
 // ---------------------------------------------------------------------------

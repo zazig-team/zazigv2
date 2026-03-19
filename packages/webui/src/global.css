@@ -3533,7 +3533,7 @@ input {
   justify-content: center;
   gap: 6px;
   padding: 8px 16px;
-  min-height: 40px;
+  min-height: 44px;
   background: color-mix(in srgb, var(--col-ideas) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--col-ideas) 25%, transparent);
   border-radius: var(--radius-sm);
@@ -3559,7 +3559,7 @@ input {
   align-items: center;
   justify-content: center;
   padding: 8px 14px;
-  min-height: 40px;
+  min-height: 44px;
   background: transparent;
   border: 1px solid var(--chalk);
   border-radius: var(--radius-sm);

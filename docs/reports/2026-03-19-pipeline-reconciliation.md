@@ -43,7 +43,7 @@ Full audit of 19 merged PRs from the overnight auto-triage / auto-spec run (Marc
 | #299 | Pipeline: Green dots for shipped features | `4036d7b0` | Single-line colour mapping change |
 | #300 | Triage All: progress feedback + error surfacing | `74c5ee59` | Full implementation: button counter, toasts, auto-retry, shimmer animations, stale cleanup |
 | #302 | WebUI: Triage All per-card progress indicators | `a7b91e90` | Batch state machine, sequential processing, per-card visual states |
-| #303 | BUG: WebUI deploys to prod before edge functions | `de4e17ea` | Docs-only PR. **Actual fix is Vercel dashboard config — has this been done?** |
+| #303 | BUG: WebUI deploys to prod before edge functions | `de4e17ea` | Docs-only PR. **Spec may be wrong** — WebUI deliberately deploys from master because there's no staging WebUI. Switching to `production` branch would hide all changes. The underlying race (WebUI referencing un-promoted edge functions) needs a different solution. See action item 4. |
 | #304 | Founder input on triaged ideas: append notes | `70622192` | Textarea + API call, mobile responsive, all 9 AC met |
 | #305 | Auto-enrich: triage enforces clean titles | `79e46faf` | Skill + orchestrator + migration, complete |
 | #306 | WebUI: Ready for Spec vs Needs Decision sections | `fab43e54` | Two sub-sections with distinct CTAs, all 7 AC met |
@@ -95,7 +95,7 @@ Full audit of 19 merged PRs from the overnight auto-triage / auto-spec run (Marc
 | `ac96bd90` | Consolidate failed job retry into handleJobFailed | Code job reported "pass" with summary about "writing_tests pipeline status" — completely unrelated to the feature. Combiner found no new commits, couldn't create PR. |
 | `e29daaad` | Remove duplicate animation on triage | Same — code job reported identical wrong summary. Zero actual work done. |
 
-**Root cause:** Both code jobs appear to have suffered context contamination — they executed with the wrong prompt or carried over state from a previous job. Both need `status = 'failed'` in DB (SQL provided to human).
+**Root cause:** Both code jobs appear to have suffered context contamination — they executed with the wrong prompt or carried over state from a previous job. Both now set to `status = 'failed'` in DB.
 
 ---
 
@@ -126,7 +126,7 @@ Full audit of 19 merged PRs from the overnight auto-triage / auto-spec run (Marc
 
 ### Immediate (today)
 
-1. **Fix 2 stuck features** — Human runs SQL:
+1. **Fix 2 stuck features** — SQL run (complete)
    ```sql
    UPDATE features SET status = 'failed'
    WHERE id IN ('ac96bd90-59cf-4d1c-8997-58f21321d615', 'e29daaad-275a-4dc5-9eac-e1ac3abde3d0');
@@ -136,9 +136,9 @@ Full audit of 19 merged PRs from the overnight auto-triage / auto-spec run (Marc
 
 3. **Write missing migrations** for PRs #310 and #311 — These features are dead code on master until migrations exist. Either hotfix-engineer or manual.
 
-4. **Verify Vercel dashboard config** (PR #303) — Has the production branch been changed from `master` to `production`? If not, the prod deploy bug is still live.
+4. **Revisit PR #303 approach** — The original idea (`8f6a5718`) flagged a real race condition: WebUI can reference edge functions that aren't promoted yet. But the proposed fix (deploy from `production` branch) won't work — there's no staging WebUI, so deploying from master is deliberate. Need a different solution: either deploy-order gating (edge functions before WebUI) or a build-time env check. **The feature spec itself needs reworking, not just the config.**
 
-### Short-term (this week)
+### Short-term
 
 5. **Add Page Visibility API** to `usePolling` hook (PR #307 gap) — Small fix, prevents unnecessary polling.
 
@@ -177,17 +177,17 @@ Playwright is installed (v1.58.2) but the config is boilerplate — no baseURL, 
 
 ## Data Integrity Flags (carried from previous session)
 
-These features are still marked `complete` in the DB with no code on master (from 2026-03-18 reconciliation):
+These features are marked `complete` in the DB with no code on master. Per Tom: these were failing jobs from before the combinator changes that were effectively cancelled, but there's no `cancelled` status in the DB so they were marked `complete` as a workaround.
 
-| Feature ID | Title |
-|------------|-------|
-| `231bbfe8` | CI-Gated Pipeline Phase 1 |
-| `36fdc221` | CI-Gated Pipeline Phase 1b |
-| `07aa97c6` | CI-Gated Pipeline Phase 1c |
-| `72a5bf2a` | CI-Gated Pipeline Phase 2 |
-| `c68fd0ef` | Auto-Spec Phase B (orchestrator core) |
+| Feature ID | Title | Actual Status |
+|------------|-------|---------------|
+| `231bbfe8` | CI-Gated Pipeline Phase 1 | Cancelled (no code) |
+| `36fdc221` | CI-Gated Pipeline Phase 1b | Cancelled (no code) |
+| `07aa97c6` | CI-Gated Pipeline Phase 1c | Cancelled (no code) |
+| `72a5bf2a` | CI-Gated Pipeline Phase 2 | Cancelled (no code) |
+| `c68fd0ef` | Auto-Spec Phase B (orchestrator core) | Cancelled (no code) |
 
-**Still unfixed from yesterday.** These pollute pipeline metrics.
+**Not a data integrity issue** — these are intentional. However, adding a `cancelled` status to the features table would prevent this confusion in future and clean up pipeline metrics.
 
 ---
 

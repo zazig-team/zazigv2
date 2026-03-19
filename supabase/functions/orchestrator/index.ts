@@ -3153,6 +3153,165 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
   }
 }
 
+interface AutoEnrichCompanyRow {
+  id: string;
+  enrich_delay_minutes: number | null;
+  enrich_max_concurrent: number | null;
+}
+
+interface AutoEnrichIdeaRow {
+  id: string;
+  title: string | null;
+  description: string | null;
+  project_id: string | null;
+}
+
+export async function autoEnrichIncompleteTriagedIdeas(
+  supabase: SupabaseClient,
+): Promise<void> {
+  const { data: companies, error: companiesErr } = await supabase
+    .from("companies")
+    .select("id, enrich_delay_minutes, enrich_max_concurrent")
+    .eq("auto_triage", true)
+    .eq("status", "active");
+
+  if (companiesErr) {
+    console.error(
+      `[orchestrator] auto-enrich: failed to load companies: ${companiesErr.message}`,
+    );
+    return;
+  }
+
+  if (!companies?.length) return;
+
+  for (const company of companies as AutoEnrichCompanyRow[]) {
+    const companyId = company.id;
+    const delayMinutes = company.enrich_delay_minutes ?? 10;
+    const maxConcurrent = company.enrich_max_concurrent ?? 2;
+    if (maxConcurrent <= 0) continue;
+
+    const cutoff = new Date(Date.now() - delayMinutes * 60 * 1000).toISOString();
+    const { data: candidates, error: candidatesErr } = await supabase
+      .from("ideas")
+      .select("id, title, description, project_id")
+      .eq("company_id", companyId)
+      .eq("status", "triaged")
+      .lt("triaged_at", cutoff)
+      .or("title.is.null,title.eq.,description.is.null,description.eq.")
+      .order("triaged_at", { ascending: true })
+      .limit(maxConcurrent);
+
+    if (candidatesErr) {
+      console.error(
+        `[orchestrator] auto-enrich: failed to fetch triaged candidates for company ${companyId}: ${candidatesErr.message}`,
+      );
+      continue;
+    }
+
+    const ideas = (candidates as AutoEnrichIdeaRow[] | null) ?? [];
+    if (ideas.length === 0) continue;
+
+    let cachedProjectId: string | null = null;
+    let projectLookupComplete = false;
+    const resolveCompanyProjectId = async (): Promise<string | null> => {
+      if (projectLookupComplete) return cachedProjectId;
+      projectLookupComplete = true;
+
+      const { data: projects, error: projectErr } = await supabase
+        .from("projects")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("status", "active")
+        .limit(1);
+
+      if (projectErr) {
+        console.error(
+          `[orchestrator] auto-enrich: failed to resolve active project for company ${companyId}: ${projectErr.message}`,
+        );
+        return null;
+      }
+
+      cachedProjectId = (projects as { id: string }[] | null)?.[0]?.id ?? null;
+      if (!cachedProjectId) {
+        console.log(
+          `[orchestrator] auto-enrich: no active project for company ${companyId}, skipping`,
+        );
+      }
+      return cachedProjectId;
+    };
+
+    let dispatched = 0;
+    for (const idea of ideas) {
+      if (dispatched >= maxConcurrent) break;
+
+      const missing: string[] = [];
+      if (!idea.title || idea.title.trim().length === 0) {
+        missing.push("title");
+      }
+      if (!idea.description || idea.description.trim().length === 0) {
+        missing.push("description");
+      }
+      if (missing.length === 0) continue;
+
+      const { data: activeSessions, error: activeErr } = await supabase
+        .from("expert_sessions")
+        .select("id, expert_role:expert_role_id!inner(name)")
+        .eq("company_id", companyId)
+        .eq("headless", true)
+        .in("status", ["requested", "running"])
+        .eq("expert_role.name", "triage-analyst")
+        .ilike("brief", `%${idea.id}%`)
+        .limit(1);
+
+      if (activeErr) {
+        console.error(
+          `[orchestrator] auto-enrich: failed to check active enrichment sessions for idea ${idea.id}: ${activeErr.message}`,
+        );
+        continue;
+      }
+
+      if ((activeSessions?.length ?? 0) > 0) continue;
+
+      const projectId = idea.project_id ?? await resolveCompanyProjectId();
+      if (!projectId) continue;
+
+      console.log(`[orchestrator] Auto-enriching idea ${idea.id}`);
+      const response = await fetch(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/start-expert-session`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            "x-company-id": companyId,
+          },
+          body: JSON.stringify({
+            role_name: "triage-analyst",
+            brief: JSON.stringify({
+              idea_id: idea.id,
+              action: "enrich",
+              missing,
+            }),
+            machine_name: "auto",
+            project_id: projectId,
+            headless: true,
+            auto_exit: true,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        console.error(
+          `[orchestrator] auto-enrich: failed to start headless session for idea ${idea.id} in company ${companyId}: ${response.status} ${response.statusText}`,
+        );
+        continue;
+      }
+
+      dispatched += 1;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Auto-spec: dispatch and continue spec-writer/spec-reviewer chains
 // ---------------------------------------------------------------------------
@@ -3640,10 +3799,13 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 4d. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
     await autoTriageNewIdeas(supabase);
 
-    // 4d. Recover stale developing ideas
+    // 4e. Auto-enrich: dispatch enrichment jobs for incomplete triaged ideas.
+    await autoEnrichIncompleteTriagedIdeas(supabase);
+
+    // 4f. Recover stale developing ideas
     await recoverStaleDevelopingIdeas(supabase);
 
-    // 4e. Auto-spec: dispatch/continue spec session chains for develop-routed ideas.
+    // 4g. Auto-spec: dispatch/continue spec session chains for develop-routed ideas.
     await autoSpecTriagedIdeas(supabase);
 
     // 5. Refresh pipeline snapshot cache after all state mutations.

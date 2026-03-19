@@ -49,6 +49,8 @@ Capture, at minimum, each candidate idea's `title`, `description`, `flags`, `cla
 
 ## Phase 2: Triage Each Idea
 
+Step 2 update calls must always include `title`.
+
 For each idea selected for triage:
 
 1. Read the full `title`, `description`, `flags`, `clarification_notes`, and `originator`.
@@ -61,7 +63,11 @@ For each idea selected for triage:
      - **Partial match** (feature exists but does not fully cover the idea): flag in `triage_notes` with feature ID and gap description, then route normally
      - **No match**: proceed with standard routing unchanged
    - Bias: err on the side of keeping (not parking) when uncertain
-2. Refine if needed via `update_idea`:
+1b. Generate or confirm title:
+   - If the idea has no title, or the title looks like a raw_text truncation (ends mid-sentence, contains ellipsis, or is over 80 chars), generate a new one.
+   - The title must: be <=80 chars, capture the core intent in plain language, and NOT be a literal truncation of raw_text.
+2. Refine if needed via `update_idea` (always include `title`):
+   - Include `title` in the `update_idea` call every time at this step
    - Improve the description for clarity
    - Add or correct tags
 3. Set `priority` (`low` | `medium` | `high` | `urgent`) based on urgency signals, strategic fit, and originator intent.
@@ -126,6 +132,7 @@ During standup or when running triage:
 - Never call `promote_idea` without explicit human approval
 - Perform content-level duplicate checking before any promote recommendation
 - Deduplication check is mandatory before routing — query features filtered by status before deciding route
+- Always write `title` during Phase 2 step 2 `update_idea` calls
 - Every promote recommendation must specify `feature`, `job`, or `research`
 - An idea must be triaged before `promote_idea` can be called
 - `project_id` is required when promoting to `feature`

@@ -2748,6 +2748,10 @@ interface DevelopingIdeaRow {
   company_id: string;
   project_id: string | null;
   complexity: string | null;
+  spec: string | null;
+  spec_retry_count: number | null;
+  triage_notes: string | null;
+  updated_at: string;
 }
 
 interface ExpertSessionChainRow {
@@ -2839,6 +2843,203 @@ async function setDevelopingIdeaStatus(
   }
 
   return Boolean(data && data.length > 0);
+}
+
+const ACTIVE_SPEC_SESSION_STATUSES = [
+  "requested",
+  "executing",
+  "claimed",
+  "starting",
+  "running",
+];
+
+interface CompanySpecConfig {
+  specTimeoutMinutes: number;
+  maxSpecRetries: number;
+}
+
+async function hasActiveSpecSessionForIdea(
+  supabase: SupabaseClient,
+  ideaId: string,
+  companyId: string,
+): Promise<boolean> {
+  const batchIds = new Set<string>();
+
+  const { data: itemRows } = await supabase
+    .from("expert_session_items")
+    .select("session:session_id!inner(batch_id)")
+    .eq("idea_id", ideaId)
+    .limit(25);
+
+  for (const row of (itemRows ?? []) as {
+    session: { batch_id: string | null } | null;
+  }[]) {
+    const batchId = row.session?.batch_id;
+    if (batchId) batchIds.add(batchId);
+  }
+
+  if (batchIds.size > 0) {
+    const { data: byBatch } = await supabase
+      .from("expert_sessions")
+      .select("id")
+      .eq("company_id", companyId)
+      .in("status", ACTIVE_SPEC_SESSION_STATUSES)
+      .in("batch_id", [...batchIds])
+      .limit(1);
+    if (byBatch && byBatch.length > 0) return true;
+  }
+
+  const { data: byBrief } = await supabase
+    .from("expert_sessions")
+    .select("id")
+    .eq("company_id", companyId)
+    .in("status", ACTIVE_SPEC_SESSION_STATUSES)
+    .ilike("brief", `%${ideaId}%`)
+    .limit(1);
+
+  return Boolean(byBrief && byBrief.length > 0);
+}
+
+async function recoverMissingSpecDevelopingIdeas(
+  supabase: SupabaseClient,
+): Promise<void> {
+  const { data: companyRows, error: companyErr } = await supabase
+    .from("companies")
+    .select("id, spec_timeout_minutes, max_spec_retries")
+    .eq("status", "active");
+
+  if (companyErr) {
+    console.error(
+      `[orchestrator] stale-developing-recovery: failed to load company spec config: ${companyErr.message}`,
+    );
+    return;
+  }
+
+  const companyConfig = new Map<string, CompanySpecConfig>();
+  for (
+    const row of (companyRows ?? []) as {
+      id: string;
+      spec_timeout_minutes: number | null;
+      max_spec_retries: number | null;
+    }[]
+  ) {
+    companyConfig.set(row.id, {
+      specTimeoutMinutes: row.spec_timeout_minutes ?? 30,
+      maxSpecRetries: row.max_spec_retries ?? 3,
+    });
+  }
+
+  const { data: developingIdeas, error: ideasErr } = await supabase
+    .from("ideas")
+    .select(
+      "id, company_id, project_id, complexity, spec, spec_retry_count, triage_notes, updated_at",
+    )
+    .eq("status", "developing")
+    .is("spec", null);
+
+  if (ideasErr || !developingIdeas?.length) return;
+
+  const nowMs = Date.now();
+  for (const idea of developingIdeas as DevelopingIdeaRow[]) {
+    const cfg = companyConfig.get(idea.company_id) ?? {
+      specTimeoutMinutes: 30,
+      maxSpecRetries: 3,
+    };
+    const updatedAtMs = Date.parse(idea.updated_at);
+    if (
+      !Number.isFinite(updatedAtMs) ||
+      nowMs - updatedAtMs < cfg.specTimeoutMinutes * 60 * 1000
+    ) {
+      continue;
+    }
+
+    const hasActiveSession = await hasActiveSpecSessionForIdea(
+      supabase,
+      idea.id,
+      idea.company_id,
+    );
+    if (hasActiveSession) continue;
+
+    const currentRetryCount = idea.spec_retry_count ?? 0;
+    const nextRetryCount = currentRetryCount + 1;
+    let incrementQuery = supabase
+      .from("ideas")
+      .update({ spec_retry_count: nextRetryCount })
+      .eq("id", idea.id)
+      .eq("status", "developing")
+      .is("spec", null);
+    incrementQuery = idea.spec_retry_count === null
+      ? incrementQuery.is("spec_retry_count", null)
+      : incrementQuery.eq("spec_retry_count", currentRetryCount);
+
+    const { data: incremented, error: retryErr } = await incrementQuery.select(
+      "id",
+    );
+
+    if (retryErr || !incremented?.length) {
+      if (retryErr) {
+        console.error(
+          `[orchestrator] stale-developing-recovery: failed incrementing spec_retry_count for idea ${idea.id}: ${retryErr.message}`,
+        );
+      }
+      continue;
+    }
+
+    if (nextRetryCount < cfg.maxSpecRetries) {
+      if (!idea.project_id) {
+        console.log(
+          `[orchestrator] stale-developing-recovery: cannot retry spec-writer for idea ${idea.id} (missing project_id)`,
+        );
+        continue;
+      }
+
+      const dispatched = await dispatchHeadlessExpert(
+        idea.company_id,
+        "spec-writer",
+        `Auto-spec retry. Process this idea: ${JSON.stringify([idea.id])}`,
+        idea.project_id,
+        crypto.randomUUID(),
+      );
+
+      if (dispatched) {
+        console.log(
+          `[orchestrator] Retrying spec-writer for idea ${idea.id} (attempt ${nextRetryCount})`,
+        );
+      } else {
+        console.log(
+          `[orchestrator] stale-developing-recovery: failed dispatching spec-writer retry for idea ${idea.id} (attempt ${nextRetryCount})`,
+        );
+      }
+      continue;
+    }
+
+    const escalationNote =
+      `ESCALATED: spec-writer failed ${nextRetryCount} times — needs human review`;
+    const mergedNotes = idea.triage_notes?.trim()
+      ? `${idea.triage_notes}\n${escalationNote}`
+      : escalationNote;
+
+    const { data: escalated, error: escalateErr } = await supabase
+      .from("ideas")
+      .update({ status: "workshop", triage_notes: mergedNotes })
+      .eq("id", idea.id)
+      .eq("status", "developing")
+      .is("spec", null)
+      .select("id");
+
+    if (escalateErr || !escalated?.length) {
+      if (escalateErr) {
+        console.error(
+          `[orchestrator] stale-developing-recovery: failed escalating idea ${idea.id}: ${escalateErr.message}`,
+        );
+      }
+      continue;
+    }
+
+    console.log(
+      `[orchestrator] Escalating idea ${idea.id} to workshop after ${nextRetryCount} spec-writer failures`,
+    );
+  }
 }
 
 async function continueAutoSpecChain(
@@ -2971,12 +3172,16 @@ async function continueAutoSpecChain(
  * Recover ideas stuck at 'developing' by resuming or repairing spec/review chains.
  */
 async function recoverStaleDevelopingIdeas(supabase: SupabaseClient): Promise<void> {
+  await recoverMissingSpecDevelopingIdeas(supabase);
+
   const staleCutoffIso = new Date(Date.now() - AUTO_TRIAGE_STALE_THRESHOLD_MS).toISOString();
   const staleCutoffMs = Date.now() - AUTO_TRIAGE_STALE_THRESHOLD_MS;
 
   const { data: staleIdeas, error: staleErr } = await supabase
     .from("ideas")
-    .select("id, company_id, project_id, complexity")
+    .select(
+      "id, company_id, project_id, complexity, spec, spec_retry_count, triage_notes, updated_at",
+    )
     .eq("status", "developing")
     .lt("updated_at", staleCutoffIso);
 
@@ -3274,6 +3479,7 @@ interface AutoSpecIdeaRow {
   company_id: string;
   project_id: string | null;
   complexity: string | null;
+  spec: string | null;
 }
 
 async function cancelRequestedSpecSession(
@@ -3437,7 +3643,7 @@ async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
           .update({ status: "developing" })
           .in("id", idsToClaim)
           .eq("status", "triaged")
-          .select("id, company_id, project_id, complexity");
+          .select("id, company_id, project_id, complexity, spec");
 
         if (claimErr) {
           console.error(
@@ -3494,7 +3700,7 @@ async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
 
     const { data: developingIdeas, error: developingErr } = await supabase
       .from("ideas")
-      .select("id, company_id, project_id, complexity")
+      .select("id, company_id, project_id, complexity, spec")
       .eq("company_id", companyId)
       .eq("status", "developing")
       .eq("triage_route", "develop")
@@ -3589,6 +3795,27 @@ async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
       }
 
       if (latestRole === "spec-writer") {
+        if (idea.spec === null) {
+          const { data: resetRows, error: resetErr } = await supabase
+            .from("ideas")
+            .update({ status: "triaged" })
+            .eq("id", idea.id)
+            .eq("status", "developing")
+            .is("spec", null)
+            .select("id");
+
+          if (resetErr) {
+            console.error(
+              `[orchestrator] auto-spec: failed to reset idea ${idea.id} to triaged after completed spec-writer with null spec: ${resetErr.message}`,
+            );
+          } else if (resetRows && resetRows.length > 0) {
+            console.log(
+              `[orchestrator] auto-spec: reset idea ${idea.id} to triaged after completed spec-writer with null spec`,
+            );
+          }
+          continue;
+        }
+
         if (idea.complexity === "simple") {
           const { error: speccedErr } = await supabase
             .from("ideas")
@@ -3747,9 +3974,6 @@ Deno.serve(async (_req: Request): Promise<Response> => {
 
     // 4d. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
     await autoTriageNewIdeas(supabase);
-
-    // 4d. Recover stale developing ideas
-    await recoverStaleDevelopingIdeas(supabase);
 
     // 4e. Auto-spec: dispatch/continue spec session chains for develop-routed ideas.
     await autoSpecTriagedIdeas(supabase);

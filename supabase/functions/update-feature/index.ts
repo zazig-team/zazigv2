@@ -8,7 +8,7 @@
  * Runtime: Deno / Supabase Edge Functions
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -42,6 +42,56 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 // CPO can only set these statuses — all others are orchestrator-managed
 const ALLOWED_CPO_STATUSES = ["breaking_down", "complete"] as const;
 
+async function wouldCreateCycle(
+  supabase: SupabaseClient,
+  featureId: string,
+  proposedDeps: string[],
+): Promise<{ cycle: boolean; path?: string[] }> {
+  const { data: allFeatures, error } = await supabase
+    .from("features")
+    .select("id, depends_on");
+
+  if (error) {
+    throw new Error(`Failed to validate dependencies: ${error.message}`);
+  }
+
+  const depMap = new Map<string, string[]>();
+  for (const feature of allFeatures ?? []) {
+    const featureIdValue = feature.id as string;
+    const featureDeps = Array.isArray(feature.depends_on)
+      ? feature.depends_on.filter((dep) => typeof dep === "string")
+      : [];
+    depMap.set(featureIdValue, featureDeps);
+  }
+
+  // Simulate the proposed dependency update before walking the graph.
+  depMap.set(featureId, proposedDeps);
+
+  const queue: Array<{ node: string; path: string[] }> = proposedDeps.map((dep) => ({
+    node: dep,
+    path: [featureId, dep],
+  }));
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) continue;
+
+    if (current.node === featureId) {
+      return { cycle: true, path: current.path };
+    }
+
+    if (visited.has(current.node)) continue;
+    visited.add(current.node);
+
+    for (const dep of depMap.get(current.node) ?? []) {
+      queue.push({ node: dep, path: [...current.path, dep] });
+    }
+  }
+
+  return { cycle: false };
+}
+
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
@@ -62,7 +112,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     const body = await req.json();
-    const { feature_id, title, description, priority, status, spec, acceptance_tests, human_checklist, fast_track, job_id } = body;
+    const {
+      feature_id,
+      title,
+      description,
+      priority,
+      status,
+      spec,
+      acceptance_tests,
+      human_checklist,
+      fast_track,
+      job_id,
+      depends_on,
+    } = body;
 
     if (!feature_id) {
       return jsonResponse({ error: "feature_id is required" }, 400);
@@ -80,6 +142,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: "fast_track must be a boolean when provided" }, 400);
     }
 
+    if (depends_on !== undefined) {
+      if (!Array.isArray(depends_on) || depends_on.some((dep) => typeof dep !== "string")) {
+        return jsonResponse({ error: "depends_on must be an array of UUID strings when provided" }, 400);
+      }
+
+      if (depends_on.includes(feature_id)) {
+        return jsonResponse({ error: "A feature cannot depend on itself" }, 400);
+      }
+
+      const { cycle, path } = await wouldCreateCycle(supabase, feature_id, depends_on);
+      if (cycle) {
+        return jsonResponse(
+          { error: `Circular dependency detected: ${(path ?? [feature_id]).join(" → ")}` },
+          400,
+        );
+      }
+    }
+
     // Build update payload
     const updates: Record<string, unknown> = {};
     if (title !== undefined) updates.title = title;
@@ -93,6 +173,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (acceptance_tests !== undefined) updates.acceptance_tests = acceptance_tests;
     if (human_checklist !== undefined) updates.human_checklist = human_checklist;
     if (fast_track !== undefined) updates.fast_track = fast_track;
+    if (depends_on !== undefined) updates.depends_on = depends_on;
     // job_id and company_id are used for auth/resolution only — not stored on features
 
     if (Object.keys(updates).length === 0) {
@@ -124,6 +205,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .single();
 
     if (error) {
+      if (`${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`.includes("no_self_dep")) {
+        return jsonResponse({ error: "A feature cannot depend on itself" }, 400);
+      }
       return jsonResponse({ error: error.message }, 500);
     }
 

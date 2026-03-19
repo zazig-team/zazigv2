@@ -1638,7 +1638,7 @@ async function processReadyForBreakdown(
 ): Promise<void> {
   const { data: features, error } = await supabase
     .from("features")
-    .select("id")
+    .select("id, depends_on, company_id")
     .eq("status", "breaking_down")
     .limit(50);
 
@@ -1656,8 +1656,189 @@ async function processReadyForBreakdown(
     `[orchestrator] ${features.length} breaking_down feature(s) to process.`,
   );
 
-  for (const feature of features as { id: string }[]) {
+  for (
+    const feature of features as {
+      id: string;
+      depends_on: string[] | null;
+      company_id: string;
+    }[]
+  ) {
+    if (feature.depends_on && feature.depends_on.length > 0) {
+      const { data: depFeatures, error: depErr } = await supabase
+        .from("features")
+        .select("id, status")
+        .in("id", feature.depends_on);
+
+      if (depErr) {
+        console.error(
+          `[orchestrator] Failed to query dependencies for feature ${feature.id}:`,
+          depErr.message,
+        );
+        continue;
+      }
+
+      const allSatisfied = Boolean(depFeatures) &&
+        depFeatures.length === feature.depends_on.length &&
+        depFeatures.every((d: { status: string }) =>
+          d.status === "complete" || d.status === "deployed"
+        );
+      if (!allSatisfied) {
+        console.log(
+          `[orchestrator] Feature ${feature.id} waiting on dependencies: ${feature.depends_on.join(", ")}`,
+        );
+
+        const { data: transitioned, error: transitionErr } = await supabase
+          .from("features")
+          .update({ status: "waiting_on_deps" })
+          .eq("id", feature.id)
+          .eq("status", "breaking_down")
+          .select("id");
+
+        if (transitionErr) {
+          console.error(
+            `[orchestrator] Failed to transition feature ${feature.id} to waiting_on_deps:`,
+            transitionErr.message,
+          );
+          continue;
+        }
+
+        if (transitioned && transitioned.length > 0) {
+          const { error: eventErr } = await supabase.from("events").insert({
+            company_id: feature.company_id,
+            feature_id: feature.id,
+            event_type: "feature_status_changed",
+            detail: { from: "breaking_down", to: "waiting_on_deps" },
+          });
+          if (eventErr) {
+            console.error(
+              `[orchestrator] Failed to insert status event for feature ${feature.id}:`,
+              eventErr.message,
+            );
+          }
+        }
+
+        continue;
+      }
+    }
+
     await triggerBreakdown(supabase, feature.id);
+  }
+}
+
+async function processWaitingOnDeps(supabase: SupabaseClient): Promise<void> {
+  const { data: waiting, error: waitingErr } = await supabase
+    .from("features")
+    .select("id, depends_on, company_id")
+    .eq("status", "waiting_on_deps")
+    .limit(200);
+
+  if (waitingErr) {
+    console.error(
+      "[orchestrator] Error querying waiting_on_deps features:",
+      waitingErr.message,
+    );
+    return;
+  }
+
+  if (!waiting || waiting.length === 0) return;
+
+  for (
+    const feature of waiting as {
+      id: string;
+      depends_on: string[] | null;
+      company_id: string;
+    }[]
+  ) {
+    if (!feature.depends_on || feature.depends_on.length === 0) {
+      const { data: updated, error: updateErr } = await supabase
+        .from("features")
+        .update({ status: "breaking_down" })
+        .eq("id", feature.id)
+        .eq("status", "waiting_on_deps")
+        .select("id");
+
+      if (updateErr) {
+        console.error(
+          `[orchestrator] Failed to advance dependency-free waiting feature ${feature.id}:`,
+          updateErr.message,
+        );
+        continue;
+      }
+
+      if (updated && updated.length > 0) {
+        const { error: eventErr } = await supabase.from("events").insert({
+          company_id: feature.company_id,
+          feature_id: feature.id,
+          event_type: "feature_status_changed",
+          detail: { from: "waiting_on_deps", to: "breaking_down" },
+        });
+        if (eventErr) {
+          console.error(
+            `[orchestrator] Failed to insert status event for feature ${feature.id}:`,
+            eventErr.message,
+          );
+        }
+      }
+      continue;
+    }
+
+    const { data: depFeatures, error: depErr } = await supabase
+      .from("features")
+      .select("id, status")
+      .in("id", feature.depends_on);
+
+    if (depErr) {
+      console.error(
+        `[orchestrator] Failed to query dependencies for waiting feature ${feature.id}:`,
+        depErr.message,
+      );
+      continue;
+    }
+
+    const allSatisfied = Boolean(depFeatures) &&
+      depFeatures.length === feature.depends_on.length &&
+      depFeatures.every((d: { status: string }) =>
+        d.status === "complete" || d.status === "deployed"
+      );
+
+    if (allSatisfied) {
+      console.log(
+        `[orchestrator] Feature ${feature.id} dependencies satisfied, advancing to breakdown`,
+      );
+      const { data: updated, error: updateErr } = await supabase
+        .from("features")
+        .update({ status: "breaking_down" })
+        .eq("id", feature.id)
+        .eq("status", "waiting_on_deps")
+        .select("id");
+
+      if (updateErr) {
+        console.error(
+          `[orchestrator] Failed to advance feature ${feature.id} to breaking_down:`,
+          updateErr.message,
+        );
+        continue;
+      }
+
+      if (updated && updated.length > 0) {
+        const { error: eventErr } = await supabase.from("events").insert({
+          company_id: feature.company_id,
+          feature_id: feature.id,
+          event_type: "feature_status_changed",
+          detail: { from: "waiting_on_deps", to: "breaking_down" },
+        });
+        if (eventErr) {
+          console.error(
+            `[orchestrator] Failed to insert status event for feature ${feature.id}:`,
+            eventErr.message,
+          );
+        }
+      }
+    } else {
+      console.log(
+        `[orchestrator] Feature ${feature.id} waiting on dependencies: ${feature.depends_on.join(", ")}`,
+      );
+    }
   }
 }
 
@@ -2644,6 +2825,98 @@ async function refreshPipelineSnapshotCache(
       if (refreshErr) {
         console.warn(
           `[orchestrator] Snapshot cache refresh failed for company ${companyId}: ${refreshErr.message}`,
+        );
+        continue;
+      }
+
+      // Keep waiting_on_deps explicit in cached features_by_status even if the
+      // DB function is deployed without this status in its active-status filter.
+      const { data: waitingFeatures, error: waitingErr } = await supabase
+        .from("features")
+        .select("id, title, priority, created_at, updated_at")
+        .eq("company_id", companyId)
+        .eq("status", "waiting_on_deps")
+        .order("updated_at", { ascending: false });
+      if (waitingErr) {
+        console.warn(
+          `[orchestrator] Snapshot waiting_on_deps enrich skipped for company ${companyId}: ${waitingErr.message}`,
+        );
+        continue;
+      }
+      if (!waitingFeatures || waitingFeatures.length === 0) continue;
+
+      const waitingFeatureIds = waitingFeatures.map((f: { id: string }) => f.id);
+      const { data: failedJobs, error: failedErr } = await supabase
+        .from("jobs")
+        .select("feature_id")
+        .eq("company_id", companyId)
+        .eq("status", "failed")
+        .in("feature_id", waitingFeatureIds);
+      if (failedErr) {
+        console.warn(
+          `[orchestrator] Snapshot waiting_on_deps failed-job enrich skipped for company ${companyId}: ${failedErr.message}`,
+        );
+        continue;
+      }
+
+      const failedFeatureIds = new Set(
+        (failedJobs ?? [])
+          .map((row: { feature_id: string | null }) => row.feature_id)
+          .filter((id): id is string => typeof id === "string"),
+      );
+
+      const waitingList = waitingFeatures.map(
+        (f: {
+          id: string;
+          title: string | null;
+          priority: string | null;
+          created_at: string;
+          updated_at: string;
+        }) => ({
+          id: f.id,
+          title: f.title,
+          priority: f.priority,
+          created_at: f.created_at,
+          updated_at: f.updated_at,
+          has_failed_jobs: failedFeatureIds.has(f.id),
+        }),
+      );
+
+      const { data: snapshotRow, error: snapshotErr } = await supabase
+        .from("pipeline_snapshots")
+        .select("snapshot")
+        .eq("company_id", companyId)
+        .maybeSingle();
+      if (snapshotErr || !snapshotRow) {
+        console.warn(
+          `[orchestrator] Snapshot waiting_on_deps merge skipped for company ${companyId}: ${snapshotErr?.message ?? "snapshot row missing"}`,
+        );
+        continue;
+      }
+
+      const baseSnapshot = (snapshotRow.snapshot ?? {}) as Record<string, unknown>;
+      const baseByStatus = (baseSnapshot.features_by_status ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const mergedSnapshot = {
+        ...baseSnapshot,
+        features_by_status: {
+          ...baseByStatus,
+          waiting_on_deps: waitingList,
+        },
+      };
+
+      const { error: patchErr } = await supabase
+        .from("pipeline_snapshots")
+        .update({
+          snapshot: mergedSnapshot,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("company_id", companyId);
+      if (patchErr) {
+        console.warn(
+          `[orchestrator] Snapshot waiting_on_deps merge failed for company ${companyId}: ${patchErr.message}`,
         );
       }
     }
@@ -3730,13 +4003,16 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 2. Process breaking_down features → create breakdown jobs.
     await processReadyForBreakdown(supabase);
 
-    // 3. Catch missed feature lifecycle transitions
+    // 3. Advance dependency-blocked features when their dependencies are done.
+    await processWaitingOnDeps(supabase);
+
+    // 4. Catch missed feature lifecycle transitions
     //    (breakdown→writing_tests→building, building→combining).
     //    The executor writes job status directly to DB — if the Realtime broadcast was
     //    missed during the 4s listen window, these transitions would never fire.
     await processFeatureLifecycle(supabase);
 
-    // 4. Dispatch queued jobs to available machines.
+    // 5. Dispatch queued jobs to available machines.
     await dispatchQueuedJobs(supabase);
 
     // 4b. Recover ideas stuck at 'triaging' with no active triage job (orphan protection).
@@ -3754,7 +4030,7 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 4e. Auto-spec: dispatch/continue spec session chains for develop-routed ideas.
     await autoSpecTriagedIdeas(supabase);
 
-    // 5. Refresh pipeline snapshot cache after all state mutations.
+    // 6. Refresh pipeline snapshot cache after all state mutations.
     await refreshPipelineSnapshotCache(supabase);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

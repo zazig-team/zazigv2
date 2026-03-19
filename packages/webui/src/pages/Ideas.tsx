@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCompany } from "../hooks/useCompany";
+import { usePolling } from "../hooks/usePolling";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
 import {
   fetchIdeas,
@@ -807,8 +808,8 @@ export default function Ideas(): JSX.Element {
         fetchIdeas(activeCompanyId),
         fetchIdeas(activeCompanyId, ["promoted"]),
       ]);
-      setIdeas(activeData);
-      setPromotedIdeas(promotedData);
+      setIdeas((prev) => (JSON.stringify(prev) === JSON.stringify(activeData) ? prev : activeData));
+      setPromotedIdeas((prev) => (JSON.stringify(prev) === JSON.stringify(promotedData) ? prev : promotedData));
       setError(null);
 
       const featureIds = promotedData
@@ -825,7 +826,11 @@ export default function Ideas(): JSX.Element {
         for (const f of (data ?? []) as Array<{ id: string; title: string; status: string }>) {
           map.set(f.id, { title: f.title, status: f.status });
         }
-        setFeatureStatuses(map);
+        setFeatureStatuses((prev) => (
+          JSON.stringify(Array.from(prev.entries())) === JSON.stringify(Array.from(map.entries()))
+            ? prev
+            : map
+        ));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -838,6 +843,7 @@ export default function Ideas(): JSX.Element {
   useEffect(() => {
     void loadIdeas();
   }, [loadIdeas]);
+  usePolling(loadIdeas, 15000, Boolean(activeCompanyId));
 
   useEffect(() => {
     ideasByIdRef.current = new Map(ideas.map((idea) => [idea.id, idea]));

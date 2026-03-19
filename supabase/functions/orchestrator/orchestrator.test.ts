@@ -38,6 +38,7 @@ const {
   handleFeatureRejected,
   triggerBreakdown,
   resolveModelAndSlot,
+  analyzeRecentlyCompletedJobs,
 } = await import("./index.ts");
 
 // Shared pipeline utilities
@@ -1558,4 +1559,122 @@ Deno.test("handleJobComplete — active verification failure triggers CPO notifi
     true,
     "Should query for active CPO job",
   );
+});
+
+Deno.test("analyzeRecentlyCompletedJobs — writes analysis and escalates critical findings", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  setResponse("jobs:select.in.filter.gt.order.limit", {
+    data: [{
+      id: "job-critical-1",
+      feature_id: "feat-critical-1",
+      company_id: "co-critical-1",
+    }],
+    error: null,
+  });
+  setResponse("jobs:update.eq", { error: null });
+  setResponse("events:insert", { error: null });
+  setResponse("jobs:select.eq.in.eq.limit.maybeSingle", {
+    data: null, // no active CPO, but lookup should happen
+    error: null,
+  });
+
+  const analyzedJobIds: string[] = [];
+  const fakeAnalyze = async (jobId: string) => {
+    analyzedJobIds.push(jobId);
+    return {
+      errors: [
+        {
+          category: "build_error",
+          severity: "critical" as const,
+          pattern: "error TS\\d+",
+          snippet: "error TS2304: Cannot find name x",
+        },
+        {
+          category: "test_failure",
+          severity: "critical" as const,
+          pattern: "\\d+ failed",
+          snippet: "2 failed",
+        },
+        {
+          category: "permission_error",
+          severity: "warning" as const,
+          pattern: "403",
+          snippet: "403 forbidden",
+        },
+      ],
+      scanned_at: "2026-03-19T00:00:00.000Z",
+    };
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await analyzeRecentlyCompletedJobs(client as any, fakeAnalyze);
+
+  assertEquals(analyzedJobIds, ["job-critical-1"]);
+
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  const updateChain = jobsChains.find((c) =>
+    c.operations[0].method === "update"
+  );
+  assertEquals(updateChain !== undefined, true);
+  // deno-lint-ignore no-explicit-any
+  const updatePayload = updateChain!.operations[0].args[0] as any;
+  assertEquals(updatePayload.error_analysis.scanned_at, "2026-03-19T00:00:00.000Z");
+  assertEquals(updatePayload.error_analysis.errors.length, 3);
+
+  const eventChain = chainedCalls.find((c) =>
+    c.table === "events" && c.operations[0].method === "insert"
+  );
+  assertEquals(eventChain !== undefined, true, "Should append a feature note event");
+  // deno-lint-ignore no-explicit-any
+  const eventPayload = eventChain!.operations[0].args[0] as any;
+  assertEquals(eventPayload.feature_id, "feat-critical-1");
+  assertEquals(eventPayload.event_type, "escalation");
+  assertEquals(eventPayload.detail.summary, "build_error, test_failure");
+
+  const cpoLookup = jobsChains.find((c) =>
+    c.operations.some((o) => o.method === "maybeSingle")
+  );
+  assertEquals(cpoLookup !== undefined, true, "Should look up active CPO for notification");
+});
+
+Deno.test("analyzeRecentlyCompletedJobs — stores non-critical analysis without escalation", async () => {
+  const { client, chainedCalls, setResponse } = createSmartMockSupabase();
+
+  setResponse("jobs:select.in.filter.gt.order.limit", {
+    data: [{
+      id: "job-warning-1",
+      feature_id: "feat-warning-1",
+      company_id: "co-warning-1",
+    }],
+    error: null,
+  });
+  setResponse("jobs:update.eq", { error: null });
+
+  const fakeAnalyze = async (_jobId: string) => ({
+    errors: [{
+      category: "permission_error",
+      severity: "warning" as const,
+      pattern: "403",
+      snippet: "403 forbidden",
+    }],
+    scanned_at: "2026-03-19T00:00:00.000Z",
+  });
+
+  // deno-lint-ignore no-explicit-any
+  await analyzeRecentlyCompletedJobs(client as any, fakeAnalyze);
+
+  const jobsChains = chainedCalls.filter((c) => c.table === "jobs");
+  const updateChain = jobsChains.find((c) =>
+    c.operations[0].method === "update"
+  );
+  assertEquals(updateChain !== undefined, true, "Should persist analysis even for warnings");
+
+  const eventChain = chainedCalls.find((c) => c.table === "events");
+  assertEquals(eventChain === undefined, true, "Should not append feature note without critical errors");
+
+  const cpoLookup = jobsChains.find((c) =>
+    c.operations.some((o) => o.method === "maybeSingle")
+  );
+  assertEquals(cpoLookup === undefined, true, "Should not notify CPO without critical errors");
 });

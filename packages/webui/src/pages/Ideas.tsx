@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCompany } from "../hooks/useCompany";
+import { usePolling } from "../hooks/usePolling";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
 import {
   fetchIdeas,
@@ -21,6 +22,7 @@ import FormattedProse from "../components/FormattedProse";
 type TypeFilter = "all" | "idea" | "brief" | "bug" | "test";
 type SectionTab = "inbox" | "triaged" | "developing" | "workshop" | "parked" | "rejected" | "shipped" | "done";
 type SortMode = "newest" | "oldest" | "priority";
+type TriagedSubsection = "readyForSpec" | "needsDecision";
 type ToastTone = "success" | "info" | "error";
 type BatchTriageState = "idle" | "queued" | "triaging" | "done";
 
@@ -106,6 +108,10 @@ function sortIdeasByMode(items: Idea[], sortMode: SortMode): Idea[] {
   return sorted;
 }
 
+function isReadyForSpecRoute(triageRoute: string | null | undefined): boolean {
+  return triageRoute === "develop" || triageRoute === "promote";
+}
+
 function featureStatusLabel(status: string): string {
   return status.replace(/_/g, " ");
 }
@@ -148,10 +154,11 @@ interface InlineDetailProps {
   ideaId: string;
   colorVar: string;
   isShipped: boolean;
+  triagedSubsection?: TriagedSubsection;
   onAction: (ideaId: string, newStatus: string) => void;
 }
 
-function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailProps): JSX.Element {
+function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction }: InlineDetailProps): JSX.Element {
   const { activeCompanyId } = useCompany();
   const [data, setData] = useState<IdeaDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -174,6 +181,11 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
   const [actionDone, setActionDone] = useState<string | null>(null);
   const [enriching, setEnriching] = useState(false);
   const [parkConfirm, setParkConfirm] = useState(false);
+  const [showTriagedNoteComposer, setShowTriagedNoteComposer] = useState(false);
+  const [triagedNote, setTriagedNote] = useState("");
+  const [savingTriagedNote, setSavingTriagedNote] = useState(false);
+  const [triagedNoteError, setTriagedNoteError] = useState<string | null>(null);
+  const [triagedNoteSaved, setTriagedNoteSaved] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,10 +196,15 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
     setDoneNote("");
     setDoneError(null);
     setParkConfirm(false);
+    setShowTriagedNoteComposer(false);
+    setTriagedNote("");
+    setTriagedNoteError(null);
+    setTriagedNoteSaved(false);
 
     fetchIdeaDetail(ideaId).then((result) => {
       if (!cancelled) {
         setData(result);
+        setTriagedNote(result.triage_notes ?? "");
         if (result.project_id) setSelectedProjectId(result.project_id);
       }
     }).catch((err) => {
@@ -353,6 +370,8 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
 
   const canPromote = data.status === "specced" && !promoted && !isShipped;
   const canSendToSpec = data.status === "triaged" && !promoted && !isShipped;
+  const isTriagedReadyForSpecView = triagedSubsection === "readyForSpec";
+  const isTriagedNeedsDecisionView = triagedSubsection === "needsDecision";
   const readiness = canPromote ? [
     { label: "Has title", ok: Boolean(data.title?.trim()), hint: "Needs a clear title", field: "title" },
     { label: "Has description", ok: Boolean(data.description?.trim()) || Boolean(data.raw_text && data.raw_text.length > 20), hint: "Needs description or detailed raw text", field: "description" },
@@ -382,6 +401,28 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setEnriching(false);
+    }
+  }
+
+  async function handleSaveTriagedNote(): Promise<void> {
+    if (!data) return;
+    if (!triagedNote.trim()) {
+      setTriagedNoteError("Enter a note before saving.");
+      return;
+    }
+
+    setSavingTriagedNote(true);
+    setTriagedNoteError(null);
+    setTriagedNoteSaved(false);
+    try {
+      await updateIdeaWithNote(data.id, data.status, triagedNote);
+      setData((prev) => prev ? { ...prev, triage_notes: triagedNote.trim() } : prev);
+      setShowTriagedNoteComposer(false);
+      setTriagedNoteSaved(true);
+    } catch (err) {
+      setTriagedNoteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingTriagedNote(false);
     }
   }
 
@@ -700,33 +741,120 @@ function InlineDetail({ ideaId, colorVar, isShipped, onAction }: InlineDetailPro
 
       {/* Actions row for items outside promote flow */}
       {!canPromote && !isShipped && !promoted && !actionDone && (
-        <div className="il-detail-actions">
-          {data.status === "new" && (
-            <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleBackgroundTriage}>
-              {actionInProgress === "Triage" ? "Commissioning..." : "Triage"}
-            </button>
+        <>
+          <div className="il-detail-actions" style={{ flexWrap: "wrap" }}>
+            {isTriagedReadyForSpecView ? (
+              <>
+                {canSendToSpec && (
+                  <button className="il-action-primary il-action-triage-primary" type="button" disabled={!!actionInProgress} onClick={handleWriteSpec}>
+                    {actionInProgress === "Spec" ? "Dispatching..." : "Send to Spec"}
+                  </button>
+                )}
+                {data.status !== "parked" && data.status !== "rejected" && (
+                  <button className="il-action-secondary il-action-park" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
+                    {actionInProgress === "Park" ? "Parking..." : "Park"}
+                  </button>
+                )}
+              </>
+            ) : isTriagedNeedsDecisionView ? (
+              <>
+                {data.status !== "parked" && data.status !== "rejected" && (
+                  <button className="il-action-secondary il-action-park" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
+                    {actionInProgress === "Park" ? "Parking..." : "Park"}
+                  </button>
+                )}
+                <button className="il-action-secondary il-action-workshop" type="button" disabled={!!actionInProgress} onClick={() => handleAction("workshop", "Workshop")}>
+                  {actionInProgress === "Workshop" ? "Moving..." : "Workshop"}
+                </button>
+                <button
+                  className="il-action-secondary"
+                  type="button"
+                  disabled={savingTriagedNote || !!actionInProgress}
+                  onClick={() => {
+                    setShowTriagedNoteComposer((prev) => !prev);
+                    setTriagedNoteError(null);
+                    setTriagedNoteSaved(false);
+                  }}
+                >
+                  {showTriagedNoteComposer ? "Hide Note" : "Add Note"}
+                </button>
+              </>
+            ) : (
+              <>
+                {data.status === "new" && (
+                  <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleBackgroundTriage}>
+                    {actionInProgress === "Triage" ? "Commissioning..." : "Triage"}
+                  </button>
+                )}
+                {canSendToSpec && (
+                  <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleWriteSpec}>
+                    {actionInProgress === "Spec" ? "Dispatching..." : "Send to Spec"}
+                  </button>
+                )}
+                {(data.status === "parked" || data.status === "rejected") && (
+                  <button className="il-action-secondary il-action-restore" type="button" disabled={!!actionInProgress} onClick={() => handleAction("new", "Restore")}>
+                    {actionInProgress === "Restore" ? "Restoring..." : "Restore to Inbox"}
+                  </button>
+                )}
+                {data.status !== "parked" && data.status !== "rejected" && (
+                  <button className="il-action-secondary il-action-park" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
+                    {actionInProgress === "Park" ? "Parking..." : "Park"}
+                  </button>
+                )}
+                {data.status !== "rejected" && data.status !== "parked" && (
+                  <button className="il-action-secondary il-action-reject" type="button" disabled={!!actionInProgress} onClick={() => handleAction("rejected", "Reject")}>
+                    {actionInProgress === "Reject" ? "Rejecting..." : "Reject"}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          {isTriagedNeedsDecisionView && showTriagedNoteComposer && (
+            <div className="il-done-confirm">
+              <label className="il-promote-label" htmlFor={`triaged-note-${ideaId}`}>Note</label>
+              <textarea
+                id={`triaged-note-${ideaId}`}
+                className="il-done-note"
+                value={triagedNote}
+                onChange={(e) => {
+                  setTriagedNote(e.target.value);
+                  setTriagedNoteSaved(false);
+                }}
+                placeholder="Add a triage note..."
+                rows={2}
+              />
+              <div className="il-promote-actions" style={{ flexWrap: "wrap" }}>
+                <button
+                  className="il-action-secondary il-action-triage"
+                  type="button"
+                  disabled={savingTriagedNote || !triagedNote.trim()}
+                  onClick={() => {
+                    void handleSaveTriagedNote();
+                  }}
+                >
+                  {savingTriagedNote ? "Saving..." : "Save Note"}
+                </button>
+                <button
+                  className="il-action-secondary"
+                  type="button"
+                  disabled={savingTriagedNote}
+                  onClick={() => {
+                    setShowTriagedNoteComposer(false);
+                    setTriagedNoteError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+              {triagedNoteError && <div className="il-promote-error">{triagedNoteError}</div>}
+            </div>
           )}
-          {canSendToSpec && (
-            <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleWriteSpec}>
-              {actionInProgress === "Spec" ? "Dispatching..." : "Send to Spec"}
-            </button>
+
+          {isTriagedNeedsDecisionView && triagedNoteSaved && (
+            <div className="il-promote-success">Note saved.</div>
           )}
-          {(data.status === "parked" || data.status === "rejected") && (
-            <button className="il-action-secondary il-action-restore" type="button" disabled={!!actionInProgress} onClick={() => handleAction("new", "Restore")}>
-              {actionInProgress === "Restore" ? "Restoring..." : "Restore to Inbox"}
-            </button>
-          )}
-          {data.status !== "parked" && data.status !== "rejected" && (
-            <button className="il-action-secondary il-action-park" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
-              {actionInProgress === "Park" ? "Parking..." : "Park"}
-            </button>
-          )}
-          {data.status !== "rejected" && data.status !== "parked" && (
-            <button className="il-action-secondary il-action-reject" type="button" disabled={!!actionInProgress} onClick={() => handleAction("rejected", "Reject")}>
-              {actionInProgress === "Reject" ? "Rejecting..." : "Reject"}
-            </button>
-          )}
-        </div>
+        </>
       )}
 
       {actionError && <div className="il-promote-error">{actionError}</div>}
@@ -838,6 +966,7 @@ export default function Ideas(): JSX.Element {
   useEffect(() => {
     void loadIdeas();
   }, [loadIdeas]);
+  usePolling(loadIdeas, 15000, Boolean(activeCompanyId));
 
   useEffect(() => {
     ideasByIdRef.current = new Map(ideas.map((idea) => [idea.id, idea]));
@@ -1096,8 +1225,8 @@ export default function Ideas(): JSX.Element {
   const activeItems = useMemo(() => {
     const sorted = sortIdeasByMode(sections[activeTab], sortMode);
     if (activeTab !== "triaged") return sorted;
-    const readyForSpec = sorted.filter((idea) => idea.triage_route === "develop");
-    const remainingTriaged = sorted.filter((idea) => idea.triage_route !== "develop");
+    const readyForSpec = sorted.filter((idea) => isReadyForSpecRoute(idea.triage_route));
+    const remainingTriaged = sorted.filter((idea) => !isReadyForSpecRoute(idea.triage_route));
     return [...readyForSpec, ...remainingTriaged];
   }, [sections, activeTab, sortMode]);
 
@@ -1138,12 +1267,12 @@ export default function Ideas(): JSX.Element {
 
   const triagedReadyItems = useMemo(() => {
     if (activeTab !== "triaged") return [];
-    return activeItems.filter((idea) => idea.triage_route === "develop");
+    return activeItems.filter((idea) => isReadyForSpecRoute(idea.triage_route));
   }, [activeItems, activeTab]);
 
   const triagedOtherItems = useMemo(() => {
     if (activeTab !== "triaged") return [];
-    return activeItems.filter((idea) => idea.triage_route !== "develop");
+    return activeItems.filter((idea) => !isReadyForSpecRoute(idea.triage_route));
   }, [activeItems, activeTab]);
 
   // Section counts (unfiltered for tab badges)
@@ -1364,6 +1493,7 @@ export default function Ideas(): JSX.Element {
     items: Idea[],
     startIndex = 0,
     triageStates: Map<string, BatchTriageState> = batchTriageStates,
+    triagedSubsection?: TriagedSubsection,
   ): JSX.Element[] {
     return items.map((idea, idx) => {
       const dismissMsg = dismissedIdeas.get(idea.id);
@@ -1444,6 +1574,7 @@ export default function Ideas(): JSX.Element {
               ideaId={idea.id}
               colorVar={colorVar}
               isShipped={isShippedTab}
+              triagedSubsection={triagedSubsection}
               onAction={handleIdeaAction}
             />
           )}
@@ -1584,18 +1715,18 @@ export default function Ideas(): JSX.Element {
         )}
         {isTriagedTab ? (
           <>
-            <div className="il-triaged-subsection">
-              <div className="il-triaged-subheader">Ready for Spec</div>
-              {triagedReadyItems.length > 0
-                ? renderIdeaRows(triagedReadyItems, 0, batchTriageStates)
-                : <div className="il-empty il-empty-subsection">No ideas ready for spec{typeFilterSuffix}.</div>}
-            </div>
-            <div className="il-triaged-subsection">
-              <div className="il-triaged-subheader">Triaged</div>
-              {triagedOtherItems.length > 0
-                ? renderIdeaRows(triagedOtherItems, triagedReadyItems.length, batchTriageStates)
-                : <div className="il-empty il-empty-subsection">No other triaged ideas{typeFilterSuffix}.</div>}
-            </div>
+            {triagedReadyItems.length > 0 && (
+              <div className="il-triaged-subsection">
+                <div className="il-triaged-subheader">Ready for Spec</div>
+                {renderIdeaRows(triagedReadyItems, 0, batchTriageStates, "readyForSpec")}
+              </div>
+            )}
+            {triagedOtherItems.length > 0 && (
+              <div className="il-triaged-subsection">
+                <div className="il-triaged-subheader">Needs Decision</div>
+                {renderIdeaRows(triagedOtherItems, triagedReadyItems.length, batchTriageStates, "needsDecision")}
+              </div>
+            )}
           </>
         ) : renderIdeaRows(displayedItems, 0, batchTriageStates)}
       </div>

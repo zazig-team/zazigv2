@@ -437,154 +437,46 @@ export async function handleJobFailed(
 
   if (!job?.feature_id) return;
 
-  // Handle ci_check job failure: CI failed — increment retry_count and fix or give up.
-  if (job?.job_type === "ci_check") {
-    const { data: jobContext } = await supabase
-      .from("jobs")
-      .select("context")
-      .eq("id", jobId)
-      .single();
+  // Trigger request-feature-fix for all job types with a feature.
+  // That edge function handles retry_count increment, model escalation,
+  // and creating the appropriate fix job.
+  const { data: feature } = await supabase
+    .from("features")
+    .select("retry_count")
+    .eq("id", job.feature_id)
+    .single();
 
-    const { data: failedFeature, error: failCountErr } = await supabase
-      .from("features")
-      .select("retry_count, company_id, project_id, spec, acceptance_tests, branch, pr_url, title")
-      .eq("id", job.feature_id)
-      .single();
-
-    if (failCountErr || !failedFeature) {
-      console.error(
-        `[agent-event job=${jobId}] ci_check failed but could not fetch feature ${job.feature_id}:`,
-        failCountErr?.message,
-      );
-      return;
-    }
-
-    const currentRetryCount = ((failedFeature as { retry_count?: number }).retry_count ?? 0);
-    const newRetryCount = currentRetryCount + 1;
-
-    await supabase
-      .from("features")
-      .update({ retry_count: newRetryCount, updated_at: new Date().toISOString() })
-      .eq("id", job.feature_id);
-
+  const retryCount = (feature as { retry_count?: number } | null)?.retry_count ?? 0;
+  if (retryCount >= MAX_RETRIES) {
     console.warn(
-      `[agent-event job=${jobId}] CI check FAILED for feature ${job.feature_id} (retry_count now ${newRetryCount})`,
-    );
-
-    if (newRetryCount >= MAX_RETRIES) {
-      await supabase
-        .from("features")
-        .update({ status: "failed", updated_at: new Date().toISOString() })
-        .eq("id", job.feature_id)
-        .eq("status", "ci_checking");
-
-      console.error(
-        `[agent-event job=${jobId}] Feature ${job.feature_id} moved to failed after ${newRetryCount} total retries`,
-      );
-
-      await notifyCPO(
-        supabase,
-        (failedFeature as { company_id: string }).company_id,
-        `Feature "${(failedFeature as { title?: string }).title ?? job.feature_id}" failed after ${newRetryCount} total retries (last: CI check failure). Manual intervention required.`,
-      );
-      return;
-    }
-
-    // Create a fix job for the CI failures
-    const featureSpec = (failedFeature as { spec?: string }).spec ?? "";
-    const acceptanceTests = (failedFeature as { acceptance_tests?: string }).acceptance_tests ?? "";
-    const featureBranch = (failedFeature as { branch?: string }).branch ?? "";
-    const prUrl = (failedFeature as { pr_url?: string }).pr_url ?? "";
-
-    let owner = "";
-    let repo = "";
-    let prNumber: number | null = null;
-    try {
-      const ciCtx = JSON.parse((jobContext as { context?: string } | null)?.context ?? "{}") as {
-        owner?: string; repo?: string; prNumber?: number | null;
-      };
-      owner = ciCtx.owner ?? "";
-      repo = ciCtx.repo ?? "";
-      prNumber = ciCtx.prNumber ?? null;
-    } catch { /* best effort */ }
-
-    const fixContext = JSON.stringify({
-      type: "ci_fix",
-      featureId: job.feature_id,
-      featureBranch,
-      prUrl,
-      ciFailureDetails: errMsg,
-      spec: featureSpec,
-      acceptanceTests,
-      failAttempt: newRetryCount,
-    });
-
-    const { data: fixJob, error: fixInsertErr } = await supabase
-      .from("jobs")
-      .insert({
-        company_id: (failedFeature as { company_id: string }).company_id,
-        project_id: (failedFeature as { project_id?: string | null }).project_id ?? null,
-        feature_id: job.feature_id,
-        title: `Fix CI failures (attempt ${newRetryCount})`,
-        role: "senior-engineer",
-        job_type: "code",
-        complexity: "medium",
-        slot_type: "claude_code",
-        status: "created",
-        context: fixContext,
-        branch: featureBranch,
-        source: "ci_failure",
-      })
-      .select("id")
-      .single();
-
-    if (fixInsertErr || !fixJob) {
-      console.error(
-        `[agent-event job=${jobId}] Failed to create CI fix job for feature ${job.feature_id}:`,
-        fixInsertErr?.message,
-      );
-      return;
-    }
-
-    // Pre-create the follow-up ci-checker job (depends on fix job completing)
-    if (owner && repo && featureBranch) {
-      await supabase.from("jobs").insert({
-        company_id: (failedFeature as { company_id: string }).company_id,
-        project_id: (failedFeature as { project_id?: string | null }).project_id ?? null,
-        feature_id: job.feature_id,
-        title: `CI check after fix (attempt ${newRetryCount + 1})`,
-        role: "ci-checker",
-        job_type: "ci_check",
-        complexity: "simple",
-        slot_type: "claude_code",
-        status: "created",
-        context: JSON.stringify({
-          type: "ci_check",
-          featureId: job.feature_id,
-          prUrl,
-          prNumber,
-          owner,
-          repo,
-          branch: featureBranch,
-        }),
-        branch: featureBranch,
-        depends_on: [fixJob.id],
-      });
-    } else {
-      console.warn(
-        `[agent-event job=${jobId}] Skipping follow-up ci_check job — missing owner/repo/featureBranch. Orchestrator catch-up will recover.`,
-      );
-    }
-
-    console.log(
-      `[agent-event job=${jobId}] Created CI fix job ${fixJob.id} for feature ${job.feature_id} (retry_count now ${newRetryCount})`,
+      `[agent-event job=${jobId}] retry_count=${retryCount} at limit for feature ${job.feature_id} — needs human attention`,
     );
     return;
   }
 
-  console.log(
-    `[agent-event job=${jobId}] Feature ${job.feature_id} stays at current status — job failure is the signal`,
-  );
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const fixResp = await fetch(`${url}/functions/v1/request-feature-fix`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      job_id: jobId,
+      reason: `Job failed: ${failureReason} — ${errMsg}`,
+    }),
+  });
+
+  if (!fixResp.ok) {
+    console.error(
+      `[agent-event job=${jobId}] request-feature-fix failed: ${fixResp.status}`,
+    );
+  } else {
+    console.log(
+      `[agent-event job=${jobId}] request-feature-fix triggered for feature ${job.feature_id}`,
+    );
+  }
 }
 
 export async function handleVerifyResult(

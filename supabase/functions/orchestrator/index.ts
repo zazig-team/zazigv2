@@ -1376,37 +1376,6 @@ async function handleDecisionResolved(
   });
 }
 
-/**
- * Handles a verification failure by delegating to the request-feature-fix
- * edge function (single source of truth for cancel → reset → re-queue logic).
- */
-async function handleVerificationFailed(
-  supabase: SupabaseClient,
-  featureId: string,
-  companyId: string,
-  failureResult: string,
-): Promise<void> {
-  const url = Deno.env.get("SUPABASE_URL");
-  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const res = await fetch(`${url}/functions/v1/request-feature-fix`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      company_id: companyId,
-      feature_id: featureId,
-      reason: failureResult,
-    }),
-  });
-  if (!res.ok) {
-    console.error(
-      `[orchestrator] handleVerificationFailed: edge function returned ${res.status}: ${await res
-        .text()}`,
-    );
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Feature → Breakdown pipeline (Tech Lead)
@@ -1846,7 +1815,7 @@ async function checkExecutingJobsForHeartbeatTimeout(
  *
  * Handles:
  *   0. Executing-job heartbeat timeout check for long-running jobs
- *   1. Failed job catch-up: logs features with failed jobs for attention
+ *   1. (removed — failed job retry handled inline by handleJobFailed via request-feature-fix)
  *   1b. deploy_to_test guard: fails queued/executing deploy jobs for terminal features
  *   2. breaking_down → writing_tests: all breakdown jobs for the feature are complete
  *   2b. writing_tests → building: the test job for the feature is complete
@@ -1860,85 +1829,8 @@ async function processFeatureLifecycle(
   // --- 0. Long-running executing jobs heartbeat timeout check ---
   await checkExecutingJobsForHeartbeatTimeout(supabase);
 
-  // --- 1. Failed job catch-up (all stages) ---
-  // If a failed-job event was missed, trigger request-feature-fix to retry with escalated model.
-  const { data: activeFeatures, error: activeErr } = await supabase
-    .from("features")
-    .select("id, retry_count")
-    .not("status", "in", '("complete","failed","cancelled")')
-    .limit(100);
-
-  if (activeErr) {
-    console.error(
-      "[orchestrator] processFeatureLifecycle: error querying active features for failed catch-up:",
-      activeErr.message,
-    );
-  }
-
-  for (const feature of (activeFeatures ?? []) as { id: string; retry_count: number }[]) {
-    const { data: failedJob } = await supabase
-      .from("jobs")
-      .select("id")
-      .eq("feature_id", feature.id)
-      .eq("status", "failed")
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (failedJob && failedJob.length > 0) {
-      const job = failedJob[0] as { id: string };
-      const retryCount = feature.retry_count ?? 0;
-
-      if (retryCount >= 5) {
-        console.warn(
-          `[orchestrator] Feature ${feature.id} has failed job ${job.id} — retry_count=${retryCount} at limit, needs human attention`,
-        );
-        continue;
-      }
-
-      console.log(
-        `[orchestrator] Feature ${feature.id} has failed job ${job.id} — triggering fix (retry_count=${retryCount})`,
-      );
-
-      try {
-        const fixResp = await fetch(
-          `${Deno.env.get("SUPABASE_URL")}/functions/v1/request-feature-fix`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-            },
-            body: JSON.stringify({
-              job_id: job.id,
-              reason:
-                "Orchestrator catch-up: failed job detected, triggering escalated retry",
-            }),
-          },
-        );
-
-        if (!fixResp.ok) {
-          const errBody = await fixResp.text();
-          console.error(
-            `[orchestrator] request-feature-fix failed for job ${job.id} (feature ${feature.id}): ${fixResp.status} ${errBody}`,
-          );
-        } else {
-          const result = await fixResp.json() as {
-            new_job_id?: string;
-            escalated_to_model?: string;
-          };
-          console.log(
-            `[orchestrator] Fix triggered for feature ${feature.id}: new job ${result.new_job_id} (model: ${result.escalated_to_model})`,
-          );
-        }
-      } catch (fetchErr) {
-        console.error(
-          `[orchestrator] Failed to call request-feature-fix for job ${job.id}: ${
-            String(fetchErr)
-          }`,
-        );
-      }
-    }
-  }
+  // Failed job retry is handled inline by handleJobFailed in agent-event/handlers.ts
+  // via request-feature-fix. No catch-up loop needed here.
 
   // --- 1b. deploy_to_test cleanup for terminal features ---
   // If a feature is terminal, deploy_to_test must never be queued/executing.
@@ -3466,6 +3358,165 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
   }
 }
 
+interface AutoEnrichCompanyRow {
+  id: string;
+  enrich_delay_minutes: number | null;
+  enrich_max_concurrent: number | null;
+}
+
+interface AutoEnrichIdeaRow {
+  id: string;
+  title: string | null;
+  description: string | null;
+  project_id: string | null;
+}
+
+export async function autoEnrichIncompleteTriagedIdeas(
+  supabase: SupabaseClient,
+): Promise<void> {
+  const { data: companies, error: companiesErr } = await supabase
+    .from("companies")
+    .select("id, enrich_delay_minutes, enrich_max_concurrent")
+    .eq("auto_triage", true)
+    .eq("status", "active");
+
+  if (companiesErr) {
+    console.error(
+      `[orchestrator] auto-enrich: failed to load companies: ${companiesErr.message}`,
+    );
+    return;
+  }
+
+  if (!companies?.length) return;
+
+  for (const company of companies as AutoEnrichCompanyRow[]) {
+    const companyId = company.id;
+    const delayMinutes = company.enrich_delay_minutes ?? 10;
+    const maxConcurrent = company.enrich_max_concurrent ?? 2;
+    if (maxConcurrent <= 0) continue;
+
+    const cutoff = new Date(Date.now() - delayMinutes * 60 * 1000).toISOString();
+    const { data: candidates, error: candidatesErr } = await supabase
+      .from("ideas")
+      .select("id, title, description, project_id")
+      .eq("company_id", companyId)
+      .eq("status", "triaged")
+      .lt("triaged_at", cutoff)
+      .or("title.is.null,title.eq.,description.is.null,description.eq.")
+      .order("triaged_at", { ascending: true })
+      .limit(maxConcurrent);
+
+    if (candidatesErr) {
+      console.error(
+        `[orchestrator] auto-enrich: failed to fetch triaged candidates for company ${companyId}: ${candidatesErr.message}`,
+      );
+      continue;
+    }
+
+    const ideas = (candidates as AutoEnrichIdeaRow[] | null) ?? [];
+    if (ideas.length === 0) continue;
+
+    let cachedProjectId: string | null = null;
+    let projectLookupComplete = false;
+    const resolveCompanyProjectId = async (): Promise<string | null> => {
+      if (projectLookupComplete) return cachedProjectId;
+      projectLookupComplete = true;
+
+      const { data: projects, error: projectErr } = await supabase
+        .from("projects")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("status", "active")
+        .limit(1);
+
+      if (projectErr) {
+        console.error(
+          `[orchestrator] auto-enrich: failed to resolve active project for company ${companyId}: ${projectErr.message}`,
+        );
+        return null;
+      }
+
+      cachedProjectId = (projects as { id: string }[] | null)?.[0]?.id ?? null;
+      if (!cachedProjectId) {
+        console.log(
+          `[orchestrator] auto-enrich: no active project for company ${companyId}, skipping`,
+        );
+      }
+      return cachedProjectId;
+    };
+
+    let dispatched = 0;
+    for (const idea of ideas) {
+      if (dispatched >= maxConcurrent) break;
+
+      const missing: string[] = [];
+      if (!idea.title || idea.title.trim().length === 0) {
+        missing.push("title");
+      }
+      if (!idea.description || idea.description.trim().length === 0) {
+        missing.push("description");
+      }
+      if (missing.length === 0) continue;
+
+      const { data: activeSessions, error: activeErr } = await supabase
+        .from("expert_sessions")
+        .select("id, expert_role:expert_role_id!inner(name)")
+        .eq("company_id", companyId)
+        .eq("headless", true)
+        .in("status", ["requested", "running"])
+        .eq("expert_role.name", "triage-analyst")
+        .ilike("brief", `%${idea.id}%`)
+        .limit(1);
+
+      if (activeErr) {
+        console.error(
+          `[orchestrator] auto-enrich: failed to check active enrichment sessions for idea ${idea.id}: ${activeErr.message}`,
+        );
+        continue;
+      }
+
+      if ((activeSessions?.length ?? 0) > 0) continue;
+
+      const projectId = idea.project_id ?? await resolveCompanyProjectId();
+      if (!projectId) continue;
+
+      console.log(`[orchestrator] Auto-enriching idea ${idea.id}`);
+      const response = await fetch(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/start-expert-session`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            "x-company-id": companyId,
+          },
+          body: JSON.stringify({
+            role_name: "triage-analyst",
+            brief: JSON.stringify({
+              idea_id: idea.id,
+              action: "enrich",
+              missing,
+            }),
+            machine_name: "auto",
+            project_id: projectId,
+            headless: true,
+            auto_exit: true,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        console.error(
+          `[orchestrator] auto-enrich: failed to start headless session for idea ${idea.id} in company ${companyId}: ${response.status} ${response.statusText}`,
+        );
+        continue;
+      }
+
+      dispatched += 1;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Auto-spec: dispatch and continue spec-writer/spec-reviewer chains
 // ---------------------------------------------------------------------------
@@ -3975,7 +4026,13 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 4d. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
     await autoTriageNewIdeas(supabase);
 
-    // 4e. Auto-spec: dispatch/continue spec session chains for develop-routed ideas.
+    // 4e. Auto-enrich: dispatch enrichment jobs for incomplete triaged ideas.
+    await autoEnrichIncompleteTriagedIdeas(supabase);
+
+    // 4f. Recover stale developing ideas
+    await recoverStaleDevelopingIdeas(supabase);
+
+    // 4g. Auto-spec: dispatch/continue spec session chains for develop-routed ideas.
     await autoSpecTriagedIdeas(supabase);
 
     // 5. Refresh pipeline snapshot cache after all state mutations.

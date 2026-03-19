@@ -16,15 +16,16 @@ Two completely separate environments. Production only changes when explicitly pr
 | **Code source** | Bundled `.mjs` in `releases/` | Live tsc output from working tree (`dist/staging-index.js`) |
 | **Database** | Production Supabase | Staging Supabase (separate instance) |
 | **Edge functions** | Production Supabase | Staging Supabase |
-| **Updates when** | You run `zazig promote` | Automatically on every push to master |
+| **Updates when** | You run `zazig promote` (includes edge functions, migrations, local agent bundle, and Web UI) | Automatically on every push to master |
 
 ## What `zazig promote` Does
 
-Copies three things from staging to production:
+Copies four things from staging to production:
 
 1. **Edge functions** — deployed to production Supabase
 2. **Migrations** — schema changes applied to production Supabase
 3. **Local agent bundle** — compiled into `releases/zazig.mjs` (the frozen production binary)
+4. **Web UI** — Vercel production deployment from the `production` branch
 
 **Does NOT copy:** Row data (roles table, companies, features, jobs, etc.). Each Supabase instance owns its own data.
 
@@ -89,16 +90,14 @@ Each Supabase instance has its own data. Updating the CPO prompt in production S
 ### If you kill the local agent mid-job
 Heartbeat timeout is 2 minutes. The orchestrator will re-queue the job after that.
 
-## Web UI (Unresolved)
+## Web UI
 
-The Netlify-deployed web UI is NOT yet covered by this split. Currently points at production Supabase only.
+Web UI production deploys are now included in the same promotion lane. Vercel production is configured to watch the `production` branch, so the `production` branch fast-forward from `zazig promote` triggers the Web UI deploy from the same push that runs `deploy-production.yml`.
 
-**Options (simplest first):**
-1. **Local dev against staging** — run `npm run dev` with staging Supabase credentials when testing UI changes
-2. **Netlify branch deploys** — push to a `staging` branch for a preview URL configured with staging env vars
-3. **Environment toggle in UI** — like Chris's dashboard has (dropdown to switch Supabase target)
-
-Recommendation: Option 1 for now, option 2 when it gets annoying.
+Atomic production sequence is now:
+1. DB migrations
+2. Edge functions
+3. Web UI (Vercel)
 
 ## Setup (From Chris's Slack)
 

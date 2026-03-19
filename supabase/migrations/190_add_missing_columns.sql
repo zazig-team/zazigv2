@@ -7,7 +7,7 @@ ALTER TABLE public.companies
 ADD COLUMN IF NOT EXISTS spec_timeout_minutes INTEGER DEFAULT 30,
 ADD COLUMN IF NOT EXISTS max_spec_retries INTEGER DEFAULT 3;
 
--- Add waiting_on_deps and writing_tests to features status constraint.
+-- Rebuild features status constraint with all statuses used by the orchestrator.
 ALTER TABLE public.features DROP CONSTRAINT IF EXISTS features_status_check;
 ALTER TABLE public.features ADD CONSTRAINT features_status_check CHECK (status IN (
   'breaking_down',
@@ -16,6 +16,7 @@ ALTER TABLE public.features ADD CONSTRAINT features_status_check CHECK (status I
   'building',
   'combining',
   'combining_and_pr',
+  'ci_checking',
   'merging',
   'pr_ready',
   'deploying_to_test',

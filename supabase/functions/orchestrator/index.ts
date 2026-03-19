@@ -317,11 +317,17 @@ export async function analyzeJobLogs(jobId: string): Promise<JobLogAnalysisResul
   }
 
   const errors: JobLogErrorMatch[] = [];
+  const seenCategories = new Set<string>();
 
   for (const logPattern of JOB_LOG_PATTERNS) {
     const match = logPattern.regex.exec(concatenatedLogs);
-    if (!match || typeof match.index !== "number") continue;
+    if (
+      !match ||
+      typeof match.index !== "number" ||
+      seenCategories.has(logPattern.category)
+    ) continue;
 
+    seenCategories.add(logPattern.category);
     errors.push({
       category: logPattern.category,
       severity: logPattern.severity,

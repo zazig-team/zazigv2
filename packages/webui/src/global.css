@@ -3870,6 +3870,24 @@ input {
   padding: 1px 6px;
   border-radius: 3px;
 }
+.il-inline-retry {
+  border: 1px solid color-mix(in srgb, var(--negative) 35%, transparent);
+  background: transparent;
+  color: var(--negative);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.il-inline-retry:hover {
+  background: color-mix(in srgb, var(--negative) 10%, transparent);
+}
+.il-inline-retry:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .il-chip-spinner {
   width: 9px;
   height: 9px;

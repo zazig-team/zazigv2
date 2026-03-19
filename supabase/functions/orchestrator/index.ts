@@ -1376,37 +1376,6 @@ async function handleDecisionResolved(
   });
 }
 
-/**
- * Handles a verification failure by delegating to the request-feature-fix
- * edge function (single source of truth for cancel → reset → re-queue logic).
- */
-async function handleVerificationFailed(
-  supabase: SupabaseClient,
-  featureId: string,
-  companyId: string,
-  failureResult: string,
-): Promise<void> {
-  const url = Deno.env.get("SUPABASE_URL");
-  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const res = await fetch(`${url}/functions/v1/request-feature-fix`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      company_id: companyId,
-      feature_id: featureId,
-      reason: failureResult,
-    }),
-  });
-  if (!res.ok) {
-    console.error(
-      `[orchestrator] handleVerificationFailed: edge function returned ${res.status}: ${await res
-        .text()}`,
-    );
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Feature → Breakdown pipeline (Tech Lead)
@@ -1846,7 +1815,7 @@ async function checkExecutingJobsForHeartbeatTimeout(
  *
  * Handles:
  *   0. Executing-job heartbeat timeout check for long-running jobs
- *   1. Failed job catch-up: logs features with failed jobs for attention
+ *   1. (removed — failed job retry handled inline by handleJobFailed via request-feature-fix)
  *   1b. deploy_to_test guard: fails queued/executing deploy jobs for terminal features
  *   2. breaking_down → writing_tests: all breakdown jobs for the feature are complete
  *   2b. writing_tests → building: the test job for the feature is complete
@@ -1860,85 +1829,8 @@ async function processFeatureLifecycle(
   // --- 0. Long-running executing jobs heartbeat timeout check ---
   await checkExecutingJobsForHeartbeatTimeout(supabase);
 
-  // --- 1. Failed job catch-up (all stages) ---
-  // If a failed-job event was missed, trigger request-feature-fix to retry with escalated model.
-  const { data: activeFeatures, error: activeErr } = await supabase
-    .from("features")
-    .select("id, retry_count")
-    .not("status", "in", '("complete","failed","cancelled")')
-    .limit(100);
-
-  if (activeErr) {
-    console.error(
-      "[orchestrator] processFeatureLifecycle: error querying active features for failed catch-up:",
-      activeErr.message,
-    );
-  }
-
-  for (const feature of (activeFeatures ?? []) as { id: string; retry_count: number }[]) {
-    const { data: failedJob } = await supabase
-      .from("jobs")
-      .select("id")
-      .eq("feature_id", feature.id)
-      .eq("status", "failed")
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (failedJob && failedJob.length > 0) {
-      const job = failedJob[0] as { id: string };
-      const retryCount = feature.retry_count ?? 0;
-
-      if (retryCount >= 5) {
-        console.warn(
-          `[orchestrator] Feature ${feature.id} has failed job ${job.id} — retry_count=${retryCount} at limit, needs human attention`,
-        );
-        continue;
-      }
-
-      console.log(
-        `[orchestrator] Feature ${feature.id} has failed job ${job.id} — triggering fix (retry_count=${retryCount})`,
-      );
-
-      try {
-        const fixResp = await fetch(
-          `${Deno.env.get("SUPABASE_URL")}/functions/v1/request-feature-fix`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-            },
-            body: JSON.stringify({
-              job_id: job.id,
-              reason:
-                "Orchestrator catch-up: failed job detected, triggering escalated retry",
-            }),
-          },
-        );
-
-        if (!fixResp.ok) {
-          const errBody = await fixResp.text();
-          console.error(
-            `[orchestrator] request-feature-fix failed for job ${job.id} (feature ${feature.id}): ${fixResp.status} ${errBody}`,
-          );
-        } else {
-          const result = await fixResp.json() as {
-            new_job_id?: string;
-            escalated_to_model?: string;
-          };
-          console.log(
-            `[orchestrator] Fix triggered for feature ${feature.id}: new job ${result.new_job_id} (model: ${result.escalated_to_model})`,
-          );
-        }
-      } catch (fetchErr) {
-        console.error(
-          `[orchestrator] Failed to call request-feature-fix for job ${job.id}: ${
-            String(fetchErr)
-          }`,
-        );
-      }
-    }
-  }
+  // Failed job retry is handled inline by handleJobFailed in agent-event/handlers.ts
+  // via request-feature-fix. No catch-up loop needed here.
 
   // --- 1b. deploy_to_test cleanup for terminal features ---
   // If a feature is terminal, deploy_to_test must never be queued/executing.

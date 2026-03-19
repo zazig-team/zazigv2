@@ -177,9 +177,9 @@ batch_insert_rows() {
     return
   fi
 
-  # Coalesce NULL text to empty string for ideas table (staging has NOT NULL constraint)
+  # Coalesce NULL fields for ideas table (staging has NOT NULL constraints)
   if [[ "${table}" == "ideas" ]]; then
-    jq '[.[] | .text //= ""]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
+    jq '[.[] | .text //= "" | .source //= "telegram"]' < "${rows_file}" > "${rows_file}.tmp" && mv "${rows_file}.tmp" "${rows_file}"
   fi
 
   # Map legacy feature statuses that staging no longer allows

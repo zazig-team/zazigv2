@@ -25,6 +25,7 @@ type SortMode = "newest" | "oldest" | "priority";
 type TriagedSubsection = "readyForSpec" | "needsDecision";
 type ToastTone = "success" | "info" | "error";
 type BatchTriageState = "idle" | "queued" | "triaging" | "done";
+type BatchSpecState = "idle" | "queued" | "speccing" | "done";
 
 interface BatchToast {
   id: string;
@@ -156,9 +157,10 @@ interface InlineDetailProps {
   isShipped: boolean;
   triagedSubsection?: TriagedSubsection;
   onAction: (ideaId: string, newStatus: string) => void;
+  onSpecStateChange: (ideaId: string, state: BatchSpecState) => void;
 }
 
-function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction }: InlineDetailProps): JSX.Element {
+function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction, onSpecStateChange }: InlineDetailProps): JSX.Element {
   const { activeCompanyId } = useCompany();
   const [data, setData] = useState<IdeaDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -323,6 +325,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
     const batchId = crypto.randomUUID();
     setActionInProgress("Spec");
     setActionError(null);
+    onSpecStateChange(ideaId, "speccing");
     let claimedIdea = false;
     try {
       const { data: claimedRows, error: claimError } = await supabase
@@ -338,6 +341,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
 
       const claimedCount = claimedRows?.length ?? 0;
       if (claimedCount === 0) {
+        onSpecStateChange(ideaId, "idle");
         setActionError("Idea was already claimed by another process.");
         return;
       }
@@ -349,8 +353,8 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
         ideaIds: [ideaId],
         batchId,
       });
-      setActionDone("Spec");
     } catch (err) {
+      onSpecStateChange(ideaId, "idle");
       if (claimedIdea) {
         await supabase
           .from("ideas")
@@ -879,6 +883,7 @@ export default function Ideas(): JSX.Element {
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [dismissedIdeas, setDismissedIdeas] = useState<Map<string, string>>(new Map());
   const [batchTriageStates, setBatchTriageStates] = useState<Map<string, BatchTriageState>>(new Map());
+  const [batchSpecStates, setBatchSpecStates] = useState<Map<string, BatchSpecState>>(new Map());
   const [batchTriageErrors, setBatchTriageErrors] = useState<Map<string, string>>(new Map());
   const [leavingIdeas, setLeavingIdeas] = useState<Map<string, Idea>>(new Map());
   const [batchToasts, setBatchToasts] = useState<BatchToast[]>([]);
@@ -982,6 +987,20 @@ export default function Ideas(): JSX.Element {
       if (!prev.has(ideaId)) return prev;
       const next = new Map(prev);
       next.delete(ideaId);
+      return next;
+    });
+  }, []);
+
+  const setIdeaSpecState = useCallback((ideaId: string, state: BatchSpecState): void => {
+    setBatchSpecStates((prev) => {
+      const hadIdea = prev.has(ideaId);
+      if (!hadIdea && state === "idle") return prev;
+      const next = new Map(prev);
+      if (state === "idle") {
+        next.delete(ideaId);
+      } else {
+        next.set(ideaId, state);
+      }
       return next;
     });
   }, []);
@@ -1137,6 +1156,17 @@ export default function Ideas(): JSX.Element {
       });
     }
 
+    setBatchSpecStates((prev) => {
+      if (!prev.has(updated.id)) return prev;
+      const next = new Map(prev);
+      if (updated.status === "developing") {
+        next.set(updated.id, "done");
+      } else {
+        next.delete(updated.id);
+      }
+      return next;
+    });
+
     if (updated.status !== "new") {
       setBatchTriageErrors((prev) => {
         if (!prev.has(updated.id)) return prev;
@@ -1172,6 +1202,12 @@ export default function Ideas(): JSX.Element {
         return next;
       });
       setBatchTriageErrors((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+      setBatchSpecStates((prev) => {
         if (!prev.has(id)) return prev;
         const next = new Map(prev);
         next.delete(id);
@@ -1305,6 +1341,9 @@ export default function Ideas(): JSX.Element {
   // Handle idea action (triage/park/reject/promote) — show toast then remove
   function handleIdeaAction(ideaId: string, newStatus: string): void {
     const label = STATUS_LABELS[newStatus] ?? newStatus;
+    if (newStatus !== "developing") {
+      setIdeaSpecState(ideaId, "idle");
+    }
     setDismissedIdeas((prev) => new Map(prev).set(ideaId, `Moved to ${label}`));
     setExpandedId(null);
 
@@ -1516,9 +1555,12 @@ export default function Ideas(): JSX.Element {
       const isBatchTriaging = batchState === "triaging";
       const isDispatching = isQueued || isBatchTriaging;
       const isTriaging = (idea.status === "triaging" || isBatchTriaging) && !isLeaving;
+      const specState = batchSpecStates.get(idea.id) ?? "idle";
+      const isQueuedForSpec = specState === "queued";
+      const isBatchSpeccing = specState === "speccing";
+      const isSpeccing = (isQueuedForSpec || isBatchSpeccing || idea.status === "developing") && !isLeaving;
       const showBatchError = batchState === "idle" && typeof batchError === "string";
       const showTriagingChip = isBatchTriaging || isTriaging || isDispatching;
-      const isDeveloping = idea.status === "developing";
       const isSpecced = idea.status === "specced";
       const fInfo = isShippedTab && idea.promoted_to_id ? featureStatuses.get(idea.promoted_to_id) ?? null : null;
 
@@ -1554,8 +1596,11 @@ export default function Ideas(): JSX.Element {
                 </span>
               ) : showBatchError ? (
                 <span className="il-feature-status negative">triage failed</span>
-              ) : isDeveloping ? (
-                <span className="il-triaging-badge">developing</span>
+              ) : isSpeccing ? (
+                <span className="il-triaging-badge">
+                  <span className="il-chip-spinner" aria-hidden="true" />
+                  <span>SPECCING</span>
+                </span>
               ) : isSpecced ? (
                 <span className="il-feature-status positive">specced</span>
               ) : isShippedTab && fInfo ? (
@@ -1576,6 +1621,7 @@ export default function Ideas(): JSX.Element {
               isShipped={isShippedTab}
               triagedSubsection={triagedSubsection}
               onAction={handleIdeaAction}
+              onSpecStateChange={setIdeaSpecState}
             />
           )}
         </div>

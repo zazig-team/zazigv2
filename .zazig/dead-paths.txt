@@ -1,0 +1,4 @@
+# Deprecated directory prefixes for pre-flight feature spec path validation.
+dashboard/
+legacy/
+old-ui/

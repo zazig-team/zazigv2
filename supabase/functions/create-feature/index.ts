@@ -58,7 +58,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     const body = await req.json();
-    const { project_id, title, description, priority, job_id, company_id: explicit_company_id, spec, acceptance_tests, human_checklist, fast_track } = body;
+    const {
+      project_id,
+      title,
+      description,
+      priority,
+      job_id,
+      company_id: explicit_company_id,
+      spec,
+      acceptance_tests,
+      human_checklist,
+      fast_track,
+      depends_on,
+    } = body;
 
     if (!title) {
       return jsonResponse({ error: "title is required" }, 400);
@@ -66,6 +78,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (fast_track !== undefined && typeof fast_track !== "boolean") {
       return jsonResponse({ error: "fast_track must be a boolean when provided" }, 400);
+    }
+
+    if (depends_on !== undefined) {
+      if (!Array.isArray(depends_on) || depends_on.some((dep) => typeof dep !== "string")) {
+        return jsonResponse({ error: "depends_on must be an array of UUID strings when provided" }, 400);
+      }
     }
 
     // Resolve company_id: explicit param > job lookup
@@ -96,6 +114,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (acceptance_tests !== undefined) insertPayload.acceptance_tests = acceptance_tests;
     if (human_checklist !== undefined) insertPayload.human_checklist = human_checklist;
     if (fast_track !== undefined) insertPayload.fast_track = fast_track;
+    if (depends_on !== undefined) insertPayload.depends_on = depends_on;
 
     const { data: feature, error } = await supabase
       .from("features")
@@ -104,6 +123,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .single();
 
     if (error) {
+      if (`${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`.includes("no_self_dep")) {
+        return jsonResponse({ error: "A feature cannot depend on itself" }, 400);
+      }
       return jsonResponse({ error: error.message }, 500);
     }
 

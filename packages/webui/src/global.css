@@ -3448,6 +3448,42 @@ input {
   color: var(--stone);
 }
 
+.il-founder-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--chalk);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.il-founder-textarea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--col-ideas) 35%, var(--chalk));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--col-ideas) 12%, transparent);
+}
+
+.il-founder-textarea:disabled {
+  background: var(--chalk-light);
+  color: var(--stone);
+}
+
+.il-founder-error {
+  font-size: 11px;
+  color: var(--negative);
+  margin-top: 6px;
+}
+
+.il-founder-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
 /* Promote flow */
 .il-promote-readiness {
   display: flex;
@@ -3765,6 +3801,17 @@ input {
     right: 12px;
     bottom: 12px;
     width: calc(100vw - 24px);
+  }
+}
+
+@media (max-width: 768px) {
+  .il-founder-textarea {
+    font-size: 16px;
+  }
+
+  .il-founder-actions .il-action-primary {
+    width: 100%;
+    justify-content: center;
   }
 }
 

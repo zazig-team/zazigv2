@@ -23,7 +23,7 @@ type SectionTab = "inbox" | "triaged" | "developing" | "workshop" | "parked" | "
 type SortMode = "newest" | "oldest" | "priority";
 type ToastTone = "success" | "info" | "error";
 type BatchTriageState = "idle" | "queued" | "triaging" | "done";
-type BatchSpecState = "idle" | "queued" | "speccing" | "done";
+type BatchSpecState = "idle" | "queued" | "speccing" | "done" | "timed_out";
 
 interface BatchToast {
   id: string;
@@ -90,6 +90,8 @@ function formatDate(iso: string | null): string {
 
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 const INBOX_LEAVE_MS = 260;
+const SPEC_POLL_INTERVAL_MS = 5000;
+const SPEC_TIMEOUT_MS = 5 * 60 * 1000;
 
 function priorityRank(priority: string | null): number {
   return PRIORITY_RANK[(priority ?? "medium").toLowerCase()] ?? 2;
@@ -756,6 +758,7 @@ export default function Ideas(): JSX.Element {
   const [dismissedIdeas, setDismissedIdeas] = useState<Map<string, string>>(new Map());
   const [batchTriageStates, setBatchTriageStates] = useState<Map<string, BatchTriageState>>(new Map());
   const [batchSpecStates, setBatchSpecStates] = useState<Map<string, BatchSpecState>>(new Map());
+  const [retryingSpecIds, setRetryingSpecIds] = useState<Set<string>>(new Set());
   const [batchTriageErrors, setBatchTriageErrors] = useState<Map<string, string>>(new Map());
   const [leavingIdeas, setLeavingIdeas] = useState<Map<string, Idea>>(new Map());
   const [batchToasts, setBatchToasts] = useState<BatchToast[]>([]);
@@ -765,6 +768,7 @@ export default function Ideas(): JSX.Element {
   const leavingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const batchToastTimeoutsRef = useRef<Map<string, number>>(new Map());
   const staleCleanupRunForCompanyRef = useRef<string | null>(null);
+  const specStartTimesRef = useRef<Map<string, number>>(new Map());
 
   const dismissBatchToast = useCallback((id: string): void => {
     const timeoutId = batchToastTimeoutsRef.current.get(id);
@@ -848,6 +852,34 @@ export default function Ideas(): JSX.Element {
     ideasByIdRef.current = new Map(ideas.map((idea) => [idea.id, idea]));
   }, [ideas]);
 
+  useEffect(() => {
+    const developingIds = ideas
+      .filter((idea) => idea.status === "developing")
+      .map((idea) => idea.id);
+
+    if (developingIds.length === 0) {
+      return;
+    }
+
+    const now = Date.now();
+    setBatchSpecStates((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const ideaId of developingIds) {
+        if (next.has(ideaId)) continue;
+        next.set(ideaId, "speccing");
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+
+    for (const ideaId of developingIds) {
+      if (!specStartTimesRef.current.has(ideaId)) {
+        specStartTimesRef.current.set(ideaId, now);
+      }
+    }
+  }, [ideas]);
+
   const clearLeavingIdea = useCallback((ideaId: string) => {
     const timeoutId = leavingTimeoutsRef.current.get(ideaId);
     if (timeoutId) {
@@ -863,6 +895,12 @@ export default function Ideas(): JSX.Element {
   }, []);
 
   const setIdeaSpecState = useCallback((ideaId: string, state: BatchSpecState): void => {
+    if (state === "speccing") {
+      specStartTimesRef.current.set(ideaId, Date.now());
+    } else {
+      specStartTimesRef.current.delete(ideaId);
+    }
+
     setBatchSpecStates((prev) => {
       const hadIdea = prev.has(ideaId);
       if (!hadIdea && state === "idle") return prev;
@@ -907,6 +945,137 @@ export default function Ideas(): JSX.Element {
     leavingTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
     leavingTimeoutsRef.current.clear();
   }, []);
+
+  useEffect(() => {
+    const doneIds = Array.from(batchSpecStates.entries())
+      .filter(([, state]) => state === "done")
+      .map(([ideaId]) => ideaId);
+    if (doneIds.length === 0) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setBatchSpecStates((prev) => {
+        let changed = false;
+        const next = new Map(prev);
+        for (const ideaId of doneIds) {
+          if (next.get(ideaId) === "done") {
+            next.delete(ideaId);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [batchSpecStates]);
+
+  useEffect(() => {
+    if (!activeCompanyId) return;
+
+    const speccingIdeaIds = Array.from(batchSpecStates.entries())
+      .filter(([, state]) => state === "speccing")
+      .map(([ideaId]) => ideaId);
+
+    if (speccingIdeaIds.length === 0) return;
+
+    let cancelled = false;
+
+    const pollSpecStatuses = async (): Promise<void> => {
+      const now = Date.now();
+      const timedOutIds = speccingIdeaIds.filter((ideaId) => {
+        const startedAt = specStartTimesRef.current.get(ideaId) ?? now;
+        return now - startedAt > SPEC_TIMEOUT_MS;
+      });
+
+      if (timedOutIds.length > 0) {
+        setBatchSpecStates((prev) => {
+          let changed = false;
+          const next = new Map(prev);
+          for (const ideaId of timedOutIds) {
+            if (next.get(ideaId) === "speccing") {
+              next.set(ideaId, "timed_out");
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+        for (const ideaId of timedOutIds) {
+          specStartTimesRef.current.delete(ideaId);
+        }
+      }
+
+      const activeIdeaIds = speccingIdeaIds.filter((ideaId) => !timedOutIds.includes(ideaId));
+      if (activeIdeaIds.length === 0) return;
+
+      const { data, error } = await supabase
+        .from("ideas")
+        .select("id, status")
+        .eq("company_id", activeCompanyId)
+        .in("id", activeIdeaIds);
+
+      if (cancelled || error || !data) return;
+
+      const rows = data as Array<{ id: string; status: string }>;
+      const statusById = new Map(rows.map((row) => [row.id, row.status]));
+
+      setIdeas((prev) => {
+        let changed = false;
+        const next = prev.map((idea) => {
+          const nextStatus = statusById.get(idea.id);
+          if (!nextStatus || nextStatus === idea.status) return idea;
+          changed = true;
+          return { ...idea, status: nextStatus };
+        });
+        return changed ? next : prev;
+      });
+
+      setBatchSpecStates((prev) => {
+        let changed = false;
+        const next = new Map(prev);
+
+        for (const ideaId of activeIdeaIds) {
+          const status = statusById.get(ideaId);
+          if (!status) {
+            if (next.has(ideaId)) {
+              next.delete(ideaId);
+              changed = true;
+            }
+            specStartTimesRef.current.delete(ideaId);
+            continue;
+          }
+
+          if (status === "specced") {
+            if (next.get(ideaId) !== "done") {
+              next.set(ideaId, "done");
+              changed = true;
+            }
+            specStartTimesRef.current.delete(ideaId);
+            continue;
+          }
+
+          if (status !== "developing") {
+            if (next.has(ideaId)) {
+              next.delete(ideaId);
+              changed = true;
+            }
+            specStartTimesRef.current.delete(ideaId);
+          }
+        }
+
+        return changed ? next : prev;
+      });
+    };
+
+    void pollSpecStatuses();
+    const intervalId = window.setInterval(() => {
+      void pollSpecStatuses();
+    }, SPEC_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeCompanyId, batchSpecStates]);
 
   useEffect(() => {
     if (!activeCompanyId || loadedCompanyId !== activeCompanyId) return;
@@ -1030,13 +1199,22 @@ export default function Ideas(): JSX.Element {
     setBatchSpecStates((prev) => {
       if (!prev.has(updated.id)) return prev;
       const next = new Map(prev);
-      if (updated.status === "developing") {
+      if (updated.status === "specced") {
         next.set(updated.id, "done");
-      } else {
+      } else if (updated.status !== "developing") {
         next.delete(updated.id);
       }
       return next;
     });
+    if (updated.status === "specced" || updated.status !== "developing") {
+      specStartTimesRef.current.delete(updated.id);
+      setRetryingSpecIds((prev) => {
+        if (!prev.has(updated.id)) return prev;
+        const next = new Set(prev);
+        next.delete(updated.id);
+        return next;
+      });
+    }
 
     if (updated.status !== "new") {
       setBatchTriageErrors((prev) => {
@@ -1081,6 +1259,13 @@ export default function Ideas(): JSX.Element {
       setBatchSpecStates((prev) => {
         if (!prev.has(id)) return prev;
         const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+      specStartTimesRef.current.delete(id);
+      setRetryingSpecIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
         next.delete(id);
         return next;
       });
@@ -1345,6 +1530,86 @@ export default function Ideas(): JSX.Element {
     }
   }
 
+  const handleRetrySpec = useCallback(async (ideaId: string): Promise<void> => {
+    if (!activeCompanyId) return;
+
+    setRetryingSpecIds((prev) => {
+      if (prev.has(ideaId)) return prev;
+      const next = new Set(prev);
+      next.add(ideaId);
+      return next;
+    });
+    setIdeaSpecState(ideaId, "speccing");
+
+    try {
+      const { data: ideaRow, error: ideaError } = await supabase
+        .from("ideas")
+        .select("id, status, project_id")
+        .eq("id", ideaId)
+        .maybeSingle();
+
+      if (ideaError) {
+        throw ideaError;
+      }
+      if (!ideaRow) {
+        throw new Error("Idea no longer exists.");
+      }
+
+      let projectId = typeof ideaRow.project_id === "string" ? ideaRow.project_id : null;
+      if (!projectId) {
+        const projects = await fetchProjects(activeCompanyId);
+        projectId = projects[0]?.id ?? null;
+      }
+      if (!projectId) {
+        throw new Error("No project available for spec retry.");
+      }
+
+      if (ideaRow.status === "triaged") {
+        const { data: claimedRows, error: claimError } = await supabase
+          .from("ideas")
+          .update({ status: "developing" })
+          .eq("id", ideaId)
+          .eq("status", "triaged")
+          .select("id");
+
+        if (claimError) {
+          throw claimError;
+        }
+
+        if ((claimedRows?.length ?? 0) === 0) {
+          throw new Error("Idea was already claimed by another process.");
+        }
+      } else if (ideaRow.status !== "developing") {
+        throw new Error(`Idea is currently "${ideaRow.status}" and cannot be retried for spec.`);
+      }
+
+      await requestHeadlessSpec({
+        companyId: activeCompanyId,
+        projectId,
+        ideaIds: [ideaId],
+        batchId: crypto.randomUUID(),
+      });
+
+      setIdeas((prev) => prev.map((idea) => (
+        idea.id === ideaId ? { ...idea, status: "developing" } : idea
+      )));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setIdeaSpecState(ideaId, "timed_out");
+      showBatchToast(
+        { tone: "error", message: `Spec retry failed: ${message}` },
+        0,
+      );
+    } finally {
+      setRetryingSpecIds((prev) => {
+        if (!prev.has(ideaId)) return prev;
+        const next = new Set(prev);
+        next.delete(ideaId);
+        return next;
+      });
+    }
+  }, [activeCompanyId, setIdeaSpecState, showBatchToast]);
+
   // Keyboard navigation
   useEffect(() => {
     function handleKey(e: KeyboardEvent): void {
@@ -1428,7 +1693,13 @@ export default function Ideas(): JSX.Element {
       const specState = batchSpecStates.get(idea.id) ?? "idle";
       const isQueuedForSpec = specState === "queued";
       const isBatchSpeccing = specState === "speccing";
-      const isSpeccing = (isQueuedForSpec || isBatchSpeccing || idea.status === "developing") && !isLeaving;
+      const isSpecTimedOut = specState === "timed_out";
+      const isRetryingSpec = retryingSpecIds.has(idea.id);
+      const isSpeccing = (
+        isQueuedForSpec
+        || isBatchSpeccing
+        || (idea.status === "developing" && specState === "idle")
+      ) && !isLeaving;
       const showBatchError = batchState === "idle" && typeof batchError === "string";
       const showTriagingChip = isBatchTriaging || isTriaging || isDispatching;
       const isSpecced = idea.status === "specced";
@@ -1452,6 +1723,8 @@ export default function Ideas(): JSX.Element {
                 </div>
               ) : showBatchError ? (
                 <div className="il-row-batch-error">{`Triage failed: ${batchError}`}</div>
+              ) : isSpecTimedOut ? (
+                <div className="il-row-batch-error">Spec timed out after 5 minutes. Retry to re-dispatch.</div>
               ) : (
                 <div className="il-row-desc">
                   {idea.description ?? idea.raw_text}
@@ -1471,6 +1744,21 @@ export default function Ideas(): JSX.Element {
                   <span className="il-chip-spinner" aria-hidden="true" />
                   <span>SPECCING</span>
                 </span>
+              ) : isSpecTimedOut ? (
+                <>
+                  <span className="il-feature-status negative">spec timed out</span>
+                  <button
+                    type="button"
+                    className="il-inline-retry"
+                    disabled={isRetryingSpec}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleRetrySpec(idea.id);
+                    }}
+                  >
+                    {isRetryingSpec ? "Retrying..." : "Retry"}
+                  </button>
+                </>
               ) : isSpecced ? (
                 <span className="il-feature-status positive">specced</span>
               ) : isShippedTab && fInfo ? (

@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "f27a104";
+const AGENT_BUILD_HASH = "231460e";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -15065,7 +15065,8 @@ ${msg.text}`;
     jobLog(jobId, `onJobEnded START \u2014 role=${job.role ?? "none"}, worktree=${job.worktreePath ?? "none"}`);
     job.settled = true;
     this.clearJobTimers(job);
-    if (job.slotType === "codex" && job.worktreePath) {
+    const SKIP_REVIEW_ROLES = /* @__PURE__ */ new Set(["ci-checker", "reviewer", "job-merger"]);
+    if (job.slotType === "codex" && job.worktreePath && !SKIP_REVIEW_ROLES.has(job.role ?? "")) {
       let reviewResult;
       try {
         reviewResult = await runCodexReview(job, job.spec ?? "", job.acceptanceCriteria ?? "");

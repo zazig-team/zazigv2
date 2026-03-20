@@ -12,13 +12,14 @@
     "tests"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
+    "build": "npm run build --workspaces --if-present",
     "lint": "eslint 'packages/*/src/**/*.ts'",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
   },
   "devDependencies": {
+    "@playwright/test": "^1.50.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "eslint": "^9.0.0",

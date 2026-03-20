@@ -40,7 +40,7 @@ INSERT INTO public.exec_archetypes (
     '["Engineering timelines — defer to CTO", "Product roadmap decisions — defer to CPO", "Legal/contractual terms — defer to Tom"]'::jsonb,
     '[]'::jsonb,
     '[]'::jsonb
-);
+) ON CONFLICT (role_id, name) DO NOTHING;
 
 -- Closer
 INSERT INTO public.exec_archetypes (
@@ -81,7 +81,7 @@ INSERT INTO public.exec_archetypes (
     '["Engineering timelines — defer to CTO", "Product roadmap decisions — defer to CPO", "Legal/contractual terms — defer to Tom"]'::jsonb,
     '[]'::jsonb,
     '[]'::jsonb
-);
+) ON CONFLICT (role_id, name) DO NOTHING;
 
 -- Evangelist
 INSERT INTO public.exec_archetypes (
@@ -122,4 +122,4 @@ INSERT INTO public.exec_archetypes (
     '["Engineering timelines — defer to CTO", "Product roadmap decisions — defer to CPO", "Legal/contractual terms — defer to Tom"]'::jsonb,
     '[]'::jsonb,
     '[]'::jsonb
-);
+) ON CONFLICT (role_id, name) DO NOTHING;

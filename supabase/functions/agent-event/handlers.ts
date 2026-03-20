@@ -381,7 +381,7 @@ export async function handleJobFailed(
   supabase: SupabaseClient,
   msg: JobFailed,
 ): Promise<void> {
-  const { jobId, machineId, error: errMsg, failureReason } = msg;
+  const { jobId, machineId, error: errMsg, failureReason, report } = msg;
 
   const { data: job, error: jobFetchErr } = await supabase
     .from("jobs")
@@ -418,7 +418,7 @@ export async function handleJobFailed(
     .from("jobs")
     .update({
       status: "failed",
-      result: errMsg,
+      result: report ?? errMsg,
       completed_at: new Date().toISOString(),
     })
     .eq("id", jobId);
@@ -464,7 +464,7 @@ export async function handleJobFailed(
     },
     body: JSON.stringify({
       job_id: jobId,
-      reason: `Job failed: ${failureReason} — ${errMsg}`,
+      reason: report ?? `Job failed: ${failureReason} — ${errMsg}`,
     }),
   });
 

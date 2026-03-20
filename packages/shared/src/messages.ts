@@ -494,6 +494,8 @@ export interface JobFailed {
   error: string;
   /** Structured failure category for orchestrator recovery strategy selection. */
   failureReason: FailureReason;
+  /** Full report content from the agent (if available). */
+  report?: string;
 }
 
 /**

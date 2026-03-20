@@ -2243,7 +2243,7 @@ export class JobExecutor {
     } else {
       jobLog(jobId, `Sending JobFailed — result="${result}"`);
       try {
-        await this.sendJobFailed(jobId, result, "unknown");
+        await this.sendJobFailed(jobId, result, "unknown", report);
         jobLog(jobId, `JobFailed sent successfully`);
       } catch (sendErr) {
         jobLog(jobId, `sendJobFailed FAILED: ${String(sendErr)}`);
@@ -2696,7 +2696,8 @@ export class JobExecutor {
   private async sendJobFailed(
     jobId: string,
     result: string,
-    failureReason: FailureReason
+    failureReason: FailureReason,
+    report?: string,
   ): Promise<void> {
     jobLog(jobId, `FAILED — reason=${failureReason}, error="${result.slice(0, 200)}"`);
     // Broadcast via Realtime (single writer pattern: orchestrator persists terminal state).
@@ -2707,6 +2708,7 @@ export class JobExecutor {
       machineId: this.machineId,
       error: result,
       failureReason,
+      ...(report !== undefined ? { report } : {}),
     });
   }
 

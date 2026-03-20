@@ -32,6 +32,7 @@ import type {
 import {
   agentChannelName,
   generateTitle,
+  injectProjectRulesIntoContext,
   notifyCPO,
   TERMINAL_FEATURE_STATUSES_FOR_DEPLOY,
   triggerCICheck,
@@ -914,6 +915,14 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       }
     }
 
+    dispatchContext = await injectProjectRulesIntoContext(
+      supabase,
+      job.project_id,
+      job.job_type,
+      dispatchContext,
+      `[orchestrator] Job ${job.id}:`,
+    );
+
     // Prepend repo grounding so the agent knows which repo it's working on.
     // This is the single source of truth for agent workspace identity.
     if (repoUrl) {
@@ -1773,6 +1782,21 @@ export async function triggerBreakdown(
   }
 
   // 3. Insert breakdown job
+  const baseBreakdownContext = JSON.stringify({
+    type: "breakdown",
+    featureId,
+    title: feature.title,
+    spec: feature.spec,
+    acceptance_tests: feature.acceptance_tests,
+  });
+  const breakdownContext = await injectProjectRulesIntoContext(
+    supabase,
+    feature.project_id,
+    "breakdown",
+    baseBreakdownContext,
+    "[orchestrator] triggerBreakdown:",
+  );
+
   const { data: job, error: insertErr } = await supabase
     .from("jobs")
     .insert({
@@ -1785,13 +1809,7 @@ export async function triggerBreakdown(
       complexity: "simple",
       slot_type: "claude_code",
       status: "created",
-      context: JSON.stringify({
-        type: "breakdown",
-        featureId,
-        title: feature.title,
-        spec: feature.spec,
-        acceptance_tests: feature.acceptance_tests,
-      }),
+      context: breakdownContext,
     })
     .select("id")
     .single();

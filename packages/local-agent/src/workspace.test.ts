@@ -53,7 +53,22 @@ describe("generateAllowedTools", () => {
     ]);
   });
 
-  it("returns standard tools only for job-combiner", () => {
+  it("includes create_project_rule for engineer and test roles", () => {
+    expect(generateAllowedTools("senior-engineer")).toContain(
+      "mcp__zazig-messaging__create_project_rule",
+    );
+    expect(generateAllowedTools("junior-engineer")).toContain(
+      "mcp__zazig-messaging__create_project_rule",
+    );
+    expect(generateAllowedTools("test-engineer")).toContain(
+      "mcp__zazig-messaging__create_project_rule",
+    );
+    expect(generateAllowedTools("fix-agent")).toContain(
+      "mcp__zazig-messaging__create_project_rule",
+    );
+  });
+
+  it("includes create_project_rule for job-combiner", () => {
     expect(generateAllowedTools("job-combiner")).toEqual([
       "Read",
       "Write",
@@ -61,6 +76,7 @@ describe("generateAllowedTools", () => {
       "Bash",
       "Glob",
       "Grep",
+      "mcp__zazig-messaging__create_project_rule",
     ]);
   });
 

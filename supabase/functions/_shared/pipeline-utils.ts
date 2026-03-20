@@ -53,6 +53,53 @@ export const TERMINAL_FEATURE_STATUSES_FOR_DEPLOY = new Set([
   "cancelled",
 ]);
 
+/**
+ * Best-effort project rule injection for job contexts.
+ * Rules are scoped by project_id and applies_to contains job_type.
+ */
+export async function injectProjectRulesIntoContext(
+  supabase: SupabaseClient,
+  projectId: string | null | undefined,
+  jobType: string,
+  existingContext: string | null,
+  logPrefix = "[pipeline]",
+): Promise<string | null> {
+  if (!projectId || !jobType) return existingContext;
+
+  const { data: rules, error } = await supabase
+    .from("project_rules")
+    .select("rule_text")
+    .eq("project_id", projectId)
+    .contains("applies_to", [jobType])
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error(
+      `${logPrefix} failed to query project_rules for project ${projectId} and job_type ${jobType}:`,
+      error.message,
+    );
+    return existingContext;
+  }
+
+  if (!rules || rules.length === 0) return existingContext;
+
+  try {
+    const parsed = JSON.parse(existingContext ?? "{}") as Record<string, unknown>;
+    parsed.project_rules = rules
+      .map((rule) => rule.rule_text)
+      .filter((rule): rule is string => typeof rule === "string" && rule.length > 0);
+    if (!Array.isArray(parsed.project_rules) || parsed.project_rules.length === 0) {
+      delete parsed.project_rules;
+    }
+    return JSON.stringify(parsed);
+  } catch {
+    console.warn(
+      `${logPrefix} context is not valid JSON; skipping project_rules injection for job_type ${jobType}`,
+    );
+    return existingContext;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Title generation — short human-readable labels for jobs via Claude Haiku
 // ---------------------------------------------------------------------------
@@ -374,6 +421,23 @@ export async function triggerTestWriting(
     return;
   }
 
+  const baseContext = JSON.stringify({
+    type: "test",
+    featureId,
+    title: feature.title,
+    spec: feature.spec,
+    acceptance_tests: feature.acceptance_tests,
+    test_dir: "tests/features/",
+    example_tests: ["packages/local-agent/src/executor.test.ts"],
+  });
+  const finalContext = await injectProjectRulesIntoContext(
+    supabase,
+    feature.project_id,
+    "test",
+    baseContext,
+    "[pipeline] triggerTestWriting:",
+  );
+
   const { data: job, error: insertErr } = await supabase
     .from("jobs")
     .insert({
@@ -387,15 +451,7 @@ export async function triggerTestWriting(
       model: "claude-sonnet-4-6",
       complexity: "medium",
       status: "created",
-      context: JSON.stringify({
-        type: "test",
-        featureId,
-        title: feature.title,
-        spec: feature.spec,
-        acceptance_tests: feature.acceptance_tests,
-        test_dir: "tests/features/",
-        example_tests: ["packages/local-agent/src/executor.test.ts"],
-      }),
+      context: finalContext,
     })
     .select("id")
     .single();
@@ -536,12 +592,19 @@ export async function triggerCombining(
     .filter((j) => !supersededIds.has(j.id))
     .map((j) => j.branch)
     .filter((b): b is string => b !== null && b.length > 0);
-  const combineContext = JSON.stringify({
+  const baseCombineContext = JSON.stringify({
     type: "combine",
     featureId,
     featureBranch: feature.branch,
     jobBranches,
   });
+  const combineContext = await injectProjectRulesIntoContext(
+    supabase,
+    feature.project_id,
+    "combine",
+    baseCombineContext,
+    "[pipeline] triggerCombining:",
+  );
 
   // 4. Insert combine job first. If this fails, feature remains in building and will retry.
   const { data: combineJob, error: insertErr } = await supabase

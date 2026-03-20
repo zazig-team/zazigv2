@@ -36,26 +36,25 @@ If this is a retry of a previously failed ci_check, the context will also contai
 
 ## Steps
 
-1. Read GITHUB_TOKEN from environment: `echo $GITHUB_TOKEN`
-2. Poll `GET https://api.github.com/repos/{owner}/{repo}/commits/{branch}/check-runs`
-   - Use `-H "Authorization: Bearer $GITHUB_TOKEN"` and `-H "Accept: application/vnd.github+json"`
+1. Poll check runs using the `gh` CLI (already authenticated on this machine):
+   `gh api repos/{owner}/{repo}/commits/{branch}/check-runs`
    - Poll every 30 seconds
    - Maximum polling time: 20 minutes (40 polls)
-3. On each poll:
+2. On each poll:
    - If total_count == 0: no checks yet, keep polling (treat as pending)
    - If all check_runs have status == "completed":
      - If all conclusions are "success" or "skipped": exit loop as PASSED
      - Otherwise: exit loop as FAILED, collect failing check details
    - If any check_run has conclusion in ["failure", "cancelled", "timed_out"]: exit loop immediately as FAILED
    - Otherwise: keep polling (checks still running)
-4. If 20 minutes elapsed without all checks completing: report FAILED with timeout message
+3. If 20 minutes elapsed without all checks completing: report FAILED with timeout message
 
 ## When CI Fails: Diagnose and Fix
 
 When CI fails, DO NOT immediately report failure. Instead:
 
-1. **Read the CI logs**: Use the GitHub API to fetch the failed check run's logs
-   - `GET https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/jobs`
+1. **Read the CI logs**: Use `gh` to fetch the failed check run's logs
+   - `gh api repos/{owner}/{repo}/actions/runs/{run_id}/jobs`
    - Identify which step failed and read its output
 2. **Classify the failure**:
    - **Setup/config issue**: test runner can't find files, missing dependencies, wrong Node/Python/etc version,

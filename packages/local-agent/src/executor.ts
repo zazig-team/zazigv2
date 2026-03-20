@@ -3006,7 +3006,7 @@ function buildCommand(
 
   if (slotType === "codex") {
     // Native Codex execution — prompt is passed as a positional CLI arg (not stdin).
-    const args = ["exec", "-m", resolvedModel, "--full-auto", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
+    const args = ["exec", "-m", resolvedModel, "--full-auto", "-c", "sandbox_workspace_write.network_access=true", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
     // Worktrees store their git index inside the parent bare repo dir.
     // The sandbox must be able to write there for git add/commit to work.
     if (repoDir) {

@@ -45,6 +45,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS proposals_updated_at_trigger ON public.proposals;
 CREATE TRIGGER proposals_updated_at_trigger
     BEFORE UPDATE ON public.proposals
     FOR EACH ROW
@@ -55,6 +56,7 @@ ALTER TABLE public.proposals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.proposal_views ENABLE ROW LEVEL SECURITY;
 
 -- Internal access: company members get full CRUD on proposals
+DROP POLICY IF EXISTS "company_member_all" ON public.proposals;
 CREATE POLICY "company_member_all" ON public.proposals
     FOR ALL TO authenticated
     USING (public.user_in_company(company_id))
@@ -76,11 +78,13 @@ RETURNS boolean AS $$
 $$ LANGUAGE sql SECURITY DEFINER;
 
 -- Proposal viewers can SELECT via RLS
+DROP POLICY IF EXISTS "viewer_read" ON public.proposals;
 CREATE POLICY "viewer_read" ON public.proposals
     FOR SELECT TO authenticated
     USING (public.user_can_view_proposal(id));
 
 -- Internal: company members can manage views
+DROP POLICY IF EXISTS "company_member_views" ON public.proposal_views;
 CREATE POLICY "company_member_views" ON public.proposal_views
     FOR ALL TO authenticated
     USING (EXISTS (
@@ -90,6 +94,7 @@ CREATE POLICY "company_member_views" ON public.proposal_views
     ));
 
 -- Viewers can insert their own view records
+DROP POLICY IF EXISTS "viewer_insert_views" ON public.proposal_views;
 CREATE POLICY "viewer_insert_views" ON public.proposal_views
     FOR INSERT TO authenticated
     WITH CHECK (EXISTS (
@@ -99,7 +104,9 @@ CREATE POLICY "viewer_insert_views" ON public.proposal_views
     ));
 
 -- Service role bypass (edge functions)
+DROP POLICY IF EXISTS "service_role_proposals" ON public.proposals;
 CREATE POLICY "service_role_proposals" ON public.proposals
     FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_views" ON public.proposal_views;
 CREATE POLICY "service_role_views" ON public.proposal_views
     FOR ALL TO service_role USING (true) WITH CHECK (true);

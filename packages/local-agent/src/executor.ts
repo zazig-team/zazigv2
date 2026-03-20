@@ -1922,8 +1922,10 @@ export class JobExecutor {
 
     // Codex post-execution review: stage+commit codex output, then run Haiku on
     // the committed diff before completing. Only applies to codex jobs with a
-    // worktree (code-context jobs).
-    if (job.slotType === "codex" && job.worktreePath) {
+    // worktree (code-context jobs). Skip for non-code roles that don't have
+    // specs/acceptance criteria (ci-checker, reviewer, job-merger, etc.).
+    const SKIP_REVIEW_ROLES = new Set(["ci-checker", "reviewer", "job-merger"]);
+    if (job.slotType === "codex" && job.worktreePath && !SKIP_REVIEW_ROLES.has(job.role ?? "")) {
       let reviewResult: Awaited<ReturnType<typeof runCodexReview>>;
       try {
         reviewResult = await runCodexReview(job, job.spec ?? "", job.acceptanceCriteria ?? "");

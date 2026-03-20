@@ -13961,6 +13961,58 @@ async function fetchPersistentRoleSkills(supabaseUrl, anonKey, companyId) {
   const rows = await res.json();
   return rows.filter((r) => typeof r.role === "string").map((r) => ({ role: r.role, skills: Array.isArray(r.skills) ? r.skills : [] }));
 }
+async function fetchAllRoleSkills(supabaseUrl, anonKey, accessToken, companyId) {
+  const url = new URL(`${supabaseUrl}/rest/v1/roles`);
+  url.searchParams.set("select", "role,skills");
+  url.searchParams.set("company_id", `eq.${companyId}`);
+  url.searchParams.set("order", "role.asc");
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      apikey: anonKey
+    }
+  });
+  if (!res.ok) {
+    if ([401, 403, 404].includes(res.status)) {
+      return fetchPersistentRoleSkills(supabaseUrl, anonKey, companyId);
+    }
+    const body = await res.text().catch(() => "");
+    throw new Error(`Failed to fetch all roles (HTTP ${res.status}): ${body.slice(0, 300)}`);
+  }
+  const rows = await res.json();
+  return rows.filter((r) => typeof r.role === "string").map((r) => ({
+    role: r.role,
+    skills: Array.isArray(r.skills) ? r.skills.filter((skill) => typeof skill === "string") : []
+  }));
+}
+function collectAvailableSkills(repoRoot) {
+  const pipelineRoot = join6(repoRoot, "projects", "skills");
+  const interactiveRoot = join6(repoRoot, ".claude", "skills");
+  const pipeline = /* @__PURE__ */ new Set();
+  const interactive = /* @__PURE__ */ new Set();
+  if (existsSync5(pipelineRoot)) {
+    for (const entry of readdirSync(pipelineRoot, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".md")) {
+        pipeline.add(entry.name.slice(0, -3));
+        continue;
+      }
+      if ((entry.isDirectory() || entry.isSymbolicLink()) && existsSync5(join6(pipelineRoot, entry.name, "SKILL.md"))) {
+        pipeline.add(entry.name);
+      }
+    }
+  }
+  if (existsSync5(interactiveRoot)) {
+    for (const entry of readdirSync(interactiveRoot, { withFileTypes: true })) {
+      if ((entry.isDirectory() || entry.isSymbolicLink()) && existsSync5(join6(interactiveRoot, entry.name, "SKILL.md"))) {
+        interactive.add(entry.name);
+      }
+    }
+  }
+  return {
+    pipeline: [...pipeline].sort((a, b) => a.localeCompare(b)),
+    interactive: [...interactive].sort((a, b) => a.localeCompare(b))
+  };
+}
 function resolveSkillSourcePath(repoRoot, skillName) {
   const pipelineRoot = join6(repoRoot, "projects", "skills");
   const interactiveRoot = join6(repoRoot, ".claude", "skills");
@@ -14138,13 +14190,35 @@ function printSyncSummary(summary) {
     }
   }
 }
+function printAllRoleSkills(roleSkills) {
+  console.log("Role Skills (all roles):");
+  if (roleSkills.length === 0) {
+    console.log("  (none)");
+    console.log("");
+    return;
+  }
+  const sorted = [...roleSkills].sort((a, b) => a.role.localeCompare(b.role));
+  const maxRoleWidth = sorted.reduce((max, row) => Math.max(max, row.role.length), 0);
+  for (const row of sorted) {
+    const skillText = row.skills.length > 0 ? row.skills.join(", ") : "(none)";
+    console.log(`  ${row.role.padEnd(maxRoleWidth)}   ${skillText}`);
+  }
+  console.log("");
+}
+function printAvailableSkills(available) {
+  const pipeline = available.pipeline.length > 0 ? available.pipeline.join(", ") : "(none)";
+  const interactive = available.interactive.length > 0 ? available.interactive.join(", ") : "(none)";
+  console.log("Available Skills (repo):");
+  console.log(`  Pipeline:    ${pipeline}`);
+  console.log(`  Interactive: ${interactive}`);
+}
 async function loadContext(args2) {
   const creds = await getValidCredentials();
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
   const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
   const selected = await pickCompany(companies);
   const company = resolveCompany(companies, selected, parseCompanyFlag(args2));
-  return { company, anonKey, supabaseUrl: creds.supabaseUrl };
+  return { company, anonKey, supabaseUrl: creds.supabaseUrl, accessToken: creds.accessToken };
 }
 async function skills(args2) {
   const [subcommand, ...rest] = args2;
@@ -14173,6 +14247,17 @@ async function skills(args2) {
   if (subcommand === "status") {
     const status2 = collectWorkspaceSkillStatus(context.company.id, roleSkills, repoRoot);
     printSkillStatus(status2);
+    let allRoleSkills;
+    try {
+      allRoleSkills = await fetchAllRoleSkills(context.supabaseUrl, context.anonKey, context.accessToken, context.company.id);
+    } catch (err) {
+      console.error(String(err));
+      process.exitCode = 1;
+      return;
+    }
+    const availableSkills = collectAvailableSkills(repoRoot);
+    printAllRoleSkills(allRoleSkills);
+    printAvailableSkills(availableSkills);
     return;
   }
   const summary = syncWorkspaceSkills(context.company.id, roleSkills, repoRoot);

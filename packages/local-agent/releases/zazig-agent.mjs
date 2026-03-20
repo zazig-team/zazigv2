@@ -1,3 +1,4 @@
+const AGENT_BUILD_HASH = "f5a3a00";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -8106,7 +8107,7 @@ function isStartJob(v) {
   if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(v.jobId)) return false;
   if (!isString(v.cardId) || v.cardId.length === 0) return false;
-  if (!["code", "infra", "design", "research", "docs", "persistent_agent", "verify", "breakdown", "combine", "merge", "deploy_to_test", "deploy_to_prod", "review", "bug", "feature_test", "ci_check"].includes(v.cardType)) return false;
+  if (!["code", "infra", "design", "research", "docs", "persistent_agent", "verify", "breakdown", "combine", "merge", "deploy_to_test", "deploy_to_prod", "review", "bug", "feature_test", "ci_check", "test"].includes(v.cardType)) return false;
   if (!["simple", "medium", "complex"].includes(v.complexity)) return false;
   if (!["claude_code", "codex"].includes(v.slotType)) return false;
   if (!isString(v.model) || !ALLOWED_MODELS.has(v.model)) return false;
@@ -13551,17 +13552,25 @@ var RepoManager = class {
   async ensureFeatureBranch(repoDir, featureBranch) {
     return this.withLock(repoDir, async () => {
       try {
-        await this.git(repoDir, "fetch", "origin");
-      } catch (e) {
-        console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
-      }
-      try {
         await this.git(repoDir, "rev-parse", "--verify", `refs/heads/${featureBranch}`);
         return;
       } catch {
       }
       const defaultBranch = await this.resolveDefaultBranch(repoDir);
-      await this.git(repoDir, "branch", featureBranch, defaultBranch);
+      const tempRef = `refs/zazig-tmp/${defaultBranch}`;
+      try {
+        await this.git(repoDir, "fetch", "--refmap=", "origin", `+refs/heads/${defaultBranch}:${tempRef}`);
+      } catch (e) {
+        console.warn(`[RepoManager] ensureFeatureBranch: fetch warning (non-fatal): ${getErrorMessage(e)}`);
+      }
+      let baseRef;
+      try {
+        await this.git(repoDir, "rev-parse", "--verify", tempRef);
+        baseRef = tempRef;
+      } catch {
+        baseRef = defaultBranch;
+      }
+      await this.git(repoDir, "branch", featureBranch, baseRef);
     });
   }
   async fetchBranchForExpert(projectName, branch) {
@@ -15295,7 +15304,13 @@ ${msg.text}`;
         console.warn(`[executor] Worktree cleanup failed for jobId=${jobId}: ${String(worktreeErr)}`);
       }
       if (job.cardType === "combine" && job.repoUrl && job.featureBranch) {
-        pr = await this.createPRForCombineJob(jobId, job);
+        const prUrlInResult = result.match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/)?.[0];
+        if (prUrlInResult) {
+          jobLog(jobId, `PR already created by agent \u2014 using URL from report: ${prUrlInResult}`);
+          pr = await this.createPRForCombineJob(jobId, job, prUrlInResult);
+        } else {
+          pr = await this.createPRForCombineJob(jobId, job);
+        }
       }
     } else {
       cleanupJobWorkspace(jobId, job.workspaceDir);
@@ -15312,7 +15327,7 @@ ${msg.text}`;
     } else {
       jobLog(jobId, `Sending JobFailed \u2014 result="${result}"`);
       try {
-        await this.sendJobFailed(jobId, result, "unknown");
+        await this.sendJobFailed(jobId, result, "unknown", report);
         jobLog(jobId, `JobFailed sent successfully`);
       } catch (sendErr) {
         jobLog(jobId, `sendJobFailed FAILED: ${String(sendErr)}`);
@@ -15330,7 +15345,7 @@ ${msg.text}`;
   // ---------------------------------------------------------------------------
   // Private: PR creation for combine jobs
   // ---------------------------------------------------------------------------
-  async createPRForCombineJob(jobId, job) {
+  async createPRForCombineJob(jobId, job, existingPrUrl) {
     const repoUrl = job.repoUrl;
     const featureBranch = job.featureBranch;
     const { data: jobRow } = await this.supabase.from("jobs").select("feature_id").eq("id", jobId).single();
@@ -15339,6 +15354,11 @@ ${msg.text}`;
     if (featureId) {
       const { data: feature } = await this.supabase.from("features").select("title").eq("id", featureId).single();
       featureTitle = feature?.title ?? void 0;
+    }
+    if (existingPrUrl && featureId) {
+      await this.supabase.from("features").update({ pr_url: existingPrUrl }).eq("id", featureId);
+      jobLog(jobId, `PR URL persisted for feature ${featureId}: ${existingPrUrl}`);
+      return existingPrUrl;
     }
     const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
     if (!match) {
@@ -15678,7 +15698,7 @@ ${msg.text}`;
     }
     return true;
   }
-  async sendJobFailed(jobId, result, failureReason) {
+  async sendJobFailed(jobId, result, failureReason, report) {
     jobLog(jobId, `FAILED \u2014 reason=${failureReason}, error="${result.slice(0, 200)}"`);
     await this.send({
       type: "job_failed",
@@ -15686,7 +15706,8 @@ ${msg.text}`;
       jobId,
       machineId: this.machineId,
       error: result,
-      failureReason
+      failureReason,
+      ...report !== void 0 ? { report } : {}
     });
   }
   async sendStopAck(jobId) {
@@ -15892,7 +15913,7 @@ function buildFixPrompt(job) {
 function buildCommand(slotType, complexity, model, worktreePath, promptFilePath, repoDir) {
   const resolvedModel = model && model !== "codex" ? model : slotType === "codex" ? "gpt-5.3-codex" : complexity === "complex" ? "claude-opus-4-6" : "claude-sonnet-4-6";
   if (slotType === "codex") {
-    const args = ["exec", "-m", resolvedModel, "--full-auto", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
+    const args = ["exec", "-m", resolvedModel, "--full-auto", "-c", "sandbox_workspace_write.network_access=true", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
     if (repoDir) {
       args.push("--add-dir", repoDir);
     }
@@ -16046,6 +16067,27 @@ var AgentConnection = class {
     this.handlers.push(handler);
   }
   /**
+   * Get a valid auth token, force-refreshing if the current session is expired.
+   * Safety net for when supabase-js auto-refresh silently fails.
+   */
+  async getAuthToken() {
+    const { data: { session } } = await this.dbClient.auth.getSession();
+    if (session?.access_token) {
+      const expiry = session.expires_at ?? 0;
+      if (expiry > Math.floor(Date.now() / 1e3) + 30) {
+        return session.access_token;
+      }
+      console.log("[Connection] Token expired, forcing refresh...");
+      const { data: { session: refreshed }, error } = await this.dbClient.auth.refreshSession();
+      if (!error && refreshed?.access_token) {
+        console.log("[Connection] Token force-refreshed successfully");
+        return refreshed.access_token;
+      }
+      console.warn(`[Connection] Token force-refresh failed: ${error?.message ?? "no session"}`);
+    }
+    return this.serviceRoleKey ?? this.supabaseAnonKey;
+  }
+  /**
    * Send an AgentMessage to the orchestrator via the `agent-event` edge function.
    */
   async sendMessage(msg) {
@@ -16057,8 +16099,7 @@ var AgentConnection = class {
   }
   async sendToOrchestrator(msg) {
     const url = `${this.config.supabase.url}/functions/v1/agent-event`;
-    const { data: { session } } = await this.dbClient.auth.getSession();
-    const token = session?.access_token ?? this.serviceRoleKey ?? this.config.supabase.anon_key;
+    const token = await this.getAuthToken();
     for (const delay of [0, 1e3, 5e3, 15e3]) {
       if (delay > 0)
         await sleep2(delay);
@@ -16194,8 +16235,7 @@ var AgentConnection = class {
         return;
       }
       const url = `${this.supabaseUrl}/functions/v1/agent-inbound-poll`;
-      const { data: { session } } = await this.dbClient.auth.getSession();
-      const token = session?.access_token ?? this.serviceRoleKey ?? this.supabaseAnonKey;
+      const token = await this.getAuthToken();
       const slotsAvailable = this.slots.getAvailable();
       const response = await fetch(url, {
         method: "POST",

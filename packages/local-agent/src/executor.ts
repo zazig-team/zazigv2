@@ -1034,9 +1034,9 @@ export class JobExecutor {
           }
         }, CPO_STARTUP_DELAY_MS);
       } else {
-        // For codex: prompt is a positional CLI arg already embedded in args — do NOT pipe via stdin.
-        // For claude -p: pipe prompt via stdin to avoid OS ARG_MAX limits.
-        await spawnTmuxSession(sessionName, cmd, cmdArgs, ephemeralWorkspaceDir, slotType === "codex" ? undefined : promptFilePath);
+        // Both codex and claude -p receive the prompt via stdin.
+        // codex exec reads from stdin when no positional arg is given (per CLI docs).
+        await spawnTmuxSession(sessionName, cmd, cmdArgs, ephemeralWorkspaceDir, promptFilePath);
       }
     } catch (err) {
       console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
@@ -2732,15 +2732,35 @@ export class JobExecutor {
 
       // Create GitHub PR for combine jobs (after branch push succeeds)
       if (job.cardType === "combine" && job.repoUrl && job.featureBranch) {
-        // If the agent already created the PR and reported the URL in its result,
-        // extract it and skip the redundant gh pr create call (which would fail with
-        // "PR already exists"). Still pass to createPRForCombineJob for DB persistence.
-        const prUrlInResult = result.match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/)?.[0];
-        if (prUrlInResult) {
-          jobLog(jobId, `PR already created by agent — using URL from report: ${prUrlInResult}`);
-          pr = await this.createPRForCombineJob(jobId, job, prUrlInResult);
+        // Guard: if the feature branch has no commits ahead of master the combiner
+        // merged nothing (e.g. all job branches were empty). Fail rather than let
+        // PR creation blow up with "No commits between master and feature branch."
+        let featureBranchCommitCount = 1; // optimistic default
+        try {
+          const { stdout: countOut } = await execFileAsync(
+            "git", ["rev-list", "--count", `master..${job.featureBranch}`],
+            { cwd: job.repoDir! },
+          );
+          featureBranchCommitCount = parseInt(countOut.trim(), 10) || 0;
+        } catch (countErr) {
+          jobLog(jobId, `Could not count commits on feature branch (non-fatal): ${String(countErr)}`);
+        }
+
+        if (featureBranchCommitCount === 0) {
+          jobLog(jobId, `Combine job produced no commits on ${job.featureBranch} — overriding result to FAILED`);
+          console.warn(`[executor] Combine job ${jobId} has 0 commits ahead of master on ${job.featureBranch} — failing`);
+          result = "FAILED: No commits to combine — feature branch has no commits ahead of master";
         } else {
-          pr = await this.createPRForCombineJob(jobId, job);
+          // If the agent already created the PR and reported the URL in its result,
+          // extract it and skip the redundant gh pr create call (which would fail with
+          // "PR already exists"). Still pass to createPRForCombineJob for DB persistence.
+          const prUrlInResult = result.match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/)?.[0];
+          if (prUrlInResult) {
+            jobLog(jobId, `PR already created by agent — using URL from report: ${prUrlInResult}`);
+            pr = await this.createPRForCombineJob(jobId, job, prUrlInResult);
+          } else {
+            pr = await this.createPRForCombineJob(jobId, job);
+          }
         }
       }
     } else {
@@ -3521,7 +3541,7 @@ function buildCommand(
           : "claude-sonnet-4-6";
 
   if (slotType === "codex") {
-    // Native Codex execution — prompt is passed as a positional CLI arg (not stdin).
+    // Native Codex execution — prompt is piped via stdin (same as Claude).
     const args = ["exec", "-m", resolvedModel, "--full-auto", "-c", "sandbox_workspace_write.network_access=true", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
     // Worktrees store their git index inside the parent bare repo dir.
     // The sandbox must be able to write there for git add/commit to work.
@@ -3531,7 +3551,10 @@ function buildCommand(
     if (complexity === "medium") {
       args.push("-c", "model_reasoning_effort=xhigh");
     }
-    args.push(promptFilePath ?? "");
+    // Prompt is piped via stdin (same as Claude) — do NOT pass as positional arg.
+    // Passing the file path as a positional arg makes Codex treat the path string
+    // as the task description, causing non-deterministic behaviour (the model
+    // sometimes reads and executes, sometimes just displays the file contents).
     return {
       cmd: "codex",
       args,

@@ -60,6 +60,9 @@ const SLOT_RECONCILE_INTERVAL_MS = 60_000;
 /** Poll for merged PRs on pr_ready features every 60 s. */
 const PR_MONITOR_INTERVAL_MS = 60_000;
 
+/** Poll latest master branch CI run every 5 minutes. */
+const CI_MONITOR_INTERVAL_MS = 300_000;
+
 /** Kill the job after 60 minutes regardless of status. */
 const JOB_TIMEOUT_MS = 60 * 60_000;
 
@@ -390,6 +393,9 @@ export class JobExecutor {
   private processingQueue = false;
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
   private prMonitorTimer: ReturnType<typeof setInterval> | null = null;
+  private ciMonitorTimer: ReturnType<typeof setInterval> | null = null;
+  private lastSeenCIRunId: number | null = null;
+  private consecutiveFailedGenerations: number = 0;
   private companyProjects: CompanyProject[] = [];
 
   constructor(
@@ -418,6 +424,10 @@ export class JobExecutor {
     this.prMonitorTimer = setInterval(() => {
       void this.monitorMergedPRs();
     }, PR_MONITOR_INTERVAL_MS);
+
+    this.ciMonitorTimer = setInterval(() => {
+      void this.monitorMasterCI();
+    }, CI_MONITOR_INTERVAL_MS);
 
   }
 
@@ -1105,6 +1115,10 @@ export class JobExecutor {
       clearInterval(this.prMonitorTimer);
       this.prMonitorTimer = null;
     }
+    if (this.ciMonitorTimer !== null) {
+      clearInterval(this.ciMonitorTimer);
+      this.ciMonitorTimer = null;
+    }
     // Clear all persistent agents (fires DB status updates + stops heartbeat timers)
     this.clearPersistentAgent();
 
@@ -1120,6 +1134,76 @@ export class JobExecutor {
       if (job.slotAcquired) this.slots.release(job.slotType);
     }
     this.activeJobs.clear();
+  }
+
+  private async monitorMasterCI(): Promise<void> {
+    try {
+      const repoUrl = this.companyProjects[0]?.repo_url;
+      if (!repoUrl) {
+        console.log("[executor] Master CI monitor skipped: missing project repo_url");
+        return;
+      }
+
+      const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+      if (!match) {
+        console.warn(`[executor] Master CI monitor skipped: cannot parse owner/repo from "${repoUrl}"`);
+        return;
+      }
+
+      const ownerRepo = match[1];
+      const { stdout } = await execFileAsync("gh", [
+        "api",
+        `repos/${ownerRepo}/actions/runs?branch=master&event=push&per_page=1`,
+      ], { encoding: "utf8" });
+      const payload = JSON.parse(stdout) as {
+        workflow_runs?: Array<{
+          id?: number;
+          conclusion?: string | null;
+          head_sha?: string | null;
+        }>;
+      };
+
+      const latestRun = payload.workflow_runs?.[0];
+      if (!latestRun) {
+        console.log(`[executor] Master CI monitor: no workflow runs found for ${ownerRepo}`);
+        return;
+      }
+
+      const runId = typeof latestRun.id === "number" ? latestRun.id : null;
+      if (runId === null) {
+        console.warn("[executor] Master CI monitor skipped: latest workflow run missing numeric id");
+        return;
+      }
+
+      const conclusion = latestRun.conclusion;
+      const headSha = typeof latestRun.head_sha === "string" ? latestRun.head_sha : "";
+
+      if (conclusion === null || conclusion === "in_progress" || conclusion === "queued") {
+        console.log(`[executor] Master CI run ${runId} not finished yet (conclusion=${conclusion ?? "null"})`);
+        return;
+      }
+
+      if (conclusion === "success") {
+        this.consecutiveFailedGenerations = 0;
+        this.lastSeenCIRunId = runId;
+        return;
+      }
+
+      if (conclusion === "failure") {
+        if (runId === this.lastSeenCIRunId) return;
+        this.lastSeenCIRunId = runId;
+        await this.handleMasterCIFailure(runId, headSha);
+        return;
+      }
+    } catch (err) {
+      console.warn(`[executor] Master CI monitor failed: ${String(err)}`);
+      return;
+    }
+  }
+
+  private async handleMasterCIFailure(runId: number, headSha: string): Promise<void> {
+    void runId;
+    void headSha;
   }
 
   /**

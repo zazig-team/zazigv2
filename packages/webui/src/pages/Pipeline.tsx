@@ -837,6 +837,11 @@ export default function Pipeline(): JSX.Element {
                 <div className="card-meta">
                   <span className={priorityDotClass(feature.priority)} />
                   {feature.priority.toLowerCase()} · {ageLabel(feature.ageHours)}
+                  {feature.jobsTotal > 0 ? (
+                    <span className="card-job-count">
+                      {feature.jobsDone}/{feature.jobsTotal}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="card-desc">{feature.description}</div>
                 {prUrl ? (
@@ -849,19 +854,6 @@ export default function Pipeline(): JSX.Element {
                   >
                     View PR
                   </a>
-                ) : null}
-                {feature.jobsTotal > 0 ? (
-                  <div className="card-jobs">
-                    <div className="card-jobs-bar">
-                      <div
-                        className="card-jobs-bar-fill"
-                        style={{ width: `${Math.round((feature.jobsDone / feature.jobsTotal) * 100)}%` }}
-                      />
-                    </div>
-                    <span className="card-job-count">
-                      {feature.jobsDone}/{feature.jobsTotal}
-                    </span>
-                  </div>
                 ) : null}
                 {feature.hasJobErrors && (
                   <div className="card-error-indicator">

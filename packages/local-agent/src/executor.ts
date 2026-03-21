@@ -1202,8 +1202,58 @@ export class JobExecutor {
   }
 
   private async handleMasterCIFailure(runId: number, headSha: string): Promise<void> {
-    void runId;
-    void headSha;
+    if (await this.isCIFixInFlight()) return;
+
+    const generation = await this.computeNextCIFixGeneration();
+    if (generation === null) return;
+
+    await this.createMasterCIFixFeature(generation, { runId, headSha });
+  }
+
+  private async isCIFixInFlight(): Promise<boolean> {
+    const activeStatuses = [
+      "breaking_down",
+      "building",
+      "combining_and_pr",
+      "ci_checking",
+      "merging",
+    ] as const;
+
+    const { data, error } = await this.supabase
+      .from("features")
+      .select("id")
+      .contains("tags", ["master-ci-fix"])
+      .in("status", activeStatuses);
+
+    if (error) {
+      console.warn(`[executor] Failed to query active master CI fixes: ${error.message}`);
+      return false;
+    }
+
+    const activeFixCount = data?.length ?? 0;
+    const inFlight = activeFixCount > 0;
+    if (inFlight) {
+      console.warn(`[executor] Master CI fix already in flight (${activeFixCount} active feature(s)) — skipping auto-fix creation`);
+    }
+    return inFlight;
+  }
+
+  private async computeNextCIFixGeneration(): Promise<number | null> {
+    if (this.consecutiveFailedGenerations >= 3) {
+      console.warn(`[executor] Master CI fix generation cap reached (${this.consecutiveFailedGenerations}) — skipping auto-fix creation`);
+      return null;
+    }
+    return this.consecutiveFailedGenerations + 1;
+  }
+
+  private async createMasterCIFixFeature(
+    generation: number,
+    context: { runId: number; headSha: string },
+  ): Promise<void> {
+    const shortSha = context.headSha.length > 0 ? context.headSha.slice(0, 12) : "unknown";
+    console.log(
+      `[executor] Master CI fix creation stub: runId=${context.runId}, headSha=${shortSha}, generation=${generation}`,
+    );
   }
 
   /**

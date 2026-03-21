@@ -1202,12 +1202,194 @@ export class JobExecutor {
   }
 
   private async handleMasterCIFailure(runId: number, headSha: string): Promise<void> {
-    if (await this.isCIFixInFlight()) return;
+    try {
+      if (await this.isCIFixInFlight()) return;
 
-    const generation = await this.computeNextCIFixGeneration();
-    if (generation === null) return;
+      const generation = await this.computeNextCIFixGeneration();
+      if (generation === null) return;
 
-    await this.createMasterCIFixFeature(generation, { runId, headSha });
+      const failureLogs = await this.fetchCIFailureLogs(runId);
+      const stepName = failureLogs?.stepName?.trim() || "unknown step";
+      const logOutput = failureLogs?.logOutput?.trim() || `No failure log output available for run ${runId}.`;
+      const normalizedHeadSha = headSha.trim().length > 0 ? headSha : "unknown";
+
+      if (!this.companyId) {
+        console.warn(`[CI Monitor] Skipping fix feature for run ${runId}: missing companyId`);
+        return;
+      }
+
+      const repoUrl = this.companyProjects[0]?.repo_url;
+      if (!repoUrl) {
+        console.warn(`[CI Monitor] Skipping fix feature for run ${runId}: missing project repo_url`);
+        return;
+      }
+
+      const projectId = await this.resolveProjectIdForRepo(repoUrl);
+      if (!projectId) {
+        console.warn(`[CI Monitor] Skipping fix feature for run ${runId}: could not resolve project_id for ${repoUrl}`);
+        return;
+      }
+
+      const { data: createdFeature, error: featureInsertError } = await this.supabase
+        .from("features")
+        .insert({
+          company_id: this.companyId,
+          project_id: projectId,
+          title: `Fix master CI failure — ${stepName}`,
+          description: `Automated fix for master CI failure on commit ${normalizedHeadSha}. Failed step: ${stepName}.`,
+          spec: [
+            `Master CI run: ${runId}`,
+            `Commit SHA: ${normalizedHeadSha}`,
+            `Failed step: ${stepName}`,
+            "",
+            "Failure log output:",
+            logOutput,
+            "",
+            "Investigate and fix the root cause of this CI failure so master goes green.",
+          ].join("\n"),
+          tags: ["master-ci-fix", `fix-generation:${generation}`],
+          priority: "high",
+          fast_track: true,
+        })
+        .select("id")
+        .single();
+
+      if (featureInsertError) {
+        console.warn(`[CI Monitor] Failed to insert fix feature for run ${runId}: ${featureInsertError.message}`);
+        return;
+      }
+
+      const featureId = (createdFeature as { id?: string } | null)?.id;
+      if (!featureId) {
+        console.warn(`[CI Monitor] Failed to insert fix feature for run ${runId}: insert returned no feature id`);
+        return;
+      }
+
+      const { error: featureEventInsertError } = await this.supabase
+        .from("feature_events")
+        .insert({
+          company_id: this.companyId,
+          feature_id: featureId,
+          event_type: "created",
+          detail: {
+            source: "master_ci_monitor",
+            runId,
+            generation,
+            headSha: normalizedHeadSha,
+            stepName,
+          },
+        });
+
+      if (featureEventInsertError) {
+        console.warn(`[CI Monitor] Failed to insert feature_events row for feature ${featureId}: ${featureEventInsertError.message}`);
+        return;
+      }
+
+      this.consecutiveFailedGenerations += 1;
+      console.log(`[CI Monitor] Created fix feature (generation ${generation}) for run ${runId}`);
+    } catch (err) {
+      console.warn(`[CI Monitor] Failed to create fix feature for run ${runId}: ${String(err)}`);
+      return;
+    }
+  }
+
+  private async fetchCIFailureLogs(runId: number): Promise<{ stepName: string; logOutput: string } | null> {
+    const repoUrl = this.companyProjects[0]?.repo_url;
+    if (!repoUrl) return null;
+
+    const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (!match) {
+      console.warn(`[CI Monitor] Cannot parse owner/repo from "${repoUrl}" while fetching failure logs`);
+      return null;
+    }
+
+    const ownerRepo = match[1];
+
+    try {
+      const { stdout: jobsStdout } = await execFileAsync(
+        "gh",
+        ["api", `repos/${ownerRepo}/actions/runs/${runId}/jobs?per_page=100`],
+        { encoding: "utf8" },
+      );
+
+      const jobsPayload = JSON.parse(jobsStdout) as {
+        jobs?: Array<{
+          name?: string | null;
+          conclusion?: string | null;
+          steps?: Array<{ name?: string | null; conclusion?: string | null }>;
+        }>;
+      };
+
+      let stepName = "unknown step";
+      for (const job of jobsPayload.jobs ?? []) {
+        const failedStep = job.steps?.find((step) => step.conclusion === "failure");
+        if (failedStep?.name && failedStep.name.trim().length > 0) {
+          stepName = failedStep.name.trim();
+          break;
+        }
+        if (job.conclusion === "failure" && job.name && job.name.trim().length > 0) {
+          stepName = job.name.trim();
+          break;
+        }
+      }
+
+      let logOutput = "";
+      try {
+        const { stdout: failedLogStdout } = await execFileAsync(
+          "gh",
+          ["run", "view", String(runId), "--repo", ownerRepo, "--log-failed"],
+          { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 },
+        );
+        logOutput = failedLogStdout.trim();
+      } catch (err) {
+        console.warn(`[CI Monitor] Failed to fetch failed log output for run ${runId}: ${String(err)}`);
+      }
+
+      if (!logOutput) {
+        logOutput = `No failure log output available for run ${runId}.`;
+      }
+
+      return { stepName, logOutput };
+    } catch (err) {
+      console.warn(`[CI Monitor] Failed to fetch CI failure context for run ${runId}: ${String(err)}`);
+      return null;
+    }
+  }
+
+  private async resolveProjectIdForRepo(repoUrl: string): Promise<string | null> {
+    if (!this.companyId) return null;
+
+    const targetRepoMatch = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    const targetOwnerRepo = targetRepoMatch?.[1]?.toLowerCase() ?? null;
+
+    const { data, error } = await this.supabase
+      .from("projects")
+      .select("id, repo_url")
+      .eq("company_id", this.companyId)
+      .eq("status", "active");
+
+    if (error) {
+      console.warn(`[CI Monitor] Failed to resolve project for repo "${repoUrl}": ${error.message}`);
+      return null;
+    }
+
+    const projects = (data ?? []) as Array<{ id?: string | null; repo_url?: string | null }>;
+    if (projects.length === 0) return null;
+
+    if (targetOwnerRepo) {
+      const match = projects.find((project) => {
+        if (!project.repo_url) return false;
+        const projectRepoMatch = project.repo_url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+        return projectRepoMatch?.[1]?.toLowerCase() === targetOwnerRepo;
+      });
+      if (match?.id) return match.id;
+    }
+
+    if (projects.length === 1 && projects[0]?.id) {
+      return projects[0].id;
+    }
+
+    return null;
   }
 
   private async isCIFixInFlight(): Promise<boolean> {
@@ -1244,16 +1426,6 @@ export class JobExecutor {
       return null;
     }
     return this.consecutiveFailedGenerations + 1;
-  }
-
-  private async createMasterCIFixFeature(
-    generation: number,
-    context: { runId: number; headSha: string },
-  ): Promise<void> {
-    const shortSha = context.headSha.length > 0 ? context.headSha.slice(0, 12) : "unknown";
-    console.log(
-      `[executor] Master CI fix creation stub: runId=${context.runId}, headSha=${shortSha}, generation=${generation}`,
-    );
   }
 
   /**

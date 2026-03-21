@@ -141,7 +141,7 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
   return (
     <>
       <div className="detail-backdrop" onClick={onClose} />
-      <div className="detail-panel">
+      <div className={data?.pr_url ? "detail-panel detail-panel--has-pr-link" : "detail-panel"}>
         {loading ? (
           <div className="detail-body"><div className="detail-loading">Loading...</div></div>
         ) : error ? (
@@ -231,14 +231,6 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
                 </div>
               ) : null}
 
-              {data.pr_url ? (
-                <div className="detail-section">
-                  <a className="detail-pr-link" href={data.pr_url} target="_blank" rel="noopener noreferrer">
-                    View Pull Request ↗
-                  </a>
-                </div>
-              ) : null}
-
               {data.status === "failed" ? (
                 <div className="promote-section">
                   <div className="detail-section-title">Diagnosis & Retry</div>
@@ -305,6 +297,11 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
                 </div>
               ) : null}
             </div>
+            {data.pr_url ? (
+              <a className="detail-pr-fab" href={data.pr_url} target="_blank" rel="noopener noreferrer">
+                View PR ↗
+              </a>
+            ) : null}
           </>
         ) : null}
       </div>

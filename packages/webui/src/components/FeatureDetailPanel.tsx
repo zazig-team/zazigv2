@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchFeatureDetail, diagnoseFeature, fetchJobResult, requestFeatureFix, type FeatureDetail } from "../lib/queries";
 import { useCompany } from "../hooks/useCompany";
 import FormattedProse from "./FormattedProse";
@@ -48,7 +48,7 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [retried, setRetried] = useState(false);
-  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const { activeCompanyId } = useCompany();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -75,6 +75,7 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
     setRetrying(false);
     setRetryError(null);
     setRetried(false);
+    setSelectedJobId(null);
   }, [featureId]);
 
   // Clean up polling on unmount
@@ -86,11 +87,16 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent): void {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (selectedJobId) {
+        setSelectedJobId(null);
+        return;
+      }
+      onClose();
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  }, [onClose, selectedJobId]);
 
   async function startDiagnosis(): Promise<void> {
     if (!activeCompanyId || !data) return;
@@ -160,7 +166,7 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
             <div className="detail-body">
               <table className="detail-meta-table">
                 <tbody>
-                  <tr><td className="detail-meta-key">ID</td><td className="detail-meta-val">{data.id.slice(0, 8)}</td></tr>
+                  <tr><td className="detail-meta-key">ID</td><td className="detail-meta-val">{data.id}</td></tr>
                   {data.priority ? <tr><td className="detail-meta-key">Priority</td><td className="detail-meta-val">{data.priority}</td></tr> : null}
                   {data.branch ? <tr><td className="detail-meta-key">Branch</td><td className="detail-meta-val">{data.branch}</td></tr> : null}
                   {data.created_by ? <tr><td className="detail-meta-key">Created by</td><td className="detail-meta-val">{data.created_by}</td></tr> : null}
@@ -194,10 +200,10 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
                   <div className="detail-section-title">Jobs ({data.jobs.length})</div>
                     <div className="detail-jobs">
                       {data.jobs.map((job, index) => (
-                        <Fragment key={job.id}>
                           <div
+                            key={job.id}
                             className="detail-job-row"
-                            onClick={() => setExpandedJobId((prev) => (prev === job.id ? null : job.id))}
+                            onClick={() => setSelectedJobId(job.id)}
                             style={{
                               cursor: "pointer",
                               borderBottom: index === data.jobs.length - 1 ? "none" : undefined,
@@ -206,12 +212,11 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
                             <span className="detail-job-dot" style={{ background: jobDotColor(job.status) }} />
                             <div className="detail-job-info">
                               <div className="detail-job-title">{job.title}</div>
+                              <div className="detail-job-id">{job.id}</div>
                               <div className="detail-job-meta">{job.status} · {job.role}{job.model ? ` · ${job.model}` : ""}</div>
                             </div>
-                            <span aria-hidden="true">{expandedJobId === job.id ? "▼" : "▶"}</span>
+                            <span aria-hidden="true">▶</span>
                           </div>
-                          {expandedJobId === job.id ? <JobDetailExpand jobId={job.id} /> : null}
-                        </Fragment>
                       ))}
                     </div>
                   </div>
@@ -308,6 +313,23 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
           </>
         ) : null}
       </div>
+      {selectedJobId ? (
+        <div className="detail-fullscreen">
+          <div className="detail-header">
+            <button className="detail-back-button" type="button" onClick={() => setSelectedJobId(null)}>
+              ← Back to feature
+            </button>
+            <div className="detail-header-text">
+              <div className="detail-title">Job Detail</div>
+              <div className="detail-job-id">{selectedJobId}</div>
+            </div>
+            <button className="detail-close" type="button" onClick={onClose}>×</button>
+          </div>
+          <div className="detail-body">
+            <JobDetailExpand jobId={selectedJobId} />
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

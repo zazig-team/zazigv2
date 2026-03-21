@@ -109,9 +109,15 @@ interface SelectInCall {
   inValues: string[];
 }
 
+interface InsertCall {
+  table: string;
+  data: Record<string, unknown>;
+}
+
 function makeMockSupabase() {
   const calls: UpdateCall[] = [];
   const selectInCalls: SelectInCall[] = [];
+  const insertCalls: InsertCall[] = [];
   let inResult: { data: unknown; error: { message: string } | null } = {
     data: [],
     error: null,
@@ -133,6 +139,18 @@ function makeMockSupabase() {
     data: null,
     error: null,
   };
+  let containsInResult: { data: unknown; error: { message: string } | null } = {
+    data: [],
+    error: null,
+  };
+  let featureInsertResult: { data: Record<string, unknown> | null; error: { message: string } | null } = {
+    data: { id: "feature-001" },
+    error: null,
+  };
+  let genericInsertResult: { data: unknown; error: { message: string } | null } = {
+    data: null,
+    error: null,
+  };
 
   const makeChainable = (table: string) => {
     const chain = {
@@ -146,6 +164,19 @@ function makeMockSupabase() {
         return { eq: eqFn };
       }),
       upsert: vi.fn(() => Promise.resolve({ error: null, data: null })),
+      insert: vi.fn((data: Record<string, unknown>) => {
+        insertCalls.push({ table, data });
+
+        if (table === "features") {
+          return {
+            select: vi.fn(() => ({
+              single: vi.fn(() => Promise.resolve(featureInsertResult)),
+            })),
+          };
+        }
+
+        return Promise.resolve(genericInsertResult);
+      }),
       select: vi.fn((columns: string) => {
         if (table === "expert_roles" && columns === "name, display_name, description") {
           return Promise.resolve(expertRolesResult);
@@ -178,6 +209,12 @@ function makeMockSupabase() {
               })),
             };
           }),
+          contains: vi.fn(() => ({
+            in: vi.fn((inColumn: string, inValues: string[]) => {
+              selectInCalls.push({ table, columns, inColumn, inValues: [...inValues] });
+              return Promise.resolve(containsInResult);
+            }),
+          })),
           in: vi.fn((inColumn: string, inValues: string[]) => {
             selectInCalls.push({ table, columns, inColumn, inValues: [...inValues] });
             return Promise.resolve(inResult);
@@ -197,8 +234,18 @@ function makeMockSupabase() {
     client: client as unknown,
     calls,
     selectInCalls,
+    insertCalls,
     setInResult: (next: { data: unknown; error: { message: string } | null }) => {
       inResult = next;
+    },
+    setContainsInResult: (next: { data: unknown; error: { message: string } | null }) => {
+      containsInResult = next;
+    },
+    setFeatureInsertResult: (next: { data: Record<string, unknown> | null; error: { message: string } | null }) => {
+      featureInsertResult = next;
+    },
+    setGenericInsertResult: (next: { data: unknown; error: { message: string } | null }) => {
+      genericInsertResult = next;
     },
     setExpertRolesResult: (next: { data: unknown; error: { message: string } | null }) => {
       expertRolesResult = next;
@@ -787,6 +834,164 @@ describe("JobExecutor — slot reconciliation", () => {
   it("does nothing when there are no active jobs", async () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(supabase.selectInCalls.length).toBe(0);
+  });
+});
+
+describe("JobExecutor — master CI monitor", () => {
+  let send: ReturnType<typeof vi.fn>;
+  let slots: SlotTracker;
+  let supabase: ReturnType<typeof makeMockSupabase>;
+  let executor: JobExecutor;
+
+  const privateExecutor = () => executor as unknown as {
+    monitorMasterCI: () => Promise<void>;
+    handleMasterCIFailure: (runId: number, headSha: string) => Promise<void>;
+    isCIFixInFlight: () => Promise<boolean>;
+    fetchCIFailureLogs: (runId: number) => Promise<{ stepName: string; logOutput: string } | null>;
+    resolveProjectIdForRepo: (repoUrl: string) => Promise<string | null>;
+    lastSeenCIRunId: number | null;
+    consecutiveFailedGenerations: number;
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+
+    mockExecFileAsync = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
+    send = vi.fn().mockResolvedValue(undefined);
+    slots = new SlotTracker({ claude_code: 1, codex: 1 });
+    supabase = makeMockSupabase();
+    executor = new JobExecutor(
+      "machine-1",
+      "company-test",
+      slots,
+      send as unknown as SendFn,
+      supabase.client as any,
+      "https://test.supabase.co",
+      "test-anon-key",
+    );
+    executor.setCompanyProjects([
+      { name: "zazigv2", repo_url: "https://github.com/test/repo.git" },
+    ]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("no-ops on in_progress run (conclusion=null)", async () => {
+    const monitor = privateExecutor();
+    const handleMasterCIFailureSpy = vi.spyOn(monitor, "handleMasterCIFailure");
+
+    mockExecFileAsync.mockResolvedValueOnce({
+      stdout: JSON.stringify({
+        workflow_runs: [{ id: 1001, conclusion: null, head_sha: "abc123" }],
+      }),
+      stderr: "",
+    });
+
+    await monitor.monitorMasterCI();
+
+    expect(handleMasterCIFailureSpy).not.toHaveBeenCalled();
+  });
+
+  it("no-ops on success and resets failure generation count", async () => {
+    const monitor = privateExecutor();
+    monitor.consecutiveFailedGenerations = 2;
+    const handleMasterCIFailureSpy = vi.spyOn(monitor, "handleMasterCIFailure");
+
+    mockExecFileAsync.mockResolvedValueOnce({
+      stdout: JSON.stringify({
+        workflow_runs: [{ id: 1002, conclusion: "success", head_sha: "abc123" }],
+      }),
+      stderr: "",
+    });
+
+    await monitor.monitorMasterCI();
+
+    expect(monitor.consecutiveFailedGenerations).toBe(0);
+    expect(monitor.lastSeenCIRunId).toBe(1002);
+    expect(handleMasterCIFailureSpy).not.toHaveBeenCalled();
+    expect(supabase.insertCalls).toHaveLength(0);
+  });
+
+  it("skips duplicate failure run IDs", async () => {
+    const monitor = privateExecutor();
+    monitor.lastSeenCIRunId = 1003;
+    const handleMasterCIFailureSpy = vi.spyOn(monitor, "handleMasterCIFailure");
+
+    mockExecFileAsync.mockResolvedValueOnce({
+      stdout: JSON.stringify({
+        workflow_runs: [{ id: 1003, conclusion: "failure", head_sha: "abc123" }],
+      }),
+      stderr: "",
+    });
+
+    await monitor.monitorMasterCI();
+
+    expect(handleMasterCIFailureSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not create a fix when dedup guard detects one in flight", async () => {
+    const monitor = privateExecutor();
+    vi.spyOn(monitor, "isCIFixInFlight").mockResolvedValue(true);
+
+    await monitor.handleMasterCIFailure(1004, "abc123");
+
+    expect(supabase.insertCalls).toHaveLength(0);
+  });
+
+  it("blocks new fix creation when generation cap is reached at 3", async () => {
+    const monitor = privateExecutor();
+    monitor.consecutiveFailedGenerations = 3;
+    vi.spyOn(monitor, "isCIFixInFlight").mockResolvedValue(false);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await monitor.handleMasterCIFailure(1005, "abc123");
+
+    expect(supabase.insertCalls).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Master CI fix generation cap reached"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("creates a master CI fix feature for a fresh failure", async () => {
+    const monitor = privateExecutor();
+    vi.spyOn(monitor, "isCIFixInFlight").mockResolvedValue(false);
+    vi.spyOn(monitor, "fetchCIFailureLogs").mockResolvedValue({
+      stepName: "lint",
+      logOutput: "lint failed in src/executor.ts",
+    });
+    vi.spyOn(monitor, "resolveProjectIdForRepo").mockResolvedValue("project-123");
+
+    await monitor.handleMasterCIFailure(1006, "deadbeef");
+
+    const featureInsert = supabase.insertCalls.find((call) => call.table === "features");
+    expect(featureInsert).toBeDefined();
+    expect(featureInsert!.data).toMatchObject({
+      company_id: "company-test",
+      project_id: "project-123",
+      title: "Fix master CI failure — lint",
+      tags: ["master-ci-fix", "fix-generation:1"],
+      fast_track: true,
+    });
+    expect(supabase.insertCalls.some((call) => call.table === "feature_events")).toBe(true);
+  });
+
+  it("handles GitHub API errors without throwing", async () => {
+    const monitor = privateExecutor();
+    const handleMasterCIFailureSpy = vi.spyOn(monitor, "handleMasterCIFailure");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockExecFileAsync.mockRejectedValueOnce(new Error("gh api unavailable"));
+
+    await expect(monitor.monitorMasterCI()).resolves.toBeUndefined();
+
+    expect(handleMasterCIFailureSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Master CI monitor failed"),
+    );
+    warnSpy.mockRestore();
   });
 });
 

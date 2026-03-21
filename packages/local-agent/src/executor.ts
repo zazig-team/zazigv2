@@ -47,6 +47,214 @@ import { RepoManager } from "./branches.js";
 
 const execFileAsync = promisify(execFile);
 
+type ExecFileAsyncFn = (
+  command: string,
+  args: string[],
+  options?: { encoding?: BufferEncoding; maxBuffer?: number },
+) => Promise<{ stdout: string; stderr: string }>;
+
+type MasterCiFeature = {
+  id?: string;
+  status?: string;
+  tags?: string[] | null;
+};
+
+interface MasterCiMonitorDeps {
+  owner: string;
+  repo: string;
+  execFileAsync?: ExecFileAsyncFn;
+  createFeature: (payload: {
+    title: string;
+    description: string;
+    spec: string;
+    tags: string[];
+    priority: "high";
+    fast_track: true;
+  }) => Promise<unknown>;
+  queryActiveFixFeatures: (query: {
+    tag: string;
+    statuses: readonly string[];
+  }) => Promise<{ data?: MasterCiFeature[] | null }>;
+  queryCompletedFixFeatures: (query: {
+    tag: string;
+    status: "complete";
+  }) => Promise<{ data?: MasterCiFeature[] | null }>;
+}
+
+export class MasterCiMonitor {
+  private static readonly ACTIVE_STATUSES = [
+    "breaking_down",
+    "building",
+    "combining_and_pr",
+    "ci_checking",
+    "merging",
+  ] as const;
+
+  private readonly owner: string;
+  private readonly repo: string;
+  private readonly exec: ExecFileAsyncFn;
+  private readonly createFeature: MasterCiMonitorDeps["createFeature"];
+  private readonly queryActiveFixFeatures: MasterCiMonitorDeps["queryActiveFixFeatures"];
+  private readonly queryCompletedFixFeatures: MasterCiMonitorDeps["queryCompletedFixFeatures"];
+
+  private lastSeenRunId: number | null = null;
+  public lastSuccessfulRunId: number | null = null;
+  public generationCount = 0;
+  public consecutiveFailures = 0;
+
+  constructor(deps: MasterCiMonitorDeps) {
+    this.owner = deps.owner;
+    this.repo = deps.repo;
+    this.exec = deps.execFileAsync ?? (execFileAsync as unknown as ExecFileAsyncFn);
+    this.createFeature = deps.createFeature;
+    this.queryActiveFixFeatures = deps.queryActiveFixFeatures;
+    this.queryCompletedFixFeatures = deps.queryCompletedFixFeatures;
+  }
+
+  async poll(): Promise<void> {
+    try {
+      const { stdout } = await this.exec("gh", [
+        "api",
+        `repos/${this.owner}/${this.repo}/actions/runs?branch=master&event=push&per_page=1`,
+      ], { encoding: "utf8" });
+
+      const payload = JSON.parse(stdout) as {
+        workflow_runs?: Array<{
+          id?: number;
+          conclusion?: string | null;
+          head_sha?: string | null;
+        }>;
+      };
+      const latestRun = payload.workflow_runs?.[0];
+      if (!latestRun || typeof latestRun.id !== "number") return;
+
+      const runId = latestRun.id;
+      const conclusion = latestRun.conclusion;
+      const headSha = typeof latestRun.head_sha === "string" ? latestRun.head_sha : "unknown";
+
+      if (conclusion === null || conclusion === "in_progress" || conclusion === "queued") {
+        return;
+      }
+
+      if (conclusion === "success") {
+        this.lastSuccessfulRunId = runId;
+        this.lastSeenRunId = runId;
+        this.generationCount = 0;
+        this.consecutiveFailures = 0;
+        return;
+      }
+
+      if (conclusion !== "failure") {
+        this.lastSeenRunId = runId;
+        return;
+      }
+
+      if (runId === this.lastSeenRunId) {
+        return;
+      }
+      this.lastSeenRunId = runId;
+
+      const { data: activeFixes } = await this.queryActiveFixFeatures({
+        tag: "master-ci-fix",
+        statuses: MasterCiMonitor.ACTIVE_STATUSES,
+      });
+      if ((activeFixes?.length ?? 0) > 0) return;
+
+      const { data: completedFixes } = await this.queryCompletedFixFeatures({
+        tag: "master-ci-fix",
+        status: "complete",
+      });
+      const highestCompletedGeneration = (completedFixes ?? [])
+        .flatMap((feature) => feature.tags ?? [])
+        .map((tag) => {
+          const match = /^fix-generation:(\d+)$/.exec(tag);
+          return match ? Number(match[1]) : 0;
+        })
+        .reduce((max, value) => Math.max(max, value), 0);
+
+      if (highestCompletedGeneration >= 3) {
+        console.warn("Master CI monitor loop guard reached generation cap: 3 consecutive fixes");
+        return;
+      }
+
+      const generation = Math.max(1, highestCompletedGeneration + 1);
+      const failureDetails = await this.fetchFailureDetails(runId);
+      const stepName = failureDetails.stepName ?? "unknown step";
+
+      await this.createFeature({
+        title: `Fix master CI failure — ${stepName}`,
+        description: `Automated fix for master CI failure on commit ${headSha}. Failed step: ${stepName}.`,
+        spec: [
+          `Master CI run: ${runId}`,
+          `Commit SHA: ${headSha}`,
+          `Failed step: ${stepName}`,
+          "",
+          "Failure log output:",
+          failureDetails.logOutput,
+          "",
+          "Investigate and fix the root cause of this CI failure so master goes green.",
+        ].join("\n"),
+        tags: ["master-ci-fix", `fix-generation:${generation}`],
+        priority: "high",
+        fast_track: true,
+      });
+
+      this.generationCount = generation;
+      this.consecutiveFailures = generation;
+    } catch (err) {
+      console.error("[master-ci-monitor] poll failed", err);
+    }
+  }
+
+  private async fetchFailureDetails(runId: number): Promise<{ stepName: string; logOutput: string }> {
+    let stepName = "unknown step";
+    let logOutput = `No failure log output available for run ${runId}.`;
+
+    try {
+      const { stdout } = await this.exec(
+        "gh",
+        ["api", `repos/${this.owner}/${this.repo}/actions/runs/${runId}/jobs?per_page=100`],
+        { encoding: "utf8" },
+      );
+      const payload = JSON.parse(stdout) as {
+        jobs?: Array<{
+          name?: string | null;
+          conclusion?: string | null;
+          steps?: Array<{ name?: string | null; conclusion?: string | null }>;
+        }>;
+      };
+      for (const job of payload.jobs ?? []) {
+        const failedStep = job.steps?.find((step) => step.conclusion === "failure");
+        if (failedStep?.name?.trim()) {
+          stepName = failedStep.name.trim();
+          break;
+        }
+        if (job.conclusion === "failure" && job.name?.trim()) {
+          stepName = job.name.trim();
+          break;
+        }
+      }
+    } catch {
+      // Best-effort: fallback values are already set.
+    }
+
+    try {
+      const { stdout } = await this.exec(
+        "gh",
+        ["run", "view", String(runId), "--repo", `${this.owner}/${this.repo}`, "--log-failed"],
+        { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 },
+      );
+      if (stdout.trim().length > 0) {
+        logOutput = stdout.trim();
+      }
+    } catch {
+      // Best-effort: fallback values are already set.
+    }
+
+    return { stepName, logOutput };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------

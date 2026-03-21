@@ -322,12 +322,16 @@ function parseFeature(
 
   const jobs = parseFeatureJobs(raw.jobs);
   if (jobs.length > 0) {
-    jobsTotal = Math.max(jobsTotal, jobs.length);
+    const nonCancelledJobs = jobs.filter((job) => {
+      const normalized = (job.status ?? "").toLowerCase();
+      return normalized !== "cancelled";
+    });
+    jobsTotal = nonCancelledJobs.length;
     const completeCount = jobs.filter((job) => {
       const normalized = (job.status ?? "").toLowerCase();
-      return normalized === "complete" || normalized === "done";
+      return normalized === "complete";
     }).length;
-    jobsDone = Math.max(jobsDone, completeCount);
+    jobsDone = completeCount;
   }
 
   const id = stringValue(raw.id) ?? crypto.randomUUID();

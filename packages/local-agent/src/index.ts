@@ -254,7 +254,7 @@ async function main(): Promise<void> {
     console.log(`[local-agent] SHUTDOWN: Grace period started (${gracePeriodMs}ms)`);
 
     // DB transition: executing → queued
-    const activeJobIds = executor.getActiveJobIds();
+    const activeJobIds = executor.getActiveJobIds().filter(id => !id.startsWith("persistent-"));
     for (const jobId of activeJobIds) {
       try {
         const { data, error } = await conn.dbClient

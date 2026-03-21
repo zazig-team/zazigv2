@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "117f751";
+const AGENT_BUILD_HASH = "f709fec";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -12977,7 +12977,12 @@ var STANDARD_TOOLS = [
 ];
 var ROLE_DEFAULT_MCP_TOOLS = {
   "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "start_expert_session"],
-  "breakdown-specialist": ["query_features", "batch_create_jobs"]
+  "breakdown-specialist": ["query_features", "batch_create_jobs"],
+  "senior-engineer": ["create_project_rule"],
+  "junior-engineer": ["create_project_rule"],
+  "job-combiner": ["create_project_rule"],
+  "test-engineer": ["create_project_rule"],
+  "fix-agent": ["create_project_rule"]
 };
 var MEMORY_MAINTENANCE_SECTION = `## Memory Maintenance
 
@@ -13760,6 +13765,7 @@ var execFileAsync2 = promisify2(execFile2);
 var POLL_INTERVAL_MS = 3e4;
 var SLOT_RECONCILE_INTERVAL_MS = 6e4;
 var PR_MONITOR_INTERVAL_MS = 6e4;
+var CI_MONITOR_INTERVAL_MS = 3e5;
 var JOB_TIMEOUT_MS = 60 * 6e4;
 var STUCK_NO_OUTPUT_MS = 5 * 6e4;
 var INTERACTIVE_JOB_TIMEOUT_MS = 30 * 6e4;
@@ -13877,6 +13883,9 @@ var JobExecutor = class {
   processingQueue = false;
   reconcileTimer = null;
   prMonitorTimer = null;
+  ciMonitorTimer = null;
+  lastSeenCIRunId = null;
+  consecutiveFailedGenerations = 0;
   companyProjects = [];
   constructor(machineId, companyId, slots, send, supabase, supabaseUrl, supabaseAnonKey, afterJobComplete) {
     this.machineId = machineId;
@@ -13893,6 +13902,9 @@ var JobExecutor = class {
     this.prMonitorTimer = setInterval(() => {
       void this.monitorMergedPRs();
     }, PR_MONITOR_INTERVAL_MS);
+    this.ciMonitorTimer = setInterval(() => {
+      void this.monitorMasterCI();
+    }, CI_MONITOR_INTERVAL_MS);
   }
   setCompanyProjects(projects) {
     this.companyProjects = [...projects];
@@ -14203,7 +14215,7 @@ ${cpoContext}`);
           }
         }, CPO_STARTUP_DELAY_MS);
       } else {
-        await spawnTmuxSession(sessionName, cmd, cmdArgs, ephemeralWorkspaceDir, slotType === "codex" ? void 0 : promptFilePath);
+        await spawnTmuxSession(sessionName, cmd, cmdArgs, ephemeralWorkspaceDir, promptFilePath);
       }
     } catch (err) {
       console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
@@ -14434,6 +14446,10 @@ ${msg.text}`;
       clearInterval(this.prMonitorTimer);
       this.prMonitorTimer = null;
     }
+    if (this.ciMonitorTimer !== null) {
+      clearInterval(this.ciMonitorTimer);
+      this.ciMonitorTimer = null;
+    }
     this.clearPersistentAgent();
     for (const [, job] of this.activeJobs) {
       this.clearJobTimers(job);
@@ -14447,6 +14463,229 @@ ${msg.text}`;
         this.slots.release(job.slotType);
     }
     this.activeJobs.clear();
+  }
+  async monitorMasterCI() {
+    try {
+      const repoUrl = this.companyProjects[0]?.repo_url;
+      if (!repoUrl) {
+        console.log("[executor] Master CI monitor skipped: missing project repo_url");
+        return;
+      }
+      const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+      if (!match) {
+        console.warn(`[executor] Master CI monitor skipped: cannot parse owner/repo from "${repoUrl}"`);
+        return;
+      }
+      const ownerRepo = match[1];
+      const { stdout } = await execFileAsync2("gh", [
+        "api",
+        `repos/${ownerRepo}/actions/runs?branch=master&event=push&per_page=1`
+      ], { encoding: "utf8" });
+      const payload = JSON.parse(stdout);
+      const latestRun = payload.workflow_runs?.[0];
+      if (!latestRun) {
+        console.log(`[executor] Master CI monitor: no workflow runs found for ${ownerRepo}`);
+        return;
+      }
+      const runId = typeof latestRun.id === "number" ? latestRun.id : null;
+      if (runId === null) {
+        console.warn("[executor] Master CI monitor skipped: latest workflow run missing numeric id");
+        return;
+      }
+      const conclusion = latestRun.conclusion;
+      const headSha = typeof latestRun.head_sha === "string" ? latestRun.head_sha : "";
+      if (conclusion === null || conclusion === "in_progress" || conclusion === "queued") {
+        console.log(`[executor] Master CI run ${runId} not finished yet (conclusion=${conclusion ?? "null"})`);
+        return;
+      }
+      if (conclusion === "success") {
+        this.consecutiveFailedGenerations = 0;
+        this.lastSeenCIRunId = runId;
+        return;
+      }
+      if (conclusion === "failure") {
+        if (runId === this.lastSeenCIRunId)
+          return;
+        this.lastSeenCIRunId = runId;
+        await this.handleMasterCIFailure(runId, headSha);
+        return;
+      }
+    } catch (err) {
+      console.warn(`[executor] Master CI monitor failed: ${String(err)}`);
+      return;
+    }
+  }
+  async handleMasterCIFailure(runId, headSha) {
+    try {
+      if (await this.isCIFixInFlight())
+        return;
+      const generation = await this.computeNextCIFixGeneration();
+      if (generation === null)
+        return;
+      const failureLogs = await this.fetchCIFailureLogs(runId);
+      const stepName = failureLogs?.stepName?.trim() || "unknown step";
+      const logOutput = failureLogs?.logOutput?.trim() || `No failure log output available for run ${runId}.`;
+      const normalizedHeadSha = headSha.trim().length > 0 ? headSha : "unknown";
+      if (!this.companyId) {
+        console.warn(`[CI Monitor] Skipping fix feature for run ${runId}: missing companyId`);
+        return;
+      }
+      const repoUrl = this.companyProjects[0]?.repo_url;
+      if (!repoUrl) {
+        console.warn(`[CI Monitor] Skipping fix feature for run ${runId}: missing project repo_url`);
+        return;
+      }
+      const projectId = await this.resolveProjectIdForRepo(repoUrl);
+      if (!projectId) {
+        console.warn(`[CI Monitor] Skipping fix feature for run ${runId}: could not resolve project_id for ${repoUrl}`);
+        return;
+      }
+      const { data: createdFeature, error: featureInsertError } = await this.supabase.from("features").insert({
+        company_id: this.companyId,
+        project_id: projectId,
+        title: `Fix master CI failure \u2014 ${stepName}`,
+        description: `Automated fix for master CI failure on commit ${normalizedHeadSha}. Failed step: ${stepName}.`,
+        spec: [
+          `Master CI run: ${runId}`,
+          `Commit SHA: ${normalizedHeadSha}`,
+          `Failed step: ${stepName}`,
+          "",
+          "Failure log output:",
+          logOutput,
+          "",
+          "Investigate and fix the root cause of this CI failure so master goes green."
+        ].join("\n"),
+        tags: ["master-ci-fix", `fix-generation:${generation}`],
+        priority: "high",
+        fast_track: true
+      }).select("id").single();
+      if (featureInsertError) {
+        console.warn(`[CI Monitor] Failed to insert fix feature for run ${runId}: ${featureInsertError.message}`);
+        return;
+      }
+      const featureId = createdFeature?.id;
+      if (!featureId) {
+        console.warn(`[CI Monitor] Failed to insert fix feature for run ${runId}: insert returned no feature id`);
+        return;
+      }
+      const { error: featureEventInsertError } = await this.supabase.from("feature_events").insert({
+        company_id: this.companyId,
+        feature_id: featureId,
+        event_type: "created",
+        detail: {
+          source: "master_ci_monitor",
+          runId,
+          generation,
+          headSha: normalizedHeadSha,
+          stepName
+        }
+      });
+      if (featureEventInsertError) {
+        console.warn(`[CI Monitor] Failed to insert feature_events row for feature ${featureId}: ${featureEventInsertError.message}`);
+        return;
+      }
+      this.consecutiveFailedGenerations += 1;
+      console.log(`[CI Monitor] Created fix feature (generation ${generation}) for run ${runId}`);
+    } catch (err) {
+      console.warn(`[CI Monitor] Failed to create fix feature for run ${runId}: ${String(err)}`);
+      return;
+    }
+  }
+  async fetchCIFailureLogs(runId) {
+    const repoUrl = this.companyProjects[0]?.repo_url;
+    if (!repoUrl)
+      return null;
+    const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (!match) {
+      console.warn(`[CI Monitor] Cannot parse owner/repo from "${repoUrl}" while fetching failure logs`);
+      return null;
+    }
+    const ownerRepo = match[1];
+    try {
+      const { stdout: jobsStdout } = await execFileAsync2("gh", ["api", `repos/${ownerRepo}/actions/runs/${runId}/jobs?per_page=100`], { encoding: "utf8" });
+      const jobsPayload = JSON.parse(jobsStdout);
+      let stepName = "unknown step";
+      for (const job of jobsPayload.jobs ?? []) {
+        const failedStep = job.steps?.find((step) => step.conclusion === "failure");
+        if (failedStep?.name && failedStep.name.trim().length > 0) {
+          stepName = failedStep.name.trim();
+          break;
+        }
+        if (job.conclusion === "failure" && job.name && job.name.trim().length > 0) {
+          stepName = job.name.trim();
+          break;
+        }
+      }
+      let logOutput = "";
+      try {
+        const { stdout: failedLogStdout } = await execFileAsync2("gh", ["run", "view", String(runId), "--repo", ownerRepo, "--log-failed"], { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+        logOutput = failedLogStdout.trim();
+      } catch (err) {
+        console.warn(`[CI Monitor] Failed to fetch failed log output for run ${runId}: ${String(err)}`);
+      }
+      if (!logOutput) {
+        logOutput = `No failure log output available for run ${runId}.`;
+      }
+      return { stepName, logOutput };
+    } catch (err) {
+      console.warn(`[CI Monitor] Failed to fetch CI failure context for run ${runId}: ${String(err)}`);
+      return null;
+    }
+  }
+  async resolveProjectIdForRepo(repoUrl) {
+    if (!this.companyId)
+      return null;
+    const targetRepoMatch = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    const targetOwnerRepo = targetRepoMatch?.[1]?.toLowerCase() ?? null;
+    const { data, error } = await this.supabase.from("projects").select("id, repo_url").eq("company_id", this.companyId).eq("status", "active");
+    if (error) {
+      console.warn(`[CI Monitor] Failed to resolve project for repo "${repoUrl}": ${error.message}`);
+      return null;
+    }
+    const projects = data ?? [];
+    if (projects.length === 0)
+      return null;
+    if (targetOwnerRepo) {
+      const match = projects.find((project) => {
+        if (!project.repo_url)
+          return false;
+        const projectRepoMatch = project.repo_url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+        return projectRepoMatch?.[1]?.toLowerCase() === targetOwnerRepo;
+      });
+      if (match?.id)
+        return match.id;
+    }
+    if (projects.length === 1 && projects[0]?.id) {
+      return projects[0].id;
+    }
+    return null;
+  }
+  async isCIFixInFlight() {
+    const activeStatuses = [
+      "breaking_down",
+      "building",
+      "combining_and_pr",
+      "ci_checking",
+      "merging"
+    ];
+    const { data, error } = await this.supabase.from("features").select("id").contains("tags", ["master-ci-fix"]).in("status", activeStatuses);
+    if (error) {
+      console.warn(`[executor] Failed to query active master CI fixes: ${error.message}`);
+      return false;
+    }
+    const activeFixCount = data?.length ?? 0;
+    const inFlight = activeFixCount > 0;
+    if (inFlight) {
+      console.warn(`[executor] Master CI fix already in flight (${activeFixCount} active feature(s)) \u2014 skipping auto-fix creation`);
+    }
+    return inFlight;
+  }
+  async computeNextCIFixGeneration() {
+    if (this.consecutiveFailedGenerations >= 3) {
+      console.warn(`[executor] Master CI fix generation cap reached (${this.consecutiveFailedGenerations}) \u2014 skipping auto-fix creation`);
+      return null;
+    }
+    return this.consecutiveFailedGenerations + 1;
   }
   /**
    * Monitors features in pr_ready status for merged PRs.
@@ -15305,12 +15544,25 @@ ${msg.text}`;
         console.warn(`[executor] Worktree cleanup failed for jobId=${jobId}: ${String(worktreeErr)}`);
       }
       if (job.cardType === "combine" && job.repoUrl && job.featureBranch) {
-        const prUrlInResult = result.match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/)?.[0];
-        if (prUrlInResult) {
-          jobLog(jobId, `PR already created by agent \u2014 using URL from report: ${prUrlInResult}`);
-          pr = await this.createPRForCombineJob(jobId, job, prUrlInResult);
+        let featureBranchCommitCount = 1;
+        try {
+          const { stdout: countOut } = await execFileAsync2("git", ["rev-list", "--count", `master..${job.featureBranch}`], { cwd: job.repoDir });
+          featureBranchCommitCount = parseInt(countOut.trim(), 10) || 0;
+        } catch (countErr) {
+          jobLog(jobId, `Could not count commits on feature branch (non-fatal): ${String(countErr)}`);
+        }
+        if (featureBranchCommitCount === 0) {
+          jobLog(jobId, `Combine job produced no commits on ${job.featureBranch} \u2014 overriding result to FAILED`);
+          console.warn(`[executor] Combine job ${jobId} has 0 commits ahead of master on ${job.featureBranch} \u2014 failing`);
+          result = "FAILED: No commits to combine \u2014 feature branch has no commits ahead of master";
         } else {
-          pr = await this.createPRForCombineJob(jobId, job);
+          const prUrlInResult = result.match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/)?.[0];
+          if (prUrlInResult) {
+            jobLog(jobId, `PR already created by agent \u2014 using URL from report: ${prUrlInResult}`);
+            pr = await this.createPRForCombineJob(jobId, job, prUrlInResult);
+          } else {
+            pr = await this.createPRForCombineJob(jobId, job);
+          }
         }
       }
     } else {
@@ -15921,7 +16173,6 @@ function buildCommand(slotType, complexity, model, worktreePath, promptFilePath,
     if (complexity === "medium") {
       args.push("-c", "model_reasoning_effort=xhigh");
     }
-    args.push(promptFilePath ?? "");
     return {
       cmd: "codex",
       args

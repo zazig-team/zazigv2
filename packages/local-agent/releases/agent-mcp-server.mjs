@@ -36009,6 +36009,49 @@ server.tool("create_project", "Create a new project for a company. Used by the P
     isError: true
   };
 }));
+server.tool("create_project_rule", "Create a project rule that will be automatically injected into future agent prompts. Use when you identify a preventable pattern that future agents should know about.", {
+  project_id: external_exports3.string().describe("Project UUID this rule belongs to"),
+  rule_text: external_exports3.string().describe("Rule text in plain language"),
+  applies_to: external_exports3.array(external_exports3.string()).describe("Array of job types this rule applies to (e.g. ['code', 'combine'])")
+}, guardedHandler("create_project_rule", async ({ project_id, rule_text, applies_to }) => {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+  const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
+  const jobId = process.env.ZAZIG_JOB_ID ?? "";
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return {
+      content: [{ type: "text", text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+      isError: true
+    };
+  }
+  if (!companyId) {
+    return {
+      content: [{ type: "text", text: "Error: ZAZIG_COMPANY_ID is required for create_project_rule" }],
+      isError: true
+    };
+  }
+  const response = await fetch(`${supabaseUrl}/functions/v1/create-project-rule`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${supabaseAnonKey}`,
+      "x-company-id": companyId,
+      ...jobId ? { "x-job-id": jobId } : {}
+    },
+    body: JSON.stringify({ project_id, rule_text, applies_to })
+  });
+  if (response.ok) {
+    const data = await response.json();
+    return {
+      content: [{ type: "text", text: `Project rule created successfully. rule_id: ${data.rule_id}` }]
+    };
+  }
+  const errorBody = await response.text().catch(() => "unknown error");
+  return {
+    content: [{ type: "text", text: `Failed to create project rule (HTTP ${response.status}): ${errorBody}` }],
+    isError: true
+  };
+}));
 server.tool("update_project", "Update project settings. Set test_command and build_command to enable automatic CI workflow injection on PRs.", {
   project_id: external_exports3.string().describe("ID of the project to update"),
   name: external_exports3.string().optional().describe("New project name"),

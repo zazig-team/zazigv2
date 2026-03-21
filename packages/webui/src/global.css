@@ -2349,6 +2349,10 @@ input {
   animation: slideInRight 0.2s ease-out;
 }
 
+.detail-panel--has-pr-link .detail-body {
+  padding-bottom: calc(var(--sp-7) + 52px);
+}
+
 .detail-header {
   display: flex;
   align-items: flex-start;
@@ -2570,16 +2574,32 @@ input {
   margin-top: 2px;
 }
 
-.detail-pr-link {
-  display: inline-block;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--info);
+.detail-pr-fab {
+  position: absolute;
+  right: var(--sp-5);
+  bottom: var(--sp-5);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--sp-4);
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--info) 36%, transparent);
+  background: var(--info);
+  color: var(--white);
   text-decoration: none;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: var(--shadow-md);
+  transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
 }
 
-.detail-pr-link:hover {
-  text-decoration: underline;
+.detail-pr-fab:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
+  opacity: 0.96;
 }
 
 .detail-linked-card {

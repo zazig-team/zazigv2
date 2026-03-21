@@ -40,7 +40,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 }
 
 // CPO can only set these statuses — all others are orchestrator-managed
-const ALLOWED_CPO_STATUSES = ["breaking_down", "complete"] as const;
+const ALLOWED_CPO_STATUSES = ["breaking_down", "complete", "cancelled"] as const;
 
 async function wouldCreateCycle(
   supabase: SupabaseClient,

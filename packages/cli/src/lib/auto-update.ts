@@ -10,6 +10,7 @@ import {
   existsSync, readFileSync, mkdirSync, writeFileSync,
   chmodSync, rmSync, cpSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -129,6 +130,13 @@ export async function downloadAndInstall(version: string): Promise<void> {
     const dest = join(BIN_DIR, local);
     writeFileSync(dest, buffer);
     chmodSync(dest, 0o755);
+    // Re-sign the binary — writeFileSync creates a new inode which
+    // invalidates the adhoc signature Bun embedded at compile time.
+    try {
+      execFileSync("codesign", ["--force", "--sign", "-", dest]);
+    } catch {
+      // codesign may not be available on non-macOS — non-fatal
+    }
   }
 
   // Write version marker

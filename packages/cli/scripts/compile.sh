@@ -21,14 +21,17 @@ mkdir -p "$OUT_DIR"
 echo "Compiling zazig CLI..."
 bun build --compile "$REPO_ROOT/packages/cli/releases/zazig.mjs" \
   --outfile "$OUT_DIR/zazig-cli-darwin-arm64"
+codesign --force --sign - "$OUT_DIR/zazig-cli-darwin-arm64"
 
 echo "Compiling zazig-agent..."
 bun build --compile "$REPO_ROOT/packages/local-agent/releases/zazig-agent.mjs" \
   --outfile "$OUT_DIR/zazig-agent-darwin-arm64"
+codesign --force --sign - "$OUT_DIR/zazig-agent-darwin-arm64"
 
 echo "Compiling agent-mcp-server..."
 bun build --compile "$REPO_ROOT/packages/local-agent/releases/agent-mcp-server.mjs" \
   --outfile "$OUT_DIR/agent-mcp-server-darwin-arm64"
+codesign --force --sign - "$OUT_DIR/agent-mcp-server-darwin-arm64"
 
-echo "Compiled 3 binaries to $OUT_DIR"
+echo "Compiled and signed 3 binaries to $OUT_DIR"
 ls -lh "$OUT_DIR"

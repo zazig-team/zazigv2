@@ -14352,6 +14352,7 @@ function rollbackBinaries() {
 
 // dist/lib/auto-update.js
 import { existsSync as existsSync8, readFileSync as readFileSync7, mkdirSync as mkdirSync7, writeFileSync as writeFileSync7, chmodSync as chmodSync2, rmSync as rmSync3, cpSync as cpSync2 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { execSync as execSync4 } from "node:child_process";
 import { join as join9 } from "node:path";
 import { homedir as homedir8 } from "node:os";
@@ -14442,6 +14443,10 @@ async function downloadAndInstall(version3) {
     const dest = join9(BIN_DIR2, local);
     writeFileSync7(dest, buffer);
     chmodSync2(dest, 493);
+    try {
+      execFileSync("codesign", ["--force", "--sign", "-", dest]);
+    } catch {
+    }
   }
   writeFileSync7(VERSION_FILE, version3);
 }

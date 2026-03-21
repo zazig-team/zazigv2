@@ -38,63 +38,15 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-function decodeBase64Url(value: string): string {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padding = (4 - (normalized.length % 4)) % 4;
-  return atob(normalized + "=".repeat(padding));
-}
-
-function companyIdFromAuthHeader(authHeader: string): string | null {
+function parseBearerToken(authHeader: string): string | null {
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!match) return null;
-
   const token = match[1].trim();
-  const parts = token.split(".");
-  if (parts.length !== 3) return null;
-
-  try {
-    const payload = JSON.parse(decodeBase64Url(parts[1])) as Record<
-      string,
-      unknown
-    >;
-
-    if (
-      typeof payload.company_id === "string" && payload.company_id.length > 0
-    ) {
-      return payload.company_id;
-    }
-    if (typeof payload.companyId === "string" && payload.companyId.length > 0) {
-      return payload.companyId;
-    }
-
-    const appMetadata = payload.app_metadata as
-      | Record<string, unknown>
-      | undefined;
-    if (
-      typeof appMetadata?.company_id === "string" &&
-      appMetadata.company_id.length > 0
-    ) {
-      return appMetadata.company_id;
-    }
-
-    const userMetadata = payload.user_metadata as
-      | Record<string, unknown>
-      | undefined;
-    if (
-      typeof userMetadata?.company_id === "string" &&
-      userMetadata.company_id.length > 0
-    ) {
-      return userMetadata.company_id;
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
+  return token.length > 0 ? token : null;
 }
 
 const JOB_SELECT =
-  "id, title, status, role, model, job_type, slot_type, progress, started_at, completed_at, branch, blocked_reason, result, machine_id";
+  "id, title, status, role, model, job_type, slot_type, progress, started_at, completed_at, branch, blocked_reason, result, machine_id, company_id";
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -115,14 +67,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: "Missing authorization header" }, 401);
     }
 
-    const companyId = companyIdFromAuthHeader(authHeader);
-    if (!companyId) {
-      return jsonResponse({ error: "Forbidden" }, 403);
+    const token = parseBearerToken(authHeader);
+    if (!token) {
+      return jsonResponse({ error: "Invalid authorization header" }, 401);
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { persistSession: false },
     });
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser(token);
+
+    if (userError || !user) {
+      return jsonResponse({ error: "Forbidden" }, 403);
+    }
 
     const body = await req.json() as { job_id?: unknown };
     const jobId = typeof body.job_id === "string" ? body.job_id.trim() : "";
@@ -135,7 +96,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .from("jobs")
       .select(JOB_SELECT)
       .eq("id", jobId)
-      .eq("company_id", companyId)
       .maybeSingle();
 
     if (jobError) {
@@ -144,6 +104,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     // Return 403 for both missing and out-of-scope jobs to avoid leaking existence.
     if (!job) {
+      return jsonResponse({ error: "Forbidden" }, 403);
+    }
+
+    if (!job.company_id) {
+      return jsonResponse({ error: "Forbidden" }, 403);
+    }
+
+    const { data: membership, error: membershipError } = await supabase
+      .from("user_companies")
+      .select("company_id")
+      .eq("user_id", user.id)
+      .eq("company_id", job.company_id)
+      .maybeSingle();
+
+    if (membershipError) {
+      return jsonResponse({ error: membershipError.message }, 500);
+    }
+
+    if (!membership) {
       return jsonResponse({ error: "Forbidden" }, 403);
     }
 
@@ -163,7 +142,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     return jsonResponse({
-      ...job,
+      id: job.id,
+      title: job.title,
+      status: job.status,
+      role: job.role,
+      model: job.model,
+      job_type: job.job_type,
+      slot_type: job.slot_type,
+      progress: job.progress,
+      started_at: job.started_at,
+      completed_at: job.completed_at,
+      branch: job.branch,
+      blocked_reason: job.blocked_reason,
+      result: job.result,
+      machine_id: job.machine_id,
       machine_name: machineName,
     });
   } catch (err) {

@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "89d8ce7";
+const AGENT_BUILD_HASH = "47ea44c";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -17730,7 +17730,7 @@ async function main() {
     }
     const gracePeriodMs = parseInt(process.env["ZAZIG_GRACEFUL_SHUTDOWN_MS"] ?? "10000", 10);
     console.log(`[local-agent] SHUTDOWN: Grace period started (${gracePeriodMs}ms)`);
-    const activeJobIds = executor.getActiveJobIds();
+    const activeJobIds = executor.getActiveJobIds().filter((id) => !id.startsWith("persistent-"));
     for (const jobId of activeJobIds) {
       try {
         const { data, error } = await conn.dbClient.from("jobs").update({ status: "queued", blocked_reason: "daemon shutdown \u2014 awaiting re-dispatch" }).eq("id", jobId).eq("status", "executing").select("id");

@@ -556,6 +556,7 @@ export interface FeatureDetailJob {
   role: string;
   model: string | null;
   result: string | null;
+  error_analysis: ErrorAnalysis | null;
 }
 
 export interface FeatureDetail {
@@ -594,6 +595,16 @@ export interface JobDetail {
   result: string | null;
   machine_id: string | null;
   machine_name: string | null;
+  error_analysis: ErrorAnalysis | null;
+}
+
+export interface ErrorAnalysis {
+  errors: Array<{
+    pattern: string;
+    severity: "critical" | "warning";
+    snippet: string;
+  }>;
+  scanned_at: string;
 }
 
 export interface IdeaDetail {
@@ -638,7 +649,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
 
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("id, title, status, role, model, result")
+    .select("id, title, status, role, model, result, error_analysis")
     .eq("feature_id", featureId);
 
   let sourceIdea: FeatureDetail["sourceIdea"] = null;
@@ -680,6 +691,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
       role: j.role,
       model: j.model ?? null,
       result: j.result ?? null,
+      error_analysis: (j.error_analysis as ErrorAnalysis | null) ?? null,
     })),
     sourceIdea,
   };
@@ -1182,7 +1194,11 @@ export async function fetchJobDetail(jobId: string): Promise<JobDetail> {
     throw new Error(`query-job-detail failed (${response.status}): ${message}`);
   }
 
-  return (await response.json()) as JobDetail;
+  const data = (await response.json()) as JobDetail;
+  return {
+    ...data,
+    error_analysis: (data.error_analysis as ErrorAnalysis | null) ?? null,
+  };
 }
 
 export async function fetchJobLogs(

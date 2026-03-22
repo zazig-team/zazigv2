@@ -1194,7 +1194,11 @@ export async function fetchJobDetail(jobId: string): Promise<JobDetail> {
     throw new Error(`query-job-detail failed (${response.status}): ${message}`);
   }
 
-  return (await response.json()) as JobDetail;
+  const data = (await response.json()) as JobDetail;
+  return {
+    ...data,
+    error_analysis: (data.error_analysis as ErrorAnalysis | null) ?? null,
+  };
 }
 
 export async function fetchJobLogs(

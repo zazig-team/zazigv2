@@ -44,6 +44,8 @@ function toTrimmedString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
@@ -68,7 +70,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: "x-company-id header is required" }, 400);
     }
 
-    const sourceJobId = toTrimmedString(req.headers.get("x-job-id"));
+    const rawJobId = toTrimmedString(req.headers.get("x-job-id"));
+    const sourceJobId = rawJobId && UUID_RE.test(rawJobId) ? rawJobId : null;
 
     let body: Record<string, unknown>;
     try {
@@ -126,7 +129,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         project_id: projectId,
         rule_text: ruleText,
         applies_to: normalizedAppliesTo,
-        source_job_id: sourceJobId ?? null,
+        source_job_id: sourceJobId,
       })
       .select("id")
       .single();

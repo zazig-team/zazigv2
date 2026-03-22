@@ -117,12 +117,14 @@ export function removePidFile(): void {
 /* ── Per-company PID management ────────────────────────────────── */
 
 export function pidPathForCompany(companyId: string): string {
-  return join(ZAZIGV2_DIR, `${companyId}.pid`);
+  const suffix = IS_STAGING ? "-staging" : "";
+  return join(ZAZIGV2_DIR, `${companyId}${suffix}.pid`);
 }
 
 export function logPathForCompany(companyId: string): string {
   mkdirSync(LOG_DIR, { recursive: true });
-  return join(LOG_DIR, `${companyId}.log`);
+  const suffix = IS_STAGING ? "-staging" : "";
+  return join(LOG_DIR, `${companyId}${suffix}.log`);
 }
 
 export function readPidForCompany(companyId: string): number | null {

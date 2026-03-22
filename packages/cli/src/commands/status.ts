@@ -147,7 +147,8 @@ export async function status(): Promise<void> {
       const persistentAgents = await apiFetch(
         `${creds.supabaseUrl}/rest/v1/persistent_agents` +
           `?select=id,role,status,machine_id,last_heartbeat` +
-          `&company_id=in.(${companyIds.join(",")})`,
+          `&company_id=in.(${companyIds.join(",")})` +
+          `&machine_id=eq.${encodeURIComponent(machineId)}`,
         headers
       );
 
@@ -156,10 +157,8 @@ export async function status(): Promise<void> {
         for (const agent of persistentAgents) {
           const role = String(agent.role ?? "unknown").toUpperCase();
           const agentStatus = String(agent.status ?? "unknown");
-          const isLocal = agent.machine_id === machineId;
-          const localTag = isLocal ? " (this machine)" : "";
           const icon = agentStatus === "running" ? "●" : "○";
-          console.log(`    ${icon} ${role.padEnd(12)} ${agentStatus}${localTag}`);
+          console.log(`    ${icon} ${role.padEnd(12)} ${agentStatus}`);
         }
       }
     }

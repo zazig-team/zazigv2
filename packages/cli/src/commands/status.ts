@@ -57,7 +57,7 @@ export async function status(): Promise<void> {
     return;
   }
 
-  const { pid } = daemon;
+  const { pid, companyId } = daemon;
   console.log(`zazig ${getVersion()} — agent running (PID ${pid})`);
 
   // Best-effort live state from Supabase — never fatal if this fails
@@ -86,7 +86,10 @@ export async function status(): Promise<void> {
     const machines = await apiFetch(
       `${creds.supabaseUrl}/rest/v1/machines` +
         `?select=id,name,status,last_heartbeat,slots_claude_code,slots_codex,company_id` +
-        `&name=eq.${encodeURIComponent(cfg.name)}`,
+        `&name=eq.${encodeURIComponent(cfg.name)}` +
+        (companyId
+          ? `&company_id=eq.${encodeURIComponent(companyId)}`
+          : ""),
       headers
     );
 

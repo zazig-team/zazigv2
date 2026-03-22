@@ -15,7 +15,7 @@ export async function ideas(args: string[]): Promise<void> {
   try {
     creds = await getValidCredentials();
   } catch {
-    process.stderr.write(JSON.stringify({ error: "Not logged in. Run zazig login" }));
+    process.stderr.write(JSON.stringify({ "error": "Not logged in. Run zazig login" }));
     process.exit(1);
   }
 
@@ -44,7 +44,7 @@ export async function ideas(args: string[]): Promise<void> {
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
-    process.stderr.write(JSON.stringify({ error: `HTTP ${response.status}: ${errorBody}` }));
+    process.stderr.write(JSON.stringify({ "error": `HTTP ${response.status}: ${errorBody}` }));
     process.exit(1);
   }
 

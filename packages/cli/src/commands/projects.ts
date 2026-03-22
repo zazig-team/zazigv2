@@ -9,15 +9,13 @@ export async function projects(args: string[]): Promise<void> {
   try {
     creds = await getValidCredentials();
   } catch {
-    process.stderr.write(JSON.stringify({ error: "Not logged in. Run zazig login" }));
+    process.stderr.write(JSON.stringify({ "error": "Not logged in. Run zazig login" }));
     process.exit(1);
   }
 
   const { company_id } = loadConfig();
 
-  const select = includeFeatures
-    ? "id,name,description,status,features(id,title,description,priority,status)"
-    : "id,name,description,status";
+  const select = includeFeatures ? "id,name,description,status,features(id,title,description,priority,status)" : "id,name,description,status";
 
   const url = `${creds.supabaseUrl}/rest/v1/projects?select=${select}&company_id=eq.${company_id}`;
 
@@ -32,7 +30,7 @@ export async function projects(args: string[]): Promise<void> {
 
   if (!response.ok) {
     const body = await response.text();
-    process.stderr.write(JSON.stringify({ error: `HTTP ${response.status}: ${body}` }));
+    process.stderr.write(JSON.stringify({ "error": `HTTP ${response.status}: ${body}` }));
     process.exit(1);
   }
 

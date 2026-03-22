@@ -11,7 +11,7 @@ export async function features(args: string[]): Promise<void> {
   const status = statusFlag?.slice("--status=".length);
 
   if (!project_id && !feature_id) {
-    process.stderr.write(JSON.stringify({ error: "project_id or --id is required" }));
+    process.stderr.write(JSON.stringify({ "error": "project_id or --id is required" }));
     process.exit(1);
   }
 
@@ -19,7 +19,7 @@ export async function features(args: string[]): Promise<void> {
   try {
     creds = await getValidCredentials();
   } catch {
-    process.stderr.write(JSON.stringify({ error: "Not logged in. Run zazig login" }));
+    process.stderr.write(JSON.stringify({ "error": "Not logged in. Run zazig login" }));
     process.exit(1);
   }
 
@@ -49,7 +49,7 @@ export async function features(args: string[]): Promise<void> {
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "unknown error");
-    process.stderr.write(JSON.stringify({ error: `HTTP ${response.status}: ${errorBody}` }));
+    process.stderr.write(JSON.stringify({ "error": `HTTP ${response.status}: ${errorBody}` }));
     process.exit(1);
   }
 

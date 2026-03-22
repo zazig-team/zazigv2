@@ -7,7 +7,7 @@ export async function snapshot(): Promise<void> {
   try {
     creds = await getValidCredentials();
   } catch {
-    process.stderr.write(JSON.stringify({ error: "Not logged in. Run zazig login" }));
+    process.stderr.write(JSON.stringify({ "error": "Not logged in. Run zazig login" }));
     process.exit(1);
   }
 
@@ -28,7 +28,7 @@ export async function snapshot(): Promise<void> {
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    process.stderr.write(JSON.stringify({ error: `HTTP ${response.status}: ${body}` }));
+    process.stderr.write(JSON.stringify({ "error": `HTTP ${response.status}: ${body}` }));
     process.exit(1);
   }
 

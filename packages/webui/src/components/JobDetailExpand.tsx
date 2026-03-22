@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { fetchJobDetail, fetchJobLogs, type JobDetail } from "../lib/queries";
+import { fetchJobDetail, fetchJobLogs, type ErrorAnalysis, type JobDetail } from "../lib/queries";
 
 interface JobDetailExpandProps {
   jobId: string;
@@ -10,6 +10,8 @@ type JobLogs = Record<LogTab, string>;
 
 const ACTIVE_STATUSES = new Set(["executing", "running", "in_progress"]);
 const COMPLETED_OR_FAILED_STATUSES = new Set(["complete", "completed", "failed"]);
+const SNIPPET_PREVIEW_LIMIT = 300;
+const COLLAPSIBLE_ERROR_THRESHOLD = 5;
 
 function isActiveStatus(status: string): boolean {
   return ACTIVE_STATUSES.has(status.toLowerCase());
@@ -25,6 +27,13 @@ function statusBadgeClass(status: string): string {
   if (s === "failed" || s === "cancelled") return "detail-badge detail-badge--negative";
   if (s === "executing" || s === "running" || s === "in_progress" || s === "dispatched") return "detail-badge detail-badge--active";
   if (s === "queued" || s === "proposal" || s === "ready") return "detail-badge detail-badge--caution";
+  return "detail-badge";
+}
+
+function errorSeverityBadgeClass(severity: string): string {
+  const normalized = severity.toLowerCase();
+  if (normalized === "critical") return "detail-badge detail-badge--negative";
+  if (normalized === "warning") return "detail-badge detail-badge--caution";
   return "detail-badge";
 }
 
@@ -76,6 +85,7 @@ export default function JobDetailExpand({ jobId }: JobDetailExpandProps): JSX.El
   const [logs, setLogs] = useState<JobLogs>({ lifecycle: "", tmux: "" });
   const [activeTab, setActiveTab] = useState<LogTab>("lifecycle");
   const [showFullResult, setShowFullResult] = useState(false);
+  const [showFullSnippets, setShowFullSnippets] = useState<Set<number>>(new Set());
   const [loadingJob, setLoadingJob] = useState(true);
   const [loadingLogs, setLoadingLogs] = useState(true);
   const [jobError, setJobError] = useState<string | null>(null);
@@ -193,6 +203,7 @@ export default function JobDetailExpand({ jobId }: JobDetailExpandProps): JSX.El
     setJobError(null);
     setLogError(null);
     setShowFullResult(false);
+    setShowFullSnippets(new Set());
     setActiveTab("lifecycle");
     activeTabRef.current = "lifecycle";
 
@@ -211,12 +222,55 @@ export default function JobDetailExpand({ jobId }: JobDetailExpandProps): JSX.El
 
   const resultText = (job?.result ?? "").trim();
   const hasResultSummary = Boolean(job) && isCompletedOrFailedJob;
+  const errors = job?.error_analysis?.errors ?? [];
+  const hasErrors = errors.length > 0;
   const resultPreview = useMemo(() => {
     if (resultText.length <= 200) {
       return resultText || "—";
     }
     return `${resultText.slice(0, 200)}...`;
   }, [resultText]);
+
+  const toggleSnippet = (index: number): void => {
+    setShowFullSnippets((current) => {
+      const next = new Set(current);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
+
+  const renderErrorCard = (error: ErrorAnalysis["errors"][number], index: number): JSX.Element => {
+    const snippet = (error.snippet ?? "").trim();
+    const isExpanded = showFullSnippets.has(index);
+    const shouldTruncate = snippet.length > SNIPPET_PREVIEW_LIMIT;
+    const snippetText = shouldTruncate && !isExpanded
+      ? `${snippet.slice(0, SNIPPET_PREVIEW_LIMIT)}...`
+      : (snippet || "—");
+
+    return (
+      <div key={`${error.pattern}-${index}`} className="detail-linked-card">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "8px" }}>
+          <strong style={{ fontSize: "12px", color: "var(--ink)" }}>Pattern: {error.pattern || "—"}</strong>
+          <span className={errorSeverityBadgeClass(error.severity)}>{error.severity}</span>
+        </div>
+        <pre className="detail-prose detail-prose--pre" style={{ margin: 0 }}>{snippetText}</pre>
+        {shouldTruncate ? (
+          <button
+            className="archetype-change"
+            type="button"
+            onClick={() => toggleSnippet(index)}
+            style={{ marginTop: "8px" }}
+          >
+            {isExpanded ? "Show less" : "Show more"}
+          </button>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div className="job-expand">
@@ -278,6 +332,33 @@ export default function JobDetailExpand({ jobId }: JobDetailExpandProps): JSX.El
               ) : null}
             </tbody>
           </table>
+
+          {hasErrors ? (
+            <div className="detail-section">
+              <div className="detail-section-title">Errors</div>
+              {errors.length > COLLAPSIBLE_ERROR_THRESHOLD ? (
+                <details>
+                  <summary
+                    style={{
+                      cursor: "pointer",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: "11px",
+                      color: "var(--dust)",
+                    }}
+                  >
+                    Show all {errors.length} errors
+                  </summary>
+                  <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
+                    {errors.map(renderErrorCard)}
+                  </div>
+                </details>
+              ) : (
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {errors.map(renderErrorCard)}
+                </div>
+              )}
+            </div>
+          ) : null}
 
           {hasResultSummary ? (
             <div className="detail-section">

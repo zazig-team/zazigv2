@@ -25,6 +25,10 @@ import { skills } from "./commands/skills.js";
 import { promote } from "./commands/promote.js";
 import { hotfix } from "./commands/hotfix.js";
 import { stagingFix } from "./commands/staging-fix.js";
+import { snapshot } from "./commands/snapshot.js";
+import { ideas } from "./commands/ideas.js";
+import { features } from "./commands/features.js";
+import { projects } from "./commands/projects.js";
 import { getVersion } from "./lib/version.js";
 
 const [, , cmd, ...args] = process.argv;
@@ -83,6 +87,22 @@ switch (cmd) {
     await stagingFix();
     break;
 
+  case "snapshot":
+    await snapshot();
+    break;
+
+  case "ideas":
+    await ideas(args);
+    break;
+
+  case "features":
+    await features(args);
+    break;
+
+  case "projects":
+    await projects(args);
+    break;
+
   case undefined:
   case "--help":
   case "-h":
@@ -104,6 +124,10 @@ switch (cmd) {
     console.log("  promote --rollback Rollback to previous pinned build");
     console.log("  hotfix \"desc\"      Quick fix: interactive session, commits to master");
     console.log("  staging-fix        Interactive session for fixing staging issues");
+    console.log("  snapshot           Print pipeline snapshot JSON to stdout");
+    console.log("  ideas              Query ideas (supports filter flags)");
+    console.log("  features           Query features (project/status/id filters)");
+    console.log("  projects           List projects (optional --include-features)");
     break;
 
   default:

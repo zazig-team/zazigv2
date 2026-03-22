@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchFeatureDetail, diagnoseFeature, fetchJobResult, requestFeatureFix, type FeatureDetail } from "../lib/queries";
+import {
+  fetchFeatureDetail,
+  diagnoseFeature,
+  fetchJobResult,
+  requestFeatureFix,
+  type ErrorAnalysis,
+  type FeatureDetail,
+} from "../lib/queries";
 import { useCompany } from "../hooks/useCompany";
 import FormattedProse from "./FormattedProse";
 import JobDetailExpand from "./JobDetailExpand";
@@ -39,6 +46,28 @@ type DiagnosisState =
   | { phase: "running"; jobId: string; dots: number }
   | { phase: "done"; report: string }
   | { phase: "error"; message: string };
+
+type JobErrorBadge = {
+  className: string;
+  label: string;
+};
+
+function getJobErrorBadge(errorAnalysis: ErrorAnalysis | null | undefined): JobErrorBadge | null {
+  const errors = errorAnalysis?.errors ?? [];
+  if (!((errorAnalysis?.errors?.length ?? 0) > 0)) {
+    return null;
+  }
+
+  const criticalCount = errors.filter((error) => error.severity === "critical").length;
+  const className = criticalCount > 0
+    ? "detail-job-error-badge detail-job-error-badge--critical-red"
+    : "detail-job-error-badge detail-job-error-badge--warning-caution";
+
+  return {
+    className,
+    label: `${errors.length} error${errors.length === 1 ? "" : "s"}`,
+  };
+}
 
 export default function FeatureDetailPanel({ featureId, colorVar, onClose }: FeatureDetailPanelProps): JSX.Element {
   const [data, setData] = useState<FeatureDetail | null>(null);
@@ -199,7 +228,9 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
                 <div className="detail-section">
                   <div className="detail-section-title">Jobs ({data.jobs.length})</div>
                     <div className="detail-jobs">
-                      {data.jobs.map((job, index) => (
+                      {data.jobs.map((job, index) => {
+                        const errorBadge = getJobErrorBadge(job.error_analysis);
+                        return (
                           <div
                             key={job.id}
                             className="detail-job-row"
@@ -211,13 +242,19 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
                           >
                             <span className="detail-job-dot" style={{ background: jobDotColor(job.status) }} />
                             <div className="detail-job-info">
-                              <div className="detail-job-title">{job.title}</div>
+                              <div className="detail-job-title-row">
+                                <span className="detail-job-title">{job.title}</span>
+                                {errorBadge ? (
+                                  <span className={errorBadge.className}>{errorBadge.label}</span>
+                                ) : null}
+                              </div>
                               <div className="detail-job-id">{job.id}</div>
                               <div className="detail-job-meta">{job.status} · {job.role}{job.model ? ` · ${job.model}` : ""}</div>
                             </div>
                             <span aria-hidden="true">▶</span>
                           </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ) : null}

@@ -2553,10 +2553,41 @@ input {
   flex: 1;
 }
 
+.detail-job-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
 .detail-job-title {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.3;
+}
+
+.detail-job-error-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.detail-job-error-badge--critical-red {
+  background: var(--negative-dim);
+  color: var(--negative);
+  border-color: color-mix(in srgb, var(--negative) 32%, transparent);
+}
+
+.detail-job-error-badge--warning-caution {
+  background: var(--caution-dim);
+  color: var(--caution);
+  border-color: color-mix(in srgb, var(--caution) 35%, transparent);
 }
 
 .detail-job-id {

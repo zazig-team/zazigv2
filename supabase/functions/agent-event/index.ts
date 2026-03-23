@@ -138,6 +138,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
         await callAsyncHandler(handleJobComplete, body as JobComplete, supabaseAdmin);
         break;
       case "job_failed":
+        console.log(
+          `[agent-event] job_failed received for job=${(body as JobFailed).jobId} reason=${(body as JobFailed).failureReason}`,
+        );
         await callAsyncHandler(handleJobFailed, body as JobFailed, supabaseAdmin);
         break;
       case "verify_result":

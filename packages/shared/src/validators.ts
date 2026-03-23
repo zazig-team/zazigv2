@@ -284,6 +284,7 @@ export function isJobComplete(v: unknown): v is JobComplete {
 const VALID_FAILURE_REASONS = new Set([
   "agent_crash",
   "ci_failure",
+  "merge_conflict",
   "timeout",
   "unknown",
   "daemon_heartbeat_gap",

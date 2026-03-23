@@ -383,6 +383,10 @@ export async function handleJobFailed(
 ): Promise<void> {
   const { jobId, machineId, error: errMsg, failureReason, report } = msg;
 
+  console.log(
+    `[agent-event job=${jobId}] handleJobFailed ENTER — reason=${failureReason} machine=${machineId}`,
+  );
+
   const { data: job, error: jobFetchErr } = await supabase
     .from("jobs")
     .select("source, feature_id, role, job_type, title")
@@ -393,6 +397,10 @@ export async function handleJobFailed(
     console.error(
       `[agent-event job=${jobId}] handleJobFailed: failed to fetch job:`,
       jobFetchErr.message,
+    );
+  } else {
+    console.log(
+      `[agent-event job=${jobId}] handleJobFailed job fetched — type=${job?.job_type} feature=${job?.feature_id ?? "none"}`,
     );
   }
 
@@ -414,6 +422,10 @@ export async function handleJobFailed(
     return;
   }
 
+  console.log(
+    `[agent-event job=${jobId}] handleJobFailed: updating status → failed`,
+  );
+
   const { error: failErr } = await supabase
     .from("jobs")
     .update({
@@ -427,6 +439,10 @@ export async function handleJobFailed(
     console.error(
       `[agent-event job=${jobId}] handleJobFailed: failed to mark job failed:`,
       failErr.message,
+    );
+  } else {
+    console.log(
+      `[agent-event job=${jobId}] handleJobFailed: DB update OK — status=failed`,
     );
   }
 

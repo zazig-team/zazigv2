@@ -296,7 +296,7 @@ export async function promote(args: string[]): Promise<void> {
   const repoRoot = worktreePath;
 
   try {
-    await runPromote(repoRoot, defaultBranch, creds, anonKey);
+    await runPromote(repoRoot, defaultBranch, creds, anonKey, supabase);
   } finally {
     // Cleanup worktree
     console.log("\nCleaning up temporary worktree...");
@@ -310,7 +310,8 @@ async function runPromote(
   repoRoot: string,
   defaultBranch: string,
   creds: Credentials,
-  anonKey: string
+  anonKey: string,
+  supabase: SupabaseClient
 ): Promise<void> {
   // 1. Safety checks — verify worktree is on the default branch
   try {

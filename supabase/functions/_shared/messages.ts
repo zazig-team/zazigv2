@@ -309,7 +309,7 @@ export function isJobComplete(v: unknown): v is _JobComplete {
   return true;
 }
 
-const VALID_FAILURE_REASONS = new Set(["agent_crash", "ci_failure", "timeout", "unknown"]);
+const VALID_FAILURE_REASONS = new Set(["agent_crash", "ci_failure", "merge_conflict", "timeout", "unknown", "daemon_heartbeat_gap", "stuck_no_output"]);
 
 export function isJobFailed(v: unknown): v is _JobFailed {
   if (!_isObject(v) || v.type !== "job_failed") return false;

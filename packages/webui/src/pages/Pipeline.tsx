@@ -32,7 +32,7 @@ const COLUMN_DEFINITIONS: ColumnDefinition[] = [
   { key: "combining_and_pr", label: "Combining", colorVar: "--col-combining" },
   { key: "ci_checking", label: "CI Check", colorVar: "--col-ci-checking" },
   { key: "pr_ready", label: "PR Ready", colorVar: "--col-pr" },
-  { key: "complete", label: "Complete", colorVar: "--col-complete" },
+  { key: "complete", label: "Shipped to Staging", colorVar: "--col-complete" },
   { key: "failed", label: "Failed", colorVar: "--col-failed" },
   { key: "shipped", label: "Shipped", colorVar: "--col-shipped" },
 ];
@@ -305,6 +305,7 @@ export default function Pipeline(): JSX.Element {
   const [showLongTerm, setShowLongTerm] = useState(false);
   const [showFailedArchive, setShowFailedArchive] = useState(false);
   const [showCompleteArchive, setShowCompleteArchive] = useState(false);
+  const [showProductionArchive, setShowProductionArchive] = useState(false);
   const [showShippedArchive, setShowShippedArchive] = useState(false);
   const [selectedFeature, setSelectedFeature] = useState<{ id: string; colorVar: string } | null>(null);
   const [selectedIdea, setSelectedIdea] = useState<{ id: string; colorVar: string } | null>(null);
@@ -760,7 +761,18 @@ export default function Pipeline(): JSX.Element {
         </section>
 
         {COLUMN_DEFINITIONS.map((column) => {
-          const features = filteredByStatus[column.key];
+          const allColumnFeatures = filteredByStatus[column.key];
+          const completeStagingFeatures = column.key === "complete"
+            ? allColumnFeatures.filter(
+              (feature) => feature.status === "complete" && !feature.promoted_version,
+            )
+            : [];
+          const completeProductionFeatures = column.key === "complete"
+            ? allColumnFeatures.filter(
+              (feature) => feature.status === "complete" && feature.promoted_version != null,
+            )
+            : [];
+          const features = column.key === "complete" ? completeStagingFeatures : allColumnFeatures;
           const hasArchive =
             column.key === "failed" || column.key === "complete" || column.key === "shipped";
           const recentFeatures = hasArchive
@@ -792,13 +804,19 @@ export default function Pipeline(): JSX.Element {
                   ? showShippedArchive
                   : false;
 
-          const renderFeatureCard = (feature: PipelineFeature) => {
+          const renderFeatureCard = (
+            feature: PipelineFeature,
+            options: { showPromotedVersionBadge?: boolean } = {},
+          ) => {
             const ideaStatus = (feature as unknown as Record<string, unknown>)._ideaStatus as string | undefined;
             const isIdeaCard = Boolean(ideaStatus);
             const activeRole = ACTIVE_FEATURE_STATUSES.has(feature.status)
               ? activeRoleByFeatureId.get(feature.id)
               : undefined;
             const prUrl = column.key === "pr_ready" ? featurePrUrl(feature) : null;
+            const showPromotedVersionBadge =
+              options.showPromotedVersionBadge === true &&
+              feature.promoted_version != null;
             const accentColor = isIdeaCard
               ? (ideaStatus === "specced" ? "var(--positive)" : "var(--caution)")
               : getCardAccentColor(feature, snapshot.activeJobs);
@@ -823,6 +841,9 @@ export default function Pipeline(): JSX.Element {
               <div className="card-accent" style={{ background: accentColor }} />
               <div className="card-body">
                 <div className="card-title">{feature.title}</div>
+                {showPromotedVersionBadge ? (
+                  <div className="card-role-badge">{feature.promoted_version}</div>
+                ) : null}
                 {activeRole ? <div className="card-role-badge">{activeRole}</div> : null}
                 {feature.capability_id ? (
                   <div className="card-capability-badge">
@@ -908,6 +929,28 @@ export default function Pipeline(): JSX.Element {
                 ) : null}
 
                 {showArchive ? archivedFeatures.map((feature) => renderFeatureCard(feature)) : null}
+
+                {column.key === "complete" ? (
+                  <>
+                    <button
+                      className="parked-toggle"
+                      type="button"
+                      onClick={() => setShowProductionArchive((value) => !value)}
+                    >
+                      {showProductionArchive ? "▼" : "▶"} Shipped to Production ({completeProductionFeatures.length})
+                    </button>
+
+                    {showProductionArchive ? (
+                      completeProductionFeatures.length === 0 ? (
+                        <div className="col-empty">No items</div>
+                      ) : (
+                        completeProductionFeatures.map((feature) => (
+                          renderFeatureCard(feature, { showPromotedVersionBadge: true })
+                        ))
+                      )
+                    ) : null}
+                  </>
+                ) : null}
               </div>
             </section>
           );

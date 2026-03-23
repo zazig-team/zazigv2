@@ -1678,3 +1678,55 @@ Deno.test("analyzeRecentlyCompletedJobs — stores non-critical analysis without
   );
   assertEquals(cpoLookup === undefined, true, "Should not notify CPO without critical errors");
 });
+
+Deno.test("analyzeRecentlyCompletedJobs — passes writing_tests context for test-writer jobs", async () => {
+  const { client, setResponse } = createSmartMockSupabase();
+
+  setResponse("jobs:select.in.filter.gt.order.limit", {
+    data: [{
+      id: "job-test-writer-1",
+      feature_id: "feat-test-1",
+      company_id: "co-test-1",
+      role: "test-engineer",
+      job_type: "test",
+    }],
+    error: null,
+  });
+  setResponse("jobs:update.eq", { error: null });
+
+  const captured: Array<{
+    jobId: string;
+    role?: string | null;
+    jobType?: string | null;
+    stage?: string | null;
+  }> = [];
+
+  const fakeAnalyze = async (
+    jobId: string,
+    context?: {
+      role?: string | null;
+      jobType?: string | null;
+      stage?: string | null;
+    },
+  ) => {
+    captured.push({
+      jobId,
+      role: context?.role ?? null,
+      jobType: context?.jobType ?? null,
+      stage: context?.stage ?? null,
+    });
+    return {
+      errors: [],
+      scanned_at: "2026-03-19T00:00:00.000Z",
+    };
+  };
+
+  // deno-lint-ignore no-explicit-any
+  await analyzeRecentlyCompletedJobs(client as any, fakeAnalyze);
+
+  assertEquals(captured.length, 1);
+  assertEquals(captured[0].jobId, "job-test-writer-1");
+  assertEquals(captured[0].role, "test-engineer");
+  assertEquals(captured[0].jobType, "test");
+  assertEquals(captured[0].stage, "writing_tests");
+});

@@ -99,6 +99,20 @@ function readRecentAgentErrorLines(logPath: string): string[] | null {
   }
 }
 
+function readClaudeTokenFromKeychain(): string | null {
+  try {
+    const raw = execSync(
+      'security find-generic-password -s "claude-vscode" -a "oauth-tokens" -w',
+      { stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" },
+    );
+    const parsed = JSON.parse(raw);
+    const token = parsed?.claudeAiOauth?.accessToken;
+    return typeof token === "string" && token.startsWith("sk-ant-") ? token : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function start(): Promise<void> {
   // Parse flags
   const noTui = process.argv.includes("--no-tui");
@@ -196,6 +210,8 @@ export async function start(): Promise<void> {
     removePidFileForCompany(company.id);
   }
 
+  const claudeToken = readClaudeTokenFromKeychain();
+
   // Build env for the spawned process
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -207,6 +223,7 @@ export async function start(): Promise<void> {
     ZAZIG_COMPANY_NAME: company.name,
     ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
     ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
+    ...(claudeToken ? { ANTHROPIC_API_KEY: claudeToken } : {}),
   };
 
   // Resolve agent entry point: use standalone binary, pinned build, or repo

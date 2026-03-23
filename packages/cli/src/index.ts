@@ -29,6 +29,12 @@ import { snapshot } from "./commands/snapshot.js";
 import { ideas } from "./commands/ideas.js";
 import { features } from "./commands/features.js";
 import { projects } from "./commands/projects.js";
+import { createFeature } from "./commands/create-feature.js";
+import { updateFeature } from "./commands/update-feature.js";
+import { createIdea } from "./commands/create-idea.js";
+import { updateIdea } from "./commands/update-idea.js";
+import { promoteIdea } from "./commands/promote-idea.js";
+import { createRule } from "./commands/create-rule.js";
 import { getVersion } from "./lib/version.js";
 
 const [, , cmd, ...args] = process.argv;
@@ -103,6 +109,30 @@ switch (cmd) {
     await projects(args);
     break;
 
+  case "create-feature":
+    await createFeature(args);
+    break;
+
+  case "update-feature":
+    await updateFeature(args);
+    break;
+
+  case "create-idea":
+    await createIdea(args);
+    break;
+
+  case "update-idea":
+    await updateIdea(args);
+    break;
+
+  case "promote-idea":
+    await promoteIdea(args);
+    break;
+
+  case "create-rule":
+    await createRule(args);
+    break;
+
   case undefined:
   case "--help":
   case "-h":
@@ -128,6 +158,12 @@ switch (cmd) {
     console.log("  ideas --company <company-id>     Query ideas (supports filter flags)");
     console.log("  features --company <company-id>  Query features (project/status/id filters)");
     console.log("  projects --company <company-id>  List projects (optional --include-features)");
+    console.log("  create-feature --company <company-id>  Create a feature");
+    console.log("  update-feature --company <company-id>  Update a feature");
+    console.log("  create-idea --company <company-id>     Create an idea");
+    console.log("  update-idea --company <company-id>     Update an idea");
+    console.log("  promote-idea --company <company-id>    Promote an idea");
+    console.log("  create-rule --company <company-id>     Create a project rule");
     break;
 
   default:

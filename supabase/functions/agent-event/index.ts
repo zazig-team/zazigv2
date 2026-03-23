@@ -86,6 +86,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const token = parseBearerToken(req.headers.get("Authorization"));
   if (!token) {
+    console.warn("[agent-event] rejected: missing bearer token");
     return jsonResponse({ ok: false, error: "Missing bearer token" }, 401);
   }
 
@@ -107,6 +108,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     } = await supabaseAdmin.auth.getUser(token);
 
     if (userErr || !user) {
+      console.warn("[agent-event] rejected: auth failed —", userErr?.message ?? "no user");
       return jsonResponse({ ok: false, error: "Forbidden" }, 403);
     }
   }
@@ -115,8 +117,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
   try {
     body = await req.json();
   } catch {
+    console.warn("[agent-event] rejected: invalid JSON");
     return jsonResponse({ ok: false, error: "Invalid JSON" }, 400);
   }
+
+  const msgType = (body && typeof body === "object" && "type" in body)
+    ? String((body as Record<string, unknown>).type)
+    : "unknown";
+  const msgJobId = (body && typeof body === "object" && "jobId" in body)
+    ? String((body as Record<string, unknown>).jobId)
+    : null;
+  console.log(
+    `[agent-event] received type=${msgType}${msgJobId ? ` job=${msgJobId}` : ""}`,
+  );
 
   if (!isAgentMessage(body)) {
     if (
@@ -126,9 +139,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
       typeof (body as Record<string, unknown>).type === "string" &&
       !KNOWN_TYPES.has((body as Record<string, unknown>).type as AgentMessage["type"])
     ) {
+      console.warn(`[agent-event] rejected: unknown message type=${msgType}`);
       return jsonResponse({ ok: false, error: "Unknown message type" }, 400);
     }
 
+    console.warn(
+      `[agent-event] rejected: invalid message type=${msgType}${msgJobId ? ` job=${msgJobId}` : ""}`,
+    );
     return jsonResponse({ ok: false, error: "Invalid message" }, 400);
   }
 

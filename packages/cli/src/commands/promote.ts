@@ -14,7 +14,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getValidCredentials, type Credentials } from "../lib/credentials.js";
 import { fetchUserCompanies, pickCompany } from "../lib/company-picker.js";
 import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
@@ -185,21 +185,11 @@ function injectAgentBuildHash(repoRoot: string, agentBuildHash: string): void {
 }
 
 async function registerAgentVersion(
-  creds: Credentials,
-  anonKey: string,
+  supabase: SupabaseClient,
   env: "production" | "staging",
   version: string,
   commitSha: string
 ): Promise<void> {
-  const supabase = createClient(creds.supabaseUrl, anonKey);
-  const { error: sessionError } = await supabase.auth.setSession({
-    access_token: creds.accessToken,
-    refresh_token: creds.refreshToken,
-  });
-  if (sessionError) {
-    throw new Error(`Authentication failed: ${sessionError.message}`);
-  }
-
   const { error } = await supabase.from("agent_versions").insert({
     env,
     version,
@@ -230,6 +220,16 @@ export async function promote(args: string[]): Promise<void> {
   }
 
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const supabase = createClient(creds.supabaseUrl, anonKey);
+  const { error: sessionError } = await supabase.auth.setSession({
+    access_token: creds.accessToken,
+    refresh_token: creds.refreshToken,
+  });
+  if (sessionError) {
+    console.error(`Authentication failed: ${sessionError.message}`);
+    process.exitCode = 1;
+    return;
+  }
 
   // 2. Pick company
   let companies;
@@ -493,7 +493,7 @@ async function runPromote(
   // 8. Register promoted version in agent_versions
   console.log("\nRegistering production version...");
   try {
-    await registerAgentVersion(creds, anonKey, "production", newVersion, commitSha);
+    await registerAgentVersion(supabase, "production", newVersion, commitSha);
     console.log(`Registered production agent version ${newVersion} (${commitSha.slice(0, 7)}).`);
   } catch (err) {
     console.error(`Version registration failed: ${String(err)}`);
@@ -501,7 +501,30 @@ async function runPromote(
     return;
   }
 
-  // 9. Create GitHub Release and upload binaries
+  // 9. Mark complete, unpromoted features as promoted in this version
+  try {
+    // SQL equivalent: UPDATE features SET promoted_version = <newVersion>
+    // WHERE status = 'complete' AND promoted_version IS NULL;
+    const { count, error: promoteError } = await supabase
+      .from("features")
+      .update({ promoted_version: newVersion }, { count: "exact" })
+      .eq("status", "complete")
+      .is("promoted_version", null);
+
+    if (promoteError) {
+      console.error(`Failed to update promoted_version on complete features: ${promoteError.message}`);
+      process.exitCode = 1;
+      return;
+    }
+
+    console.log(`Marked ${count ?? 0} complete feature(s) with promoted_version=${newVersion}.`);
+  } catch (err) {
+    console.error(`Failed to update promoted features: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // 10. Create GitHub Release and upload binaries
   console.log("\nCreating GitHub Release...");
   const tag = `v${newVersion}`;
   try {

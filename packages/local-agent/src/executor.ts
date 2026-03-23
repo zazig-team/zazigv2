@@ -3201,15 +3201,26 @@ export class JobExecutor {
       const promptPath = join(worktreePath, ".merge-resolve-prompt.tmp");
       writeFileSync(promptPath, prompt);
 
+      const pipeLogPath = jobLogPath(jobId);
+      const logToPipe = (msg: string) => {
+        try { appendFileSync(pipeLogPath, msg + "\n"); } catch {}
+      };
+
       try {
+        logToPipe(`[conflict-resolution] Resolving conflicts for branch: ${branch}`);
+        logToPipe(`[conflict-resolution] Conflicted files:\n${conflictedFiles}`);
         const shellCmd = `unset CLAUDECODE; cat ${shellEscape([promptPath])} | claude --model ${shellEscape([model])} -p`;
         const { stdout, stderr } = await execFileAsync("bash", ["-c", shellCmd], {
           cwd: worktreePath,
           encoding: "utf8",
-          timeout: 120_000,
+          timeout: 300_000,
         });
-        if (stderr) jobLog(jobId, `Conflict resolution agent stderr for "${branch}": ${stderr.slice(0, 300)}`);
+        if (stderr) {
+          jobLog(jobId, `Conflict resolution agent stderr for "${branch}": ${stderr.slice(0, 300)}`);
+          logToPipe(`[conflict-resolution] stderr: ${stderr}`);
+        }
         jobLog(jobId, `Conflict resolution agent output for "${branch}": ${stdout.slice(0, 500)}`);
+        logToPipe(`[conflict-resolution] output: ${stdout}`);
 
         // Verify merge completed (no more conflict markers)
         try {
@@ -3217,6 +3228,7 @@ export class JobExecutor {
           const stillConflicted = status.split("\n").some(line => line.startsWith("UU ") || line.startsWith("AA ") || line.startsWith("DD "));
           if (stillConflicted) {
             jobLog(jobId, `Conflict resolution agent did not resolve all conflicts for "${branch}"`);
+            logToPipe(`[conflict-resolution] Still has unresolved conflicts after agent ran for "${branch}"`);
             try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
             return false;
           }
@@ -3228,6 +3240,7 @@ export class JobExecutor {
         const errMsg = String(err);
         const stderr = (err as NodeJS.ErrnoException & { stderr?: string }).stderr ?? "";
         jobLog(jobId, `Conflict resolution agent failed for "${branch}": ${errMsg}${stderr ? ` | stderr: ${stderr.slice(0, 300)}` : ""}`);
+        logToPipe(`[conflict-resolution] FAILED for "${branch}": ${errMsg}${stderr ? `\nstderr: ${stderr}` : ""}`);
         try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
         return false;
       } finally {

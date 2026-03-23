@@ -51,13 +51,9 @@ describe('start.ts — readClaudeTokenFromKeychain function', () => {
     expect(content).toMatch(/function\s+readClaudeTokenFromKeychain/);
   });
 
-  it('calls the macOS security command to find the claude-vscode generic password', () => {
+  it('calls the macOS security command to find the Claude Code-credentials generic password', () => {
     expect(content).toContain('security find-generic-password');
-    expect(content).toContain('claude-vscode');
-  });
-
-  it('uses the oauth-tokens account name in the security lookup', () => {
-    expect(content).toContain('oauth-tokens');
+    expect(content).toContain('Claude Code-credentials');
   });
 
   it('parses the raw output as JSON', () => {

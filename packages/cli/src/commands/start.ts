@@ -102,7 +102,7 @@ function readRecentAgentErrorLines(logPath: string): string[] | null {
 function readClaudeTokenFromKeychain(): string | null {
   try {
     const raw = execSync(
-      'security find-generic-password -s "claude-vscode" -a "oauth-tokens" -w',
+      'security find-generic-password -s "Claude Code-credentials" -w',
       { stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" },
     );
     const parsed = JSON.parse(raw);

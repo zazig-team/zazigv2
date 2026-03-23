@@ -1,8 +1,22 @@
 import { getValidCredentials } from "../lib/credentials.js";
-import { loadConfig } from "../lib/config.js";
 import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
+import { loadConfig } from "../lib/config.js";
 
-export async function snapshot(): Promise<void> {
+function parseCompanyFlag(args: string[]): string | undefined {
+  const idx = args.indexOf("--company");
+  if (idx === -1) return undefined;
+  const value = args[idx + 1];
+  if (!value || value.startsWith("--")) return undefined;
+  return value;
+}
+
+export async function snapshot(args: string[]): Promise<void> {
+  const companyId = parseCompanyFlag(args);
+  if (!companyId) {
+    process.stderr.write("Usage: zazig snapshot --company <company-id>\n");
+    process.exit(1);
+  }
+
   let creds;
   try {
     creds = await getValidCredentials();
@@ -11,10 +25,16 @@ export async function snapshot(): Promise<void> {
     process.exit(1);
   }
 
-  const cfg = loadConfig();
-  const companyId = cfg.company_id ?? "";
+  const config = (() => {
+    try {
+      return loadConfig() as { supabaseUrl?: string; supabase_url?: string };
+    } catch {
+      return undefined;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
 
-  const endpoint = new URL(`${creds.supabaseUrl}/functions/v1/get-pipeline-snapshot`);
+  const endpoint = new URL(`${supabaseUrl}/functions/v1/get-pipeline-snapshot`);
   endpoint.searchParams.set("company_id", companyId);
 
   const response = await fetch(endpoint, {

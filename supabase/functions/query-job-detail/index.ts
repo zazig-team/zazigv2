@@ -46,7 +46,7 @@ function parseBearerToken(authHeader: string): string | null {
 }
 
 const JOB_SELECT =
-  "id, title, status, role, model, job_type, slot_type, progress, started_at, completed_at, branch, blocked_reason, result, machine_id, company_id";
+  "id, title, status, role, model, job_type, slot_type, progress, started_at, completed_at, branch, blocked_reason, result, error_analysis, machine_id, company_id";
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -155,6 +155,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       branch: job.branch,
       blocked_reason: job.blocked_reason,
       result: job.result,
+      error_analysis: job.error_analysis,
       machine_id: job.machine_id,
       machine_name: machineName,
     });

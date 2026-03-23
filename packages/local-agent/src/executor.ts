@@ -898,11 +898,18 @@ export class JobExecutor {
             if (!resolved) {
               jobLog(jobId, `FAILED to resolve merge conflicts — failing job`);
               if (slotAcquired) this.slots.release(slotType);
-              await this.sendJobFailed(
-                jobId,
-                `Merge conflict resolution failed for dependency branches: ${depResult.conflictBranches.join(", ")}. Requires human attention.`,
-                "merge_conflict",
-              );
+              jobLog(jobId, "Sending JobFailed for merge_conflict...");
+              try {
+                await this.sendJobFailed(
+                  jobId,
+                  `Merge conflict resolution failed for dependency branches: ${depResult.conflictBranches.join(", ")}. Requires human attention.`,
+                  "merge_conflict",
+                );
+                jobLog(jobId, "JobFailed sent successfully for merge_conflict");
+              } catch (sendErr) {
+                jobLog(jobId, `sendJobFailed FAILED for merge_conflict: ${String(sendErr)}`);
+                console.error(`[executor] sendJobFailed failed for merge_conflict jobId=${jobId}:`, sendErr);
+              }
               return;
             }
             jobLog(jobId, `Merge conflicts resolved successfully`);
@@ -3237,15 +3244,21 @@ export class JobExecutor {
   ): Promise<void> {
     jobLog(jobId, `FAILED — reason=${failureReason}, error="${result.slice(0, 200)}"`);
     // Broadcast via Realtime (single writer pattern: orchestrator persists terminal state).
-    await this.send({
-      type: "job_failed",
-      protocolVersion: PROTOCOL_VERSION,
-      jobId,
-      machineId: this.machineId,
-      error: result,
-      failureReason,
-      ...(report !== undefined ? { report } : {}),
-    });
+    try {
+      await this.send({
+        type: "job_failed",
+        protocolVersion: PROTOCOL_VERSION,
+        jobId,
+        machineId: this.machineId,
+        error: result,
+        failureReason,
+        ...(report !== undefined ? { report } : {}),
+      });
+      jobLog(jobId, "job_failed event sent to orchestrator");
+    } catch (sendErr) {
+      jobLog(jobId, `send() FAILED in sendJobFailed: ${String(sendErr)}`);
+      console.error(`[executor] this.send() failed in sendJobFailed jobId=${jobId}:`, sendErr);
+    }
   }
 
   private async sendStopAck(jobId: string): Promise<void> {

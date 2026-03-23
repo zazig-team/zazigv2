@@ -152,7 +152,7 @@ export class AgentConnection {
       }
     }
 
-    console.error("[local-agent] agent-event failed after 3 retries");
+    console.error(`[local-agent] agent-event failed after all retries — message dropped: type=${msg.type}${("jobId" in msg && msg.jobId) ? ` jobId=${msg.jobId}` : ""}`);
     return false;
   }
 

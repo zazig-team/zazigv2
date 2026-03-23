@@ -3201,46 +3201,66 @@ export class JobExecutor {
       const promptPath = join(worktreePath, ".merge-resolve-prompt.tmp");
       writeFileSync(promptPath, prompt);
 
-      const pipeLogPath = jobLogPath(jobId);
-      const logToPipe = (msg: string) => {
-        try { appendFileSync(pipeLogPath, msg + "\n"); } catch {}
-      };
+      // Run conflict resolution in a tmux session (same path as main jobs)
+      // so output is visible and pipe-pane captures everything.
+      const branchSlug = branch.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 16);
+      const resolveSession = `resolve-${jobId.slice(0, 8)}-${branchSlug}`;
+      const logPath = jobLogPath(jobId);
 
       try {
-        logToPipe(`[conflict-resolution] Resolving conflicts for branch: ${branch}`);
-        logToPipe(`[conflict-resolution] Conflicted files:\n${conflictedFiles}`);
-        const shellCmd = `unset CLAUDECODE; cat ${shellEscape([promptPath])} | claude --model ${shellEscape([model])} -p`;
-        const { stdout, stderr } = await execFileAsync("bash", ["-c", shellCmd], {
-          cwd: worktreePath,
-          encoding: "utf8",
-          timeout: 300_000,
-        });
-        if (stderr) {
-          jobLog(jobId, `Conflict resolution agent stderr for "${branch}": ${stderr.slice(0, 300)}`);
-          logToPipe(`[conflict-resolution] stderr: ${stderr}`);
+        // Log context to pipe-pane before spawning
+        appendFileSync(logPath, `[conflict-resolution] Resolving conflicts for branch: ${branch}\n`);
+        appendFileSync(logPath, `[conflict-resolution] Conflicted files:\n${conflictedFiles}\n`);
+
+        // Spawn tmux session running claude -p
+        await spawnTmuxSession(
+          resolveSession,
+          "claude",
+          ["--model", model, "-p"],
+          worktreePath,
+          promptPath,
+        );
+
+        // Pipe-pane the session output to the job log
+        await startPipePane(resolveSession, logPath);
+
+        jobLog(jobId, `Conflict resolution tmux session started: ${resolveSession}`);
+
+        // Poll until the session ends (max 5 minutes)
+        const RESOLVE_TIMEOUT_MS = 300_000;
+        const POLL_INTERVAL_MS = 3_000;
+        const deadline = Date.now() + RESOLVE_TIMEOUT_MS;
+
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+          if (!(await isTmuxSessionAlive(resolveSession))) break;
         }
-        jobLog(jobId, `Conflict resolution agent output for "${branch}": ${stdout.slice(0, 500)}`);
-        logToPipe(`[conflict-resolution] output: ${stdout}`);
+
+        // If still alive after timeout, kill it
+        if (await isTmuxSessionAlive(resolveSession)) {
+          jobLog(jobId, `Conflict resolution timed out for "${branch}" — killing session`);
+          appendFileSync(logPath, `[conflict-resolution] TIMEOUT for "${branch}" after ${RESOLVE_TIMEOUT_MS / 1000}s\n`);
+          await killTmuxSession(resolveSession);
+          try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
+          return false;
+        }
+
+        jobLog(jobId, `Conflict resolution session ended for "${branch}"`);
 
         // Verify merge completed (no more conflict markers)
-        try {
-          const { stdout: status } = await execFileAsync("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" });
-          const stillConflicted = status.split("\n").some(line => line.startsWith("UU ") || line.startsWith("AA ") || line.startsWith("DD "));
-          if (stillConflicted) {
-            jobLog(jobId, `Conflict resolution agent did not resolve all conflicts for "${branch}"`);
-            logToPipe(`[conflict-resolution] Still has unresolved conflicts after agent ran for "${branch}"`);
-            try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
-            return false;
-          }
-        } catch {
+        const { stdout: status } = await execFileAsync("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" });
+        const stillConflicted = status.split("\n").some(line => line.startsWith("UU ") || line.startsWith("AA ") || line.startsWith("DD "));
+        if (stillConflicted) {
+          jobLog(jobId, `Conflict resolution agent did not resolve all conflicts for "${branch}"`);
+          appendFileSync(logPath, `[conflict-resolution] Still has unresolved conflicts after agent ran for "${branch}"\n`);
           try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
           return false;
         }
       } catch (err) {
         const errMsg = String(err);
-        const stderr = (err as NodeJS.ErrnoException & { stderr?: string }).stderr ?? "";
-        jobLog(jobId, `Conflict resolution agent failed for "${branch}": ${errMsg}${stderr ? ` | stderr: ${stderr.slice(0, 300)}` : ""}`);
-        logToPipe(`[conflict-resolution] FAILED for "${branch}": ${errMsg}${stderr ? `\nstderr: ${stderr}` : ""}`);
+        jobLog(jobId, `Conflict resolution failed for "${branch}": ${errMsg}`);
+        try { appendFileSync(logPath, `[conflict-resolution] FAILED for "${branch}": ${errMsg}\n`); } catch {}
+        try { await killTmuxSession(resolveSession); } catch {}
         try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
         return false;
       } finally {

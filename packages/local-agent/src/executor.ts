@@ -3475,6 +3475,11 @@ function assembleContext(msg: StartJob, repoRoot?: string): string {
   assembled = assembled.replace(`\n\n---\n\n${SKILLS_MARKER}\n\n---\n\n`, "\n\n---\n\n");
   assembled = assembled.replace(SKILLS_MARKER, "");
 
+  // On staging, replace backtick-wrapped `zazig ` with `zazig-staging `
+  if (process.env["ZAZIG_ENV"] === "staging") {
+    assembled = assembled.replace(/`zazig /g, "`zazig-staging ");
+  }
+
   // Sub-agent personality (writes to local disk — must stay local)
   if (msg.subAgentPrompt) {
     const workspaceDir = join(homedir(), ".zazigv2", `job-${msg.jobId}`);

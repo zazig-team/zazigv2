@@ -10,7 +10,7 @@ Run this at session start or when the human asks for status. This is the pipelin
 
 ## Phase 1: Data Gather
 
-Call `get_pipeline_snapshot` — one MCP call, returns pre-computed
+Run `zazig snapshot --company <company_id>` — one CLI call, returns pre-computed
 pipeline state (~500 tokens). Updated every minute by the orchestrator
 heartbeat.
 
@@ -24,12 +24,8 @@ The snapshot contains:
 - `ideas_inbox` — new_count, triaged_count, parked_count, oldest_new
 - `active_jobs` — queued, dispatched, executing counts
 
-If `get_pipeline_snapshot` is unavailable (MCP server not rebuilt yet),
-fall back to raw queries but use a subagent to avoid context blowout:
-1. `query_ideas(status: 'new')` — count new ideas
-2. `query_features(project_id: '{project-id}')` — all features
-3. Do NOT fire `query_jobs` — it returns 10k+ tokens. Use the feature
-   statuses to infer pipeline activity instead.
+If the CLI is unavailable, report that the snapshot could not be retrieved
+and ask the human to check that the CLI is installed and authenticated.
 
 ---
 

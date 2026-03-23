@@ -72,7 +72,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       project_id,
       search,
       company_id,
-      limit = 50,
+      limit = 20,
+      offset = 0,
     } = body;
 
     // Single idea by ID — return all columns
@@ -98,11 +99,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return jsonResponse({ error: error.message }, 404);
       }
 
-      return jsonResponse({ ideas: [data] });
+      return jsonResponse({ ideas: [data], total: 1 });
     }
 
     // Filtered query
-    let query = supabase.from("ideas").select("*");
+    let query = supabase.from("ideas").select("*", { count: "exact" });
 
     if (Array.isArray(statuses) && statuses.length > 0) {
       query = query.in("status", statuses);
@@ -139,15 +140,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     query = query
       .order("created_at", { ascending: false })
-      .limit(limit);
+      .range(offset, offset + limit - 1);
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
 
     if (error) {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    return jsonResponse({ ideas: data ?? [] });
+    return jsonResponse({ ideas: data ?? [], total: count ?? 0 });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

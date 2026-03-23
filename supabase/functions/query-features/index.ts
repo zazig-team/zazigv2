@@ -61,7 +61,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     const body = await req.json();
-    const { feature_id, project_id, status } = body;
+    const { feature_id, project_id, status, limit = 20, offset = 0 } = body;
 
     if (!feature_id && !project_id) {
       return jsonResponse(
@@ -82,26 +82,28 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return jsonResponse({ error: error.message }, 404);
       }
 
-      return jsonResponse({ features: [data] });
+      return jsonResponse({ features: [data], total: 1 });
     }
 
     // Features for a project, optionally filtered by status
     let query = supabase
       .from("features")
-      .select(FEATURE_SELECT)
-      .eq("project_id", project_id);
+      .select(FEATURE_SELECT, { count: "exact" })
+      .eq("project_id", project_id)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
 
     if (status) {
       query = query.eq("status", status);
     }
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
 
     if (error) {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    return jsonResponse({ features: data ?? [] });
+    return jsonResponse({ features: data ?? [], total: count ?? 0 });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

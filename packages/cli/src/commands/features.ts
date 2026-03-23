@@ -12,6 +12,33 @@ function parseCompanyFlag(args: string[]): { companyId?: string; rest: string[] 
   return { companyId: value, rest: [...before, ...after] };
 }
 
+function parseNumericFlag(args: string[], name: string): number | undefined {
+  const eqValue = args.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
+  if (eqValue !== undefined) {
+    const parsed = Number.parseInt(eqValue, 10);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  const idx = args.indexOf(`--${name}`);
+  if (idx === -1) return undefined;
+  const value = args[idx + 1];
+  if (!value || value.startsWith("--")) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseProjectIdArg(args: string[]): string | undefined {
+  const valueFlags = new Set(["--limit", "--offset", "--company", "--status", "--id"]);
+  for (let i = 0; i < args.length; i += 1) {
+    const current = args[i];
+    if (current.startsWith("--")) continue;
+    const previous = i > 0 ? args[i - 1] : undefined;
+    if (previous && valueFlags.has(previous)) continue;
+    return current;
+  }
+  return undefined;
+}
+
 export async function features(args: string[]): Promise<void> {
   const { companyId: company_id, rest } = parseCompanyFlag(args);
   if (!company_id) {
@@ -19,9 +46,11 @@ export async function features(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const project_id = rest.find((a) => !a.startsWith("--"));
+  const project_id = parseProjectIdArg(rest);
   const idFlag = rest.find((a) => a.startsWith("--id="));
   const statusFlag = rest.find((a) => a.startsWith("--status="));
+  const limit = parseNumericFlag(rest, "limit") ?? 20;
+  const offset = parseNumericFlag(rest, "offset") ?? 0;
 
   const feature_id = idFlag?.slice("--id=".length);
   const status = statusFlag?.slice("--status=".length);
@@ -53,6 +82,8 @@ export async function features(args: string[]): Promise<void> {
     ...(project_id ? { project_id } : {}),
     ...(feature_id ? { feature_id } : {}),
     ...(status ? { status } : {}),
+    limit,
+    offset,
   };
 
   const response = await fetch(`${supabaseUrl}/functions/v1/query-features`, {
@@ -72,7 +103,12 @@ export async function features(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as { features?: unknown[]; total?: number };
   process.stdout.write(JSON.stringify(data));
+  const count = Array.isArray(data.features) ? data.features.length : 0;
+  const total = typeof data.total === "number" ? data.total : count;
+  process.stderr.write(
+    `Showing ${offset + 1}-${offset + count} of ${total} (--limit ${limit} --offset ${offset})\n`,
+  );
   process.exit(0);
 }

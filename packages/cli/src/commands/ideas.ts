@@ -10,6 +10,21 @@ function parseCompanyFlag(args: string[]): string | undefined {
   return value;
 }
 
+function parseNumericFlag(args: string[], name: string): number | undefined {
+  const eqValue = args.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
+  if (eqValue !== undefined) {
+    const parsed = Number.parseInt(eqValue, 10);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  const idx = args.indexOf(`--${name}`);
+  if (idx === -1) return undefined;
+  const value = args[idx + 1];
+  if (!value || value.startsWith("--")) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 export async function ideas(args: string[]): Promise<void> {
   const companyId = parseCompanyFlag(args);
   if (!companyId) {
@@ -22,8 +37,8 @@ export async function ideas(args: string[]): Promise<void> {
   const source = args.find((a) => a.startsWith("--source="))?.split("=")[1];
   const domain = args.find((a) => a.startsWith("--domain="))?.split("=")[1];
   const search = args.find((a) => a.startsWith("--search="))?.split("=")[1];
-  const limitRaw = args.find((a) => a.startsWith("--limit="))?.split("=")[1];
-  const limit = limitRaw !== undefined ? Number.parseInt(limitRaw, 10) : undefined;
+  const limit = parseNumericFlag(args, "limit") ?? 20;
+  const offset = parseNumericFlag(args, "offset") ?? 0;
 
   let creds;
   try {
@@ -49,7 +64,8 @@ export async function ideas(args: string[]): Promise<void> {
     ...(source !== undefined ? { source } : {}),
     ...(domain !== undefined ? { domain } : {}),
     ...(search !== undefined ? { search } : {}),
-    ...(limit !== undefined && Number.isFinite(limit) ? { limit } : {}),
+    limit,
+    offset,
   };
 
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
@@ -70,7 +86,12 @@ export async function ideas(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as { ideas?: unknown[]; total?: number };
   process.stdout.write(JSON.stringify(data));
+  const count = Array.isArray(data.ideas) ? data.ideas.length : 0;
+  const total = typeof data.total === "number" ? data.total : count;
+  process.stderr.write(
+    `Showing ${offset + 1}-${offset + count} of ${total} (--limit ${limit} --offset ${offset})\n`,
+  );
   process.exit(0);
 }

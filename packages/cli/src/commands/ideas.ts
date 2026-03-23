@@ -1,5 +1,6 @@
 import { getValidCredentials } from "../lib/credentials.js";
 import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
+import { loadConfig } from "../lib/config.js";
 
 function parseCompanyFlag(args: string[]): string | undefined {
   const idx = args.indexOf("--company");
@@ -32,6 +33,15 @@ export async function ideas(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  const config = (() => {
+    try {
+      return loadConfig() as { supabaseUrl?: string; supabase_url?: string };
+    } catch {
+      return undefined;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
+
   const body = {
     company_id: companyId,
     ...(status !== undefined ? { status } : {}),
@@ -43,7 +53,7 @@ export async function ideas(args: string[]): Promise<void> {
   };
 
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const response = await fetch(`${creds.supabaseUrl}/functions/v1/query-ideas`, {
+  const response = await fetch(`${supabaseUrl}/functions/v1/query-ideas`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${creds.accessToken}`,

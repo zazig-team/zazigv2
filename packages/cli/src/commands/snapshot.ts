@@ -1,5 +1,6 @@
 import { getValidCredentials } from "../lib/credentials.js";
 import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
+import { loadConfig } from "../lib/config.js";
 
 function parseCompanyFlag(args: string[]): string | undefined {
   const idx = args.indexOf("--company");
@@ -24,7 +25,16 @@ export async function snapshot(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const endpoint = new URL(`${creds.supabaseUrl}/functions/v1/get-pipeline-snapshot`);
+  const config = (() => {
+    try {
+      return loadConfig() as { supabaseUrl?: string; supabase_url?: string };
+    } catch {
+      return undefined;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
+
+  const endpoint = new URL(`${supabaseUrl}/functions/v1/get-pipeline-snapshot`);
   endpoint.searchParams.set("company_id", companyId);
 
   const response = await fetch(endpoint, {

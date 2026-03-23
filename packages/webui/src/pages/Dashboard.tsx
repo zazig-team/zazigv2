@@ -6,6 +6,7 @@ import DashboardDetailPanel from "../components/DashboardDetailPanel";
 import {
   fetchActionItems,
   fetchActivity,
+  fetchCompletedFeatures,
   fetchDashboardTeam,
   fetchDecisions,
   fetchFocusAreas,
@@ -16,6 +17,7 @@ import {
   resolveDecision,
   submitIdea,
   type ActionItem,
+  type CompletedFeature,
   type Decision,
   type EventItem,
   type FocusArea,
@@ -201,6 +203,8 @@ export default function Dashboard(): JSX.Element {
 
   const [selectedGoal, setSelectedGoal] = useState<{ goal: Goal; color: string } | null>(null);
   const [selectedFocusArea, setSelectedFocusArea] = useState<FocusArea | null>(null);
+  const [completedFeatures, setCompletedFeatures] = useState<CompletedFeature[]>([]);
+  const [showProduction, setShowProduction] = useState(false);
   const [ideaText, setIdeaText] = useState("");
   const [ideaType, setIdeaType] = useState<Idea["item_type"]>("idea");
   const [ideaSubmitting, setIdeaSubmitting] = useState(false);
@@ -244,6 +248,7 @@ export default function Dashboard(): JSX.Element {
       setTeam(EMPTY_TEAM);
       setDecisions([]);
       setActionItems([]);
+      setCompletedFeatures([]);
       setNoteText({});
       return;
     }
@@ -264,6 +269,7 @@ export default function Dashboard(): JSX.Element {
         teamResult,
         decisionsResult,
         actionItemsResult,
+        completedFeaturesResult,
       ] = await Promise.allSettled([
         fetchGoals(activeCompany.id),
         fetchFocusAreas(activeCompany.id),
@@ -272,6 +278,7 @@ export default function Dashboard(): JSX.Element {
         fetchDashboardTeam(activeCompany.id),
         fetchDecisions(activeCompany.id),
         fetchActionItems(activeCompany.id),
+        fetchCompletedFeatures(activeCompany.id),
       ]);
 
       setGoals(goalsResult.status === "fulfilled" ? goalsResult.value.slice(0, 3) : []);
@@ -281,6 +288,7 @@ export default function Dashboard(): JSX.Element {
       setTeam(teamResult.status === "fulfilled" ? teamResult.value : EMPTY_TEAM);
       setDecisions(decisionsResult.status === "fulfilled" ? decisionsResult.value : []);
       setActionItems(actionItemsResult.status === "fulfilled" ? actionItemsResult.value : []);
+      setCompletedFeatures(completedFeaturesResult.status === "fulfilled" ? completedFeaturesResult.value : []);
 
       // Surface first error for visibility
       const firstError = [goalsResult, focusAreasResult, activityResult, pulseResult, teamResult]
@@ -658,6 +666,56 @@ export default function Dashboard(): JSX.Element {
                 </button>
               </div>
             </div>
+          </section>
+
+          <section className="fade-up d7">
+            <div className="section-label">
+              Shipped to Staging
+              <span className="section-label-count">
+                {completedFeatures.filter((f) => !f.promoted_version).length} features
+              </span>
+            </div>
+            {completedFeatures.filter((f) => !f.promoted_version).length === 0 ? (
+              <div className="empty-state">No features shipped to staging.</div>
+            ) : (
+              completedFeatures
+                .filter((f) => !f.promoted_version)
+                .map((feature) => (
+                  <article className="feature-card" key={feature.id}>
+                    <div className="feature-title">{feature.title}</div>
+                  </article>
+                ))
+            )}
+          </section>
+
+          <section className="fade-up d7b">
+            <div className="section-label">
+              Shipped to Production
+              <span className="section-label-count">
+                {completedFeatures.filter((f) => f.promoted_version !== null && f.promoted_version !== undefined).length} features
+              </span>
+              <button
+                className="section-label-toggle"
+                type="button"
+                onClick={() => setShowProduction((prev) => !prev)}
+              >
+                {showProduction ? "Hide" : "Show"}
+              </button>
+            </div>
+            {showProduction ? (
+              completedFeatures.filter((f) => f.promoted_version !== null && f.promoted_version !== undefined).length === 0 ? (
+                <div className="empty-state">No features shipped to production.</div>
+              ) : (
+                completedFeatures
+                  .filter((f) => f.promoted_version !== null && f.promoted_version !== undefined)
+                  .map((feature) => (
+                    <article className="feature-card" key={feature.id}>
+                      <div className="feature-title">{feature.title}</div>
+                      <span className="badge badge--positive version-badge">{feature.promoted_version}</span>
+                    </article>
+                  ))
+              )
+            ) : null}
           </section>
 
           <section className="fade-up d8">

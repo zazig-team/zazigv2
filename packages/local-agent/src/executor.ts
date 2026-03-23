@@ -3212,22 +3212,34 @@ export class JobExecutor {
         appendFileSync(logPath, `[conflict-resolution] Resolving conflicts for branch: ${branch}\n`);
         appendFileSync(logPath, `[conflict-resolution] Conflicted files:\n${conflictedFiles}\n`);
 
-        // Spawn tmux session running claude -p
-        await spawnTmuxSession(
-          resolveSession,
-          "claude",
-          ["--model", model, "-p"],
-          worktreePath,
-          promptPath,
-        );
+        // Spawn tmux session running claude -p, with a wrapper that:
+        // 1. Logs the exit code so we can see if claude crashed vs completed
+        // 2. Keeps the session alive for 5s after exit so pipe-pane can flush
+        const claudeCmd = shellEscape(["claude", "--model", model, "-p"]);
+        const wrappedCmd = [
+          `unset CLAUDECODE`,
+          `echo "[conflict-resolution] Starting claude -p at $(date -u +%Y-%m-%dT%H:%M:%SZ)"`,
+          `cat ${shellEscape([promptPath])} | ${claudeCmd} 2>&1`,
+          `RC=$?`,
+          `echo ""`,
+          `echo "[conflict-resolution] claude -p exited with code $RC at $(date -u +%Y-%m-%dT%H:%M:%SZ)"`,
+          `sleep 5`,
+        ].join("; ");
+
+        await execFileAsync("tmux", [
+          "new-session", "-d",
+          "-s", resolveSession,
+          ...(worktreePath ? ["-c", worktreePath] : []),
+          wrappedCmd,
+        ]);
 
         // Pipe-pane the session output to the job log
         await startPipePane(resolveSession, logPath);
 
         jobLog(jobId, `Conflict resolution tmux session started: ${resolveSession}`);
 
-        // Poll until the session ends (max 5 minutes)
-        const RESOLVE_TIMEOUT_MS = 300_000;
+        // Poll until the session ends (max 10 minutes)
+        const RESOLVE_TIMEOUT_MS = 600_000;
         const POLL_INTERVAL_MS = 3_000;
         const deadline = Date.now() + RESOLVE_TIMEOUT_MS;
 

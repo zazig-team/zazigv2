@@ -1,11 +1,26 @@
 import { getValidCredentials } from "../lib/credentials.js";
-import { loadConfig } from "../lib/config.js";
 import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 
+function parseCompanyFlag(args: string[]): { companyId?: string; rest: string[] } {
+  const idx = args.indexOf("--company");
+  if (idx === -1) return { rest: args };
+  const before = args.slice(0, idx);
+  const after = args.slice(idx + 2);
+  const value = args[idx + 1];
+  if (!value || value.startsWith("--")) return { rest: [...before, ...after] };
+  return { companyId: value, rest: [...before, ...after] };
+}
+
 export async function features(args: string[]): Promise<void> {
-  const project_id = args.find((a) => !a.startsWith("--"));
-  const idFlag = args.find((a) => a.startsWith("--id="));
-  const statusFlag = args.find((a) => a.startsWith("--status="));
+  const { companyId: company_id, rest } = parseCompanyFlag(args);
+  if (!company_id) {
+    process.stderr.write("Usage: zazig features --company <company-id>\n");
+    process.exit(1);
+  }
+
+  const project_id = rest.find((a) => !a.startsWith("--"));
+  const idFlag = rest.find((a) => a.startsWith("--id="));
+  const statusFlag = rest.find((a) => a.startsWith("--status="));
 
   const feature_id = idFlag?.slice("--id=".length);
   const status = statusFlag?.slice("--status=".length);
@@ -23,14 +38,8 @@ export async function features(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  let company_id: string | undefined;
-  try {
-    company_id = loadConfig().company_id;
-  } catch {
-    company_id = undefined;
-  }
-
   const body = {
+    company_id,
     ...(project_id ? { project_id } : {}),
     ...(feature_id ? { feature_id } : {}),
     ...(status ? { status } : {}),
@@ -42,7 +51,7 @@ export async function features(args: string[]): Promise<void> {
       Authorization: `Bearer ${creds.accessToken}`,
       apikey: DEFAULT_SUPABASE_ANON_KEY,
       "Content-Type": "application/json",
-      ...(company_id ? { "x-company-id": company_id } : {}),
+      "x-company-id": company_id,
     },
     body: JSON.stringify(body),
   });

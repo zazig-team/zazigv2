@@ -88,7 +88,7 @@ switch (cmd) {
     break;
 
   case "snapshot":
-    await snapshot();
+    await snapshot(args);
     break;
 
   case "ideas":
@@ -124,10 +124,10 @@ switch (cmd) {
     console.log("  promote --rollback Rollback to previous pinned build");
     console.log("  hotfix \"desc\"      Quick fix: interactive session, commits to master");
     console.log("  staging-fix        Interactive session for fixing staging issues");
-    console.log("  snapshot           Print pipeline snapshot JSON to stdout");
-    console.log("  ideas              Query ideas (supports filter flags)");
-    console.log("  features           Query features (project/status/id filters)");
-    console.log("  projects           List projects (optional --include-features)");
+    console.log("  snapshot --company <company-id>  Print pipeline snapshot JSON to stdout");
+    console.log("  ideas --company <company-id>     Query ideas (supports filter flags)");
+    console.log("  features --company <company-id>  Query features (project/status/id filters)");
+    console.log("  projects --company <company-id>  List projects (optional --include-features)");
     break;
 
   default:

@@ -34,6 +34,7 @@ export interface PipelineFeature {
   hasJobErrors: boolean;
   criticalJobErrorCount: number;
   branch: string | null;
+  promoted_version: string | null;
   jobs: PipelineFeatureJob[];
 }
 
@@ -384,6 +385,10 @@ function parseFeature(
       stringValue(raw.branch) ??
       stringValue(raw.feature_branch) ??
       stringValue(raw.featureBranch),
+    promoted_version:
+      stringValue(raw.promoted_version) ??
+      stringValue(raw.promotedVersion) ??
+      null,
     jobs,
   };
 }
@@ -549,6 +554,7 @@ export function usePipelineSnapshot(companyId: string | null): {
           hasJobErrors: false,
           criticalJobErrorCount: 0,
           branch: null,
+          promoted_version: null,
           jobs: [],
         };
         // Tag the feature so Pipeline.tsx can distinguish developing vs specced

@@ -500,6 +500,30 @@ export async function fetchPulseMetrics(companyId: string): Promise<PulseMetrics
   };
 }
 
+export interface CompletedFeature {
+  id: string;
+  title: string;
+  status: string;
+  promoted_version: string | null;
+  updated_at: string | null;
+}
+
+export async function fetchCompletedFeatures(companyId: string): Promise<CompletedFeature[]> {
+  const { data, error } = await supabase
+    .from("features")
+    .select("id, title, status, promoted_version, updated_at")
+    .eq("company_id", companyId)
+    .eq("status", "complete")
+    .order("updated_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as CompletedFeature[];
+}
+
 export async function fetchDashboardTeam(
   companyId: string,
 ): Promise<TeamSidebarData> {

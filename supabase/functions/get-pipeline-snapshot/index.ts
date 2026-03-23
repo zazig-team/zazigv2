@@ -137,6 +137,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       row = refreshed;
     }
 
+    // The snapshot includes promoted_version in completed_features
+    // (populated by refresh_pipeline_snapshot SQL function)
     return jsonResponse({
       snapshot: row.snapshot,
       updated_at: row.updated_at,

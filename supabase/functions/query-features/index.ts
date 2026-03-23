@@ -39,7 +39,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-const FEATURE_SELECT = "id, title, description, spec, acceptance_tests, human_checklist, status, priority, project_id, depends_on";
+const FEATURE_SELECT = "id, title, description, spec, acceptance_tests, human_checklist, status, priority, project_id, depends_on, promoted_version";
 
 // ---------------------------------------------------------------------------
 // Handler

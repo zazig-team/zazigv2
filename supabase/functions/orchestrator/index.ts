@@ -137,6 +137,12 @@ interface JobLogPattern {
   regex: RegExp;
 }
 
+interface JobLogAnalysisContext {
+  role?: string | null;
+  jobType?: string | null;
+  stage?: string | null;
+}
+
 const JOB_LOG_SNIPPET_RADIUS = 140;
 const JOB_LOG_PATTERNS: JobLogPattern[] = [
   // build_error (critical)
@@ -206,8 +212,9 @@ const JOB_LOG_PATTERNS: JobLogPattern[] = [
   {
     category: "permission_error",
     severity: "warning",
-    pattern: "401",
-    regex: /\b401\b/,
+    pattern: "HTTP/status/auth context 401",
+    regex:
+      /(?:\b(?:HTTP(?:\s+error)?|status(?:Code)?|Unauthorized|Forbidden)\b[^\n]{0,60}\b401\b|\b401\b\s*(?:Unauthorized|Forbidden))/i,
   },
   {
     category: "permission_error",
@@ -286,7 +293,10 @@ function extractLogSnippet(
     .trim();
 }
 
-export async function analyzeJobLogs(jobId: string): Promise<JobLogAnalysisResult> {
+export async function analyzeJobLogs(
+  jobId: string,
+  context?: JobLogAnalysisContext,
+): Promise<JobLogAnalysisResult> {
   const scannedAt = new Date().toISOString();
   const supabaseAdmin = makeAdminClient();
 
@@ -320,7 +330,15 @@ export async function analyzeJobLogs(jobId: string): Promise<JobLogAnalysisResul
   const errors: JobLogErrorMatch[] = [];
   const seenCategories = new Set<string>();
 
+  const isTestWriterJob = context?.stage === "writing_tests" ||
+    context?.jobType === "test" ||
+    context?.role === "test-engineer";
+
   for (const logPattern of JOB_LOG_PATTERNS) {
+    if (isTestWriterJob && logPattern.pattern === "Test.*FAIL") {
+      continue;
+    }
+
     const match = logPattern.regex.exec(concatenatedLogs);
     if (
       !match ||
@@ -2807,13 +2825,16 @@ async function processFeatureLifecycle(
 
 export async function analyzeRecentlyCompletedJobs(
   supabase: SupabaseClient,
-  analyzeLogsFn: (jobId: string) => Promise<JobLogAnalysisResult> =
+  analyzeLogsFn: (
+    jobId: string,
+    context?: JobLogAnalysisContext,
+  ) => Promise<JobLogAnalysisResult> =
     analyzeJobLogs,
 ): Promise<void> {
   const completedCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const { data: recentJobs, error: recentJobsErr } = await supabase
     .from("jobs")
-    .select("id, feature_id, company_id")
+    .select("id, feature_id, company_id, role, job_type")
     .in("status", ["complete", "failed"])
     .filter("error_analysis", "is", null)
     .gt("completed_at", completedCutoff)
@@ -2833,11 +2854,17 @@ export async function analyzeRecentlyCompletedJobs(
       id: string;
       feature_id: string | null;
       company_id: string;
+      role: string | null;
+      job_type: string | null;
     };
 
     let analysis: JobLogAnalysisResult;
     try {
-      analysis = await analyzeLogsFn(job.id);
+      analysis = await analyzeLogsFn(job.id, {
+        role: job.role,
+        jobType: job.job_type,
+        stage: job.job_type === "test" ? "writing_tests" : null,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(

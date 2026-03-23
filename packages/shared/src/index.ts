@@ -204,3 +204,4 @@ export type {
   PersonalityMode,
 } from "./personality/index.js";
 export { compilePersonalityPrompt } from "./personality/index.js";
+export { UNIVERSAL_PROMPT_LAYER } from "./prompt/universal-layer.js";

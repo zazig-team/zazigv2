@@ -4,12 +4,14 @@
  * GET /functions/v1/company-persistent-jobs?company_id=X
  *
  * For each persistent role in the company, assembles the prompt stack
- * (personality + role prompt) and returns the complete workspace definition.
+ * (company context + personality + role prompt + universal layer) and returns
+ * the complete workspace definition.
  *
  * Runtime: Deno / Supabase Edge Functions
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { UNIVERSAL_PROMPT_LAYER } from "../_shared/prompt-layers.ts";
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -169,6 +171,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (role.prompt) {
         parts.push(role.prompt);
       }
+      parts.push(UNIVERSAL_PROMPT_LAYER);
       parts.push(SKILLS_MARKER);
       // No completion instructions for persistent agents (they don't exit)
 

@@ -41,6 +41,7 @@ import {
   triggerTestWriting,
 } from "../_shared/pipeline-utils.ts";
 import { parseGitHubRepoUrl } from "../_shared/github.ts";
+import { UNIVERSAL_PROMPT_LAYER } from "../_shared/prompt-layers.ts";
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -979,7 +980,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     }
 
     // Fetch role prompt for jobs that have a named role.
-    // These populate the 4-layer context stack: personality → role → skills marker → task.
+    // These populate the prompt stack: personality → role → universal → skills marker → task.
     let rolePrompt: string | undefined;
     let personalityPrompt: string | undefined;
     if (resolvedRole) {
@@ -1009,11 +1010,12 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     }
 
     // Assemble the full prompt stack minus skills for observability and polling dispatch.
-    // Order: personality → role → SKILLS_MARKER → task context → completion.
+    // Order: personality → role → universal → SKILLS_MARKER → task context → completion.
     // The local agent inserts skill file content at SKILLS_MARKER when it claims the job.
     const promptParts: string[] = [];
     if (personalityPrompt) promptParts.push(personalityPrompt);
     if (rolePrompt) promptParts.push(rolePrompt);
+    promptParts.push(UNIVERSAL_PROMPT_LAYER);
     promptParts.push(SKILLS_MARKER);
     if (dispatchContext) promptParts.push(dispatchContext);
     promptParts.push(completionInstructions());

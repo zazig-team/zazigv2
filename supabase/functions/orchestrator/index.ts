@@ -2754,6 +2754,62 @@ async function processFeatureLifecycle(
     });
   }
 
+  // --- 4b. ci_checking → merging catch-up: trigger merge if ci_check passed but no merge job exists ---
+  // Catches features where the agent-event triggerMerging call was lost (edge function timeout, race).
+  const { data: ciPassedFeatures, error: ciPassedErr } = await supabase
+    .from("features")
+    .select("id, company_id")
+    .eq("status", "ci_checking")
+    .limit(50);
+
+  if (ciPassedErr) {
+    console.error(
+      "[orchestrator] processFeatureLifecycle: error querying ci_checking features for merge catch-up:",
+      ciPassedErr.message,
+    );
+  }
+
+  for (const feature of (ciPassedFeatures ?? []) as Array<{ id: string; company_id: string }>) {
+    // Check if a ci_check job completed successfully
+    const { data: completedCIJobs } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "ci_check")
+      .eq("status", "complete")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (!completedCIJobs || completedCIJobs.length === 0) continue;
+
+    // Check no active merge job exists (created, queued, executing)
+    const { data: activeMergeJobs } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("feature_id", feature.id)
+      .eq("job_type", "merge")
+      .in("status", ["created", "queued", "executing"])
+      .limit(1);
+
+    if (activeMergeJobs && activeMergeJobs.length > 0) continue;
+
+    // Also skip if there's an active fix job (request-feature-fix handles retries)
+    const { data: activeFixJobs } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("feature_id", feature.id)
+      .in("job_type", ["code", "fix"])
+      .in("status", ["created", "queued", "executing"])
+      .limit(1);
+
+    if (activeFixJobs && activeFixJobs.length > 0) continue;
+
+    console.log(
+      `[orchestrator] ci_checking feature ${feature.id} has completed ci_check but no merge job — triggering merge (catch-up)`,
+    );
+    await triggerMerging(supabase, feature.id);
+  }
+
   // --- 5. merging → complete (catch-up) ---
   // Features stuck in 'merging' where the latest merge job is already complete.
   const { data: mergingFeatures, error: mergeErr } = await supabase

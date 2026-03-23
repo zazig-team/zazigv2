@@ -3208,6 +3208,9 @@ export class JobExecutor {
       const logPath = jobLogPath(jobId);
 
       try {
+        // Kill any leftover session from a previous failed attempt
+        await killTmuxSession(resolveSession);
+
         // Log context to pipe-pane before spawning
         appendFileSync(logPath, `[conflict-resolution] Resolving conflicts for branch: ${branch}\n`);
         appendFileSync(logPath, `[conflict-resolution] Conflicted files:\n${conflictedFiles}\n`);

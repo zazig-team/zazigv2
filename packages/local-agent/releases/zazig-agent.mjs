@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "13f9551";
+const AGENT_BUILD_HASH = "be9d407";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -14097,7 +14097,14 @@ ${cpoContext}`);
               jobLog(jobId, `FAILED to resolve merge conflicts \u2014 failing job`);
               if (slotAcquired)
                 this.slots.release(slotType);
-              await this.sendJobFailed(jobId, `Merge conflict resolution failed for dependency branches: ${depResult.conflictBranches.join(", ")}. Requires human attention.`, "merge_conflict");
+              jobLog(jobId, "Sending JobFailed for merge_conflict...");
+              try {
+                await this.sendJobFailed(jobId, `Merge conflict resolution failed for dependency branches: ${depResult.conflictBranches.join(", ")}. Requires human attention.`, "merge_conflict");
+                jobLog(jobId, "JobFailed sent successfully for merge_conflict");
+              } catch (sendErr) {
+                jobLog(jobId, `sendJobFailed FAILED for merge_conflict: ${String(sendErr)}`);
+                console.error(`[executor] sendJobFailed failed for merge_conflict jobId=${jobId}:`, sendErr);
+              }
               return;
             }
             jobLog(jobId, `Merge conflicts resolved successfully`);
@@ -15908,27 +15915,62 @@ ${msg.text}`;
       ].join("\n");
       const promptPath = join4(worktreePath, ".merge-resolve-prompt.tmp");
       writeFileSync2(promptPath, prompt);
+      const branchSlug = branch.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 16);
+      const resolveSession = `resolve-${jobId.slice(0, 8)}-${branchSlug}`;
+      const logPath2 = jobLogPath(jobId);
       try {
-        const shellCmd = `cat ${shellEscape([promptPath])} | claude --model ${shellEscape([model])} -p`;
-        const { stdout } = await execFileAsync2("bash", ["-c", shellCmd], {
-          cwd: worktreePath,
-          encoding: "utf8",
-          timeout: 12e4,
-          env: { ...process.env, CLAUDECODE: void 0 }
-        });
-        jobLog(jobId, `Conflict resolution agent output for "${branch}": ${stdout.slice(0, 500)}`);
-        try {
-          const { stdout: status } = await execFileAsync2("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" });
-          const stillConflicted = status.split("\n").some((line) => line.startsWith("UU ") || line.startsWith("AA ") || line.startsWith("DD "));
-          if (stillConflicted) {
-            jobLog(jobId, `Conflict resolution agent did not resolve all conflicts for "${branch}"`);
-            try {
-              await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
-            } catch {
-            }
-            return false;
+        await killTmuxSession(resolveSession);
+        appendFileSync2(logPath2, `[conflict-resolution] Resolving conflicts for branch: ${branch}
+`);
+        appendFileSync2(logPath2, `[conflict-resolution] Conflicted files:
+${conflictedFiles}
+`);
+        const claudeCmd = shellEscape(["claude", "--model", model, "-p"]);
+        const wrappedCmd = [
+          `unset CLAUDECODE`,
+          `echo "[conflict-resolution] Starting claude -p at $(date -u +%Y-%m-%dT%H:%M:%SZ)"`,
+          `cat ${shellEscape([promptPath])} | ${claudeCmd} 2>&1`,
+          `RC=$?`,
+          `echo ""`,
+          `echo "[conflict-resolution] claude -p exited with code $RC at $(date -u +%Y-%m-%dT%H:%M:%SZ)"`,
+          `sleep 5`
+        ].join("; ");
+        await execFileAsync2("tmux", [
+          "new-session",
+          "-d",
+          "-s",
+          resolveSession,
+          ...worktreePath ? ["-c", worktreePath] : [],
+          wrappedCmd
+        ]);
+        await startPipePane(resolveSession, logPath2);
+        jobLog(jobId, `Conflict resolution tmux session started: ${resolveSession}`);
+        const RESOLVE_TIMEOUT_MS = 6e5;
+        const POLL_INTERVAL_MS2 = 3e3;
+        const deadline = Date.now() + RESOLVE_TIMEOUT_MS;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS2));
+          if (!await isTmuxSessionAlive(resolveSession))
+            break;
+        }
+        if (await isTmuxSessionAlive(resolveSession)) {
+          jobLog(jobId, `Conflict resolution timed out for "${branch}" \u2014 killing session`);
+          appendFileSync2(logPath2, `[conflict-resolution] TIMEOUT for "${branch}" after ${RESOLVE_TIMEOUT_MS / 1e3}s
+`);
+          await killTmuxSession(resolveSession);
+          try {
+            await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
+          } catch {
           }
-        } catch {
+          return false;
+        }
+        jobLog(jobId, `Conflict resolution session ended for "${branch}"`);
+        const { stdout: status } = await execFileAsync2("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" });
+        const stillConflicted = status.split("\n").some((line) => line.startsWith("UU ") || line.startsWith("AA ") || line.startsWith("DD "));
+        if (stillConflicted) {
+          jobLog(jobId, `Conflict resolution agent did not resolve all conflicts for "${branch}"`);
+          appendFileSync2(logPath2, `[conflict-resolution] Still has unresolved conflicts after agent ran for "${branch}"
+`);
           try {
             await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
           } catch {
@@ -15936,7 +15978,17 @@ ${msg.text}`;
           return false;
         }
       } catch (err) {
-        jobLog(jobId, `Conflict resolution agent failed for "${branch}": ${String(err)}`);
+        const errMsg = String(err);
+        jobLog(jobId, `Conflict resolution failed for "${branch}": ${errMsg}`);
+        try {
+          appendFileSync2(logPath2, `[conflict-resolution] FAILED for "${branch}": ${errMsg}
+`);
+        } catch {
+        }
+        try {
+          await killTmuxSession(resolveSession);
+        } catch {
+        }
         try {
           await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
         } catch {
@@ -15953,15 +16005,21 @@ ${msg.text}`;
   }
   async sendJobFailed(jobId, result, failureReason, report) {
     jobLog(jobId, `FAILED \u2014 reason=${failureReason}, error="${result.slice(0, 200)}"`);
-    await this.send({
-      type: "job_failed",
-      protocolVersion: PROTOCOL_VERSION,
-      jobId,
-      machineId: this.machineId,
-      error: result,
-      failureReason,
-      ...report !== void 0 ? { report } : {}
-    });
+    try {
+      await this.send({
+        type: "job_failed",
+        protocolVersion: PROTOCOL_VERSION,
+        jobId,
+        machineId: this.machineId,
+        error: result,
+        failureReason,
+        ...report !== void 0 ? { report } : {}
+      });
+      jobLog(jobId, "job_failed event sent to orchestrator");
+    } catch (sendErr) {
+      jobLog(jobId, `send() FAILED in sendJobFailed: ${String(sendErr)}`);
+      console.error(`[executor] this.send() failed in sendJobFailed jobId=${jobId}:`, sendErr);
+    }
   }
   async sendStopAck(jobId) {
     await this.send({
@@ -16118,6 +16176,9 @@ ${SKILLS_MARKER}
 
 `, "\n\n---\n\n");
   assembled = assembled.replace(SKILLS_MARKER, "");
+  if (process.env["ZAZIG_ENV"] === "staging") {
+    assembled = assembled.replace(/`zazig /g, "`zazig-staging ");
+  }
   if (msg.subAgentPrompt) {
     const workspaceDir = join4(homedir2(), ".zazigv2", `job-${msg.jobId}`);
     mkdirSync2(workspaceDir, { recursive: true, mode: 448 });
@@ -16371,7 +16432,7 @@ var AgentConnection = class {
         console.warn(`[local-agent] agent-event error: ${e}, retrying...`);
       }
     }
-    console.error("[local-agent] agent-event failed after 3 retries");
+    console.error(`[local-agent] agent-event failed after all retries \u2014 message dropped: type=${msg.type}${"jobId" in msg && msg.jobId ? ` jobId=${msg.jobId}` : ""}`);
     return false;
   }
   /**

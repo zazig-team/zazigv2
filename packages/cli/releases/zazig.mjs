@@ -14513,6 +14513,16 @@ function readRecentAgentErrorLines(logPath) {
     return null;
   }
 }
+function readClaudeTokenFromKeychain() {
+  try {
+    const raw = execSync5('security find-generic-password -s "Claude Code-credentials" -w', { stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" });
+    const parsed = JSON.parse(raw);
+    const token = parsed?.claudeAiOauth?.accessToken;
+    return typeof token === "string" && token.startsWith("sk-ant-") ? token : null;
+  } catch {
+    return null;
+  }
+}
 async function start() {
   const noTui = process.argv.includes("--no-tui");
   const companyFlagIdx = process.argv.indexOf("--company");
@@ -14600,6 +14610,7 @@ Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.
     }
     removePidFileForCompany(company.id);
   }
+  const claudeToken = readClaudeTokenFromKeychain();
   const env = {
     ...process.env,
     SUPABASE_ACCESS_TOKEN: creds.accessToken,
@@ -14609,7 +14620,8 @@ Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.
     ZAZIG_COMPANY_ID: company.id,
     ZAZIG_COMPANY_NAME: company.name,
     ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
-    ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2)
+    ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
+    ...claudeToken ? { ANTHROPIC_API_KEY: claudeToken } : {}
   };
   let agentEntryOverride;
   if (zazigEnv === "production") {
@@ -15569,6 +15581,21 @@ function parseCompanyFlag3(args2) {
     return void 0;
   return value;
 }
+function parseNumericFlag(args2, name) {
+  const eqValue = args2.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
+  if (eqValue !== void 0) {
+    const parsed2 = Number.parseInt(eqValue, 10);
+    return Number.isFinite(parsed2) ? parsed2 : void 0;
+  }
+  const idx = args2.indexOf(`--${name}`);
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : void 0;
+}
 async function ideas(args2) {
   const companyId = parseCompanyFlag3(args2);
   if (!companyId) {
@@ -15580,8 +15607,8 @@ async function ideas(args2) {
   const source = args2.find((a) => a.startsWith("--source="))?.split("=")[1];
   const domain = args2.find((a) => a.startsWith("--domain="))?.split("=")[1];
   const search = args2.find((a) => a.startsWith("--search="))?.split("=")[1];
-  const limitRaw = args2.find((a) => a.startsWith("--limit="))?.split("=")[1];
-  const limit = limitRaw !== void 0 ? Number.parseInt(limitRaw, 10) : void 0;
+  const limit = parseNumericFlag(args2, "limit") ?? 20;
+  const offset = parseNumericFlag(args2, "offset") ?? 0;
   let creds;
   try {
     creds = await getValidCredentials();
@@ -15604,7 +15631,8 @@ async function ideas(args2) {
     ...source !== void 0 ? { source } : {},
     ...domain !== void 0 ? { domain } : {},
     ...search !== void 0 ? { search } : {},
-    ...limit !== void 0 && Number.isFinite(limit) ? { limit } : {}
+    limit,
+    offset
   };
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
   const response = await fetch(`${supabaseUrl}/functions/v1/query-ideas`, {
@@ -15624,6 +15652,10 @@ async function ideas(args2) {
   }
   const data = await response.json();
   process.stdout.write(JSON.stringify(data));
+  const count = Array.isArray(data.ideas) ? data.ideas.length : 0;
+  const total = typeof data.total === "number" ? data.total : count;
+  process.stderr.write(`Showing ${offset + 1}-${offset + count} of ${total} (--limit ${limit} --offset ${offset})
+`);
   process.exit(0);
 }
 
@@ -15639,15 +15671,45 @@ function parseCompanyFlag4(args2) {
     return { rest: [...before, ...after] };
   return { companyId: value, rest: [...before, ...after] };
 }
+function parseNumericFlag2(args2, name) {
+  const eqValue = args2.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
+  if (eqValue !== void 0) {
+    const parsed2 = Number.parseInt(eqValue, 10);
+    return Number.isFinite(parsed2) ? parsed2 : void 0;
+  }
+  const idx = args2.indexOf(`--${name}`);
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : void 0;
+}
+function parseProjectIdArg(args2) {
+  const valueFlags = /* @__PURE__ */ new Set(["--limit", "--offset", "--company", "--status", "--id"]);
+  for (let i = 0; i < args2.length; i += 1) {
+    const current = args2[i];
+    if (current.startsWith("--"))
+      continue;
+    const previous = i > 0 ? args2[i - 1] : void 0;
+    if (previous && valueFlags.has(previous))
+      continue;
+    return current;
+  }
+  return void 0;
+}
 async function features(args2) {
   const { companyId: company_id, rest } = parseCompanyFlag4(args2);
   if (!company_id) {
     process.stderr.write("Usage: zazig features --company <company-id>\n");
     process.exit(1);
   }
-  const project_id = rest.find((a) => !a.startsWith("--"));
+  const project_id = parseProjectIdArg(rest);
   const idFlag = rest.find((a) => a.startsWith("--id="));
   const statusFlag = rest.find((a) => a.startsWith("--status="));
+  const limit = parseNumericFlag2(rest, "limit") ?? 20;
+  const offset = parseNumericFlag2(rest, "offset") ?? 0;
   const feature_id = idFlag?.slice("--id=".length);
   const status2 = statusFlag?.slice("--status=".length);
   if (!project_id && !feature_id) {
@@ -15673,7 +15735,9 @@ async function features(args2) {
     company_id,
     ...project_id ? { project_id } : {},
     ...feature_id ? { feature_id } : {},
-    ...status2 ? { status: status2 } : {}
+    ...status2 ? { status: status2 } : {},
+    limit,
+    offset
   };
   const response = await fetch(`${supabaseUrl}/functions/v1/query-features`, {
     method: "POST",
@@ -15692,6 +15756,10 @@ async function features(args2) {
   }
   const data = await response.json();
   process.stdout.write(JSON.stringify(data));
+  const count = Array.isArray(data.features) ? data.features.length : 0;
+  const total = typeof data.total === "number" ? data.total : count;
+  process.stderr.write(`Showing ${offset + 1}-${offset + count} of ${total} (--limit ${limit} --offset ${offset})
+`);
   process.exit(0);
 }
 
@@ -15705,6 +15773,33 @@ function parseCompanyFlag5(args2) {
     return void 0;
   return value;
 }
+function parseNumericFlag3(args2, name) {
+  const eqValue = args2.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
+  if (eqValue !== void 0) {
+    const parsed2 = Number.parseInt(eqValue, 10);
+    return Number.isFinite(parsed2) ? parsed2 : void 0;
+  }
+  const idx = args2.indexOf(`--${name}`);
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : void 0;
+}
+function parseTotalFromContentRange(value) {
+  if (!value)
+    return void 0;
+  const slash = value.lastIndexOf("/");
+  if (slash === -1)
+    return void 0;
+  const totalRaw = value.slice(slash + 1);
+  if (totalRaw === "*")
+    return void 0;
+  const total = Number.parseInt(totalRaw, 10);
+  return Number.isFinite(total) ? total : void 0;
+}
 async function projects(args2) {
   const company_id = parseCompanyFlag5(args2);
   if (!company_id) {
@@ -15712,6 +15807,9 @@ async function projects(args2) {
     process.exit(1);
   }
   const includeFeatures = args2.includes("--include-features");
+  const limit = parseNumericFlag3(args2, "limit") ?? 20;
+  const offset = parseNumericFlag3(args2, "offset") ?? 0;
+  const rangeEnd = offset + limit - 1;
   let creds;
   try {
     creds = await getValidCredentials();
@@ -15728,13 +15826,14 @@ async function projects(args2) {
   })();
   const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
   const select = includeFeatures ? "id,name,description,status,features(id,title,description,priority,status)" : "id,name,description,status";
-  const url = `${supabaseUrl}/rest/v1/projects?select=${select}&company_id=eq.${company_id}`;
+  const url = `${supabaseUrl}/rest/v1/projects?select=${select}&company_id=eq.${company_id}&order=created_at.desc`;
   const response = await fetch(url, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${creds.accessToken}`,
       apikey: DEFAULT_SUPABASE_ANON_KEY,
-      Prefer: "return=representation",
+      Prefer: "count=exact",
+      Range: `${offset}-${rangeEnd}`,
       "x-company-id": company_id
     }
   });
@@ -15745,6 +15844,9 @@ async function projects(args2) {
   }
   const data = await response.json();
   process.stdout.write(JSON.stringify(data));
+  const total = parseTotalFromContentRange(response.headers.get("Content-Range")) ?? data.length;
+  process.stderr.write(`Showing ${offset + 1}-${offset + data.length} of ${total} (--limit ${limit} --offset ${offset})
+`);
   process.exit(0);
 }
 

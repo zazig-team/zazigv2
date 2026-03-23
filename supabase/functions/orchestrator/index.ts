@@ -2661,17 +2661,19 @@ async function processFeatureLifecycle(
       company_id: string;
     }>
   ) {
-    // Check if a ci_check job already exists (any non-failed terminal state counts)
+    // Check if a ci_check job already exists — include failed/failed_retrying so
+    // the catch-up doesn't re-create jobs that the retry path (request-feature-fix)
+    // should handle. Catch-up is only for genuinely lost jobs (Realtime miss).
     const { data: existingCIJob } = await supabase
       .from("jobs")
       .select("id")
       .eq("feature_id", feature.id)
       .eq("job_type", "ci_check")
-      .in("status", ["created", "queued", "executing", "complete", "cancelled"])
+      .in("status", ["created", "queued", "executing", "complete", "cancelled", "failed", "failed_retrying"])
       .limit(1);
 
     if (existingCIJob && existingCIJob.length > 0) {
-      continue; // Already has an active or completed ci_check job
+      continue; // Already has a ci_check job — retry path handles failures
     }
 
     // Also skip if a fix job is active (fix completes → ci_check will be created via depends_on)

@@ -3202,13 +3202,13 @@ export class JobExecutor {
       writeFileSync(promptPath, prompt);
 
       try {
-        const shellCmd = `cat ${shellEscape([promptPath])} | claude --model ${shellEscape([model])} -p`;
-        const { stdout } = await execFileAsync("bash", ["-c", shellCmd], {
+        const shellCmd = `unset CLAUDECODE; cat ${shellEscape([promptPath])} | claude --model ${shellEscape([model])} -p`;
+        const { stdout, stderr } = await execFileAsync("bash", ["-c", shellCmd], {
           cwd: worktreePath,
           encoding: "utf8",
           timeout: 120_000,
-          env: { ...process.env, CLAUDECODE: undefined },
         });
+        if (stderr) jobLog(jobId, `Conflict resolution agent stderr for "${branch}": ${stderr.slice(0, 300)}`);
         jobLog(jobId, `Conflict resolution agent output for "${branch}": ${stdout.slice(0, 500)}`);
 
         // Verify merge completed (no more conflict markers)
@@ -3225,7 +3225,9 @@ export class JobExecutor {
           return false;
         }
       } catch (err) {
-        jobLog(jobId, `Conflict resolution agent failed for "${branch}": ${String(err)}`);
+        const errMsg = String(err);
+        const stderr = (err as NodeJS.ErrnoException & { stderr?: string }).stderr ?? "";
+        jobLog(jobId, `Conflict resolution agent failed for "${branch}": ${errMsg}${stderr ? ` | stderr: ${stderr.slice(0, 300)}` : ""}`);
         try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}
         return false;
       } finally {

@@ -13716,11 +13716,13 @@ function isDaemonRunning() {
   return pid !== null && isRunning(pid);
 }
 function pidPathForCompany(companyId) {
-  return join5(ZAZIGV2_DIR3, `${companyId}.pid`);
+  const suffix = IS_STAGING ? "-staging" : "";
+  return join5(ZAZIGV2_DIR3, `${companyId}${suffix}.pid`);
 }
 function logPathForCompany(companyId) {
   mkdirSync4(LOG_DIR, { recursive: true });
-  return join5(LOG_DIR, `${companyId}.log`);
+  const suffix = IS_STAGING ? "-staging" : "";
+  return join5(LOG_DIR, `${companyId}${suffix}.log`);
 }
 function readPidForCompany(companyId) {
   try {
@@ -14783,7 +14785,7 @@ async function status() {
     console.log("Agent is not running.");
     return;
   }
-  const { pid } = daemon;
+  const { pid, companyId } = daemon;
   console.log(`zazig ${getVersion()} \u2014 agent running (PID ${pid})`);
   let creds;
   try {
@@ -14803,7 +14805,7 @@ async function status() {
     Authorization: `Bearer ${creds.accessToken}`
   };
   try {
-    const machines = await apiFetch(`${creds.supabaseUrl}/rest/v1/machines?select=id,name,status,last_heartbeat,slots_claude_code,slots_codex,company_id&name=eq.${encodeURIComponent(cfg.name)}`, headers);
+    const machines = await apiFetch(`${creds.supabaseUrl}/rest/v1/machines?select=id,name,status,last_heartbeat,slots_claude_code,slots_codex,company_id&name=eq.${encodeURIComponent(cfg.name)}` + (companyId ? `&company_id=eq.${encodeURIComponent(companyId)}` : ""), headers);
     if (machines.length === 0) {
       console.log("  (machine not registered yet \u2014 start the agent to register)");
       return;
@@ -14834,16 +14836,14 @@ async function status() {
     }
     const companyIds = machines.map((row) => String(row.company_id ?? "")).filter((id) => id.length > 0);
     if (companyIds.length > 0) {
-      const persistentAgents = await apiFetch(`${creds.supabaseUrl}/rest/v1/persistent_agents?select=id,role,status,machine_id,last_heartbeat&company_id=in.(${companyIds.join(",")})`, headers);
+      const persistentAgents = await apiFetch(`${creds.supabaseUrl}/rest/v1/persistent_agents?select=id,role,status,machine_id,last_heartbeat&company_id=in.(${companyIds.join(",")})&machine_id=eq.${encodeURIComponent(machineId)}`, headers);
       if (Array.isArray(persistentAgents) && persistentAgents.length > 0) {
         console.log(`  Persistent agents:`);
         for (const agent of persistentAgents) {
           const role = String(agent.role ?? "unknown").toUpperCase();
           const agentStatus = String(agent.status ?? "unknown");
-          const isLocal = agent.machine_id === machineId;
-          const localTag = isLocal ? " (this machine)" : "";
           const icon = agentStatus === "running" ? "\u25CF" : "\u25CB";
-          console.log(`    ${icon} ${role.padEnd(12)} ${agentStatus}${localTag}`);
+          console.log(`    ${icon} ${role.padEnd(12)} ${agentStatus}`);
         }
       }
     }
@@ -15029,26 +15029,26 @@ async function fetchProjects(supabaseUrl, anonKey, accessToken, companyId) {
     throw new Error(`Failed to fetch projects: HTTP ${res.status}`);
   return await res.json();
 }
-async function pickProject(projects) {
-  if (projects.length === 0) {
+async function pickProject(projects2) {
+  if (projects2.length === 0) {
     throw new Error("No projects found for this company.");
   }
-  if (projects.length === 1) {
-    return projects[0];
+  if (projects2.length === 1) {
+    return projects2[0];
   }
   console.log("\nWhich project?\n");
-  for (let i = 0; i < projects.length; i++) {
-    console.log(`  ${i + 1}. ${projects[i].name}`);
+  for (let i = 0; i < projects2.length; i++) {
+    console.log(`  ${i + 1}. ${projects2[i].name}`);
   }
   const rl = createInterface5({ input: process.stdin, output: process.stdout });
   try {
     const ans = await rl.question(`
 Choice [1]: `);
     const idx = (parseInt(ans.trim(), 10) || 1) - 1;
-    if (idx < 0 || idx >= projects.length) {
+    if (idx < 0 || idx >= projects2.length) {
       throw new Error("Invalid choice.");
     }
-    return projects[idx];
+    return projects2[idx];
   } finally {
     rl.close();
   }
@@ -15179,8 +15179,8 @@ async function promote(args2) {
   const company = await pickCompany(companies);
   console.log(`
 Company: ${company.name}`);
-  const projects = await fetchProjects(creds.supabaseUrl, anonKey, creds.accessToken, company.id);
-  const project = await pickProject(projects);
+  const projects2 = await fetchProjects(creds.supabaseUrl, anonKey, creds.accessToken, company.id);
+  const project = await pickProject(projects2);
   console.log(`Project: ${project.name}`);
   const bareRepoDir = join12(REPOS_BASE, project.name);
   if (!existsSync10(bareRepoDir)) {
@@ -15508,6 +15508,246 @@ async function stagingFix() {
   console.log("\nStaging fix session ended.");
 }
 
+// dist/commands/snapshot.js
+function parseCompanyFlag2(args2) {
+  const idx = args2.indexOf("--company");
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  return value;
+}
+async function snapshot(args2) {
+  const companyId = parseCompanyFlag2(args2);
+  if (!companyId) {
+    process.stderr.write("Usage: zazig snapshot --company <company-id>\n");
+    process.exit(1);
+  }
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    process.stderr.write(JSON.stringify({ "error": "Not logged in. Run zazig login" }));
+    process.exit(1);
+  }
+  const config = (() => {
+    try {
+      return loadConfig();
+    } catch {
+      return void 0;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
+  const endpoint = new URL(`${supabaseUrl}/functions/v1/get-pipeline-snapshot`);
+  endpoint.searchParams.set("company_id", companyId);
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${creds.accessToken}`,
+      apikey: DEFAULT_SUPABASE_ANON_KEY,
+      "x-company-id": companyId
+    }
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    process.stderr.write(JSON.stringify({ "error": `HTTP ${response.status}: ${body}` }));
+    process.exit(1);
+  }
+  const data = await response.json();
+  process.stdout.write(JSON.stringify(data));
+  process.exit(0);
+}
+
+// dist/commands/ideas.js
+function parseCompanyFlag3(args2) {
+  const idx = args2.indexOf("--company");
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  return value;
+}
+async function ideas(args2) {
+  const companyId = parseCompanyFlag3(args2);
+  if (!companyId) {
+    process.stderr.write("Usage: zazig ideas --company <company-id>\n");
+    process.exit(1);
+  }
+  const status2 = args2.find((a) => a.startsWith("--status="))?.split("=")[1];
+  const ideaId = args2.find((a) => a.startsWith("--id="))?.split("=")[1];
+  const source = args2.find((a) => a.startsWith("--source="))?.split("=")[1];
+  const domain = args2.find((a) => a.startsWith("--domain="))?.split("=")[1];
+  const search = args2.find((a) => a.startsWith("--search="))?.split("=")[1];
+  const limitRaw = args2.find((a) => a.startsWith("--limit="))?.split("=")[1];
+  const limit = limitRaw !== void 0 ? Number.parseInt(limitRaw, 10) : void 0;
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    process.stderr.write(JSON.stringify({ "error": "Not logged in. Run zazig login" }));
+    process.exit(1);
+  }
+  const config = (() => {
+    try {
+      return loadConfig();
+    } catch {
+      return void 0;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
+  const body = {
+    company_id: companyId,
+    ...status2 !== void 0 ? { status: status2 } : {},
+    ...ideaId !== void 0 ? { idea_id: ideaId } : {},
+    ...source !== void 0 ? { source } : {},
+    ...domain !== void 0 ? { domain } : {},
+    ...search !== void 0 ? { search } : {},
+    ...limit !== void 0 && Number.isFinite(limit) ? { limit } : {}
+  };
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const response = await fetch(`${supabaseUrl}/functions/v1/query-ideas`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${creds.accessToken}`,
+      apikey: anonKey,
+      "Content-Type": "application/json",
+      "x-company-id": companyId
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    process.stderr.write(JSON.stringify({ "error": `HTTP ${response.status}: ${errorBody}` }));
+    process.exit(1);
+  }
+  const data = await response.json();
+  process.stdout.write(JSON.stringify(data));
+  process.exit(0);
+}
+
+// dist/commands/features.js
+function parseCompanyFlag4(args2) {
+  const idx = args2.indexOf("--company");
+  if (idx === -1)
+    return { rest: args2 };
+  const before = args2.slice(0, idx);
+  const after = args2.slice(idx + 2);
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return { rest: [...before, ...after] };
+  return { companyId: value, rest: [...before, ...after] };
+}
+async function features(args2) {
+  const { companyId: company_id, rest } = parseCompanyFlag4(args2);
+  if (!company_id) {
+    process.stderr.write("Usage: zazig features --company <company-id>\n");
+    process.exit(1);
+  }
+  const project_id = rest.find((a) => !a.startsWith("--"));
+  const idFlag = rest.find((a) => a.startsWith("--id="));
+  const statusFlag = rest.find((a) => a.startsWith("--status="));
+  const feature_id = idFlag?.slice("--id=".length);
+  const status2 = statusFlag?.slice("--status=".length);
+  if (!project_id && !feature_id) {
+    process.stderr.write(JSON.stringify({ "error": "project_id or --id is required" }));
+    process.exit(1);
+  }
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    process.stderr.write(JSON.stringify({ "error": "Not logged in. Run zazig login" }));
+    process.exit(1);
+  }
+  const config = (() => {
+    try {
+      return loadConfig();
+    } catch {
+      return void 0;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
+  const body = {
+    company_id,
+    ...project_id ? { project_id } : {},
+    ...feature_id ? { feature_id } : {},
+    ...status2 ? { status: status2 } : {}
+  };
+  const response = await fetch(`${supabaseUrl}/functions/v1/query-features`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${creds.accessToken}`,
+      apikey: DEFAULT_SUPABASE_ANON_KEY,
+      "Content-Type": "application/json",
+      "x-company-id": company_id
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "unknown error");
+    process.stderr.write(JSON.stringify({ "error": `HTTP ${response.status}: ${errorBody}` }));
+    process.exit(1);
+  }
+  const data = await response.json();
+  process.stdout.write(JSON.stringify(data));
+  process.exit(0);
+}
+
+// dist/commands/projects.js
+function parseCompanyFlag5(args2) {
+  const idx = args2.indexOf("--company");
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  return value;
+}
+async function projects(args2) {
+  const company_id = parseCompanyFlag5(args2);
+  if (!company_id) {
+    process.stderr.write("Usage: zazig projects --company <company-id>\n");
+    process.exit(1);
+  }
+  const includeFeatures = args2.includes("--include-features");
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    process.stderr.write(JSON.stringify({ "error": "Not logged in. Run zazig login" }));
+    process.exit(1);
+  }
+  const config = (() => {
+    try {
+      return loadConfig();
+    } catch {
+      return void 0;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
+  const select = includeFeatures ? "id,name,description,status,features(id,title,description,priority,status)" : "id,name,description,status";
+  const url = `${supabaseUrl}/rest/v1/projects?select=${select}&company_id=eq.${company_id}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${creds.accessToken}`,
+      apikey: DEFAULT_SUPABASE_ANON_KEY,
+      Prefer: "return=representation",
+      "x-company-id": company_id
+    }
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    process.stderr.write(JSON.stringify({ "error": `HTTP ${response.status}: ${body}` }));
+    process.exit(1);
+  }
+  const data = await response.json();
+  process.stdout.write(JSON.stringify(data));
+  process.exit(0);
+}
+
 // dist/index.js
 var [, , cmd, ...args] = process.argv;
 switch (cmd) {
@@ -15551,6 +15791,18 @@ switch (cmd) {
   case "staging-fix":
     await stagingFix();
     break;
+  case "snapshot":
+    await snapshot(args);
+    break;
+  case "ideas":
+    await ideas(args);
+    break;
+  case "features":
+    await features(args);
+    break;
+  case "projects":
+    await projects(args);
+    break;
   case void 0:
   case "--help":
   case "-h":
@@ -15572,6 +15824,10 @@ switch (cmd) {
     console.log("  promote --rollback Rollback to previous pinned build");
     console.log('  hotfix "desc"      Quick fix: interactive session, commits to master');
     console.log("  staging-fix        Interactive session for fixing staging issues");
+    console.log("  snapshot --company <company-id>  Print pipeline snapshot JSON to stdout");
+    console.log("  ideas --company <company-id>     Query ideas (supports filter flags)");
+    console.log("  features --company <company-id>  Query features (project/status/id filters)");
+    console.log("  projects --company <company-id>  List projects (optional --include-features)");
     break;
   default:
     console.error(`Unknown command: ${cmd}`);

@@ -1,8 +1,21 @@
 import { getValidCredentials } from "../lib/credentials.js";
-import { loadConfig } from "../lib/config.js";
 import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 
+function parseCompanyFlag(args: string[]): string | undefined {
+  const idx = args.indexOf("--company");
+  if (idx === -1) return undefined;
+  const value = args[idx + 1];
+  if (!value || value.startsWith("--")) return undefined;
+  return value;
+}
+
 export async function ideas(args: string[]): Promise<void> {
+  const companyId = parseCompanyFlag(args);
+  if (!companyId) {
+    process.stderr.write("Usage: zazig ideas --company <company-id>\n");
+    process.exit(1);
+  }
+
   const status = args.find((a) => a.startsWith("--status="))?.split("=")[1];
   const ideaId = args.find((a) => a.startsWith("--id="))?.split("=")[1];
   const source = args.find((a) => a.startsWith("--source="))?.split("=")[1];
@@ -19,9 +32,8 @@ export async function ideas(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const cfg = loadConfig();
   const body = {
-    company_id: cfg.company_id,
+    company_id: companyId,
     ...(status !== undefined ? { status } : {}),
     ...(ideaId !== undefined ? { idea_id: ideaId } : {}),
     ...(source !== undefined ? { source } : {}),
@@ -37,7 +49,7 @@ export async function ideas(args: string[]): Promise<void> {
       Authorization: `Bearer ${creds.accessToken}`,
       apikey: anonKey,
       "Content-Type": "application/json",
-      "x-company-id": cfg.company_id ?? "",
+      "x-company-id": companyId,
     },
     body: JSON.stringify(body),
   });

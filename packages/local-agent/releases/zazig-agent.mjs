@@ -1,4 +1,3 @@
-const AGENT_BUILD_HASH = "4d2c5c6";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -939,7 +938,7 @@ var require_version = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
-    exports.version = "2.97.0";
+    exports.version = "2.98.0";
   }
 });
 
@@ -2828,6 +2827,18 @@ Option 2: Install and provide the "ws" package:
         this.log("transport", `connected to ${this.endpointURL()}`);
         const authPromise = this._authPromise || (this.accessToken && !this.accessTokenValue ? this.setAuth() : Promise.resolve());
         authPromise.then(() => {
+          if (this.accessTokenValue) {
+            this.channels.forEach((channel) => {
+              channel.updateJoinPayload({ access_token: this.accessTokenValue });
+            });
+            this.sendBuffer = [];
+            this.channels.forEach((channel) => {
+              if (channel._isJoining()) {
+                channel.joinPush.sent = false;
+                channel.joinPush.send();
+              }
+            });
+          }
           this.flushSendBuffer();
         }).catch((e) => {
           this.log("error", "error waiting for auth on connect", e);
@@ -3124,7 +3135,7 @@ var require_version2 = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
-    exports.version = "2.97.0";
+    exports.version = "2.98.0";
   }
 });
 
@@ -4535,8 +4546,31 @@ var require_locks = __commonJS({
           }
         });
       } catch (e) {
-        if ((e === null || e === void 0 ? void 0 : e.name) === "AbortError") {
-          throw new NavigatorLockAcquireTimeoutError(`Acquiring an exclusive Navigator LockManager lock "${name}" timed out waiting ${acquireTimeout}ms`);
+        if ((e === null || e === void 0 ? void 0 : e.name) === "AbortError" && acquireTimeout > 0) {
+          if (exports.internals.debug) {
+            console.log("@supabase/gotrue-js: navigatorLock: acquire timeout, recovering by stealing lock", name);
+          }
+          console.warn(`@supabase/gotrue-js: Lock "${name}" was not released within ${acquireTimeout}ms. This may indicate an orphaned lock from a component unmount (e.g., React Strict Mode). Forcefully acquiring the lock to recover.`);
+          return await Promise.resolve().then(() => globalThis.navigator.locks.request(name, {
+            mode: "exclusive",
+            steal: true
+          }, async (lock) => {
+            if (lock) {
+              if (exports.internals.debug) {
+                console.log("@supabase/gotrue-js: navigatorLock: recovered (stolen)", name, lock.name);
+              }
+              try {
+                return await fn();
+              } finally {
+                if (exports.internals.debug) {
+                  console.log("@supabase/gotrue-js: navigatorLock: released (stolen)", name, lock.name);
+                }
+              }
+            } else {
+              console.warn("@supabase/gotrue-js: Navigator LockManager returned null lock even with steal: true");
+              return await fn();
+            }
+          }));
         }
         throw e;
       }
@@ -5472,8 +5506,8 @@ var require_GoTrueClient = __commonJS({
       debug: false,
       hasCustomAuthorizationHeader: false,
       throwOnError: false,
-      lockAcquireTimeout: 1e4,
-      // 10 seconds
+      lockAcquireTimeout: 5e3,
+      // 5 seconds
       skipAutoInitialize: false
     };
     async function lockNoOp(name, acquireTimeout, fn) {
@@ -11312,7 +11346,7 @@ var StorageFileApi = class extends BaseApiClient {
     return params.join("&");
   }
 };
-var version = "2.97.0";
+var version = "2.98.0";
 var DEFAULT_HEADERS = { "X-Client-Info": `storage-js/${version}` };
 var StorageBucketApi = class extends BaseApiClient {
   constructor(url, headers = {}, fetch$1, opts) {
@@ -12560,7 +12594,7 @@ var StorageClient = class extends StorageBucketApi {
 var import_auth_js = __toESM(require_main3(), 1);
 __reExport(dist_exports, __toESM(require_main2(), 1));
 __reExport(dist_exports, __toESM(require_main3(), 1));
-var version2 = "2.97.0";
+var version2 = "2.98.0";
 var JS_ENV = "";
 if (typeof Deno !== "undefined") JS_ENV = "deno";
 else if (typeof document !== "undefined") JS_ENV = "web";
@@ -13582,6 +13616,29 @@ var RepoManager = class {
     const bareDir = join3(REPOS_BASE, projectName);
     return this.withLock(bareDir, async () => {
       await this.git(bareDir, "fetch", "--force", "origin", `+refs/heads/${branch}:refs/heads/${branch}`);
+    });
+  }
+  /**
+   * Fetch the default branch into a per-session temporary ref.
+   *
+   * Unlike fetchBranchForExpert, this never updates refs/heads/{branch}, so it
+   * succeeds even when that branch is checked out in another worktree. Each
+   * session gets a distinct ref (refs/zazig-expert-base/{sessionId}), eliminating
+   * ref conflicts between concurrent sessions.
+   *
+   * The caller must delete the temp ref with:
+   *   git update-ref -d refs/zazig-expert-base/{sessionId}
+   * after the worktree is created.
+   *
+   * Returns the resolved default branch name and the temp ref path.
+   */
+  async fetchForExpertSession(projectName, sessionId) {
+    const bareDir = join3(REPOS_BASE, projectName);
+    return this.withLock(bareDir, async () => {
+      const defaultBranch = await this.resolveDefaultBranch(bareDir);
+      const tempRef = `refs/zazig-expert-base/${sessionId}`;
+      await this.git(bareDir, "fetch", "--refmap=", "--no-write-fetch-head", "origin", `+refs/heads/${defaultBranch}:${tempRef}`);
+      return { defaultBranch, tempRef };
     });
   }
   /**
@@ -16871,18 +16928,13 @@ var ExpertSessionManager = class {
     let repoDir;
     let bareRepoDir;
     let startCommitHash;
-    if (msg.project_id && !msg.repo_url || !msg.project_id && msg.repo_url) {
-      console.error(`[expert] Invalid start_expert payload for ${sessionId}: project_id and repo_url must both be set together`);
-      this.startingSessions.delete(sessionId);
-      await this.updateSessionStatus(sessionId, "failed");
-      return;
-    }
-    if (msg.project_id && msg.repo_url) {
+    let resolvedDefaultBranch;
+    const needsRepo = msg.needs_repo !== false;
+    if (needsRepo && msg.project_id && msg.repo_url) {
       try {
         const projectName = msg.repo_url.split("/").pop()?.replace(/\.git$/, "") ?? msg.project_id;
         bareRepoDir = await this.repoManager.ensureRepo(msg.repo_url, projectName);
         const worktreeTarget = join6(workspaceDir, "repo");
-        const branch = "master";
         try {
           await execFileAsync4("git", [
             "-C",
@@ -16896,7 +16948,8 @@ var ExpertSessionManager = class {
         }
         rmSync4(worktreeTarget, { recursive: true, force: true });
         await execFileAsync4("git", ["-C", bareRepoDir, "worktree", "prune"]);
-        await this.repoManager.fetchBranchForExpert(projectName, branch);
+        const { defaultBranch, tempRef } = await this.repoManager.fetchForExpertSession(projectName, sessionId);
+        resolvedDefaultBranch = defaultBranch;
         await execFileAsync4("git", [
           "-C",
           bareRepoDir,
@@ -16905,12 +16958,16 @@ var ExpertSessionManager = class {
           "-b",
           expertBranch,
           worktreeTarget,
-          `refs/heads/${branch}`
+          tempRef
         ]);
+        try {
+          await execFileAsync4("git", ["-C", bareRepoDir, "update-ref", "-d", tempRef]);
+        } catch {
+        }
         const { stdout } = await execFileAsync4("git", ["-C", worktreeTarget, "rev-parse", "HEAD"]);
         startCommitHash = stdout.trim();
         repoDir = worktreeTarget;
-        console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${expertBranch})`);
+        console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${expertBranch}, base: ${defaultBranch})`);
         console.log(`[expert] Worktree at commit: ${startCommitHash.slice(0, 8)}`);
       } catch (err) {
         console.error(`[expert] Failed to create git worktree:`, err);
@@ -16918,6 +16975,11 @@ var ExpertSessionManager = class {
         await this.updateSessionStatus(sessionId, "failed");
         return;
       }
+    } else if (needsRepo && (msg.project_id || msg.repo_url)) {
+      console.error(`[expert] Invalid start_expert payload for ${sessionId}: project_id and repo_url must both be set together`);
+      this.startingSessions.delete(sessionId);
+      await this.updateSessionStatus(sessionId, "failed");
+      return;
     }
     const effectiveWorkspaceDir = repoDir ?? workspaceDir;
     try {
@@ -16927,7 +16989,9 @@ var ExpertSessionManager = class {
       if (msg.role.prompt) {
         claudeMdParts.push(msg.role.prompt);
       }
-      claudeMdParts.push(`
+      if (needsRepo) {
+        const defaultBranchForInstructions = resolvedDefaultBranch ?? "master";
+        claudeMdParts.push(`
 ## Expert Session Instructions
 
 You are working as an interactive expert. Your task brief is in \`.claude/expert-brief.md\`.
@@ -16937,12 +17001,25 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
 2. You are on branch \`${expertBranch}\` \u2014 all your work goes here
 3. Work through the brief methodically
 4. Show diffs before applying changes
-5. When done: push your branch and merge to master, then delete the remote expert branch
+5. When done: push your branch and merge to ${defaultBranchForInstructions}, then delete the remote expert branch
    - \`git push origin ${expertBranch}\`
-   - \`git checkout master && git merge ${expertBranch} && git push origin master\`
+   - \`git checkout ${defaultBranchForInstructions} && git merge ${expertBranch} && git push origin ${defaultBranchForInstructions}\`
    - \`git push origin --delete ${expertBranch}\`
 
 `);
+      } else {
+        claudeMdParts.push(`
+## Expert Session Instructions
+
+You are working as an autonomous expert. Your task brief is in \`.claude/expert-brief.md\`.
+
+### Workflow
+1. Read and understand the brief in \`.claude/expert-brief.md\`
+2. Work through the brief methodically using the MCP tools available
+3. When done, your session will end automatically \u2014 no git or file operations are needed
+
+`);
+      }
       const claudeMdContent = claudeMdParts.join("\n\n");
       setupJobWorkspace({
         workspaceDir: effectiveWorkspaceDir,
@@ -17039,6 +17116,7 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
         effectiveWorkspaceDir,
         repoDir,
         bareRepoDir,
+        defaultBranch: resolvedDefaultBranch,
         branch: msg.branch ?? void 0,
         expertBranch: repoDir ? expertBranch : void 0,
         startCommit: repoDir ? startCommitHash : void 0,
@@ -17085,6 +17163,7 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       effectiveWorkspaceDir,
       repoDir,
       bareRepoDir,
+      defaultBranch: resolvedDefaultBranch,
       branch: repoDir ? expertBranch : void 0,
       expertBranch: repoDir ? expertBranch : void 0,
       startCommit: repoDir ? startCommitHash : void 0,
@@ -17333,11 +17412,12 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
         ]);
         console.log(`[expert] Pushed unpushed commits to origin/${expertBranch}`);
         try {
-          await execFileAsync4("git", ["-C", session.repoDir, "checkout", "master"]);
+          const defaultBranch = session.defaultBranch ?? "master";
+          await execFileAsync4("git", ["-C", session.repoDir, "checkout", defaultBranch]);
           await execFileAsync4("git", ["-C", session.repoDir, "merge", expertBranch]);
-          await execFileAsync4("git", ["-C", session.repoDir, "push", "origin", "master"]);
+          await execFileAsync4("git", ["-C", session.repoDir, "push", "origin", defaultBranch]);
           await execFileAsync4("git", ["-C", session.repoDir, "push", "origin", "--delete", expertBranch]);
-          console.log(`[expert] Merged ${expertBranch} to master, pushed master, and deleted origin/${expertBranch}`);
+          console.log(`[expert] Merged ${expertBranch} to ${defaultBranch}, pushed ${defaultBranch}, and deleted origin/${expertBranch}`);
         } catch (mergeErr) {
           console.warn(`[expert] Merge/push to master failed after pushing ${expertBranch}; leaving origin/${expertBranch} for manual resolution`, mergeErr);
         }

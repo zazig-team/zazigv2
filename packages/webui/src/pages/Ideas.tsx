@@ -194,6 +194,13 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
   const [founderInput, setFounderInput] = useState("");
   const [founderSubmitting, setFounderSubmitting] = useState(false);
   const [founderError, setFounderError] = useState<string | null>(null);
+  const isDevelopingStatus = (status: IdeaDetail["status"]): boolean => status === "developing";
+  const specInProgressIndicator = (
+    <div className="flex items-center gap-2" style={{ color: "var(--muted-foreground)", fontSize: "0.875rem" }}>
+      <span className="il-triage-spinner" aria-hidden="true" />
+      <span>Spec in progress...</span>
+    </div>
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -678,53 +685,57 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
 
           {promoteError && <div className="il-promote-error">{promoteError}</div>}
 
-          <div className="il-promote-actions">
-            <button
-              className="il-action-primary"
-              type="button"
-              disabled={!allReady || promoting}
-              onClick={handlePromote}
-            >
-              {promoting ? "Promoting..." : "Promote to Feature"}
-            </button>
-            <button
-              className="il-action-secondary il-action-done"
-              type="button"
-              disabled={promoting || markingDone}
-              onClick={() => {
-                setShowDoneConfirm(true);
-                setDoneError(null);
-              }}
-            >
-              Done
-            </button>
-            {missingFields.length > 0 && (
+          {data.status === "developing" ? (
+            specInProgressIndicator
+          ) : (
+            <div className="il-promote-actions">
               <button
-                className="il-action-secondary il-action-enrich"
+                className="il-action-primary"
                 type="button"
-                disabled={enriching}
-                onClick={handleEnrich}
+                disabled={!allReady || promoting}
+                onClick={handlePromote}
               >
-                {enriching ? "Enriching..." : `Enrich (${missingFields.join(", ")})`}
+                {promoting ? "Promoting..." : "Promote to Feature"}
               </button>
-            )}
-            <button
-              className="il-action-secondary il-action-park"
-              type="button"
-              disabled={promoting || !!actionInProgress || parkConfirm}
-              onClick={() => setParkConfirm(true)}
-            >
-              Park
-            </button>
-            <button
-              className="il-action-secondary il-action-reject"
-              type="button"
-              disabled={promoting || !!actionInProgress}
-              onClick={() => handleAction("rejected", "Reject")}
-            >
-              {actionInProgress === "Reject" ? "Rejecting..." : "Reject"}
-            </button>
-          </div>
+              <button
+                className="il-action-secondary il-action-done"
+                type="button"
+                disabled={promoting || markingDone}
+                onClick={() => {
+                  setShowDoneConfirm(true);
+                  setDoneError(null);
+                }}
+              >
+                Done
+              </button>
+              {missingFields.length > 0 && (
+                <button
+                  className="il-action-secondary il-action-enrich"
+                  type="button"
+                  disabled={enriching}
+                  onClick={handleEnrich}
+                >
+                  {enriching ? "Enriching..." : `Enrich (${missingFields.join(", ")})`}
+                </button>
+              )}
+              <button
+                className="il-action-secondary il-action-park"
+                type="button"
+                disabled={promoting || !!actionInProgress || parkConfirm}
+                onClick={() => setParkConfirm(true)}
+              >
+                Park
+              </button>
+              <button
+                className="il-action-secondary il-action-reject"
+                type="button"
+                disabled={promoting || !!actionInProgress}
+                onClick={() => handleAction("rejected", "Reject")}
+              >
+                {actionInProgress === "Reject" ? "Rejecting..." : "Reject"}
+              </button>
+            </div>
+          )}
 
           {showDoneConfirm && (
             <div className="il-done-confirm">
@@ -818,73 +829,77 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
       {/* Actions row for items outside promote flow */}
       {!canPromote && !isShipped && !promoted && !actionDone && !isDeveloping && (
         <>
-          <div className="il-detail-actions" style={{ flexWrap: "wrap" }}>
-            {isTriagedReadyForSpecView ? (
-              <>
-                {canSendToSpec && (
-                  <button className="il-action-primary il-action-triage-primary" type="button" disabled={!!actionInProgress} onClick={handleWriteSpec}>
-                    {actionInProgress === "Spec" ? "Dispatching..." : "Send to Spec"}
+          {data.status === "developing" ? (
+            specInProgressIndicator
+          ) : (
+            <div className="il-detail-actions" style={{ flexWrap: "wrap" }}>
+              {isTriagedReadyForSpecView ? (
+                <>
+                  {canSendToSpec && (
+                    <button className="il-action-primary il-action-triage-primary" type="button" disabled={!!actionInProgress} onClick={handleWriteSpec}>
+                      {actionInProgress === "Spec" ? "Dispatching..." : "Send to Spec"}
+                    </button>
+                  )}
+                  {data.status !== "parked" && data.status !== "rejected" && (
+                    <button className="il-action-secondary il-action-park" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
+                      {actionInProgress === "Park" ? "Parking..." : "Park"}
+                    </button>
+                  )}
+                </>
+              ) : isTriagedNeedsDecisionView ? (
+                <>
+                  {data.status !== "parked" && data.status !== "rejected" && (
+                    <button className="il-action-secondary il-action-park" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
+                      {actionInProgress === "Park" ? "Parking..." : "Park"}
+                    </button>
+                  )}
+                  <button className="il-action-secondary il-action-workshop" type="button" disabled={!!actionInProgress} onClick={() => handleAction("workshop", "Workshop")}>
+                    {actionInProgress === "Workshop" ? "Moving..." : "Workshop"}
                   </button>
-                )}
-                {data.status !== "parked" && data.status !== "rejected" && (
-                  <button className="il-action-secondary il-action-park" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
-                    {actionInProgress === "Park" ? "Parking..." : "Park"}
+                  <button
+                    className="il-action-secondary"
+                    type="button"
+                    disabled={savingTriagedNote || !!actionInProgress}
+                    onClick={() => {
+                      setShowTriagedNoteComposer((prev) => !prev);
+                      setTriagedNoteError(null);
+                      setTriagedNoteSaved(false);
+                    }}
+                  >
+                    {showTriagedNoteComposer ? "Hide Note" : "Add Note"}
                   </button>
-                )}
-              </>
-            ) : isTriagedNeedsDecisionView ? (
-              <>
-                {data.status !== "parked" && data.status !== "rejected" && (
-                  <button className="il-action-secondary il-action-park" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
-                    {actionInProgress === "Park" ? "Parking..." : "Park"}
-                  </button>
-                )}
-                <button className="il-action-secondary il-action-workshop" type="button" disabled={!!actionInProgress} onClick={() => handleAction("workshop", "Workshop")}>
-                  {actionInProgress === "Workshop" ? "Moving..." : "Workshop"}
-                </button>
-                <button
-                  className="il-action-secondary"
-                  type="button"
-                  disabled={savingTriagedNote || !!actionInProgress}
-                  onClick={() => {
-                    setShowTriagedNoteComposer((prev) => !prev);
-                    setTriagedNoteError(null);
-                    setTriagedNoteSaved(false);
-                  }}
-                >
-                  {showTriagedNoteComposer ? "Hide Note" : "Add Note"}
-                </button>
-              </>
-            ) : (
-              <>
-                {data.status === "new" && (
-                  <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleBackgroundTriage}>
-                    {actionInProgress === "Triage" ? "Commissioning..." : "Triage"}
-                  </button>
-                )}
-                {canSendToSpec && (
-                  <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleWriteSpec}>
-                    {actionInProgress === "Spec" ? "Dispatching..." : "Send to Spec"}
-                  </button>
-                )}
-                {(data.status === "parked" || data.status === "rejected") && (
-                  <button className="il-action-secondary il-action-restore" type="button" disabled={!!actionInProgress} onClick={() => handleAction("new", "Restore")}>
-                    {actionInProgress === "Restore" ? "Restoring..." : "Restore to Inbox"}
-                  </button>
-                )}
-                {data.status !== "parked" && data.status !== "rejected" && (
-                  <button className="il-action-secondary il-action-park" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
-                    {actionInProgress === "Park" ? "Parking..." : "Park"}
-                  </button>
-                )}
-                {data.status !== "rejected" && data.status !== "parked" && (
-                  <button className="il-action-secondary il-action-reject" type="button" disabled={!!actionInProgress} onClick={() => handleAction("rejected", "Reject")}>
-                    {actionInProgress === "Reject" ? "Rejecting..." : "Reject"}
-                  </button>
-                )}
-              </>
-            )}
-          </div>
+                </>
+              ) : (
+                <>
+                  {data.status === "new" && (
+                    <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleBackgroundTriage}>
+                      {actionInProgress === "Triage" ? "Commissioning..." : "Triage"}
+                    </button>
+                  )}
+                  {canSendToSpec && (
+                    <button className="il-action-secondary il-action-triage" type="button" disabled={!!actionInProgress} onClick={handleWriteSpec}>
+                      {actionInProgress === "Spec" ? "Dispatching..." : "Send to Spec"}
+                    </button>
+                  )}
+                  {(data.status === "parked" || data.status === "rejected") && (
+                    <button className="il-action-secondary il-action-restore" type="button" disabled={!!actionInProgress} onClick={() => handleAction("new", "Restore")}>
+                      {actionInProgress === "Restore" ? "Restoring..." : "Restore to Inbox"}
+                    </button>
+                  )}
+                  {data.status !== "parked" && data.status !== "rejected" && (
+                    <button className="il-action-secondary il-action-park" type="button" disabled={!!actionInProgress} onClick={() => handleAction("parked", "Park")}>
+                      {actionInProgress === "Park" ? "Parking..." : "Park"}
+                    </button>
+                  )}
+                  {data.status !== "rejected" && data.status !== "parked" && (
+                    <button className="il-action-secondary il-action-reject" type="button" disabled={!!actionInProgress} onClick={() => handleAction("rejected", "Reject")}>
+                      {actionInProgress === "Reject" ? "Rejecting..." : "Reject"}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           {isTriagedNeedsDecisionView && showTriagedNoteComposer && (
             <div className="il-done-confirm">

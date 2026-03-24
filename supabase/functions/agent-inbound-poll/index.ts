@@ -184,25 +184,32 @@ Deno.serve(async (req: Request): Promise<Response> => {
     };
 
     // ---------------------------------------------------------------
-    // 2. Find queued jobs this machine can handle
+    // 2. Resolve machine row (id + enabled flag)
     // ---------------------------------------------------------------
-    if (slotsClaudeCode <= 0 && slotsCodex <= 0) {
-      return jsonResponse({ jobs: [], ...baseResponse });
-    }
-
-    // Resolve machine ID for claiming
     const { data: machineRow, error: machineErr } = await supabaseAdmin
       .from("machines")
-      .select("id")
+      .select("id, enabled")
       .eq("company_id", companyId)
       .eq("name", machineName)
       .single();
 
     if (machineErr || !machineRow) {
-      return jsonResponse({ jobs: [], ...baseResponse, error: "Machine not found" });
+      return jsonResponse({ jobs: [], experts: [], ...baseResponse, error: "Machine not found" });
     }
 
     const machineId = machineRow.id;
+
+    // Disabled machines heartbeat but must not claim any work
+    if (machineRow.enabled === false) {
+      return jsonResponse({ jobs: [], experts: [], ...baseResponse });
+    }
+
+    // ---------------------------------------------------------------
+    // 3. Find queued jobs this machine can handle
+    // ---------------------------------------------------------------
+    if (slotsClaudeCode <= 0 && slotsCodex <= 0) {
+      return jsonResponse({ jobs: [], experts: [], ...baseResponse });
+    }
 
     // Query queued jobs for this company, ordered by created_at (FIFO)
     const { data: queuedJobs, error: queueErr } = await supabaseAdmin
@@ -221,7 +228,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     // ---------------------------------------------------------------
-    // 3. Claim jobs up to available slots
+    // 4. Claim jobs up to available slots
     // ---------------------------------------------------------------
     let remainingClaude = slotsClaudeCode;
     let remainingCodex = slotsCodex;
@@ -309,7 +316,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     // ---------------------------------------------------------------
-    // 4. Find requested expert sessions for this machine (poll fallback)
+    // 5. Find requested expert sessions for this machine (poll fallback)
     //
     // Atomically claim each session by CAS-updating status from
     // "requested" → "claimed". Only sessions that are successfully

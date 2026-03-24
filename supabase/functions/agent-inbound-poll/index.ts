@@ -315,7 +315,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // updated are returned, so a session is never delivered twice —
     // even if Realtime already dispatched it to the daemon.
     // ---------------------------------------------------------------
-    const thirtySecondsAgo = new Date(Date.now() - 30_000).toISOString();
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60_000).toISOString();
     const { data: candidateSessions, error: sessionsErr } = await supabaseAdmin
       .from("expert_sessions")
       .select(
@@ -323,7 +323,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       )
       .eq("status", "requested")
       .eq("machine_id", machineId)
-      .gte("created_at", thirtySecondsAgo);
+      .gte("created_at", fiveMinutesAgo);
 
     if (sessionsErr) {
       console.error("[agent-inbound-poll] Expert sessions query failed:", sessionsErr.message);

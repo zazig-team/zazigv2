@@ -239,6 +239,9 @@ export class ExpertSessionManager {
         rmSync(worktreeTarget, { recursive: true, force: true });
         await execFileAsync("git", ["-C", bareRepoDir, "worktree", "prune"]);
 
+        // Remove any other worktrees that have 'master' checked out — they block the fetch.
+        await this.pruneBlockingWorktrees(bareRepoDir, branch);
+
         await this.repoManager.fetchBranchForExpert(projectName, branch);
 
         // Create a dedicated expert branch from the latest fetched master.
@@ -786,6 +789,39 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       }
     } catch (err) {
       console.warn(`[expert] Failed to check for unpushed commits in session ${session.sessionId}:`, err);
+    }
+  }
+
+  /**
+   * Remove any linked worktrees that have `branch` currently checked out.
+   * Prevents "refusing to fetch into branch checked out at another worktree" errors
+   * caused by stale sessions or leftover worktrees from previous runs.
+   */
+  private async pruneBlockingWorktrees(bareRepoDir: string, branch: string): Promise<void> {
+    try {
+      const { stdout } = await execFileAsync("git", ["-C", bareRepoDir, "worktree", "list", "--porcelain"]);
+      const branchRef = `refs/heads/${branch}`;
+      const blocks = stdout.trim().split(/\n\n+/);
+      for (const block of blocks) {
+        const lines = block.trim().split("\n");
+        const worktreeLine = lines.find((l) => l.startsWith("worktree "));
+        const branchLine = lines.find((l) => l.startsWith("branch "));
+        if (!worktreeLine || !branchLine) continue; // bare or detached HEAD — skip
+        const worktreePath = worktreeLine.slice("worktree ".length).trim();
+        const checkedOutRef = branchLine.slice("branch ".length).trim();
+        if (worktreePath === bareRepoDir || checkedOutRef !== branchRef) continue;
+        console.warn(`[expert] Removing blocking worktree at ${worktreePath} (has '${branch}' checked out)`);
+        try {
+          await execFileAsync("git", ["-C", bareRepoDir, "worktree", "remove", "--force", worktreePath]);
+        } catch {
+          // git couldn't remove it — force-delete the directory directly
+          rmSync(worktreePath, { recursive: true, force: true });
+        }
+      }
+      // Final prune to clear any stale metadata left behind
+      await execFileAsync("git", ["-C", bareRepoDir, "worktree", "prune"]);
+    } catch (err) {
+      console.warn(`[expert] pruneBlockingWorktrees failed (non-fatal, will attempt fetch anyway):`, err);
     }
   }
 

@@ -69,7 +69,7 @@
 - `batch-create-jobs` temp reference format is `temp:N` (colon), not `temp-N` (dash)
 - `assembled_context` column doesn't exist on jobs table yet — the executor's DB write fails silently (non-blocking)
 - **Vitest works, orchestrator tests are Deno**: `npm test` runs — `shared` passes, `local-agent` runs (one unrelated red test at `expert-session-manager.test.ts:228`). The orchestrator test harness is Deno-based (`orchestrator.test.ts`), NOT Vitest, and currently fails at type-check before tests run. Don't confuse the two.
-- **Expert session `failed` status gap**: local agent writes `status='failed'` on startup errors (`expert-session-manager.ts` lines 205, 244, 441), but DB constraint only allows `requested, running, completed, cancelled` (migration 120). Startup failures leave sessions stuck at `requested` → infinite redelivery loop via `agent-inbound-poll`. Must fix constraint or use `cancelled` instead.
+- ~~**Expert session `failed` status gap**~~ **STALE (2026-03-24)**: Constraint now allows `requested, starting, claimed, running, completed, cancelled, failed` — all statuses the local agent uses are valid.
 - **Expert session branch assumption**: session startup hardcodes `master` (`expert-session-manager.ts:214`, `branches.ts:443`). Will fail for `main`-only repos.
 
 ## Implementation Tracking

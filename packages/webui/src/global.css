@@ -3348,6 +3348,11 @@ input {
   color: var(--ember);
 }
 
+.il-feature-status.warn {
+  background: color-mix(in srgb, var(--col-ideas) 15%, transparent);
+  color: var(--col-ideas);
+}
+
 .il-source,
 .il-age {
   font-family: var(--font-mono);
@@ -3970,6 +3975,14 @@ input {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.il-row-stalled {
+  font-size: 11px;
+  color: var(--col-ideas);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .il-row--queued {
   opacity: 0.5;
 }
@@ -4002,6 +4015,13 @@ input {
 .il-inline-retry:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+.il-inline-retry.warn {
+  border-color: color-mix(in srgb, var(--col-ideas) 40%, transparent);
+  color: var(--col-ideas);
+}
+.il-inline-retry.warn:hover {
+  background: color-mix(in srgb, var(--col-ideas) 10%, transparent);
 }
 .il-chip-spinner {
   width: 9px;

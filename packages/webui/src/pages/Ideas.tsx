@@ -226,7 +226,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
 
   // Load projects for triaged ideas (promote) and new ideas (triage job needs project_id)
   useEffect(() => {
-    if (!activeCompanyId || !data || !["triaged", "specced", "developing", "new"].includes(data.status)) return;
+    if (!activeCompanyId || !data || !["triaged", "specced", "developing", "new", "stalled"].includes(data.status)) return;
     let cancelled = false;
 
     fetchProjects(activeCompanyId).then((result) => {
@@ -944,6 +944,7 @@ export default function Ideas(): JSX.Element {
   const [batchTriageStates, setBatchTriageStates] = useState<Map<string, BatchTriageState>>(new Map());
   const [batchSpecStates, setBatchSpecStates] = useState<Map<string, BatchSpecState>>(new Map());
   const [retryingSpecIds, setRetryingSpecIds] = useState<Set<string>>(new Set());
+  const [retryingTriageIds, setRetryingTriageIds] = useState<Set<string>>(new Set());
   const [batchTriageErrors, setBatchTriageErrors] = useState<Map<string, string>>(new Map());
   const [leavingIdeas, setLeavingIdeas] = useState<Map<string, Idea>>(new Map());
   const [batchToasts, setBatchToasts] = useState<BatchToast[]>([]);
@@ -1328,10 +1329,10 @@ export default function Ideas(): JSX.Element {
         const staleIdeaIds = triagingIdeaIds.filter((ideaId) => !activeTriagingIdeaIds.has(ideaId));
         if (staleIdeaIds.length === 0 || cancelled) return;
 
-        await Promise.all(staleIdeaIds.map((ideaId) => updateIdeaStatus(ideaId, "new")));
+        await Promise.all(staleIdeaIds.map((ideaId) => updateIdeaStatus(ideaId, "stalled")));
         if (!cancelled) {
           const suffix = staleIdeaIds.length === 1 ? "" : "s";
-          setStaleCleanupToast(`Reverted ${staleIdeaIds.length} stale triaging idea${suffix} to new`);
+          setStaleCleanupToast(`${staleIdeaIds.length} stale triaging idea${suffix} marked as stalled`);
         }
         await loadIdeas();
       } catch (cleanupError) {
@@ -1365,11 +1366,11 @@ export default function Ideas(): JSX.Element {
     const updated = row as unknown as Idea;
     const previous = ideasByIdRef.current.get(updated.id);
     const isBatchDone = batchTriageStates.get(updated.id) === "done";
-    const shouldLeaveInbox = previous?.status === "triaging" && updated.status !== "triaging" && updated.status !== "new";
+    const shouldLeaveInbox = previous?.status === "triaging" && updated.status !== "triaging" && updated.status !== "new" && updated.status !== "stalled";
     if (shouldLeaveInbox) {
       markIdeaLeaving(updated.id);
       setExpandedId((prevExpanded) => (prevExpanded === updated.id ? null : prevExpanded));
-    } else if ((updated.status === "triaging" || updated.status === "new") && !isBatchDone) {
+    } else if ((updated.status === "triaging" || updated.status === "new" || updated.status === "stalled") && !isBatchDone) {
       clearLeavingIdea(updated.id);
     }
 
@@ -1490,7 +1491,7 @@ export default function Ideas(): JSX.Element {
 
   // Group by section
   const sections = useMemo(() => ({
-    inbox: filtered.filter((i) => (i.status === "new" || i.status === "triaging") && !completedBatchIdeaIds.has(i.id)),
+    inbox: filtered.filter((i) => (i.status === "new" || i.status === "triaging" || i.status === "stalled") && !completedBatchIdeaIds.has(i.id)),
     triaged: filtered.filter((i) => i.status === "triaged"),
     developing: filtered.filter((i) => i.status === "developing" || i.status === "specced"),
     workshop: filtered.filter((i) => i.status === "workshop"),
@@ -1555,7 +1556,7 @@ export default function Ideas(): JSX.Element {
 
   // Section counts (unfiltered for tab badges)
   const tabCounts = useMemo(() => ({
-    inbox: ideas.filter((i) => (i.status === "new" || i.status === "triaging") && !completedBatchIdeaIds.has(i.id)).length,
+    inbox: ideas.filter((i) => (i.status === "new" || i.status === "triaging" || i.status === "stalled") && !completedBatchIdeaIds.has(i.id)).length,
     triaged: ideas.filter((i) => i.status === "triaged").length,
     developing: ideas.filter((i) => i.status === "developing" || i.status === "specced").length,
     workshop: ideas.filter((i) => i.status === "workshop").length,
@@ -1796,6 +1797,47 @@ export default function Ideas(): JSX.Element {
     }
   }, [activeCompanyId, setIdeaSpecState, showBatchToast]);
 
+  const handleRetryTriage = useCallback(async (ideaId: string): Promise<void> => {
+    if (!activeCompanyId) return;
+    setRetryingTriageIds((prev) => {
+      if (prev.has(ideaId)) return prev;
+      const next = new Set(prev);
+      next.add(ideaId);
+      return next;
+    });
+    try {
+      const { data: ideaRow } = await supabase
+        .from("ideas")
+        .select("id, project_id")
+        .eq("id", ideaId)
+        .maybeSingle();
+      let projectId = typeof ideaRow?.project_id === "string" ? ideaRow.project_id : null;
+      if (!projectId) {
+        const ps = await fetchProjects(activeCompanyId);
+        projectId = ps[0]?.id ?? null;
+      }
+      if (!projectId) throw new Error("No project available for triage retry.");
+      await updateIdeaStatus(ideaId, "triaging");
+      const result = await requestHeadlessTriage({ companyId: activeCompanyId, projectId, ideaIds: [ideaId] });
+      if (!result.ok) {
+        await updateIdeaStatus(ideaId, "stalled").catch(() => {});
+        showBatchToast({ tone: "error", message: `Triage retry failed: ${result.error}` }, 0);
+        return;
+      }
+      setIdeas((prev) => prev.map((idea) => (idea.id === ideaId ? { ...idea, status: "triaging" } : idea)));
+    } catch (error) {
+      await updateIdeaStatus(ideaId, "stalled").catch(() => {});
+      showBatchToast({ tone: "error", message: `Triage retry failed: ${error instanceof Error ? error.message : String(error)}` }, 0);
+    } finally {
+      setRetryingTriageIds((prev) => {
+        if (!prev.has(ideaId)) return prev;
+        const next = new Set(prev);
+        next.delete(ideaId);
+        return next;
+      });
+    }
+  }, [activeCompanyId, showBatchToast]);
+
   // Keyboard navigation
   useEffect(() => {
     function handleKey(e: KeyboardEvent): void {
@@ -1882,6 +1924,8 @@ export default function Ideas(): JSX.Element {
       const isBatchSpeccing = specState === "speccing";
       const isSpecTimedOut = specState === "timed_out";
       const isRetryingSpec = retryingSpecIds.has(idea.id);
+      const isStalled = idea.status === "stalled";
+      const isRetryingTriage = retryingTriageIds.has(idea.id);
       const isSpeccing = (
         isQueuedForSpec
         || isBatchSpeccing
@@ -1912,6 +1956,8 @@ export default function Ideas(): JSX.Element {
                 <div className="il-row-batch-error">{`Triage failed: ${batchError}`}</div>
               ) : isSpecTimedOut ? (
                 <div className="il-row-batch-error">Spec timed out after 5 minutes. Retry to re-dispatch.</div>
+              ) : isStalled ? (
+                <div className="il-row-stalled">Triage stalled — session didn't start. Retry to re-dispatch.</div>
               ) : (
                 <div className="il-row-desc">
                   {idea.description ?? idea.raw_text}
@@ -1924,6 +1970,21 @@ export default function Ideas(): JSX.Element {
                   {!isQueued && <span className="il-chip-spinner" aria-hidden="true" />}
                   <span>{isQueued ? "queued" : "triaging"}</span>
                 </span>
+              ) : isStalled ? (
+                <>
+                  <span className="il-feature-status warn">stalled</span>
+                  <button
+                    type="button"
+                    className="il-inline-retry warn"
+                    disabled={isRetryingTriage}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleRetryTriage(idea.id);
+                    }}
+                  >
+                    {isRetryingTriage ? "Retrying..." : "Retry"}
+                  </button>
+                </>
               ) : showBatchError ? (
                 <span className="il-feature-status negative">triage failed</span>
               ) : isSpeccing ? (

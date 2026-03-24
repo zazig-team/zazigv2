@@ -3312,20 +3312,21 @@ async function recoverStaleTriagingIdeas(
     );
     if (briefMentionsIdea) continue;
 
-    // No active job or session — revert to 'new' so it can be re-triaged.
+    // No active job or session — mark as 'stalled' so the user sees a visible
+    // badge with a retry affordance instead of the idea silently reverting to new.
     const { error: revertErr } = await supabase
       .from("ideas")
-      .update({ status: "new" })
+      .update({ status: "stalled" })
       .eq("id", idea.id)
       .eq("status", "triaging"); // guard against race
 
     if (revertErr) {
       console.error(
-        `[orchestrator] stale-triage-recovery: failed to revert idea ${idea.id}: ${revertErr.message}`,
+        `[orchestrator] stale-triage-recovery: failed to mark idea ${idea.id} as stalled: ${revertErr.message}`,
       );
     } else {
       console.warn(
-        `[orchestrator] stale-triage-recovery: reverted idea ${idea.id} from triaging → new (no active triage job after ${
+        `[orchestrator] stale-triage-recovery: marked idea ${idea.id} stalled (no active triage job after ${
           AUTO_TRIAGE_STALE_THRESHOLD_MS / 60000
         } min)`,
       );

@@ -480,7 +480,7 @@ function normalizeSnapshot(
         if (!rawFeature || typeof rawFeature !== "object") continue;
         const parsed = parseFeature(
           rawFeature as Record<string, unknown>,
-          "shipped",
+          "complete",
           capabilityLookup,
         );
         byStatus[parsed.status].push(parsed);

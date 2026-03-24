@@ -63,6 +63,7 @@ export async function updateIdea(args: string[]): Promise<void> {
   const tags = parseCommaSeparatedFlag(args, "tags");
   const complexity = parseStringFlag(args, "complexity");
   const project_id = parseStringFlag(args, "project-id");
+  const raw_text = parseStringFlag(args, "raw-text");
 
   if (status !== undefined && !VALID_STATUS.has(status)) {
     fail("Invalid --status. Expected one of: new, triaging, triaged, developing, specced, workshop, hardening, parked, rejected, done");
@@ -78,6 +79,7 @@ export async function updateIdea(args: string[]): Promise<void> {
   }
 
   const updates = {
+    ...(raw_text !== undefined ? { raw_text } : {}),
     ...(title !== undefined ? { title } : {}),
     ...(description !== undefined ? { description } : {}),
     ...(status !== undefined ? { status } : {}),

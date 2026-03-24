@@ -70,6 +70,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const body = await req.json();
     const {
       idea_id,
+      raw_text,
       title,
       description,
       status,
@@ -104,6 +105,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     // Build update payload
     const updates: Record<string, unknown> = {};
+    if (raw_text !== undefined) updates.raw_text = raw_text;
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
     if (status !== undefined) updates.status = status;

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 /**
  * zazig-staging — CLI entry point for staging environment.
@@ -11,6 +13,7 @@
  */
 
 // Set environment before any imports
+process.env["ZAZIG_HOME"] = join(homedir(), ".zazigv2-staging");
 process.env["ZAZIG_ENV"] = "staging";
 process.env["SUPABASE_URL"] = "https://ymgjtrbrvhezxpwjuhbu.supabase.co";
 process.env["SUPABASE_ANON_KEY"] =

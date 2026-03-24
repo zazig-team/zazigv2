@@ -22,7 +22,6 @@ For each idea in your batch:
 5. Define acceptance criteria: concrete, testable conditions for "done"
 6. Identify human checklist items: things only a human can verify or approve
 7. Estimate complexity: simple (1 feature, clear scope), medium (multi-file, some unknowns), complex (multi-system, architectural)
-8. Call update_idea with: spec, acceptance_tests, human_checklist, complexity
-9. Do NOT call update_idea(status=''specced''); leave the idea status as developing
-10. Call record_session_item again with completed_at=now and route when done'
+8. Call update_idea with: spec, acceptance_tests, human_checklist, complexity, status=''specced''
+9. Call record_session_item again with completed_at=now and route when done'
 WHERE name = 'spec-writer';

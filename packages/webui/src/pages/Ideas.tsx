@@ -542,6 +542,22 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
         </div>
       )}
 
+      {/* Triage route */}
+      {data.triage_route && (
+        <div className="il-detail-meta-row">
+          <div className="il-detail-meta-item">
+            <span className="il-detail-meta-key">Triage Route</span>
+            <span className="il-detail-meta-val">{data.triage_route}</span>
+          </div>
+          {data.complexity && (
+            <div className="il-detail-meta-item">
+              <span className="il-detail-meta-key">Complexity</span>
+              <span className="il-detail-meta-val">{data.complexity}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {(data.status === "triaged" || data.status === "developing") && (
         <div className="il-detail-section">
           <div className="il-detail-section-label">Founder Input</div>
@@ -568,22 +584,6 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
               {founderSubmitting ? "Submitting..." : "Add Founder Input"}
             </button>
           </div>
-        </div>
-      )}
-
-      {/* Triage route */}
-      {data.triage_route && (
-        <div className="il-detail-meta-row">
-          <div className="il-detail-meta-item">
-            <span className="il-detail-meta-key">Triage Route</span>
-            <span className="il-detail-meta-val">{data.triage_route}</span>
-          </div>
-          {data.complexity && (
-            <div className="il-detail-meta-item">
-              <span className="il-detail-meta-key">Complexity</span>
-              <span className="il-detail-meta-val">{data.complexity}</span>
-            </div>
-          )}
         </div>
       )}
 
@@ -1830,6 +1830,9 @@ export default function Ideas(): JSX.Element {
   useEffect(() => {
     function handleKey(e: KeyboardEvent): void {
       if (!activeItems.length) return;
+      // Don't hijack keypresses while the user is typing in an input or textarea
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
       const idx = expandedId ? activeItems.findIndex((i) => i.id === expandedId) : -1;
 
       if (e.key === "ArrowDown" || e.key === "j") {

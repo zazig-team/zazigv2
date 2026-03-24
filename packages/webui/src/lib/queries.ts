@@ -808,7 +808,7 @@ export async function appendFounderInput(
     : `FOUNDER INPUT: ${text}`;
 
   await invokePost("update-idea", {
-    id: ideaId,
+    idea_id: ideaId,
     triage_notes: mergedNotes,
   });
 }

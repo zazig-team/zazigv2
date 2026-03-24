@@ -1581,13 +1581,15 @@ export default function Ideas(): JSX.Element {
     setExpandedId((prev) => prev === id ? null : id);
   }
 
-  // Handle idea action (triage/park/reject/promote) — show toast then remove
+  // Handle idea action (triage/park/reject/promote)
   function handleIdeaAction(ideaId: string, newStatus: string): void {
     const label = STATUS_LABELS[newStatus] ?? newStatus;
     if (newStatus !== "developing") {
       setIdeaSpecState(ideaId, "idle");
     }
-    setDismissedIdeas((prev) => new Map(prev).set(ideaId, `Moved to ${label}`));
+    if (newStatus !== "triaging") {
+      setDismissedIdeas((prev) => new Map(prev).set(ideaId, `Moved to ${label}`));
+    }
     setExpandedId(null);
 
     // After toast animation, actually update local state to move the idea

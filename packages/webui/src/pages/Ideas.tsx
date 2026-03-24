@@ -94,7 +94,7 @@ function formatDate(iso: string | null): string {
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 const INBOX_LEAVE_MS = 260;
 const SPEC_POLL_INTERVAL_MS = 5000;
-const SPEC_TIMEOUT_MS = 5 * 60 * 1000;
+const SPEC_TIMEOUT_MS = 15 * 60 * 1000;
 
 function priorityRank(priority: string | null): number {
   return PRIORITY_RANK[(priority ?? "medium").toLowerCase()] ?? 2;
@@ -1160,7 +1160,7 @@ export default function Ideas(): JSX.Element {
     if (!activeCompanyId) return;
 
     const speccingIdeaIds = Array.from(batchSpecStates.entries())
-      .filter(([, state]) => state === "speccing")
+      .filter(([, state]) => state === "speccing" || state === "timed_out")
       .map(([ideaId]) => ideaId);
 
     if (speccingIdeaIds.length === 0) return;

@@ -29,6 +29,7 @@ import { snapshot } from "./commands/snapshot.js";
 import { ideas } from "./commands/ideas.js";
 import { features } from "./commands/features.js";
 import { projects } from "./commands/projects.js";
+import { standup } from "./commands/standup.js";
 import { createFeature } from "./commands/create-feature.js";
 import { updateFeature } from "./commands/update-feature.js";
 import { createIdea } from "./commands/create-idea.js";
@@ -97,6 +98,10 @@ switch (cmd) {
     await snapshot(args);
     break;
 
+  case "standup":
+    await standup(args);
+    break;
+
   case "ideas":
     await ideas(args);
     break;
@@ -155,6 +160,7 @@ switch (cmd) {
     console.log("  hotfix \"desc\"      Quick fix: interactive session, commits to master");
     console.log("  staging-fix        Interactive session for fixing staging issues");
     console.log("  snapshot --company <company-id>  Print pipeline snapshot JSON to stdout");
+    console.log("  standup --company <company-id>   Print standup summary (or JSON with --json)");
     console.log("  ideas --company <company-id>     Query ideas (supports filter flags)");
     console.log("  features --company <company-id>  Query features (project/status/id filters)");
     console.log("  projects --company <company-id>  List projects (optional --include-features)");

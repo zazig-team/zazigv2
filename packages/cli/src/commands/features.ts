@@ -27,6 +27,17 @@ function parseNumericFlag(args: string[], name: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function parseStringFlag(args: string[], name: string): string | undefined {
+  const eqValue = args.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
+  if (eqValue !== undefined) return eqValue;
+
+  const idx = args.indexOf(`--${name}`);
+  if (idx === -1) return undefined;
+  const value = args[idx + 1];
+  if (!value || value.startsWith("--")) return undefined;
+  return value;
+}
+
 function parseProjectIdArg(args: string[]): string | undefined {
   const valueFlags = new Set(["--limit", "--offset", "--company", "--status", "--id"]);
   for (let i = 0; i < args.length; i += 1) {
@@ -47,13 +58,10 @@ export async function features(args: string[]): Promise<void> {
   }
 
   const project_id = parseProjectIdArg(rest);
-  const idFlag = rest.find((a) => a.startsWith("--id="));
-  const statusFlag = rest.find((a) => a.startsWith("--status="));
+  const feature_id = parseStringFlag(rest, "id");
+  const status = parseStringFlag(rest, "status");
   const limit = parseNumericFlag(rest, "limit") ?? 20;
   const offset = parseNumericFlag(rest, "offset") ?? 0;
-
-  const feature_id = idFlag?.slice("--id=".length);
-  const status = statusFlag?.slice("--status=".length);
 
   if (!project_id && !feature_id) {
     process.stderr.write(JSON.stringify({ "error": "project_id or --id is required" }));

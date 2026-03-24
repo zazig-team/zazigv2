@@ -292,8 +292,9 @@ export class ExpertSessionManager {
       }
 
       // Expert instructions
-      const defaultBranchForInstructions = resolvedDefaultBranch ?? "master";
-      claudeMdParts.push(`
+      if (needsRepo) {
+        const defaultBranchForInstructions = resolvedDefaultBranch ?? "master";
+        claudeMdParts.push(`
 ## Expert Session Instructions
 
 You are working as an interactive expert. Your task brief is in \`.claude/expert-brief.md\`.
@@ -309,6 +310,19 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
    - \`git push origin --delete ${expertBranch}\`
 
 `);
+      } else {
+        claudeMdParts.push(`
+## Expert Session Instructions
+
+You are working as an autonomous expert. Your task brief is in \`.claude/expert-brief.md\`.
+
+### Workflow
+1. Read and understand the brief in \`.claude/expert-brief.md\`
+2. Work through the brief methodically using the MCP tools available
+3. When done, your session will end automatically — no git or file operations are needed
+
+`);
+      }
 
       const claudeMdContent = claudeMdParts.join("\n\n");
 

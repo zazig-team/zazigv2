@@ -470,6 +470,40 @@ export class RepoManager {
   }
 
   /**
+   * Fetch the default branch into a per-session temporary ref.
+   *
+   * Unlike fetchBranchForExpert, this never updates refs/heads/{branch}, so it
+   * succeeds even when that branch is checked out in another worktree. Each
+   * session gets a distinct ref (refs/zazig-expert-base/{sessionId}), eliminating
+   * ref conflicts between concurrent sessions.
+   *
+   * The caller must delete the temp ref with:
+   *   git update-ref -d refs/zazig-expert-base/{sessionId}
+   * after the worktree is created.
+   *
+   * Returns the resolved default branch name and the temp ref path.
+   */
+  async fetchForExpertSession(
+    projectName: string,
+    sessionId: string,
+  ): Promise<{ defaultBranch: string; tempRef: string }> {
+    const bareDir = join(REPOS_BASE, projectName);
+    return this.withLock(bareDir, async () => {
+      const defaultBranch = await this.resolveDefaultBranch(bareDir);
+      const tempRef = `refs/zazig-expert-base/${sessionId}`;
+      await this.git(
+        bareDir,
+        "fetch",
+        "--refmap=",
+        "--no-write-fetch-head",
+        "origin",
+        `+refs/heads/${defaultBranch}:${tempRef}`,
+      );
+      return { defaultBranch, tempRef };
+    });
+  }
+
+  /**
    * Create job/{jobId} branch off feature branch, then git worktree add.
    * Returns { worktreePath, jobBranch }.
    */

@@ -393,6 +393,8 @@ export interface StartExpertMessage {
   batch_id?: string;
   /** Auto-exit when Claude process completes (default true for headless). */
   auto_exit?: boolean;
+  /** When false, skip git worktree setup — expert uses MCP tools only. Default true. */
+  needs_repo?: boolean;
 }
 
 /** Union of all messages the orchestrator sends to a local agent. */

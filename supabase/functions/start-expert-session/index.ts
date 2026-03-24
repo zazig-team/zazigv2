@@ -106,6 +106,7 @@ interface ExpertRoleRow {
   skills: string[];
   mcp_tools: unknown;
   settings_overrides: unknown;
+  needs_repo: boolean;
 }
 
 interface MachineRow {
@@ -129,15 +130,15 @@ interface StartExpertPayload {
   batch_id?: string;
   auto_exit?: boolean;
   display_name?: string;
+  needs_repo?: boolean;
   role: {
     prompt: string;
     skills?: string[];
-      mcp_tools?: unknown;
-      settings_overrides?: unknown;
+    mcp_tools?: unknown;
+    settings_overrides?: unknown;
   };
-  project_id: string;
-  repo_url: string;
-  branch: string;
+  project_id?: string;
+  repo_url?: string;
 }
 
 async function broadcastStartExpert(
@@ -239,13 +240,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!machineName) {
       return jsonResponse({ error: "machine_name is required" }, 400);
     }
-    if (!projectId) {
-      return jsonResponse({ error: "project_id is required — experts need a repo to work in" }, 400);
-    }
-
     const { data: roleData, error: roleErr } = await supabase
       .from("expert_roles")
-      .select("id, name, display_name, model, prompt, skills, mcp_tools, settings_overrides")
+      .select("id, name, display_name, model, prompt, skills, mcp_tools, settings_overrides, needs_repo")
       .eq("name", roleName)
       .maybeSingle();
 
@@ -258,6 +255,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const role = roleData as ExpertRoleRow;
+    const needsRepo = role.needs_repo !== false;
+
+    if (needsRepo && !projectId) {
+      return jsonResponse({ error: "project_id is required for this expert role" }, 400);
+    }
 
     let machineData: MachineRow | null = null;
 
@@ -300,45 +302,51 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const machine = machineData;
 
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let resolvedProjectId: string | undefined;
+    let resolvedRepoUrl: string | undefined;
 
-    let projectQuery;
-    if (uuidRegex.test(projectId)) {
-      projectQuery = supabase
-        .from("projects")
-        .select("id, name, repo_url")
-        .eq("id", projectId)
-        .eq("company_id", companyId)
-        .maybeSingle();
-    } else {
-      projectQuery = supabase
-        .from("projects")
-        .select("id, name, repo_url")
-        .eq("company_id", companyId)
-        .ilike("name", projectId)
-        .maybeSingle();
+    if (needsRepo && projectId) {
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+      let projectQuery;
+      if (uuidRegex.test(projectId)) {
+        projectQuery = supabase
+          .from("projects")
+          .select("id, name, repo_url")
+          .eq("id", projectId)
+          .eq("company_id", companyId)
+          .maybeSingle();
+      } else {
+        projectQuery = supabase
+          .from("projects")
+          .select("id, name, repo_url")
+          .eq("company_id", companyId)
+          .ilike("name", projectId)
+          .maybeSingle();
+      }
+
+      const { data: projectData, error: projectErr } = await projectQuery;
+
+      if (projectErr) {
+        return jsonResponse({ error: `Failed to look up project: ${projectErr.message}` }, 500);
+      }
+      if (!projectData) {
+        return jsonResponse({ error: `Project not found: ${projectId}` }, 400);
+      }
+
+      const project = projectData as ProjectLookupRow;
+
+      if (!project.repo_url) {
+        return jsonResponse({ error: `Project ${project.name} has no repo_url configured` }, 400);
+      }
+
+      resolvedProjectId = project.id;
+      resolvedRepoUrl = project.repo_url;
+    } else if (!needsRepo && projectId) {
+      // Repo-free expert — still record the project association but skip repo_url lookup.
+      resolvedProjectId = projectId;
     }
-
-    const { data: projectData, error: projectErr } = await projectQuery;
-
-    if (projectErr) {
-      return jsonResponse({ error: `Failed to look up project: ${projectErr.message}` }, 500);
-    }
-
-    if (!projectData) {
-      return jsonResponse({ error: `Project not found: ${projectId}` }, 400);
-    }
-
-    const project = projectData as ProjectLookupRow;
-
-    if (!project.repo_url) {
-      return jsonResponse({ error: `Project ${project.name} has no repo_url configured` }, 400);
-    }
-
-    const resolvedProjectId = project.id;
-    const resolvedRepoUrl = project.repo_url;
-    const resolvedBranch = "master";
 
     // Estimate items_total from brief — look for JSON array of idea IDs
     let itemsTotal = 0;
@@ -389,15 +397,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
       batch_id: batchId,
       auto_exit: headless,
       display_name: role.display_name,
+      needs_repo: needsRepo,
       role: {
         prompt: role.prompt,
         skills: role.skills ?? [],
         mcp_tools: role.mcp_tools,
         settings_overrides: role.settings_overrides,
       },
-      project_id: resolvedProjectId,
-      repo_url: resolvedRepoUrl,
-      branch: resolvedBranch,
+      ...(resolvedProjectId ? { project_id: resolvedProjectId } : {}),
+      ...(resolvedRepoUrl ? { repo_url: resolvedRepoUrl } : {}),
     };
 
     const broadcastResult = await broadcastStartExpert(

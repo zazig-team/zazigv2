@@ -49,6 +49,7 @@ interface ExpertSessionRow {
     skills: string[] | null;
     mcp_tools: unknown;
     settings_overrides: unknown;
+    needs_repo: boolean;
   };
   projects: {
     repo_url: string | null;
@@ -319,7 +320,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { data: candidateSessions, error: sessionsErr } = await supabaseAdmin
       .from("expert_sessions")
       .select(
-        "id, brief, headless, batch_id, items_total, status, project_id, expert_roles(name, display_name, model, prompt, skills, mcp_tools, settings_overrides), projects(repo_url)",
+        "id, brief, headless, batch_id, items_total, status, project_id, expert_roles(name, display_name, model, prompt, skills, mcp_tools, settings_overrides, needs_repo), projects(repo_url)",
       )
       .eq("status", "requested")
       .eq("machine_id", machineId)
@@ -347,6 +348,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
       const role = record.expert_roles;
       const repoUrl = record.projects?.repo_url;
+      const needsRepo = role?.needs_repo !== false;
       const msg: Record<string, unknown> = {
         type: "start_expert",
         protocolVersion: PROTOCOL_VERSION,
@@ -357,6 +359,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         batch_id: record.batch_id ?? undefined,
         auto_exit: record.headless ?? false,
         display_name: role?.display_name ?? role?.name ?? "Expert",
+        needs_repo: needsRepo,
         role: {
           prompt: role?.prompt ?? "",
           skills: role?.skills ?? [],
@@ -365,8 +368,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         },
       };
       if (record.project_id) msg.project_id = record.project_id;
-      if (repoUrl) msg.repo_url = repoUrl;
-      if (repoUrl) msg.branch = "master";
+      if (repoUrl && needsRepo) msg.repo_url = repoUrl;
       expertMessages.push(msg);
     }
 

@@ -37,6 +37,8 @@ interface ExpertSessionState {
   effectiveWorkspaceDir: string;
   repoDir?: string;
   bareRepoDir?: string;
+  /** Resolved default branch of the repo (e.g. "master" or "main"). */
+  defaultBranch?: string;
   /** Branch used for expert work and post-session push/merge handling. */
   branch?: string;
   /** Isolated expert branch checked out in the worktree (expert/{role}-{shortId}). */
@@ -207,25 +209,19 @@ export class ExpertSessionManager {
     const workspaceDir = join(homedir(), ".zazigv2", `expert-${sessionId}`);
     mkdirSync(workspaceDir, { recursive: true });
 
-    // 3. Git worktree setup if project_id + repo_url provided
+    // 3. Git worktree setup — skipped for repo-free experts (needs_repo === false)
     let repoDir: string | undefined;
     let bareRepoDir: string | undefined;
     let startCommitHash: string | undefined;
-    if ((msg.project_id && !msg.repo_url) || (!msg.project_id && msg.repo_url)) {
-      console.error(
-        `[expert] Invalid start_expert payload for ${sessionId}: project_id and repo_url must both be set together`,
-      );
-      this.startingSessions.delete(sessionId);
-      await this.updateSessionStatus(sessionId, "failed");
-      return;
-    }
+    let resolvedDefaultBranch: string | undefined;
 
-    if (msg.project_id && msg.repo_url) {
+    const needsRepo = msg.needs_repo !== false;
+
+    if (needsRepo && msg.project_id && msg.repo_url) {
       try {
         const projectName = msg.repo_url.split("/").pop()?.replace(/\.git$/, "") ?? msg.project_id;
         bareRepoDir = await this.repoManager.ensureRepo(msg.repo_url, projectName);
         const worktreeTarget = join(workspaceDir, "repo");
-        const branch = "master";
 
         // Remove stale metadata/dir from interrupted sessions so each start gets a fresh worktree.
         try {
@@ -239,22 +235,30 @@ export class ExpertSessionManager {
         rmSync(worktreeTarget, { recursive: true, force: true });
         await execFileAsync("git", ["-C", bareRepoDir, "worktree", "prune"]);
 
-        // Remove any other worktrees that have 'master' checked out — they block the fetch.
-        await this.pruneBlockingWorktrees(bareRepoDir, branch);
+        // Fetch into a per-session temp ref — never touches refs/heads/{branch}, so
+        // concurrent sessions and checked-out worktrees don't block each other.
+        const { defaultBranch, tempRef } = await this.repoManager.fetchForExpertSession(
+          projectName, sessionId,
+        );
+        resolvedDefaultBranch = defaultBranch;
 
-        await this.repoManager.fetchBranchForExpert(projectName, branch);
-
-        // Create a dedicated expert branch from the latest fetched master.
+        // Create expert branch from the temp ref, then clean up the temp ref.
         await execFileAsync("git", [
           "-C", bareRepoDir,
           "worktree", "add", "-b", expertBranch, worktreeTarget,
-          `refs/heads/${branch}`,
+          tempRef,
         ]);
+        try {
+          await execFileAsync("git", ["-C", bareRepoDir, "update-ref", "-d", tempRef]);
+        } catch {
+          // Non-fatal — orphaned refs/zazig-expert-base/ refs can be bulk-pruned later.
+        }
+
         const { stdout } = await execFileAsync("git", ["-C", worktreeTarget, "rev-parse", "HEAD"]);
         startCommitHash = stdout.trim();
 
         repoDir = worktreeTarget;
-        console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${expertBranch})`);
+        console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${expertBranch}, base: ${defaultBranch})`);
         console.log(`[expert] Worktree at commit: ${startCommitHash.slice(0, 8)}`);
       } catch (err) {
         console.error(`[expert] Failed to create git worktree:`, err);
@@ -262,6 +266,13 @@ export class ExpertSessionManager {
         await this.updateSessionStatus(sessionId, "failed");
         return;
       }
+    } else if (needsRepo && (msg.project_id || msg.repo_url)) {
+      console.error(
+        `[expert] Invalid start_expert payload for ${sessionId}: project_id and repo_url must both be set together`,
+      );
+      this.startingSessions.delete(sessionId);
+      await this.updateSessionStatus(sessionId, "failed");
+      return;
     }
 
     // The effective workspace is the repo worktree if available, else the base dir
@@ -281,6 +292,7 @@ export class ExpertSessionManager {
       }
 
       // Expert instructions
+      const defaultBranchForInstructions = resolvedDefaultBranch ?? "master";
       claudeMdParts.push(`
 ## Expert Session Instructions
 
@@ -291,9 +303,9 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
 2. You are on branch \`${expertBranch}\` — all your work goes here
 3. Work through the brief methodically
 4. Show diffs before applying changes
-5. When done: push your branch and merge to master, then delete the remote expert branch
+5. When done: push your branch and merge to ${defaultBranchForInstructions}, then delete the remote expert branch
    - \`git push origin ${expertBranch}\`
-   - \`git checkout master && git merge ${expertBranch} && git push origin master\`
+   - \`git checkout ${defaultBranchForInstructions} && git merge ${expertBranch} && git push origin ${defaultBranchForInstructions}\`
    - \`git push origin --delete ${expertBranch}\`
 
 `);
@@ -413,6 +425,7 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
         effectiveWorkspaceDir,
         repoDir,
         bareRepoDir,
+        defaultBranch: resolvedDefaultBranch,
         branch: msg.branch ?? undefined,
         expertBranch: repoDir ? expertBranch : undefined,
         startCommit: repoDir ? startCommitHash : undefined,
@@ -469,6 +482,7 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       effectiveWorkspaceDir,
       repoDir,
       bareRepoDir,
+      defaultBranch: resolvedDefaultBranch,
       branch: repoDir ? expertBranch : undefined,
       expertBranch: repoDir ? expertBranch : undefined,
       startCommit: repoDir ? startCommitHash : undefined,
@@ -754,12 +768,13 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
         console.log(`[expert] Pushed unpushed commits to origin/${expertBranch}`);
 
         try {
-          await execFileAsync("git", ["-C", session.repoDir, "checkout", "master"]);
+          const defaultBranch = session.defaultBranch ?? "master";
+          await execFileAsync("git", ["-C", session.repoDir, "checkout", defaultBranch]);
           await execFileAsync("git", ["-C", session.repoDir, "merge", expertBranch]);
-          await execFileAsync("git", ["-C", session.repoDir, "push", "origin", "master"]);
+          await execFileAsync("git", ["-C", session.repoDir, "push", "origin", defaultBranch]);
           await execFileAsync("git", ["-C", session.repoDir, "push", "origin", "--delete", expertBranch]);
           console.log(
-            `[expert] Merged ${expertBranch} to master, pushed master, and deleted origin/${expertBranch}`,
+            `[expert] Merged ${expertBranch} to ${defaultBranch}, pushed ${defaultBranch}, and deleted origin/${expertBranch}`,
           );
         } catch (mergeErr) {
           console.warn(
@@ -789,39 +804,6 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
       }
     } catch (err) {
       console.warn(`[expert] Failed to check for unpushed commits in session ${session.sessionId}:`, err);
-    }
-  }
-
-  /**
-   * Remove any linked worktrees that have `branch` currently checked out.
-   * Prevents "refusing to fetch into branch checked out at another worktree" errors
-   * caused by stale sessions or leftover worktrees from previous runs.
-   */
-  private async pruneBlockingWorktrees(bareRepoDir: string, branch: string): Promise<void> {
-    try {
-      const { stdout } = await execFileAsync("git", ["-C", bareRepoDir, "worktree", "list", "--porcelain"]);
-      const branchRef = `refs/heads/${branch}`;
-      const blocks = stdout.trim().split(/\n\n+/);
-      for (const block of blocks) {
-        const lines = block.trim().split("\n");
-        const worktreeLine = lines.find((l) => l.startsWith("worktree "));
-        const branchLine = lines.find((l) => l.startsWith("branch "));
-        if (!worktreeLine || !branchLine) continue; // bare or detached HEAD — skip
-        const worktreePath = worktreeLine.slice("worktree ".length).trim();
-        const checkedOutRef = branchLine.slice("branch ".length).trim();
-        if (worktreePath === bareRepoDir || checkedOutRef !== branchRef) continue;
-        console.warn(`[expert] Removing blocking worktree at ${worktreePath} (has '${branch}' checked out)`);
-        try {
-          await execFileAsync("git", ["-C", bareRepoDir, "worktree", "remove", "--force", worktreePath]);
-        } catch {
-          // git couldn't remove it — force-delete the directory directly
-          rmSync(worktreePath, { recursive: true, force: true });
-        }
-      }
-      // Final prune to clear any stale metadata left behind
-      await execFileAsync("git", ["-C", bareRepoDir, "worktree", "prune"]);
-    } catch (err) {
-      console.warn(`[expert] pruneBlockingWorktrees failed (non-fatal, will attempt fetch anyway):`, err);
     }
   }
 

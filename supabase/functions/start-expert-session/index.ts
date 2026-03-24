@@ -404,8 +404,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
         mcp_tools: role.mcp_tools,
         settings_overrides: role.settings_overrides,
       },
-      ...(resolvedProjectId ? { project_id: resolvedProjectId } : {}),
-      ...(resolvedRepoUrl ? { repo_url: resolvedRepoUrl } : {}),
+      // For repo-free experts, omit project_id and repo_url from the dispatch
+      // payload so old daemon code (pre-promote) sees neither and skips worktree.
+      ...(needsRepo && resolvedProjectId ? { project_id: resolvedProjectId } : {}),
+      ...(needsRepo && resolvedRepoUrl ? { repo_url: resolvedRepoUrl } : {}),
     };
 
     const broadcastResult = await broadcastStartExpert(

@@ -1168,40 +1168,17 @@ export default function Ideas(): JSX.Element {
     let cancelled = false;
 
     const pollSpecStatuses = async (): Promise<void> => {
-      const now = Date.now();
-      const timedOutIds = speccingIdeaIds.filter((ideaId) => {
-        const startedAt = specStartTimesRef.current.get(ideaId) ?? now;
-        return now - startedAt > SPEC_TIMEOUT_MS;
-      });
-
-      if (timedOutIds.length > 0) {
-        setBatchSpecStates((prev) => {
-          let changed = false;
-          const next = new Map(prev);
-          for (const ideaId of timedOutIds) {
-            if (next.get(ideaId) === "speccing") {
-              next.set(ideaId, "timed_out");
-              changed = true;
-            }
-          }
-          return changed ? next : prev;
-        });
-        for (const ideaId of timedOutIds) {
-          specStartTimesRef.current.delete(ideaId);
-        }
-      }
-
-      const activeIdeaIds = speccingIdeaIds.filter((ideaId) => !timedOutIds.includes(ideaId));
-      if (activeIdeaIds.length === 0) return;
-
+      // Poll all speccing ideas first — timeout is applied after seeing DB status
+      // so a spec that completes just before the timeout isn't stuck showing timed_out.
       const { data, error } = await supabase
         .from("ideas")
         .select("id, status")
         .eq("company_id", activeCompanyId)
-        .in("id", activeIdeaIds);
+        .in("id", speccingIdeaIds);
 
       if (cancelled || error || !data) return;
 
+      const now = Date.now();
       const rows = data as Array<{ id: string; status: string }>;
       const statusById = new Map(rows.map((row) => [row.id, row.status]));
 
@@ -1220,7 +1197,7 @@ export default function Ideas(): JSX.Element {
         let changed = false;
         const next = new Map(prev);
 
-        for (const ideaId of activeIdeaIds) {
+        for (const ideaId of speccingIdeaIds) {
           const status = statusById.get(ideaId);
           if (!status) {
             if (next.has(ideaId)) {
@@ -1243,6 +1220,17 @@ export default function Ideas(): JSX.Element {
           if (status !== "developing") {
             if (next.has(ideaId)) {
               next.delete(ideaId);
+              changed = true;
+            }
+            specStartTimesRef.current.delete(ideaId);
+            continue;
+          }
+
+          // Still developing — apply timeout check only now
+          const startedAt = specStartTimesRef.current.get(ideaId) ?? now;
+          if (now - startedAt > SPEC_TIMEOUT_MS) {
+            if (next.get(ideaId) !== "timed_out") {
+              next.set(ideaId, "timed_out");
               changed = true;
             }
             specStartTimesRef.current.delete(ideaId);

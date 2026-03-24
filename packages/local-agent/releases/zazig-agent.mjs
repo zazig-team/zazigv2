@@ -938,7 +938,7 @@ var require_version = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
-    exports.version = "2.98.0";
+    exports.version = "2.97.0";
   }
 });
 
@@ -2827,18 +2827,6 @@ Option 2: Install and provide the "ws" package:
         this.log("transport", `connected to ${this.endpointURL()}`);
         const authPromise = this._authPromise || (this.accessToken && !this.accessTokenValue ? this.setAuth() : Promise.resolve());
         authPromise.then(() => {
-          if (this.accessTokenValue) {
-            this.channels.forEach((channel) => {
-              channel.updateJoinPayload({ access_token: this.accessTokenValue });
-            });
-            this.sendBuffer = [];
-            this.channels.forEach((channel) => {
-              if (channel._isJoining()) {
-                channel.joinPush.sent = false;
-                channel.joinPush.send();
-              }
-            });
-          }
           this.flushSendBuffer();
         }).catch((e) => {
           this.log("error", "error waiting for auth on connect", e);
@@ -3135,7 +3123,7 @@ var require_version2 = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
-    exports.version = "2.98.0";
+    exports.version = "2.97.0";
   }
 });
 
@@ -4546,31 +4534,8 @@ var require_locks = __commonJS({
           }
         });
       } catch (e) {
-        if ((e === null || e === void 0 ? void 0 : e.name) === "AbortError" && acquireTimeout > 0) {
-          if (exports.internals.debug) {
-            console.log("@supabase/gotrue-js: navigatorLock: acquire timeout, recovering by stealing lock", name);
-          }
-          console.warn(`@supabase/gotrue-js: Lock "${name}" was not released within ${acquireTimeout}ms. This may indicate an orphaned lock from a component unmount (e.g., React Strict Mode). Forcefully acquiring the lock to recover.`);
-          return await Promise.resolve().then(() => globalThis.navigator.locks.request(name, {
-            mode: "exclusive",
-            steal: true
-          }, async (lock) => {
-            if (lock) {
-              if (exports.internals.debug) {
-                console.log("@supabase/gotrue-js: navigatorLock: recovered (stolen)", name, lock.name);
-              }
-              try {
-                return await fn();
-              } finally {
-                if (exports.internals.debug) {
-                  console.log("@supabase/gotrue-js: navigatorLock: released (stolen)", name, lock.name);
-                }
-              }
-            } else {
-              console.warn("@supabase/gotrue-js: Navigator LockManager returned null lock even with steal: true");
-              return await fn();
-            }
-          }));
+        if ((e === null || e === void 0 ? void 0 : e.name) === "AbortError") {
+          throw new NavigatorLockAcquireTimeoutError(`Acquiring an exclusive Navigator LockManager lock "${name}" timed out waiting ${acquireTimeout}ms`);
         }
         throw e;
       }
@@ -5506,8 +5471,8 @@ var require_GoTrueClient = __commonJS({
       debug: false,
       hasCustomAuthorizationHeader: false,
       throwOnError: false,
-      lockAcquireTimeout: 5e3,
-      // 5 seconds
+      lockAcquireTimeout: 1e4,
+      // 10 seconds
       skipAutoInitialize: false
     };
     async function lockNoOp(name, acquireTimeout, fn) {
@@ -11346,7 +11311,7 @@ var StorageFileApi = class extends BaseApiClient {
     return params.join("&");
   }
 };
-var version = "2.98.0";
+var version = "2.97.0";
 var DEFAULT_HEADERS = { "X-Client-Info": `storage-js/${version}` };
 var StorageBucketApi = class extends BaseApiClient {
   constructor(url, headers = {}, fetch$1, opts) {
@@ -12594,7 +12559,7 @@ var StorageClient = class extends StorageBucketApi {
 var import_auth_js = __toESM(require_main3(), 1);
 __reExport(dist_exports, __toESM(require_main2(), 1));
 __reExport(dist_exports, __toESM(require_main3(), 1));
-var version2 = "2.98.0";
+var version2 = "2.97.0";
 var JS_ENV = "";
 if (typeof Deno !== "undefined") JS_ENV = "deno";
 else if (typeof document !== "undefined") JS_ENV = "web";
@@ -13011,7 +12976,7 @@ var STANDARD_TOOLS = [
 ];
 var ROLE_DEFAULT_MCP_TOOLS = {
   "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "start_expert_session"],
-  "breakdown-specialist": ["query_features", "batch_create_jobs"],
+  "breakdown-specialist": ["query_features"],
   "senior-engineer": ["create_project_rule"],
   "junior-engineer": ["create_project_rule"],
   "job-combiner": ["create_project_rule"],

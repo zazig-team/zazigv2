@@ -32,8 +32,9 @@ const COLUMN_DEFINITIONS: ColumnDefinition[] = [
   { key: "combining_and_pr", label: "Combining", colorVar: "--col-combining" },
   { key: "ci_checking", label: "CI Check", colorVar: "--col-ci-checking" },
   { key: "pr_ready", label: "PR Ready", colorVar: "--col-pr" },
+  { key: "complete", label: "Shipped to Staging", colorVar: "--col-complete" },
   { key: "failed", label: "Failed", colorVar: "--col-failed" },
-  { key: "shipped", label: "Shipped to Staging", colorVar: "--col-shipped" },
+  { key: "shipped", label: "Shipped", colorVar: "--col-shipped" },
 ];
 
 const ACTIVE_FEATURE_STATUSES = new Set<PipelineStatus>([

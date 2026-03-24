@@ -20,4 +20,9 @@ The following commands are available via the zazig CLI. Use these instead of MCP
 - \`--search <term>\` — full-text search (ideas only)
 
 Results are sorted newest-first by default. Output is JSON on stdout.
+
+### Write commands
+
+- `zazig batch-create-jobs --company <uuid> --feature-id <uuid> --jobs '<json array>'` — create jobs for a feature in batch
+- `zazig batch-create-jobs --company <uuid> --feature-id <uuid> --jobs-file <path>` — alternative for large payloads (write JSON to a temp file and pass the path)
 `;

@@ -56,15 +56,19 @@ describe('migration — strip write MCP tools from roles (AC1)', () => {
 
   beforeAll(() => {
     const migrations = listMigrations();
-    // Find the migration that removes the CLI-replaced tools from roles.
-    // We look for a migration that references both "mcp_tools" and at least
-    // one of the tools being removed.
-    const candidate = migrations.find((f) => {
+    // Find the newest migration that removes all five CLI-replaced tools from
+    // roles.mcp_tools. Older migrations may mention only a subset.
+    const candidates = migrations.filter((f) => {
       const content = readRepoFile(`supabase/migrations/${f}`);
       if (!content) return false;
       const lower = content.toLowerCase();
-      return lower.includes('mcp_tools') && lower.includes('create_feature');
-    });
+      return (
+        lower.includes('mcp_tools') &&
+        lower.includes('roles') &&
+        REMOVED_TOOLS.every((tool) => lower.includes(tool))
+      );
+    }).sort((a, b) => b.localeCompare(a));
+    const candidate = candidates[0] ?? null;
     if (candidate) {
       migrationFile = candidate;
       migrationContent = readRepoFile(`supabase/migrations/${candidate}`);

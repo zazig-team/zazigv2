@@ -208,59 +208,70 @@ export default function IdeaDetailPanel({ ideaId, colorVar, onClose }: IdeaDetai
               ) : null}
 
               {/* --- Promote to Pipeline --- */}
-              {canPromote ? (
-                <div className="detail-section promote-section">
-                  <div className="detail-section-title">Push to Pipeline</div>
-
-                  <div className="promote-readiness">
-                    {readiness.map((r) => (
-                      <div className="promote-check" key={r.label}>
-                        <span className={`promote-check-icon ${r.ok ? "promote-check--ok" : "promote-check--missing"}`}>
-                          {r.ok ? "\u2713" : "\u2717"}
-                        </span>
-                        <span className="promote-check-label">{r.label}</span>
-                        {!r.ok && r.hint ? <span className="promote-check-hint">{r.hint}</span> : null}
-                      </div>
-                    ))}
+              {data.status === "developing" ? (
+                <div className="detail-section">
+                  <div className="flex items-center gap-2" style={{ color: "var(--muted-foreground)", fontSize: "0.875rem" }}>
+                    <span className="il-triage-spinner" />
+                    <span>Spec in progress...</span>
                   </div>
+                </div>
+              ) : (
+                <>
+                  {canPromote ? (
+                    <div className="detail-section promote-section">
+                      <div className="detail-section-title">Push to Pipeline</div>
 
-                  {projects.length > 0 ? (
-                    <div className="promote-project-picker">
-                      <label className="promote-label" htmlFor="promote-project">Project</label>
-                      <select
-                        id="promote-project"
-                        className="promote-select"
-                        value={selectedProjectId ?? ""}
-                        onChange={(e) => setSelectedProjectId(e.target.value || null)}
-                      >
-                        <option value="">Select project...</option>
-                        {projects.map((p) => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
+                      <div className="promote-readiness">
+                        {readiness.map((r) => (
+                          <div className="promote-check" key={r.label}>
+                            <span className={`promote-check-icon ${r.ok ? "promote-check--ok" : "promote-check--missing"}`}>
+                              {r.ok ? "\u2713" : "\u2717"}
+                            </span>
+                            <span className="promote-check-label">{r.label}</span>
+                            {!r.ok && r.hint ? <span className="promote-check-hint">{r.hint}</span> : null}
+                          </div>
                         ))}
-                      </select>
+                      </div>
+
+                      {projects.length > 0 ? (
+                        <div className="promote-project-picker">
+                          <label className="promote-label" htmlFor="promote-project">Project</label>
+                          <select
+                            id="promote-project"
+                            className="promote-select"
+                            value={selectedProjectId ?? ""}
+                            onChange={(e) => setSelectedProjectId(e.target.value || null)}
+                          >
+                            <option value="">Select project...</option>
+                            {projects.map((p) => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : null}
+
+                      {promoteError ? (
+                        <div className="promote-error">{promoteError}</div>
+                      ) : null}
+
+                      <button
+                        className="promote-btn"
+                        type="button"
+                        disabled={!allReady || promoting}
+                        onClick={handlePromote}
+                      >
+                        {promoting ? "Promoting..." : "Promote to Feature"}
+                      </button>
                     </div>
                   ) : null}
 
-                  {promoteError ? (
-                    <div className="promote-error">{promoteError}</div>
+                  {promoted ? (
+                    <div className="detail-section">
+                      <div className="promote-success">Idea promoted to feature and pushed into the pipeline.</div>
+                    </div>
                   ) : null}
-
-                  <button
-                    className="promote-btn"
-                    type="button"
-                    disabled={!allReady || promoting}
-                    onClick={handlePromote}
-                  >
-                    {promoting ? "Promoting..." : "Promote to Feature"}
-                  </button>
-                </div>
-              ) : null}
-
-              {promoted ? (
-                <div className="detail-section">
-                  <div className="promote-success">Idea promoted to feature and pushed into the pipeline.</div>
-                </div>
-              ) : null}
+                </>
+              )}
             </div>
           </>
         ) : null}

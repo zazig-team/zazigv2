@@ -11,7 +11,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, renameSync,
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-const BUILDS_DIR = join(homedir(), ".zazigv2", "builds");
+const ZAZIGV2_DIR = process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
+const BUILDS_DIR = join(ZAZIGV2_DIR, "builds");
 const CURRENT = join(BUILDS_DIR, "current");
 const PREVIOUS = join(BUILDS_DIR, "previous");
 
@@ -90,7 +91,7 @@ export function rollback(): boolean {
   return true;
 }
 
-const BIN_DIR = join(homedir(), ".zazigv2", "bin");
+const BIN_DIR = join(ZAZIGV2_DIR, "bin");
 const BIN_PREVIOUS = join(BIN_DIR, "previous");
 
 export function rollbackBinaries(): boolean {

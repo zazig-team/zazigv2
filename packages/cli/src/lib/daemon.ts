@@ -18,8 +18,9 @@ import { homedir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ZAZIGV2_DIR = join(homedir(), ".zazigv2");
+const ZAZIGV2_DIR = process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
 const PID_PATH = join(ZAZIGV2_DIR, "daemon.pid");
+const PIDS_DIR = join(ZAZIGV2_DIR, "pids");
 const LOG_DIR = join(ZAZIGV2_DIR, "logs");
 export const LOG_PATH = join(LOG_DIR, "agent.log");
 
@@ -117,14 +118,12 @@ export function removePidFile(): void {
 /* ── Per-company PID management ────────────────────────────────── */
 
 export function pidPathForCompany(companyId: string): string {
-  const suffix = IS_STAGING ? "-staging" : "";
-  return join(ZAZIGV2_DIR, `${companyId}${suffix}.pid`);
+  return join(PIDS_DIR, `${companyId}.pid`);
 }
 
 export function logPathForCompany(companyId: string): string {
   mkdirSync(LOG_DIR, { recursive: true });
-  const suffix = IS_STAGING ? "-staging" : "";
-  return join(LOG_DIR, `${companyId}${suffix}.log`);
+  return join(LOG_DIR, `${companyId}.log`);
 }
 
 export function readPidForCompany(companyId: string): number | null {
@@ -157,6 +156,7 @@ export function startDaemonForCompany(
 ): number {
   mkdirSync(LOG_DIR, { recursive: true });
   mkdirSync(ZAZIGV2_DIR, { recursive: true });
+  mkdirSync(PIDS_DIR, { recursive: true });
 
   const agentEntry = agentEntryOverride ?? resolveAgentEntry();
   const logPath = logPathForCompany(companyId);

@@ -18,7 +18,8 @@ import type { OrchestratorMessage, AgentMessage } from "@zazigv2/shared";
 import type { MachineConfig } from "./config.js";
 import type { SlotTracker } from "./slots.js";
 
-const CREDENTIALS_PATH = join(homedir(), ".zazigv2", "credentials.json");
+const ZAZIG_HOME_DIR = process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
+const CREDENTIALS_PATH = join(ZAZIG_HOME_DIR, "credentials.json");
 const execFileAsync = promisify(execFile);
 
 const sleep = (ms: number): Promise<void> =>
@@ -218,7 +219,7 @@ export class AgentConnection {
               email: session.user?.email ?? existing.email,
               supabaseUrl: this.config.supabase.url,
             };
-            mkdirSync(join(homedir(), ".zazigv2"), { recursive: true });
+            mkdirSync(ZAZIG_HOME_DIR, { recursive: true });
             writeFileSync(CREDENTIALS_PATH, JSON.stringify(creds, null, 2) + "\n", { mode: 0o600 });
             console.log(`[local-agent] Credentials refreshed and saved to disk`);
           } catch (err) {
@@ -347,7 +348,7 @@ export class AgentConnection {
       if (jobId) {
         // Write to per-job log so it's findable
         try {
-          const logDir = join(homedir(), ".zazigv2", "job-logs");
+          const logDir = join(ZAZIG_HOME_DIR, "job-logs");
           mkdirSync(logDir, { recursive: true });
           appendFileSync(
             join(logDir, `${jobId}-pre-post.log`),

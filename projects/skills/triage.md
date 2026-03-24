@@ -56,9 +56,10 @@ For each idea selected for triage:
 
 1. Read the full `title`, `description`, `flags`, `clarification_notes`, and `originator`.
 1a. Run a structured implementation deduplication check before routing:
-   - Extract 2-5 keywords from the idea `title` and `description`
-   - Call `query_features` filtered to statuses `complete`, `building`, `breaking_down` to get a bounded list of existing features (avoids context overflow from full unfiltered results)
-   - Compare extracted keywords against feature titles and descriptions
+   - Extract 2-3 keywords from the idea `title` and `description` (short terms, not a sentence)
+   - Call `query_features` with `search="<keywords>"`, `status=["complete","building","breaking_down"]`, `dedup_mode=true`, and `project_id` from the idea's data. This returns only matching features (id, title, description, status) — a small result set filtered server-side, not the full corpus.
+   - If the idea has no project_id, omit the search and skip the dedup check.
+   - Compare the returned features against the idea's description and scope
    - Apply deduplication routing decision:
      - **High confidence match** (feature with `status=complete` fully covers the idea): park with feature ID in `triage_notes` (for example: "Already implemented: feature {id} — {title}")
      - **Partial match** (feature exists but does not fully cover the idea): flag in `triage_notes` with feature ID and gap description, then route normally

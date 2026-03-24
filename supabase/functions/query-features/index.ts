@@ -40,6 +40,8 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 }
 
 const FEATURE_SELECT = "id, title, description, spec, acceptance_tests, human_checklist, status, priority, project_id, depends_on, promoted_version";
+// Slim select for dedup checks — only what's needed to identify a duplicate
+const DEDUP_SELECT = "id, title, description, status";
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -61,7 +63,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     const body = await req.json();
-    const { feature_id, project_id, status, limit = 20, offset = 0 } = body;
+    const { feature_id, project_id, status, limit = 20, offset = 0, search, dedup_mode } = body;
 
     if (!feature_id && !project_id) {
       return jsonResponse(
@@ -85,16 +87,35 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ features: [data], total: 1 });
     }
 
-    // Features for a project, optionally filtered by status
+    // Features for a project, optionally filtered by status and/or search term.
+    // dedup_mode=true returns a slim column set (id, title, description, status) —
+    // enough for duplicate detection without bloating the LLM context with full specs.
+    const selectCols = dedup_mode ? DEDUP_SELECT : FEATURE_SELECT;
+    const effectiveLimit = dedup_mode && !search ? Math.min(limit, 20) : limit;
+
     let query = supabase
       .from("features")
-      .select(FEATURE_SELECT, { count: "exact" })
+      .select(selectCols, { count: "exact" })
       .eq("project_id", project_id)
       .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1);
+      .range(offset, offset + effectiveLimit - 1);
 
+    // status can be a string (single) or array (multiple) — e.g. ["complete","building"]
     if (status) {
-      query = query.eq("status", status);
+      if (Array.isArray(status)) {
+        query = query.in("status", status);
+      } else {
+        query = query.eq("status", status);
+      }
+    }
+
+    // search filters title and description server-side, dramatically reducing
+    // the result set the LLM needs to reason over for duplicate detection
+    if (search && typeof search === "string") {
+      const safe = search.replace(/[%_\\]/g, "\\$&").trim();
+      if (safe.length > 0) {
+        query = query.or(`title.ilike.%${safe}%,description.ilike.%${safe}%`);
+      }
     }
 
     const { data, error, count } = await query;

@@ -18,4 +18,12 @@ The following read commands are available via the zazig CLI. Use these instead o
 - \`--search <term>\` — full-text search (ideas only)
 
 Results are sorted newest-first by default. Output is JSON on stdout.
+
+### Write commands
+
+- `zazig create-feature --company <uuid> --title "..." --description "..." --spec "..." --acceptance-tests "..." --priority low|medium|high`
+- `zazig update-feature --company <uuid> --id <uuid> [--status breaking_down|complete|cancelled] [--spec "..."] [--title "..."] [--description "..."]`
+- `zazig create-idea --company <uuid> --raw-text "..." --originator <string>`
+- `zazig update-idea --company <uuid> --id <uuid> [--raw-text "..."] [--status new|triaging|triaged|developing|specced|workshop|hardening|parked|rejected|done]`
+- `zazig promote-idea --company <uuid> --id <uuid> --to feature|job|research|capability [--project-id <uuid>]`
 `;

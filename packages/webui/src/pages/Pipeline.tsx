@@ -21,8 +21,6 @@ interface ColumnDefinition {
   colorVar: string;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 const COLUMN_DEFINITIONS: ColumnDefinition[] = [
   { key: "proposal", label: "Proposal", colorVar: "--col-proposal" },
   { key: "ready", label: "Ready", colorVar: "--col-ready" },
@@ -32,9 +30,8 @@ const COLUMN_DEFINITIONS: ColumnDefinition[] = [
   { key: "combining_and_pr", label: "Combining", colorVar: "--col-combining" },
   { key: "ci_checking", label: "CI Check", colorVar: "--col-ci-checking" },
   { key: "pr_ready", label: "PR Ready", colorVar: "--col-pr" },
-  { key: "complete", label: "Shipped to Staging", colorVar: "--col-complete" },
   { key: "failed", label: "Failed", colorVar: "--col-failed" },
-  { key: "shipped", label: "Shipped", colorVar: "--col-shipped" },
+  { key: "complete", label: "Shipped to Staging", colorVar: "--col-complete" },
 ];
 
 const ACTIVE_FEATURE_STATUSES = new Set<PipelineStatus>([
@@ -112,16 +109,6 @@ function ideaColorVar(itemType: string): string {
     case "test": return "--col-test";
     default: return "--col-ideas";
   }
-}
-
-function featureActivityTimestamp(feature: PipelineFeature): number | null {
-  const activityAt = feature.updatedAt ?? feature.createdAt;
-  if (!activityAt) {
-    return null;
-  }
-
-  const timestamp = Date.parse(activityAt);
-  return Number.isNaN(timestamp) ? null : timestamp;
 }
 
 function timestampScore(value: string | null): number {
@@ -303,10 +290,7 @@ export default function Pipeline(): JSX.Element {
   const [inboxTypeFilter, setInboxTypeFilter] = useState<string>("all");
   const [showReviewSoon, setShowReviewSoon] = useState(false);
   const [showLongTerm, setShowLongTerm] = useState(false);
-  const [showFailedArchive, setShowFailedArchive] = useState(false);
-  const [showCompleteArchive, setShowCompleteArchive] = useState(false);
   const [showProductionArchive, setShowProductionArchive] = useState(false);
-  const [showShippedArchive, setShowShippedArchive] = useState(false);
   const [selectedFeature, setSelectedFeature] = useState<{ id: string; colorVar: string } | null>(null);
   const [selectedIdea, setSelectedIdea] = useState<{ id: string; colorVar: string } | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
@@ -573,8 +557,6 @@ export default function Pipeline(): JSX.Element {
     };
   }, [filteredByStatus, filteredIdeas.length, filteredTriagedIdeas.length, allFeatures.length]);
 
-  const now = Date.now();
-
   return (
     <div className="pipeline-page">
       <div className="page-header">
@@ -773,36 +755,6 @@ export default function Pipeline(): JSX.Element {
             )
             : [];
           const features = column.key === "complete" ? completeStagingFeatures : allColumnFeatures;
-          const hasArchive =
-            column.key === "failed" || column.key === "complete" || column.key === "shipped";
-          const recentFeatures = hasArchive
-            ? features.filter((feature) => {
-              const activityTimestamp = featureActivityTimestamp(feature);
-              if (activityTimestamp === null) {
-                return true;
-              }
-
-              return now - activityTimestamp <= DAY_MS;
-            })
-            : features;
-          const archivedFeatures = hasArchive
-            ? features.filter((feature) => {
-              const activityTimestamp = featureActivityTimestamp(feature);
-              if (activityTimestamp === null) {
-                return false;
-              }
-
-              return now - activityTimestamp > DAY_MS;
-            })
-            : [];
-          const showArchive =
-            column.key === "failed"
-              ? showFailedArchive
-              : column.key === "complete"
-                ? showCompleteArchive
-                : column.key === "shipped"
-                  ? showShippedArchive
-                  : false;
 
           const renderFeatureCard = (
             feature: PipelineFeature,
@@ -900,35 +852,11 @@ export default function Pipeline(): JSX.Element {
               </header>
 
               <div className="pipeline-col-body">
-                {recentFeatures.length === 0 ? (
+                {features.length === 0 ? (
                   <div className="col-empty">No items</div>
                 ) : (
-                  recentFeatures.map((feature) => renderFeatureCard(feature))
+                  features.map((feature) => renderFeatureCard(feature))
                 )}
-
-                {archivedFeatures.length > 0 ? (
-                  <button
-                    className="parked-toggle"
-                    type="button"
-                    onClick={() => {
-                      if (column.key === "failed") {
-                        setShowFailedArchive((value) => !value);
-                        return;
-                      }
-                      if (column.key === "complete") {
-                        setShowCompleteArchive((value) => !value);
-                        return;
-                      }
-                      if (column.key === "shipped") {
-                        setShowShippedArchive((value) => !value);
-                      }
-                    }}
-                  >
-                    {showArchive ? "▼" : "▶"} {column.key === "shipped" ? "Shipped to Production" : "Archive"} ({archivedFeatures.length})
-                  </button>
-                ) : null}
-
-                {showArchive ? archivedFeatures.map((feature) => renderFeatureCard(feature)) : null}
 
                 {column.key === "complete" ? (
                   <>

@@ -157,7 +157,7 @@ const STANDARD_TOOLS = [
  */
 const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
   "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "start_expert_session"],
-  "breakdown-specialist": ["query_features", "batch_create_jobs"],
+  "breakdown-specialist": ["query_features"],
   "senior-engineer": ["create_project_rule"],
   "junior-engineer": ["create_project_rule"],
   "job-combiner": ["create_project_rule"],

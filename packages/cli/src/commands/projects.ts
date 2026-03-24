@@ -25,16 +25,6 @@ function parseNumericFlag(args: string[], name: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function parseTotalFromContentRange(value: string | null): number | undefined {
-  if (!value) return undefined;
-  const slash = value.lastIndexOf("/");
-  if (slash === -1) return undefined;
-  const totalRaw = value.slice(slash + 1);
-  if (totalRaw === "*") return undefined;
-  const total = Number.parseInt(totalRaw, 10);
-  return Number.isFinite(total) ? total : undefined;
-}
-
 export async function projects(args: string[]): Promise<void> {
   const company_id = parseCompanyFlag(args);
   if (!company_id) {
@@ -45,7 +35,6 @@ export async function projects(args: string[]): Promise<void> {
   const includeFeatures = args.includes("--include-features");
   const limit = parseNumericFlag(args, "limit") ?? 20;
   const offset = parseNumericFlag(args, "offset") ?? 0;
-  const rangeEnd = offset + limit - 1;
 
   let creds;
   try {
@@ -64,19 +53,23 @@ export async function projects(args: string[]): Promise<void> {
   })();
   const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
 
-  const select = includeFeatures ? "id,name,description,status,features(id,title,description,priority,status)" : "id,name,description,status";
+  // query-projects returns the same base projection as select=id,name,description,status.
+  const body = {
+    company_id,
+    limit,
+    offset,
+    include_features: includeFeatures,
+  };
 
-  const url = `${supabaseUrl}/rest/v1/projects?select=${select}&company_id=eq.${company_id}&order=created_at.desc`;
-
-  const response = await fetch(url, {
-    method: "GET",
+  const response = await fetch(`${supabaseUrl}/functions/v1/query-projects`, {
+    method: "POST",
     headers: {
       Authorization: `Bearer ${creds.accessToken}`,
       apikey: DEFAULT_SUPABASE_ANON_KEY,
-      Prefer: "count=exact",
-      Range: `${offset}-${rangeEnd}`,
+      "Content-Type": "application/json",
       "x-company-id": company_id,
     },
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -85,11 +78,12 @@ export async function projects(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const data = (await response.json()) as unknown[];
+  const data = (await response.json()) as { projects?: unknown[]; total?: number };
   process.stdout.write(JSON.stringify(data));
-  const total = parseTotalFromContentRange(response.headers.get("Content-Range")) ?? data.length;
+  const count = Array.isArray(data.projects) ? data.projects.length : 0;
+  const total = typeof data.total === "number" ? data.total : count;
   process.stderr.write(
-    `Showing ${offset + 1}-${offset + data.length} of ${total} (--limit ${limit} --offset ${offset})\n`,
+    `Showing ${offset + 1}-${offset + count} of ${total} (--limit ${limit} --offset ${offset})\n`,
   );
   process.exit(0);
 }

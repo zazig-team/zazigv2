@@ -345,6 +345,46 @@ input {
   cursor: pointer;
 }
 
+.nav-user-menu {
+  position: relative;
+}
+
+.nav-user-menu-popover {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--white);
+  border: 1px solid var(--chalk);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  min-width: 150px;
+  z-index: 220;
+  overflow: hidden;
+}
+
+.nav-user-menu-popover.open {
+  display: block;
+}
+
+.nav-user-menu-item {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  background: none;
+  text-align: left;
+  text-decoration: none;
+  color: var(--graphite);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.nav-user-menu-item:hover {
+  background: var(--chalk-light);
+}
+
 .layout {
   display: grid;
   grid-template-columns: 1fr 320px;

@@ -473,6 +473,45 @@ export default function Dashboard(): JSX.Element {
           </section>
 
           <section className="fade-up d2">
+            <div className="ideas-bar">
+              <div className="ideas-bar-icon">+</div>
+              <div className="ideas-bar-types" role="radiogroup" aria-label="Item type">
+                {IDEA_TYPE_OPTIONS.map((option) => {
+                  const isActive = ideaType === option.value;
+
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={isActive}
+                      className={`ideas-type-toggle${isActive ? " ideas-type-toggle--active" : ""}`}
+                      onClick={() => setIdeaType(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <input
+                type="text"
+                placeholder="Share an idea, report a bug, brief a task..."
+                value={ideaText}
+                onChange={(event) => setIdeaText(event.target.value)}
+              />
+              <button
+                className="ideas-submit-button"
+                type="button"
+                disabled={ideaSubmitting}
+                onClick={() => void onSubmitIdea()}
+              >
+                {ideaSubmitting ? "Sending..." : "Send idea"}
+              </button>
+            </div>
+            {ideaMessage ? <div className="inline-feedback">{ideaMessage}</div> : null}
+          </section>
+
+          <section className="fade-up d3">
             <div className="section-label">
               Goals
               <span className="section-label-count">{goals.length} active</span>
@@ -507,7 +546,7 @@ export default function Dashboard(): JSX.Element {
             </div>
           </section>
 
-          <section className="fade-up d3">
+          <section className="fade-up d4">
             <div className="section-label">
               Needs You
               <span className="section-label-count section-label-count--caution">
@@ -536,7 +575,7 @@ export default function Dashboard(): JSX.Element {
             )}
           </section>
 
-          <section className="fade-up d4">
+          <section className="fade-up d6">
             <div className="section-label">
               Decisions Waiting
               <span className="section-label-count section-label-count--ember">
@@ -716,45 +755,6 @@ export default function Dashboard(): JSX.Element {
                   ))
               )
             ) : null}
-          </section>
-
-          <section className="fade-up d8">
-            <div className="ideas-bar">
-              <div className="ideas-bar-icon">+</div>
-              <div className="ideas-bar-types" role="radiogroup" aria-label="Item type">
-                {IDEA_TYPE_OPTIONS.map((option) => {
-                  const isActive = ideaType === option.value;
-
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={isActive}
-                      className={`ideas-type-toggle${isActive ? " ideas-type-toggle--active" : ""}`}
-                      onClick={() => setIdeaType(option.value)}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <input
-                type="text"
-                placeholder="Share an idea, report a bug, brief a task..."
-                value={ideaText}
-                onChange={(event) => setIdeaText(event.target.value)}
-              />
-              <button
-                className="ideas-submit-button"
-                type="button"
-                disabled={ideaSubmitting}
-                onClick={() => void onSubmitIdea()}
-              >
-                {ideaSubmitting ? "Sending..." : "Send idea"}
-              </button>
-            </div>
-            {ideaMessage ? <div className="inline-feedback">{ideaMessage}</div> : null}
           </section>
 
           {error ? <div className="inline-feedback inline-feedback--error">{error}</div> : null}

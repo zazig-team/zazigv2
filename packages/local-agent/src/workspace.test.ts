@@ -49,7 +49,6 @@ describe("generateAllowedTools", () => {
       "Glob",
       "Grep",
       "mcp__zazig-messaging__query_features",
-      "mcp__zazig-messaging__batch_create_jobs",
     ]);
   });
 

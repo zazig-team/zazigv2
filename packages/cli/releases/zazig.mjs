@@ -438,7 +438,7 @@ function __addDisposableResource(env, value, async) {
   return value;
 }
 function __disposeResources(env) {
-  function fail7(e) {
+  function fail8(e) {
     env.error = env.hasError ? new _SuppressedError(e, env.error, "An error was suppressed during disposal.") : e;
     env.hasError = true;
   }
@@ -450,12 +450,12 @@ function __disposeResources(env) {
         if (r.dispose) {
           var result = r.dispose.call(r.value);
           if (r.async) return s |= 2, Promise.resolve(result).then(next, function(e) {
-            fail7(e);
+            fail8(e);
             return next();
           });
         } else s |= 1;
       } catch (e) {
-        fail7(e);
+        fail8(e);
       }
     }
     if (s === 1) return env.hasError ? Promise.reject(env.error) : Promise.resolve();
@@ -16762,6 +16762,103 @@ async function createRule(args2) {
   process.exit(0);
 }
 
+// dist/commands/batch-create-jobs.js
+import { readFileSync as readFileSync11 } from "node:fs";
+function parseStringFlag9(args2, name) {
+  const eq = args2.find((a) => a.startsWith(`--${name}=`));
+  if (eq) {
+    const value2 = eq.slice(`--${name}=`.length);
+    return value2.length > 0 ? value2 : void 0;
+  }
+  const idx = args2.indexOf(`--${name}`);
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  return value;
+}
+function fail7(error) {
+  process.stderr.write(JSON.stringify({ "error": error }));
+  process.exit(1);
+}
+function parseJobsPayload(jobs, jobsFile) {
+  if (jobs && jobsFile || !jobs && !jobsFile) {
+    fail7("Provide exactly one of --jobs <json> or --jobs-file <path>");
+  }
+  let rawJobs = "";
+  if (jobs) {
+    rawJobs = jobs;
+  } else {
+    if (!jobsFile)
+      fail7("Missing required flag: --jobs-file <path>");
+    try {
+      rawJobs = readFileSync11(jobsFile, "utf8");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      fail7(`Failed to read --jobs-file at ${jobsFile}: ${message}`);
+    }
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(rawJobs);
+  } catch (error) {
+    const source = jobs ? "--jobs" : "--jobs-file";
+    const message = error instanceof Error ? error.message : String(error);
+    fail7(`Invalid JSON for ${source}: ${message}`);
+  }
+  if (!Array.isArray(parsed)) {
+    const source = jobs ? "--jobs" : "--jobs-file";
+    fail7(`Invalid payload for ${source}: expected a JSON array of job objects`);
+  }
+  return parsed;
+}
+async function batchCreateJobs(args2) {
+  const company_id = parseStringFlag9(args2, "company");
+  if (!company_id)
+    fail7("Missing required flag: --company <uuid>");
+  const feature_id = parseStringFlag9(args2, "feature-id");
+  if (!feature_id)
+    fail7("Missing required flag: --feature-id <uuid>");
+  const jobsArg = parseStringFlag9(args2, "jobs");
+  const jobsFile = parseStringFlag9(args2, "jobs-file");
+  const jobs = parseJobsPayload(jobsArg, jobsFile);
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    fail7("Not logged in. Run zazig login");
+  }
+  const config = (() => {
+    try {
+      return loadConfig();
+    } catch {
+      return void 0;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
+  const response = await fetch(`${supabaseUrl}/functions/v1/batch-create-jobs`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${creds.accessToken}`,
+      apikey: DEFAULT_SUPABASE_ANON_KEY,
+      "Content-Type": "application/json",
+      "x-company-id": company_id
+    },
+    body: JSON.stringify({
+      feature_id,
+      jobs
+    })
+  });
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "unknown error");
+    fail7(`HTTP ${response.status}: ${errorBody}`);
+  }
+  const data = await response.json();
+  process.stdout.write(JSON.stringify(data));
+  process.exit(0);
+}
+
 // dist/index.js
 var [, , cmd, ...args] = process.argv;
 switch (cmd) {
@@ -16838,6 +16935,9 @@ switch (cmd) {
   case "create-rule":
     await createRule(args);
     break;
+  case "batch-create-jobs":
+    await batchCreateJobs(args);
+    break;
   case void 0:
   case "--help":
   case "-h":
@@ -16870,6 +16970,7 @@ switch (cmd) {
     console.log("  update-idea --company <company-id>     Update an idea");
     console.log("  promote-idea --company <company-id>    Promote an idea");
     console.log("  create-rule --company <company-id>     Create a project rule");
+    console.log("  batch-create-jobs --company <id> --feature-id <id>  Create jobs for a feature");
     break;
   default:
     console.error(`Unknown command: ${cmd}`);

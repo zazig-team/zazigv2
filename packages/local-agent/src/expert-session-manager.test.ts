@@ -50,10 +50,17 @@ function makeSupabaseClient() {
 function makeRepoManager(overrides?: Partial<{
   ensureRepo: Mock;
   fetchBranchForExpert: Mock;
+  fetchForExpertSession: Mock;
 }>) {
   return {
     ensureRepo: overrides?.ensureRepo ?? vi.fn().mockResolvedValue("/tmp/.zazigv2/repos/project"),
     fetchBranchForExpert: overrides?.fetchBranchForExpert ?? vi.fn().mockResolvedValue(undefined),
+    fetchForExpertSession: overrides?.fetchForExpertSession ?? vi.fn().mockImplementation(
+      (_projectName: string, sessionId: string) => Promise.resolve({
+        defaultBranch: "master",
+        tempRef: `refs/zazig-expert-base/${sessionId}`,
+      }),
+    ),
   };
 }
 
@@ -527,7 +534,7 @@ describe("ExpertSessionManager", () => {
     });
 
     expect(repoManager.ensureRepo).toHaveBeenCalledWith("https://github.com/acme/project.git", "project");
-    expect(repoManager.fetchBranchForExpert).toHaveBeenCalledWith("project", "master");
+    expect(repoManager.fetchForExpertSession).toHaveBeenCalledWith("project", sessionId);
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
       "-C",
       expect.stringContaining("/.zazigv2/repos/project"),
@@ -536,7 +543,7 @@ describe("ExpertSessionManager", () => {
       "-b",
       expect.stringMatching(/^expert\/.+-[a-f0-9]{8}$/),
       expect.stringContaining(`/.zazigv2/expert-${sessionId}/repo`),
-      expect.stringContaining("master"),
+      expect.stringContaining("refs/zazig-expert-base"),
     ]);
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
       "-C",
@@ -741,7 +748,7 @@ describe("ExpertSessionManager", () => {
   it("handleStartExpert marks session failed when repo worktree setup fails", async () => {
     const supabase = makeSupabaseClient();
     const repoManager = makeRepoManager({
-      fetchBranchForExpert: vi.fn().mockRejectedValue(new Error("targeted fetch failed")),
+      fetchForExpertSession: vi.fn().mockRejectedValue(new Error("targeted fetch failed")),
     });
     const { ExpertSessionManager } = await import("./expert-session-manager.js");
     const manager = new ExpertSessionManager({
@@ -765,7 +772,7 @@ describe("ExpertSessionManager", () => {
       role: { prompt: "system prompt" },
     });
 
-    expect(repoManager.fetchBranchForExpert).toHaveBeenCalledWith("project", "master");
+    expect(repoManager.fetchForExpertSession).toHaveBeenCalledWith("project", "session-123456789");
     const statusUpdates = supabase.updates
       .filter((u) => u.table === "expert_sessions")
       .map((u) => u.data.status);

@@ -15825,18 +15825,6 @@ function parseNumericFlag3(args2, name) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : void 0;
 }
-function parseTotalFromContentRange(value) {
-  if (!value)
-    return void 0;
-  const slash = value.lastIndexOf("/");
-  if (slash === -1)
-    return void 0;
-  const totalRaw = value.slice(slash + 1);
-  if (totalRaw === "*")
-    return void 0;
-  const total = Number.parseInt(totalRaw, 10);
-  return Number.isFinite(total) ? total : void 0;
-}
 async function projects(args2) {
   const company_id = parseCompanyFlag5(args2);
   if (!company_id) {
@@ -15846,7 +15834,6 @@ async function projects(args2) {
   const includeFeatures = args2.includes("--include-features");
   const limit = parseNumericFlag3(args2, "limit") ?? 20;
   const offset = parseNumericFlag3(args2, "offset") ?? 0;
-  const rangeEnd = offset + limit - 1;
   let creds;
   try {
     creds = await getValidCredentials();
@@ -15862,27 +15849,32 @@ async function projects(args2) {
     }
   })();
   const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
-  const select = includeFeatures ? "id,name,description,status,features(id,title,description,priority,status)" : "id,name,description,status";
-  const url = `${supabaseUrl}/rest/v1/projects?select=${select}&company_id=eq.${company_id}&order=created_at.desc`;
-  const response = await fetch(url, {
-    method: "GET",
+  const body = {
+    company_id,
+    limit,
+    offset,
+    include_features: includeFeatures
+  };
+  const response = await fetch(`${supabaseUrl}/functions/v1/query-projects`, {
+    method: "POST",
     headers: {
       Authorization: `Bearer ${creds.accessToken}`,
       apikey: DEFAULT_SUPABASE_ANON_KEY,
-      Prefer: "count=exact",
-      Range: `${offset}-${rangeEnd}`,
+      "Content-Type": "application/json",
       "x-company-id": company_id
-    }
+    },
+    body: JSON.stringify(body)
   });
   if (!response.ok) {
-    const body = await response.text();
-    process.stderr.write(JSON.stringify({ "error": `HTTP ${response.status}: ${body}` }));
+    const body2 = await response.text();
+    process.stderr.write(JSON.stringify({ "error": `HTTP ${response.status}: ${body2}` }));
     process.exit(1);
   }
   const data = await response.json();
   process.stdout.write(JSON.stringify(data));
-  const total = parseTotalFromContentRange(response.headers.get("Content-Range")) ?? data.length;
-  process.stderr.write(`Showing ${offset + 1}-${offset + data.length} of ${total} (--limit ${limit} --offset ${offset})
+  const count = Array.isArray(data.projects) ? data.projects.length : 0;
+  const total = typeof data.total === "number" ? data.total : count;
+  process.stderr.write(`Showing ${offset + 1}-${offset + count} of ${total} (--limit ${limit} --offset ${offset})
 `);
   process.exit(0);
 }

@@ -10,12 +10,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_SUPABASE_ANON_KEY } from "./constants.js";
 
-const ZAZIGV2_DIR = join(homedir(), ".zazigv2");
+const ZAZIGV2_DIR = process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
 
 function credentialsPath(): string {
-  const env = process.env["ZAZIG_ENV"];
-  const filename = env && env !== "production" ? `credentials-${env}.json` : "credentials.json";
-  return join(ZAZIGV2_DIR, filename);
+  return join(ZAZIGV2_DIR, "credentials.json");
 }
 
 export interface Credentials {

@@ -223,6 +223,7 @@ export async function start(): Promise<void> {
     ZAZIG_COMPANY_NAME: company.name,
     ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
     ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
+    ...(process.env["ZAZIG_HOME"] ? { ZAZIG_HOME: process.env["ZAZIG_HOME"] } : {}),
     ...(claudeToken ? { ANTHROPIC_API_KEY: claudeToken } : {}),
   };
 

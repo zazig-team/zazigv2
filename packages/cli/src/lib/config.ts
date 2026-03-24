@@ -9,7 +9,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const ZAZIGV2_DIR = join(homedir(), ".zazigv2");
+const ZAZIGV2_DIR = process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
 const CONFIG_PATH = join(ZAZIGV2_DIR, "config.json");
 
 export interface SlotConfig {

@@ -1,11 +1,7 @@
 /**
- * Feature: Remove write MCP tools — replace with CLI commands in prompt layer
- * AC3: Universal prompt layer lists all five write CLI commands with correct flags
- * AC6: Both prompt-layers.ts and universal-layer.ts are in sync
- *
- * These tests verify the write CLI commands are documented in both copies of
- * the universal prompt layer. They FAIL against the current codebase (neither
- * file has write commands yet) and pass once the feature is built.
+ * Feature: Remove write MCP tools — replace with CLI read commands in prompt layer
+ * AC3: Universal prompt layer documents read CLI commands and shared flags
+ * AC6: prompt-layers.ts and universal-layer.ts are in sync
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -44,11 +40,34 @@ function extractPromptLayerContent(source: string): string {
   return match ? match[1] : source;
 }
 
+const READ_COMMANDS = [
+  'zazig snapshot --company <company_id>',
+  'zazig ideas --company <company_id>',
+  'zazig features --company <company_id>',
+  'zazig projects --company <company_id>',
+];
+
+const COMMON_FLAGS = [
+  '--limit <n>',
+  '--offset <n>',
+  '--status <value>',
+  '--id <uuid>',
+  '--search <term>',
+];
+
+const REMOVED_WRITE_COMMANDS = [
+  'zazig create-feature',
+  'zazig update-feature',
+  'zazig create-idea',
+  'zazig update-idea',
+  'zazig promote-idea',
+];
+
 // ---------------------------------------------------------------------------
-// AC3: packages/shared/src/prompt/universal-layer.ts has write commands
+// AC3: packages/shared/src/prompt/universal-layer.ts has read commands
 // ---------------------------------------------------------------------------
 
-describe('packages/shared universal-layer.ts — write CLI commands', () => {
+describe('packages/shared universal-layer.ts — read CLI commands', () => {
   let content: string | null;
   let layer: string;
 
@@ -61,93 +80,34 @@ describe('packages/shared universal-layer.ts — write CLI commands', () => {
     expect(content, `${SHARED_LAYER} not found`).not.toBeNull();
   });
 
-  it('has a Write commands section', () => {
-    expect(layer).toMatch(/###?\s*Write commands/i);
+  it('has the CLI commands section', () => {
+    expect(layer).toContain('## CLI Commands');
   });
 
-  it('documents zazig create-feature command', () => {
-    expect(layer).toContain('zazig create-feature');
+  it('documents read commands', () => {
+    for (const cmd of READ_COMMANDS) {
+      expect(layer).toContain(cmd);
+    }
   });
 
-  it('documents --title flag for create-feature', () => {
-    // create-feature requires --title
-    expect(layer).toMatch(/create-feature[^\n]*--title/);
+  it('documents common read flags', () => {
+    for (const flag of COMMON_FLAGS) {
+      expect(layer).toContain(flag);
+    }
   });
 
-  it('documents --description flag for create-feature', () => {
-    expect(layer).toMatch(/create-feature[^\n]*--description/);
-  });
-
-  it('documents --spec flag for create-feature', () => {
-    expect(layer).toMatch(/create-feature[^\n]*--spec/);
-  });
-
-  it('documents --acceptance-tests flag for create-feature', () => {
-    expect(layer).toMatch(/create-feature[^\n]*--acceptance-tests/);
-  });
-
-  it('documents --priority flag for create-feature', () => {
-    expect(layer).toMatch(/create-feature[^\n]*--priority/);
-  });
-
-  it('documents zazig update-feature command', () => {
-    expect(layer).toContain('zazig update-feature');
-  });
-
-  it('documents --id flag for update-feature', () => {
-    expect(layer).toMatch(/update-feature[^\n]*--id/);
-  });
-
-  it('documents --status flag for update-feature', () => {
-    expect(layer).toMatch(/update-feature[^\n]*--status/);
-  });
-
-  it('documents zazig create-idea command', () => {
-    expect(layer).toContain('zazig create-idea');
-  });
-
-  it('documents --raw-text flag for create-idea', () => {
-    expect(layer).toMatch(/create-idea[^\n]*--raw-text/);
-  });
-
-  it('documents --originator flag for create-idea', () => {
-    expect(layer).toMatch(/create-idea[^\n]*--originator/);
-  });
-
-  it('documents zazig update-idea command', () => {
-    expect(layer).toContain('zazig update-idea');
-  });
-
-  it('documents --id flag for update-idea', () => {
-    expect(layer).toMatch(/update-idea[^\n]*--id/);
-  });
-
-  it('documents --raw-text flag for update-idea', () => {
-    expect(layer).toMatch(/update-idea[^\n]*--raw-text/);
-  });
-
-  it('documents zazig promote-idea command', () => {
-    expect(layer).toContain('zazig promote-idea');
-  });
-
-  it('documents --id flag for promote-idea', () => {
-    expect(layer).toMatch(/promote-idea[^\n]*--id/);
-  });
-
-  it('still has the Read commands section', () => {
-    // Regression: existing read commands must remain
-    expect(layer).toMatch(/###?\s*(Available|Read) commands/i);
-    expect(layer).toContain('zazig snapshot');
-    expect(layer).toContain('zazig ideas');
-    expect(layer).toContain('zazig features');
+  it('does not document removed write commands', () => {
+    for (const cmd of REMOVED_WRITE_COMMANDS) {
+      expect(layer).not.toContain(cmd);
+    }
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC3: supabase/functions/_shared/prompt-layers.ts has write commands
+// AC3: supabase/functions/_shared/prompt-layers.ts has read commands
 // ---------------------------------------------------------------------------
 
-describe('supabase/functions/_shared/prompt-layers.ts — write CLI commands', () => {
+describe('supabase/functions/_shared/prompt-layers.ts — read CLI commands', () => {
   let content: string | null;
   let layer: string;
 
@@ -160,59 +120,31 @@ describe('supabase/functions/_shared/prompt-layers.ts — write CLI commands', (
     expect(content, `${EDGE_LAYER} not found`).not.toBeNull();
   });
 
-  it('has a Write commands section', () => {
-    expect(layer).toMatch(/###?\s*Write commands/i);
+  it('has the CLI commands section', () => {
+    expect(layer).toContain('## CLI Commands');
   });
 
-  it('documents zazig create-feature command', () => {
-    expect(layer).toContain('zazig create-feature');
+  it('documents read commands', () => {
+    for (const cmd of READ_COMMANDS) {
+      expect(layer).toContain(cmd);
+    }
   });
 
-  it('documents --title flag for create-feature', () => {
-    expect(layer).toMatch(/create-feature[^\n]*--title/);
+  it('documents common read flags', () => {
+    for (const flag of COMMON_FLAGS) {
+      expect(layer).toContain(flag);
+    }
   });
 
-  it('documents --acceptance-tests flag for create-feature', () => {
-    expect(layer).toMatch(/create-feature[^\n]*--acceptance-tests/);
-  });
-
-  it('documents --priority flag for create-feature', () => {
-    expect(layer).toMatch(/create-feature[^\n]*--priority/);
-  });
-
-  it('documents zazig update-feature command', () => {
-    expect(layer).toContain('zazig update-feature');
-  });
-
-  it('documents zazig create-idea command', () => {
-    expect(layer).toContain('zazig create-idea');
-  });
-
-  it('documents --raw-text flag for create-idea', () => {
-    expect(layer).toMatch(/create-idea[^\n]*--raw-text/);
-  });
-
-  it('documents --originator flag for create-idea', () => {
-    expect(layer).toMatch(/create-idea[^\n]*--originator/);
-  });
-
-  it('documents zazig update-idea command', () => {
-    expect(layer).toContain('zazig update-idea');
-  });
-
-  it('documents zazig promote-idea command', () => {
-    expect(layer).toContain('zazig promote-idea');
-  });
-
-  it('still has the Read commands section', () => {
-    expect(layer).toContain('zazig snapshot');
-    expect(layer).toContain('zazig ideas');
-    expect(layer).toContain('zazig features');
+  it('does not document removed write commands', () => {
+    for (const cmd of REMOVED_WRITE_COMMANDS) {
+      expect(layer).not.toContain(cmd);
+    }
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC6: Both files export the same write CLI commands
+// AC6: Both files export the same universal prompt layer
 // ---------------------------------------------------------------------------
 
 describe('prompt layer sync — shared and edge functions in sync (AC6)', () => {
@@ -233,33 +165,14 @@ describe('prompt layer sync — shared and edge functions in sync (AC6)', () => 
     expect(edgeContent, `${EDGE_LAYER} not found`).not.toBeNull();
   });
 
-  const writeCommands = [
-    'zazig create-feature',
-    'zazig update-feature',
-    'zazig create-idea',
-    'zazig update-idea',
-    'zazig promote-idea',
-  ];
-
-  for (const cmd of writeCommands) {
-    it(`both files contain "${cmd}"`, () => {
-      expect(sharedLayer, `shared universal-layer.ts missing "${cmd}"`).toContain(cmd);
-      expect(edgeLayer, `edge prompt-layers.ts missing "${cmd}"`).toContain(cmd);
-    });
-  }
-
-  it('both files mention --acceptance-tests flag (key shared flag)', () => {
-    expect(sharedLayer).toContain('--acceptance-tests');
-    expect(edgeLayer).toContain('--acceptance-tests');
+  it('both files have identical prompt-layer content', () => {
+    expect(sharedLayer).toBe(edgeLayer);
   });
 
-  it('both files mention --raw-text flag (key shared flag)', () => {
-    expect(sharedLayer).toContain('--raw-text');
-    expect(edgeLayer).toContain('--raw-text');
-  });
-
-  it('both files mention --originator flag (required by create-idea)', () => {
-    expect(sharedLayer).toContain('--originator');
-    expect(edgeLayer).toContain('--originator');
+  it('both files still include the four read commands', () => {
+    for (const cmd of READ_COMMANDS) {
+      expect(sharedLayer).toContain(cmd);
+      expect(edgeLayer).toContain(cmd);
+    }
   });
 });

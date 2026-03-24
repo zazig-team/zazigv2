@@ -15,6 +15,7 @@ If your job context contains a single idea ID, triage only that idea:
 - Write recommendation to `triage_notes` (not human presentation)
 - Do not call `promote_idea` — the human will act from the WebUI
 - Set `status='triaged'` when complete (not `triaging`)
+- **Single call rule:** Call `update_idea` once with all fields — title, description, tags, priority, suggested_exec, triage_notes, and status='triaged' — in a single call. Do not make a separate refinement call first.
 
 ## Enrich Mode
 

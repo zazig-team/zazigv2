@@ -380,8 +380,15 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
 
   const canPromote = data.status === "specced" && !promoted && !isShipped;
   const canSendToSpec = data.status === "triaged" && !promoted && !isShipped;
+  const isDeveloping = data.status === "developing";
   const isTriagedReadyForSpecView = triagedSubsection === "readyForSpec";
   const isTriagedNeedsDecisionView = triagedSubsection === "needsDecision";
+  const developingIndicator = (
+    <div className="flex items-center gap-2" style={{ color: "var(--muted-foreground)", fontSize: "0.875rem" }}>
+      <span className="il-triage-spinner" />
+      <span>Spec in progress...</span>
+    </div>
+  );
   const readiness = canPromote ? [
     { label: "Has title", ok: Boolean(data.title?.trim()), hint: "Needs a clear title", field: "title" },
     { label: "Has description", ok: Boolean(data.description?.trim()) || Boolean(data.raw_text && data.raw_text.length > 20), hint: "Needs description or detailed raw text", field: "description" },
@@ -802,8 +809,14 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
         <div className="il-promote-success">Idea promoted to feature and pushed into the pipeline.</div>
       )}
 
+      {isDeveloping && (
+        <div className="il-detail-section">
+          {developingIndicator}
+        </div>
+      )}
+
       {/* Actions row for items outside promote flow */}
-      {!canPromote && !isShipped && !promoted && !actionDone && (
+      {!canPromote && !isShipped && !promoted && !actionDone && !isDeveloping && (
         <>
           <div className="il-detail-actions" style={{ flexWrap: "wrap" }}>
             {isTriagedReadyForSpecView ? (

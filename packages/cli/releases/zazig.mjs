@@ -15146,15 +15146,7 @@ function injectAgentBuildHash(repoRoot, agentBuildHash) {
 ${bundleContent}`;
   writeFileSync8(bundlePath, injected);
 }
-async function registerAgentVersion(creds, anonKey, env, version3, commitSha) {
-  const supabase = createClient(creds.supabaseUrl, anonKey);
-  const { error: sessionError } = await supabase.auth.setSession({
-    access_token: creds.accessToken,
-    refresh_token: creds.refreshToken
-  });
-  if (sessionError) {
-    throw new Error(`Authentication failed: ${sessionError.message}`);
-  }
+async function registerAgentVersion(supabase, env, version3, commitSha) {
   const { error } = await supabase.from("agent_versions").insert({
     env,
     version: version3,
@@ -15179,6 +15171,16 @@ async function promote(args2) {
     return;
   }
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const supabase = createClient(creds.supabaseUrl, anonKey);
+  const { error: sessionError } = await supabase.auth.setSession({
+    access_token: creds.accessToken,
+    refresh_token: creds.refreshToken
+  });
+  if (sessionError) {
+    console.error(`Authentication failed: ${sessionError.message}`);
+    process.exitCode = 1;
+    return;
+  }
   let companies;
   try {
     companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
@@ -15235,7 +15237,7 @@ Company: ${company.name}`);
   }
   const repoRoot = worktreePath;
   try {
-    await runPromote(repoRoot, defaultBranch, creds, anonKey);
+    await runPromote(repoRoot, defaultBranch, creds, anonKey, supabase);
   } finally {
     console.log("\nCleaning up temporary worktree...");
     try {
@@ -15252,7 +15254,7 @@ Company: ${company.name}`);
     }
   }
 }
-async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
+async function runPromote(repoRoot, defaultBranch, creds, anonKey, supabase) {
   try {
     const branch = execSync6("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
     if (branch !== defaultBranch) {
@@ -15389,10 +15391,23 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey) {
   }
   console.log("\nRegistering production version...");
   try {
-    await registerAgentVersion(creds, anonKey, "production", newVersion, commitSha);
+    await registerAgentVersion(supabase, "production", newVersion, commitSha);
     console.log(`Registered production agent version ${newVersion} (${commitSha.slice(0, 7)}).`);
   } catch (err) {
     console.error(`Version registration failed: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    const { count, error: promoteError } = await supabase.from("features").update({ promoted_version: newVersion }, { count: "exact" }).eq("status", "complete").is("promoted_version", null);
+    if (promoteError) {
+      console.error(`Failed to update promoted_version on complete features: ${promoteError.message}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`Marked ${count ?? 0} complete feature(s) with promoted_version=${newVersion}.`);
+  } catch (err) {
+    console.error(`Failed to update promoted features: ${String(err)}`);
     process.exitCode = 1;
     return;
   }

@@ -9,9 +9,7 @@ import {
 } from "../hooks/usePipelineSnapshot";
 import { usePolling } from "../hooks/usePolling";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
-import { fetchIdeas, getAccessToken, type Idea } from "../lib/queries";
 import FeatureDetailPanel from "../components/FeatureDetailPanel";
-import IdeaDetailPanel from "../components/IdeaDetailPanel";
 
 type FilterMode = "all" | "mine" | "urgent" | "stale";
 
@@ -22,7 +20,6 @@ interface ColumnDefinition {
 }
 
 const COLUMN_DEFINITIONS: ColumnDefinition[] = [
-  { key: "proposal", label: "Proposal", colorVar: "--col-proposal" },
   { key: "ready", label: "Ready", colorVar: "--col-ready" },
   { key: "breaking_down", label: "Breakdown", colorVar: "--col-breakdown" },
   { key: "writing_tests", label: "Writing Tests", colorVar: "--col-writing-tests" },
@@ -87,28 +84,6 @@ function roleMatchesMine(value: string | null, userIdentifier: string): boolean 
     return false;
   }
   return value.toLowerCase().includes(userIdentifier.toLowerCase());
-}
-
-function ideaTitle(idea: Idea): string {
-  return idea.title ?? idea.description ?? idea.raw_text;
-}
-
-function ideaAccentColor(itemType: string): string {
-  switch (itemType) {
-    case "brief": return "var(--col-brief)";
-    case "bug": return "var(--col-bug)";
-    case "test": return "var(--col-test)";
-    default: return "var(--col-ideas)";
-  }
-}
-
-function ideaColorVar(itemType: string): string {
-  switch (itemType) {
-    case "brief": return "--col-brief";
-    case "bug": return "--col-bug";
-    case "test": return "--col-test";
-    default: return "--col-ideas";
-  }
 }
 
 function timestampScore(value: string | null): number {
@@ -281,72 +256,10 @@ export default function Pipeline(): JSX.Element {
   const { user } = useAuth();
   const { loading, error, snapshot, refresh } = usePipelineSnapshot(activeCompany?.id ?? null);
 
-  const [ideas, setIdeas] = useState<Idea[]>([]);
-  const [triagedIdeas, setTriagedIdeas] = useState<Idea[]>([]);
-  const [parkedIdeas, setParkedIdeas] = useState<Idea[]>([]);
-  const [ideasError, setIdeasError] = useState<string | null>(null);
-  const [ideasLoading, setIdeasLoading] = useState(false);
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
-  const [inboxTypeFilter, setInboxTypeFilter] = useState<string>("all");
-  const [showReviewSoon, setShowReviewSoon] = useState(false);
-  const [showLongTerm, setShowLongTerm] = useState(false);
   const [showProductionArchive, setShowProductionArchive] = useState(false);
   const [selectedFeature, setSelectedFeature] = useState<{ id: string; colorVar: string } | null>(null);
-  const [selectedIdea, setSelectedIdea] = useState<{ id: string; colorVar: string } | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
-  const ideasCountsRef = useRef({ ideas: 0, triaged: 0, parked: 0 });
-
-  useEffect(() => {
-    ideasCountsRef.current = {
-      ideas: ideas.length,
-      triaged: triagedIdeas.length,
-      parked: parkedIdeas.length,
-    };
-  }, [ideas.length, parkedIdeas.length, triagedIdeas.length]);
-
-  const loadIdeasData = useCallback(async (): Promise<void> => {
-    if (!activeCompany?.id) {
-      setIdeas([]);
-      setTriagedIdeas([]);
-      setParkedIdeas([]);
-      setIdeasLoading(false);
-      return;
-    }
-
-    const shouldShowInitialLoading =
-      ideasCountsRef.current.ideas === 0 &&
-      ideasCountsRef.current.triaged === 0 &&
-      ideasCountsRef.current.parked === 0;
-
-    if (shouldShowInitialLoading) {
-      setIdeasLoading(true);
-    }
-
-    setIdeasError(null);
-
-    try {
-      await getAccessToken();
-      const [newIdeas, triaged, parked] = await Promise.all([
-        fetchIdeas(activeCompany.id, ["new"]),
-        fetchIdeas(activeCompany.id, ["triaged"]),
-        fetchIdeas(activeCompany.id, ["parked"]),
-      ]);
-
-      setIdeas(newIdeas);
-      setTriagedIdeas(triaged);
-      setParkedIdeas(parked);
-    } catch (loadError) {
-      setIdeasError(loadError instanceof Error ? loadError.message : String(loadError));
-    } finally {
-      if (shouldShowInitialLoading) {
-        setIdeasLoading(false);
-      }
-    }
-  }, [activeCompany?.id]);
-
-  useEffect(() => {
-    void loadIdeasData();
-  }, [loadIdeasData]);
 
   useEffect(() => {
     return () => {
@@ -369,11 +282,11 @@ export default function Pipeline(): JSX.Element {
 
   const refreshAll = useCallback(async (): Promise<void> => {
     try {
-      await Promise.all([refresh(), loadIdeasData()]);
+      await refresh();
     } catch {
       // Silent failure for background refresh.
     }
-  }, [loadIdeasData, refresh]);
+  }, [refresh]);
 
   usePolling(refreshAll, 15000, Boolean(activeCompany?.id));
 
@@ -426,33 +339,6 @@ export default function Pipeline(): JSX.Element {
     }
   };
 
-  const applyIdeaFilter = (idea: Idea): boolean => {
-    if (filterMode === "all") {
-      return true;
-    }
-
-    if (filterMode === "urgent") {
-      return ["urgent", "high"].includes((idea.priority ?? "medium").toLowerCase());
-    }
-
-    if (filterMode === "stale") {
-      const ageHours = Math.floor((Date.now() - Date.parse(idea.created_at)) / 3_600_000);
-      return ageHours >= 72;
-    }
-
-    if (filterMode === "mine") {
-      if (!idea.originator) {
-        return false;
-      }
-      return (
-        roleMatchesMine(idea.originator, mineIdentifier) ||
-        idea.originator === userId
-      );
-    }
-
-    return true;
-  };
-
   const filteredByStatus = useMemo(() => {
     const next: Record<PipelineStatus, PipelineFeature[]> = {
       proposal: [],
@@ -475,42 +361,6 @@ export default function Pipeline(): JSX.Element {
     return next;
   }, [snapshot.byStatus, filterMode, mineIdentifier, userId]);
 
-  const filteredIdeas = useMemo(
-    () => ideas.filter(applyIdeaFilter),
-    [ideas, filterMode, mineIdentifier, userId],
-  );
-  const filteredTriagedIdeas = useMemo(
-    () => triagedIdeas.filter(applyIdeaFilter),
-    [triagedIdeas, filterMode, mineIdentifier, userId],
-  );
-  const filteredParkedIdeas = useMemo(
-    () => parkedIdeas.filter(applyIdeaFilter),
-    [parkedIdeas, filterMode, mineIdentifier, userId],
-  );
-  const displayedIdeas = useMemo(
-    () => (
-      inboxTypeFilter === "all"
-        ? filteredIdeas
-        : filteredIdeas.filter((idea) => idea.item_type === inboxTypeFilter)
-    ),
-    [filteredIdeas, inboxTypeFilter],
-  );
-  const displayedParkedIdeas = useMemo(
-    () => (
-      inboxTypeFilter === "all"
-        ? filteredParkedIdeas
-        : filteredParkedIdeas.filter((idea) => idea.item_type === inboxTypeFilter)
-    ),
-    [filteredParkedIdeas, inboxTypeFilter],
-  );
-  const reviewSoonIdeas = useMemo(
-    () => displayedParkedIdeas.filter((idea) => idea.horizon === "soon"),
-    [displayedParkedIdeas],
-  );
-  const longTermIdeas = useMemo(
-    () => displayedParkedIdeas.filter((idea) => idea.horizon === "later"),
-    [displayedParkedIdeas],
-  );
   const activeRoleByFeatureId = useMemo(() => {
     const latestRoleByFeature = new Map<string, { role: string; createdAtScore: number }>();
 
@@ -552,10 +402,9 @@ export default function Pipeline(): JSX.Element {
       active,
       shipped: filteredByStatus.complete.length + filteredByStatus.shipped.length,
       failed: filteredByStatus.failed.length,
-      ideas: filteredIdeas.length + filteredTriagedIdeas.length,
       totalFeatures: allFeatures.length,
     };
-  }, [filteredByStatus, filteredIdeas.length, filteredTriagedIdeas.length, allFeatures.length]);
+  }, [filteredByStatus, allFeatures.length]);
 
   return (
     <div className="pipeline-page">
@@ -566,7 +415,6 @@ export default function Pipeline(): JSX.Element {
             <div className="page-stat">Active <span className="page-stat-value">{metrics.active}</span></div>
             <div className="page-stat">Shipped <span className="page-stat-value" style={{ color: "var(--positive)" }}>{metrics.shipped}</span></div>
             <div className="page-stat">Failed <span className="page-stat-value" style={{ color: "var(--negative)" }}>{metrics.failed}</span></div>
-            <div className="page-stat">Inbox <span className="page-stat-value">{metrics.ideas}</span></div>
           </div>
         </div>
 
@@ -588,160 +436,6 @@ export default function Pipeline(): JSX.Element {
       </div>
 
       <div className="pipeline-board">
-        <section className="pipeline-col">
-          <header className="pipeline-col-header">
-            <div className="pipeline-col-title">
-              <span className="col-dot" style={{ background: "var(--col-ideas)" }} title="Inbox" />
-              <span className="col-name">Inbox</span>
-              {snapshot.ideasInboxNewCount > 0 ? (
-                <span
-                  className="col-notification-badge"
-                  aria-label={`${snapshot.ideasInboxNewCount} new ideas`}
-                >
-                  {snapshot.ideasInboxNewCount}
-                </span>
-              ) : null}
-            </div>
-            <span className="col-count">{displayedIdeas.length}</span>
-          </header>
-
-          <div className="inbox-type-tabs">
-            <button
-              className={`filter-btn${inboxTypeFilter === "all" ? " active" : ""}`}
-              type="button"
-              onClick={() => setInboxTypeFilter("all")}
-            >
-              All
-            </button>
-            <button
-              className={`filter-btn${inboxTypeFilter === "idea" ? " active" : ""}`}
-              type="button"
-              onClick={() => setInboxTypeFilter("idea")}
-            >
-              Ideas
-            </button>
-            <button
-              className={`filter-btn${inboxTypeFilter === "brief" ? " active" : ""}`}
-              type="button"
-              onClick={() => setInboxTypeFilter("brief")}
-            >
-              Briefs
-            </button>
-            <button
-              className={`filter-btn${inboxTypeFilter === "bug" ? " active" : ""}`}
-              type="button"
-              onClick={() => setInboxTypeFilter("bug")}
-            >
-              Bugs
-            </button>
-            <button
-              className={`filter-btn${inboxTypeFilter === "test" ? " active" : ""}`}
-              type="button"
-              onClick={() => setInboxTypeFilter("test")}
-            >
-              Tests
-            </button>
-          </div>
-
-          <div className="pipeline-col-body">
-            <button className="parked-toggle" type="button" onClick={() => setShowReviewSoon((value) => !value)}>
-              {showReviewSoon ? "▼" : "▶"} Review Soon ({reviewSoonIdeas.length})
-            </button>
-
-            {showReviewSoon ? (
-              <div className="pipeline-stack">
-                {reviewSoonIdeas.length === 0 ? (
-                  <div className="col-empty">No review-soon ideas</div>
-                ) : (
-                  reviewSoonIdeas.map((idea) => (
-                    <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: ideaColorVar(idea.item_type) })}>
-                      <div className="card-accent" style={{ background: ideaAccentColor(idea.item_type) }} />
-                      <div className="card-body">
-                        <span className={`type-chip type-chip--${idea.item_type}`}>{idea.item_type}</span>
-                        <div className="card-title">{ideaTitle(idea)}</div>
-                        <div className="card-desc">{idea.description ?? idea.raw_text}</div>
-                      </div>
-                    </article>
-                  ))
-                )}
-              </div>
-            ) : null}
-
-            <button className="parked-toggle" type="button" onClick={() => setShowLongTerm((value) => !value)}>
-              {showLongTerm ? "▼" : "▶"} Long Term ({longTermIdeas.length})
-            </button>
-
-            {showLongTerm ? (
-              <div className="pipeline-stack">
-                {longTermIdeas.length === 0 ? (
-                  <div className="col-empty">No long-term ideas</div>
-                ) : (
-                  longTermIdeas.map((idea) => (
-                    <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: ideaColorVar(idea.item_type) })}>
-                      <div className="card-accent" style={{ background: ideaAccentColor(idea.item_type) }} />
-                      <div className="card-body">
-                        <span className={`type-chip type-chip--${idea.item_type}`}>{idea.item_type}</span>
-                        <div className="card-title">{ideaTitle(idea)}</div>
-                        <div className="card-desc">{idea.description ?? idea.raw_text}</div>
-                      </div>
-                    </article>
-                  ))
-                )}
-              </div>
-            ) : null}
-
-            <div className="section-label">Inbox</div>
-            {displayedIdeas.length === 0 ? (
-              <div className="col-empty">No ideas</div>
-            ) : (
-              displayedIdeas.map((idea) => (
-                <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: ideaColorVar(idea.item_type) })}>
-                  <div className="card-accent" style={{ background: ideaAccentColor(idea.item_type) }} />
-                  <div className="card-body">
-                    <div className="card-meta">
-                      <span className={priorityDotClass(idea.priority)} />
-                      {(idea.priority ?? "medium").toLowerCase()} · {ageLabel(Math.floor((Date.now() - Date.parse(idea.created_at)) / 3_600_000))}
-                    </div>
-                    <span className={`type-chip type-chip--${idea.item_type}`}>{idea.item_type}</span>
-                    <div className="card-title">{ideaTitle(idea)}</div>
-                    <div className="card-desc">{idea.description ?? idea.raw_text}</div>
-                  </div>
-                </article>
-              ))
-            )}
-          </div>
-        </section>
-
-        <section className="pipeline-col">
-          <header className="pipeline-col-header">
-            <div className="pipeline-col-title">
-              <span className="col-dot" style={{ background: "var(--col-triage)" }} />
-              <span className="col-name">Triage</span>
-            </div>
-            <span className="col-count">{filteredTriagedIdeas.length}</span>
-          </header>
-
-          <div className="pipeline-col-body">
-            {filteredTriagedIdeas.length === 0 ? (
-              <div className="col-empty">No items</div>
-            ) : (
-              filteredTriagedIdeas.map((idea) => (
-                <article className="card card--clickable" key={idea.id} onClick={() => setSelectedIdea({ id: idea.id, colorVar: "--col-triage" })}>
-                  <div className="card-accent" style={{ background: "var(--col-triage)" }} />
-                  <div className="card-body">
-                    <div className="card-meta">
-                      <span className={priorityDotClass(idea.priority)} />
-                      {(idea.priority ?? "medium").toLowerCase()} · {ageLabel(Math.floor((Date.now() - Date.parse(idea.created_at)) / 3_600_000))}
-                    </div>
-                    <div className="card-title">{ideaTitle(idea)}</div>
-                    <div className="card-desc">{idea.description ?? idea.raw_text}</div>
-                  </div>
-                </article>
-              ))
-            )}
-          </div>
-        </section>
-
         {COLUMN_DEFINITIONS.map((column) => {
           const allColumnFeatures = filteredByStatus[column.key];
           const completeStagingFeatures = column.key === "complete"
@@ -760,8 +454,6 @@ export default function Pipeline(): JSX.Element {
             feature: PipelineFeature,
             options: { showPromotedVersionBadge?: boolean } = {},
           ) => {
-            const ideaStatus = (feature as unknown as Record<string, unknown>)._ideaStatus as string | undefined;
-            const isIdeaCard = Boolean(ideaStatus);
             const activeRole = ACTIVE_FEATURE_STATUSES.has(feature.status)
               ? activeRoleByFeatureId.get(feature.id)
               : undefined;
@@ -769,24 +461,7 @@ export default function Pipeline(): JSX.Element {
             const showPromotedVersionBadge =
               options.showPromotedVersionBadge === true &&
               feature.promoted_version != null;
-            const accentColor = isIdeaCard
-              ? (ideaStatus === "specced" ? "var(--positive)" : "var(--caution)")
-              : getCardAccentColor(feature, snapshot.activeJobs);
-
-            if (isIdeaCard) {
-              return (
-                <article className="card card--clickable" key={feature.id} onClick={() => setSelectedIdea({ id: feature.id, colorVar: column.colorVar })}>
-                  <div className="card-accent" style={{ background: accentColor }} />
-                  <div className="card-body">
-                    <div className="card-title">{feature.title}</div>
-                    <span className={ideaStatus === "specced" ? "il-feature-status positive" : "il-triaging-badge"}>
-                      {ideaStatus === "specced" ? "Specced" : "Speccing..."}
-                    </span>
-                    <div className="card-desc">{feature.description}</div>
-                  </div>
-                </article>
-              );
-            }
+            const accentColor = getCardAccentColor(feature, snapshot.activeJobs);
 
             return (
             <article className="card card--clickable" key={feature.id} onClick={() => setSelectedFeature({ id: feature.id, colorVar: column.colorVar })}>
@@ -885,11 +560,10 @@ export default function Pipeline(): JSX.Element {
         })}
       </div>
 
-      {loading || ideasLoading ? (
+      {loading ? (
         <div className="inline-feedback">Loading pipeline snapshot...</div>
       ) : null}
       {error ? <div className="inline-feedback inline-feedback--error">{error}</div> : null}
-      {ideasError ? <div className="inline-feedback inline-feedback--error">{ideasError}</div> : null}
       {snapshot.updatedAt ? (
         <div className="inline-feedback">Updated {new Date(snapshot.updatedAt).toLocaleString("en-GB")}</div>
       ) : null}
@@ -899,14 +573,6 @@ export default function Pipeline(): JSX.Element {
           featureId={selectedFeature.id}
           colorVar={selectedFeature.colorVar}
           onClose={() => setSelectedFeature(null)}
-        />
-      ) : null}
-
-      {selectedIdea ? (
-        <IdeaDetailPanel
-          ideaId={selectedIdea.id}
-          colorVar={selectedIdea.colorVar}
-          onClose={() => setSelectedIdea(null)}
         />
       ) : null}
     </div>

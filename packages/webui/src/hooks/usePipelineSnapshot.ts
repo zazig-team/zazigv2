@@ -517,50 +517,12 @@ export function usePipelineSnapshot(companyId: string | null): {
 
     try {
       await getAccessToken();
-      const [response, capabilityLookup, developingIdeasResult] = await Promise.all([
+      const [response, capabilityLookup] = await Promise.all([
         fetchPipelineSnapshot(companyId),
         fetchCapabilityLookup(companyId),
-        supabase
-          .from("ideas")
-          .select("id, title, status, priority, created_at, updated_at, triage_route, complexity, raw_text, description")
-          .eq("company_id", companyId)
-          .in("status", ["developing", "specced"]),
       ]);
 
       const normalized = normalizeSnapshot(response.snapshot, response.updated_at ?? null, capabilityLookup);
-
-      // Inject developing/specced ideas into the proposal column
-      const devIdeas = (developingIdeasResult.data ?? []) as Array<Record<string, unknown>>;
-      for (const idea of devIdeas) {
-        const ideaStatus = stringValue(idea.status);
-        const createdAt = stringValue(idea.created_at);
-        const updatedAt = stringValue(idea.updated_at);
-        const proposalFeature: PipelineFeature = {
-          id: stringValue(idea.id) ?? crypto.randomUUID(),
-          title: stringValue(idea.title) ?? stringValue(idea.raw_text) ?? "Untitled",
-          description: stringValue(idea.description) ?? stringValue(idea.raw_text) ?? "",
-          status: "proposal",
-          priority: stringValue(idea.priority) ?? "medium",
-          createdAt,
-          updatedAt,
-          ageHours: ageInHours(createdAt),
-          jobsDone: 0,
-          jobsTotal: 0,
-          assignee: null,
-          capability_id: null,
-          capability_icon: null,
-          capability_title: null,
-          hasFailedJobs: false,
-          hasJobErrors: false,
-          criticalJobErrorCount: 0,
-          branch: null,
-          promoted_version: null,
-          jobs: [],
-        };
-        // Tag the feature so Pipeline.tsx can distinguish developing vs specced
-        (proposalFeature as unknown as Record<string, unknown>)._ideaStatus = ideaStatus;
-        normalized.byStatus.proposal.push(proposalFeature);
-      }
 
       setSnapshot(normalized);
     } catch (refreshError) {

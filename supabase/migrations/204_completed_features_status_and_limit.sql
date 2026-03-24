@@ -4,7 +4,7 @@
 --   1. Add 'status' field to completed_features JSON so the frontend can correctly
 --      map features to byStatus.complete (without it, the fallback mapped them to
 --      byStatus.shipped which is never rendered).
---   2. Increase LIMIT from 10 to 50 so more shipped features are visible.
+--   2. Keep LIMIT at 10 for compact snapshot payloads used by CLI standups/tests.
 
 CREATE OR REPLACE FUNCTION public.refresh_pipeline_snapshot(p_company_id UUID)
 RETURNS VOID
@@ -73,7 +73,7 @@ BEGIN
       FROM public.features f
       WHERE f.company_id = p_company_id
         AND f.status = 'complete'
-      LIMIT 50
+      LIMIT 10
     ), '[]'::jsonb),
     'active_jobs', COALESCE((
       SELECT jsonb_agg(

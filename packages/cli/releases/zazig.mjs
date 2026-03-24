@@ -15879,6 +15879,273 @@ async function projects(args2) {
   process.exit(0);
 }
 
+// dist/commands/standup.js
+var TWO_HOURS_MS = 2 * 60 * 60 * 1e3;
+function parseCompanyFlag6(args2) {
+  const idx = args2.indexOf("--company");
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  return value;
+}
+function hasJsonFlag(args2) {
+  return args2.includes("--json");
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null;
+}
+function asRecord(value) {
+  return isRecord(value) ? value : {};
+}
+function asRecordArray(value) {
+  if (!Array.isArray(value))
+    return [];
+  return value.filter(isRecord);
+}
+function getString(value, fallback = "") {
+  return typeof value === "string" ? value : fallback;
+}
+function getNumber(value, fallback = 0) {
+  if (typeof value === "number" && Number.isFinite(value))
+    return value;
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed))
+      return parsed;
+  }
+  return fallback;
+}
+function parseUpdatedAt(value) {
+  if (typeof value !== "string")
+    return null;
+  const ts = Date.parse(value);
+  if (Number.isNaN(ts))
+    return null;
+  return value;
+}
+function formatDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+function isOlderThanTwoHours(updatedAt, nowMs) {
+  if (!updatedAt)
+    return false;
+  const updatedAtMs = Date.parse(updatedAt);
+  if (Number.isNaN(updatedAtMs))
+    return false;
+  return nowMs - updatedAtMs > TWO_HOURS_MS;
+}
+function toActiveItem(feature, status2, activeJobs) {
+  const id = getString(feature.id);
+  const jobsForFeature = id.length > 0 ? activeJobs.filter((job) => getString(job.feature_id) === id) : [];
+  const jobsTotal = jobsForFeature.length;
+  const jobsDone = jobsForFeature.filter((job) => {
+    const jobStatus = getString(job.status);
+    return jobStatus === "executing" || jobStatus === "dispatched";
+  }).length;
+  return {
+    title: getString(feature.title, "Untitled feature"),
+    status: status2,
+    jobs_done: jobsDone,
+    jobs_total: jobsTotal,
+    updated_at: parseUpdatedAt(feature.updated_at)
+  };
+}
+function toFailedItem(feature) {
+  return {
+    title: getString(feature.title, "Untitled feature"),
+    priority: getString(feature.priority, "unknown"),
+    updated_at: parseUpdatedAt(feature.updated_at)
+  };
+}
+function toCompletedItem(feature) {
+  const promotedVersion = getString(feature.promoted_version);
+  return {
+    title: getString(feature.title, "Untitled feature"),
+    promoted_version: promotedVersion.length > 0 ? promotedVersion : null,
+    updated_at: parseUpdatedAt(feature.updated_at)
+  };
+}
+function recommendationList(report) {
+  const recommendations = [];
+  if (report.inbox.new > 0) {
+    recommendations.push("Triage the inbox?");
+  }
+  if (report.failed.length > 3) {
+    recommendations.push("Failed features accumulating \u2014 run /scrum");
+  }
+  if (report.pipeline.backlog > 5 && report.pipeline.active < 2) {
+    recommendations.push("Pipeline has capacity \u2014 run /scrum");
+  }
+  if (report.stuck.length > 0) {
+    recommendations.push("Stuck features \u2014 investigate?");
+  }
+  return recommendations;
+}
+function buildReport(snapshot2, now) {
+  const featuresByStatus = asRecord(snapshot2.features_by_status);
+  const activeJobs = asRecordArray(snapshot2.active_jobs);
+  const backlogFeatures = asRecordArray(featuresByStatus.created);
+  const failedFeatures = asRecordArray(featuresByStatus.failed);
+  const active = [];
+  for (const [status2, rawFeatures] of Object.entries(featuresByStatus)) {
+    if (status2 === "created" || status2 === "failed") {
+      continue;
+    }
+    for (const feature of asRecordArray(rawFeatures)) {
+      active.push(toActiveItem(feature, status2, activeJobs));
+    }
+  }
+  const nowMs = now.getTime();
+  const stuck = active.filter((item) => isOlderThanTwoHours(item.updated_at, nowMs)).map((item) => ({
+    title: item.title,
+    status: item.status,
+    updated_at: item.updated_at
+  }));
+  const failed = failedFeatures.map(toFailedItem);
+  const completedAll = asRecordArray(snapshot2.completed_features).map(toCompletedItem);
+  const completed = completedAll.slice(0, 5);
+  const ideasInbox = asRecord(snapshot2.ideas_inbox);
+  const capacity = asRecord(snapshot2.capacity);
+  const baseReport = {
+    "date": formatDate(now),
+    "inbox": {
+      "new": getNumber(ideasInbox.new_count),
+      "total": getNumber(ideasInbox.total_count)
+    },
+    "pipeline": {
+      "active": active.length,
+      "backlog": backlogFeatures.length,
+      "failed": failed.length,
+      "complete": completedAll.length
+    },
+    "capacity": {
+      "machines": getNumber(capacity.machines_online),
+      "active_jobs": activeJobs.length,
+      "codex_slots": getNumber(capacity.total_codex_slots),
+      "cc_slots": getNumber(capacity.total_claude_code_slots)
+    },
+    "active": active,
+    "failed": failed,
+    "completed": completed,
+    "stuck": stuck
+  };
+  return {
+    ...baseReport,
+    "recommendations": recommendationList(baseReport)
+  };
+}
+function formatVersionForText(version3) {
+  if (!version3)
+    return "";
+  return version3.startsWith("v") ? version3 : `v${version3}`;
+}
+function formatTextOutput(report) {
+  const lines = [];
+  lines.push(`Standup \u2014 ${report.date}`);
+  lines.push("");
+  lines.push(`Inbox: ${report.inbox.new} new ideas`);
+  lines.push(`Pipeline: ${report.pipeline.active} active | ${report.pipeline.backlog} backlog | ${report.pipeline.failed} failed | ${report.pipeline.complete} complete`);
+  lines.push(`Capacity: ${report.capacity.machines} machines online, ${report.capacity.active_jobs} active jobs`);
+  if (report.active.length > 0) {
+    lines.push("");
+    lines.push("Active work:");
+    for (const item of report.active) {
+      lines.push(`  ${item.title} \u2014 ${item.status} (${item.jobs_done}/${item.jobs_total} jobs done)`);
+    }
+  }
+  if (report.failed.length > 0) {
+    lines.push("");
+    lines.push("Failed:");
+    for (const item of report.failed) {
+      lines.push(`  ${item.title} \u2014 ${item.priority}`);
+    }
+  }
+  if (report.completed.length > 0) {
+    lines.push("");
+    lines.push("Recently completed:");
+    for (const item of report.completed) {
+      const version3 = formatVersionForText(item.promoted_version);
+      if (version3) {
+        lines.push(`  ${item.title} \u2014 ${version3}`);
+      } else {
+        lines.push(`  ${item.title}`);
+      }
+    }
+  }
+  if (report.stuck.length === 0) {
+    lines.push("");
+    lines.push("Stuck: none");
+  } else {
+    lines.push("");
+    lines.push("Stuck:");
+    for (const item of report.stuck) {
+      lines.push(`  ${item.title} \u2014 ${item.status}`);
+    }
+  }
+  if (report.recommendations.length > 0) {
+    lines.push("");
+    lines.push(...report.recommendations);
+  }
+  return `${lines.join("\n")}
+`;
+}
+async function standup(args2) {
+  const companyId = parseCompanyFlag6(args2);
+  if (!companyId) {
+    process.stderr.write("Usage: zazig standup --company <company-id> [--json]\n");
+    process.exit(1);
+  }
+  const jsonOutput = hasJsonFlag(args2);
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    process.stderr.write(JSON.stringify({ "error": "Not logged in. Run zazig login" }));
+    process.exit(1);
+  }
+  const config = (() => {
+    try {
+      return loadConfig();
+    } catch {
+      return void 0;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
+  const endpoint = new URL(`${supabaseUrl}/functions/v1/get-pipeline-snapshot`);
+  endpoint.searchParams.set("company_id", companyId);
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        apikey: DEFAULT_SUPABASE_ANON_KEY,
+        "x-company-id": companyId
+      }
+    });
+  } catch (error) {
+    process.stderr.write(JSON.stringify({ "error": `Network error: ${String(error)}` }));
+    process.exit(1);
+  }
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    process.stderr.write(JSON.stringify({ "error": `HTTP ${response.status}: ${body}` }));
+    process.exit(1);
+  }
+  const payload = asRecord(await response.json());
+  const snapshot2 = asRecord(payload.snapshot);
+  const report = buildReport(snapshot2, /* @__PURE__ */ new Date());
+  if (jsonOutput) {
+    process.stdout.write(`${JSON.stringify(report, null, 2)}
+`);
+  } else {
+    process.stdout.write(formatTextOutput(report));
+  }
+  process.exit(0);
+}
+
 // dist/commands/create-feature.js
 var VALID_PRIORITY = /* @__PURE__ */ new Set(["low", "medium", "high"]);
 function parseStringFlag3(args2, name) {
@@ -16272,6 +16539,7 @@ async function updateIdea(args2) {
   const tags = parseCommaSeparatedFlag2(args2, "tags");
   const complexity = parseStringFlag6(args2, "complexity");
   const project_id = parseStringFlag6(args2, "project-id");
+  const raw_text = parseStringFlag6(args2, "raw-text");
   if (status2 !== void 0 && !VALID_STATUS2.has(status2)) {
     fail4("Invalid --status. Expected one of: new, triaging, triaged, developing, specced, workshop, hardening, parked, rejected, done");
   }
@@ -16285,6 +16553,7 @@ async function updateIdea(args2) {
     fail4("Invalid --complexity. Expected one of: simple, medium, complex");
   }
   const updates = {
+    ...raw_text !== void 0 ? { raw_text } : {},
     ...title !== void 0 ? { title } : {},
     ...description !== void 0 ? { description } : {},
     ...status2 !== void 0 ? { status: status2 } : {},
@@ -16539,6 +16808,9 @@ switch (cmd) {
   case "snapshot":
     await snapshot(args);
     break;
+  case "standup":
+    await standup(args);
+    break;
   case "ideas":
     await ideas(args);
     break;
@@ -16588,6 +16860,7 @@ switch (cmd) {
     console.log('  hotfix "desc"      Quick fix: interactive session, commits to master');
     console.log("  staging-fix        Interactive session for fixing staging issues");
     console.log("  snapshot --company <company-id>  Print pipeline snapshot JSON to stdout");
+    console.log("  standup --company <company-id>   Print standup summary (or JSON with --json)");
     console.log("  ideas --company <company-id>     Query ideas (supports filter flags)");
     console.log("  features --company <company-id>  Query features (project/status/id filters)");
     console.log("  projects --company <company-id>  List projects (optional --include-features)");

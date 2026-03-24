@@ -47,9 +47,9 @@ describe('Database migration for promoted_version', () => {
 
   beforeAll(() => {
     const files = getMigrationFiles();
-    // Find migration 099 or any migration that mentions promoted_version
+    // Find migration that mentions promoted_version
     const match = files.find(
-      (f) => f.includes('099') || f.toLowerCase().includes('promoted_version') || f.toLowerCase().includes('staging') || f.toLowerCase().includes('production'),
+      (f) => f.toLowerCase().includes('promoted_version') || f.toLowerCase().includes('staging') || f.toLowerCase().includes('production'),
     );
     if (match) {
       migrationFile = `supabase/migrations/${match}`;

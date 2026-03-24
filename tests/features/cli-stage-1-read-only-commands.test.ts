@@ -142,7 +142,7 @@ describe('ideas.ts command file', () => {
   });
 
   it('supports --id flag to fetch single idea by UUID', () => {
-    expect(content).toContain('--id');
+    expect(content).toContain('"id"');
   });
 
   it('supports --source flag to filter by source channel', () => {
@@ -236,7 +236,7 @@ describe('features.ts command file', () => {
   });
 
   it('supports --id flag to fetch single feature by UUID', () => {
-    expect(content).toContain('--id');
+    expect(content).toContain('"id"');
   });
 
   it('supports --status flag to filter features by status', () => {

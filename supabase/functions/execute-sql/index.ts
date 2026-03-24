@@ -43,7 +43,10 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 // Safety checks
 // ---------------------------------------------------------------------------
 
-const TABLE_ALLOWLIST = ["jobs", "features", "agent_events", "machines", "capabilities", "capability_lanes"];
+const TABLE_ALLOWLIST = [
+  "jobs", "features", "agent_events", "machines", "capabilities", "capability_lanes",
+  "expert_sessions", "ideas", "roles", "projects", "pipeline_snapshots",
+];
 const SYNTAX_BLOCKLIST = /\b(DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|DO|COPY|CALL)\b/i;
 
 /** Matches an unquoted identifier (\w+) or a double-quoted identifier ("...") */

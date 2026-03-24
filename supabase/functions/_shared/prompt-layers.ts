@@ -1,6 +1,6 @@
 export const UNIVERSAL_PROMPT_LAYER = `## CLI Commands
 
-The following read commands are available via the zazig CLI. Use these instead of MCP tools for reading pipeline data.
+The following commands are available via the zazig CLI. Use these instead of MCP tools where possible.
 
 ### Available commands
 
@@ -8,6 +8,8 @@ The following read commands are available via the zazig CLI. Use these instead o
 - \`zazig ideas --company <company_id>\` — list ideas from inbox
 - \`zazig features --company <company_id>\` — list features for the company's project
 - \`zazig projects --company <company_id>\` — list projects
+- \`zazig batch-create-jobs --company <company_id> --feature-id <feature_id> --jobs <json>\` — create jobs for a feature
+- \`zazig batch-create-jobs --company <company_id> --feature-id <feature_id> --jobs-file <path>\` — create jobs for a feature using a JSON file
 
 ### Common flags
 

@@ -8088,11 +8088,9 @@ var DEFAULT_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOi
 var DEFAULT_SLACK_CLIENT_ID = "4720449932627.10551036533779";
 
 // dist/lib/credentials.js
-var ZAZIGV2_DIR = join(homedir(), ".zazigv2");
+var ZAZIGV2_DIR = process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
 function credentialsPath() {
-  const env = process.env["ZAZIG_ENV"];
-  const filename = env && env !== "production" ? `credentials-${env}.json` : "credentials.json";
-  return join(ZAZIGV2_DIR, filename);
+  return join(ZAZIGV2_DIR, "credentials.json");
 }
 function loadCredentials() {
   try {
@@ -13589,7 +13587,7 @@ import { createInterface as createInterface4 } from "node:readline/promises";
 import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync4, mkdirSync as mkdirSync3 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join4 } from "node:path";
-var ZAZIGV2_DIR2 = join4(homedir3(), ".zazigv2");
+var ZAZIGV2_DIR2 = process.env["ZAZIG_HOME"] ?? join4(homedir3(), ".zazigv2");
 var CONFIG_PATH = join4(ZAZIGV2_DIR2, "config.json");
 function configExists() {
   return existsSync4(CONFIG_PATH);
@@ -13668,8 +13666,9 @@ import { openSync, readFileSync as readFileSync4, writeFileSync as writeFileSync
 import { homedir as homedir4 } from "node:os";
 import { join as join5, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-var ZAZIGV2_DIR3 = join5(homedir4(), ".zazigv2");
+var ZAZIGV2_DIR3 = process.env["ZAZIG_HOME"] ?? join5(homedir4(), ".zazigv2");
 var PID_PATH = join5(ZAZIGV2_DIR3, "daemon.pid");
+var PIDS_DIR = join5(ZAZIGV2_DIR3, "pids");
 var LOG_DIR = join5(ZAZIGV2_DIR3, "logs");
 var LOG_PATH = join5(LOG_DIR, "agent.log");
 var IS_STAGING = process.env["ZAZIG_ENV"] === "staging";
@@ -13716,13 +13715,11 @@ function isDaemonRunning() {
   return pid !== null && isRunning(pid);
 }
 function pidPathForCompany(companyId) {
-  const suffix = IS_STAGING ? "-staging" : "";
-  return join5(ZAZIGV2_DIR3, `${companyId}${suffix}.pid`);
+  return join5(PIDS_DIR, `${companyId}.pid`);
 }
 function logPathForCompany(companyId) {
   mkdirSync4(LOG_DIR, { recursive: true });
-  const suffix = IS_STAGING ? "-staging" : "";
-  return join5(LOG_DIR, `${companyId}${suffix}.log`);
+  return join5(LOG_DIR, `${companyId}.log`);
 }
 function readPidForCompany(companyId) {
   try {
@@ -13746,6 +13743,7 @@ function removePidFileForCompany(companyId) {
 function startDaemonForCompany(env, companyId, agentEntryOverride) {
   mkdirSync4(LOG_DIR, { recursive: true });
   mkdirSync4(ZAZIGV2_DIR3, { recursive: true });
+  mkdirSync4(PIDS_DIR, { recursive: true });
   const agentEntry = agentEntryOverride ?? resolveAgentEntry();
   const logPath = logPathForCompany(companyId);
   const logFd = openSync(logPath, "a");
@@ -14320,7 +14318,8 @@ function getVersion() {
 import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync6, writeFileSync as writeFileSync6, cpSync, renameSync, rmSync as rmSync2 } from "node:fs";
 import { join as join8 } from "node:path";
 import { homedir as homedir7 } from "node:os";
-var BUILDS_DIR = join8(homedir7(), ".zazigv2", "builds");
+var ZAZIGV2_DIR4 = process.env["ZAZIG_HOME"] ?? join8(homedir7(), ".zazigv2");
+var BUILDS_DIR = join8(ZAZIGV2_DIR4, "builds");
 var CURRENT = join8(BUILDS_DIR, "current");
 var PREVIOUS = join8(BUILDS_DIR, "previous");
 function getCurrentBuildSha() {
@@ -14332,7 +14331,7 @@ function getCurrentBuildSha() {
 function hasPinnedBuild() {
   return existsSync7(join8(CURRENT, "packages", "local-agent", "releases", "zazig-agent.mjs"));
 }
-var BIN_DIR = join8(homedir7(), ".zazigv2", "bin");
+var BIN_DIR = join8(ZAZIGV2_DIR4, "bin");
 var BIN_PREVIOUS = join8(BIN_DIR, "previous");
 function rollbackBinaries() {
   if (!existsSync7(BIN_PREVIOUS)) {
@@ -14621,6 +14620,7 @@ Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.
     ZAZIG_COMPANY_NAME: company.name,
     ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
     ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
+    ...process.env["ZAZIG_HOME"] ? { ZAZIG_HOME: process.env["ZAZIG_HOME"] } : {},
     ...claudeToken ? { ANTHROPIC_API_KEY: claudeToken } : {}
   };
   let agentEntryOverride;

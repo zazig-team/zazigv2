@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "80fe06d";
+const AGENT_BUILD_HASH = "8598377";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -16319,7 +16319,8 @@ function shellEscape(parts) {
 }
 
 // ../local-agent/dist/connection.js
-var CREDENTIALS_PATH = join5(homedir3(), ".zazigv2", "credentials.json");
+var ZAZIG_HOME_DIR = process.env["ZAZIG_HOME"] ?? join5(homedir3(), ".zazigv2");
+var CREDENTIALS_PATH = join5(ZAZIG_HOME_DIR, "credentials.json");
 var execFileAsync3 = promisify3(execFile3);
 var sleep2 = (ms) => new Promise((resolve4) => setTimeout(resolve4, ms));
 var AgentConnection = class {
@@ -16485,7 +16486,7 @@ var AgentConnection = class {
               email: session.user?.email ?? existing.email,
               supabaseUrl: this.config.supabase.url
             };
-            mkdirSync3(join5(homedir3(), ".zazigv2"), { recursive: true });
+            mkdirSync3(ZAZIG_HOME_DIR, { recursive: true });
             writeFileSync3(CREDENTIALS_PATH, JSON.stringify(creds, null, 2) + "\n", { mode: 384 });
             console.log(`[local-agent] Credentials refreshed and saved to disk`);
           } catch (err) {
@@ -16594,7 +16595,7 @@ var AgentConnection = class {
       console.warn(`[local-agent] Rejected invalid message: type=${msgType}, jobId=${jobId ?? "none"}, cardType=${cardType ?? "none"}. Full payload: ${JSON.stringify(payload)}`);
       if (jobId) {
         try {
-          const logDir = join5(homedir3(), ".zazigv2", "job-logs");
+          const logDir = join5(ZAZIG_HOME_DIR, "job-logs");
           mkdirSync3(logDir, { recursive: true });
           appendFileSync3(join5(logDir, `${jobId}-pre-post.log`), `${(/* @__PURE__ */ new Date()).toISOString()} REJECTED by validator: type=${msgType}, cardType=${cardType ?? "none"}
 `);

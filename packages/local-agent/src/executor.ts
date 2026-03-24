@@ -2512,6 +2512,29 @@ export class JobExecutor {
               });
             }, POLL_INTERVAL_MS);
             jobLog(jobId, `Retry timers started (interval=${POLL_INTERVAL_MS}ms)`);
+
+            // Flush lifecycle logs accumulated during this attempt before returning —
+            // the next alive=true poll will capture them if the retry session runs
+            // long enough, but if it dies quickly we'd lose them without this flush.
+            const retryLifecycleLogPath = join(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+            const retryLifecycleChunk = readLogFileFrom(retryLifecycleLogPath, job.lastLifecycleBytesSent);
+            if (retryLifecycleChunk !== null) {
+              try {
+                const { error: retryFlushErr } = await this.supabase.rpc("append_job_log", {
+                  p_job_id: jobId,
+                  p_type: "lifecycle",
+                  p_chunk: retryLifecycleChunk.chunk,
+                });
+                if (!retryFlushErr) {
+                  job.lastLifecycleBytesSent = retryLifecycleChunk.newOffset;
+                } else {
+                  console.warn(`[executor] Retry lifecycle flush failed for jobId=${jobId}: ${retryFlushErr.message}`);
+                }
+              } catch (retryFlushCrash) {
+                console.warn(`[executor] Retry lifecycle flush crashed for jobId=${jobId}: ${String(retryFlushCrash)}`);
+              }
+            }
+
             return;
           } catch (retryErr) {
             jobLog(jobId, `Retry spawn FAILED on attempt ${job.attempt}: ${String(retryErr)}`);
@@ -2574,6 +2597,26 @@ export class JobExecutor {
         }
 
         await this.sendJobFailed(jobId, job.fixReasons.join(" | "), "unknown");
+
+        // Final lifecycle flush — captures the "FAILED" and "job_failed event sent"
+        // log entries written inside sendJobFailed after the pre-send flush above.
+        const finalFailLifecycleLogPath = join(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+        const finalFailLifecycleChunk = readLogFileFrom(finalFailLifecycleLogPath, job.lastLifecycleBytesSent);
+        if (finalFailLifecycleChunk !== null) {
+          try {
+            const { error: finalFailFlushErr } = await this.supabase.rpc("append_job_log", {
+              p_job_id: jobId,
+              p_type: "lifecycle",
+              p_chunk: finalFailLifecycleChunk.chunk,
+            });
+            if (finalFailFlushErr) {
+              console.warn(`[executor] Post-sendJobFailed lifecycle flush failed for jobId=${jobId}: ${finalFailFlushErr.message}`);
+            }
+          } catch (finalFailFlushCrash) {
+            console.warn(`[executor] Post-sendJobFailed lifecycle flush crashed for jobId=${jobId}: ${String(finalFailFlushCrash)}`);
+          }
+        }
+
         return;
       }
 
@@ -2795,6 +2838,25 @@ export class JobExecutor {
       } catch (sendErr) {
         jobLog(jobId, `sendJobFailed FAILED: ${String(sendErr)}`);
         console.error(`[executor] sendJobFailed failed for jobId=${jobId}:`, sendErr);
+      }
+    }
+
+    // Final lifecycle flush — captures log entries written during branch push,
+    // PR creation, and inside sendJobComplete/sendJobFailed (after the earlier flush).
+    const postSendLifecycleLogPath = join(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const postSendLifecycleChunk = readLogFileFrom(postSendLifecycleLogPath, job.lastLifecycleBytesSent);
+    if (postSendLifecycleChunk !== null) {
+      try {
+        const { error: postSendFlushErr } = await this.supabase.rpc("append_job_log", {
+          p_job_id: jobId,
+          p_type: "lifecycle",
+          p_chunk: postSendLifecycleChunk.chunk,
+        });
+        if (postSendFlushErr) {
+          console.warn(`[executor] Post-send lifecycle flush failed for jobId=${jobId}: ${postSendFlushErr.message}`);
+        }
+      } catch (postSendFlushCrash) {
+        console.warn(`[executor] Post-send lifecycle flush crashed for jobId=${jobId}: ${String(postSendFlushCrash)}`);
       }
     }
 

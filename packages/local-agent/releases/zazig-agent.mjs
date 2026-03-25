@@ -1,3 +1,4 @@
+const AGENT_BUILD_HASH = "b623924";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -12975,7 +12976,7 @@ var STANDARD_TOOLS = [
   "Grep"
 ];
 var ROLE_DEFAULT_MCP_TOOLS = {
-  "cpo": ["query_projects", "create_feature", "create_decision", "update_feature", "start_expert_session"],
+  "cpo": ["query_projects", "create_decision", "start_expert_session"],
   "breakdown-specialist": ["query_features"],
   "senior-engineer": ["create_project_rule"],
   "junior-engineer": ["create_project_rule"],
@@ -15036,6 +15037,11 @@ ${msg.text}`;
     console.log(`[executor] Persistent ${role} session=${sessionName} ready \u2014 jobId=${jobId}`);
   }
   // ---------------------------------------------------------------------------
+  // TODO(memory): TTL-based resets are a blunt proxy for context management — they discard
+  // session state rather than preserving it. Real context management should detect context
+  // pressure, distill the current session into memory files, then restart and reload from them.
+  // Until that exists, persistent exec roles (CPO, CTO) run with both TTLs disabled (= 0).
+  // See: cache_ttl_minutes / hard_ttl_minutes in the roles table.
   async checkCacheTtl(agent) {
     if (agent.resetInProgress)
       return;
@@ -15380,6 +15386,24 @@ ${msg.text}`;
               });
             }, POLL_INTERVAL_MS);
             jobLog(jobId, `Retry timers started (interval=${POLL_INTERVAL_MS}ms)`);
+            const retryLifecycleLogPath = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+            const retryLifecycleChunk = readLogFileFrom(retryLifecycleLogPath, job.lastLifecycleBytesSent);
+            if (retryLifecycleChunk !== null) {
+              try {
+                const { error: retryFlushErr } = await this.supabase.rpc("append_job_log", {
+                  p_job_id: jobId,
+                  p_type: "lifecycle",
+                  p_chunk: retryLifecycleChunk.chunk
+                });
+                if (!retryFlushErr) {
+                  job.lastLifecycleBytesSent = retryLifecycleChunk.newOffset;
+                } else {
+                  console.warn(`[executor] Retry lifecycle flush failed for jobId=${jobId}: ${retryFlushErr.message}`);
+                }
+              } catch (retryFlushCrash) {
+                console.warn(`[executor] Retry lifecycle flush crashed for jobId=${jobId}: ${String(retryFlushCrash)}`);
+              }
+            }
             return;
           } catch (retryErr) {
             jobLog(jobId, `Retry spawn FAILED on attempt ${job.attempt}: ${String(retryErr)}`);
@@ -15434,6 +15458,22 @@ ${msg.text}`;
           }
         }
         await this.sendJobFailed(jobId, job.fixReasons.join(" | "), "unknown");
+        const finalFailLifecycleLogPath = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+        const finalFailLifecycleChunk = readLogFileFrom(finalFailLifecycleLogPath, job.lastLifecycleBytesSent);
+        if (finalFailLifecycleChunk !== null) {
+          try {
+            const { error: finalFailFlushErr } = await this.supabase.rpc("append_job_log", {
+              p_job_id: jobId,
+              p_type: "lifecycle",
+              p_chunk: finalFailLifecycleChunk.chunk
+            });
+            if (finalFailFlushErr) {
+              console.warn(`[executor] Post-sendJobFailed lifecycle flush failed for jobId=${jobId}: ${finalFailFlushErr.message}`);
+            }
+          } catch (finalFailFlushCrash) {
+            console.warn(`[executor] Post-sendJobFailed lifecycle flush crashed for jobId=${jobId}: ${String(finalFailFlushCrash)}`);
+          }
+        }
         return;
       }
       if (job.attempt > 1) {
@@ -15614,6 +15654,22 @@ ${msg.text}`;
       } catch (sendErr) {
         jobLog(jobId, `sendJobFailed FAILED: ${String(sendErr)}`);
         console.error(`[executor] sendJobFailed failed for jobId=${jobId}:`, sendErr);
+      }
+    }
+    const postSendLifecycleLogPath = join4(JOB_LOG_DIR, `${jobId}-pre-post.log`);
+    const postSendLifecycleChunk = readLogFileFrom(postSendLifecycleLogPath, job.lastLifecycleBytesSent);
+    if (postSendLifecycleChunk !== null) {
+      try {
+        const { error: postSendFlushErr } = await this.supabase.rpc("append_job_log", {
+          p_job_id: jobId,
+          p_type: "lifecycle",
+          p_chunk: postSendLifecycleChunk.chunk
+        });
+        if (postSendFlushErr) {
+          console.warn(`[executor] Post-send lifecycle flush failed for jobId=${jobId}: ${postSendFlushErr.message}`);
+        }
+      } catch (postSendFlushCrash) {
+        console.warn(`[executor] Post-send lifecycle flush crashed for jobId=${jobId}: ${String(postSendFlushCrash)}`);
       }
     }
     if (this.afterJobComplete) {
@@ -16364,6 +16420,7 @@ var AgentConnection = class {
   realtimeChannel = null;
   realtimeReconnectTimer = null;
   realtimeReconnectAttempts = 0;
+  realtimeLastSubscribedAt = 0;
   isPolling = false;
   stopped = false;
   outdated = false;
@@ -16403,6 +16460,43 @@ var AgentConnection = class {
     this.handlers.push(handler);
   }
   /**
+   * Re-initialize the supabase-js auth session from credentials.json.
+   * Called when supabase-js fires SIGNED_OUT (typically after a failed auto-refresh
+   * due to transient network errors). Guards against infinite loops via a cooldown.
+   */
+  sessionRecoveryCooldownUntil = 0;
+  async recoverSessionFromDisk() {
+    const now = Date.now();
+    if (now < this.sessionRecoveryCooldownUntil) {
+      console.log("[local-agent] Session recovery skipped (cooldown active)");
+      return;
+    }
+    this.sessionRecoveryCooldownUntil = now + 5 * 60 * 1e3;
+    try {
+      let existing = {};
+      try {
+        existing = JSON.parse(readFileSync4(CREDENTIALS_PATH, "utf-8"));
+      } catch {
+        console.warn("[local-agent] Session recovery: could not read credentials.json");
+        return;
+      }
+      const accessToken = typeof existing.accessToken === "string" ? existing.accessToken : "";
+      const refreshToken = typeof existing.refreshToken === "string" ? existing.refreshToken : "";
+      if (!refreshToken) {
+        console.warn("[local-agent] Session recovery: no refresh token in credentials.json");
+        return;
+      }
+      const { error } = await this.dbClient.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      if (error) {
+        console.error(`[local-agent] Session recovery failed: ${error.message}`);
+      } else {
+        console.log("[local-agent] Auth session recovered successfully");
+      }
+    } catch (err) {
+      console.warn(`[local-agent] Session recovery error: ${String(err)}`);
+    }
+  }
+  /**
    * Get a valid auth token, force-refreshing if the current session is expired.
    * Safety net for when supabase-js auto-refresh silently fails.
    */
@@ -16420,6 +16514,8 @@ var AgentConnection = class {
         return refreshed.access_token;
       }
       console.warn(`[Connection] Token force-refresh failed: ${error?.message ?? "no session"}`);
+    } else if (this.config.supabase.refresh_token) {
+      void this.recoverSessionFromDisk();
     }
     return this.serviceRoleKey ?? this.supabaseAnonKey;
   }
@@ -16493,7 +16589,12 @@ var AgentConnection = class {
       } else {
         console.log("[local-agent] Auth session initialized \u2014 auto-refresh enabled");
       }
-      this.dbClient.auth.onAuthStateChange((_event, session) => {
+      this.dbClient.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_OUT" && !this.stopped) {
+          console.warn("[local-agent] Auth session signed out (supabase-js lost session) \u2014 attempting recovery from disk");
+          void this.recoverSessionFromDisk();
+          return;
+        }
         if (session?.access_token && session?.refresh_token) {
           try {
             let existing = {};
@@ -16510,7 +16611,7 @@ var AgentConnection = class {
             };
             mkdirSync3(ZAZIG_HOME_DIR, { recursive: true });
             writeFileSync3(CREDENTIALS_PATH, JSON.stringify(creds, null, 2) + "\n", { mode: 384 });
-            console.log(`[local-agent] Credentials refreshed and saved to disk`);
+            console.log(`[local-agent] Credentials refreshed and saved to disk (event=${event})`);
           } catch (err) {
             console.warn(`[local-agent] Failed to save refreshed credentials: ${String(err)}`);
           }
@@ -16669,8 +16770,12 @@ var AgentConnection = class {
     }).subscribe((status, err) => {
       if (status === "SUBSCRIBED") {
         console.log(`[local-agent] Subscribed to Realtime broadcast channel: ${channelName}`);
-        this.realtimeReconnectAttempts = 0;
+        this.realtimeLastSubscribedAt = Date.now();
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        const stableDurationMs = this.realtimeLastSubscribedAt > 0 ? Date.now() - this.realtimeLastSubscribedAt : 0;
+        if (stableDurationMs > 3e4) {
+          this.realtimeReconnectAttempts = 0;
+        }
         console.error(`[local-agent] Realtime broadcast channel error (status=${status}):`, err ?? "unknown");
         this.scheduleRealtimeReconnect();
       }

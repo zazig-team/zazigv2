@@ -8129,25 +8129,40 @@ async function getValidCredentials() {
   }
   const envOverride = Boolean(process.env["ZAZIG_ENV"]);
   const anonKey = envOverride && process.env["SUPABASE_ANON_KEY"] || DEFAULT_SUPABASE_ANON_KEY;
-  const resp = await fetch(`${creds.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: anonKey
-    },
-    body: JSON.stringify({ refresh_token: creds.refreshToken })
-  });
-  if (!resp.ok) {
-    throw new Error(`Token refresh failed (HTTP ${resp.status}). Run 'zazig login' again.`);
+  const retryDelaysMs = [0, 2e3, 5e3];
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve4) => setTimeout(resolve4, retryDelaysMs[attempt]));
+    }
+    let resp;
+    try {
+      resp = await fetch(`${creds.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: anonKey
+        },
+        body: JSON.stringify({ refresh_token: creds.refreshToken })
+      });
+    } catch {
+      continue;
+    }
+    if (resp.ok) {
+      const data = await resp.json();
+      const updated = {
+        ...creds,
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token
+      };
+      saveCredentials(updated);
+      return updated;
+    }
+    lastStatus = resp.status;
+    if (resp.status >= 400 && resp.status < 500)
+      break;
   }
-  const data = await resp.json();
-  const updated = {
-    ...creds,
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token
-  };
-  saveCredentials(updated);
-  return updated;
+  throw new Error(`Token refresh failed (HTTP ${lastStatus || "network error"}). Run 'zazig login' again.`);
 }
 
 // dist/commands/login.js
@@ -8522,7 +8537,7 @@ function logout() {
 
 // dist/commands/setup.js
 import { createInterface as createInterface2 } from "node:readline/promises";
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2, existsSync as existsSync3 } from "node:fs";
+import { readFileSync as readFileSync2, existsSync as existsSync3 } from "node:fs";
 import { execSync } from "node:child_process";
 import { join as join3 } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -13370,58 +13385,7 @@ ${readFileSync2(pkgPath, "utf-8").slice(0, 2e3)}
         }
       }
     }
-    let projectBrief;
-    const anthropicKey = process.env["ANTHROPIC_API_KEY"];
-    if (anthropicKey) {
-      console.log("\nTell me about this project \u2014 what does it do, what are you building?");
-      const userDescription = (await rl.question("> ")).trim();
-      if (userDescription) {
-        process.stdout.write("\nGenerating project brief...");
-        try {
-          const systemPrompt = "You are a helpful assistant that creates concise project briefs. Given a user's description and optional repo context, write a structured project brief in Markdown with sections: Overview, Tech Stack, Goals. Keep it under 500 words.";
-          const userContent = repoContext ? `User description: ${userDescription}
-
-Repo context:
-${repoContext}` : `User description: ${userDescription}`;
-          const resp = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-api-key": anthropicKey,
-              "anthropic-version": "2023-06-01"
-            },
-            body: JSON.stringify({
-              model: "claude-haiku-4-5-20251001",
-              max_tokens: 1024,
-              system: systemPrompt,
-              messages: [{ role: "user", content: userContent }]
-            })
-          });
-          if (!resp.ok) {
-            throw new Error(`API returned ${resp.status}`);
-          }
-          const result = await resp.json();
-          projectBrief = result.content.find((b) => b.type === "text")?.text ?? userDescription;
-          console.log(" done");
-          if (localRepoPath && projectBrief) {
-            const docsDir = join3(localRepoPath, "docs");
-            mkdirSync2(docsDir, { recursive: true });
-            const projectMdPath = join3(docsDir, "PROJECT.md");
-            writeFileSync2(projectMdPath, `# ${projectName}
-
-${projectBrief}
-`, "utf-8");
-            console.log(`Project brief written to ${projectMdPath}`);
-          }
-        } catch (err) {
-          console.log(" failed");
-          console.error(`AI brief generation failed: ${String(err)}. Using your description instead.`);
-          projectBrief = userDescription;
-        }
-      }
-    } else {
-      projectBrief = (await rl.question("\nBrief description of the project: ")).trim();
-    }
+    const projectBrief = (await rl.question("\nBrief description of the project: ")).trim() || void 0;
     const newProjectId = randomUUID();
     const { error: projError } = await supabase.from("projects").insert({
       id: newProjectId,
@@ -13584,7 +13548,7 @@ import { execSync as execSync5 } from "node:child_process";
 import { createInterface as createInterface4 } from "node:readline/promises";
 
 // dist/lib/config.js
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync4, mkdirSync as mkdirSync3 } from "node:fs";
+import { readFileSync as readFileSync3, writeFileSync as writeFileSync2, existsSync as existsSync4, mkdirSync as mkdirSync2 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join4 } from "node:path";
 var ZAZIGV2_DIR2 = process.env["ZAZIG_HOME"] ?? join4(homedir3(), ".zazigv2");
@@ -13615,8 +13579,8 @@ function loadConfig() {
   }
 }
 function saveConfig(cfg) {
-  mkdirSync3(ZAZIGV2_DIR2, { recursive: true });
-  writeFileSync3(CONFIG_PATH, JSON.stringify(cfg, null, 2) + "\n", {
+  mkdirSync2(ZAZIGV2_DIR2, { recursive: true });
+  writeFileSync2(CONFIG_PATH, JSON.stringify(cfg, null, 2) + "\n", {
     mode: 384
   });
 }
@@ -13662,7 +13626,7 @@ Choice [1]: `);
 
 // dist/lib/daemon.js
 import { spawn } from "node:child_process";
-import { openSync, readFileSync as readFileSync4, writeFileSync as writeFileSync4, unlinkSync as unlinkSync2, mkdirSync as mkdirSync4 } from "node:fs";
+import { openSync, readFileSync as readFileSync4, writeFileSync as writeFileSync3, unlinkSync as unlinkSync2, mkdirSync as mkdirSync3 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
 import { join as join5, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13718,7 +13682,7 @@ function pidPathForCompany(companyId) {
   return join5(PIDS_DIR, `${companyId}.pid`);
 }
 function logPathForCompany(companyId) {
-  mkdirSync4(LOG_DIR, { recursive: true });
+  mkdirSync3(LOG_DIR, { recursive: true });
   return join5(LOG_DIR, `${companyId}.log`);
 }
 function readPidForCompany(companyId) {
@@ -13741,9 +13705,9 @@ function removePidFileForCompany(companyId) {
   }
 }
 function startDaemonForCompany(env, companyId, agentEntryOverride) {
-  mkdirSync4(LOG_DIR, { recursive: true });
-  mkdirSync4(ZAZIGV2_DIR3, { recursive: true });
-  mkdirSync4(PIDS_DIR, { recursive: true });
+  mkdirSync3(LOG_DIR, { recursive: true });
+  mkdirSync3(ZAZIGV2_DIR3, { recursive: true });
+  mkdirSync3(PIDS_DIR, { recursive: true });
   const agentEntry = agentEntryOverride ?? resolveAgentEntry();
   const logPath = logPathForCompany(companyId);
   const logFd = openSync(logPath, "a");
@@ -13759,13 +13723,13 @@ function startDaemonForCompany(env, companyId, agentEntryOverride) {
   const pid = child.pid;
   if (pid == null)
     throw new Error("Spawn succeeded but no PID was assigned");
-  writeFileSync4(pidPathForCompany(companyId), String(pid) + "\n");
+  writeFileSync3(pidPathForCompany(companyId), String(pid) + "\n");
   return pid;
 }
 
 // dist/commands/chat.js
 import { execSync as execSync2, spawnSync } from "node:child_process";
-import { writeFileSync as writeFileSync5, chmodSync } from "node:fs";
+import { writeFileSync as writeFileSync4, chmodSync } from "node:fs";
 function getFirstWindowId(sessionName) {
   try {
     const output = execSync2(`tmux list-windows -t ${sessionName} -F '#{window_id}'`, { encoding: "utf-8", timeout: 5e3 }).trim();
@@ -13858,7 +13822,7 @@ function launchTui(options) {
   ];
   const scriptPath = `/tmp/zazig-color-${viewerSession}.sh`;
   try {
-    writeFileSync5(scriptPath, scriptLines.join("\n") + "\n");
+    writeFileSync4(scriptPath, scriptLines.join("\n") + "\n");
     chmodSync(scriptPath, 493);
     const firstRole = agents[0].role.toUpperCase();
     const initialColor = roleColors[firstRole] ?? defaultColor;
@@ -13922,7 +13886,7 @@ async function chat() {
 import { basename } from "node:path";
 
 // dist/lib/skills.js
-import { existsSync as existsSync5, lstatSync, mkdirSync as mkdirSync5, readdirSync, readlinkSync, rmSync, symlinkSync, copyFileSync } from "node:fs";
+import { existsSync as existsSync5, lstatSync, mkdirSync as mkdirSync4, readdirSync, readlinkSync, rmSync, symlinkSync, copyFileSync } from "node:fs";
 import { homedir as homedir5 } from "node:os";
 import { dirname as dirname2, join as join6, resolve as resolve2 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
@@ -14101,7 +14065,7 @@ function syncWorkspaceSkills(companyId, roleSkills, repoRoot) {
   for (const workspace of workspaces) {
     const expected = new Set(workspace.skills.map((s) => s.skill));
     const skillsRoot = join6(workspace.workspaceDir, ".claude", "skills");
-    mkdirSync5(skillsRoot, { recursive: true });
+    mkdirSync4(skillsRoot, { recursive: true });
     for (const skill of workspace.skills) {
       if (!skill.sourcePath) {
         summary.warnings.push(`[skills] ${workspace.role}: source missing for "${skill.skill}"`);
@@ -14111,7 +14075,7 @@ function syncWorkspaceSkills(companyId, roleSkills, repoRoot) {
         summary.unchanged += 1;
         continue;
       }
-      mkdirSync5(dirname2(skill.workspacePath), { recursive: true });
+      mkdirSync4(dirname2(skill.workspacePath), { recursive: true });
       rmSync(skill.workspacePath, { recursive: true, force: true });
       try {
         symlinkSync(skill.sourcePath, skill.workspacePath);
@@ -14315,7 +14279,7 @@ function getVersion() {
 }
 
 // dist/lib/builds.js
-import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync6, writeFileSync as writeFileSync6, cpSync, renameSync, rmSync as rmSync2 } from "node:fs";
+import { existsSync as existsSync7, mkdirSync as mkdirSync5, readFileSync as readFileSync6, writeFileSync as writeFileSync5, cpSync, renameSync, rmSync as rmSync2 } from "node:fs";
 import { join as join8 } from "node:path";
 import { homedir as homedir7 } from "node:os";
 var ZAZIGV2_DIR4 = process.env["ZAZIG_HOME"] ?? join8(homedir7(), ".zazigv2");
@@ -14352,7 +14316,7 @@ function rollbackBinaries() {
 }
 
 // dist/lib/auto-update.js
-import { existsSync as existsSync8, readFileSync as readFileSync7, mkdirSync as mkdirSync7, writeFileSync as writeFileSync7, chmodSync as chmodSync2, rmSync as rmSync3, cpSync as cpSync2 } from "node:fs";
+import { existsSync as existsSync8, readFileSync as readFileSync7, mkdirSync as mkdirSync6, writeFileSync as writeFileSync6, chmodSync as chmodSync2, rmSync as rmSync3, cpSync as cpSync2 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { execSync as execSync4 } from "node:child_process";
 import { join as join9 } from "node:path";
@@ -14395,12 +14359,12 @@ async function getRemoteVersion(supabaseUrl, anonKey, env) {
   }
 }
 async function downloadAndInstall(version3) {
-  mkdirSync7(BIN_DIR2, { recursive: true });
+  mkdirSync6(BIN_DIR2, { recursive: true });
   if (existsSync8(join9(BIN_DIR2, "zazig"))) {
     if (existsSync8(PREVIOUS_DIR)) {
       rmSync3(PREVIOUS_DIR, { recursive: true, force: true });
     }
-    mkdirSync7(PREVIOUS_DIR, { recursive: true });
+    mkdirSync6(PREVIOUS_DIR, { recursive: true });
     for (const { local } of ASSETS) {
       const src = join9(BIN_DIR2, local);
       if (existsSync8(src)) {
@@ -14442,14 +14406,14 @@ async function downloadAndInstall(version3) {
     }
     const buffer = Buffer.from(await res.arrayBuffer());
     const dest = join9(BIN_DIR2, local);
-    writeFileSync7(dest, buffer);
+    writeFileSync6(dest, buffer);
     chmodSync2(dest, 493);
     try {
       execFileSync("codesign", ["--force", "--sign", "-", dest]);
     } catch {
     }
   }
-  writeFileSync7(VERSION_FILE, version3);
+  writeFileSync6(VERSION_FILE, version3);
 }
 async function checkForUpdate(supabaseUrl, anonKey, env) {
   const remote = await getRemoteVersion(supabaseUrl, anonKey, env);
@@ -14508,16 +14472,6 @@ function readRecentAgentErrorLines(logPath) {
     const content = readFileSync8(logPath, "utf8");
     const recentLines = content.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0).slice(-20);
     return recentLines.filter((line) => /ERROR|FATAL/i.test(line));
-  } catch {
-    return null;
-  }
-}
-function readClaudeTokenFromKeychain() {
-  try {
-    const raw = execSync5('security find-generic-password -s "Claude Code-credentials" -w', { stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" });
-    const parsed = JSON.parse(raw);
-    const token = parsed?.claudeAiOauth?.accessToken;
-    return typeof token === "string" && token.startsWith("sk-ant-") ? token : null;
   } catch {
     return null;
   }
@@ -14609,7 +14563,6 @@ Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.
     }
     removePidFileForCompany(company.id);
   }
-  const claudeToken = readClaudeTokenFromKeychain();
   const env = {
     ...process.env,
     SUPABASE_ACCESS_TOKEN: creds.accessToken,
@@ -14620,8 +14573,7 @@ Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.
     ZAZIG_COMPANY_NAME: company.name,
     ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
     ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
-    ...process.env["ZAZIG_HOME"] ? { ZAZIG_HOME: process.env["ZAZIG_HOME"] } : {},
-    ...claudeToken ? { ANTHROPIC_API_KEY: claudeToken } : {}
+    ...process.env["ZAZIG_HOME"] ? { ZAZIG_HOME: process.env["ZAZIG_HOME"] } : {}
   };
   let agentEntryOverride;
   if (zazigEnv === "production") {
@@ -15025,7 +14977,7 @@ async function switchArchetype(supabaseUrl, companyId, headers, roleName, roleId
 
 // dist/commands/promote.js
 import { execSync as execSync6 } from "node:child_process";
-import { existsSync as existsSync10, readFileSync as readFileSync9, rmSync as rmSync4, writeFileSync as writeFileSync8 } from "node:fs";
+import { existsSync as existsSync10, readFileSync as readFileSync9, rmSync as rmSync4, writeFileSync as writeFileSync7 } from "node:fs";
 import { join as join12 } from "node:path";
 import { homedir as homedir11 } from "node:os";
 import { createInterface as createInterface5 } from "node:readline/promises";
@@ -15085,7 +15037,7 @@ function readJsonFile(path) {
   return JSON.parse(readFileSync9(path, "utf-8"));
 }
 function writeJsonFile(path, data) {
-  writeFileSync8(path, `${JSON.stringify(data, null, 2)}
+  writeFileSync7(path, `${JSON.stringify(data, null, 2)}
 `);
 }
 function bumpMinorVersion(version3) {
@@ -15144,7 +15096,7 @@ function injectAgentBuildHash(repoRoot, agentBuildHash) {
   const bundleContent = readFileSync9(bundlePath, "utf-8");
   const injected = `const AGENT_BUILD_HASH = "${agentBuildHash}";
 ${bundleContent}`;
-  writeFileSync8(bundlePath, injected);
+  writeFileSync7(bundlePath, injected);
 }
 async function registerAgentVersion(supabase, env, version3, commitSha) {
   const { error } = await supabase.from("agent_versions").insert({
@@ -15205,7 +15157,11 @@ Company: ${company.name}`);
   }
   console.log("\nFetching latest from origin...");
   try {
-    execSync6("git fetch origin", { cwd: bareRepoDir, stdio: "pipe" });
+    try {
+      execSync6("git fetch origin master:refs/heads/master", { cwd: bareRepoDir, stdio: "pipe" });
+    } catch {
+      execSync6("git fetch origin main:refs/heads/main", { cwd: bareRepoDir, stdio: "pipe" });
+    }
   } catch (err) {
     console.warn(`Fetch warning (non-fatal): ${String(err)}`);
   }
@@ -16189,7 +16145,29 @@ function fail(error) {
   process.stderr.write(JSON.stringify({ error }));
   process.exit(1);
 }
+function printHelp() {
+  const help = `Usage: zazig create-feature --company <uuid> --title <string> --description <string> --spec <string> --acceptance-tests <string> --priority <low|medium|high> [options]
+
+Flags:
+  --company <uuid>              Company ID (required)
+  --title <string>              Feature title (required)
+  --description <string>        Feature description (required)
+  --spec <string>               Implementation spec (required)
+  --acceptance-tests <string>   Gherkin acceptance criteria (required)
+  --priority <low|medium|high>  Priority level (required)
+  --project-id <uuid>           Project ID (optional)
+  --human-checklist <string>    Human checklist items (optional)
+  --fast-track <true|false>     Skip breakdown and fast-track the feature (optional)
+
+Example:
+  zazig create-feature --company <uuid> --title "Add login page" --description "OAuth login flow" --spec "Build a login page with..." --acceptance-tests "Given...When...Then..." --priority high`;
+  console.log(help);
+  process.exit(0);
+}
 async function createFeature(args2) {
+  if (args2.includes("--help") || args2.includes("-h")) {
+    printHelp();
+  }
   const company_id = parseStringFlag3(args2, "company");
   if (!company_id)
     fail("Missing required flag: --company <uuid>");
@@ -16304,7 +16282,32 @@ function fail2(error) {
   process.stderr.write(JSON.stringify({ error }));
   process.exit(1);
 }
+function printHelp2() {
+  const help = `Usage: zazig update-feature --company <uuid> --id <uuid> [fields to update]
+
+Flags:
+  --company <uuid>                                    Company ID (required)
+  --id <uuid>                                         Feature ID (required)
+  --title <string>                                    Feature title (optional)
+  --description <string>                              Feature description (optional)
+  --spec <string>                                     Implementation spec (optional)
+  --acceptance-tests <string>                         Acceptance criteria (optional)
+  --human-checklist <string>                          Human checklist items (optional)
+  --priority <low|medium|high>                        Priority level (optional)
+  --status <breaking_down|complete|cancelled>         Feature status (optional)
+  --fast-track <true|false>                           Fast-track flag (optional)
+
+At least one mutable field must be provided.
+
+Example:
+  zazig update-feature --company <uuid> --id <uuid> --status complete --priority high`;
+  console.log(help);
+  process.exit(0);
+}
 async function updateFeature(args2) {
+  if (args2.includes("--help") || args2.includes("-h")) {
+    printHelp2();
+  }
   const company_id = parseStringFlag4(args2, "company");
   if (!company_id)
     fail2("Missing required flag: --company <uuid>");
@@ -16407,7 +16410,32 @@ function fail3(error) {
   process.stderr.write(JSON.stringify({ error }));
   process.exit(1);
 }
+function printHelp3() {
+  const help = `Usage: zazig create-idea --company <uuid> --raw-text <string> --originator <string> [options]
+
+Flags:
+  --company <uuid>        Company ID (required)
+  --raw-text <string>     Raw idea text (required)
+  --originator <string>   Who submitted the idea (required)
+  --title <string>        Idea title (optional)
+  --description <string>  Idea description (optional)
+  --source <enum>         Source channel: terminal, slack, telegram, agent, web, api, monitoring (optional)
+  --domain <enum>         Domain: product, engineering, marketing, cross-cutting, unknown (optional)
+  --priority <enum>       Priority: low, medium, high, urgent (optional)
+  --scope <string>        Scope description (optional)
+  --complexity <string>   Complexity estimate (optional)
+  --tags <csv>            Comma-separated tags (optional)
+  --project-id <uuid>     Project ID (optional)
+
+Example:
+  zazig create-idea --company <uuid> --raw-text "We should add dark mode" --originator "alice" --source terminal --priority medium`;
+  console.log(help);
+  process.exit(0);
+}
 async function createIdea(args2) {
+  if (args2.includes("--help") || args2.includes("-h")) {
+    printHelp3();
+  }
   const company_id = parseStringFlag5(args2, "company");
   if (!company_id)
     fail3("Missing required flag: --company <uuid>");
@@ -16522,7 +16550,35 @@ function fail4(error) {
   process.stderr.write(JSON.stringify({ error }));
   process.exit(1);
 }
+function printHelp4() {
+  const help = `Usage: zazig update-idea --company <uuid> --id <uuid> [fields to update]
+
+Flags:
+  --company <uuid>         Company ID (required)
+  --id <uuid>              Idea ID (required)
+  --raw-text <string>      Raw idea text (optional)
+  --title <string>         Idea title (optional)
+  --description <string>   Idea description (optional)
+  --status <enum>          Status: new, triaging, triaged, developing, specced, workshop, hardening, parked, rejected, done (optional)
+  --priority <enum>        Priority: low, medium, high, urgent (optional)
+  --triage-notes <string>  Triage notes (optional)
+  --triage-route <enum>    Triage route: promote, develop, workshop, harden, park, reject, founder-review (optional)
+  --spec <string>          Implementation spec (optional)
+  --tags <csv>             Comma-separated tags (optional)
+  --complexity <enum>      Complexity: simple, medium, complex (optional)
+  --project-id <uuid>      Project ID (optional)
+
+At least one mutable field must be provided.
+
+Example:
+  zazig update-idea --company <uuid> --id <uuid> --status triaged --priority high --triage-route promote`;
+  console.log(help);
+  process.exit(0);
+}
 async function updateIdea(args2) {
+  if (args2.includes("--help") || args2.includes("-h")) {
+    printHelp4();
+  }
   const company_id = parseStringFlag6(args2, "company");
   if (!company_id)
     fail4("Missing required flag: --company <uuid>");
@@ -16626,7 +16682,25 @@ function fail5(error) {
   process.stderr.write(JSON.stringify({ error }));
   process.exit(1);
 }
+function printHelp5() {
+  const help = `Usage: zazig promote-idea --company <uuid> --id <uuid> --to <feature|job|research|capability> [options]
+
+Flags:
+  --company <uuid>                            Company ID (required)
+  --id <uuid>                                 Idea ID (required)
+  --to <feature|job|research|capability>      Promotion target (required)
+  --project-id <uuid>                         Project ID (required when --to is feature or job)
+  --title <string>                            Override title for promoted entity (optional)
+
+Example:
+  zazig promote-idea --company <uuid> --id <uuid> --to feature --project-id <uuid>`;
+  console.log(help);
+  process.exit(0);
+}
 async function promoteIdea(args2) {
+  if (args2.includes("--help") || args2.includes("-h")) {
+    printHelp5();
+  }
   const company_id = parseStringFlag7(args2, "company");
   if (!company_id)
     fail5("Missing required flag: --company <uuid>");
@@ -16813,7 +16887,38 @@ function parseJobsPayload(jobs, jobsFile) {
   }
   return parsed;
 }
+function printHelp6() {
+  const help = `Usage: zazig batch-create-jobs --company <uuid> --feature-id <uuid> (--jobs <json> | --jobs-file <path>)
+
+Flags:
+  --company <uuid>       Company ID (required)
+  --feature-id <uuid>    Feature ID \u2014 must be in 'breaking_down' status (required)
+  --jobs <json>          Inline JSON array of job objects (mutually exclusive with --jobs-file)
+  --jobs-file <path>     Path to a JSON file containing an array of job objects
+
+Job object schema (all fields required):
+  {
+    "title":            string,          // Short job title
+    "spec":             string,          // Implementation prompt \u2014 what to build
+    "acceptance_tests": string,          // Gherkin acceptance criteria
+    "role":             "senior-engineer" | "junior-engineer",
+    "job_type":         "code",
+    "complexity":       "simple" | "medium" | "complex",
+    "depends_on":       string[]         // [] for root jobs, or ["temp:0", "temp:1"] to reference earlier jobs by array index
+  }
+
+Example:
+  zazig batch-create-jobs --company <uuid> --feature-id <uuid> --jobs '[
+    {"title":"Add user table","spec":"Create users table...","acceptance_tests":"Given...When...Then...","role":"senior-engineer","job_type":"code","complexity":"simple","depends_on":[]},
+    {"title":"Add auth middleware","spec":"Create auth...","acceptance_tests":"Given...When...Then...","role":"senior-engineer","job_type":"code","complexity":"medium","depends_on":["temp:0"]}
+  ]'`;
+  console.log(help);
+  process.exit(0);
+}
 async function batchCreateJobs(args2) {
+  if (args2.includes("--help") || args2.includes("-h")) {
+    printHelp6();
+  }
   const company_id = parseStringFlag9(args2, "company");
   if (!company_id)
     fail7("Missing required flag: --company <uuid>");

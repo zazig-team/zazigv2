@@ -21,6 +21,8 @@ The following commands are available via the zazig CLI. Use these instead of MCP
 
 Results are sorted newest-first by default. Output is JSON on stdout.
 
+**Run \`zazig <command> --help\` for full usage, required fields, and JSON schemas.**
+
 ### Write commands
 
 - \`zazig batch-create-jobs --company <uuid> --feature-id <uuid> --jobs '<json array>'\` — create jobs for a feature in batch

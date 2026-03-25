@@ -2056,6 +2056,11 @@ export class JobExecutor {
 
   // ---------------------------------------------------------------------------
 
+  // TODO(memory): TTL-based resets are a blunt proxy for context management — they discard
+  // session state rather than preserving it. Real context management should detect context
+  // pressure, distill the current session into memory files, then restart and reload from them.
+  // Until that exists, persistent exec roles (CPO, CTO) run with both TTLs disabled (= 0).
+  // See: cache_ttl_minutes / hard_ttl_minutes in the roles table.
   private async checkCacheTtl(agent: ActivePersistentAgent): Promise<void> {
     if (agent.resetInProgress) return;
     if (agent.cacheTtlMinutes <= 0 && agent.hardTtlMinutes <= 0) return;

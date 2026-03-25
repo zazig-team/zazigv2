@@ -856,6 +856,11 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
                   <button className="il-action-secondary il-action-workshop" type="button" disabled={!!actionInProgress} onClick={() => handleAction("workshop", "Workshop")}>
                     {actionInProgress === "Workshop" ? "Moving..." : "Workshop"}
                   </button>
+                  {data.status !== "rejected" && (
+                    <button className="il-action-secondary il-action-reject" type="button" disabled={!!actionInProgress} onClick={() => handleAction("rejected", "Reject")}>
+                      {actionInProgress === "Reject" ? "Rejecting..." : "Reject"}
+                    </button>
+                  )}
                   <button
                     className="il-action-secondary"
                     type="button"

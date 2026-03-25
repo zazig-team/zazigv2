@@ -99,19 +99,6 @@ function readRecentAgentErrorLines(logPath: string): string[] | null {
   }
 }
 
-function readClaudeTokenFromKeychain(): string | null {
-  try {
-    const raw = execSync(
-      'security find-generic-password -s "Claude Code-credentials" -w',
-      { stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" },
-    );
-    const parsed = JSON.parse(raw);
-    const token = parsed?.claudeAiOauth?.accessToken;
-    return typeof token === "string" && token.startsWith("sk-ant-") ? token : null;
-  } catch {
-    return null;
-  }
-}
 
 export async function start(): Promise<void> {
   // Parse flags
@@ -210,9 +197,10 @@ export async function start(): Promise<void> {
     removePidFileForCompany(company.id);
   }
 
-  const claudeToken = readClaudeTokenFromKeychain();
-
-  // Build env for the spawned process
+  // Build env for the spawned process.
+  // Note: ANTHROPIC_API_KEY is intentionally NOT set here. Claude Code uses its
+  // own OAuth flow (Keychain-based) which auto-refreshes tokens. Setting the env
+  // var overrides that flow with a static token that expires during long sessions.
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     SUPABASE_ACCESS_TOKEN: creds.accessToken,
@@ -224,7 +212,6 @@ export async function start(): Promise<void> {
     ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
     ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
     ...(process.env["ZAZIG_HOME"] ? { ZAZIG_HOME: process.env["ZAZIG_HOME"] } : {}),
-    ...(claudeToken ? { ANTHROPIC_API_KEY: claudeToken } : {}),
   };
 
   // Resolve agent entry point: use standalone binary, pinned build, or repo

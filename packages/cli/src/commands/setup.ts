@@ -368,81 +368,10 @@ export async function setup(): Promise<void> {
       }
     }
 
-    // AI conversation about the project
-    let projectBrief: string | undefined;
-    const anthropicKey = process.env["ANTHROPIC_API_KEY"];
-
-    if (anthropicKey) {
-      console.log(
-        "\nTell me about this project — what does it do, what are you building?"
-      );
-      const userDescription = (await rl.question("> ")).trim();
-
-      if (userDescription) {
-        process.stdout.write("\nGenerating project brief...");
-        try {
-          const systemPrompt =
-            "You are a helpful assistant that creates concise project briefs. " +
-            "Given a user's description and optional repo context, write a structured " +
-            "project brief in Markdown with sections: Overview, Tech Stack, Goals. " +
-            "Keep it under 500 words.";
-
-          const userContent = repoContext
-            ? `User description: ${userDescription}\n\nRepo context:\n${repoContext}`
-            : `User description: ${userDescription}`;
-
-          const resp = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-api-key": anthropicKey,
-              "anthropic-version": "2023-06-01",
-            },
-            body: JSON.stringify({
-              model: "claude-haiku-4-5-20251001",
-              max_tokens: 1024,
-              system: systemPrompt,
-              messages: [{ role: "user", content: userContent }],
-            }),
-          });
-
-          if (!resp.ok) {
-            throw new Error(`API returned ${resp.status}`);
-          }
-
-          const result = (await resp.json()) as {
-            content: Array<{ type: string; text: string }>;
-          };
-          projectBrief =
-            result.content.find((b) => b.type === "text")?.text ??
-            userDescription;
-          console.log(" done");
-
-          // Write PROJECT.md if local repo path given
-          if (localRepoPath && projectBrief) {
-            const docsDir = join(localRepoPath, "docs");
-            mkdirSync(docsDir, { recursive: true });
-            const projectMdPath = join(docsDir, "PROJECT.md");
-            writeFileSync(
-              projectMdPath,
-              `# ${projectName}\n\n${projectBrief}\n`,
-              "utf-8"
-            );
-            console.log(`Project brief written to ${projectMdPath}`);
-          }
-        } catch (err) {
-          console.log(" failed");
-          console.error(
-            `AI brief generation failed: ${String(err)}. Using your description instead.`
-          );
-          projectBrief = userDescription;
-        }
-      }
-    } else {
-      projectBrief = (
-        await rl.question("\nBrief description of the project: ")
-      ).trim();
-    }
+    // Project description
+    const projectBrief = (
+      await rl.question("\nBrief description of the project: ")
+    ).trim() || undefined;
 
     // Insert project (same pattern: client-side UUID to avoid RETURNING + SELECT policy conflict)
     const newProjectId = randomUUID();

@@ -128,6 +128,12 @@
 - Staging Vercel previews may not have auth cookies — navigate to prod (`zazig.com`) for authenticated page testing.
 - Daemon crash logs can be stale — check job status in DB before concluding daemon is down. If jobs are executing, daemon is alive.
 
+## Auth Session Loss (supabase-js SIGNED_OUT)
+- supabase-js fires `SIGNED_OUT` when its internal auto-refresh fails (e.g. transient 502/520). After SIGNED_OUT, `dbClient.auth.getSession()` returns null and `getAuthToken()` falls back to anon key silently. credentials.json gets no further refreshes → access token expires → CLI "Not logged in".
+- Fix: daemon `onAuthStateChange` now detects SIGNED_OUT and calls `recoverSessionFromDisk()` (re-calls setSession from credentials.json). `getAuthToken()` also triggers recovery when getSession returns null.
+- CLI fix: `getValidCredentials()` now retries 3x (0s, 2s, 5s) on 5xx/network errors before throwing. Auth errors (4xx) still fail immediately.
+- Realtime CLOSED loop: `realtimeReconnectAttempts` was resetting on every SUBSCRIBED, keeping backoff at 1s permanently. Fixed to only reset if connection was stable >30s.
+
 ## Daemon Deployment Process
 - Executor/daemon code changes need to be shipped to master, then promoted (1x daily promote cycle), then daemon restarted.
 - Edge function changes deploy immediately via `supabase functions deploy`.

@@ -47,6 +47,7 @@ export class AgentConnection {
   private realtimeChannel: RealtimeChannel | null = null;
   private realtimeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private realtimeReconnectAttempts = 0;
+  private realtimeLastSubscribedAt = 0;
   private isPolling = false;
   private stopped = false;
   private outdated = false;
@@ -96,6 +97,47 @@ export class AgentConnection {
   }
 
   /**
+   * Re-initialize the supabase-js auth session from credentials.json.
+   * Called when supabase-js fires SIGNED_OUT (typically after a failed auto-refresh
+   * due to transient network errors). Guards against infinite loops via a cooldown.
+   */
+  private sessionRecoveryCooldownUntil = 0;
+
+  private async recoverSessionFromDisk(): Promise<void> {
+    const now = Date.now();
+    if (now < this.sessionRecoveryCooldownUntil) {
+      console.log("[local-agent] Session recovery skipped (cooldown active)");
+      return;
+    }
+    // 5-minute cooldown to prevent rapid retry storms
+    this.sessionRecoveryCooldownUntil = now + 5 * 60 * 1000;
+
+    try {
+      let existing: Record<string, unknown> = {};
+      try {
+        existing = JSON.parse(readFileSync(CREDENTIALS_PATH, "utf-8"));
+      } catch {
+        console.warn("[local-agent] Session recovery: could not read credentials.json");
+        return;
+      }
+      const accessToken = typeof existing.accessToken === "string" ? existing.accessToken : "";
+      const refreshToken = typeof existing.refreshToken === "string" ? existing.refreshToken : "";
+      if (!refreshToken) {
+        console.warn("[local-agent] Session recovery: no refresh token in credentials.json");
+        return;
+      }
+      const { error } = await this.dbClient.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      if (error) {
+        console.error(`[local-agent] Session recovery failed: ${error.message}`);
+      } else {
+        console.log("[local-agent] Auth session recovered successfully");
+      }
+    } catch (err) {
+      console.warn(`[local-agent] Session recovery error: ${String(err)}`);
+    }
+  }
+
+  /**
    * Get a valid auth token, force-refreshing if the current session is expired.
    * Safety net for when supabase-js auto-refresh silently fails.
    */
@@ -114,6 +156,10 @@ export class AgentConnection {
         return refreshed.access_token;
       }
       console.warn(`[Connection] Token force-refresh failed: ${error?.message ?? "no session"}`);
+    } else if (this.config.supabase.refresh_token) {
+      // No in-memory session — supabase-js may have fired SIGNED_OUT due to a failed refresh.
+      // Trigger recovery in the background so the next poll can use a valid token.
+      void this.recoverSessionFromDisk();
     }
     return this.serviceRoleKey ?? this.supabaseAnonKey;
   }
@@ -203,7 +249,16 @@ export class AgentConnection {
       }
 
       // Write refreshed tokens back to credentials.json so CLI commands also benefit.
-      this.dbClient.auth.onAuthStateChange((_event, session) => {
+      // Also recover from SIGNED_OUT — supabase-js clears the session when auto-refresh
+      // fails (e.g. during transient network errors). Re-initialize from disk so the daemon
+      // regains an authenticated session and resumes writing fresh tokens.
+      this.dbClient.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_OUT" && !this.stopped) {
+          console.warn("[local-agent] Auth session signed out (supabase-js lost session) — attempting recovery from disk");
+          void this.recoverSessionFromDisk();
+          return;
+        }
+
         if (session?.access_token && session?.refresh_token) {
           try {
             // Read existing credentials to preserve email and other fields
@@ -221,7 +276,7 @@ export class AgentConnection {
             };
             mkdirSync(ZAZIG_HOME_DIR, { recursive: true });
             writeFileSync(CREDENTIALS_PATH, JSON.stringify(creds, null, 2) + "\n", { mode: 0o600 });
-            console.log(`[local-agent] Credentials refreshed and saved to disk`);
+            console.log(`[local-agent] Credentials refreshed and saved to disk (event=${event})`);
           } catch (err) {
             console.warn(`[local-agent] Failed to save refreshed credentials: ${String(err)}`);
           }
@@ -413,8 +468,16 @@ export class AgentConnection {
       .subscribe((status, err) => {
         if (status === "SUBSCRIBED") {
           console.log(`[local-agent] Subscribed to Realtime broadcast channel: ${channelName}`);
-          this.realtimeReconnectAttempts = 0;
+          this.realtimeLastSubscribedAt = Date.now();
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          // Only reset backoff if the connection was stable for >30s — prevents permanent 1s loops
+          // when Supabase Realtime is flapping.
+          const stableDurationMs = this.realtimeLastSubscribedAt > 0
+            ? Date.now() - this.realtimeLastSubscribedAt
+            : 0;
+          if (stableDurationMs > 30_000) {
+            this.realtimeReconnectAttempts = 0;
+          }
           console.error(`[local-agent] Realtime broadcast channel error (status=${status}):`, err ?? "unknown");
           this.scheduleRealtimeReconnect();
         }

@@ -81,35 +81,54 @@ export async function getValidCredentials(): Promise<Credentials> {
   const envOverride = Boolean(process.env["ZAZIG_ENV"]);
   const anonKey = (envOverride && process.env["SUPABASE_ANON_KEY"]) || DEFAULT_SUPABASE_ANON_KEY;
 
-  const resp = await fetch(
-    `${creds.supabaseUrl}/auth/v1/token?grant_type=refresh_token`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: anonKey,
-      },
-      body: JSON.stringify({ refresh_token: creds.refreshToken }),
+  // Retry on transient server errors (5xx) — a single Supabase hiccup should not
+  // require the user to re-login. Auth errors (4xx) are not retried.
+  const retryDelaysMs = [0, 2000, 5000];
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
+    if (attempt > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, retryDelaysMs[attempt]));
     }
-  );
 
-  if (!resp.ok) {
-    throw new Error(
-      `Token refresh failed (HTTP ${resp.status}). Run 'zazig login' again.`
-    );
+    let resp: Response;
+    try {
+      resp = await fetch(
+        `${creds.supabaseUrl}/auth/v1/token?grant_type=refresh_token`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: anonKey,
+          },
+          body: JSON.stringify({ refresh_token: creds.refreshToken }),
+        }
+      );
+    } catch {
+      // Network error — retry
+      continue;
+    }
+
+    if (resp.ok) {
+      const data = (await resp.json()) as {
+        access_token: string;
+        refresh_token: string;
+      };
+      const updated: Credentials = {
+        ...creds,
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+      };
+      saveCredentials(updated);
+      return updated;
+    }
+
+    lastStatus = resp.status;
+    // Auth errors (4xx) indicate genuinely invalid credentials — no point retrying.
+    if (resp.status >= 400 && resp.status < 500) break;
+    // 5xx — retry
   }
 
-  const data = (await resp.json()) as {
-    access_token: string;
-    refresh_token: string;
-  };
-
-  const updated: Credentials = {
-    ...creds,
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-  };
-
-  saveCredentials(updated);
-  return updated;
+  throw new Error(
+    `Token refresh failed (HTTP ${lastStatus || "network error"}). Run 'zazig login' again.`
+  );
 }

@@ -1,0 +1,2766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pipeline</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08090c;
+      --surface: #101216;
+      --surface-raised: #161a1f;
+      --border: #1e2328;
+      --border-subtle: #181c21;
+      --text: #e2e4e8;
+      --text-secondary: #8b919a;
+      --text-dim: #555d68;
+
+      --col-new: #64748b;
+      --col-triaged: #f59e0b;
+      --col-building: #f97316;
+      --col-combining: #eab308;
+      --col-verifying: #06b6d4;
+      --col-pr_ready: #3b82f6;
+      --col-complete: #22c55e;
+      --col-failed: #ef4444;
+
+      --col-done: #10b981;
+
+      --col-new-bg: rgba(100, 116, 139, 0.06);
+      --col-triaged-bg: rgba(245, 158, 11, 0.06);
+      --col-building-bg: rgba(249, 115, 22, 0.04);
+      --col-combining-bg: rgba(234, 179, 8, 0.04);
+      --col-verifying-bg: rgba(6, 182, 212, 0.04);
+      --col-pr_ready-bg: rgba(59, 130, 246, 0.04);
+      --col-complete-bg: rgba(34, 197, 94, 0.04);
+      --col-failed-bg: rgba(239, 68, 68, 0.04);
+      --col-done-bg: rgba(16, 185, 129, 0.05);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+    }
+
+    .app {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Header ────────────────────────────────── */
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--col-pr_ready);
+      box-shadow: 0 0 8px var(--col-pr_ready), 0 0 20px rgba(77, 143, 239, 0.3);
+      animation: pulse-glow 3s ease-in-out infinite;
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 8px var(--col-pr_ready), 0 0 20px rgba(77, 143, 239, 0.3); }
+      50% { box-shadow: 0 0 12px var(--col-pr_ready), 0 0 30px rgba(77, 143, 239, 0.5); }
+    }
+
+    h1 {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+
+    .company-tag {
+      color: var(--col-pr_ready);
+      margin-left: 4px;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .last-updated {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      letter-spacing: 0.02em;
+    }
+
+    .refresh-btn {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .refresh-btn:hover {
+      color: var(--text);
+      border-color: #2e343b;
+      background: #1c2127;
+    }
+
+    .refresh-btn:disabled { opacity: 0.4; cursor: wait; }
+
+    .company-select {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 10px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      appearance: auto;
+    }
+
+    .company-select:hover {
+      color: var(--text);
+      border-color: #2e343b;
+    }
+
+    #message {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      padding: 0 24px;
+      min-height: 0;
+      transition: min-height 0.2s ease;
+    }
+
+    #message:not(:empty) {
+      min-height: 36px;
+      display: flex;
+      align-items: center;
+    }
+
+    #message.error {
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.08);
+      border-bottom: 1px solid rgba(248, 113, 113, 0.15);
+    }
+
+    .machines-wrap {
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--surface);
+    }
+
+    .machines-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      gap: 12px;
+    }
+
+    .machines-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+
+    .machines-latest {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      color: var(--text-dim);
+    }
+
+    .machines-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      background: var(--bg);
+    }
+
+    .machines-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      min-width: 640px;
+    }
+
+    .machines-table th,
+    .machines-table td {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      white-space: nowrap;
+    }
+
+    .machines-table th {
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+      font-weight: 600;
+      background: #0b0d11;
+    }
+
+    .machines-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .machine-status-online { color: #22c55e; }
+    .machine-status-offline { color: #ef4444; }
+    .machine-status-unknown { color: var(--text-secondary); }
+    .machine-version-unknown { color: var(--text-dim); }
+    .machine-version-outdated { color: #ef4444; font-weight: 600; }
+
+    /* ── Kanban Board ──────────────────────────── */
+
+    .dashboard {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow-x: auto;
+      background: var(--bg);
+    }
+
+    .board {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      background: var(--bg);
+    }
+
+    .intake-divider {
+      width: 1px;
+      margin: 12px 0;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    .column {
+      flex: 1;
+      min-width: 240px;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+      border-right: 1px solid var(--border-subtle);
+    }
+
+    .column:last-child {
+      border-right: none;
+    }
+
+    .column-header {
+      padding: 14px 16px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+      flex-shrink: 0;
+    }
+
+    .column-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .column-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .column-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+
+    .column-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      font-weight: 500;
+      color: var(--text-dim);
+      background: var(--surface-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 2px 8px;
+      min-width: 22px;
+      text-align: center;
+    }
+
+    .column-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .column-body::-webkit-scrollbar { width: 4px; }
+    .column-body::-webkit-scrollbar-track { background: transparent; }
+    .column-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .column-empty {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      text-align: center;
+      padding: 32px 12px;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      margin: 4px;
+    }
+
+    /* ── Cards (compact Trello-style) ─────────── */
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+      animation: card-in 0.25s ease both;
+    }
+
+    @keyframes card-in {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .card:hover {
+      border-color: var(--border);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+      transform: translateY(-1px);
+    }
+
+    .card:focus-visible {
+      outline: 2px solid var(--col-pr_ready);
+      outline-offset: 1px;
+    }
+
+    .card-accent {
+      height: 2px;
+      width: 100%;
+    }
+
+    .card-body {
+      padding: 12px 14px 10px;
+    }
+
+    .card-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .card-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+    }
+
+    .card-meta-sep {
+      color: var(--border);
+    }
+
+    .card-active-label {
+      color: var(--col-building);
+      font-weight: 500;
+    }
+
+    .priority-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      padding: 1px 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.58rem;
+      letter-spacing: 0.02em;
+      color: var(--text-secondary);
+      text-transform: lowercase;
+      width: fit-content;
+    }
+
+    .priority-badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #facc15;
+      flex-shrink: 0;
+    }
+
+    .priority-badge.urgent .priority-badge-dot { background: #ef4444; }
+    .priority-badge.high .priority-badge-dot { background: #f97316; }
+    .priority-badge.medium .priority-badge-dot { background: #facc15; }
+    .priority-badge.low .priority-badge-dot { background: #9ca3af; }
+
+    .feature-description {
+      margin-top: 8px;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      color: var(--text-secondary);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      word-break: break-word;
+    }
+
+    .feature-description.muted {
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    .card-workshop-label {
+      color: #fdba74;
+      border: 1px solid rgba(249, 115, 22, 0.35);
+      border-radius: 4px;
+      padding: 1px 6px;
+      letter-spacing: 0.04em;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .card-speccing-label {
+      color: #c9b5f8;
+      border: 1px solid rgba(168, 85, 247, 0.35);
+      border-radius: 4px;
+      padding: 1px 6px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-size: 0.58rem;
+      font-weight: 600;
+    }
+
+    .card-pr-pending-label {
+      color: #93c5fd;
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      border-radius: 4px;
+      padding: 1px 6px;
+      letter-spacing: 0.04em;
+      font-size: 0.58rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .card-pr-exists-label {
+      color: #6ee7b7;
+      border: 1px solid rgba(52, 211, 153, 0.4);
+      border-radius: 4px;
+      padding: 1px 6px;
+      letter-spacing: 0.04em;
+      font-size: 0.58rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .idea-card .card-body {
+      padding: 10px 12px 9px;
+    }
+
+    .idea-card .card-title {
+      font-size: 0.78rem;
+      line-height: 1.3;
+    }
+
+    .idea-card.stale {
+      border-color: rgba(245, 158, 11, 0.45);
+      box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.15) inset;
+    }
+
+    .idea-card.deep-stale {
+      border-left: 3px solid #ef4444;
+    }
+
+    .idea-meta {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.63rem;
+      color: var(--text-dim);
+      text-transform: lowercase;
+    }
+
+    .idea-priority {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--text-secondary);
+    }
+
+    .idea-priority-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #facc15;
+      flex-shrink: 0;
+    }
+
+    .idea-priority.urgent .idea-priority-dot { background: #ef4444; }
+    .idea-priority.high .idea-priority-dot { background: #f97316; }
+    .idea-priority.medium .idea-priority-dot { background: #facc15; }
+    .idea-priority.low .idea-priority-dot { background: #9ca3af; }
+
+    .idea-age {
+      color: var(--text-dim);
+    }
+
+    .idea-footer {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .idea-originator {
+      margin-top: 7px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.02);
+      padding: 1px 7px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.58rem;
+      color: var(--text-secondary);
+      letter-spacing: 0.02em;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .idea-originator.muted {
+      color: var(--text-dim);
+    }
+
+    .idea-footer .idea-originator {
+      margin-top: 0;
+      margin-left: auto;
+      max-width: 72%;
+    }
+
+    .idea-recommendation {
+      margin-top: 8px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.58rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      border: 1px solid transparent;
+      width: fit-content;
+    }
+
+    .idea-footer .idea-recommendation {
+      margin-top: 0;
+    }
+
+    .idea-recommendation.promote {
+      color: #8be3ae;
+      border-color: rgba(60, 191, 110, 0.45);
+      background: rgba(60, 191, 110, 0.1);
+    }
+
+    .idea-recommendation.park {
+      color: #a4acb8;
+      border-color: rgba(107, 114, 128, 0.45);
+      background: rgba(107, 114, 128, 0.1);
+    }
+
+    .idea-recommendation.reject {
+      color: #fca5a5;
+      border-color: rgba(239, 68, 68, 0.45);
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    /* Progress bar at bottom of card — only for actively-working items */
+    .card-progress {
+      height: 3px;
+      background: rgba(255, 255, 255, 0.04);
+      overflow: hidden;
+    }
+
+    .card-progress-fill {
+      height: 100%;
+      border-radius: 0 3px 3px 0;
+      transition: width 0.4s ease;
+    }
+
+    @keyframes progress-shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+
+    .card-progress-fill.active {
+      background-size: 200% 100%;
+      animation: progress-shimmer 2s linear infinite;
+    }
+
+    /* ── Empty board ───────────────────────────── */
+
+    .empty-board {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      padding: 40px;
+    }
+
+    .parked-section {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .parked-toggle {
+      width: 100%;
+      text-align: left;
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.72rem;
+      font-weight: 500;
+      padding: 7px 10px;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .parked-toggle:hover {
+      color: var(--text);
+      border-color: #2e343b;
+      background: #1c2127;
+    }
+
+    .parked-content {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .parked-group-title {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+
+    .parked-group-title.stale {
+      color: #fca5a5;
+    }
+
+    /* ── Detail Panel (side sheet) ─────────────── */
+
+    .detail-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 100;
+      display: flex;
+      justify-content: flex-end;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+
+    .detail-overlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .detail-panel {
+      width: 520px;
+      max-width: 90vw;
+      height: 100%;
+      background: var(--bg);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .detail-overlay.open .detail-panel {
+      transform: translateX(0);
+    }
+
+    .detail-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      flex-shrink: 0;
+      gap: 12px;
+    }
+
+    .detail-title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .detail-back-btn {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px 0;
+      flex-shrink: 0;
+      transition: color 0.15s ease;
+    }
+
+    .detail-back-btn:hover { color: var(--text); }
+
+    .detail-live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: var(--col-building);
+      box-shadow: 0 0 6px rgba(232, 168, 56, 0.5);
+      animation: dot-pulse 2s ease-in-out infinite;
+    }
+
+    .detail-live-dot.terminal {
+      background: var(--col-complete);
+      box-shadow: none;
+      animation: none;
+    }
+
+    .detail-live-dot.failed {
+      background: #ef4444;
+      box-shadow: none;
+      animation: none;
+    }
+
+    .detail-live-dot.waiting {
+      background: var(--text-dim);
+      animation: dot-pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes dot-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .detail-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .detail-status-badge {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3px 9px;
+      flex-shrink: 0;
+    }
+
+    .detail-close {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .detail-close:hover {
+      color: var(--text);
+      border-color: #2e343b;
+      background: #1c2127;
+    }
+
+    /* Detail content area */
+    .detail-content {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    .detail-content::-webkit-scrollbar { width: 4px; }
+    .detail-content::-webkit-scrollbar-track { background: transparent; }
+    .detail-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* Metadata card */
+    .detail-meta {
+      padding: 16px;
+      margin: 16px 20px;
+      background: var(--surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .detail-meta-row {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      font-size: 0.8rem;
+    }
+
+    .detail-meta-label {
+      font-family: 'DM Sans', sans-serif;
+      color: var(--text-dim);
+      min-width: 80px;
+      flex-shrink: 0;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+
+    .detail-meta-value {
+      font-family: 'DM Sans', sans-serif;
+      color: var(--text-secondary);
+      word-break: break-all;
+      font-size: 0.8rem;
+    }
+
+    /* Section headings within detail */
+    .detail-section-title {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      padding: 16px 20px 8px;
+    }
+
+    /* Job list within feature detail */
+    .detail-job-list {
+      padding: 8px;
+      margin: 0 20px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .detail-job-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--surface-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: 7px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .detail-job-row:hover {
+      border-color: #2a3038;
+      background: #1a1e24;
+    }
+
+    .detail-job-row:focus-visible {
+      outline: 2px solid var(--col-pr_ready);
+      outline-offset: 1px;
+    }
+
+    .detail-job-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .detail-job-dot.executing {
+      background: var(--col-building);
+      box-shadow: 0 0 6px rgba(232, 168, 56, 0.5);
+      animation: dot-pulse 2s ease-in-out infinite;
+    }
+
+    .detail-job-dot.queued {
+      background: var(--text-dim);
+      animation: dot-pulse 2s ease-in-out infinite;
+    }
+
+    .detail-job-dot.complete, .detail-job-dot.done, .detail-job-dot.approved {
+      background: var(--col-complete);
+    }
+
+    .detail-job-dot.failed {
+      background: #ef4444;
+    }
+
+    .detail-job-dot.blocked {
+      background: #f59e0b;
+      animation: dot-pulse 1s ease-in-out infinite;
+    }
+
+    .detail-job-dot.reviewing {
+      background: var(--col-verifying);
+      animation: dot-pulse 2s ease-in-out infinite;
+    }
+
+    .detail-job-name {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .detail-job-status {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.68rem;
+      color: var(--text-dim);
+    }
+
+    .detail-job-model {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.62rem;
+      color: var(--text-dim);
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      padding: 1px 6px;
+      flex-shrink: 0;
+    }
+
+    /* Context block */
+    .detail-context-block {
+      padding: 12px 16px;
+      margin: 0 20px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+    }
+
+    .detail-idea-block {
+      border-color: rgba(16, 185, 129, 0.28);
+      background: linear-gradient(180deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.04));
+    }
+
+    .detail-idea-title {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
+
+    .detail-idea-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .detail-idea-chip {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #86efac;
+      border: 1px solid rgba(16, 185, 129, 0.45);
+      background: rgba(16, 185, 129, 0.14);
+      border-radius: 999px;
+      padding: 2px 8px;
+      line-height: 1.4;
+    }
+
+    .detail-idea-id {
+      margin-top: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.64rem;
+      color: var(--text-dim);
+      word-break: break-all;
+    }
+
+    .detail-context-text {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.6;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .detail-context-text.muted {
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    .detail-sub-label {
+      margin-top: 8px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .detail-tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .detail-tag {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.68rem;
+      color: var(--text-secondary);
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-subtle);
+      border-radius: 999px;
+      padding: 3px 9px;
+      line-height: 1.3;
+    }
+
+    .detail-flag {
+      border-radius: 4px;
+      background: rgba(239, 68, 68, 0.08);
+      border-color: rgba(239, 68, 68, 0.35);
+      color: #fecaca;
+    }
+
+    /* Log area */
+    .detail-log-area {
+      padding: 0 20px 14px;
+    }
+
+    .detail-log {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      word-break: break-all;
+      padding: 12px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+    }
+
+    .detail-log.empty {
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    .detail-footer {
+      padding: 10px 20px 12px;
+      border-top: 1px solid var(--border-subtle);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    .detail-action-btn {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      border: 1px solid;
+      border-radius: 6px;
+      padding: 5px 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .detail-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .detail-action-btn-retry {
+      color: #e8a838;
+      background: rgba(232,168,56,0.08);
+      border-color: rgba(232,168,56,0.3);
+    }
+
+    .detail-action-btn-retry:hover:not(:disabled) {
+      background: rgba(232,168,56,0.15);
+      border-color: rgba(232,168,56,0.5);
+    }
+
+    .detail-action-btn-complete {
+      color: #3cbf6e;
+      background: rgba(60,191,110,0.08);
+      border-color: rgba(60,191,110,0.3);
+    }
+
+    .detail-action-btn-complete:hover:not(:disabled) {
+      background: rgba(60,191,110,0.15);
+      border-color: rgba(60,191,110,0.5);
+    }
+
+    .detail-footer-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .detail-footer-msg { font-size: 0.65rem; font-family: 'JetBrains Mono', monospace; }
+    .detail-footer-msg.success { color: #3cbf6e; }
+    .detail-footer-msg.error { color: #e74c3c; }
+    .detail-footer-msg.loading { color: #8b919a; }
+    .detail-pr-link {
+      color: var(--col-pr_ready);
+      font-size: 0.8rem;
+      text-decoration: none;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 4px 8px;
+      border: 1px solid var(--col-pr_ready);
+      border-radius: 4px;
+      display: inline-block;
+    }
+    .detail-pr-link:hover { background: rgba(59, 130, 246, 0.1); }
+
+    /* ── Responsive ────────────────────────────── */
+
+    @media (max-width: 900px) {
+      .board {
+        flex-direction: column;
+        gap: 0;
+      }
+
+      .intake-divider {
+        width: auto;
+        height: 1px;
+        margin: 4px 0;
+      }
+
+      .column {
+        min-width: 0;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .column-body {
+        max-height: 50vh;
+      }
+
+      .detail-panel {
+        width: 100%;
+        max-width: 100vw;
+      }
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="logo"></div>
+        <h1 id="boardTitle">Pipeline</h1>
+      </div>
+      <div class="controls">
+        <select id="companySelect" class="company-select" style="display:none" aria-label="Switch company"></select>
+        <span id="lastUpdated" class="last-updated"></span>
+        <button id="refreshButton" class="refresh-btn" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <div id="message" aria-live="polite" role="status"></div>
+    <section class="machines-wrap" aria-live="polite">
+      <div class="machines-header">
+        <div class="machines-title">Machines</div>
+        <div id="machinesLatestVersion" class="machines-latest">Latest: unknown</div>
+      </div>
+      <div class="machines-table-wrap">
+        <table class="machines-table" aria-label="Machines list">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Last Heartbeat</th>
+              <th>Slots (Claude/Codex)</th>
+              <th>Agent Version</th>
+            </tr>
+          </thead>
+          <tbody id="machinesTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+    <main id="dashboard" class="dashboard" aria-live="polite"></main>
+  </div>
+
+  <!-- Detail side panel -->
+  <div id="detailOverlay" class="detail-overlay" role="dialog" aria-modal="true" aria-label="Detail">
+    <div class="detail-panel">
+      <div class="detail-header">
+        <div class="detail-title-group">
+          <button id="detailBackBtn" class="detail-back-btn" type="button" style="display:none">&larr; Back</button>
+          <div id="detailLiveDot" class="detail-live-dot"></div>
+          <span id="detailTitle" class="detail-title"></span>
+          <span id="detailStatus" class="detail-status-badge"></span>
+        </div>
+        <button id="detailClose" class="detail-close" type="button">Close</button>
+      </div>
+      <div id="detailContent" class="detail-content"></div>
+      <div class="detail-footer">
+        <span id="detailFooterText"></span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const SUPABASE_URL = 'https://jmussmwglgbwncgygzbz.supabase.co';
+      const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptdXNzbXdnbGdid25jZ3lnemJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NTMyNDEsImV4cCI6MjA4NzAyOTI0MX0.bI2U8TNQ5FZ5ri3DUWJGZFuvC99WGc-fslmZZ5TcQo0';
+      const AGENT_VERSION_ENV = 'production';
+      // WARNING: This key grants full DB access. For local dev only.
+      // In production, inject via Netlify environment variable or server-side config.
+      const SERVICE_ROLE_KEY = typeof __SERVICE_ROLE_KEY__ !== 'undefined' ? __SERVICE_ROLE_KEY__ : 'YOUR_SERVICE_ROLE_KEY_HERE';
+      const SERVICE_HEADERS = { apikey: SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SERVICE_ROLE_KEY, 'Content-Type': 'application/json' };
+
+      const FEATURES_BASE =
+        SUPABASE_URL + '/rest/v1/features?select=id,title,description,priority,status,spec,acceptance_tests,branch,project_id,tags,source_idea_id,created_at,updated_at,error,pr_url,jobs(id,title,status,progress,model,job_type,role,sequence,branch,blocked_reason,created_at)&status=not.eq.cancelled&order=created_at.desc';
+      const QUERY_IDEAS_URL =
+        SUPABASE_URL + '/functions/v1/query-ideas';
+      const COMPANIES_BASE =
+        SUPABASE_URL + '/rest/v1/companies?select=id,name&limit=1&name=eq.';
+      const ALL_COMPANIES_URL =
+        SUPABASE_URL + '/rest/v1/companies?select=id,name&order=name';
+      const JOB_DETAIL_BASE =
+        SUPABASE_URL + '/rest/v1/jobs?select=id,title,status,context,model,role,progress,created_at,started_at,completed_at&limit=1&id=eq.';
+
+      const AUTH_HEADERS = { apikey: ANON_KEY, Authorization: 'Bearer ' + ANON_KEY };
+      const supabaseClient = window.supabase.createClient(SUPABASE_URL, ANON_KEY);
+
+      // Intake funnel: ideas -> triage -> development (pre-pipeline)
+      const INTAKE_COLUMNS = [
+        { key: 'new',             label: 'Ideas',       color: '#64748b', source: 'ideas' },
+        { key: 'triaged',         label: 'Triage',      color: '#f59e0b', source: 'ideas' },
+      ];
+
+      // Build pipeline: breaking_down -> complete
+      const PIPELINE_COLUMNS = [
+        { key: 'breaking_down',    label: 'Breakdown',    color: '#ec4899' },
+        { key: 'building',         label: 'Building',     color: '#f97316' },
+        { key: 'combining_and_pr', label: 'Combine + PR', color: '#eab308' },
+        { key: 'verifying',        label: 'Verifying',    color: '#06b6d4' },
+        { key: 'merging',          label: 'Merging',      color: '#3b82f6' },
+        { key: 'complete',         label: 'Complete',     color: '#22c55e' },
+        { key: 'failed',           label: 'Failed',       color: '#ef4444' },
+      ];
+
+      // Outcome: shipped ideas (after pipeline)
+      const SHIPPED_COLUMN = { key: 'done', label: 'Shipped', color: '#10b981', source: 'ideas' };
+
+      // Only these job statuses indicate actively-working (show progress bar)
+      const WORKING_JOB_STATUSES = new Set(['executing', 'blocked', 'reviewing']);
+      const COMPLETE_JOB_STATUSES = new Set(['complete', 'done', 'approved']);
+      const TERMINAL_JOB_STATUSES = new Set(['complete', 'failed', 'cancelled']);
+
+      // Board elements
+      const dashboardEl   = document.getElementById('dashboard');
+      const messageEl     = document.getElementById('message');
+      const lastUpdatedEl = document.getElementById('lastUpdated');
+      const refreshButton = document.getElementById('refreshButton');
+      const companySelect = document.getElementById('companySelect');
+      const boardTitleEl  = document.getElementById('boardTitle');
+      const machinesTableBodyEl = document.getElementById('machinesTableBody');
+      const machinesLatestVersionEl = document.getElementById('machinesLatestVersion');
+
+      // Detail panel elements
+      const detailOverlay  = document.getElementById('detailOverlay');
+      const detailBackBtn  = document.getElementById('detailBackBtn');
+      const detailLiveDot  = document.getElementById('detailLiveDot');
+      const detailTitleEl  = document.getElementById('detailTitle');
+      const detailStatusEl = document.getElementById('detailStatus');
+      const detailContentEl = document.getElementById('detailContent');
+      const detailFooterEl = document.getElementById('detailFooterText');
+      const detailCloseBtn = document.getElementById('detailClose');
+
+      // State
+      let isFetching      = false;
+      let fetchEpoch      = 0; // incremented on each refresh; stale responses are discarded
+      let activeCompanyId = null;
+      let companyBlocked  = false;
+      let detailPollTimer = null;
+      let openDetailId    = null; // currently open idea, feature, or job ID
+      let detailViewStack = []; // navigation stack for feature -> job
+
+      // Cache last fetched records for board and detail views
+      let lastFeatures = [];
+      let lastIdeas = [];
+      let lastMachines = [];
+      let latestAgentVersion = null;
+      let parkedExpanded = false;
+      let actionInFlight = false;
+
+      // ── Helpers ──────────────────────────────
+
+      function el(tag, cls, txt) {
+        var e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (txt != null) e.textContent = txt;
+        return e;
+      }
+
+      function apiFetch(url) {
+        return fetch(url, { headers: AUTH_HEADERS }).then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        });
+      }
+
+      function apiPost(url, payload) {
+        return fetch(url, {
+          method: 'POST',
+          headers: Object.assign({ 'Content-Type': 'application/json' }, AUTH_HEADERS),
+          body: JSON.stringify(payload || {}),
+        }).then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        });
+      }
+
+      function formatTime(d) {
+        var p = function(v) { return String(v).padStart(2, '0'); };
+        return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+      }
+
+      function formatDate(isoStr) {
+        if (!isoStr) return '\u2014';
+        var d = new Date(isoStr);
+        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return months[d.getMonth()] + ' ' + d.getDate() + ', ' + formatTime(d);
+      }
+
+      function formatRelativeTime(isoStr) {
+        if (!isoStr) return '\u2014';
+        var ts = new Date(isoStr).getTime();
+        if (!Number.isFinite(ts)) return '\u2014';
+        var diff = Math.max(0, Date.now() - ts);
+        var minutes = Math.floor(diff / 60000);
+        if (minutes < 60) return Math.max(1, minutes) + 'm ago';
+        var hours = Math.floor(minutes / 60);
+        if (hours < 24) return hours + 'h ago';
+        var days = Math.floor(hours / 24);
+        if (days < 14) return days + 'd ago';
+        var weeks = Math.floor(days / 7);
+        if (weeks < 6) return weeks + 'w ago';
+        var months = Math.floor(days / 30);
+        return Math.max(1, months) + 'mo ago';
+      }
+
+      function setMessage(text, isError) {
+        messageEl.textContent = text;
+        messageEl.className = isError ? 'error' : '';
+      }
+
+      function renderMachines(machines, latestVersion) {
+        machinesTableBodyEl.textContent = '';
+        machinesLatestVersionEl.textContent = 'Latest: ' + (latestVersion || 'unknown');
+
+        if (!Array.isArray(machines) || machines.length === 0) {
+          var emptyRow = el('tr');
+          var emptyCell = el('td', 'machine-status-unknown', 'No machines found');
+          emptyCell.colSpan = 5;
+          emptyRow.appendChild(emptyCell);
+          machinesTableBodyEl.appendChild(emptyRow);
+          return;
+        }
+
+        for (var i = 0; i < machines.length; i++) {
+          var machine = machines[i] || {};
+          var row = el('tr');
+
+          row.appendChild(el('td', '', String(machine.name || '\u2014')));
+
+          var statusText = normalizeStatus(machine.status) || 'unknown';
+          var statusClass = statusText === 'online'
+            ? 'machine-status-online'
+            : statusText === 'offline'
+              ? 'machine-status-offline'
+              : 'machine-status-unknown';
+          row.appendChild(el('td', statusClass, statusText));
+
+          row.appendChild(el('td', '', formatRelativeTime(machine.last_heartbeat)));
+
+          var slotsText =
+            String(Number(machine.slots_claude_code || 0)) +
+            ' / ' +
+            String(Number(machine.slots_codex || 0));
+          row.appendChild(el('td', '', slotsText));
+
+          var versionCell;
+          if (!machine.agent_version) {
+            versionCell = el('td', 'machine-version-unknown', 'unknown');
+          } else if (latestVersion && machine.agent_version !== latestVersion) {
+            versionCell = el('td', 'machine-version-outdated', '\u26a0\ufe0f ' + String(machine.agent_version));
+            versionCell.title = 'Outdated \u2014 latest is v' + latestVersion;
+          } else {
+            versionCell = el('td', '', String(machine.agent_version));
+          }
+          row.appendChild(versionCell);
+
+          machinesTableBodyEl.appendChild(row);
+        }
+      }
+
+      function normalizeStatus(s) {
+        return String(s || '').trim().toLowerCase();
+      }
+
+      function normalizePriority(p) {
+        var n = normalizeStatus(p);
+        if (n === 'urgent' || n === 'high' || n === 'medium' || n === 'low') return n;
+        return 'medium';
+      }
+
+      function getPriorityDisplay(priority) {
+        var p = normalizePriority(priority);
+        return { level: p, label: p };
+      }
+
+      function buildPriorityBadge(priority, className) {
+        var p = getPriorityDisplay(priority);
+        var badge = el('span', (className || 'priority-badge') + ' ' + p.level);
+        badge.appendChild(el('span', 'priority-badge-dot'));
+        badge.appendChild(el('span', '', p.label));
+        return badge;
+      }
+
+      function parseText(value) {
+        if (value == null) return '';
+        if (typeof value === 'string') return value.trim();
+        try {
+          return JSON.stringify(value, null, 2);
+        } catch (_) {
+          return String(value);
+        }
+      }
+
+      function parseStringList(value) {
+        if (Array.isArray(value)) {
+          return value
+            .map(function(v) { return String(v || '').trim(); })
+            .filter(Boolean);
+        }
+        if (typeof value === 'string') {
+          var trimmed = value.trim();
+          if (!trimmed) return [];
+          if ((trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+              (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
+            try {
+              return parseStringList(JSON.parse(trimmed));
+            } catch (_) {
+              // Fall back to delimiter parsing
+            }
+          }
+          return trimmed
+            .split(/[,\n]/)
+            .map(function(v) { return v.trim(); })
+            .filter(Boolean);
+        }
+        if (value && typeof value === 'object') {
+          var list = [];
+          var keys = Object.keys(value);
+          for (var i = 0; i < keys.length; i++) {
+            if (value[keys[i]]) list.push(keys[i]);
+          }
+          return list;
+        }
+        return [];
+      }
+
+      function getAgeDays(isoStr) {
+        if (!isoStr) return 0;
+        var ts = new Date(isoStr).getTime();
+        if (!Number.isFinite(ts)) return 0;
+        return Math.floor(Math.max(0, Date.now() - ts) / 86400000);
+      }
+
+      function getIdeaTimestamp(idea) {
+        return idea?.updated_at || idea?.created_at || null;
+      }
+
+      function getFeatureTitle(f) {
+        if (typeof f?.title === 'string' && f.title.trim()) return f.title.trim();
+        if (f?.spec != null) {
+          var t = typeof f.spec === 'string' ? f.spec : JSON.stringify(f.spec);
+          var line = t.split(/\r?\n/, 1)[0].trim();
+          if (line.length > 60) line = line.slice(0, 57) + '\u2026';
+          if (line) return line;
+        }
+        return 'Untitled feature';
+      }
+
+      function getIdeaTitle(idea) {
+        if (typeof idea?.title === 'string' && idea.title.trim()) return idea.title.trim();
+        var fallbackText = idea?.description ?? idea?.raw_text ?? idea?.text ?? null;
+        if (fallbackText != null) {
+          var t = typeof fallbackText === 'string'
+            ? fallbackText : JSON.stringify(fallbackText);
+          var line = t.split(/\r?\n/, 1)[0].trim();
+          if (line.length > 60) line = line.slice(0, 57) + '\u2026';
+          if (line) return line;
+        }
+        return 'Untitled idea';
+      }
+
+      function getIdeaBodyText(idea) {
+        return parseText(idea?.description ?? idea?.raw_text ?? idea?.text);
+      }
+
+      function findCachedIdea(ideaId) {
+        var key = String(ideaId || '');
+        if (!key) return null;
+        for (var i = 0; i < lastIdeas.length; i++) {
+          if (String(lastIdeas[i]?.id || '') === key) return lastIdeas[i];
+        }
+        return null;
+      }
+
+      function fetchIdeaById(ideaId) {
+        if (!ideaId) return Promise.resolve(null);
+        return apiPost(QUERY_IDEAS_URL, {
+          idea_id: String(ideaId),
+          company_id: activeCompanyId || null,
+          limit: 1,
+        }).then(function(payload) {
+          var ideas = Array.isArray(payload?.ideas) ? payload.ideas : [];
+          return ideas.length > 0 ? ideas[0] : null;
+        });
+      }
+
+      function buildSourceIdeaBlock(idea, sourceIdeaId) {
+        var block = el('div', 'detail-context-block detail-idea-block');
+
+        if (!idea) {
+          var missingText = el('div', 'detail-context-text muted', 'Source idea unavailable');
+          block.appendChild(missingText);
+          if (sourceIdeaId) {
+            block.appendChild(el('div', 'detail-idea-id', 'ID: ' + String(sourceIdeaId)));
+          }
+          return block;
+        }
+
+        block.appendChild(el('div', 'detail-idea-title', getIdeaTitle(idea)));
+
+        var chips = el('div', 'detail-idea-meta');
+        chips.appendChild(el('span', 'detail-idea-chip', normalizeStatus(idea.status) || 'idea'));
+        chips.appendChild(buildPriorityBadge(idea.priority, 'priority-badge'));
+        block.appendChild(chips);
+
+        var summary = getIdeaBodyText(idea);
+        var summaryClass = summary ? 'detail-context-text' : 'detail-context-text muted';
+        block.appendChild(el('div', summaryClass, summary || 'No idea description'));
+
+        block.appendChild(el('div', 'detail-idea-id',
+          'ID: ' + String(idea.id || sourceIdeaId || '\u2014')));
+        return block;
+      }
+
+      function getIdeaRecommendation(idea) {
+        var notes = idea?.triage_notes;
+        if (notes && typeof notes === 'object') {
+          var rec = normalizeStatus(notes.recommendation || notes.action || notes.next_step);
+          if (rec === 'promote' || rec === 'park' || rec === 'reject') return rec;
+        }
+        var text = parseText(notes).toLowerCase();
+        if (/\bpromote\b/.test(text)) return 'promote';
+        if (/\breject\b/.test(text)) return 'reject';
+        if (/\bpark\b/.test(text)) return 'park';
+        return '';
+      }
+
+      function getJobTitle(job) {
+        if (typeof job?.title === 'string' && job.title.trim()) return job.title.trim();
+        if (job?.context != null) {
+          var t = typeof job.context === 'string' ? job.context : JSON.stringify(job.context);
+          t = t.replace(/\s+/g, ' ').trim();
+          // Try to extract a type field for a nicer fallback
+          try {
+            var parsed = JSON.parse(t);
+            if (parsed.type) {
+              return parsed.type.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+            }
+          } catch (_) {}
+          if (t.length > 50) t = t.slice(0, 47) + '\u2026';
+          if (t) return t;
+        }
+        return 'Untitled job';
+      }
+
+      function clampProgress(v) {
+        var n = Number(v);
+        return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0;
+      }
+
+      function getJobCompletionPercent(job) {
+        var status = normalizeStatus(job?.status);
+        if (COMPLETE_JOB_STATUSES.has(status)) return 100;
+        if (TERMINAL_JOB_STATUSES.has(status)) return 100;
+        return clampProgress(job?.progress);
+      }
+
+      function getFeatureProgress(jobs) {
+        if (!Array.isArray(jobs) || jobs.length === 0) return 0;
+        var total = 0;
+        for (var i = 0; i < jobs.length; i++) {
+          total += getJobCompletionPercent(jobs[i]);
+        }
+        return Math.max(0, Math.min(100, Math.round(total / jobs.length)));
+      }
+
+      function sortJobs(jobs) {
+        return [...jobs].sort(function(a, b) {
+          var sa = Number.isFinite(Number(a?.sequence)) ? Number(a.sequence) : Infinity;
+          var sb = Number.isFinite(Number(b?.sequence)) ? Number(b.sequence) : Infinity;
+          if (sa !== sb) return sa - sb;
+          return String(a?.created_at || '').localeCompare(String(b?.created_at || ''));
+        });
+      }
+
+      function isAtBottom(el) {
+        return el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      }
+
+      // ── Company / URL ────────────────────────
+
+      function getCompanySlug() {
+        var seg = window.location.pathname.replace(/^\/+/, '').replace(/\/+$/, '').split('/')[0];
+        return seg ? decodeURIComponent(seg) : null;
+      }
+
+      async function resolveCompany(slug) {
+        var rows = await apiFetch(COMPANIES_BASE + encodeURIComponent(slug));
+        return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+      }
+
+      function setBoardTitle(companyName) {
+        boardTitleEl.textContent = '';
+        boardTitleEl.appendChild(document.createTextNode('Pipeline'));
+        if (companyName) {
+          boardTitleEl.appendChild(document.createTextNode(' \u2014 '));
+          var tag = document.createElement('span');
+          tag.className = 'company-tag';
+          tag.textContent = companyName;
+          boardTitleEl.appendChild(tag);
+        }
+      }
+
+      // ── Card Rendering ──────────────────────
+
+      function renderFeatureCard(feature, colDef, delay) {
+        var card = el('div', 'card');
+        card.style.animationDelay = delay + 'ms';
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+
+        var accent = el('div', 'card-accent');
+        accent.style.background = colDef.color;
+        card.appendChild(accent);
+
+        var body = el('div', 'card-body');
+
+        // Title
+        body.appendChild(el('div', 'card-title', getFeatureTitle(feature)));
+
+        var priorityMeta = el('div', 'card-meta');
+        priorityMeta.appendChild(buildPriorityBadge(feature.priority, 'priority-badge'));
+        body.appendChild(priorityMeta);
+
+        var description = parseText(feature.description);
+        var hasDescription = Boolean(description);
+        body.appendChild(el(
+          'div',
+          hasDescription ? 'feature-description' : 'feature-description muted',
+          hasDescription ? description : 'No description'
+        ));
+
+        // Meta line
+        var meta = el('div', 'card-meta');
+        var allJobs = Array.isArray(feature?.jobs) ? feature.jobs : [];
+        var jobs = allJobs.filter(function(j) {
+          return normalizeStatus(j?.status) !== 'cancelled';
+        });
+
+        var doneCount = 0;
+        var activeJobs = [];
+        if (jobs.length > 0) {
+          doneCount = jobs.filter(function(j) {
+            return COMPLETE_JOB_STATUSES.has(normalizeStatus(j?.status));
+          }).length;
+          meta.appendChild(el('span', '', doneCount + '/' + jobs.length + ' done'));
+
+          activeJobs = jobs.filter(function(j) {
+            return WORKING_JOB_STATUSES.has(normalizeStatus(j?.status));
+          });
+          if (activeJobs.length > 0) {
+            meta.appendChild(el('span', 'card-meta-sep', '\u00b7'));
+            meta.appendChild(el('span', 'card-active-label',
+              activeJobs.length + ' active'));
+          }
+        }
+
+        if (meta.childNodes.length > 0) body.appendChild(meta);
+
+        // PR status badge for pr_ready column
+        if (colDef.key === 'pr_ready') {
+          var prMeta = el('div', 'card-meta');
+          if (feature.pr_url) {
+            var prNumMatch = String(feature.pr_url).match(/\/pull\/(\d+)/);
+            var prLabel = prNumMatch ? 'PR #' + prNumMatch[1] : 'HAS PR';
+            prMeta.appendChild(el('span', 'card-pr-exists-label', prLabel));
+          } else {
+            prMeta.appendChild(el('span', 'card-pr-pending-label', 'PR PENDING'));
+          }
+          body.appendChild(prMeta);
+        }
+
+        // Error subtitle for failed features
+        if (normalizeStatus(feature.status) === 'failed' && feature.error) {
+          var errEl = el('div', 'card-meta', '');
+          errEl.textContent = feature.error;
+          errEl.style.color = '#e74c3c';
+          errEl.style.fontSize = '11px';
+          errEl.style.marginTop = '4px';
+          errEl.style.overflow = 'hidden';
+          errEl.style.textOverflow = 'ellipsis';
+          errEl.style.whiteSpace = 'nowrap';
+          errEl.title = feature.error;
+          body.appendChild(errEl);
+        }
+
+        card.appendChild(body);
+
+        // Progress bar — aggregate all job completion while any job is active
+        if (jobs.length > 0 && activeJobs.length > 0) {
+          var progress = getFeatureProgress(jobs);
+          var track = el('div', 'card-progress');
+          var fill = el('div', 'card-progress-fill active');
+          fill.style.width = Math.max(progress, 5) + '%';
+          fill.style.background = 'linear-gradient(90deg, ' + colDef.color + ', ' +
+            colDef.color + 'aa, ' + colDef.color + ')';
+          track.appendChild(fill);
+          card.appendChild(track);
+        }
+
+        // Click handler
+        card.addEventListener('click', function() { openFeatureDetail(feature); });
+        card.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openFeatureDetail(feature); }
+        });
+
+        return card;
+      }
+
+      function renderIdeaCard(idea, colDef, delay, opts) {
+        var card = el('div', 'card idea-card');
+        card.style.animationDelay = delay + 'ms';
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+
+        if (opts?.warnStale) card.classList.add('stale');
+        if (opts?.deepStale) card.classList.add('deep-stale');
+
+        var accent = el('div', 'card-accent');
+        accent.style.background = colDef.color;
+        card.appendChild(accent);
+
+        var body = el('div', 'card-body');
+        body.appendChild(el('div', 'card-title', getIdeaTitle(idea)));
+
+        var meta = el('div', 'idea-meta');
+        var priority = getPriorityDisplay(idea.priority);
+        var pr = el('span', 'idea-priority ' + priority.level);
+        pr.appendChild(el('span', 'idea-priority-dot'));
+        pr.appendChild(el('span', '', priority.label));
+        meta.appendChild(pr);
+        meta.appendChild(el('span', 'card-meta-sep', '\u00b7'));
+        meta.appendChild(el('span', 'idea-age', formatRelativeTime(idea.created_at)));
+        body.appendChild(meta);
+
+        var footer = el('div', 'idea-footer');
+        if (colDef.key === 'triaged') {
+          var rec = getIdeaRecommendation(idea);
+          if (rec) footer.appendChild(el('span', 'idea-recommendation ' + rec, rec));
+        }
+
+        var originator = (typeof idea?.originator === 'string' && idea.originator.trim())
+          ? idea.originator.trim()
+          : '';
+        footer.appendChild(el(
+          'span',
+          originator ? 'idea-originator' : 'idea-originator muted',
+          originator || 'unknown'
+        ));
+        body.appendChild(footer);
+
+        card.appendChild(body);
+
+        card.addEventListener('click', function() { openIdeaDetail(idea); });
+        card.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openIdeaDetail(idea); }
+        });
+
+        return card;
+      }
+
+      function renderColumn(colDef, items, parkedIdeas) {
+        var col = el('div', 'column');
+        col.style.background = 'var(--col-' + colDef.key + '-bg, var(--bg))';
+
+        var hdr = el('div', 'column-header');
+        var titleGroup = el('div', 'column-title');
+        var dot = el('div', 'column-dot');
+        dot.style.background = colDef.color;
+        titleGroup.appendChild(dot);
+        titleGroup.appendChild(el('span', 'column-name', colDef.label));
+        hdr.appendChild(titleGroup);
+        hdr.appendChild(el('span', 'column-count', String(items.length)));
+        col.appendChild(hdr);
+
+        var body = el('div', 'column-body');
+        if (items.length === 0 && (!parkedIdeas || parkedIdeas.length === 0)) {
+          body.appendChild(el('div', 'column-empty', 'No items'));
+        } else {
+          for (var i = 0; i < items.length; i++) {
+            if (colDef.source === 'ideas') {
+              var ageDays = getAgeDays(items[i]?.created_at);
+              body.appendChild(renderIdeaCard(items[i], colDef, i * 50, {
+                warnStale: colDef.key === 'new' && ageDays > 7
+              }));
+            } else {
+              body.appendChild(renderFeatureCard(items[i], colDef, i * 50));
+            }
+          }
+        }
+
+        // Collapsible parked section inside the column
+        if (parkedIdeas && parkedIdeas.length > 0) {
+          var parkedWrap = el('div', 'parked-section');
+          var toggle = el('button', 'parked-toggle');
+          toggle.type = 'button';
+          toggle.setAttribute('aria-expanded', parkedExpanded ? 'true' : 'false');
+          toggle.textContent = (parkedExpanded ? '\u25be' : '\u25b8') + ' Parked (' + parkedIdeas.length + ')';
+          toggle.addEventListener('click', function() {
+            parkedExpanded = !parkedExpanded;
+            renderBoard(lastFeatures, lastIdeas);
+          });
+          parkedWrap.appendChild(toggle);
+
+          if (parkedExpanded) {
+            var groups = buildParkedGroups(parkedIdeas);
+            var content = el('div', 'parked-content');
+            var renderIdx = 0;
+            for (var g = 0; g < groups.length; g++) {
+              if (groups[g].items.length === 0) continue;
+              var groupWrap = document.createElement('div');
+              var heading = el(
+                'div',
+                groups[g].stale ? 'parked-group-title stale' : 'parked-group-title',
+                groups[g].label + ' (' + groups[g].items.length + ')'
+              );
+              groupWrap.appendChild(heading);
+              for (var pi = 0; pi < groups[g].items.length; pi++) {
+                var idea = groups[g].items[pi];
+                var age = getAgeDays(getIdeaTimestamp(idea));
+                groupWrap.appendChild(renderIdeaCard(idea, colDef, renderIdx * 35, {
+                  deepStale: age > 90
+                }));
+                renderIdx++;
+              }
+              content.appendChild(groupWrap);
+            }
+            parkedWrap.appendChild(content);
+          }
+
+          body.appendChild(parkedWrap);
+        }
+
+        col.appendChild(body);
+        return col;
+      }
+
+      function buildParkedGroups(parkedIdeas) {
+        var week = [];
+        var month = [];
+        var older = [];
+        var stale = [];
+
+        for (var i = 0; i < parkedIdeas.length; i++) {
+          var idea = parkedIdeas[i];
+          var age = getAgeDays(getIdeaTimestamp(idea));
+          if (age <= 7) {
+            week.push(idea);
+          } else if (age <= 30) {
+            month.push(idea);
+          } else if (age > 90) {
+            stale.push(idea);
+          } else {
+            older.push(idea);
+          }
+        }
+
+        return [
+          { label: 'This week', items: week },
+          { label: 'This month', items: month },
+          { label: 'Older', items: older },
+          { label: '\u26a0 Stale \u2014 over 90 days', items: stale, stale: true },
+        ];
+      }
+
+      // renderParkedSection removed — parked now renders inline in Ideas column
+
+      function renderBoard(features, ideas) {
+        var featuresByCol = {};
+        for (var p = 0; p < PIPELINE_COLUMNS.length; p++) {
+          featuresByCol[PIPELINE_COLUMNS[p].key] = [];
+        }
+        for (var i = 0; i < features.length; i++) {
+          var fs = normalizeStatus(features[i]?.status);
+          if (fs === 'cancelled') continue;
+          if (featuresByCol[fs]) {
+            featuresByCol[fs].push(features[i]);
+          }
+        }
+
+        var ideasByStatus = { new: [], triaged: [], parked: [], done: [] };
+        for (var j = 0; j < ideas.length; j++) {
+          var is = normalizeStatus(ideas[j]?.status);
+          if (ideasByStatus[is]) ideasByStatus[is].push(ideas[j]);
+        }
+
+        var board = el('div', 'board');
+
+        for (var c = 0; c < INTAKE_COLUMNS.length; c++) {
+          var intakeCol = INTAKE_COLUMNS[c];
+          var intakeItems = intakeCol.source === 'ideas'
+            ? (ideasByStatus[intakeCol.key] || [])
+            : (featuresByCol[intakeCol.key] || []);
+          // Nest parked ideas inside the Ideas (new) column
+          var parked = intakeCol.key === 'new' ? (ideasByStatus.parked || []) : undefined;
+          board.appendChild(renderColumn(intakeCol, intakeItems, parked));
+        }
+
+        board.appendChild(el('div', 'intake-divider'));
+
+        for (var k = 0; k < PIPELINE_COLUMNS.length; k++) {
+          var pipeCol = PIPELINE_COLUMNS[k];
+          board.appendChild(renderColumn(pipeCol, featuresByCol[pipeCol.key] || []));
+        }
+
+        // Shipped column (done ideas) after pipeline
+        board.appendChild(el('div', 'intake-divider'));
+        board.appendChild(renderColumn(SHIPPED_COLUMN, ideasByStatus.done || []));
+
+        dashboardEl.replaceChildren(board);
+      }
+
+      // ── Data Fetch ─────────────────────────
+
+      async function fetchFeatures() {
+        var url = FEATURES_BASE;
+        if (activeCompanyId) url += '&company_id=eq.' + encodeURIComponent(activeCompanyId);
+        var payload = await apiFetch(url);
+        return Array.isArray(payload) ? payload : [];
+      }
+
+      function priorityScore(priority) {
+        var p = normalizePriority(priority);
+        if (p === 'urgent') return 4;
+        if (p === 'high') return 3;
+        if (p === 'medium') return 2;
+        return 1;
+      }
+
+      function sortIdeas(ideas) {
+        return [...ideas].sort(function(a, b) {
+          var pa = priorityScore(a?.priority);
+          var pb = priorityScore(b?.priority);
+          if (pa !== pb) return pb - pa;
+          var ta = new Date(a?.created_at || 0).getTime();
+          var tb = new Date(b?.created_at || 0).getTime();
+          return tb - ta;
+        });
+      }
+
+      async function fetchIdeas() {
+        var statuses = ['new', 'triaged', 'parked', 'done', 'promoted'];
+        var calls = statuses.map(function(status) {
+          return apiPost(QUERY_IDEAS_URL, {
+            status: status,
+            company_id: activeCompanyId || null,
+            limit: 200,
+          });
+        });
+        var responses = await Promise.all(calls);
+        var combined = [];
+        for (var i = 0; i < responses.length; i++) {
+          var ideas = Array.isArray(responses[i]?.ideas) ? responses[i].ideas : [];
+          for (var j = 0; j < ideas.length; j++) {
+            combined.push(ideas[j]);
+          }
+        }
+
+        var dedupedMap = new Map();
+        for (var k = 0; k < combined.length; k++) {
+          if (combined[k]?.id) dedupedMap.set(String(combined[k].id), combined[k]);
+        }
+
+        var deduped = Array.from(dedupedMap.values());
+        if (activeCompanyId) {
+          deduped = deduped.filter(function(idea) {
+            return String(idea?.company_id || '') === String(activeCompanyId);
+          });
+        }
+        return sortIdeas(deduped);
+      }
+
+      async function fetchMachinesAndVersion() {
+        const { data: machines, error: machinesError } = await supabaseClient
+          .from('machines')
+          .select('name, status, last_heartbeat, slots_claude_code, slots_codex, agent_version')
+          .order('name', { ascending: true });
+        if (machinesError) throw machinesError;
+
+        const { data: latestVersionRow, error: latestVersionError } = await supabaseClient
+          .from('agent_versions')
+          .select('version')
+          .eq('env', AGENT_VERSION_ENV)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (latestVersionError) throw latestVersionError;
+
+        return {
+          machines: Array.isArray(machines) ? machines : [],
+          latestVersion: latestVersionRow?.version || null,
+        };
+      }
+
+      async function refreshDashboard() {
+        if (companyBlocked) return;
+        // Bump epoch so any in-flight fetch from a previous company is discarded.
+        var epoch = ++fetchEpoch;
+        var companyAtStart = activeCompanyId;
+        isFetching = true;
+        refreshButton.disabled = true;
+        try {
+          var payload = await Promise.all([fetchFeatures(), fetchIdeas(), fetchMachinesAndVersion()]);
+          // Discard if company changed or a newer refresh has already started.
+          if (epoch !== fetchEpoch || companyAtStart !== activeCompanyId) return;
+          // Client-side safety filter: drop any features that leaked from another company.
+          var safeFeatures = Array.isArray(payload[0]) ? payload[0].filter(function(f) {
+            return !activeCompanyId || String(f?.company_id || '') === String(activeCompanyId);
+          }) : [];
+          lastFeatures = safeFeatures;
+          lastIdeas = payload[1];
+          lastMachines = payload[2].machines;
+          latestAgentVersion = payload[2].latestVersion;
+          renderMachines(lastMachines, latestAgentVersion);
+          renderBoard(lastFeatures, lastIdeas);
+          setMessage('');
+          lastUpdatedEl.textContent = formatTime(new Date());
+        } catch (_) {
+          if (epoch !== fetchEpoch) return;
+          setMessage('Failed to load \u2014 retrying in 30s', true);
+        } finally {
+          if (epoch === fetchEpoch) {
+            isFetching = false;
+            refreshButton.disabled = false;
+          }
+        }
+      }
+
+      // ── Detail Panel: Idea & Feature Views ─
+
+      function openIdeaDetail(idea) {
+        stopDetailPoll();
+        detailViewStack = [];
+        openDetailId = idea.id;
+
+        var status = normalizeStatus(idea.status) || 'idea';
+
+        detailBackBtn.style.display = 'none';
+        detailLiveDot.className = 'detail-live-dot waiting';
+        detailTitleEl.textContent = getIdeaTitle(idea);
+        detailStatusEl.textContent = status;
+        detailFooterEl.textContent = 'Idea detail is read-only in this view';
+
+        detailContentEl.textContent = '';
+
+        var metaDiv = el('div', 'detail-meta');
+
+        function addMeta(label, value) {
+          var row = el('div', 'detail-meta-row');
+          row.appendChild(el('span', 'detail-meta-label', label));
+          if (value instanceof Node) {
+            row.appendChild(value);
+          } else {
+            row.appendChild(el('span', 'detail-meta-value', value));
+          }
+          metaDiv.appendChild(row);
+        }
+
+        addMeta('ID', String(idea.id || '\u2014'));
+        if (idea.originator) addMeta('Originator', String(idea.originator));
+        addMeta('Priority', getPriorityDisplay(idea.priority).label);
+        if (idea.suggested_exec) addMeta('Suggested exec', String(idea.suggested_exec));
+        addMeta('Created', formatDate(idea.created_at));
+        if (idea.updated_at) addMeta('Updated', formatDate(idea.updated_at));
+
+        var tags = parseStringList(idea.tags);
+        if (tags.length > 0) {
+          var tagsWrap = el('span', 'detail-meta-value detail-tag-list');
+          for (var t = 0; t < tags.length; t++) {
+            tagsWrap.appendChild(el('span', 'detail-tag', tags[t]));
+          }
+          addMeta('Tags', tagsWrap);
+        }
+
+        detailContentEl.appendChild(metaDiv);
+
+        var description = parseText(idea.description ?? idea.raw_text ?? idea.text);
+        if (description) {
+          detailContentEl.appendChild(el('div', 'detail-section-title', 'Description'));
+          var descBlock = el('div', 'detail-context-block');
+          var descText = el('div', 'detail-context-text');
+          descText.textContent = description;
+          descBlock.appendChild(descText);
+          detailContentEl.appendChild(descBlock);
+        }
+
+        if (status === 'triaged') {
+          var triageNotes = parseText(idea.triage_notes);
+          var clarification = parseText(idea.clarification_notes);
+          if (triageNotes || clarification) {
+            detailContentEl.appendChild(el('div', 'detail-section-title', 'Triage'));
+            var triageBlock = el('div', 'detail-context-block');
+            if (triageNotes) {
+              triageBlock.appendChild(el('div', 'detail-sub-label', 'Triage notes'));
+              var triageText = el('div', 'detail-context-text');
+              triageText.textContent = triageNotes;
+              triageBlock.appendChild(triageText);
+            }
+            if (clarification) {
+              triageBlock.appendChild(el('div', 'detail-sub-label', 'Clarification notes'));
+              var clarText = el('div', 'detail-context-text');
+              clarText.textContent = clarification;
+              triageBlock.appendChild(clarText);
+            }
+            detailContentEl.appendChild(triageBlock);
+          }
+        }
+
+        var flags = parseStringList(idea.flags);
+        if (flags.length > 0) {
+          detailContentEl.appendChild(el('div', 'detail-section-title', 'Flags'));
+          var flagsBlock = el('div', 'detail-context-block');
+          var list = el('div', 'detail-tag-list');
+          for (var f = 0; f < flags.length; f++) {
+            list.appendChild(el('span', 'detail-tag detail-flag', flags[f]));
+          }
+          flagsBlock.appendChild(list);
+          detailContentEl.appendChild(flagsBlock);
+        }
+
+        detailOverlay.classList.add('open');
+      }
+
+      function openFeatureDetail(feature) {
+        stopDetailPoll();
+        detailViewStack = [];
+        openDetailId = feature.id;
+
+        var status = normalizeStatus(feature.status);
+        var terminal = TERMINAL_JOB_STATUSES.has(status);
+
+        detailBackBtn.style.display = 'none';
+        detailLiveDot.className = 'detail-live-dot' + (terminal ? ' terminal' : ' waiting');
+        detailTitleEl.textContent = getFeatureTitle(feature);
+        detailStatusEl.textContent = status;
+        detailFooterEl.textContent = '';
+        if (feature.pr_url) {
+          var prLink = document.createElement('a');
+          prLink.href = feature.pr_url;
+          prLink.target = '_blank';
+          prLink.rel = 'noopener noreferrer';
+          prLink.textContent = 'View PR on GitHub';
+          prLink.className = 'detail-pr-link';
+          detailFooterEl.appendChild(prLink);
+        }
+        if (status === 'failed') {
+          var footerActions = el('div', 'detail-footer-actions');
+          var retryBtn = el('button', 'detail-action-btn detail-action-btn-retry');
+          retryBtn.id = 'retryBtn';
+          retryBtn.type = 'button';
+          retryBtn.textContent = 'Retry';
+          var markCompleteBtn = el('button', 'detail-action-btn detail-action-btn-complete');
+          markCompleteBtn.id = 'markCompleteBtn';
+          markCompleteBtn.type = 'button';
+          markCompleteBtn.textContent = 'Mark Complete';
+          footerActions.appendChild(retryBtn);
+          footerActions.appendChild(markCompleteBtn);
+          detailFooterEl.appendChild(footerActions);
+
+          retryBtn.addEventListener('click', function() {
+            if (actionInFlight) return;
+            if (!window.confirm('This will queue a fix job for this feature. The pipeline will attempt to resolve the failure. Continue?')) return;
+            actionInFlight = true;
+            retryBtn.disabled = true;
+            markCompleteBtn.disabled = true;
+            var loadingSpan = el('span', 'detail-footer-msg loading', 'Processing\u2026');
+            footerActions.appendChild(loadingSpan);
+            fetch(SUPABASE_URL + '/functions/v1/request-feature-fix', {
+              method: 'POST',
+              headers: SERVICE_HEADERS,
+              body: JSON.stringify({ company_id: activeCompanyId, feature_id: feature.id, reason: 'Manual retry from dashboard' })
+            }).then(function(res) {
+              if (!res.ok) {
+                return res.text().then(function(body) { throw { status: res.status, body: body }; });
+              }
+              footerActions.innerHTML = '';
+              var msg = el('span', 'detail-footer-msg success', 'Retry queued');
+              footerActions.appendChild(msg);
+              actionInFlight = false;
+              refreshDashboard();
+              setTimeout(closeDetail, 1500);
+            }).catch(function(err) {
+              if (footerActions.contains(loadingSpan)) footerActions.removeChild(loadingSpan);
+              retryBtn.disabled = false;
+              markCompleteBtn.disabled = false;
+              var errMsg = err && err.status ? 'Error ' + err.status + ': ' + (err.body || '') : 'Network error';
+              var msg = el('span', 'detail-footer-msg error', errMsg);
+              footerActions.appendChild(msg);
+              actionInFlight = false;
+            });
+          });
+
+          markCompleteBtn.addEventListener('click', function() {
+            if (actionInFlight) return;
+            if (!window.confirm('This will mark the feature as complete. Use this when you\u2019ve manually finished the work. Continue?')) return;
+            actionInFlight = true;
+            retryBtn.disabled = true;
+            markCompleteBtn.disabled = true;
+            var loadingSpan = el('span', 'detail-footer-msg loading', 'Processing\u2026');
+            footerActions.appendChild(loadingSpan);
+            fetch(SUPABASE_URL + '/functions/v1/update-feature', {
+              method: 'POST',
+              headers: SERVICE_HEADERS,
+              body: JSON.stringify({ feature_id: feature.id, status: 'complete' })
+            }).then(function(res) {
+              if (!res.ok) {
+                return res.text().then(function(body) { throw { status: res.status, body: body }; });
+              }
+              footerActions.innerHTML = '';
+              var msg = el('span', 'detail-footer-msg success', 'Marked complete');
+              footerActions.appendChild(msg);
+              actionInFlight = false;
+              refreshDashboard();
+              setTimeout(closeDetail, 1500);
+            }).catch(function(err) {
+              if (footerActions.contains(loadingSpan)) footerActions.removeChild(loadingSpan);
+              retryBtn.disabled = false;
+              markCompleteBtn.disabled = false;
+              var errMsg = err && err.status ? 'Error ' + err.status + ': ' + (err.body || '') : 'Network error';
+              var msg = el('span', 'detail-footer-msg error', errMsg);
+              footerActions.appendChild(msg);
+              actionInFlight = false;
+            });
+          });
+        }
+
+        // Build content
+        detailContentEl.textContent = '';
+
+        // Metadata
+        var metaDiv = el('div', 'detail-meta');
+
+        function addMeta(label, value) {
+          var row = el('div', 'detail-meta-row');
+          row.appendChild(el('span', 'detail-meta-label', label));
+          if (value instanceof Node) {
+            row.appendChild(value);
+          } else {
+            row.appendChild(el('span', 'detail-meta-value', value));
+          }
+          metaDiv.appendChild(row);
+        }
+
+        addMeta('ID', feature.id);
+        addMeta('Priority', buildPriorityBadge(feature.priority, 'priority-badge'));
+        if (feature.branch) addMeta('Branch', feature.branch);
+        addMeta('Created', formatDate(feature.created_at));
+        if (feature.updated_at) addMeta('Updated', formatDate(feature.updated_at));
+        if (feature.created_by) addMeta('By', feature.created_by);
+
+        // Source idea metadata (non-clickable)
+        if (feature.source_idea_id) {
+          addMeta('Source Idea ID', String(feature.source_idea_id));
+        }
+
+        detailContentEl.appendChild(metaDiv);
+
+        detailContentEl.appendChild(el('div', 'detail-section-title', 'Description'));
+        var descBlock = el('div', 'detail-context-block');
+        var descText = el('div', 'detail-context-text');
+        var description = parseText(feature.description);
+        if (description) {
+          descText.textContent = description;
+        } else {
+          descText.classList.add('muted');
+          descText.textContent = 'No description';
+        }
+        descBlock.appendChild(descText);
+        detailContentEl.appendChild(descBlock);
+
+        // Jobs section (exclude cancelled)
+        var jobs = (Array.isArray(feature.jobs) ? sortJobs(feature.jobs) : []).filter(function(j) {
+          return normalizeStatus(j?.status) !== 'cancelled';
+        });
+        if (jobs.length > 0) {
+          detailContentEl.appendChild(el('div', 'detail-section-title',
+            'Jobs (' + jobs.length + ')'));
+          var jobList = el('div', 'detail-job-list');
+
+          for (var i = 0; i < jobs.length; i++) {
+            (function(job) {
+              var jStatus = normalizeStatus(job.status);
+              var row = el('div', 'detail-job-row');
+              row.setAttribute('role', 'button');
+              row.setAttribute('tabindex', '0');
+
+              var dot = el('div', 'detail-job-dot ' + jStatus);
+              if (jStatus === 'blocked' && job.blocked_reason) {
+                dot.title = 'Blocked: ' + job.blocked_reason;
+              }
+              row.appendChild(dot);
+              row.appendChild(el('span', 'detail-job-name', getJobTitle(job)));
+              row.appendChild(el('span', 'detail-job-status', jStatus));
+
+              if (job.role) {
+                row.appendChild(el('span', 'detail-job-model', job.role));
+              }
+
+              if (job.model) {
+                row.appendChild(el('span', 'detail-job-model',
+                  String(job.model).replace('claude-', '').replace('-4-6', '')));
+              }
+
+              function goToJob() {
+                detailViewStack.push({ type: 'feature', data: feature });
+                openJobDetail(String(job.id));
+              }
+              row.addEventListener('click', goToJob);
+              row.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToJob(); }
+              });
+
+              jobList.appendChild(row);
+            })(jobs[i]);
+          }
+
+          detailContentEl.appendChild(jobList);
+        }
+
+        if (feature.source_idea_id) {
+          var sourceIdeaId = String(feature.source_idea_id);
+          var detailIdSnapshot = String(feature.id);
+          detailContentEl.appendChild(el('div', 'detail-section-title', 'Idea'));
+          var sourceIdeaSlot = el('div');
+          detailContentEl.appendChild(sourceIdeaSlot);
+
+          function renderSourceIdea(idea) {
+            sourceIdeaSlot.replaceChildren(buildSourceIdeaBlock(idea, sourceIdeaId));
+          }
+
+          var cachedSourceIdea = findCachedIdea(sourceIdeaId);
+          if (cachedSourceIdea) {
+            renderSourceIdea(cachedSourceIdea);
+          } else {
+            var loadingBlock = el('div', 'detail-context-block detail-idea-block');
+            loadingBlock.appendChild(el('div', 'detail-context-text muted', 'Loading source idea\u2026'));
+            sourceIdeaSlot.appendChild(loadingBlock);
+
+            fetchIdeaById(sourceIdeaId).then(function(fetchedIdea) {
+              if (String(openDetailId || '') !== detailIdSnapshot) return;
+              if (fetchedIdea && !findCachedIdea(sourceIdeaId)) {
+                lastIdeas.push(fetchedIdea);
+              }
+              renderSourceIdea(fetchedIdea || null);
+            }).catch(function() {
+              if (String(openDetailId || '') !== detailIdSnapshot) return;
+              renderSourceIdea(null);
+            });
+          }
+        }
+
+        // Context / spec
+        if (feature.spec) {
+          detailContentEl.appendChild(el('div', 'detail-section-title', 'Spec'));
+          var ctxBlock = el('div', 'detail-context-block');
+          var ctxText = el('div', 'detail-context-text');
+          ctxText.textContent = typeof feature.spec === 'string'
+            ? feature.spec : JSON.stringify(feature.spec, null, 2);
+          ctxBlock.appendChild(ctxText);
+          detailContentEl.appendChild(ctxBlock);
+        }
+
+        // Acceptance tests
+        if (feature.acceptance_tests) {
+          detailContentEl.appendChild(el('div', 'detail-section-title', 'Acceptance Tests'));
+          var atBlock = el('div', 'detail-context-block');
+          var atText = el('div', 'detail-context-text');
+          atText.textContent = feature.acceptance_tests;
+          atBlock.appendChild(atText);
+          detailContentEl.appendChild(atBlock);
+        }
+
+        detailOverlay.classList.add('open');
+      }
+
+      // ── Detail Panel: Job View ─────────────
+
+      async function openJobDetail(jobId) {
+        stopDetailPoll();
+        openDetailId = jobId;
+
+        detailBackBtn.style.display = detailViewStack.length > 0 ? '' : 'none';
+        detailLiveDot.className = 'detail-live-dot';
+        detailTitleEl.textContent = 'Loading\u2026';
+        detailStatusEl.textContent = '';
+        detailContentEl.textContent = '';
+        detailFooterEl.textContent = '';
+
+        detailOverlay.classList.add('open');
+
+        try {
+          var job = await apiFetch(JOB_DETAIL_BASE + encodeURIComponent(jobId));
+          job = Array.isArray(job) && job.length > 0 ? job[0] : null;
+
+          if (openDetailId !== jobId) return;
+
+          if (!job) {
+            detailTitleEl.textContent = 'Job not found';
+            detailStatusEl.textContent = 'not found';
+            return;
+          }
+
+          var logRes = await fetch(
+            SUPABASE_URL + '/rest/v1/job_logs?select=content&job_id=eq.' + jobId + '&type=eq.tmux&limit=1',
+            { headers: AUTH_HEADERS }
+          );
+          var logData = await logRes.json();
+          var rawLog = logData && logData[0] ? logData[0].content : null;
+
+          applyJobToPanel(job, rawLog);
+
+          var terminal = TERMINAL_JOB_STATUSES.has(normalizeStatus(job.status));
+          if (!terminal) {
+            detailPollTimer = setInterval(async function() {
+              if (openDetailId !== jobId) return;
+              try {
+                var updated = await apiFetch(JOB_DETAIL_BASE + encodeURIComponent(jobId));
+                updated = Array.isArray(updated) && updated.length > 0 ? updated[0] : null;
+                if (openDetailId !== jobId || !updated) return;
+                var updatedLogRes = await fetch(
+                  SUPABASE_URL + '/rest/v1/job_logs?select=content&job_id=eq.' + jobId + '&type=eq.tmux&limit=1',
+                  { headers: AUTH_HEADERS }
+                );
+                var updatedLogData = await updatedLogRes.json();
+                var updatedRawLog = updatedLogData && updatedLogData[0] ? updatedLogData[0].content : null;
+                applyJobToPanel(updated, updatedRawLog);
+                if (TERMINAL_JOB_STATUSES.has(normalizeStatus(updated.status))) {
+                  stopDetailPoll();
+                }
+              } catch (_) { /* ignore transient poll errors */ }
+            }, 5000);
+          }
+        } catch (_) {
+          if (openDetailId !== jobId) return;
+          detailTitleEl.textContent = 'Failed to load job';
+          detailStatusEl.textContent = 'error';
+        }
+      }
+
+      function applyJobToPanel(job, rawLog) {
+        var status = normalizeStatus(job.status);
+        var terminal = TERMINAL_JOB_STATUSES.has(status);
+        var failed = status === 'failed';
+
+        detailLiveDot.className = 'detail-live-dot' +
+          (failed ? ' failed' : terminal ? ' terminal' :
+           WORKING_JOB_STATUSES.has(status) ? '' : ' waiting');
+        detailTitleEl.textContent = getJobTitle(job);
+        detailStatusEl.textContent = status;
+
+        // Snapshot scroll position before rebuild
+        var wasAtBottom = isAtBottom(detailContentEl);
+        var prevScrollTop = detailContentEl.scrollTop;
+
+        // Build content
+        detailContentEl.textContent = '';
+
+        // Metadata
+        var metaDiv = el('div', 'detail-meta');
+        function addMeta(label, value) {
+          var row = el('div', 'detail-meta-row');
+          row.appendChild(el('span', 'detail-meta-label', label));
+          row.appendChild(el('span', 'detail-meta-value', value));
+          metaDiv.appendChild(row);
+        }
+
+        addMeta('Job ID', job.id);
+        if (job.role) addMeta('Role', job.role);
+        if (job.model) addMeta('Model', job.model);
+        if (job.progress != null) addMeta('Progress', clampProgress(job.progress) + '%');
+        addMeta('Created', formatDate(job.created_at));
+        if (job.started_at) addMeta('Started', formatDate(job.started_at));
+        if (job.completed_at) addMeta('Completed', formatDate(job.completed_at));
+
+        detailContentEl.appendChild(metaDiv);
+
+        // Context
+        if (job.context != null) {
+          detailContentEl.appendChild(el('div', 'detail-section-title', 'Context'));
+          var ctxBlock = el('div', 'detail-context-block');
+          var ctxText = el('div', 'detail-context-text');
+          var raw = typeof job.context === 'string' ? job.context : JSON.stringify(job.context);
+          // Try to pretty-print JSON context
+          try {
+            ctxText.textContent = JSON.stringify(JSON.parse(raw), null, 2);
+          } catch (_) {
+            ctxText.textContent = raw;
+          }
+          ctxBlock.appendChild(ctxText);
+          detailContentEl.appendChild(ctxBlock);
+        }
+
+        // Log
+        detailContentEl.appendChild(el('div', 'detail-section-title', 'Log'));
+        var logArea = el('div', 'detail-log-area');
+        var logPre = el('pre', typeof rawLog === 'string' && rawLog ? 'detail-log' : 'detail-log empty');
+        logPre.textContent = typeof rawLog === 'string' && rawLog
+          ? rawLog : 'No log output yet\u2026';
+        logArea.appendChild(logPre);
+        detailContentEl.appendChild(logArea);
+
+        // Restore scroll position after rebuild
+        if (wasAtBottom) {
+          detailContentEl.scrollTop = detailContentEl.scrollHeight;
+        } else {
+          detailContentEl.scrollTop = prevScrollTop;
+        }
+
+        detailFooterEl.textContent = terminal
+          ? 'Job ' + status + ' \u2014 log frozen'
+          : 'Live \u2014 refreshing every 5s';
+      }
+
+      // ── Detail Panel: Navigation & Close ───
+
+      function stopDetailPoll() {
+        if (detailPollTimer !== null) {
+          clearInterval(detailPollTimer);
+          detailPollTimer = null;
+        }
+      }
+
+      function closeDetail() {
+        stopDetailPoll();
+        openDetailId = null;
+        detailViewStack = [];
+        detailOverlay.classList.remove('open');
+        detailContentEl.textContent = '';
+        detailTitleEl.textContent = '';
+        detailStatusEl.textContent = '';
+        detailFooterEl.textContent = '';
+      }
+
+      detailBackBtn.addEventListener('click', function() {
+        if (detailViewStack.length === 0) return;
+        var prev = detailViewStack.pop();
+        if (prev.type === 'feature') {
+          openFeatureDetail(prev.data);
+        }
+      });
+
+      detailOverlay.addEventListener('click', function(e) {
+        if (e.target === detailOverlay) closeDetail();
+      });
+      detailCloseBtn.addEventListener('click', closeDetail);
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && detailOverlay.classList.contains('open')) closeDetail();
+      });
+
+      // ── Bootstrap ────────────────────────────
+
+      async function loadCompanySwitcher() {
+        try {
+          var companies = await apiFetch(ALL_COMPANIES_URL);
+          if (!Array.isArray(companies) || companies.length <= 1) return;
+
+          // Show switcher only if multiple companies exist
+          companySelect.style.display = '';
+          companySelect.textContent = '';
+
+          for (var i = 0; i < companies.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = companies[i].id;
+            opt.textContent = companies[i].name;
+            if (companies[i].id === activeCompanyId) opt.selected = true;
+            companySelect.appendChild(opt);
+          }
+
+          // If no company was set via URL slug, default to zazig-dev or first company
+          if (!activeCompanyId) {
+            var defaultCompany = companies.find(function(c) { return c.name === 'zazig-dev'; }) || companies[0];
+            activeCompanyId = defaultCompany.id;
+            companySelect.value = defaultCompany.id;
+            setBoardTitle(defaultCompany.name);
+            void refreshDashboard();
+          }
+
+          companySelect.addEventListener('change', function() {
+            var selectedId = companySelect.value;
+            var selectedName = companySelect.options[companySelect.selectedIndex].textContent;
+            activeCompanyId = selectedId;
+            setBoardTitle(selectedName);
+            // Immediately clear stale data so features from the previous company
+            // are not visible while the new company's data loads.
+            lastFeatures = [];
+            lastIdeas = [];
+            isFetching = false; // allow new fetch to proceed even if one was in-flight
+            renderBoard([], []);
+            void refreshDashboard();
+          });
+        } catch (_) {
+          // Switcher is non-critical — silently ignore
+        }
+      }
+
+      async function init() {
+        var slug = getCompanySlug();
+
+        if (slug) {
+          try {
+            var company = await resolveCompany(slug);
+            if (!company) {
+              companyBlocked = true;
+              refreshButton.disabled = true;
+              setMessage('Company not found: ' + slug, true);
+              dashboardEl.replaceChildren(el('div', 'empty-board', 'Company not found: ' + slug));
+              return;
+            }
+            activeCompanyId = company.id;
+            setBoardTitle(company.name);
+          } catch (_) {
+            companyBlocked = true;
+            refreshButton.disabled = true;
+            setMessage('Failed to resolve company \u2014 ' + slug, true);
+            return;
+          }
+        } else {
+          setBoardTitle(null);
+        }
+
+        refreshButton.addEventListener('click', function() { void refreshDashboard(); });
+        void loadCompanySwitcher();
+        void refreshDashboard();
+        setInterval(function() { void refreshDashboard(); }, 30000);
+      }
+
+      void init();
+    })();
+  </script>
+</body>
+</html>

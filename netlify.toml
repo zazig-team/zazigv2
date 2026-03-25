@@ -1,0 +1,11 @@
+[build]
+  command = "npm run build --workspace=@zazigv2/shared && npm run build --workspace=@zazig/webui"
+  publish = "packages/webui/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

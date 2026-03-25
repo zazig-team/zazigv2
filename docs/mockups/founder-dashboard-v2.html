@@ -1,0 +1,1591 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>zazig — Founder Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper:        #F7F6F2;
+    --white:        #FFFFFF;
+    --chalk:        #E9E6DE;
+    --chalk-light:  #F0EEE9;
+    --dust:         #B5B0A2;
+    --stone:        #7C7868;
+    --graphite:     #52504A;
+    --ink:          #1C1B17;
+    --ember:        #C54B2A;
+    --ember-hover:  #A83D22;
+    --ember-dim:    rgba(197, 75, 42, 0.10);
+    --ember-glow:   rgba(197, 75, 42, 0.25);
+    --ember-wash:   #FDF0EC;
+    --positive:     #2B7A4B;
+    --positive-dim: rgba(43, 122, 75, 0.10);
+    --caution:      #B8860B;
+    --caution-dim:  rgba(184, 134, 11, 0.10);
+    --negative:     #C53030;
+    --negative-dim: rgba(197, 48, 48, 0.10);
+    --info:         #4A6FA5;
+    --info-dim:     rgba(74, 111, 165, 0.10);
+    --font-sans:    'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-mono:    'JetBrains Mono', 'SF Mono', monospace;
+    --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+    --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+    --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
+    --shadow-sm: 0 1px 2px rgba(28,27,23,0.05);
+    --shadow-md: 0 2px 8px rgba(28,27,23,0.06), 0 0 0 1px rgba(28,27,23,0.04);
+    --shadow-lg: 0 8px 24px rgba(28,27,23,0.08), 0 0 0 1px rgba(28,27,23,0.04);
+  }
+
+  [data-theme="dark"] {
+    --paper:        #0C0D10;
+    --white:        #16181D;
+    --chalk:        #252830;
+    --chalk-light:  #1D2026;
+    --dust:         #505660;
+    --stone:        #868C98;
+    --graphite:     #B0B6C3;
+    --ink:          #EAECF1;
+    --ember:        #E8553A;
+    --ember-hover:  #D14830;
+    --ember-dim:    rgba(232, 85, 58, 0.12);
+    --ember-glow:   rgba(232, 85, 58, 0.25);
+    --ember-wash:   rgba(232, 85, 58, 0.08);
+    --positive:     #3ECF71;
+    --positive-dim: rgba(62, 207, 113, 0.10);
+    --caution:      #E5B835;
+    --caution-dim:  rgba(229, 184, 53, 0.10);
+    --negative:     #EF5454;
+    --negative-dim: rgba(239, 84, 84, 0.10);
+    --info:         #6B9FD4;
+    --info-dim:     rgba(107, 159, 212, 0.10);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-md: 0 2px 8px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+  body { font-family: var(--font-sans); background: var(--paper); color: var(--ink); }
+  ::selection { background: var(--ember-dim); }
+
+  /* ====== NAV ====== */
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--sp-5);
+    height: 52px;
+    background: var(--white);
+    border-bottom: 1px solid var(--chalk);
+  }
+
+  .nav-left {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-5);
+  }
+
+  .nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 800;
+    font-size: 17px;
+    letter-spacing: -0.03em;
+    color: var(--ink);
+  }
+
+  .dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .dot--ember    { background: var(--ember); box-shadow: 0 0 10px var(--ember-glow); }
+  .dot--positive { background: var(--positive); box-shadow: 0 0 8px rgba(43,122,75,0.35); }
+  .dot--caution  { background: var(--caution); box-shadow: 0 0 8px rgba(184,134,11,0.3); }
+  .dot--negative { background: var(--negative); box-shadow: 0 0 8px rgba(197,48,48,0.3); }
+  .dot--offline  { background: var(--dust); }
+  .dot--breathe  { animation: breathe 4s ease-in-out infinite; }
+
+  @keyframes breathe {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.65; transform: scale(0.88); }
+  }
+
+  .nav-links {
+    display: flex;
+    gap: var(--sp-4);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--stone);
+  }
+
+  .nav-links a {
+    text-decoration: none;
+    color: inherit;
+    padding: 16px 0;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s ease;
+  }
+
+  .nav-links a:hover { color: var(--ink); }
+
+  .nav-links a.active {
+    color: var(--ink);
+    font-weight: 600;
+    border-bottom-color: var(--ember);
+  }
+
+  .nav-right {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+  }
+
+  .nav-company {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dust);
+    letter-spacing: 0.02em;
+  }
+
+  .nav-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--ink);
+    color: var(--white);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 11px;
+  }
+
+  /* ====== LAYOUT ====== */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: var(--sp-5);
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: var(--sp-5);
+    min-height: calc(100vh - 52px);
+  }
+
+  .main { display: flex; flex-direction: column; gap: var(--sp-5); }
+  .sidebar { display: flex; flex-direction: column; gap: var(--sp-5); }
+
+  /* ====== GREETING ====== */
+  .greeting {
+    font-weight: 400;
+    font-size: 30px;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+    line-height: 1.2;
+  }
+
+  .greeting-date {
+    font-size: 13px;
+    color: var(--stone);
+    margin-top: var(--sp-1);
+  }
+
+  .greeting-summary {
+    font-size: 14px;
+    color: var(--graphite);
+    margin-top: var(--sp-2);
+    line-height: 1.5;
+  }
+
+  /* ====== SECTION LABEL ====== */
+  .section-label {
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--stone);
+    margin-bottom: var(--sp-3);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .section-label-count {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--dust);
+    background: var(--chalk-light);
+    padding: 2px 8px;
+    border-radius: 99px;
+  }
+
+  /* ====== GOALS ====== */
+  .goals-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--sp-4);
+  }
+
+  .goal-card {
+    background: var(--white);
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-md);
+    padding: var(--sp-4);
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+    cursor: default;
+    position: relative;
+  }
+
+  .goal-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+
+  .goal-rank {
+    font-weight: 800;
+    font-size: 36px;
+    letter-spacing: -0.04em;
+    color: var(--chalk);
+    line-height: 1;
+    margin-bottom: var(--sp-2);
+  }
+
+  .goal-horizon {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dust);
+    position: absolute;
+    top: var(--sp-4);
+    right: var(--sp-4);
+  }
+
+  .goal-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--ink);
+    line-height: 1.35;
+    margin-bottom: var(--sp-3);
+  }
+
+  .goal-progress {
+    height: 5px;
+    background: var(--chalk-light);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: var(--sp-2);
+  }
+
+  .goal-progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s ease;
+  }
+
+  .goal-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .goal-target {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--stone);
+  }
+
+  .goal-percent {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--graphite);
+  }
+
+  /* ====== HEALTH METERS ====== */
+  .health-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--sp-3);
+  }
+
+  .health-card {
+    background: var(--white);
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-md);
+    padding: var(--sp-3) var(--sp-4);
+  }
+
+  .health-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--stone);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: var(--sp-2);
+  }
+
+  .health-value {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    margin-bottom: var(--sp-2);
+  }
+
+  .health-bar {
+    height: 4px;
+    background: var(--chalk-light);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .health-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+  }
+
+  .health-trend {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    margin-top: var(--sp-1);
+  }
+
+  /* ====== DECISIONS ====== */
+  .decision-card {
+    background: var(--white);
+    border: 1px solid var(--chalk);
+    border-left: 3px solid var(--ember);
+    border-radius: var(--radius-md);
+    padding: var(--sp-4) var(--sp-5);
+    transition: box-shadow 0.2s ease;
+  }
+
+  .decision-card:hover { box-shadow: var(--shadow-md); }
+
+  .decision-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--sp-2);
+  }
+
+  .decision-from {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ember);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .decision-urgency {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--dust);
+  }
+
+  .decision-title {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--ink);
+    line-height: 1.4;
+    margin-bottom: var(--sp-2);
+  }
+
+  .decision-context {
+    font-size: 13px;
+    color: var(--stone);
+    line-height: 1.5;
+    margin-bottom: var(--sp-4);
+  }
+
+  .decision-options {
+    display: flex;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+    margin-bottom: var(--sp-3);
+  }
+
+  .decision-option {
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 16px;
+    border-radius: var(--radius-sm);
+    background: var(--chalk-light);
+    color: var(--graphite);
+    border: 1px solid var(--chalk);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .decision-option:hover {
+    background: var(--ember-wash);
+    border-color: var(--ember);
+    color: var(--ember);
+  }
+
+  .decision-option--recommended {
+    background: var(--ember-dim);
+    border-color: rgba(197, 75, 42, 0.2);
+    color: var(--ember);
+  }
+
+  .decision-option--recommended:hover {
+    background: var(--ember);
+    color: var(--white);
+    border-color: var(--ember);
+  }
+
+  .decision-rec {
+    font-size: 11px;
+    color: var(--stone);
+    font-style: italic;
+  }
+
+  .decision-rec strong {
+    color: var(--ember);
+    font-style: normal;
+    font-weight: 600;
+  }
+
+  .decision-footer {
+    display: flex;
+    gap: var(--sp-3);
+    margin-top: var(--sp-3);
+    padding-top: var(--sp-3);
+    border-top: 1px solid var(--chalk-light);
+  }
+
+  .decision-action {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--stone);
+    cursor: pointer;
+    transition: color 0.15s ease;
+    background: none;
+    border: none;
+    font-family: var(--font-sans);
+  }
+
+  .decision-action:hover { color: var(--ink); }
+
+  /* ====== ACTIVITY FEED ====== */
+  .feed-item {
+    display: flex;
+    gap: var(--sp-3);
+    padding: var(--sp-3) 0;
+    border-bottom: 1px solid var(--chalk-light);
+  }
+
+  .feed-item:last-child { border-bottom: none; }
+
+  .feed-time {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dust);
+    width: 48px;
+    flex-shrink: 0;
+    padding-top: 2px;
+  }
+
+  .feed-dot-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 5px;
+    flex-shrink: 0;
+  }
+
+  .feed-content { flex: 1; min-width: 0; }
+
+  .feed-who {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+
+  .feed-what {
+    font-size: 13px;
+    color: var(--graphite);
+    line-height: 1.45;
+  }
+
+  .feed-badge {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+    display: inline-block;
+    margin-top: var(--sp-1);
+  }
+
+  /* ====== FOCUS AREAS ====== */
+  .focus-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--chalk-light);
+  }
+
+  .focus-item:last-child { border-bottom: none; }
+
+  .focus-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 99px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .badge-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .badge--ember    { background: var(--ember-dim); color: var(--ember); }
+  .badge--positive { background: var(--positive-dim); color: var(--positive); }
+  .badge--caution  { background: var(--caution-dim); color: var(--caution); }
+  .badge--negative { background: var(--negative-dim); color: var(--negative); }
+  .badge--neutral  { background: var(--chalk-light); color: var(--stone); }
+
+  /* ====== TEAM ====== */
+  .team-member {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: 7px 0;
+  }
+
+  .team-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  .team-info { flex: 1; min-width: 0; }
+
+  .team-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .team-task {
+    font-size: 12px;
+    color: var(--dust);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .team-slots {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--dust);
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  /* ====== SIDEBAR CARD ====== */
+  .sidebar-card {
+    background: var(--white);
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-md);
+    padding: var(--sp-4);
+  }
+
+  .sidebar-card-title {
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--stone);
+    margin-bottom: var(--sp-3);
+  }
+
+  /* ====== INPUT BAR ====== */
+  .input-bar {
+    display: flex;
+    gap: var(--sp-2);
+    margin-top: var(--sp-3);
+  }
+
+  .input-bar input {
+    flex: 1;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    padding: 9px 14px;
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-sm);
+    background: var(--paper);
+    color: var(--ink);
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .input-bar input:focus {
+    border-color: var(--ember);
+    box-shadow: 0 0 0 3px var(--ember-dim);
+    background: var(--white);
+  }
+
+  .input-bar input::placeholder { color: var(--dust); }
+
+  .input-bar button {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 9px 18px;
+    background: var(--ember);
+    color: var(--white);
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.15s ease;
+    white-space: nowrap;
+  }
+
+  .input-bar button:hover { background: var(--ember-hover); }
+
+  /* ====== COMPANY SWITCHER ====== */
+  .company-switcher {
+    position: relative;
+  }
+
+  .company-switcher-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dust);
+    letter-spacing: 0.02em;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    padding: 4px 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.15s ease;
+  }
+
+  .company-switcher-btn:hover {
+    color: var(--ink);
+    border-color: var(--chalk);
+    background: var(--chalk-light);
+  }
+
+  .company-switcher-btn svg { width: 10px; height: 10px; }
+
+  .company-switcher-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--white);
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    min-width: 200px;
+    z-index: 200;
+    overflow: hidden;
+  }
+
+  .company-switcher-menu.open { display: block; }
+
+  .company-switcher-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--graphite);
+    cursor: pointer;
+    transition: background 0.1s ease;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font-family: var(--font-sans);
+  }
+
+  .company-switcher-item:hover { background: var(--chalk-light); }
+
+  .company-switcher-item--active {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .company-switcher-check {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ember);
+  }
+
+  .company-switcher-divider {
+    height: 1px;
+    background: var(--chalk);
+    margin: 4px 0;
+  }
+
+  .company-switcher-add {
+    color: var(--stone);
+    font-size: 12px;
+  }
+
+  /* ====== ACTION ITEMS ====== */
+  .action-card {
+    background: var(--white);
+    border: 1px solid var(--chalk);
+    border-left: 3px solid var(--caution);
+    border-radius: var(--radius-md);
+    padding: var(--sp-3) var(--sp-4);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    transition: box-shadow 0.2s ease;
+  }
+
+  .action-card:hover { box-shadow: var(--shadow-md); }
+
+  .action-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--caution-dim);
+    color: var(--caution);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .action-icon svg { width: 14px; height: 14px; }
+
+  .action-content { flex: 1; min-width: 0; }
+
+  .action-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.35;
+  }
+
+  .action-detail {
+    font-size: 12px;
+    color: var(--stone);
+    margin-top: 1px;
+  }
+
+  .action-cta {
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--caution-dim);
+    color: var(--caution);
+    border: 1px solid rgba(229, 184, 53, 0.2);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .action-cta:hover {
+    background: var(--caution);
+    color: var(--paper);
+    border-color: var(--caution);
+  }
+
+  /* ====== GREETING HIGHLIGHT ====== */
+  .greeting-highlight {
+    color: var(--positive);
+    font-weight: 500;
+  }
+
+  .greeting-highlight--ember {
+    color: var(--ember);
+    font-weight: 500;
+  }
+
+  /* ====== THEME TOGGLE ====== */
+  .theme-toggle {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid var(--chalk);
+    background: var(--paper);
+    color: var(--stone);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  .theme-toggle:hover {
+    border-color: var(--dust);
+    color: var(--ink);
+    background: var(--chalk-light);
+  }
+
+  .theme-toggle svg { width: 15px; height: 15px; }
+  .theme-toggle .icon-moon { display: block; }
+  .theme-toggle .icon-sun  { display: none; }
+  [data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+  [data-theme="dark"] .theme-toggle .icon-sun  { display: block; }
+
+  /* ====== PULSE METRICS ====== */
+  .pulse-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+  }
+
+  .pulse-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--sp-3);
+  }
+
+  .pulse-card {
+    background: var(--white);
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-md);
+    padding: var(--sp-3) var(--sp-4);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .pulse-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--dust);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .pulse-value {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  .pulse-sub {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--dust);
+  }
+
+  .pulse-sub--positive { color: var(--positive); }
+  .pulse-sub--caution  { color: var(--caution); }
+  .pulse-sub--negative { color: var(--negative); }
+
+  .pulse-target {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--dust);
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .pulse-target-bar {
+    flex: 1;
+    height: 3px;
+    background: var(--chalk-light);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .pulse-target-fill {
+    height: 100%;
+    border-radius: 2px;
+  }
+
+  /* ====== IDEAS INPUT ====== */
+  .ideas-bar {
+    display: flex;
+    gap: var(--sp-2);
+    margin-top: var(--sp-3);
+    align-items: center;
+  }
+
+  .ideas-bar-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--ember-dim);
+    color: var(--ember);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .ideas-bar-icon svg { width: 15px; height: 15px; }
+
+  .ideas-bar input {
+    flex: 1;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    padding: 9px 14px;
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-sm);
+    background: var(--paper);
+    color: var(--ink);
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .ideas-bar input:focus {
+    border-color: var(--ember);
+    box-shadow: 0 0 0 3px var(--ember-dim);
+    background: var(--white);
+  }
+
+  .ideas-bar input::placeholder { color: var(--dust); }
+
+  .ideas-bar button {
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 9px 14px;
+    background: var(--ember);
+    color: var(--white);
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.15s ease;
+    white-space: nowrap;
+  }
+
+  .ideas-bar button:hover { background: var(--ember-hover); }
+
+  /* ====== SCROLLABLE FEED ====== */
+  .feed-scroll {
+    max-height: 280px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--chalk) transparent;
+    mask-image: linear-gradient(to bottom, black calc(100% - 48px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 48px), transparent 100%);
+  }
+
+  .feed-scroll::-webkit-scrollbar { width: 4px; }
+  .feed-scroll::-webkit-scrollbar-track { background: transparent; }
+  .feed-scroll::-webkit-scrollbar-thumb { background: var(--chalk); border-radius: 2px; }
+  .feed-scroll::-webkit-scrollbar-thumb:hover { background: var(--dust); }
+
+  .feed-fade {
+    position: relative;
+  }
+
+  .feed-load-more {
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--stone);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: var(--sp-3) 0;
+    width: 100%;
+    text-align: center;
+    transition: color 0.15s ease;
+  }
+
+  .feed-load-more:hover { color: var(--ink); }
+
+  /* ====== RE-PLAN BUTTON ====== */
+  .section-action {
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--dust);
+    background: none;
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-sm);
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .section-action:hover {
+    color: var(--ink);
+    border-color: var(--dust);
+    background: var(--chalk-light);
+  }
+
+  .section-action svg { width: 11px; height: 11px; }
+
+  /* ====== DECISION QUEUE ====== */
+  .decision-queue-indicator {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-3);
+  }
+
+  .decision-queue-dots {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .decision-queue-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--chalk);
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+
+  .decision-queue-dot--active {
+    background: var(--ember);
+    box-shadow: 0 0 8px var(--ember-glow);
+  }
+
+  .decision-queue-dot:hover:not(.decision-queue-dot--active) {
+    background: var(--dust);
+  }
+
+  .decision-queue-nav {
+    display: flex;
+    gap: var(--sp-2);
+    margin-left: auto;
+  }
+
+  .decision-queue-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid var(--chalk);
+    background: var(--white);
+    color: var(--stone);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+  }
+
+  .decision-queue-btn:hover {
+    border-color: var(--dust);
+    color: var(--ink);
+    background: var(--chalk-light);
+  }
+
+  .decision-queue-btn svg { width: 14px; height: 14px; }
+
+  .decision-queue-count {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dust);
+  }
+
+  /* ====== ANIMATIONS ====== */
+  .fade-up {
+    opacity: 0;
+    transform: translateY(12px);
+    animation: fadeUp 0.5s ease forwards;
+  }
+
+  @keyframes fadeUp {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .d1 { animation-delay: 0.03s; }
+  .d2 { animation-delay: 0.06s; }
+  .d3 { animation-delay: 0.09s; }
+  .d4 { animation-delay: 0.12s; }
+  .d5 { animation-delay: 0.15s; }
+  .d6 { animation-delay: 0.18s; }
+  .d7 { animation-delay: 0.21s; }
+  .d8 { animation-delay: 0.24s; }
+  .d9 { animation-delay: 0.27s; }
+
+  /* ====== RESPONSIVE ====== */
+  @media (max-width: 960px) {
+    .layout { grid-template-columns: 1fr; }
+    .goals-grid { grid-template-columns: 1fr 1fr; }
+  }
+
+  @media (max-width: 600px) {
+    .goals-grid { grid-template-columns: 1fr; }
+    .health-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ====== NAV ====== -->
+<nav class="nav">
+  <div class="nav-left">
+    <div class="nav-brand">
+      zazig<span class="dot dot--positive dot--breathe"></span>
+    </div>
+    <div class="nav-links">
+      <a href="founder-dashboard-v2.html" class="active">Dashboard</a>
+      <a href="pipeline-v2.html">Pipeline</a>
+      <a href="team-v2.html">Team</a>
+    </div>
+  </div>
+  <div class="nav-right">
+    <div class="company-switcher">
+      <button class="company-switcher-btn" onclick="this.nextElementSibling.classList.toggle('open')">
+        zazig-dev
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="company-switcher-menu">
+        <button class="company-switcher-item company-switcher-item--active">
+          zazig-dev
+          <span class="company-switcher-check"></span>
+        </button>
+        <button class="company-switcher-item">
+          acme-corp
+        </button>
+        <div class="company-switcher-divider"></div>
+        <button class="company-switcher-item company-switcher-add">+ Add company</button>
+      </div>
+    </div>
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79Z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
+    <div class="nav-avatar">TW</div>
+  </div>
+</nav>
+
+<!-- ====== LAYOUT ====== -->
+<div class="layout">
+
+  <!-- ====== MAIN ====== -->
+  <div class="main">
+
+    <!-- Greeting -->
+    <div class="fade-up d1">
+      <div class="greeting">Good morning, Tom</div>
+      <div class="greeting-date">Monday 3 March 2026</div>
+      <div class="greeting-summary">Your team <span class="greeting-highlight">shipped 2 features</span> overnight. Pipeline is healthy. CPO has <span class="greeting-highlight--ember">3 decisions</span> waiting for you.</div>
+    </div>
+
+    <!-- Goals -->
+    <div class="fade-up d2">
+      <div class="section-label">
+        Goals
+        <div style="display:flex;align-items:center;gap:var(--sp-2);">
+          <span class="section-label-count">3 active</span>
+          <button class="section-action">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6"/><path d="M21.34 15.57a10 10 0 1 1-.57-8.38"/></svg>
+            Re-plan
+          </button>
+        </div>
+      </div>
+      <div class="goals-grid">
+        <!-- Goal 1: Near -->
+        <div class="goal-card">
+          <div class="goal-rank">1</div>
+          <div class="goal-horizon">Near</div>
+          <div class="goal-title">First external beta user</div>
+          <div class="goal-progress"><div class="goal-progress-fill" style="width: 35%; background: var(--ember);"></div></div>
+          <div class="goal-meta">
+            <span class="goal-target">1 user shipped &middot; Apr 1</span>
+            <span class="goal-percent">35%</span>
+          </div>
+        </div>
+
+        <!-- Goal 2: Medium -->
+        <div class="goal-card">
+          <div class="goal-rank">2</div>
+          <div class="goal-horizon">Medium</div>
+          <div class="goal-title">Product-market fit signal</div>
+          <div class="goal-progress"><div class="goal-progress-fill" style="width: 12%; background: var(--caution);"></div></div>
+          <div class="goal-meta">
+            <span class="goal-target">3+ WAU &middot; May 1</span>
+            <span class="goal-percent">12%</span>
+          </div>
+        </div>
+
+        <!-- Goal 3: Long -->
+        <div class="goal-card">
+          <div class="goal-rank">3</div>
+          <div class="goal-horizon">Long</div>
+          <div class="goal-title">Fundable or profitable</div>
+          <div class="goal-progress"><div class="goal-progress-fill" style="width: 5%; background: var(--info);"></div></div>
+          <div class="goal-meta">
+            <span class="goal-target">Revenue or raise &middot; Jun 30</span>
+            <span class="goal-percent">5%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action Items -->
+    <div class="fade-up d3">
+      <div class="section-label">
+        Needs You
+        <span class="section-label-count" style="background: var(--caution-dim); color: var(--caution);">1 action</span>
+      </div>
+
+      <div class="action-card">
+        <div class="action-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        <div class="action-content">
+          <div class="action-title">Stripe API key needed for payment integration</div>
+          <div class="action-detail">Onboarding flow is blocked — engineer can't proceed without live credentials</div>
+        </div>
+        <button class="action-cta">Provide key</button>
+      </div>
+    </div>
+
+    <!-- Decisions -->
+    <div class="fade-up d4">
+      <div class="section-label">
+        Decisions Waiting
+        <span class="section-label-count" style="background: var(--ember-dim); color: var(--ember);">3 pending</span>
+      </div>
+
+      <div class="decision-queue-indicator">
+        <div class="decision-queue-dots">
+          <span class="decision-queue-dot decision-queue-dot--active"></span>
+          <span class="decision-queue-dot"></span>
+          <span class="decision-queue-dot"></span>
+        </div>
+        <span class="decision-queue-count">1 of 3</span>
+        <div class="decision-queue-nav">
+          <button class="decision-queue-btn" aria-label="Previous decision">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <button class="decision-queue-btn" aria-label="Next decision">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="decision-card">
+        <div class="decision-header">
+          <span class="decision-from">CPO &middot; Tactical</span>
+          <span class="decision-urgency">Expires in 22h</span>
+        </div>
+        <div class="decision-title">Three features are ready for breakdown. Which should we prioritise?</div>
+        <div class="decision-context">Pipeline has capacity for 2 concurrent builds. The full loop focus area needs the onboarding flow to unblock the first beta user goal. Slack notifications would improve visibility but isn't on the critical path.</div>
+        <div class="decision-options">
+          <span class="decision-option decision-option--recommended">Onboarding flow</span>
+          <span class="decision-option">Pipeline retry logic</span>
+          <span class="decision-option">Slack notifications</span>
+        </div>
+        <div class="decision-rec">CPO recommends <strong>Onboarding flow</strong> — directly unblocks Goal 1 and the Full Loop focus area</div>
+        <div class="decision-footer">
+          <button class="decision-action">Accept recommendation</button>
+          <button class="decision-action">Add a note</button>
+          <button class="decision-action">Defer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity Feed -->
+    <div class="fade-up d6">
+      <div class="section-label">Today</div>
+
+      <div class="feed-fade">
+        <div class="feed-scroll">
+          <div class="feed-item">
+            <div class="feed-time">09:12</div>
+            <div class="feed-dot-col"><span class="dot dot--positive"></span></div>
+            <div class="feed-content">
+              <div class="feed-who" style="color: var(--positive);">CPO</div>
+              <div class="feed-what">Generated tactical decision: feature prioritisation for next sprint</div>
+            </div>
+          </div>
+
+          <div class="feed-item">
+            <div class="feed-time">08:45</div>
+            <div class="feed-dot-col"><span class="dot dot--positive"></span></div>
+            <div class="feed-content">
+              <div class="feed-who" style="color: var(--info);">CTO</div>
+              <div class="feed-what">Completed architecture review for auth module. Approved for build.</div>
+              <span class="feed-badge" style="background: var(--positive-dim); color: var(--positive);">Shipped</span>
+            </div>
+          </div>
+
+          <div class="feed-item">
+            <div class="feed-time">08:30</div>
+            <div class="feed-dot-col"><span class="dot dot--positive"></span></div>
+            <div class="feed-content">
+              <div class="feed-who" style="color: var(--info);">Engineer</div>
+              <div class="feed-what">Feature "Machine heartbeat dashboard" passed verification and merged to main</div>
+              <span class="feed-badge" style="background: var(--positive-dim); color: var(--positive);">Shipped</span>
+            </div>
+          </div>
+
+          <div class="feed-item">
+            <div class="feed-time">07:15</div>
+            <div class="feed-dot-col"><span class="dot dot--caution"></span></div>
+            <div class="feed-content">
+              <div class="feed-who" style="color: var(--caution);">Pipeline</div>
+              <div class="feed-what">Job "Implement retry logic for failed builds" failed on first attempt. Auto-retrying.</div>
+              <span class="feed-badge" style="background: var(--caution-dim); color: var(--caution);">Retrying</span>
+            </div>
+          </div>
+
+          <div class="feed-item">
+            <div class="feed-time">06:00</div>
+            <div class="feed-dot-col"><span class="dot dot--positive"></span></div>
+            <div class="feed-content">
+              <div class="feed-who" style="color: var(--positive);">CPO</div>
+              <div class="feed-what">Completed morning sweep. Triaged 3 ideas, moved 1 to feature spec. Updated onboarding project timeline.</div>
+            </div>
+          </div>
+
+          <div class="feed-item">
+            <div class="feed-time">04:30</div>
+            <div class="feed-dot-col"><span class="dot dot--positive"></span></div>
+            <div class="feed-content">
+              <div class="feed-who" style="color: var(--info);">Engineer</div>
+              <div class="feed-what">Feature "Slack notification webhooks" combined into PR. Awaiting review.</div>
+              <span class="feed-badge" style="background: var(--info-dim); color: var(--info);">PR Ready</span>
+            </div>
+          </div>
+
+          <div class="feed-item">
+            <div class="feed-time">03:15</div>
+            <div class="feed-dot-col"><span class="dot dot--positive"></span></div>
+            <div class="feed-content">
+              <div class="feed-who" style="color: var(--info);">Engineer</div>
+              <div class="feed-what">Completed 3 of 4 jobs for "Edge function error handling". Last job queued.</div>
+            </div>
+          </div>
+
+          <div class="feed-item">
+            <div class="feed-time">01:45</div>
+            <div class="feed-dot-col"><span class="dot dot--negative"></span></div>
+            <div class="feed-content">
+              <div class="feed-who" style="color: var(--negative);">Pipeline</div>
+              <div class="feed-what">Verification failed for "Database connection pooling" — 2 acceptance criteria not met</div>
+              <span class="feed-badge" style="background: var(--negative-dim); color: var(--negative);">Failed</span>
+            </div>
+          </div>
+
+          <button class="feed-load-more">Show yesterday</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ideas Inbox -->
+    <div class="fade-up d8">
+      <div class="ideas-bar">
+        <div class="ideas-bar-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v8"/><path d="m4.93 10.93 1.41 1.41"/><path d="M2 18h2"/><path d="M20 18h2"/><path d="m19.07 10.93-1.41 1.41"/><path d="M22 22H2"/><path d="m8 6 4-4 4 4"/><path d="M16 18a4 4 0 0 0-8 0"/></svg>
+        </div>
+        <input type="text" placeholder="Share an idea you'd love to see built...">
+        <button>Send idea</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ====== SIDEBAR ====== -->
+  <div class="sidebar">
+
+    <!-- Pulse -->
+    <div class="sidebar-card fade-up d2">
+      <div class="sidebar-card-title">Pulse</div>
+      <div class="pulse-grid">
+        <div class="pulse-row">
+          <div class="pulse-card">
+            <div class="pulse-label">MRR</div>
+            <div class="pulse-value" style="color: var(--dust);">$0</div>
+            <div class="pulse-sub">Pre-revenue</div>
+          </div>
+          <div class="pulse-card">
+            <div class="pulse-label">Beta Users</div>
+            <div class="pulse-value" style="color: var(--ember);">0</div>
+            <div class="pulse-target">
+              of 3 target
+              <span class="pulse-target-bar"><span class="pulse-target-fill" style="width: 0%; background: var(--ember);"></span></span>
+            </div>
+          </div>
+        </div>
+        <div class="pulse-row">
+          <div class="pulse-card">
+            <div class="pulse-label">Ship Rate</div>
+            <div class="pulse-value" style="color: var(--positive);">82%</div>
+            <div class="pulse-sub pulse-sub--positive">14 of 17 jobs shipped</div>
+          </div>
+          <div class="pulse-card">
+            <div class="pulse-label">Runway</div>
+            <div class="pulse-value" style="color: var(--ink);">8.2<span style="font-size: 12px; color: var(--dust); font-weight: 400; margin-left: 2px;">mo</span></div>
+            <div class="pulse-sub">~$1.8k/mo burn</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Focus Areas -->
+    <div class="sidebar-card fade-up d4">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-3);">
+        <div class="sidebar-card-title" style="margin-bottom:0;">Focus Areas</div>
+        <button class="section-action">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6"/><path d="M21.34 15.57a10 10 0 1 1-.57-8.38"/></svg>
+          Review
+        </button>
+      </div>
+
+      <div class="focus-item">
+        <div>
+          <span class="focus-name">The Full Loop</span>
+          <div style="font-size:11px;color:var(--dust);margin-top:2px;">Goal 1 critical path</div>
+        </div>
+        <span class="badge badge--positive"><span class="badge-dot"></span>On track</span>
+      </div>
+      <div class="focus-item">
+        <div>
+          <span class="focus-name">Pipeline Reliability</span>
+          <div style="font-size:11px;color:var(--dust);margin-top:2px;">82% ship rate</div>
+        </div>
+        <span class="badge badge--positive"><span class="badge-dot"></span>Healthy</span>
+      </div>
+      <div class="focus-item">
+        <div>
+          <span class="focus-name">Visibility</span>
+          <div style="font-size:11px;color:var(--dust);margin-top:2px;">Dashboard + Slack</div>
+        </div>
+        <span class="badge badge--caution"><span class="badge-dot"></span>Behind</span>
+      </div>
+      <div class="focus-item">
+        <div>
+          <span class="focus-name">Onboarding</span>
+          <div style="font-size:11px;color:var(--dust);margin-top:2px;">Blocked by Full Loop</div>
+        </div>
+        <span class="badge badge--neutral"><span class="badge-dot"></span>Waiting</span>
+      </div>
+      <div class="focus-item">
+        <div>
+          <span class="focus-name">Autonomous Org</span>
+          <div style="font-size:11px;color:var(--dust);margin-top:2px;">Post-beta milestone</div>
+        </div>
+        <span class="badge badge--neutral"><span class="badge-dot"></span>Later</span>
+      </div>
+    </div>
+
+    <!-- Team -->
+    <div class="sidebar-card fade-up d6">
+      <div class="sidebar-card-title">Your Team</div>
+
+      <div class="team-member">
+        <span class="dot dot--positive dot--breathe" style="width: 8px; height: 8px;"></span>
+        <div class="team-avatar" style="background: var(--chalk); color: var(--stone);">CP</div>
+        <div class="team-info">
+          <div class="team-name">CPO</div>
+          <div class="team-task">Reviewing feature specs</div>
+        </div>
+        <div class="team-slots">2 jobs</div>
+      </div>
+
+      <div class="team-member">
+        <span class="dot dot--caution" style="width: 8px; height: 8px;"></span>
+        <div class="team-avatar" style="background: var(--chalk); color: var(--stone);">CT</div>
+        <div class="team-info">
+          <div class="team-name">CTO</div>
+          <div class="team-task">Architecture review</div>
+        </div>
+        <div class="team-slots">1 job</div>
+      </div>
+
+      <div class="team-member">
+        <span class="dot dot--positive dot--breathe" style="width: 8px; height: 8px;"></span>
+        <div class="team-avatar" style="background: var(--chalk); color: var(--stone);">E1</div>
+        <div class="team-info">
+          <div class="team-name">Engineer</div>
+          <div class="team-task">Building auth module</div>
+        </div>
+        <div class="team-slots">1 job</div>
+      </div>
+
+      <div class="team-member">
+        <span class="dot dot--offline" style="width: 8px; height: 8px;"></span>
+        <div class="team-avatar" style="background: var(--chalk); color: var(--stone);">E2</div>
+        <div class="team-info">
+          <div class="team-name">Engineer</div>
+          <div class="team-task">Idle</div>
+        </div>
+        <div class="team-slots">0 jobs</div>
+      </div>
+
+      <div class="team-member">
+        <span class="dot dot--offline" style="width: 8px; height: 8px;"></span>
+        <div class="team-avatar" style="background: var(--chalk); color: var(--stone);">E3</div>
+        <div class="team-info">
+          <div class="team-name">Engineer</div>
+          <div class="team-task">Idle</div>
+        </div>
+        <div class="team-slots">0 jobs</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const toggle = document.getElementById('themeToggle');
+  toggle.addEventListener('click', () => {
+    const html = document.documentElement;
+    const isDark = html.getAttribute('data-theme') === 'dark';
+    html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  });
+
+  // Close company switcher when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.company-switcher')) {
+      document.querySelectorAll('.company-switcher-menu').forEach(m => m.classList.remove('open'));
+    }
+  });
+</script>
+
+</body>
+</html>

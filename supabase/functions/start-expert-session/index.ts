@@ -1,0 +1,434 @@
+/**
+ * zazigv2 — start-expert-session Edge Function
+ *
+ * Creates an expert session request for a company-scoped expert role and
+ * dispatches a realtime command to the target machine daemon.
+ */
+
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+// ---------------------------------------------------------------------------
+// Environment
+// ---------------------------------------------------------------------------
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error(
+    "Missing required environment variables: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-company-id",
+};
+
+function jsonResponse(body: Record<string, unknown>, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function toTrimmedString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = (4 - (normalized.length % 4)) % 4;
+  return atob(normalized + "=".repeat(padding));
+}
+
+/**
+ * Best-effort extraction of company_id from JWT payload.
+ * Falls back to null when the header is absent, malformed, or non-JWT.
+ */
+function companyIdFromAuthHeader(authHeader: string | null): string | null {
+  if (!authHeader) return null;
+
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+
+  const token = match[1].trim();
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+
+  try {
+    const payload = JSON.parse(decodeBase64Url(parts[1])) as Record<string, unknown>;
+
+    if (typeof payload.company_id === "string" && payload.company_id.length > 0) {
+      return payload.company_id;
+    }
+    if (typeof payload.companyId === "string" && payload.companyId.length > 0) {
+      return payload.companyId;
+    }
+
+    const appMetadata = payload.app_metadata as Record<string, unknown> | undefined;
+    if (typeof appMetadata?.company_id === "string" && appMetadata.company_id.length > 0) {
+      return appMetadata.company_id;
+    }
+
+    const userMetadata = payload.user_metadata as Record<string, unknown> | undefined;
+    if (typeof userMetadata?.company_id === "string" && userMetadata.company_id.length > 0) {
+      return userMetadata.company_id;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function resolveCompanyId(req: Request): string | null {
+  const headerCompanyId = toTrimmedString(req.headers.get("x-company-id"));
+  if (headerCompanyId) {
+    return headerCompanyId;
+  }
+
+  return companyIdFromAuthHeader(req.headers.get("Authorization"));
+}
+
+interface ExpertRoleRow {
+  id: string;
+  name: string;
+  display_name: string;
+  model: string;
+  prompt: string;
+  skills: string[];
+  mcp_tools: unknown;
+  settings_overrides: unknown;
+  needs_repo: boolean;
+}
+
+interface MachineRow {
+  id: string;
+  name: string;
+}
+
+interface ProjectLookupRow {
+  id: string;
+  name: string;
+  repo_url: string | null;
+}
+
+interface StartExpertPayload {
+  type: "start_expert";
+  protocolVersion: number;
+  session_id: string;
+  model: string;
+  brief: string;
+  headless?: boolean;
+  batch_id?: string;
+  auto_exit?: boolean;
+  display_name?: string;
+  needs_repo?: boolean;
+  role: {
+    prompt: string;
+    skills?: string[];
+    mcp_tools?: unknown;
+    settings_overrides?: unknown;
+  };
+  project_id?: string;
+  repo_url?: string;
+}
+
+async function broadcastStartExpert(
+  supabase: SupabaseClient,
+  machineName: string,
+  companyId: string,
+  payload: StartExpertPayload,
+): Promise<string> {
+  const channel = supabase.channel(`agent:${machineName}:${companyId}`);
+
+  return await new Promise<string>((resolve) => {
+    let settled = false;
+
+    const finish = async (result: string): Promise<void> => {
+      if (settled) return;
+      settled = true;
+      try {
+        await channel.unsubscribe();
+      } catch {
+        // no-op
+      }
+      resolve(result);
+    };
+
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        const sendResult = await channel.send({
+          type: "broadcast",
+          event: "start_expert",
+          payload,
+        });
+
+        await finish(String(sendResult));
+      } else if (
+        status === "CHANNEL_ERROR" ||
+        status === "TIMED_OUT" ||
+        status === "CLOSED"
+      ) {
+        await finish("error");
+      }
+    });
+
+    setTimeout(() => {
+      void finish("timed_out");
+    }, 10_000);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Handler
+// ---------------------------------------------------------------------------
+
+Deno.serve(async (req: Request): Promise<Response> => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  if (req.method !== "POST") {
+    return jsonResponse({ error: "Method not allowed" }, 405);
+  }
+
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return jsonResponse({ error: "Missing authorization header" }, 401);
+    }
+
+    const companyId = resolveCompanyId(req);
+    if (!companyId) {
+      return jsonResponse(
+        { error: "Missing company context (x-company-id header or JWT company_id claim)" },
+        400,
+      );
+    }
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false },
+    });
+
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json() as Record<string, unknown>;
+    } catch {
+      return jsonResponse({ error: "Invalid JSON body" }, 400);
+    }
+    const roleName = toTrimmedString(body.role_name);
+    const brief = toTrimmedString(body.brief);
+    const machineName = toTrimmedString(body.machine_name);
+    const projectId = toTrimmedString(body.project_id);
+    const headless = body.headless === true;
+    const batchId = typeof body.batch_id === "string" ? body.batch_id : undefined;
+
+    if (!roleName) {
+      return jsonResponse({ error: "role_name is required" }, 400);
+    }
+    if (!brief) {
+      return jsonResponse({ error: "brief is required" }, 400);
+    }
+    if (!machineName) {
+      return jsonResponse({ error: "machine_name is required" }, 400);
+    }
+    const { data: roleData, error: roleErr } = await supabase
+      .from("expert_roles")
+      .select("id, name, display_name, model, prompt, skills, mcp_tools, settings_overrides, needs_repo")
+      .eq("name", roleName)
+      .maybeSingle();
+
+    if (roleErr) {
+      return jsonResponse({ error: `Failed to fetch expert role: ${roleErr.message}` }, 500);
+    }
+
+    if (!roleData) {
+      return jsonResponse({ error: `Unknown expert role: ${roleName}` }, 400);
+    }
+
+    const role = roleData as ExpertRoleRow;
+    const needsRepo = role.needs_repo !== false;
+
+    if (needsRepo && !projectId) {
+      return jsonResponse({ error: "project_id is required for this expert role" }, 400);
+    }
+
+    let machineData: MachineRow | null = null;
+
+    if (machineName === "auto") {
+      // Auto-routing: pick any online machine for this company
+      const { data: machines, error: machineErr } = await supabase
+        .from("machines")
+        .select("id, name")
+        .eq("company_id", companyId)
+        .eq("status", "online")
+        .order("last_heartbeat", { ascending: false })
+        .limit(1);
+
+      if (machineErr) {
+        return jsonResponse({ error: `Failed to fetch machines: ${machineErr.message}` }, 500);
+      }
+
+      machineData = (machines as MachineRow[] | null)?.[0] ?? null;
+      if (!machineData) {
+        return jsonResponse({ error: `No online machines available for company` }, 400);
+      }
+    } else {
+      const { data: found, error: machineErr } = await supabase
+        .from("machines")
+        .select("id, name")
+        .eq("company_id", companyId)
+        .eq("name", machineName)
+        .maybeSingle();
+
+      if (machineErr) {
+        return jsonResponse({ error: `Failed to fetch machine: ${machineErr.message}` }, 500);
+      }
+
+      if (!found) {
+        return jsonResponse({ error: `Unknown machine name for company: ${machineName}` }, 400);
+      }
+
+      machineData = found as MachineRow;
+    }
+
+    const machine = machineData;
+
+    let resolvedProjectId: string | undefined;
+    let resolvedRepoUrl: string | undefined;
+
+    if (needsRepo && projectId) {
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+      let projectQuery;
+      if (uuidRegex.test(projectId)) {
+        projectQuery = supabase
+          .from("projects")
+          .select("id, name, repo_url")
+          .eq("id", projectId)
+          .eq("company_id", companyId)
+          .maybeSingle();
+      } else {
+        projectQuery = supabase
+          .from("projects")
+          .select("id, name, repo_url")
+          .eq("company_id", companyId)
+          .ilike("name", projectId)
+          .maybeSingle();
+      }
+
+      const { data: projectData, error: projectErr } = await projectQuery;
+
+      if (projectErr) {
+        return jsonResponse({ error: `Failed to look up project: ${projectErr.message}` }, 500);
+      }
+      if (!projectData) {
+        return jsonResponse({ error: `Project not found: ${projectId}` }, 400);
+      }
+
+      const project = projectData as ProjectLookupRow;
+
+      if (!project.repo_url) {
+        return jsonResponse({ error: `Project ${project.name} has no repo_url configured` }, 400);
+      }
+
+      resolvedProjectId = project.id;
+      resolvedRepoUrl = project.repo_url;
+    } else if (!needsRepo && projectId) {
+      // Repo-free expert — still record the project association but skip repo_url lookup.
+      resolvedProjectId = projectId;
+    }
+
+    // Estimate items_total from brief — look for JSON array of idea IDs
+    let itemsTotal = 0;
+    if (headless) {
+      const idArrayMatch = brief.match(/\["[0-9a-f-]+"/);
+      if (idArrayMatch) {
+        try {
+          const idsPortion = brief.slice(brief.indexOf("["));
+          const closeBracket = idsPortion.indexOf("]");
+          if (closeBracket > 0) {
+            const parsed = JSON.parse(idsPortion.slice(0, closeBracket + 1));
+            if (Array.isArray(parsed)) itemsTotal = parsed.length;
+          }
+        } catch { /* non-critical — leave as 0 */ }
+      }
+    }
+
+    const { data: sessionData, error: sessionErr } = await supabase
+      .from("expert_sessions")
+      .insert({
+        company_id: companyId,
+        expert_role_id: role.id,
+        machine_id: machine.id,
+        triggered_by: "cpo",
+        brief,
+        headless,
+        batch_id: batchId ?? null,
+        items_total: itemsTotal,
+        status: "requested",
+        project_id: resolvedProjectId,
+      })
+      .select("id")
+      .single();
+
+    if (sessionErr || !sessionData) {
+      return jsonResponse({ error: `Failed to create expert session: ${sessionErr?.message}` }, 500);
+    }
+
+    const sessionId = String((sessionData as { id: string }).id);
+
+    const payload: StartExpertPayload = {
+      type: "start_expert",
+      protocolVersion: 1,
+      session_id: sessionId,
+      model: role.model,
+      brief,
+      headless,
+      batch_id: batchId,
+      auto_exit: headless,
+      display_name: role.display_name,
+      needs_repo: needsRepo,
+      role: {
+        prompt: role.prompt,
+        skills: role.skills ?? [],
+        mcp_tools: role.mcp_tools,
+        settings_overrides: role.settings_overrides,
+      },
+      // For repo-free experts, omit project_id and repo_url from the dispatch
+      // payload so old daemon code (pre-promote) sees neither and skips worktree.
+      ...(needsRepo && resolvedProjectId ? { project_id: resolvedProjectId } : {}),
+      ...(needsRepo && resolvedRepoUrl ? { repo_url: resolvedRepoUrl } : {}),
+    };
+
+    const broadcastResult = await broadcastStartExpert(
+      supabase,
+      machine.name,
+      companyId,
+      payload,
+    );
+
+    if (broadcastResult !== "ok") {
+      return jsonResponse(
+        {
+          error: `Expert session created but Realtime broadcast failed: ${broadcastResult}`,
+          session_id: sessionId,
+        },
+        500,
+      );
+    }
+
+    return jsonResponse({ session_id: sessionId, status: "requested" });
+  } catch (err) {
+    return jsonResponse({ error: String(err) }, 500);
+  }
+});

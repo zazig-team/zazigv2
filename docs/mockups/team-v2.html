@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>zazig — Team</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper:        #F7F6F2;
+    --white:        #FFFFFF;
+    --chalk:        #E9E6DE;
+    --chalk-light:  #F0EEE9;
+    --dust:         #B5B0A2;
+    --stone:        #7C7868;
+    --graphite:     #52504A;
+    --ink:          #1C1B17;
+    --ember:        #C54B2A;
+    --ember-hover:  #A83D22;
+    --ember-dim:    rgba(197, 75, 42, 0.10);
+    --ember-glow:   rgba(197, 75, 42, 0.25);
+    --ember-wash:   #FDF0EC;
+    --positive:     #2B7A4B;
+    --positive-dim: rgba(43, 122, 75, 0.10);
+    --caution:      #B8860B;
+    --caution-dim:  rgba(184, 134, 11, 0.10);
+    --negative:     #C53030;
+    --negative-dim: rgba(197, 48, 48, 0.10);
+    --info:         #4A6FA5;
+    --info-dim:     rgba(74, 111, 165, 0.10);
+    --font-sans:    'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-mono:    'JetBrains Mono', 'SF Mono', monospace;
+    --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+    --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+    --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
+    --shadow-sm: 0 1px 2px rgba(28,27,23,0.05);
+    --shadow-md: 0 2px 8px rgba(28,27,23,0.06), 0 0 0 1px rgba(28,27,23,0.04);
+    --shadow-lg: 0 8px 24px rgba(28,27,23,0.08), 0 0 0 1px rgba(28,27,23,0.04);
+  }
+
+  [data-theme="dark"] {
+    --paper:        #0C0D10;
+    --white:        #16181D;
+    --chalk:        #252830;
+    --chalk-light:  #1D2026;
+    --dust:         #505660;
+    --stone:        #868C98;
+    --graphite:     #B0B6C3;
+    --ink:          #EAECF1;
+    --ember:        #E8553A;
+    --ember-hover:  #D14830;
+    --ember-dim:    rgba(232, 85, 58, 0.12);
+    --ember-glow:   rgba(232, 85, 58, 0.25);
+    --ember-wash:   rgba(232, 85, 58, 0.08);
+    --positive:     #3ECF71;
+    --positive-dim: rgba(62, 207, 113, 0.10);
+    --caution:      #E5B835;
+    --caution-dim:  rgba(229, 184, 53, 0.10);
+    --negative:     #EF5454;
+    --negative-dim: rgba(239, 84, 84, 0.10);
+    --info:         #6B9FD4;
+    --info-dim:     rgba(107, 159, 212, 0.10);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-md: 0 2px 8px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+  body { font-family: var(--font-sans); background: var(--paper); color: var(--ink); }
+  ::selection { background: var(--ember-dim); }
+
+  /* ====== NAV ====== */
+  .nav {
+    position: sticky; top: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 var(--sp-5); height: 52px;
+    background: var(--white); border-bottom: 1px solid var(--chalk);
+  }
+  .nav-left { display: flex; align-items: center; gap: var(--sp-5); }
+  .nav-brand {
+    display: flex; align-items: center; gap: 5px;
+    font-weight: 800; font-size: 17px; letter-spacing: -0.03em;
+    color: var(--ink); text-decoration: none;
+  }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .dot--ember    { background: var(--ember); box-shadow: 0 0 10px var(--ember-glow); }
+  .dot--positive { background: var(--positive); box-shadow: 0 0 8px rgba(43,122,75,0.35); }
+  .dot--caution  { background: var(--caution); box-shadow: 0 0 8px rgba(184,134,11,0.3); }
+  .dot--negative { background: var(--negative); box-shadow: 0 0 8px rgba(197,48,48,0.3); }
+  .dot--offline  { background: var(--dust); }
+  .dot--breathe  { animation: breathe 4s ease-in-out infinite; }
+  @keyframes breathe {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.65; transform: scale(0.88); }
+  }
+  .nav-links { display: flex; gap: var(--sp-4); font-size: 13px; font-weight: 500; color: var(--stone); }
+  .nav-links a { text-decoration: none; color: inherit; padding: 16px 0; border-bottom: 2px solid transparent; transition: color 0.15s; }
+  .nav-links a:hover { color: var(--ink); }
+  .nav-links a.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--ember); }
+  .nav-right { display: flex; align-items: center; gap: var(--sp-3); }
+  .company-switcher { position: relative; }
+  .company-switcher-btn {
+    font-family: var(--font-mono); font-size: 11px; color: var(--dust);
+    letter-spacing: 0.02em; background: none; border: 1px solid transparent;
+    border-radius: var(--radius-sm); padding: 4px 8px; cursor: pointer;
+    display: flex; align-items: center; gap: 5px; transition: all 0.15s;
+  }
+  .company-switcher-btn:hover { color: var(--ink); border-color: var(--chalk); background: var(--chalk-light); }
+  .company-switcher-btn svg { width: 10px; height: 10px; }
+  .company-switcher-menu {
+    display: none; position: absolute; top: 100%; right: 0; margin-top: 4px;
+    background: var(--white); border: 1px solid var(--chalk);
+    border-radius: var(--radius-md); box-shadow: var(--shadow-lg);
+    min-width: 200px; z-index: 200; overflow: hidden;
+  }
+  .company-switcher-menu.open { display: block; }
+  .company-switcher-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; font-size: 13px; color: var(--graphite);
+    cursor: pointer; transition: background 0.1s; border: none;
+    background: none; width: 100%; text-align: left; font-family: var(--font-sans);
+  }
+  .company-switcher-item:hover { background: var(--chalk-light); }
+  .company-switcher-item--active { color: var(--ink); font-weight: 600; }
+  .company-switcher-check { width: 6px; height: 6px; border-radius: 50%; background: var(--ember); }
+  .company-switcher-divider { height: 1px; background: var(--chalk); margin: 4px 0; }
+  .company-switcher-add { color: var(--stone); font-size: 12px; }
+  .nav-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--ink); color: var(--white);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 11px;
+  }
+  .theme-toggle {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 1px solid var(--chalk); background: var(--paper);
+    color: var(--stone); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s; flex-shrink: 0;
+  }
+  .theme-toggle:hover { border-color: var(--dust); color: var(--ink); background: var(--chalk-light); }
+  .theme-toggle svg { width: 15px; height: 15px; }
+  .theme-toggle .icon-moon { display: block; }
+  .theme-toggle .icon-sun  { display: none; }
+  [data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+  [data-theme="dark"] .theme-toggle .icon-sun  { display: block; }
+
+  /* ====== LAYOUT ====== */
+  .layout {
+    display: grid; grid-template-columns: 1fr 340px;
+    gap: var(--sp-5); max-width: 1280px; margin: 0 auto;
+    padding: var(--sp-5); min-height: calc(100vh - 52px);
+  }
+  .main { display: flex; flex-direction: column; gap: var(--sp-5); }
+  .sidebar { display: flex; flex-direction: column; gap: var(--sp-5); }
+
+  /* ====== SECTION LABEL ====== */
+  .section-label {
+    font-weight: 600; font-size: 11px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--stone);
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--sp-3);
+  }
+  .section-label-count {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+    color: var(--dust); background: var(--chalk-light);
+    padding: 2px 8px; border-radius: 99px;
+  }
+
+  /* ====== PAGE HEADER ====== */
+  .page-header { margin-bottom: var(--sp-2); }
+  .page-title {
+    font-weight: 800; font-size: 28px; letter-spacing: -0.025em;
+    color: var(--ink); line-height: 1.15;
+  }
+  .page-subtitle {
+    font-size: 14px; color: var(--stone); margin-top: var(--sp-1); line-height: 1.5;
+  }
+
+  /* ====== EXEC CARD ====== */
+  .exec-card {
+    background: var(--white); border: 1px solid var(--chalk);
+    border-radius: var(--radius-lg); overflow: hidden;
+    transition: box-shadow 0.2s;
+  }
+  .exec-card:hover { box-shadow: var(--shadow-md); }
+
+  .exec-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--chalk);
+  }
+  .exec-identity { display: flex; align-items: center; gap: var(--sp-3); }
+  .exec-avatar {
+    width: 42px; height: 42px; border-radius: 50%;
+    background: var(--chalk-light); color: var(--stone);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; flex-shrink: 0;
+    position: relative;
+  }
+  .exec-status-dot {
+    position: absolute; bottom: -1px; right: -1px;
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid var(--white);
+  }
+  .exec-meta { display: flex; flex-direction: column; gap: 1px; }
+  .exec-role { font-weight: 700; font-size: 15px; color: var(--ink); letter-spacing: -0.01em; }
+  .exec-model { font-family: var(--font-mono); font-size: 11px; color: var(--dust); }
+  .exec-status-area { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .exec-current-task { font-size: 12px; color: var(--graphite); }
+  .exec-job-count { font-family: var(--font-mono); font-size: 10px; color: var(--dust); }
+
+  /* ====== ARCHETYPE SECTION ====== */
+  .archetype-section {
+    padding: var(--sp-4) var(--sp-5);
+    border-bottom: 1px solid var(--chalk);
+  }
+  .archetype-label {
+    font-family: var(--font-mono); font-size: 10px; color: var(--dust);
+    letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: var(--sp-3);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .archetype-change {
+    font-family: var(--font-sans); font-size: 11px; font-weight: 600;
+    color: var(--stone); cursor: pointer; border: none; background: none;
+    transition: color 0.15s; padding: 0;
+  }
+  .archetype-change:hover { color: var(--ember); }
+
+  .archetype-current {
+    display: flex; gap: var(--sp-4); align-items: flex-start;
+  }
+  .archetype-icon {
+    width: 40px; height: 40px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; flex-shrink: 0;
+  }
+  .archetype-info { flex: 1; }
+  .archetype-name {
+    font-weight: 700; font-size: 16px; letter-spacing: -0.01em;
+    margin-bottom: 2px;
+  }
+  .archetype-tagline {
+    font-size: 13px; color: var(--graphite); line-height: 1.45;
+    margin-bottom: var(--sp-3);
+  }
+
+  /* ====== BEHAVIORAL TRAITS ====== */
+  .traits {
+    display: flex; flex-wrap: wrap; gap: var(--sp-2);
+  }
+  .trait {
+    font-size: 12px; font-weight: 500;
+    padding: 5px 12px; border-radius: 99px;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .trait-icon { font-size: 11px; }
+
+  /* ====== BELIEFS ====== */
+  .beliefs-section {
+    padding: var(--sp-4) var(--sp-5);
+  }
+  .beliefs-label {
+    font-family: var(--font-mono); font-size: 10px; color: var(--dust);
+    letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: var(--sp-2);
+  }
+  .belief-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .belief {
+    display: flex; align-items: flex-start; gap: var(--sp-2);
+    font-size: 13px; color: var(--graphite); line-height: 1.4;
+  }
+  .belief-marker {
+    width: 3px; height: 3px; border-radius: 50%;
+    margin-top: 7px; flex-shrink: 0;
+  }
+
+  /* ====== ARCHETYPE PICKER (overlay) ====== */
+  .archetype-picker {
+    display: none; padding: var(--sp-4) var(--sp-5);
+    border-bottom: 1px solid var(--chalk);
+    background: var(--chalk-light);
+  }
+  .archetype-picker.visible { display: block; }
+  .archetype-picker-title {
+    font-weight: 600; font-size: 13px; color: var(--ink);
+    margin-bottom: var(--sp-3);
+  }
+  .archetype-options { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .archetype-option {
+    display: flex; gap: var(--sp-3); align-items: flex-start;
+    padding: var(--sp-3); border-radius: var(--radius-md);
+    border: 1px solid var(--chalk); background: var(--white);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .archetype-option:hover {
+    border-color: var(--dust);
+    box-shadow: var(--shadow-sm);
+  }
+  .archetype-option.selected {
+    border-color: var(--ember);
+    box-shadow: 0 0 0 1px var(--ember);
+  }
+  .archetype-option-icon {
+    width: 32px; height: 32px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .archetype-option-info { flex: 1; }
+  .archetype-option-name { font-weight: 600; font-size: 13px; color: var(--ink); margin-bottom: 1px; }
+  .archetype-option-desc { font-size: 12px; color: var(--stone); line-height: 1.4; }
+  .archetype-option-check {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid var(--chalk); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    margin-top: 2px; transition: all 0.15s;
+  }
+  .archetype-option.selected .archetype-option-check {
+    background: var(--ember); border-color: var(--ember);
+  }
+  .archetype-option.selected .archetype-option-check::after {
+    content: ''; width: 6px; height: 6px; border-radius: 50%; background: white;
+  }
+
+  /* ====== SIDEBAR CARDS ====== */
+  .sidebar-card {
+    background: var(--white); border: 1px solid var(--chalk);
+    border-radius: var(--radius-md); padding: var(--sp-4);
+  }
+  .sidebar-card-title {
+    font-weight: 600; font-size: 11px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--stone);
+    margin-bottom: var(--sp-3);
+  }
+
+  /* ====== ENGINEER ROW ====== */
+  .engineer-row {
+    display: flex; align-items: center; gap: var(--sp-3);
+    padding: 8px 0; border-bottom: 1px solid var(--chalk-light);
+  }
+  .engineer-row:last-child { border-bottom: none; }
+  .engineer-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--chalk-light); color: var(--stone);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 11px; flex-shrink: 0;
+  }
+  .engineer-info { flex: 1; min-width: 0; }
+  .engineer-name { font-size: 13px; font-weight: 600; color: var(--ink); }
+  .engineer-task {
+    font-size: 12px; color: var(--dust);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .engineer-model {
+    font-family: var(--font-mono); font-size: 9px; color: var(--dust);
+    margin-top: 1px;
+  }
+  .engineer-status { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+  .engineer-jobs { font-family: var(--font-mono); font-size: 10px; color: var(--dust); }
+
+  /* ====== MACHINE CARD ====== */
+  .machine-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--sp-3);
+  }
+  .machine-name { font-family: var(--font-mono); font-size: 11px; color: var(--stone); }
+  .machine-status {
+    display: flex; align-items: center; gap: 4px;
+    font-family: var(--font-mono); font-size: 10px;
+  }
+  .slot-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 0;
+  }
+  .slot-label { font-size: 12px; color: var(--stone); }
+  .slot-pips { display: flex; gap: 4px; align-items: center; }
+  .slot-pip {
+    width: 20px; height: 6px; border-radius: 3px;
+  }
+  .slot-pip--active { background: var(--ember); }
+  .slot-pip--empty { background: var(--chalk-light); }
+  .slot-count {
+    font-family: var(--font-mono); font-size: 10px; color: var(--dust);
+    margin-left: 6px;
+  }
+  .machine-heartbeat {
+    font-family: var(--font-mono); font-size: 10px; color: var(--dust);
+    margin-top: var(--sp-2); padding-top: var(--sp-2);
+    border-top: 1px solid var(--chalk-light);
+  }
+
+  /* ====== ANIMATIONS ====== */
+  .fade-up {
+    opacity: 0; transform: translateY(12px);
+    animation: fadeUp 0.5s ease forwards;
+  }
+  @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+  .d1 { animation-delay: 0.03s; }
+  .d2 { animation-delay: 0.06s; }
+  .d3 { animation-delay: 0.09s; }
+  .d4 { animation-delay: 0.12s; }
+  .d5 { animation-delay: 0.15s; }
+  .d6 { animation-delay: 0.18s; }
+
+  /* ====== RESPONSIVE ====== */
+  @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<!-- ====== NAV ====== -->
+<nav class="nav">
+  <div class="nav-left">
+    <a href="founder-dashboard-v2.html" class="nav-brand">
+      zazig<span class="dot dot--positive dot--breathe"></span>
+    </a>
+    <div class="nav-links">
+      <a href="founder-dashboard-v2.html">Dashboard</a>
+      <a href="pipeline-v2.html">Pipeline</a>
+      <a href="team-v2.html" class="active">Team</a>
+    </div>
+  </div>
+  <div class="nav-right">
+    <div class="company-switcher">
+      <button class="company-switcher-btn" onclick="this.nextElementSibling.classList.toggle('open')">
+        zazig-dev
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="company-switcher-menu">
+        <button class="company-switcher-item company-switcher-item--active">zazig-dev<span class="company-switcher-check"></span></button>
+        <button class="company-switcher-item">acme-corp</button>
+        <div class="company-switcher-divider"></div>
+        <button class="company-switcher-item company-switcher-add">+ Add company</button>
+      </div>
+    </div>
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79Z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
+    <div class="nav-avatar">TW</div>
+  </div>
+</nav>
+
+<!-- ====== LAYOUT ====== -->
+<div class="layout">
+
+  <!-- ====== MAIN ====== -->
+  <div class="main">
+
+    <div class="page-header fade-up d1">
+      <div class="page-title">Your Team</div>
+      <div class="page-subtitle">2 execs and 3 engineers across 1 machine. 3 of 5 slots active.</div>
+    </div>
+
+    <!-- ====== CPO ====== -->
+    <div class="fade-up d2">
+      <div class="section-label">
+        Executives
+        <span class="section-label-count">2 persistent</span>
+      </div>
+
+      <div class="exec-card" id="cpo-card">
+        <div class="exec-header">
+          <div class="exec-identity">
+            <div class="exec-avatar">
+              CP
+              <div class="exec-status-dot dot--positive dot--breathe"></div>
+            </div>
+            <div class="exec-meta">
+              <div class="exec-role">CPO</div>
+              <div class="exec-model">claude-opus-4 · persistent</div>
+            </div>
+          </div>
+          <div class="exec-status-area">
+            <div class="exec-current-task">Reviewing feature specs</div>
+            <div class="exec-job-count">2 jobs active</div>
+          </div>
+        </div>
+
+        <!-- Archetype -->
+        <div class="archetype-section">
+          <div class="archetype-label">
+            Current Archetype
+            <button class="archetype-change" onclick="togglePicker('cpo')">Change</button>
+          </div>
+          <div class="archetype-current">
+            <div class="archetype-icon" style="background: var(--ember-dim); color: var(--ember);">⚡</div>
+            <div class="archetype-info">
+              <div class="archetype-name" style="color: var(--ember);">The Founder's Instinct</div>
+              <div class="archetype-tagline">Moves fast, trusts gut over analysis, and won't waste your time with hedging. Surfaces problems before you notice them and tells you what they actually think, not what sounds safe.</div>
+              <div class="traits">
+                <span class="trait" style="background: var(--ember-dim); color: var(--ember);"><span class="trait-icon">↗</span> Proactive — flags issues first</span>
+                <span class="trait" style="background: var(--ember-dim); color: var(--ember);"><span class="trait-icon">◆</span> Direct — no hedging</span>
+                <span class="trait" style="background: var(--ember-dim); color: var(--ember);"><span class="trait-icon">»</span> Fast — ships over perfects</span>
+                <span class="trait" style="background: var(--chalk-light); color: var(--stone);"><span class="trait-icon">↓</span> Low formality</span>
+                <span class="trait" style="background: var(--chalk-light); color: var(--stone);"><span class="trait-icon">↓</span> Light on detail</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Archetype Picker (hidden by default) -->
+        <div class="archetype-picker" id="cpo-picker">
+          <div class="archetype-picker-title">Choose an archetype for CPO</div>
+          <div class="archetype-options">
+            <div class="archetype-option selected" onclick="selectArchetype(this)">
+              <div class="archetype-option-icon" style="background: var(--ember-dim); color: var(--ember);">⚡</div>
+              <div class="archetype-option-info">
+                <div class="archetype-option-name">The Founder's Instinct</div>
+                <div class="archetype-option-desc">Fast decisions, strong opinions, startup-speed execution. Surfaces issues before you notice them. Won't sugarcoat. Best for early-stage when speed matters more than process.</div>
+              </div>
+              <div class="archetype-option-check"></div>
+            </div>
+            <div class="archetype-option" onclick="selectArchetype(this)">
+              <div class="archetype-option-icon" style="background: var(--info-dim); color: var(--info);">◎</div>
+              <div class="archetype-option-info">
+                <div class="archetype-option-name">The Methodical</div>
+                <div class="archetype-option-desc">Careful, analytical, asks before acting. Investigates deeply before recommending. Won't rush a decision. Best when you need fewer mistakes and more thoroughness.</div>
+              </div>
+              <div class="archetype-option-check"></div>
+            </div>
+            <div class="archetype-option" onclick="selectArchetype(this)">
+              <div class="archetype-option-icon" style="background: var(--positive-dim); color: var(--positive);">◈</div>
+              <div class="archetype-option-info">
+                <div class="archetype-option-name">The Diplomat</div>
+                <div class="archetype-option-desc">Balanced, consensus-building, explains reasoning. Checks in before making big calls. Gives context and options rather than directives. Best for larger teams and nuanced decisions.</div>
+              </div>
+              <div class="archetype-option-check"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Beliefs -->
+        <div class="beliefs-section">
+          <div class="beliefs-label">Core Beliefs</div>
+          <div class="belief-list">
+            <div class="belief"><div class="belief-marker" style="background: var(--ember);"></div>Speed over perfection — ship it, learn from it, fix it</div>
+            <div class="belief"><div class="belief-marker" style="background: var(--ember);"></div>Say no to almost everything — focus is the only competitive advantage at this stage</div>
+            <div class="belief"><div class="belief-marker" style="background: var(--ember);"></div>The founder knows the user best — defer to Tom's instincts on product calls</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== CTO ====== -->
+    <div class="fade-up d3">
+      <div class="exec-card" id="cto-card">
+        <div class="exec-header">
+          <div class="exec-identity">
+            <div class="exec-avatar">
+              CT
+              <div class="exec-status-dot dot--caution"></div>
+            </div>
+            <div class="exec-meta">
+              <div class="exec-role">CTO</div>
+              <div class="exec-model">claude-sonnet-4 · persistent</div>
+            </div>
+          </div>
+          <div class="exec-status-area">
+            <div class="exec-current-task">Architecture review</div>
+            <div class="exec-job-count">1 job active</div>
+          </div>
+        </div>
+
+        <!-- Archetype -->
+        <div class="archetype-section">
+          <div class="archetype-label">
+            Current Archetype
+            <button class="archetype-change" onclick="togglePicker('cto')">Change</button>
+          </div>
+          <div class="archetype-current">
+            <div class="archetype-icon" style="background: var(--info-dim); color: var(--info);">🔧</div>
+            <div class="archetype-info">
+              <div class="archetype-name" style="color: var(--info);">The Pragmatist</div>
+              <div class="archetype-tagline">Speaks in specifics, not abstractions. Highly technical but never over-engineers. Prefers proven boring tech over shiny new things. Will block a bad architecture decision without apology.</div>
+              <div class="traits">
+                <span class="trait" style="background: var(--info-dim); color: var(--info);"><span class="trait-icon">◆</span> Blunt — says no to bad ideas</span>
+                <span class="trait" style="background: var(--info-dim); color: var(--info);"><span class="trait-icon">⚙</span> Deeply technical</span>
+                <span class="trait" style="background: var(--info-dim); color: var(--info);"><span class="trait-icon">↓</span> Conservative on risk</span>
+                <span class="trait" style="background: var(--chalk-light); color: var(--stone);"><span class="trait-icon">»</span> Moderate pace</span>
+                <span class="trait" style="background: var(--chalk-light); color: var(--stone);"><span class="trait-icon">↕</span> Reactive, not proactive</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Archetype Picker (hidden) -->
+        <div class="archetype-picker" id="cto-picker">
+          <div class="archetype-picker-title">Choose an archetype for CTO</div>
+          <div class="archetype-options">
+            <div class="archetype-option" onclick="selectArchetype(this)">
+              <div class="archetype-option-icon" style="background: var(--caution-dim); color: var(--caution);">🧪</div>
+              <div class="archetype-option-info">
+                <div class="archetype-option-name">The Innovator</div>
+                <div class="archetype-option-desc">Loves experimenting with new approaches. Higher risk tolerance, moves fast. May reach for cutting-edge tools. Best when exploring new territory or building greenfield systems.</div>
+              </div>
+              <div class="archetype-option-check"></div>
+            </div>
+            <div class="archetype-option selected" onclick="selectArchetype(this)">
+              <div class="archetype-option-icon" style="background: var(--info-dim); color: var(--info);">🔧</div>
+              <div class="archetype-option-info">
+                <div class="archetype-option-name">The Pragmatist</div>
+                <div class="archetype-option-desc">Proven tech, boring but correct. Conservative on architecture, aggressive on shipping. Won't let tech debt accumulate. Best for building reliable systems that actually work.</div>
+              </div>
+              <div class="archetype-option-check"></div>
+            </div>
+            <div class="archetype-option" onclick="selectArchetype(this)">
+              <div class="archetype-option-icon" style="background: var(--positive-dim); color: var(--positive);">📐</div>
+              <div class="archetype-option-info">
+                <div class="archetype-option-name">The Architect</div>
+                <div class="archetype-option-desc">Deep analysis before any decision. Thinks in systems and second-order effects. Slower but builds things that last. Best for complex, interconnected systems where mistakes are expensive.</div>
+              </div>
+              <div class="archetype-option-check"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Beliefs -->
+        <div class="beliefs-section">
+          <div class="beliefs-label">Core Beliefs</div>
+          <div class="belief-list">
+            <div class="belief"><div class="belief-marker" style="background: var(--info);"></div>Monolith until it hurts — don't split what doesn't need splitting</div>
+            <div class="belief"><div class="belief-marker" style="background: var(--info);"></div>PostgreSQL for everything — one database, less complexity, fewer failure modes</div>
+            <div class="belief"><div class="belief-marker" style="background: var(--info);"></div>Boring tech is a competitive advantage — novel is fragile</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ====== SIDEBAR ====== -->
+  <div class="sidebar">
+
+    <!-- Engineers -->
+    <div class="sidebar-card fade-up d2">
+      <div class="sidebar-card-title">Engineers</div>
+
+      <div class="engineer-row">
+        <span class="dot dot--positive dot--breathe" style="width: 8px; height: 8px;"></span>
+        <div class="engineer-avatar">E1</div>
+        <div class="engineer-info">
+          <div class="engineer-name">Engineer</div>
+          <div class="engineer-task">Building auth module</div>
+          <div class="engineer-model">claude-sonnet-4 · ephemeral</div>
+        </div>
+        <div class="engineer-status">
+          <div class="engineer-jobs" style="color: var(--positive);">1 job</div>
+        </div>
+      </div>
+
+      <div class="engineer-row">
+        <span class="dot dot--offline" style="width: 8px; height: 8px;"></span>
+        <div class="engineer-avatar">E2</div>
+        <div class="engineer-info">
+          <div class="engineer-name">Engineer</div>
+          <div class="engineer-task">Idle</div>
+          <div class="engineer-model">claude-sonnet-4 · ephemeral</div>
+        </div>
+        <div class="engineer-status">
+          <div class="engineer-jobs">0 jobs</div>
+        </div>
+      </div>
+
+      <div class="engineer-row">
+        <span class="dot dot--offline" style="width: 8px; height: 8px;"></span>
+        <div class="engineer-avatar">E3</div>
+        <div class="engineer-info">
+          <div class="engineer-name">Engineer</div>
+          <div class="engineer-task">Idle</div>
+          <div class="engineer-model">codex · ephemeral</div>
+        </div>
+        <div class="engineer-status">
+          <div class="engineer-jobs">0 jobs</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Machine -->
+    <div class="sidebar-card fade-up d3">
+      <div class="sidebar-card-title">Machines</div>
+      <div class="machine-header">
+        <div class="machine-name">Tom's Mac</div>
+        <div class="machine-status" style="color: var(--positive);">
+          <span class="dot dot--positive" style="width: 6px; height: 6px;"></span>
+          Online
+        </div>
+      </div>
+      <div class="slot-row">
+        <span class="slot-label">Claude Code</span>
+        <div class="slot-pips">
+          <div class="slot-pip slot-pip--active"></div>
+          <div class="slot-pip slot-pip--active"></div>
+          <div class="slot-pip slot-pip--empty"></div>
+          <span class="slot-count">2/3</span>
+        </div>
+      </div>
+      <div class="slot-row">
+        <span class="slot-label">Codex</span>
+        <div class="slot-pips">
+          <div class="slot-pip slot-pip--empty"></div>
+          <span class="slot-count">0/1</span>
+        </div>
+      </div>
+      <div class="machine-heartbeat">Last heartbeat: 12s ago</div>
+    </div>
+
+    <!-- Contractors -->
+    <div class="sidebar-card fade-up d4">
+      <div class="sidebar-card-title">Contractors</div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--chalk-light);">
+          <div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--ink);">Breakdown Specialist</div>
+            <div style="font-family: var(--font-mono); font-size: 10px; color: var(--dust);">Decomposes features into jobs</div>
+          </div>
+          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--dust);">on-demand</span>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--chalk-light);">
+          <div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--ink);">Project Architect</div>
+            <div style="font-family: var(--font-mono); font-size: 10px; color: var(--dust);">Structures projects from ideas</div>
+          </div>
+          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--dust);">on-demand</span>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--chalk-light);">
+          <div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--ink);">Verification Specialist</div>
+            <div style="font-family: var(--font-mono); font-size: 10px; color: var(--dust);">Active acceptance testing</div>
+          </div>
+          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--dust);">on-demand</span>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 0;">
+          <div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--ink);">Monitoring Agent</div>
+            <div style="font-family: var(--font-mono); font-size: 10px; color: var(--dust);">Watches for issues, proposes fixes</div>
+          </div>
+          <span style="font-family: var(--font-mono); font-size: 10px; color: var(--dust);">on-demand</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  // Theme toggle
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    const html = document.documentElement;
+    const isDark = html.getAttribute('data-theme') === 'dark';
+    html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  });
+
+  // Close company switcher when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.company-switcher')) {
+      document.querySelectorAll('.company-switcher-menu').forEach(m => m.classList.remove('open'));
+    }
+  });
+
+  // Archetype picker toggle
+  function togglePicker(role) {
+    const picker = document.getElementById(role + '-picker');
+    picker.classList.toggle('visible');
+  }
+
+  // Select archetype
+  function selectArchetype(el) {
+    const parent = el.closest('.archetype-options');
+    parent.querySelectorAll('.archetype-option').forEach(o => o.classList.remove('selected'));
+    el.classList.add('selected');
+  }
+</script>
+
+</body>
+</html>

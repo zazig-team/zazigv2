@@ -1,0 +1,151 @@
+# /triage
+
+**Role:** CPO / triage-analyst
+**Type:** Operational — sweeps the ideas inbox and triages new ideas
+
+Run this skill to clear the ideas inbox, classify new ideas, and prepare explicit promote/park/reject recommendations for human approval.
+
+---
+
+## Single-Idea Mode
+
+If your job context contains a single idea ID, triage only that idea:
+- Skip Phase 1 — use the idea ID from context
+- Run Phase 2 on the single idea
+- Write recommendation to `triage_notes` (not human presentation)
+- Do not call `promote_idea` — the human will act from the WebUI
+- Set `status='triaged'` when complete (not `triaging`)
+- **Single call rule:** Call `update_idea` once with all fields — title, description, tags, priority, suggested_exec, triage_notes, and status='triaged' — in a single call. Do not make a separate refinement call first.
+
+## Enrich Mode
+
+If your job context is JSON with `"action": "enrich"`, you are fixing missing fields on an already-triaged idea — not re-triaging it.
+
+Parse the context:
+```json
+{"idea_id": "uuid", "action": "enrich", "missing": ["title"]}
+```
+
+For each field in `missing`:
+- **title**: Read the `raw_text` and `description`. Generate a clear, concise title (max 80 chars) that captures the core intent. Do not just truncate raw_text.
+- **description**: Read `raw_text` and `title`. Write a clear 2-4 sentence description.
+- **priority**: Assess urgency and strategic fit. Set `low`, `medium`, `high`, or `urgent`.
+- **tags**: Infer relevant tags from content.
+
+Call `update_idea` with only the missing fields filled in. Do not change `status` — leave it at `triaged`. Do not overwrite fields that already have good values.
+
+---
+
+## Phase 1: Gather Inbox State
+
+Call `query_ideas` with `status='new'`.
+
+`query_ideas` returns all ideas at `status='new'`; apply originator filtering before triaging:
+- Primarily process ideas in your own originator namespace: `{human}-*` (where `{human}` is the current human's name), including `{human}` and `{human}-cpo`.
+- You may surface broader ideas if relevant, but default to own-originator first.
+
+Capture, at minimum, each candidate idea's `title`, `description`, `flags`, `clarification_notes`, `originator`, and `created_at`.
+
+---
+
+## Phase 2: Triage Each Idea
+
+Step 2 update calls must always include `title`.
+
+For each idea selected for triage:
+
+1. Read the full `title`, `description`, `flags`, `clarification_notes`, and `originator`.
+1a. Run a structured implementation deduplication check before routing:
+   - Extract 2-3 keywords from the idea `title` and `description` (short terms, not a sentence)
+   - Call `query_features` with `search="<keywords>"`, `status=["complete","building","breaking_down"]`, `dedup_mode=true`, and `project_id` from the idea's data. This returns only matching features (id, title, description, status) — a small result set filtered server-side, not the full corpus.
+   - If the idea has no project_id, omit the search and skip the dedup check.
+   - Compare the returned features against the idea's description and scope
+   - Apply deduplication routing decision:
+     - **High confidence match** (feature with `status=complete` fully covers the idea): park with feature ID in `triage_notes` (for example: "Already implemented: feature {id} — {title}")
+     - **Partial match** (feature exists but does not fully cover the idea): flag in `triage_notes` with feature ID and gap description, then route normally
+     - **No match**: proceed with standard routing unchanged
+   - Bias: err on the side of keeping (not parking) when uncertain
+1b. Generate or confirm title:
+   - If the idea has no title, or the title looks like a raw_text truncation (ends mid-sentence, contains ellipsis, or is over 80 chars), generate a new one.
+   - The title must: be <=80 chars, capture the core intent in plain language, and NOT be a literal truncation of raw_text.
+2. Refine if needed via `update_idea` (always include `title`):
+   - Include `title` in the `update_idea` call every time at this step
+   - Improve the description for clarity
+   - Add or correct tags
+3. Set `priority` (`low` | `medium` | `high` | `urgent`) based on urgency signals, strategic fit, and originator intent.
+4. Set `suggested_exec` (`cpo`, `cto`, `cmo`, or a contractor name).
+5. Write an **End-to-End Test Plan** section in `triage_notes`. This answers: "How would we verify this idea actually works once shipped?" One or two sentences covering what a human or automated test would do to confirm the feature/fix delivers its intended value. If the idea is not directly testable (e.g. research, cosmetic, process change), state that explicitly and explain why.
+6. Mark the idea as triaged with `update_idea(..., status='triaged')`.
+
+> **Content-level duplicate checking is mandatory.** When evaluating whether an idea overlaps with an existing feature or idea, you MUST compare the actual description, scope, and requirements of both — not just titles. Title similarity alone is insufficient and has caused false 'already exists' conclusions in the past. Two ideas can share a title but be fundamentally different in scope; two ideas can have different titles but be identical in substance. Always read the full description of candidate duplicates before making any duplicate determination. If you cannot read the full content of a candidate duplicate, do not conclude it is or is not a duplicate.
+
+Use `query_features` (and, when needed, inbox context) to validate overlap at content level before recommending promotion.
+
+---
+
+## Phase 3: Present Recommendations
+
+Present triaged ideas in a concise decision list for the human. For each idea:
+- Show title, priority, and suggested_exec
+- Give one recommendation: `promote`, `park`, or `reject`
+- Include the E2E test plan (from triage_notes)
+- Show any `flags` or `clarification_notes` needing human attention
+
+For every `promote` recommendation, include an explicit promote target:
+- `feature` (must include project target)
+- `job`
+- `research`
+
+A promote recommendation without a target type is invalid. Never say only "promote."
+
+Use one of these exact forms:
+- `Recommend: promote → feature (project: {project_name})`
+- `Recommend: promote → job`
+- `Recommend: promote → research`
+
+Wait for explicit human approval before calling `promote_idea`.
+
+---
+
+## Phase 4: Execute Approvals
+
+After the human approves promote recommendations, call `promote_idea`.
+
+Prerequisites:
+1. The idea must be at status `triaged` before calling `promote_idea` — ideas at status `new` cannot be promoted. Always verify triage completion first.
+2. If promoting to `feature`, `project_id` is required — never call `promote_idea` with `promote_to='feature'` without a `project_id`. If no `project_id` is available, ask the human which project to promote to first.
+
+Execute only what the human explicitly approved.
+
+---
+
+## Inbox Hygiene
+
+During standup or when running triage:
+- Report the count of ideas with `status='new'`
+- Flag ideas older than 7 days still at `status='new'` (name them)
+- Mention the count of parked ideas if > 0
+
+---
+
+## Rules
+
+- Only triage ideas in your originator namespace by default
+- Never call `promote_idea` without explicit human approval
+- Perform content-level duplicate checking before any promote recommendation
+- Deduplication check is mandatory before routing — query features filtered by status before deciding route
+- Always write `title` during Phase 2 step 2 `update_idea` calls
+- Every promote recommendation must specify `feature`, `job`, or `research`
+- An idea must be triaged before `promote_idea` can be called
+- `project_id` is required when promoting to `feature`
+
+---
+
+## MCP Tools Used
+
+| Tool | Purpose | When |
+|------|---------|------|
+| query_ideas | Fetch new ideas from inbox | Phase 1 |
+| update_idea | Refine idea, set priority, mark triaged | Phase 2 |
+| promote_idea | Promote idea to feature/job/research | Phase 4 |
+| query_features | Phase 2 deduplication check and overlap validation against existing features (content-level) | Phase 2 deduplication check and overlap validation |

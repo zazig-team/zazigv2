@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "../hooks/useAuth";
 import { useCompany } from "../hooks/useCompany";
 import { usePolling } from "../hooks/usePolling";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
@@ -7,6 +8,7 @@ import {
   fetchIdeaDetail,
   fetchProjects,
   promoteIdea,
+  submitIdea,
   updateIdeaStatus,
   updateIdeaWithNote,
   requestHeadlessTriage,
@@ -146,13 +148,20 @@ const STATUS_LABELS: Record<string, string> = {
 const TAB_LABELS: Record<SectionTab, string> = {
   inbox: "Inbox",
   triaged: "Triaged",
-  developing: "Spec In Progress",
+  developing: "In Progress",
   workshop: "Workshop",
   parked: "Parked",
   rejected: "Rejected",
   shipped: "Shipped",
-  done: "Done",
+  done: "Closed",
 };
+
+const IDEA_TYPE_OPTIONS: ReadonlyArray<{ value: Idea["item_type"]; label: string }> = [
+  { value: "idea", label: "Idea" },
+  { value: "brief", label: "Brief" },
+  { value: "bug", label: "Bug" },
+  { value: "test", label: "Test" },
+];
 
 interface InlineDetailProps {
   ideaId: string;
@@ -963,6 +972,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
 
 export default function Ideas(): JSX.Element {
   const { activeCompanyId } = useCompany();
+  const { user } = useAuth();
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [promotedIdeas, setPromotedIdeas] = useState<Idea[]>([]);
   const [featureStatuses, setFeatureStatuses] = useState<Map<string, { title: string; status: string }>>(new Map());
@@ -982,6 +992,10 @@ export default function Ideas(): JSX.Element {
   const [leavingIdeas, setLeavingIdeas] = useState<Map<string, Idea>>(new Map());
   const [batchToasts, setBatchToasts] = useState<BatchToast[]>([]);
   const [staleCleanupToast, setStaleCleanupToast] = useState<string | null>(null);
+  const [ideaText, setIdeaText] = useState("");
+  const [ideaType, setIdeaType] = useState<Idea["item_type"]>("idea");
+  const [ideaSubmitting, setIdeaSubmitting] = useState(false);
+  const [ideaMessage, setIdeaMessage] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const ideasByIdRef = useRef<Map<string, Idea>>(new Map());
   const leavingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -2061,6 +2075,37 @@ export default function Ideas(): JSX.Element {
     });
   }
 
+  const onSubmitIdea = async (): Promise<void> => {
+    if (!activeCompanyId) {
+      setIdeaMessage("No company selected");
+      return;
+    }
+    if (!ideaText.trim()) {
+      setIdeaMessage("Write something first");
+      return;
+    }
+    setIdeaSubmitting(true);
+    setIdeaMessage(null);
+    try {
+      await submitIdea({
+        companyId: activeCompanyId,
+        rawText: ideaText.trim(),
+        originator: user?.email ?? "founder",
+        item_type: ideaType,
+      });
+      setIdeaText("");
+      setIdeaMessage("Sent to inbox");
+    } catch (submitError) {
+      const message = submitError instanceof Error ? submitError.message : String(submitError);
+      const lower = message.toLowerCase();
+      setIdeaMessage(lower.includes("permission") || lower.includes("rls")
+        ? "Submission blocked — RLS policy needed"
+        : message);
+    } finally {
+      setIdeaSubmitting(false);
+    }
+  };
+
   return (
     <main className="ideas-page">
       {/* Header */}
@@ -2073,9 +2118,49 @@ export default function Ideas(): JSX.Element {
         </div>
       )}
 
+      {/* Submit bar */}
+      <div className="il-submit-bar">
+        <div className="ideas-bar">
+          <div className="ideas-bar-icon">+</div>
+          <div className="ideas-bar-types" role="radiogroup" aria-label="Item type">
+            {IDEA_TYPE_OPTIONS.map((option) => {
+              const isActive = ideaType === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={isActive}
+                  className={`ideas-type-toggle${isActive ? " ideas-type-toggle--active" : ""}`}
+                  onClick={() => setIdeaType(option.value)}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          <input
+            type="text"
+            placeholder="Share an idea, report a bug, brief a task..."
+            value={ideaText}
+            onChange={(e) => setIdeaText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void onSubmitIdea(); }}
+          />
+          <button
+            className="ideas-submit-button"
+            type="button"
+            disabled={ideaSubmitting}
+            onClick={() => void onSubmitIdea()}
+          >
+            {ideaSubmitting ? "Sending..." : "Send idea"}
+          </button>
+        </div>
+        {ideaMessage && <div className="inline-feedback">{ideaMessage}</div>}
+      </div>
+
       {/* Section tabs */}
       <div className="il-tabs">
-        {(["inbox", "triaged", "developing", "workshop", "parked", "rejected", "shipped", "done"] as SectionTab[]).map((tab) => (
+        {(["inbox", "triaged", "developing", "workshop"] as SectionTab[]).map((tab) => (
           <button
             key={tab}
             className={`il-tab${activeTab === tab ? " active" : ""}`}
@@ -2086,17 +2171,18 @@ export default function Ideas(): JSX.Element {
             <span className="il-tab-count">{tabCounts[tab]}</span>
           </button>
         ))}
-        {tabCounts.done > 0 && (
+        <div className="il-tab-divider" />
+        {(["parked", "rejected", "shipped", "done"] as SectionTab[]).map((tab) => (
           <button
-            key="done"
-            className={`il-tab${activeTab === "done" ? " active" : ""}`}
-            onClick={() => { setActiveTab("done"); setExpandedId(null); }}
+            key={tab}
+            className={`il-tab il-tab--terminal${activeTab === tab ? " active" : ""}`}
+            onClick={() => { setActiveTab(tab); setExpandedId(null); }}
             type="button"
           >
-            Done
-            <span className="il-tab-count">{tabCounts.done}</span>
+            {TAB_LABELS[tab]}
+            <span className="il-tab-count">{tabCounts[tab]}</span>
           </button>
-        )}
+        ))}
       </div>
 
       {/* Type filter (secondary) */}

@@ -15,7 +15,6 @@ import {
   getAccessToken,
   resolveActionItem,
   resolveDecision,
-  submitIdea,
   type ActionItem,
   type CompletedFeature,
   type Decision,
@@ -147,13 +146,6 @@ const EMPTY_TEAM: TeamSidebarData = {
   machineHeartbeatById: {},
 };
 
-const IDEA_TYPE_OPTIONS: ReadonlyArray<{ value: Idea["item_type"]; label: string }> = [
-  { value: "idea", label: "Idea" },
-  { value: "brief", label: "Brief" },
-  { value: "bug", label: "Bug" },
-  { value: "test", label: "Test" },
-];
-
 type FocusBadgeTone = "badge--positive" | "badge--negative" | "badge--caution" | "badge--neutral";
 
 function focusBadgeDetails(focusArea: FocusArea): { label: string; tone: FocusBadgeTone } {
@@ -205,10 +197,6 @@ export default function Dashboard(): JSX.Element {
   const [selectedFocusArea, setSelectedFocusArea] = useState<FocusArea | null>(null);
   const [completedFeatures, setCompletedFeatures] = useState<CompletedFeature[]>([]);
   const [showProduction, setShowProduction] = useState(false);
-  const [ideaText, setIdeaText] = useState("");
-  const [ideaType, setIdeaType] = useState<Idea["item_type"]>("idea");
-  const [ideaSubmitting, setIdeaSubmitting] = useState(false);
-  const [ideaMessage, setIdeaMessage] = useState<string | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
 
   const refreshDecisions = useCallback(async (): Promise<void> => {
@@ -422,41 +410,6 @@ export default function Dashboard(): JSX.Element {
       setError(decisionError instanceof Error ? decisionError.message : String(decisionError));
     } finally {
       setDecidingId(null);
-    }
-  };
-
-  const onSubmitIdea = async (): Promise<void> => {
-    if (!activeCompany?.id) {
-      setIdeaMessage("No company selected");
-      return;
-    }
-
-    if (!ideaText.trim()) {
-      setIdeaMessage("Write an idea first");
-      return;
-    }
-
-    setIdeaSubmitting(true);
-    setIdeaMessage(null);
-
-    try {
-      await submitIdea({
-        companyId: activeCompany.id,
-        rawText: ideaText.trim(),
-        originator: user?.email ?? "founder",
-        item_type: ideaType,
-      });
-      setIdeaText("");
-      setIdeaMessage("Idea sent to inbox");
-    } catch (submitError) {
-      const message = submitError instanceof Error ? submitError.message : String(submitError);
-      const lower = message.toLowerCase();
-      const friendlyMessage = lower.includes("permission") || lower.includes("rls")
-        ? "Idea submission blocked — RLS policy needed"
-        : message;
-      setIdeaMessage(friendlyMessage);
-    } finally {
-      setIdeaSubmitting(false);
     }
   };
 
@@ -716,45 +669,6 @@ export default function Dashboard(): JSX.Element {
                   ))
               )
             ) : null}
-          </section>
-
-          <section className="fade-up d8">
-            <div className="ideas-bar">
-              <div className="ideas-bar-icon">+</div>
-              <div className="ideas-bar-types" role="radiogroup" aria-label="Item type">
-                {IDEA_TYPE_OPTIONS.map((option) => {
-                  const isActive = ideaType === option.value;
-
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={isActive}
-                      className={`ideas-type-toggle${isActive ? " ideas-type-toggle--active" : ""}`}
-                      onClick={() => setIdeaType(option.value)}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <input
-                type="text"
-                placeholder="Share an idea, report a bug, brief a task..."
-                value={ideaText}
-                onChange={(event) => setIdeaText(event.target.value)}
-              />
-              <button
-                className="ideas-submit-button"
-                type="button"
-                disabled={ideaSubmitting}
-                onClick={() => void onSubmitIdea()}
-              >
-                {ideaSubmitting ? "Sending..." : "Send idea"}
-              </button>
-            </div>
-            {ideaMessage ? <div className="inline-feedback">{ideaMessage}</div> : null}
           </section>
 
           {error ? <div className="inline-feedback inline-feedback--error">{error}</div> : null}

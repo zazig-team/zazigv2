@@ -46,7 +46,37 @@ function fail(error: string): never {
   process.exit(1);
 }
 
+function printHelp(): void {
+  const help = `Usage: zazig update-idea --company <uuid> --id <uuid> [fields to update]
+
+Flags:
+  --company <uuid>         Company ID (required)
+  --id <uuid>              Idea ID (required)
+  --raw-text <string>      Raw idea text (optional)
+  --title <string>         Idea title (optional)
+  --description <string>   Idea description (optional)
+  --status <enum>          Status: new, triaging, triaged, developing, specced, workshop, hardening, parked, rejected, done (optional)
+  --priority <enum>        Priority: low, medium, high, urgent (optional)
+  --triage-notes <string>  Triage notes (optional)
+  --triage-route <enum>    Triage route: promote, develop, workshop, harden, park, reject, founder-review (optional)
+  --spec <string>          Implementation spec (optional)
+  --tags <csv>             Comma-separated tags (optional)
+  --complexity <enum>      Complexity: simple, medium, complex (optional)
+  --project-id <uuid>      Project ID (optional)
+
+At least one mutable field must be provided.
+
+Example:
+  zazig update-idea --company <uuid> --id <uuid> --status triaged --priority high --triage-route promote`;
+  console.log(help);
+  process.exit(0);
+}
+
 export async function updateIdea(args: string[]): Promise<void> {
+  if (args.includes("--help") || args.includes("-h")) {
+    printHelp();
+  }
+
   const company_id = parseStringFlag(args, "company");
   if (!company_id) fail("Missing required flag: --company <uuid>");
 

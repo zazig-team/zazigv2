@@ -23,7 +23,27 @@ function fail(error: string): never {
   process.exit(1);
 }
 
+function printHelp(): void {
+  const help = `Usage: zazig promote-idea --company <uuid> --id <uuid> --to <feature|job|research|capability> [options]
+
+Flags:
+  --company <uuid>                            Company ID (required)
+  --id <uuid>                                 Idea ID (required)
+  --to <feature|job|research|capability>      Promotion target (required)
+  --project-id <uuid>                         Project ID (required when --to is feature or job)
+  --title <string>                            Override title for promoted entity (optional)
+
+Example:
+  zazig promote-idea --company <uuid> --id <uuid> --to feature --project-id <uuid>`;
+  console.log(help);
+  process.exit(0);
+}
+
 export async function promoteIdea(args: string[]): Promise<void> {
+  if (args.includes("--help") || args.includes("-h")) {
+    printHelp();
+  }
+
   const company_id = parseStringFlag(args, "company");
   if (!company_id) fail("Missing required flag: --company <uuid>");
 

@@ -42,7 +42,31 @@ function fail(error: string): never {
   process.exit(1);
 }
 
+function printHelp(): void {
+  const help = `Usage: zazig create-feature --company <uuid> --title <string> --description <string> --spec <string> --acceptance-tests <string> --priority <low|medium|high> [options]
+
+Flags:
+  --company <uuid>              Company ID (required)
+  --title <string>              Feature title (required)
+  --description <string>        Feature description (required)
+  --spec <string>               Implementation spec (required)
+  --acceptance-tests <string>   Gherkin acceptance criteria (required)
+  --priority <low|medium|high>  Priority level (required)
+  --project-id <uuid>           Project ID (optional)
+  --human-checklist <string>    Human checklist items (optional)
+  --fast-track <true|false>     Skip breakdown and fast-track the feature (optional)
+
+Example:
+  zazig create-feature --company <uuid> --title "Add login page" --description "OAuth login flow" --spec "Build a login page with..." --acceptance-tests "Given...When...Then..." --priority high`;
+  console.log(help);
+  process.exit(0);
+}
+
 export async function createFeature(args: string[]): Promise<void> {
+  if (args.includes("--help") || args.includes("-h")) {
+    printHelp();
+  }
+
   const company_id = parseStringFlag(args, "company");
   if (!company_id) fail("Missing required flag: --company <uuid>");
 

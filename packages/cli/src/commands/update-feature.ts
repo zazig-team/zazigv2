@@ -43,7 +43,34 @@ function fail(error: string): never {
   process.exit(1);
 }
 
+function printHelp(): void {
+  const help = `Usage: zazig update-feature --company <uuid> --id <uuid> [fields to update]
+
+Flags:
+  --company <uuid>                                    Company ID (required)
+  --id <uuid>                                         Feature ID (required)
+  --title <string>                                    Feature title (optional)
+  --description <string>                              Feature description (optional)
+  --spec <string>                                     Implementation spec (optional)
+  --acceptance-tests <string>                         Acceptance criteria (optional)
+  --human-checklist <string>                          Human checklist items (optional)
+  --priority <low|medium|high>                        Priority level (optional)
+  --status <breaking_down|complete|cancelled>         Feature status (optional)
+  --fast-track <true|false>                           Fast-track flag (optional)
+
+At least one mutable field must be provided.
+
+Example:
+  zazig update-feature --company <uuid> --id <uuid> --status complete --priority high`;
+  console.log(help);
+  process.exit(0);
+}
+
 export async function updateFeature(args: string[]): Promise<void> {
+  if (args.includes("--help") || args.includes("-h")) {
+    printHelp();
+  }
+
   const company_id = parseStringFlag(args, "company");
   if (!company_id) fail("Missing required flag: --company <uuid>");
 

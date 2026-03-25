@@ -34,7 +34,34 @@ function fail(error: string): never {
   process.exit(1);
 }
 
+function printHelp(): void {
+  const help = `Usage: zazig create-idea --company <uuid> --raw-text <string> --originator <string> [options]
+
+Flags:
+  --company <uuid>        Company ID (required)
+  --raw-text <string>     Raw idea text (required)
+  --originator <string>   Who submitted the idea (required)
+  --title <string>        Idea title (optional)
+  --description <string>  Idea description (optional)
+  --source <enum>         Source channel: terminal, slack, telegram, agent, web, api, monitoring (optional)
+  --domain <enum>         Domain: product, engineering, marketing, cross-cutting, unknown (optional)
+  --priority <enum>       Priority: low, medium, high, urgent (optional)
+  --scope <string>        Scope description (optional)
+  --complexity <string>   Complexity estimate (optional)
+  --tags <csv>            Comma-separated tags (optional)
+  --project-id <uuid>     Project ID (optional)
+
+Example:
+  zazig create-idea --company <uuid> --raw-text "We should add dark mode" --originator "alice" --source terminal --priority medium`;
+  console.log(help);
+  process.exit(0);
+}
+
 export async function createIdea(args: string[]): Promise<void> {
+  if (args.includes("--help") || args.includes("-h")) {
+    printHelp();
+  }
+
   const company_id = parseStringFlag(args, "company");
   if (!company_id) fail("Missing required flag: --company <uuid>");
 

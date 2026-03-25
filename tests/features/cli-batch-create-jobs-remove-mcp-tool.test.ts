@@ -159,87 +159,55 @@ describe('workspace.ts ROLE_DEFAULT_MCP_TOOLS removes batch_create_jobs (AC4)', 
 });
 
 // ---------------------------------------------------------------------------
-// AC5 + AC7: Both prompt layer files list zazig batch-create-jobs
+// AC5: batch-create-jobs is documented in the breakdown-specialist role prompt
+// (moved from universal prompt layer to role-specific migration 214)
 // ---------------------------------------------------------------------------
 
-const PROMPT_LAYER_FILES = [
-  'supabase/functions/_shared/prompt-layers.ts',
-  'packages/shared/src/prompt/universal-layer.ts',
-];
+describe('batch-create-jobs is documented for breakdown-specialist (AC5)', () => {
+  const MIGRATION_FILE = 'supabase/migrations/214_move_write_commands_to_role_prompts.sql';
+  let content: string | null;
 
-describe('Prompt layer files list zazig batch-create-jobs command (AC5)', () => {
-  for (const file of PROMPT_LAYER_FILES) {
-    describe(file, () => {
-      let content: string | null;
+  beforeAll(() => {
+    content = readRepoFile(MIGRATION_FILE);
+  });
 
-      beforeAll(() => {
-        content = readRepoFile(file);
-      });
+  it('migration 214 exists', () => {
+    expect(content, `${MIGRATION_FILE} not found`).not.toBeNull();
+  });
 
-      it('file exists', () => {
-        expect(content, `${file} not found`).not.toBeNull();
-      });
+  it('migration adds batch-create-jobs to breakdown-specialist prompt', () => {
+    expect(content).toMatch(/breakdown-specialist/);
+    expect(content).toMatch(/batch-create-jobs/);
+  });
 
-      it('mentions zazig batch-create-jobs', () => {
-        expect(content).toContain('batch-create-jobs');
-      });
+  it('includes --feature-id flag', () => {
+    expect(content).toMatch(/--feature-id/);
+  });
 
-      it('includes --feature-id flag in the batch-create-jobs docs', () => {
-        expect(content).toMatch(/batch-create-jobs[\s\S]{0,300}--feature-id/);
-      });
+  it('includes --jobs flag', () => {
+    expect(content).toMatch(/--jobs/);
+  });
 
-      it('includes --jobs flag in the batch-create-jobs docs', () => {
-        expect(content).toMatch(/batch-create-jobs[\s\S]{0,300}--jobs/);
-      });
-
-      it('mentions --jobs-file as an alternative', () => {
-        expect(content).toMatch(/batch-create-jobs[\s\S]{0,500}jobs.?file/i);
-      });
-
-      it('describes the purpose (create jobs for a feature)', () => {
-        expect(content).toMatch(/batch-create-jobs[\s\S]{0,500}(create jobs|jobs for a feature)/i);
-      });
-    });
-  }
+  it('includes --jobs-file as an alternative', () => {
+    expect(content).toMatch(/jobs-file/i);
+  });
 });
 
-describe('Both prompt layer files are in sync (AC7)', () => {
-  it('both files contain the batch-create-jobs entry', () => {
-    const missing = PROMPT_LAYER_FILES.filter((f) => {
-      const content = readRepoFile(f);
-      return !content || !content.includes('batch-create-jobs');
+// ---------------------------------------------------------------------------
+// AC7: batch-create-jobs is NOT in the universal prompt layer (role-specific now)
+// ---------------------------------------------------------------------------
+
+describe('Universal prompt layers do not contain batch-create-jobs (AC7)', () => {
+  const PROMPT_LAYER_FILES = [
+    'supabase/functions/_shared/prompt-layers.ts',
+    'packages/shared/src/prompt/universal-layer.ts',
+  ];
+
+  for (const file of PROMPT_LAYER_FILES) {
+    it(`${file} does not mention batch-create-jobs`, () => {
+      const content = readRepoFile(file);
+      expect(content).not.toBeNull();
+      expect(content).not.toContain('batch-create-jobs');
     });
-
-    expect(
-      missing,
-      `The following prompt layer files are missing the batch-create-jobs entry: ${missing.join(', ')}. ` +
-        'Both files must be updated together.',
-    ).toHaveLength(0);
-  });
-
-  it('both files include --feature-id in their batch-create-jobs entry', () => {
-    const missing = PROMPT_LAYER_FILES.filter((f) => {
-      const content = readRepoFile(f);
-      if (!content) return true;
-      return !content.match(/batch-create-jobs[\s\S]{0,300}--feature-id/);
-    });
-
-    expect(
-      missing,
-      `These files are missing --feature-id in the batch-create-jobs docs: ${missing.join(', ')}`,
-    ).toHaveLength(0);
-  });
-
-  it('both files include --jobs in their batch-create-jobs entry', () => {
-    const missing = PROMPT_LAYER_FILES.filter((f) => {
-      const content = readRepoFile(f);
-      if (!content) return true;
-      return !content.match(/batch-create-jobs[\s\S]{0,300}--jobs/);
-    });
-
-    expect(
-      missing,
-      `These files are missing --jobs in the batch-create-jobs docs: ${missing.join(', ')}`,
-    ).toHaveLength(0);
-  });
+  }
 });

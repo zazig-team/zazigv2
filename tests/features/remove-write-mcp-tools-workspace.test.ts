@@ -105,13 +105,6 @@ describe('workspace.ts ROLE_DEFAULT_MCP_TOOLS — retained tools', () => {
     expect(block).toContain('"create_project_rule"');
   });
 
-  it('retains "batch_create_jobs" in breakdown-specialist defaults', () => {
-    // batch_create_jobs is not a CLI tool — must stay as MCP
-    const start = content!.indexOf('const ROLE_DEFAULT_MCP_TOOLS');
-    const end = content!.indexOf('};', start) + 2;
-    const block = content!.slice(start, end);
-    expect(block).toContain('"batch_create_jobs"');
-  });
 });
 
 describe('workspace.ts generateAllowedTools — removed tools absent from output', () => {

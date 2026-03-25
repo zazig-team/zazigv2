@@ -5,7 +5,7 @@
   "type": "module",
   "bin": {
     "zazig": "./releases/zazig.mjs",
-    "zazig-staging": "./dist/staging-index.js"
+    "zazig-staging": "../../scripts/zazig-staging"
   },
   "main": "./dist/index.js",
   "scripts": {

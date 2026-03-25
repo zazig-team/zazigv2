@@ -258,13 +258,18 @@ export async function promote(args: string[]): Promise<void> {
     return;
   }
 
-  // 5. Fetch latest from origin.
-  // The bare repo uses refs/heads/*:refs/heads/* fetch refspec, so `git fetch`
-  // updates local branches directly but NOT refs/remotes/origin/*.
-  // We also update origin/* explicitly so the promote safety check can compare them.
+  // 5. Fetch latest from origin (default branch only).
+  // Fetching all refs fails when remote branches have been force-pushed, because
+  // the bare repo's refs/heads/*:refs/heads/* refspec rejects non-fast-forward
+  // updates. We only need the default branch for promote, so fetch it explicitly.
   console.log("\nFetching latest from origin...");
   try {
-    execSync("git fetch origin", { cwd: bareRepoDir, stdio: "pipe" });
+    // Try master first, fall back to main — we don't know the default branch yet.
+    try {
+      execSync("git fetch origin master:refs/heads/master", { cwd: bareRepoDir, stdio: "pipe" });
+    } catch {
+      execSync("git fetch origin main:refs/heads/main", { cwd: bareRepoDir, stdio: "pipe" });
+    }
   } catch (err) {
     console.warn(`Fetch warning (non-fatal): ${String(err)}`);
   }

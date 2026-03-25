@@ -1089,7 +1089,7 @@ export class JobExecutor {
     // Security audit (AC-2-2): these log lines emit only the command name and
     // its CLI flags (e.g. "claude --model X -p --verbose --output-format
     // stream-json"). They do NOT include shellCmd, tmuxArgs, or process.env, so
-    // no secrets are exposed in log output.
+    // ANTHROPIC_API_KEY is not exposed in any log output.
     jobLog(jobId, `Tmux session started — session=${sessionName}, cmd=${cmd} ${cmdArgs.join(" ")}, cwd=${ephemeralWorkspaceDir ?? "none"}`);
     console.log(`[executor] Tmux session started — session=${sessionName}, cmd=${cmd}`);
 
@@ -3733,8 +3733,10 @@ async function spawnTmuxSession(
   // "cannot be launched inside another Claude Code session" detection.
   // When a promptFile is provided, pipe it via stdin to avoid OS argument
   // length limits (ARG_MAX) when the assembled context is large.
-  // Auth: Claude Code uses its own OAuth flow (Keychain-based) with auto-refresh.
-  // No ANTHROPIC_API_KEY env var is needed or set.
+  // ANTHROPIC_API_KEY: tmux inherits the calling process's full environment by
+  // default. `unset CLAUDECODE` only removes CLAUDECODE; all other env vars
+  // (including ANTHROPIC_API_KEY set by the daemon at startup) remain intact
+  // for the spawned claude -p process. No explicit forwarding is needed.
   const claudeCmd = shellEscape([cmd, ...args]);
   // Merge stderr into stdout so pipe-pane captures error output too.
   const shellCmd = promptFile

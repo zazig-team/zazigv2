@@ -152,7 +152,7 @@ const TAB_LABELS: Record<SectionTab, string> = {
   workshop: "Workshop",
   parked: "Parked",
   rejected: "Rejected",
-  shipped: "Shipped",
+  shipped: "Promoted",
   done: "Closed",
 };
 
@@ -844,6 +844,11 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
             <div className="il-detail-actions" style={{ flexWrap: "wrap" }}>
               {isTriagedReadyForSpecView ? (
                 <>
+                  {data.triage_route === "promote" && !data.promoted_to_id && (
+                    <div className="il-ghost-warning">
+                      Fast-track route set — no feature created yet. Use &ldquo;Send to Spec&rdquo; to promote, or Park to re-evaluate.
+                    </div>
+                  )}
                   {canSendToSpec && (
                     <button className="il-action-primary il-action-triage-primary" type="button" disabled={!!actionInProgress} onClick={handleWriteSpec}>
                       {actionInProgress === "Spec" ? "Dispatching..." : "Send to Spec"}

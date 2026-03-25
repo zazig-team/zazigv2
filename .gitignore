@@ -28,3 +28,9 @@ projects/personality/.claude/napkin.md
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+# zazig workspace files (auto-generated)
+CLAUDE.md
+.mcp.json
+.claude/
+.zazig-prompt.txt
+subagent-personality.md

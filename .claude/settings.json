@@ -1,5 +1,28 @@
 {
-  "enabledPlugins": {
-    "context-engineering-fundamentals@context-engineering-marketplace": true
+  "permissions": {
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Bash",
+      "Glob",
+      "Grep"
+    ],
+    "additionalDirectories": [
+      "/Users/tomweaver/.zazigv2/repos/zazigv2/worktrees/repo2"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat '/Users/tomweaver/.zazigv2/expert-f4936780-68d5-46d3-866f-aaeaa1b37e26/repo/.claude/expert-brief.md'"
+          }
+        ]
+      }
+    ]
   }
 }

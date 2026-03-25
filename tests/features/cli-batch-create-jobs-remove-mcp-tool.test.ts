@@ -164,14 +164,14 @@ describe('workspace.ts ROLE_DEFAULT_MCP_TOOLS removes batch_create_jobs (AC4)', 
 // ---------------------------------------------------------------------------
 
 describe('batch-create-jobs is documented for breakdown-specialist (AC5)', () => {
-  const MIGRATION_FILE = 'supabase/migrations/214_move_write_commands_to_role_prompts.sql';
+  const MIGRATION_FILE = 'supabase/migrations/215_move_write_commands_to_role_prompts.sql';
   let content: string | null;
 
   beforeAll(() => {
     content = readRepoFile(MIGRATION_FILE);
   });
 
-  it('migration 214 exists', () => {
+  it('migration 215 exists', () => {
     expect(content, `${MIGRATION_FILE} not found`).not.toBeNull();
   });
 

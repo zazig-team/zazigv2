@@ -1,0 +1,28 @@
+-- RLS policies for local-agent direct DB writes
+-- Date: 2026-02-20
+-- Purpose: Document that local agents use the service_role key for direct DB
+--   writes (heartbeats to `machines`, job status updates to `jobs`).
+--   service_role bypasses RLS entirely, so no anon-role policies are needed.
+--
+-- Security model:
+--   - anon key: used ONLY for Realtime channel subscriptions (read-only)
+--   - service_role key: used for all DB writes (heartbeats, job status)
+--   - The service_role key is secret, stored in SUPABASE_SERVICE_ROLE_KEY env var
+--   - No RLS policies are granted to the anon role for machines or jobs
+--   - The existing service_role_full_access policies from 003_multi_tenant_schema.sql
+--     already grant full access to the service_role
+--
+-- This migration intentionally contains no CREATE POLICY statements.
+-- The prior migration (003) already has:
+--   - service_role_full_access on machines (FOR ALL)
+--   - service_role_full_access on jobs (FOR ALL)
+--   - authenticated_read_own on both tables (scoped by company_id via JWT)
+--
+-- If anon-role direct writes are ever needed in the future, policies MUST:
+--   1. Scope reads/writes by company_id (no USING (true))
+--   2. Restrict UPDATE to specific columns (e.g. last_heartbeat, status)
+--   3. Use a request header or RPC parameter for tenant identification
+
+-- No-op: this file exists to document the security decision and prevent
+-- accidental re-introduction of broad anon policies.
+SELECT 1;

@@ -1,0 +1,39 @@
+{
+  "name": "@zazigv2/local-agent",
+  "version": "0.42.0",
+  "private": true,
+  "description": "Local agent daemon — connects to Supabase Realtime, executes tmux sessions",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "zazig-agent-mcp": "./dist/agent-mcp-server.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json && chmod +x dist/agent-mcp-server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@supabase/supabase-js": "^2.49.1",
+    "@zazigv2/shared": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    "typescript": "5.8",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

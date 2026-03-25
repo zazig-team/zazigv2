@@ -1,0 +1,8 @@
+# Minimal test recipe for pipeline smoke testing.
+# Replace with real deploy config when we have a test environment.
+name: zazigv2
+type: persistent
+deploy:
+  provider: custom
+  script: "echo 'no-op deploy for pipeline smoke test' && echo 'http://localhost:3000'"
+  url_output: stdout

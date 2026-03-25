@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>zazig - Ideas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:15px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh}
+
+:root{
+  --bg:#0c0d10;--surface:#16181d;--surface-hover:#1c1e24;--raised:#252830;
+  --dust:#505660;--stone:#868c98;--graphite:#b0b6c3;--ink:#eaecf1;
+  --ember:#e8553a;--positive:#3ecf71;--caution:#e5b835;--info:#5b8def;--purple:#a07be5;
+  --amber:var(--caution);--blue:var(--info);--red:var(--ember);
+  --node-w:200px;--node-h:56px;
+  --accent-idea:var(--caution);--accent-brief:var(--info);--accent-bug:var(--ember);--accent-test:var(--purple);
+}
+
+/* ── NAV ── */
+.nav{display:flex;align-items:center;gap:32px;padding:0 32px;height:52px;background:var(--surface);border-bottom:1px solid var(--raised);position:sticky;top:0;z-index:100}
+.nav-brand{font-weight:700;font-size:1.05rem;letter-spacing:-0.02em;display:flex;align-items:center;gap:8px}
+.nav-dot{width:7px;height:7px;border-radius:50%;background:var(--positive);animation:breathe 3s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.4;transform:scale(.85)}50%{opacity:1;transform:scale(1)}}
+.nav-links{display:flex;gap:4px}
+.nav-link{padding:6px 14px;border-radius:6px;font-size:.82rem;color:var(--stone);font-weight:500;transition:all .15s}
+.nav-link:hover{color:var(--ink);background:var(--raised)}
+.nav-link.active{color:var(--ink);background:var(--raised)}
+
+/* ── PAGE ── */
+.page{max-width:1400px;margin:0 auto;padding:28px 32px 60px}
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
+.page-title{font-size:1.4rem;font-weight:700;letter-spacing:-0.03em}
+.page-stats{display:flex;gap:20px;font-size:.78rem;color:var(--stone)}
+.page-stats .stat{display:flex;align-items:center;gap:5px}
+.stat-count{font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--graphite);font-size:.82rem}
+
+/* ── FLOW BAR ── */
+.flow-bar{display:flex;align-items:center;gap:0;margin-bottom:32px;padding:10px 16px;background:var(--surface);border-radius:10px;border:1px solid var(--raised)}
+.flow-stage{display:flex;align-items:center;gap:8px;padding:6px 14px;border-radius:6px;cursor:pointer;transition:all .2s}
+.flow-stage:hover{background:var(--raised)}
+.flow-stage.active{background:var(--raised)}
+.flow-stage-label{font-size:.78rem;font-weight:600;color:var(--stone);text-transform:uppercase;letter-spacing:0.04em}
+.flow-stage-count{font-family:'JetBrains Mono',monospace;font-size:.9rem;font-weight:600;color:var(--ink)}
+.flow-arrow{color:var(--dust);font-size:.7rem;margin:0 4px;user-select:none}
+.flow-stage.dimmed .flow-stage-count{color:var(--dust)}
+.flow-stage.dimmed .flow-stage-label{color:var(--dust)}
+
+/* ── SECTION ── */
+.section{margin-bottom:28px}
+.section-header{display:flex;align-items:center;gap:10px;margin-bottom:14px;cursor:pointer;user-select:none}
+.section-label{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--stone)}
+.section-count{font-family:'JetBrains Mono',monospace;font-size:.72rem;color:var(--dust)}
+.section-line{flex:1;height:1px;background:var(--raised)}
+.section-toggle{font-size:.65rem;color:var(--dust);transition:transform .2s}
+.section-toggle.collapsed{transform:rotate(-90deg)}
+
+/* ── NODE GRID ── */
+.node-grid{display:flex;flex-wrap:wrap;gap:8px}
+
+/* ── IDEA NODE (compact, roadmap-inspired) ── */
+.idea-node{
+  width:var(--node-w);height:var(--node-h);
+  background:var(--surface);border:1px solid var(--raised);border-radius:8px;
+  display:flex;overflow:hidden;cursor:pointer;
+  transition:all .15s ease;
+  position:relative;
+  animation:nodeIn .3s ease both;
+}
+.idea-node:hover{background:var(--surface-hover);border-color:var(--dust);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.3)}
+.idea-node.selected{border-color:var(--graphite);box-shadow:0 0 0 1px var(--graphite)}
+
+.node-accent{width:3px;flex-shrink:0;border-radius:8px 0 0 8px}
+.node-accent.idea{background:var(--accent-idea)}
+.node-accent.brief{background:var(--accent-brief)}
+.node-accent.bug{background:var(--accent-bug)}
+.node-accent.test{background:var(--accent-test)}
+
+.node-icon{font-size:.85rem;flex-shrink:0;width:24px;display:flex;align-items:center;justify-content:center;margin-left:6px;filter:grayscale(.2)}
+.idea-node.parked .node-icon{font-size:.7rem;width:20px;margin-left:4px}
+.idea-node.workshop .node-icon{font-size:1rem;width:28px;margin-left:8px}
+.node-body{flex:1;padding:8px 10px 8px 4px;display:flex;flex-direction:column;justify-content:center;min-width:0;gap:3px}
+.node-title{font-size:.73rem;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
+.node-meta{display:flex;align-items:center;gap:6px;font-size:.62rem;color:var(--stone)}
+
+.node-type{font-family:'JetBrains Mono',monospace;font-size:.58rem;font-weight:500;text-transform:uppercase;letter-spacing:0.03em;padding:1px 4px;border-radius:3px;background:rgba(255,255,255,.04)}
+.node-type.idea{color:var(--accent-idea)}
+.node-type.brief{color:var(--accent-brief)}
+.node-type.bug{color:var(--accent-bug)}
+.node-type.test{color:var(--accent-test)}
+
+.priority-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.priority-dot.urgent{background:var(--red)}
+.priority-dot.high{background:var(--ember)}
+.priority-dot.medium{background:var(--amber)}
+.priority-dot.low{background:var(--dust)}
+
+.node-source{font-size:.58rem;color:var(--dust);font-family:'JetBrains Mono',monospace}
+
+/* ── WORKSHOP NODE (slightly larger) ── */
+.idea-node.workshop{
+  width:260px;height:72px;
+}
+.idea-node.workshop .node-body{gap:4px}
+.idea-node.workshop .node-title{font-size:.78rem;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.node-tags{display:flex;gap:3px;flex-wrap:wrap}
+.node-tag{font-size:.55rem;padding:1px 5px;border-radius:3px;background:rgba(255,255,255,.05);color:var(--stone);font-family:'JetBrains Mono',monospace}
+
+/* ── PARKED NODE (dimmed, smaller) ── */
+.idea-node.parked{
+  width:180px;height:46px;
+  opacity:.55;
+}
+.idea-node.parked:hover{opacity:.85}
+.idea-node.parked .node-title{font-size:.68rem}
+
+/* ── SUB-SECTION ── */
+.sub-section{margin-bottom:16px}
+.sub-label{font-size:.65rem;font-weight:600;color:var(--dust);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;padding-left:2px}
+
+/* ── DETAIL PANEL (slide-in) ── */
+.detail-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;opacity:0;pointer-events:none;transition:opacity .2s}
+.detail-overlay.open{opacity:1;pointer-events:all}
+.detail-panel{position:fixed;top:0;right:0;width:380px;height:100vh;background:var(--surface);border-left:1px solid var(--raised);z-index:201;transform:translateX(100%);transition:transform .25s ease;padding:24px;overflow-y:auto}
+.detail-panel.open{transform:translateX(0)}
+.detail-close{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--stone);font-size:1.1rem;cursor:pointer;padding:4px}
+.detail-close:hover{color:var(--ink)}
+.detail-title{font-size:1.05rem;font-weight:700;margin-bottom:12px;line-height:1.3;padding-right:30px}
+.detail-accent{width:4px;height:24px;border-radius:2px;margin-bottom:12px}
+.detail-desc{font-size:.82rem;color:var(--graphite);line-height:1.6;margin-bottom:16px}
+.detail-meta-row{display:flex;gap:12px;margin-bottom:8px;font-size:.75rem;color:var(--stone)}
+.detail-meta-label{color:var(--dust);min-width:60px}
+.detail-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:12px}
+.detail-tag{font-size:.7rem;padding:3px 8px;border-radius:4px;background:var(--raised);color:var(--graphite);font-family:'JetBrains Mono',monospace}
+
+/* ── ANIMATION ── */
+@keyframes nodeIn{
+  from{opacity:0;transform:translateY(6px)}
+  to{opacity:1;transform:translateY(0)}
+}
+
+/* ── FILTER TABS ── */
+.filter-bar{display:flex;gap:4px;margin-bottom:20px}
+.filter-tab{padding:5px 12px;border-radius:6px;font-size:.72rem;font-weight:600;color:var(--dust);cursor:pointer;border:1px solid transparent;transition:all .15s}
+.filter-tab:hover{color:var(--stone);background:var(--surface)}
+.filter-tab.active{color:var(--ink);background:var(--surface);border-color:var(--raised)}
+.filter-count{font-family:'JetBrains Mono',monospace;margin-left:4px;color:var(--dust);font-size:.65rem}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="nav-brand">zazig<span class="nav-dot"></span></div>
+  <div class="nav-links">
+    <a class="nav-link" href="#">Dashboard</a>
+    <a class="nav-link" href="#">Pipeline</a>
+    <a class="nav-link active" href="#">Ideas</a>
+    <a class="nav-link" href="#">Roadmap</a>
+    <a class="nav-link" href="#">Team</a>
+  </div>
+</nav>
+
+<!-- PAGE -->
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="page-header">
+    <div class="page-title">Ideas</div>
+    <div class="page-stats">
+      <div class="stat"><span class="stat-count">18</span> new</div>
+      <div class="stat"><span class="stat-count">11</span> triaged</div>
+      <div class="stat"><span class="stat-count">0</span> workshop</div>
+      <div class="stat"><span class="stat-count">8</span> parked</div>
+    </div>
+  </div>
+
+  <!-- FLOW BAR — lifecycle as a visual pipeline -->
+  <div class="flow-bar">
+    <div class="flow-stage active" data-filter="new">
+      <span class="flow-stage-count">18</span>
+      <span class="flow-stage-label">Inbox</span>
+    </div>
+    <span class="flow-arrow">&rsaquo;</span>
+    <div class="flow-stage" data-filter="triaged">
+      <span class="flow-stage-count">11</span>
+      <span class="flow-stage-label">Triaged</span>
+    </div>
+    <span class="flow-arrow">&rsaquo;</span>
+    <div class="flow-stage dimmed" data-filter="workshop">
+      <span class="flow-stage-count">0</span>
+      <span class="flow-stage-label">Workshop</span>
+    </div>
+    <span class="flow-arrow">&rsaquo;</span>
+    <div class="flow-stage dimmed" style="opacity:.4">
+      <span class="flow-stage-count">&rarr;</span>
+      <span class="flow-stage-label">Pipeline</span>
+    </div>
+    <div style="flex:1"></div>
+    <div class="flow-stage" data-filter="parked" style="opacity:.5">
+      <span class="flow-stage-count">8</span>
+      <span class="flow-stage-label">Parked</span>
+    </div>
+  </div>
+
+  <!-- TYPE FILTERS -->
+  <div class="filter-bar">
+    <div class="filter-tab active">All<span class="filter-count">37</span></div>
+    <div class="filter-tab">Ideas<span class="filter-count">29</span></div>
+    <div class="filter-tab">Briefs<span class="filter-count">3</span></div>
+    <div class="filter-tab">Bugs<span class="filter-count">5</span></div>
+  </div>
+
+  <!-- WORKSHOP SECTION -->
+  <div class="section" id="section-workshop">
+    <div class="section-header">
+      <span class="section-label">Workshop</span>
+      <span class="section-count">2</span>
+      <div class="section-line"></div>
+    </div>
+    <div class="node-grid" id="grid-workshop">
+      <!-- Workshop nodes are slightly larger -->
+      <div class="idea-node workshop" data-id="ws1" style="animation-delay:.05s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">🧠</div>
+        <div class="node-body">
+          <div class="node-title">Memory P1 -- Bulletin Injection</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot high"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">2d</span>
+          </div>
+          <div class="node-tags">
+            <span class="node-tag">agent-brain</span>
+            <span class="node-tag">memory</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node workshop" data-id="ws2" style="animation-delay:.1s">
+        <div class="node-accent brief"></div>
+        <div class="node-icon">💬</div>
+        <div class="node-body">
+          <div class="node-title">Slack Socket Mode Inbound</div>
+          <div class="node-meta">
+            <span class="node-type brief">brief</span>
+            <span class="priority-dot high"></span>
+            <span class="node-source">slack</span>
+            <span style="margin-left:auto;color:var(--dust)">5d</span>
+          </div>
+          <div class="node-tags">
+            <span class="node-tag">gateway</span>
+            <span class="node-tag">slack</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRIAGED SECTION -->
+  <div class="section" id="section-triaged">
+    <div class="section-header">
+      <span class="section-label">Triaged</span>
+      <span class="section-count">11</span>
+      <div class="section-line"></div>
+    </div>
+    <div class="node-grid" id="grid-triaged">
+      <div class="idea-node" style="animation-delay:.12s">
+        <div class="node-accent bug"></div>
+        <div class="node-icon">🌙</div>
+        <div class="node-body">
+          <div class="node-title">Dark mode toggle persistence</div>
+          <div class="node-meta">
+            <span class="node-type bug">bug</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">web</span>
+            <span style="margin-left:auto;color:var(--dust)">1d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.15s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">🧹</div>
+        <div class="node-body">
+          <div class="node-title">Feature branch cleanup automation</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">3d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.18s">
+        <div class="node-accent brief"></div>
+        <div class="node-icon">✈️</div>
+        <div class="node-body">
+          <div class="node-title">Telegram bot /status command</div>
+          <div class="node-meta">
+            <span class="node-type brief">brief</span>
+            <span class="priority-dot low"></span>
+            <span class="node-source">telegram</span>
+            <span style="margin-left:auto;color:var(--dust)">4d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.21s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">⏪</div>
+        <div class="node-body">
+          <div class="node-title">CLI session replay for debugging</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">2d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.24s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">💓</div>
+        <div class="node-body">
+          <div class="node-title">Heartbeat dashboard widget</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot high"></span>
+            <span class="node-source">agent</span>
+            <span style="margin-left:auto;color:var(--dust)">1d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.27s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">📦</div>
+        <div class="node-body">
+          <div class="node-title">Auto-archive shipped features</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot low"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">5d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.30s">
+        <div class="node-accent bug"></div>
+        <div class="node-icon">🔀</div>
+        <div class="node-body">
+          <div class="node-title">Pipeline column sort order wrong</div>
+          <div class="node-meta">
+            <span class="node-type bug">bug</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">web</span>
+            <span style="margin-left:auto;color:var(--dust)">3d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.33s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">🕸️</div>
+        <div class="node-body">
+          <div class="node-title">Capability dependency graph viz</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">6d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.36s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">🔐</div>
+        <div class="node-body">
+          <div class="node-title">Role-scoped MCP permissions</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot high"></span>
+            <span class="node-source">agent</span>
+            <span style="margin-left:auto;color:var(--dust)">4d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.39s">
+        <div class="node-accent brief"></div>
+        <div class="node-icon">📧</div>
+        <div class="node-body">
+          <div class="node-title">Weekly digest email summary</div>
+          <div class="node-meta">
+            <span class="node-type brief">brief</span>
+            <span class="priority-dot low"></span>
+            <span class="node-source">slack</span>
+            <span style="margin-left:auto;color:var(--dust)">7d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.42s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">📋</div>
+        <div class="node-body">
+          <div class="node-title">Standup skill improvements</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">2d</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INBOX (NEW) SECTION -->
+  <div class="section" id="section-new">
+    <div class="section-header">
+      <span class="section-label">Inbox</span>
+      <span class="section-count">18</span>
+      <div class="section-line"></div>
+    </div>
+    <div class="node-grid" id="grid-new">
+      <div class="idea-node" style="animation-delay:.44s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">💰</div>
+        <div class="node-body">
+          <div class="node-title">Model cost tracking dashboard</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">6h</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.47s">
+        <div class="node-accent bug"></div>
+        <div class="node-icon">🔄</div>
+        <div class="node-body">
+          <div class="node-title">Retry failed verification jobs</div>
+          <div class="node-meta">
+            <span class="node-type bug">bug</span>
+            <span class="priority-dot high"></span>
+            <span class="node-source">agent</span>
+            <span style="margin-left:auto;color:var(--dust)">2h</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.50s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">🏗️</div>
+        <div class="node-body">
+          <div class="node-title">Agent workspace isolation</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">4h</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.53s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">👀</div>
+        <div class="node-body">
+          <div class="node-title">PR review auto-assignment</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">8h</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.56s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">🔌</div>
+        <div class="node-body">
+          <div class="node-title">Supabase connection pooling</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot high"></span>
+            <span class="node-source">agent</span>
+            <span style="margin-left:auto;color:var(--dust)">1d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.59s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">⚡</div>
+        <div class="node-body">
+          <div class="node-title">Dynamic prompt caching</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">12h</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.62s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">⚖️</div>
+        <div class="node-body">
+          <div class="node-title">Multi-machine slot balancing</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">1d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.65s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">⏱️</div>
+        <div class="node-body">
+          <div class="node-title">Job timeout configuration</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot low"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">2d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.68s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">🚨</div>
+        <div class="node-body">
+          <div class="node-title">Edge function error alerting</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot high"></span>
+            <span class="node-source">agent</span>
+            <span style="margin-left:auto;color:var(--dust)">5h</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.71s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">🖱️</div>
+        <div class="node-body">
+          <div class="node-title">Roadmap node drag-and-drop</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot low"></span>
+            <span class="node-source">web</span>
+            <span style="margin-left:auto;color:var(--dust)">3d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.74s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">🎭</div>
+        <div class="node-body">
+          <div class="node-title">Agent personality tuning UI</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">1d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.77s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">🌳</div>
+        <div class="node-body">
+          <div class="node-title">Git worktree auto-cleanup</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">2d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.80s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">📜</div>
+        <div class="node-body">
+          <div class="node-title">Doctrine enforcement scoring</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">agent</span>
+            <span style="margin-left:auto;color:var(--dust)">4d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.83s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">🪝</div>
+        <div class="node-body">
+          <div class="node-title">Webhook event replay tool</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot low"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">5d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.86s">
+        <div class="node-accent bug"></div>
+        <div class="node-icon">💧</div>
+        <div class="node-body">
+          <div class="node-title">Realtime subscription leak</div>
+          <div class="node-meta">
+            <span class="node-type bug">bug</span>
+            <span class="priority-dot high"></span>
+            <span class="node-source">agent</span>
+            <span style="margin-left:auto;color:var(--dust)">1d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.89s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">📊</div>
+        <div class="node-body">
+          <div class="node-title">Batch job creation from CSV</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot low"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">6d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.92s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">🎯</div>
+        <div class="node-body">
+          <div class="node-title">Feature complexity auto-scoring</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot medium"></span>
+            <span class="node-source">agent</span>
+            <span style="margin-left:auto;color:var(--dust)">3d</span>
+          </div>
+        </div>
+      </div>
+      <div class="idea-node" style="animation-delay:.95s">
+        <div class="node-accent idea"></div>
+        <div class="node-icon">🏪</div>
+        <div class="node-body">
+          <div class="node-title">Claude Code plugin marketplace</div>
+          <div class="node-meta">
+            <span class="node-type idea">idea</span>
+            <span class="priority-dot low"></span>
+            <span class="node-source">terminal</span>
+            <span style="margin-left:auto;color:var(--dust)">7d</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PARKED SECTION (collapsible) -->
+  <div class="section" id="section-parked">
+    <div class="section-header" onclick="toggleParked()">
+      <span class="section-label">Parked</span>
+      <span class="section-count">8</span>
+      <div class="section-line"></div>
+      <span class="section-toggle" id="parked-toggle">&#9662;</span>
+    </div>
+    <div id="parked-content">
+      <div class="sub-section">
+        <div class="sub-label">Review Soon</div>
+        <div class="node-grid">
+          <div class="idea-node parked" style="animation-delay:.97s">
+            <div class="node-accent brief"></div>
+            <div class="node-icon">🎮</div>
+            <div class="node-body">
+              <div class="node-title">Discord bot adapter</div>
+              <div class="node-meta">
+                <span class="node-type brief">brief</span>
+                <span class="priority-dot low"></span>
+                <span style="margin-left:auto;color:var(--dust)">12d</span>
+              </div>
+            </div>
+          </div>
+          <div class="idea-node parked" style="animation-delay:1s">
+            <div class="node-accent idea"></div>
+            <div class="node-icon">📥</div>
+            <div class="node-body">
+              <div class="node-title">Bulk idea triage MCP tool</div>
+              <div class="node-meta">
+                <span class="node-type idea">idea</span>
+                <span class="priority-dot low"></span>
+                <span style="margin-left:auto;color:var(--dust)">8d</span>
+              </div>
+            </div>
+          </div>
+          <div class="idea-node parked" style="animation-delay:1.03s">
+            <div class="node-accent idea"></div>
+            <div class="node-icon">✅</div>
+            <div class="node-body">
+              <div class="node-title">Test coverage dashboard</div>
+              <div class="node-meta">
+                <span class="node-type idea">idea</span>
+                <span class="priority-dot low"></span>
+                <span style="margin-left:auto;color:var(--dust)">10d</span>
+              </div>
+            </div>
+          </div>
+          <div class="idea-node parked" style="animation-delay:1.06s">
+            <div class="node-accent idea"></div>
+            <div class="node-icon">🗂️</div>
+            <div class="node-body">
+              <div class="node-title">Multi-repo monorepo support</div>
+              <div class="node-meta">
+                <span class="node-type idea">idea</span>
+                <span class="priority-dot low"></span>
+                <span style="margin-left:auto;color:var(--dust)">9d</span>
+              </div>
+            </div>
+          </div>
+          <div class="idea-node parked" style="animation-delay:1.09s">
+            <div class="node-accent brief"></div>
+            <div class="node-icon">📱</div>
+            <div class="node-body">
+              <div class="node-title">Mobile responsive WebUI</div>
+              <div class="node-meta">
+                <span class="node-type brief">brief</span>
+                <span class="priority-dot low"></span>
+                <span style="margin-left:auto;color:var(--dust)">14d</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="sub-section">
+        <div class="sub-label">Long Term</div>
+        <div class="node-grid">
+          <div class="idea-node parked" style="animation-delay:1.12s">
+            <div class="node-accent idea"></div>
+            <div class="node-icon">🦙</div>
+            <div class="node-body">
+              <div class="node-title">Local model support via Ollama</div>
+              <div class="node-meta">
+                <span class="node-type idea">idea</span>
+                <span class="priority-dot low"></span>
+                <span style="margin-left:auto;color:var(--dust)">20d</span>
+              </div>
+            </div>
+          </div>
+          <div class="idea-node parked" style="animation-delay:1.15s">
+            <div class="node-accent idea"></div>
+            <div class="node-icon">👁️</div>
+            <div class="node-body">
+              <div class="node-title">Visual regression testing</div>
+              <div class="node-meta">
+                <span class="node-type idea">idea</span>
+                <span class="priority-dot low"></span>
+                <span style="margin-left:auto;color:var(--dust)">18d</span>
+              </div>
+            </div>
+          </div>
+          <div class="idea-node parked" style="animation-delay:1.18s">
+            <div class="node-accent idea"></div>
+            <div class="node-icon">🩹</div>
+            <div class="node-body">
+              <div class="node-title">Self-healing pipeline recovery</div>
+              <div class="node-meta">
+                <span class="node-type idea">idea</span>
+                <span class="priority-dot low"></span>
+                <span style="margin-left:auto;color:var(--dust)">22d</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- DETAIL PANEL -->
+<div class="detail-overlay" id="detail-overlay" onclick="closeDetail()"></div>
+<div class="detail-panel" id="detail-panel">
+  <button class="detail-close" onclick="closeDetail()">&times;</button>
+  <div class="detail-accent" id="detail-accent"></div>
+  <div class="detail-title" id="detail-title"></div>
+  <div class="detail-desc" id="detail-desc"></div>
+  <div class="detail-meta-row"><span class="detail-meta-label">Type</span><span id="detail-type"></span></div>
+  <div class="detail-meta-row"><span class="detail-meta-label">Priority</span><span id="detail-priority"></span></div>
+  <div class="detail-meta-row"><span class="detail-meta-label">Source</span><span id="detail-source"></span></div>
+  <div class="detail-meta-row"><span class="detail-meta-label">Age</span><span id="detail-age"></span></div>
+  <div class="detail-tags" id="detail-tags"></div>
+</div>
+
+<script>
+// Parked toggle
+function toggleParked() {
+  const content = document.getElementById('parked-content');
+  const toggle = document.getElementById('parked-toggle');
+  if (content.style.display === 'none') {
+    content.style.display = '';
+    toggle.classList.remove('collapsed');
+  } else {
+    content.style.display = 'none';
+    toggle.classList.add('collapsed');
+  }
+}
+
+// Detail panel
+const detailData = {
+  ws1: { title: 'Memory P1 -- Bulletin Injection', desc: 'Deploy memories table, implement bulletin injection into agent context, write path for memory creation. This is the foundation for agent persistent memory.', type: 'idea', priority: 'high', source: 'terminal', age: '2 days', tags: ['agent-brain', 'memory'] },
+  ws2: { title: 'Slack Socket Mode Inbound', desc: 'Enable inbound Slack messages via Socket Mode. Outbound works, inbound missing. Need to handle message events, parse commands, route to CPO.', type: 'brief', priority: 'high', source: 'slack', age: '5 days', tags: ['gateway', 'slack'] },
+};
+
+const accentColors = { idea: 'var(--caution)', brief: 'var(--info)', bug: 'var(--ember)', test: 'var(--purple)' };
+
+function openDetail(id, node) {
+  const data = detailData[id];
+  if (!data) return;
+
+  // Highlight node
+  document.querySelectorAll('.idea-node.selected').forEach(n => n.classList.remove('selected'));
+  node.classList.add('selected');
+
+  document.getElementById('detail-accent').style.background = accentColors[data.type];
+  document.getElementById('detail-title').textContent = data.title;
+  document.getElementById('detail-desc').textContent = data.desc;
+  document.getElementById('detail-type').textContent = data.type;
+  document.getElementById('detail-priority').textContent = data.priority;
+  document.getElementById('detail-source').textContent = data.source;
+  document.getElementById('detail-age').textContent = data.age;
+
+  const tagsEl = document.getElementById('detail-tags');
+  tagsEl.innerHTML = '';
+  (data.tags || []).forEach(t => {
+    const span = document.createElement('span');
+    span.className = 'detail-tag';
+    span.textContent = t;
+    tagsEl.appendChild(span);
+  });
+
+  document.getElementById('detail-overlay').classList.add('open');
+  document.getElementById('detail-panel').classList.add('open');
+}
+
+function closeDetail() {
+  document.getElementById('detail-overlay').classList.remove('open');
+  document.getElementById('detail-panel').classList.remove('open');
+  document.querySelectorAll('.idea-node.selected').forEach(n => n.classList.remove('selected'));
+}
+
+// Click handlers
+document.querySelectorAll('.idea-node[data-id]').forEach(node => {
+  node.addEventListener('click', () => openDetail(node.dataset.id, node));
+});
+
+// Non-data nodes just show highlight on click
+document.querySelectorAll('.idea-node:not([data-id])').forEach(node => {
+  node.addEventListener('click', () => {
+    document.querySelectorAll('.idea-node.selected').forEach(n => n.classList.remove('selected'));
+    node.classList.add('selected');
+  });
+});
+
+// Flow stage click (visual only for mockup)
+document.querySelectorAll('.flow-stage[data-filter]').forEach(stage => {
+  stage.addEventListener('click', () => {
+    document.querySelectorAll('.flow-stage').forEach(s => s.classList.remove('active'));
+    stage.classList.add('active');
+  });
+});
+
+// Filter tabs (visual only for mockup)
+document.querySelectorAll('.filter-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+  });
+});
+</script>
+
+</body>
+</html>

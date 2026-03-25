@@ -8,6 +8,8 @@ The following commands are available via the zazig CLI. Use these instead of MCP
 - \`zazig ideas --company <company_id>\` — list ideas from inbox
 - \`zazig features --company <company_id>\` — list features for the company's project
 - \`zazig projects --company <company_id>\` — list projects
+- \`zazig batch-create-jobs --company <company_id> --feature-id <feature_id> --jobs <json>\` — create jobs for a feature
+- \`zazig batch-create-jobs --company <company_id> --feature-id <feature_id> --jobs-file <path>\` — create jobs for a feature using a JSON file
 
 ### Common flags
 
@@ -20,4 +22,9 @@ The following commands are available via the zazig CLI. Use these instead of MCP
 Results are sorted newest-first by default. Output is JSON on stdout.
 
 **Run \`zazig <command> --help\` for full usage, required fields, and JSON schemas.**
+
+### Write commands
+
+- \`zazig batch-create-jobs --company <uuid> --feature-id <uuid> --jobs '<json array>'\` — create jobs for a feature in batch
+- \`zazig batch-create-jobs --company <uuid> --feature-id <uuid> --jobs-file <path>\` — alternative for large payloads (write JSON to a temp file and pass the path)
 `;

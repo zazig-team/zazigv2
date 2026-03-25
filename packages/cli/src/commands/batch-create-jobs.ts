@@ -57,7 +57,40 @@ function parseJobsPayload(jobs: string | undefined, jobsFile: string | undefined
   return parsed;
 }
 
+function printHelp(): void {
+  const help = `Usage: zazig batch-create-jobs --company <uuid> --feature-id <uuid> (--jobs <json> | --jobs-file <path>)
+
+Flags:
+  --company <uuid>       Company ID (required)
+  --feature-id <uuid>    Feature ID — must be in 'breaking_down' status (required)
+  --jobs <json>          Inline JSON array of job objects (mutually exclusive with --jobs-file)
+  --jobs-file <path>     Path to a JSON file containing an array of job objects
+
+Job object schema (all fields required):
+  {
+    "title":            string,          // Short job title
+    "spec":             string,          // Implementation prompt — what to build
+    "acceptance_tests": string,          // Gherkin acceptance criteria
+    "role":             "senior-engineer" | "junior-engineer",
+    "job_type":         "code",
+    "complexity":       "simple" | "medium" | "complex",
+    "depends_on":       string[]         // [] for root jobs, or ["temp:0", "temp:1"] to reference earlier jobs by array index
+  }
+
+Example:
+  zazig batch-create-jobs --company <uuid> --feature-id <uuid> --jobs '[
+    {"title":"Add user table","spec":"Create users table...","acceptance_tests":"Given...When...Then...","role":"senior-engineer","job_type":"code","complexity":"simple","depends_on":[]},
+    {"title":"Add auth middleware","spec":"Create auth...","acceptance_tests":"Given...When...Then...","role":"senior-engineer","job_type":"code","complexity":"medium","depends_on":["temp:0"]}
+  ]'`;
+  console.log(help);
+  process.exit(0);
+}
+
 export async function batchCreateJobs(args: string[]): Promise<void> {
+  if (args.includes("--help") || args.includes("-h")) {
+    printHelp();
+  }
+
   const company_id = parseStringFlag(args, "company");
   if (!company_id) fail("Missing required flag: --company <uuid>");
 

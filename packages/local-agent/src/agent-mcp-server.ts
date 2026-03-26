@@ -534,54 +534,6 @@ server.tool(
 );
 
 server.tool(
-  "query_jobs",
-  "Query jobs by job ID, feature ID, or status filter. Used by the Verification Specialist to poll job status during active acceptance testing.",
-  {
-    job_id: z.string().optional().describe("Job UUID — returns a single job with full detail"),
-    feature_id: z.string().optional().describe("Feature UUID — returns all jobs for this feature"),
-    status: z.string().optional().describe("Filter by status (e.g. 'queued', 'executing', 'complete')"),
-  },
-  guardedHandler("query_jobs", async ({ job_id, feature_id, status }) => {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return {
-        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
-        isError: true,
-      };
-    }
-
-    const payload: Record<string, unknown> = {};
-    if (job_id) payload.job_id = job_id;
-    if (feature_id) payload.feature_id = feature_id;
-    if (status) payload.status = status;
-
-    const response = await fetch(`${supabaseUrl}/functions/v1/query-jobs`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${supabaseAnonKey}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (response.ok) {
-      const data = await response.json() as { jobs: unknown[] };
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(data.jobs, null, 2) }],
-      };
-    }
-
-    const errorBody = await response.text().catch(() => "unknown error");
-    return {
-      content: [{ type: "text" as const, text: `Failed to query jobs (HTTP ${response.status}): ${errorBody}` }],
-      isError: true,
-    };
-  }),
-);
-
-server.tool(
   "get_pipeline_snapshot",
   "Returns pre-computed pipeline state snapshot (features by status, capacity, stuck items, ideas inbox, active jobs). Updated every minute by orchestrator heartbeat. Use this instead of multiple query_features/query_jobs calls.",
   {},

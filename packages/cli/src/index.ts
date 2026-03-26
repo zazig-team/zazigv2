@@ -36,6 +36,8 @@ import { createIdea } from "./commands/create-idea.js";
 import { updateIdea } from "./commands/update-idea.js";
 import { promoteIdea } from "./commands/promote-idea.js";
 import { createRule } from "./commands/create-rule.js";
+import { createProjectRule } from "./commands/create-project-rule.js";
+import { startExpertSession } from "./commands/start-expert-session.js";
 import { batchCreateJobs } from "./commands/batch-create-jobs.js";
 import { getVersion } from "./lib/version.js";
 
@@ -137,6 +139,14 @@ switch (cmd) {
 
   case "create-rule":
     await createRule(args);
+    break;
+
+  case "create-project-rule":
+    await createProjectRule(args);
+    break;
+
+  case "start-expert-session":
+    await startExpertSession(args);
     break;
 
   case "batch-create-jobs":

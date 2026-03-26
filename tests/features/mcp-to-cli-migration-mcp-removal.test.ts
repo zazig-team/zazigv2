@@ -141,7 +141,7 @@ describe('migration removes request_feature_fix, start_expert_session, create_pr
       migrationFile,
       'No migration found (numbered > 215) that removes request_feature_fix, ' +
         'start_expert_session, create_project_rule from roles.mcp_tools. ' +
-        'Create supabase/migrations/216_remove_mcp_tools_batch3.sql (or next number).',
+        'Create supabase/migrations/222_remove_mcp_tools_batch3.sql (or next number).',
     ).not.toBeNull();
   });
 

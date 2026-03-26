@@ -8,13 +8,16 @@ The following commands are available via the zazig CLI. Use these instead of MCP
 - \`zazig ideas --company <company_id>\` — list ideas from inbox
 - \`zazig features --company <company_id>\` — list features for the company's project
 - \`zazig projects --company <company_id>\` — list projects
+- \`zazig jobs --company <company_id>\` — list jobs
 
 ### Common flags
 
+- \`--company <company_id>\` — required company ID
 - \`--limit <n>\` — max results per page (default: 20)
 - \`--offset <n>\` — skip first N results (default: 0)
-- \`--status <value>\` — filter by status (ideas, features)
-- \`--id <uuid>\` — fetch a single record by ID (ideas, features)
+- \`--status <value>\` — filter by status (ideas, features, jobs)
+- \`--id <uuid>\` — fetch a single record by ID (ideas, features, jobs)
+- \`--feature-id <uuid>\` — filter by feature ID (jobs)
 - \`--search <term>\` — full-text search (ideas only)
 
 Results are sorted newest-first by default. Output is JSON on stdout.

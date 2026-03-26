@@ -7,6 +7,12 @@ The following commands are available via the zazig CLI. Use these instead of MCP
 - \`zazig snapshot --company <company_id>\` — pipeline state summary (capacity, active jobs, feature counts)
 - \`zazig ideas --company <company_id>\` — list ideas from inbox
 - \`zazig features --company <company_id>\` — list features for the company's project
+- \`zazig jobs --company <company_id>\` — list jobs with optional filters
+- \`--id <uuid>\` — fetch a single job by ID
+- \`--feature-id <uuid>\` — filter jobs by feature
+- \`--status <value>\` — filter by status (queued, executing, complete, failed, etc.)
+- \`--limit <n>\` — max results per page (default: 20)
+- \`--offset <n>\` — skip first N results (default: 0)
 - \`zazig projects --company <company_id>\` — list projects
 - \`zazig batch-create-jobs --company <company_id> --feature-id <feature_id> --jobs <json>\` — create jobs for a feature
 - \`zazig batch-create-jobs --company <company_id> --feature-id <feature_id> --jobs-file <path>\` — create jobs for a feature using a JSON file

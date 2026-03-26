@@ -516,6 +516,11 @@ export default function Pipeline(): JSX.Element {
                     </span>
                   </div>
                 )}
+                {feature.staging_verified_by ? (
+                  <div className="card-staging-verified badge badge--positive">
+                    ✓ staging_verified by {feature.staging_verified_by}
+                  </div>
+                ) : null}
               </div>
             </article>
             );

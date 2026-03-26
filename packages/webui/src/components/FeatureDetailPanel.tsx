@@ -40,6 +40,24 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+function formatRelativeTime(iso: string | null): string {
+  if (!iso) return "—";
+
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  const diffMs = Date.now() - date.getTime();
+  const absMs = Math.abs(diffMs);
+  const suffix = diffMs >= 0 ? "ago" : "from now";
+
+  if (absMs < 60_000) return "just now";
+  if (absMs < 3_600_000) return `${Math.round(absMs / 60_000)}m ${suffix}`;
+  if (absMs < 86_400_000) return `${Math.round(absMs / 3_600_000)}h ${suffix}`;
+  if (absMs < 2_592_000_000) return `${Math.round(absMs / 86_400_000)}d ${suffix}`;
+  if (absMs < 31_536_000_000) return `${Math.round(absMs / 2_592_000_000)}mo ${suffix}`;
+  return `${Math.round(absMs / 31_536_000_000)}y ${suffix}`;
+}
+
 type DiagnosisState =
   | { phase: "idle" }
   | { phase: "commissioning" }
@@ -200,6 +218,12 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
                   {data.branch ? <tr><td className="detail-meta-key">Branch</td><td className="detail-meta-val">{data.branch}</td></tr> : null}
                   {data.created_by ? <tr><td className="detail-meta-key">Created by</td><td className="detail-meta-val">{data.created_by}</td></tr> : null}
                   {data.verification_type ? <tr><td className="detail-meta-key">Verification</td><td className="detail-meta-val">{data.verification_type}</td></tr> : null}
+                  {data.staging_verified_by ? (
+                    <tr>
+                      <td className="detail-meta-key">Staging verified</td>
+                      <td className="detail-meta-val">{data.staging_verified_by} -- {formatRelativeTime(data.staging_verified_at)}</td>
+                    </tr>
+                  ) : null}
                   <tr><td className="detail-meta-key">Created</td><td className="detail-meta-val">{formatDate(data.created_at)}</td></tr>
                   {data.completed_at ? <tr><td className="detail-meta-key">Completed</td><td className="detail-meta-val">{formatDate(data.completed_at)}</td></tr> : null}
                 </tbody>

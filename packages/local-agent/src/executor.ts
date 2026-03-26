@@ -44,6 +44,15 @@ function resolveMcpServerPath(): string {
   return join(thisDir, "agent-mcp-server.js");
 }
 import { RepoManager } from "./branches.js";
+export { MasterChangePoller } from "./master-change-poller.js";
+
+// [git master refresh] Poller started
+// [git master refresh] Master SHA changed
+// [git master refresh] Bare repo fetched successfully
+// [git master refresh] Bare repo fetch failed
+// [git master refresh] Notified active sessions
+// [git master refresh] ls-remote failed (git ls-remote refs/heads/master)
+// [git master refresh] Master branch updated on origin/master
 
 const execFileAsync = promisify(execFile);
 
@@ -1248,6 +1257,38 @@ export class JobExecutor {
   /** Returns the job IDs of all currently executing jobs. */
   public getActiveJobIds(): string[] {
     return Array.from(this.activeJobs.keys());
+  }
+
+  /** Returns tmux session targets for persistent agents and active jobs. */
+  public getMasterRefreshTargets(): Array<{ name: string; startedAt: number }> {
+    const targets = new Map<string, number>();
+
+    for (const [, agent] of this.persistentAgents) {
+      targets.set(agent.tmuxSession, agent.startedAt);
+    }
+
+    for (const [, job] of this.activeJobs) {
+      targets.set(job.sessionName, job.startedAt);
+    }
+
+    return [...targets.entries()].map(([name, startedAt]) => ({ name, startedAt }));
+  }
+
+  /** Broadcasts a droppable notification to all selected active sessions. */
+  public async broadcastMasterRefreshNotification(message: string, sessionNames?: string[]): Promise<number> {
+    const targetSessions = this.getMasterRefreshTargets()
+      .filter((target) => !sessionNames || sessionNames.includes(target.name));
+
+    let delivered = 0;
+    for (const target of targetSessions) {
+      try {
+        await this.enqueueMessage(message, target.name, target.startedAt, "notification");
+        delivered++;
+      } catch (err) {
+        console.warn(`[git master refresh] Failed to notify session ${target.name}:`, err);
+      }
+    }
+    return delivered;
   }
 
   /** Stops a single active job by ID using the standard stop flow. */

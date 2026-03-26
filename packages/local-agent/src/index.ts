@@ -12,9 +12,10 @@
  */
 
 import { createWriteStream } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFile, execSync } from "node:child_process";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 // Tee all console output to a per-company log file for debugging
 const companySlug = process.env["ZAZIG_COMPANY_ID"]?.slice(0, 8) ?? "default";
@@ -42,6 +43,7 @@ import { AgentConnection } from "./connection.js";
 import { JobExecutor, type CompanyProject, type PersistentAgentJobDefinition } from "./executor.js";
 import { ExpertSessionManager } from "./expert-session-manager.js";
 import { FixAgentManager } from "./fix-agent.js";
+import { MasterChangePoller } from "./master-change-poller.js";
 import { JobVerifier } from "./verifier.js";
 import { resolveAgentVersion } from "./version.js";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
@@ -53,8 +55,9 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 // ---------------------------------------------------------------------------
 
 let shuttingDown = false;
-const REPO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const MASTER_CHANGE_POLL_INTERVAL_MS = 30_000;
 const ANTHROPIC_KEY_REFRESH_INTERVAL_MS = 4 * 60 * 1000; // 4 minutes — well under token expiry
+const execFileAsync = promisify(execFile);
 
 /**
  * Re-read the Claude Code OAuth token from the macOS Keychain.
@@ -217,7 +220,7 @@ async function main(): Promise<void> {
   // Discover and spawn persistent agents if ZAZIG_COMPANY_ID is set
   const companyId = process.env["ZAZIG_COMPANY_ID"];
   let rolePromptChannel: RealtimeChannel | null = null;
-  let repoRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  let masterChangePollTimer: ReturnType<typeof setInterval> | null = null;
   if (companyId) {
     await discoverAndSpawnPersistentAgents(
       config.supabase.url,
@@ -226,26 +229,35 @@ async function main(): Promise<void> {
       executor,
     );
 
-    let refreshRunning = false;
-    repoRefreshTimer = setInterval(() => {
-      void (async () => {
-        if (refreshRunning) return;
-        refreshRunning = true;
-        try {
-          const projects = executor.getCompanyProjects();
-          for (const project of projects) {
-            if (!project.repo_url) continue;
+    const pollers = executor
+      .getCompanyProjects()
+      .filter((project) => Boolean(project.repo_url))
+      .map((project) =>
+        new MasterChangePoller({
+          repoPath: project.repo_url,
+          execFileAsync: execFileAsync as typeof execFileAsync,
+          fetchBareRepo: async () => {
             try {
               await executor.repoManager.refreshWorktree(project.name);
             } catch (err) {
-              console.warn(`[daemon] repo refresh failed for ${project.name}:`, err);
+              console.error("[git master refresh] Bare repo fetch failed:", err);
+              throw err;
             }
-          }
-        } finally {
-          refreshRunning = false;
-        }
-      })();
-    }, REPO_REFRESH_INTERVAL_MS);
+          },
+          getActiveSessions: () => executor.getMasterRefreshTargets(),
+          broadcast: async (message, sessionNames) => {
+            const notified = await executor.broadcastMasterRefreshNotification(message, sessionNames);
+            console.log(`[git master refresh] Notified ${notified} active sessions`);
+            return notified;
+          },
+        }),
+      );
+
+    masterChangePollTimer = setInterval(() => {
+      for (const poller of pollers) {
+        void poller.poll();
+      }
+    }, MASTER_CHANGE_POLL_INTERVAL_MS);
 
     rolePromptChannel = subscribeToRolePromptHotReload(
       conn,
@@ -280,9 +292,9 @@ async function main(): Promise<void> {
       rolePromptChannel = null;
     }
     clearInterval(anthropicKeyRefreshTimer);
-    if (repoRefreshTimer) {
-      clearInterval(repoRefreshTimer);
-      repoRefreshTimer = null;
+    if (masterChangePollTimer) {
+      clearInterval(masterChangePollTimer);
+      masterChangePollTimer = null;
     }
 
     const gracePeriodMs = parseInt(process.env["ZAZIG_GRACEFUL_SHUTDOWN_MS"] ?? "10000", 10);

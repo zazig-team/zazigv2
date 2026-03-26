@@ -204,7 +204,7 @@ describe('AC2: create-project-rule edge function', () => {
 // AC3: create_project_rule MCP tool
 // ---------------------------------------------------------------------------
 
-describe('AC3: create_project_rule MCP tool in agent-mcp-server', () => {
+describe('AC3: create_project_rule MCP tool removed from agent-mcp-server', () => {
   const MCP_PATH = 'packages/local-agent/src/agent-mcp-server.ts';
   let content: string | null;
 
@@ -212,47 +212,8 @@ describe('AC3: create_project_rule MCP tool in agent-mcp-server', () => {
     content = readRepoFile(MCP_PATH);
   });
 
-  it('MCP server defines a tool named create_project_rule', () => {
-    expect(content).toContain('"create_project_rule"');
-  });
-
-  it('tool description mentions injecting rules into future agent prompts', () => {
-    // Find the tool definition section
-    const idx = content?.indexOf('create_project_rule') ?? -1;
-    expect(idx).toBeGreaterThan(-1);
-    const segment = content!.slice(idx, idx + 500);
-    // Description should mention something about future agents or prompts
-    expect(segment).toMatch(/inject|future|agent|prompt/i);
-  });
-
-  it('tool has project_id parameter', () => {
-    const idx = content?.indexOf('create_project_rule') ?? -1;
-    const segment = content!.slice(idx, idx + 1500);
-    expect(segment).toContain('project_id');
-  });
-
-  it('tool has rule_text parameter', () => {
-    const idx = content?.indexOf('create_project_rule') ?? -1;
-    const segment = content!.slice(idx, idx + 1500);
-    expect(segment).toContain('rule_text');
-  });
-
-  it('tool has applies_to parameter', () => {
-    const idx = content?.indexOf('create_project_rule') ?? -1;
-    const segment = content!.slice(idx, idx + 1500);
-    expect(segment).toContain('applies_to');
-  });
-
-  it('tool calls the create-project-rule edge function endpoint', () => {
-    const idx = content?.indexOf('create_project_rule') ?? -1;
-    const segment = content!.slice(idx, idx + 2000);
-    expect(segment).toContain('create-project-rule');
-  });
-
-  it('tool is protected by guardedHandler (access control)', () => {
-    const idx = content?.indexOf('create_project_rule') ?? -1;
-    const segment = content!.slice(idx, idx + 2000);
-    expect(segment).toMatch(/guardedHandler/i);
+  it('MCP server no longer defines create_project_rule tool', () => {
+    expect(content).not.toContain('"create_project_rule"');
   });
 });
 
@@ -261,11 +222,11 @@ describe('AC3: create_project_rule MCP tool in agent-mcp-server', () => {
 //             and fix agent roles via DB migration
 // ---------------------------------------------------------------------------
 
-describe('AC3 (cont): create_project_rule in allowed MCP tools for pipeline roles', () => {
+describe('AC3 (cont): create_project_rule removed from MCP tools via migration', () => {
   let migrationContent: string | null;
 
   beforeAll(() => {
-    // Look for a migration that adds create_project_rule to role mcp_tools
+    // Find the newest migration that references create_project_rule and mcp_tools
     const migrationsDir = path.join(REPO_ROOT, 'supabase/migrations');
     let files: string[];
     try {
@@ -273,7 +234,6 @@ describe('AC3 (cont): create_project_rule in allowed MCP tools for pipeline role
     } catch {
       files = [];
     }
-    // Find any migration after 190 that mentions create_project_rule in mcp_tools context
     const found = files
       .filter((f) => f.endsWith('.sql'))
       .reverse() // check newest first
@@ -290,27 +250,20 @@ describe('AC3 (cont): create_project_rule in allowed MCP tools for pipeline role
       : null;
   });
 
-  it('has a migration that adds create_project_rule to role mcp_tools', () => {
+  it('has a migration that references create_project_rule in mcp_tools', () => {
     expect(
       migrationContent,
-      'No migration found that adds create_project_rule to mcp_tools for any role. ' +
-        'Expected an UPDATE roles SET mcp_tools = ... that includes create_project_rule for engineer/combiner/test-engineer/fix roles.',
+      'No migration found that references create_project_rule in mcp_tools context.',
     ).not.toBeNull();
   });
 
-  it('migration grants create_project_rule to senior-engineer role', () => {
-    expect(migrationContent).toMatch(/senior.engineer/i);
+  it('migration removes create_project_rule from mcp_tools', () => {
+    expect(migrationContent).toMatch(/array_remove/i);
     expect(migrationContent).toContain('create_project_rule');
   });
 
-  it('migration grants create_project_rule to job-combiner role', () => {
-    expect(migrationContent).toMatch(/job.combiner/i);
-    expect(migrationContent).toContain('create_project_rule');
-  });
-
-  it('migration grants create_project_rule to fix/request-feature-fix context', () => {
-    // The fix agent uses the same role as the failed job, but should have create_project_rule
-    // This is typically granted via the engineer or combiner role update
-    expect(migrationContent).toContain('create_project_rule');
+  it('migration also removes request_feature_fix and start_expert_session', () => {
+    expect(migrationContent).toContain('request_feature_fix');
+    expect(migrationContent).toContain('start_expert_session');
   });
 });

@@ -651,6 +651,48 @@ export class RepoManager {
   }
 
   /**
+   * Returns the current SHA of refs/heads/master on origin, without acquiring the lock.
+   * Throws if the command fails or produces no output.
+   */
+  async getMasterSha(repoDir: string): Promise<string> {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-C", repoDir, "ls-remote", "origin", "refs/heads/master"],
+      { encoding: "utf8" },
+    );
+    const firstLine = stdout.trim().split("\n").find((l) => l.trim().length > 0);
+    if (!firstLine) {
+      throw new Error(`getMasterSha: no output from ls-remote for ${repoDir}`);
+    }
+    const sha = firstLine.trim().split(/\s+/)[0];
+    if (!sha) {
+      throw new Error(`getMasterSha: could not parse SHA from ls-remote output: ${firstLine}`);
+    }
+    return sha;
+  }
+
+  /**
+   * Fetches origin for the given bare repo, acquiring the repo lock.
+   * Non-fast-forward rejections are non-fatal (logged and swallowed).
+   * Throws on unexpected errors.
+   */
+  async fetchOrigin(repoDir: string): Promise<void> {
+    return this.withLock(repoDir, async () => {
+      try {
+        await this.git(repoDir, "fetch", "origin");
+      } catch (e) {
+        const msg = getErrorMessage(e);
+        // Non-fast-forward rejections are expected (diverged job branches) — swallow them.
+        if (msg.includes("rejected") || msg.includes("non-fast-forward")) {
+          console.warn(`[RepoManager] fetchOrigin: non-fast-forward rejection (non-fatal): ${msg}`);
+          return;
+        }
+        throw e;
+      }
+    });
+  }
+
+  /**
    * Push job branch to origin from within the worktree.
    */
   async pushJobBranch(worktreePath: string, jobBranch: string): Promise<void> {

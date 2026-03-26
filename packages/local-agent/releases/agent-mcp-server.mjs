@@ -35678,51 +35678,6 @@ var REQUEST_WORK_ROLE_ALLOWLIST = {
   cto: new Set(STANDALONE_ELIGIBLE_ROLES),
   "verification-specialist": /* @__PURE__ */ new Set(["pipeline-technician"])
 };
-server.tool("send_message", "Send a message to the company's Slack channel. If conversation_id is omitted, the message goes to the default channel.", {
-  text: external_exports3.string().describe("The message text to send"),
-  conversation_id: external_exports3.string().optional().describe("Optional conversation ID. If omitted, sends to the company's default Slack channel.")
-}, guardedHandler("send_message", async ({ text, conversation_id }) => {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required"
-        }
-      ]
-    };
-  }
-  const jobId = process.env.ZAZIG_JOB_ID ?? "";
-  const response = await fetch(`${supabaseUrl}/functions/v1/agent-message`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${supabaseAnonKey}`
-    },
-    body: JSON.stringify({
-      ...conversation_id ? { conversationId: conversation_id } : {},
-      text,
-      jobId
-    })
-  });
-  if (response.ok) {
-    return {
-      content: [{ type: "text", text: "Message sent successfully." }]
-    };
-  }
-  const errorBody = await response.text().catch(() => "unknown error");
-  return {
-    content: [
-      {
-        type: "text",
-        text: `Failed to send message (HTTP ${response.status}): ${errorBody}`
-      }
-    ],
-    isError: true
-  };
-}));
 server.tool("enable_remote", "Enable remote control for this Claude Code session. Returns a URL that a human can use to connect from any device.", {}, guardedHandler("enable_remote", async () => {
   const sessionName = process.env.ZAZIG_TMUX_SESSION;
   if (!sessionName) {
@@ -36009,49 +35964,6 @@ server.tool("create_project", "Create a new project for a company. Used by the P
     isError: true
   };
 }));
-server.tool("create_project_rule", "Create a project rule that will be automatically injected into future agent prompts. Use when you identify a preventable pattern that future agents should know about.", {
-  project_id: external_exports3.string().describe("Project UUID this rule belongs to"),
-  rule_text: external_exports3.string().describe("Rule text in plain language"),
-  applies_to: external_exports3.array(external_exports3.string()).describe("Array of job types this rule applies to (e.g. ['code', 'combine'])")
-}, guardedHandler("create_project_rule", async ({ project_id, rule_text, applies_to }) => {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-  const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
-  const jobId = process.env.ZAZIG_JOB_ID ?? "";
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return {
-      content: [{ type: "text", text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
-      isError: true
-    };
-  }
-  if (!companyId) {
-    return {
-      content: [{ type: "text", text: "Error: ZAZIG_COMPANY_ID is required for create_project_rule" }],
-      isError: true
-    };
-  }
-  const response = await fetch(`${supabaseUrl}/functions/v1/create-project-rule`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${supabaseAnonKey}`,
-      "x-company-id": companyId,
-      ...jobId ? { "x-job-id": jobId } : {}
-    },
-    body: JSON.stringify({ project_id, rule_text, applies_to })
-  });
-  if (response.ok) {
-    const data = await response.json();
-    return {
-      content: [{ type: "text", text: `Project rule created successfully. rule_id: ${data.rule_id}` }]
-    };
-  }
-  const errorBody = await response.text().catch(() => "unknown error");
-  return {
-    content: [{ type: "text", text: `Failed to create project rule (HTTP ${response.status}): ${errorBody}` }],
-    isError: true
-  };
-}));
 server.tool("update_project", "Update project settings. Set test_command and build_command to enable automatic CI workflow injection on PRs.", {
   project_id: external_exports3.string().describe("ID of the project to update"),
   name: external_exports3.string().optional().describe("New project name"),
@@ -36123,46 +36035,6 @@ ${summary}` }]
   const errorBody = await response.text().catch(() => "unknown error");
   return {
     content: [{ type: "text", text: `Failed to create features (HTTP ${response.status}): ${errorBody}` }],
-    isError: true
-  };
-}));
-server.tool("query_jobs", "Query jobs by job ID, feature ID, or status filter. Used by the Verification Specialist to poll job status during active acceptance testing.", {
-  job_id: external_exports3.string().optional().describe("Job UUID \u2014 returns a single job with full detail"),
-  feature_id: external_exports3.string().optional().describe("Feature UUID \u2014 returns all jobs for this feature"),
-  status: external_exports3.string().optional().describe("Filter by status (e.g. 'queued', 'executing', 'complete')")
-}, guardedHandler("query_jobs", async ({ job_id, feature_id, status }) => {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return {
-      content: [{ type: "text", text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
-      isError: true
-    };
-  }
-  const payload = {};
-  if (job_id)
-    payload.job_id = job_id;
-  if (feature_id)
-    payload.feature_id = feature_id;
-  if (status)
-    payload.status = status;
-  const response = await fetch(`${supabaseUrl}/functions/v1/query-jobs`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${supabaseAnonKey}`
-    },
-    body: JSON.stringify(payload)
-  });
-  if (response.ok) {
-    const data = await response.json();
-    return {
-      content: [{ type: "text", text: JSON.stringify(data.jobs, null, 2) }]
-    };
-  }
-  const errorBody = await response.text().catch(() => "unknown error");
-  return {
-    content: [{ type: "text", text: `Failed to query jobs (HTTP ${response.status}): ${errorBody}` }],
     isError: true
   };
 }));
@@ -36634,84 +36506,6 @@ server.tool("request_work", "Request standalone operational work (pipeline-techn
   if (!response.ok) {
     return {
       content: [{ type: "text", text: `Failed to request work (HTTP ${response.status}): ${payload || "unknown error"}` }],
-      isError: true
-    };
-  }
-  return {
-    content: [{ type: "text", text: payload }]
-  };
-}));
-server.tool("start_expert_session", "Trigger an interactive expert agent session. The expert runs in a dedicated tmux window with the human. Use when specialized expertise is needed (deployment, security review, etc.)", {
-  role_name: external_exports3.string().describe('The expert role identifier, e.g. "test-deployment-expert"'),
-  brief: external_exports3.string().describe("Structured handoff context for the expert: what needs to be done, relevant background, expected output"),
-  machine_name: external_exports3.string().describe("Which machine to spawn the expert on. Read the machine name from ~/.zazigv2/config.json \u2014 use the 'name' field."),
-  project_id: external_exports3.string().describe("Project ID or name \u2014 required. The expert needs a repo to work in."),
-  headless: external_exports3.boolean().optional().describe("Run in headless mode without interactive tmux window (for autonomous use)"),
-  batch_id: external_exports3.string().optional().describe("Group related headless sessions under a batch ID")
-}, guardedHandler("start_expert_session", async ({ role_name, brief, machine_name, project_id, headless, batch_id }) => {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-  const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required");
-  }
-  if (!companyId) {
-    return {
-      content: [{ type: "text", text: "Error: ZAZIG_COMPANY_ID is required for start_expert_session" }],
-      isError: true
-    };
-  }
-  const response = await fetch(`${supabaseUrl}/functions/v1/start-expert-session`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${supabaseAnonKey}`,
-      "x-company-id": companyId
-    },
-    body: JSON.stringify({ role_name, brief, machine_name, project_id, headless, batch_id })
-  });
-  if (!response.ok) {
-    const error48 = await response.text();
-    throw new Error(`Failed to start expert session: ${error48}`);
-  }
-  const result = await response.json();
-  return { content: [{ type: "text", text: JSON.stringify(result) }] };
-}));
-server.tool("request_feature_fix", "Request a fix for a feature \u2014 cancels stale combine/verify jobs, resets feature to building, and queues a senior-engineer code job inheriting the feature branch.", {
-  feature_id: external_exports3.string().describe("Feature ID to fix"),
-  reason: external_exports3.string().describe("What needs fixing and why")
-}, guardedHandler("request_feature_fix", async ({ feature_id, reason }) => {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-  const companyId = process.env.ZAZIG_COMPANY_ID ?? "";
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return {
-      content: [{ type: "text", text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
-      isError: true
-    };
-  }
-  if (!companyId) {
-    return {
-      content: [{ type: "text", text: "Error: ZAZIG_COMPANY_ID is required for request_feature_fix" }],
-      isError: true
-    };
-  }
-  const response = await fetch(`${supabaseUrl}/functions/v1/request-feature-fix`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${supabaseAnonKey}`
-    },
-    body: JSON.stringify({
-      company_id: companyId,
-      feature_id,
-      reason
-    })
-  });
-  const payload = await response.text().catch(() => "");
-  if (!response.ok) {
-    return {
-      content: [{ type: "text", text: `Failed to request feature fix (HTTP ${response.status}): ${payload || "unknown error"}` }],
       isError: true
     };
   }

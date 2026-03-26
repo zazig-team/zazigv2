@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "9776529";
+const AGENT_BUILD_HASH = "5457188";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -8075,8 +8075,10 @@ var require_main3 = __commonJS({
 
 // ../local-agent/dist/index.js
 import { createWriteStream } from "node:fs";
-import { homedir as homedir6 } from "node:os";
+import { execFile as execFile8, execSync as execSync2 } from "node:child_process";
+import { homedir as homedir6, platform } from "node:os";
 import { join as join8 } from "node:path";
+import { promisify as promisify8 } from "node:util";
 
 // ../local-agent/dist/config.js
 import { readFileSync, existsSync } from "node:fs";
@@ -12899,16 +12901,16 @@ function shouldShowDeprecationWarning() {
 if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217");
 
 // ../local-agent/dist/connection.js
-import { execFile as execFile3 } from "node:child_process";
+import { execFile as execFile4 } from "node:child_process";
 import { readFileSync as readFileSync4, writeFileSync as writeFileSync3, mkdirSync as mkdirSync3, appendFileSync as appendFileSync3 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join5 } from "node:path";
-import { promisify as promisify3 } from "node:util";
+import { promisify as promisify4 } from "node:util";
 
 // ../local-agent/dist/executor.js
-import { execFile as execFile2 } from "node:child_process";
+import { execFile as execFile3 } from "node:child_process";
 import { existsSync as existsSync4, readFileSync as readFileSync3, renameSync, unlinkSync, mkdirSync as mkdirSync2, rmSync as rmSync3, symlinkSync as symlinkSync2, appendFileSync as appendFileSync2, statSync } from "node:fs";
-import { promisify as promisify2 } from "node:util";
+import { promisify as promisify3 } from "node:util";
 import { homedir as homedir2 } from "node:os";
 import { dirname as dirname2, join as join4, resolve as resolve2 } from "node:path";
 import { writeFileSync as writeFileSync2 } from "node:fs";
@@ -13773,6 +13775,91 @@ var RepoManager = class {
   }
 };
 
+// ../local-agent/dist/master-change-poller.js
+import { execFile as execFile2 } from "node:child_process";
+import { promisify as promisify2 } from "node:util";
+var execFileAsync2 = promisify2(execFile2);
+function parseMasterSha(stdout) {
+  const line = stdout.trim().split("\n")[0] ?? "";
+  if (!line)
+    return null;
+  const [sha] = line.split(/\s+/);
+  return sha || null;
+}
+var MasterChangePoller = class {
+  repoPath;
+  exec;
+  fetchBareRepo;
+  broadcast;
+  getActiveSessions;
+  lastMasterSha = null;
+  started = false;
+  constructor(deps) {
+    this.repoPath = deps.repoPath;
+    this.exec = deps.execFileAsync ?? execFileAsync2;
+    this.fetchBareRepo = deps.fetchBareRepo;
+    this.broadcast = deps.broadcast;
+    this.getActiveSessions = deps.getActiveSessions ?? (() => []);
+    this.start();
+  }
+  start() {
+    if (this.started)
+      return;
+    this.started = true;
+    console.log("[git master refresh] Poller started");
+  }
+  async poll() {
+    let currentMasterSha = null;
+    try {
+      const { stdout } = await this.exec("git", [
+        "ls-remote",
+        this.repoPath,
+        "refs/heads/master"
+      ], { encoding: "utf8" });
+      currentMasterSha = parseMasterSha(stdout);
+    } catch (err) {
+      console.warn("[git master refresh] ls-remote failed:", err);
+      return;
+    }
+    if (!currentMasterSha) {
+      console.warn("[git master refresh] ls-remote failed: empty response");
+      return;
+    }
+    if (this.lastMasterSha === null) {
+      this.lastMasterSha = currentMasterSha;
+      return;
+    }
+    if (currentMasterSha === this.lastMasterSha) {
+      return;
+    }
+    const previousMasterSha = this.lastMasterSha;
+    console.log(`[git master refresh] Master SHA changed: ${previousMasterSha.slice(0, 7)} -> ${currentMasterSha.slice(0, 7)}`);
+    try {
+      await this.fetchBareRepo();
+      console.log("[git master refresh] Bare repo fetched successfully");
+    } catch (err) {
+      console.error("[git master refresh] Bare repo fetch failed:", err);
+      return;
+    }
+    const message = [
+      "Master branch updated on origin/master.",
+      `${previousMasterSha.slice(0, 7)} -> ${currentMasterSha.slice(0, 7)}`
+    ].join(" ");
+    const sessions = this.getActiveSessions().map((session) => session.name);
+    let notifiedCount = sessions.length;
+    try {
+      const maybeCount = await this.broadcast(message, sessions);
+      if (typeof maybeCount === "number") {
+        notifiedCount = maybeCount;
+      }
+    } catch (err) {
+      console.warn("[git master refresh] Failed to broadcast notification:", err);
+    }
+    console.log(`[git master refresh] Notified ${notifiedCount} active sessions`);
+    this.lastMasterSha = currentMasterSha;
+  }
+};
+
 // ../local-agent/dist/executor.js
 function resolveMcpServerPath() {
   const binPath = join4(homedir2(), ".zazigv2", "bin", "agent-mcp-server");
@@ -13784,7 +13871,7 @@ function resolveMcpServerPath() {
     return mjsPath;
   return join4(thisDir, "agent-mcp-server.js");
 }
-var execFileAsync2 = promisify2(execFile2);
+var execFileAsync3 = promisify3(execFile3);
 var POLL_INTERVAL_MS = 3e4;
 var SLOT_RECONCILE_INTERVAL_MS = 6e4;
 var PR_MONITOR_INTERVAL_MS = 6e4;
@@ -14100,7 +14187,7 @@ ${cpoContext}`);
         let buildCommit = "unknown";
         try {
           const agentDir = dirname2(fileURLToPath(import.meta.url));
-          const { stdout } = await execFileAsync2("git", ["log", "-1", "--format=%h %s"], { cwd: agentDir });
+          const { stdout } = await execFileAsync3("git", ["log", "-1", "--format=%h %s"], { cwd: agentDir });
           buildCommit = stdout.trim();
         } catch {
         }
@@ -14142,7 +14229,7 @@ ${cpoContext}`);
         console.log(`[executor] Git worktree created at ${worktreePath} (branch: ${jobBranch}) for jobId=${jobId}`);
         if (msg.slotType === "codex") {
           try {
-            const { stdout } = await execFileAsync2("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
+            const { stdout } = await execFileAsync3("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
             startingCommit = stdout.trim();
           } catch {
           }
@@ -14217,7 +14304,7 @@ ${cpoContext}`);
       if (isInteractive) {
         const claudeCmd = shellEscape([cmd, ...cmdArgs]);
         const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
-        await execFileAsync2("tmux", [
+        await execFileAsync3("tmux", [
           "new-session",
           "-d",
           "-s",
@@ -14227,7 +14314,7 @@ ${cpoContext}`);
         ]);
         setTimeout(async () => {
           try {
-            await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "Enter"]);
+            await execFileAsync3("tmux", ["send-keys", "-t", sessionName, "Enter"]);
             jobLog(jobId, "Sent Enter to dismiss trust prompt");
           } catch (err) {
             jobLog(jobId, `Failed to dismiss trust prompt: ${err}`);
@@ -14236,9 +14323,9 @@ ${cpoContext}`);
         setTimeout(async () => {
           try {
             const promptText = readFileSync3(promptFilePath, "utf8");
-            await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "-l", promptText]);
+            await execFileAsync3("tmux", ["send-keys", "-t", sessionName, "-l", promptText]);
             await new Promise((resolve4) => setTimeout(resolve4, 2e3));
-            await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "Enter"]);
+            await execFileAsync3("tmux", ["send-keys", "-t", sessionName, "Enter"]);
             jobLog(jobId, `Injected prompt into interactive session (${promptText.length} chars)`);
           } catch (err) {
             jobLog(jobId, `Failed to inject prompt: ${err}`);
@@ -14298,7 +14385,7 @@ ${cpoContext}`);
       console.warn(`[executor] pipe-pane start failed for jobId=${jobId}: ${String(err)}`);
     }
     if (process.env["ZAZIG_OPEN_SESSIONS"]) {
-      execFile2("bash", ["-c", `ghostty -e bash -c 'tmux attach -t ${sessionName}'`], (err) => {
+      execFile3("bash", ["-c", `ghostty -e bash -c 'tmux attach -t ${sessionName}'`], (err) => {
         if (err)
           console.warn(`[executor] Could not open Ghostty window: ${err.message}`);
       });
@@ -14404,6 +14491,31 @@ ${msg.text}`;
   getActiveJobIds() {
     return Array.from(this.activeJobs.keys());
   }
+  /** Returns tmux session targets for persistent agents and active jobs. */
+  getMasterRefreshTargets() {
+    const targets = /* @__PURE__ */ new Map();
+    for (const [, agent] of this.persistentAgents) {
+      targets.set(agent.tmuxSession, agent.startedAt);
+    }
+    for (const [, job] of this.activeJobs) {
+      targets.set(job.sessionName, job.startedAt);
+    }
+    return [...targets.entries()].map(([name, startedAt]) => ({ name, startedAt }));
+  }
+  /** Broadcasts a droppable notification to all selected active sessions. */
+  async broadcastMasterRefreshNotification(message, sessionNames) {
+    const targetSessions = this.getMasterRefreshTargets().filter((target) => !sessionNames || sessionNames.includes(target.name));
+    let delivered = 0;
+    for (const target of targetSessions) {
+      try {
+        await this.enqueueMessage(message, target.name, target.startedAt, "notification");
+        delivered++;
+      } catch (err) {
+        console.warn(`[git master refresh] Failed to notify session ${target.name}:`, err);
+      }
+    }
+    return delivered;
+  }
   /** Stops a single active job by ID using the standard stop flow. */
   async stopJob(jobId) {
     await this.handleStopJob({
@@ -14507,7 +14619,7 @@ ${msg.text}`;
         return;
       }
       const ownerRepo = match[1];
-      const { stdout } = await execFileAsync2("gh", [
+      const { stdout } = await execFileAsync3("gh", [
         "api",
         `repos/${ownerRepo}/actions/runs?branch=master&event=push&per_page=1`
       ], { encoding: "utf8" });
@@ -14632,7 +14744,7 @@ ${msg.text}`;
     }
     const ownerRepo = match[1];
     try {
-      const { stdout: jobsStdout } = await execFileAsync2("gh", ["api", `repos/${ownerRepo}/actions/runs/${runId}/jobs?per_page=100`], { encoding: "utf8" });
+      const { stdout: jobsStdout } = await execFileAsync3("gh", ["api", `repos/${ownerRepo}/actions/runs/${runId}/jobs?per_page=100`], { encoding: "utf8" });
       const jobsPayload = JSON.parse(jobsStdout);
       let stepName = "unknown step";
       for (const job of jobsPayload.jobs ?? []) {
@@ -14648,7 +14760,7 @@ ${msg.text}`;
       }
       let logOutput = "";
       try {
-        const { stdout: failedLogStdout } = await execFileAsync2("gh", ["run", "view", String(runId), "--repo", ownerRepo, "--log-failed"], { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+        const { stdout: failedLogStdout } = await execFileAsync3("gh", ["run", "view", String(runId), "--repo", ownerRepo, "--log-failed"], { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
         logOutput = failedLogStdout.trim();
       } catch (err) {
         console.warn(`[CI Monitor] Failed to fetch failed log output for run ${runId}: ${String(err)}`);
@@ -14727,7 +14839,7 @@ ${msg.text}`;
       return;
     for (const feature of features) {
       try {
-        const { stdout } = await execFileAsync2("gh", [
+        const { stdout } = await execFileAsync3("gh", [
           "pr",
           "view",
           feature.pr_url,
@@ -14944,7 +15056,7 @@ ${msg.text}`;
         workspaceDir,
         shellCmd
       ];
-      await execFileAsync2("tmux", tmuxArgs);
+      await execFileAsync3("tmux", tmuxArgs);
       console.log(`[executor] Spawned persistent ${role} session: ${sessionName} (cwd=${workspaceDir})`);
     } catch (err) {
       console.error(`[executor] Persistent agent: failed to spawn tmux session:`, err);
@@ -15055,7 +15167,7 @@ ${msg.text}`;
     }
     let humanAttached = false;
     try {
-      const { stdout } = await execFileAsync2("tmux", ["list-clients", "-t", agent.tmuxSession]);
+      const { stdout } = await execFileAsync3("tmux", ["list-clients", "-t", agent.tmuxSession]);
       humanAttached = stdout.trim().length > 0;
     } catch {
       humanAttached = false;
@@ -15081,14 +15193,14 @@ ${msg.text}`;
     }
     agent.resetInProgress = true;
     try {
-      await execFileAsync2("tmux", ["send-keys", "-t", agent.tmuxSession, "exit", "Enter"]);
+      await execFileAsync3("tmux", ["send-keys", "-t", agent.tmuxSession, "exit", "Enter"]);
       await sleep(5e3);
       try {
-        await execFileAsync2("tmux", ["has-session", "-t", agent.tmuxSession]);
-        await execFileAsync2("tmux", ["send-keys", "-t", agent.tmuxSession, "C-c"]);
+        await execFileAsync3("tmux", ["has-session", "-t", agent.tmuxSession]);
+        await execFileAsync3("tmux", ["send-keys", "-t", agent.tmuxSession, "C-c"]);
         await sleep(3e3);
         try {
-          await execFileAsync2("tmux", ["kill-session", "-t", agent.tmuxSession]);
+          await execFileAsync3("tmux", ["kill-session", "-t", agent.tmuxSession]);
         } catch {
         }
       } catch {
@@ -15412,7 +15524,7 @@ ${msg.text}`;
         console.log(`[codex] All ${job.maxAttempts} attempts exhausted \u2014 reverting to starting commit`);
         console.log(`[codex] Failure reasons: ${job.fixReasons.map((r, i) => `[${i + 1}] ${r}`).join(" | ")}`);
         try {
-          await execFileAsync2("git", ["reset", "--hard", job.startingCommit], { cwd: job.worktreePath });
+          await execFileAsync3("git", ["reset", "--hard", job.startingCommit], { cwd: job.worktreePath });
           jobLog(jobId, `Reverted to startingCommit ${job.startingCommit} after ${job.attempt} failed attempts.`);
         } catch (revertErr) {
           jobLog(jobId, `Final revert failed (non-fatal): ${String(revertErr)}`);
@@ -15615,7 +15727,7 @@ ${msg.text}`;
       if (job.cardType === "combine" && job.repoUrl && job.featureBranch) {
         let featureBranchCommitCount = 1;
         try {
-          const { stdout: countOut } = await execFileAsync2("git", ["rev-list", "--count", `master..${job.featureBranch}`], { cwd: job.repoDir });
+          const { stdout: countOut } = await execFileAsync3("git", ["rev-list", "--count", `master..${job.featureBranch}`], { cwd: job.repoDir });
           featureBranchCommitCount = parseInt(countOut.trim(), 10) || 0;
         } catch (countErr) {
           jobLog(jobId, `Could not count commits on feature branch (non-fatal): ${String(countErr)}`);
@@ -15714,7 +15826,7 @@ ${msg.text}`;
       "This PR was automatically created by the zazig pipeline."
     ].join("\n");
     try {
-      const { stdout } = await execFileAsync2("gh", [
+      const { stdout } = await execFileAsync3("gh", [
         "pr",
         "create",
         "--repo",
@@ -15748,7 +15860,7 @@ ${msg.text}`;
       jobLog(jobId, `PR creation failed: ${String(prErr)} \u2014 checking for existing PR`);
       console.warn(`[executor] PR creation failed for jobId=${jobId}: ${String(prErr)}`);
       try {
-        const { stdout } = await execFileAsync2("gh", [
+        const { stdout } = await execFileAsync3("gh", [
           "pr",
           "list",
           "--repo",
@@ -15814,8 +15926,8 @@ ${msg.text}`;
       await sleep(wait);
     }
     const singleLine = message.replace(/\r?\n/g, " ");
-    await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "-l", singleLine]);
-    await execFileAsync2("tmux", ["send-keys", "-t", sessionName, "Enter"]);
+    await execFileAsync3("tmux", ["send-keys", "-t", sessionName, "-l", singleLine]);
+    await execFileAsync3("tmux", ["send-keys", "-t", sessionName, "Enter"]);
     console.log(`[executor] Injected message into session=${sessionName}`);
   }
   // ---------------------------------------------------------------------------
@@ -15945,24 +16057,24 @@ ${msg.text}`;
     for (const branch of conflictBranches) {
       jobLog(jobId, `Attempting merge + conflict resolution for branch: ${branch}`);
       try {
-        await execFileAsync2("git", ["-C", worktreePath, "merge", "--no-edit", branch], { encoding: "utf8" });
+        await execFileAsync3("git", ["-C", worktreePath, "merge", "--no-edit", branch], { encoding: "utf8" });
         jobLog(jobId, `Branch "${branch}" merged cleanly on retry`);
         continue;
       } catch {
         try {
-          const { stdout: status } = await execFileAsync2("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" });
+          const { stdout: status } = await execFileAsync3("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" });
           const hasConflicts = status.split("\n").some((line) => line.startsWith("UU ") || line.startsWith("AA ") || line.startsWith("DD "));
           if (!hasConflicts) {
             jobLog(jobId, `Merge of "${branch}" failed but no conflict markers found \u2014 aborting`);
             try {
-              await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
+              await execFileAsync3("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
             } catch {
             }
             return false;
           }
         } catch {
           try {
-            await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
+            await execFileAsync3("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
           } catch {
           }
           return false;
@@ -15970,7 +16082,7 @@ ${msg.text}`;
       }
       let conflictedFiles;
       try {
-        const { stdout } = await execFileAsync2("git", ["-C", worktreePath, "diff", "--name-only", "--diff-filter=U"], { encoding: "utf8" });
+        const { stdout } = await execFileAsync3("git", ["-C", worktreePath, "diff", "--name-only", "--diff-filter=U"], { encoding: "utf8" });
         conflictedFiles = stdout.trim();
       } catch {
         conflictedFiles = "(could not list conflicted files)";
@@ -16013,7 +16125,7 @@ ${conflictedFiles}
           `echo "[conflict-resolution] claude -p exited with code $RC at $(date -u +%Y-%m-%dT%H:%M:%SZ)"`,
           `sleep 5`
         ].join("; ");
-        await execFileAsync2("tmux", [
+        await execFileAsync3("tmux", [
           "new-session",
           "-d",
           "-s",
@@ -16037,20 +16149,20 @@ ${conflictedFiles}
 `);
           await killTmuxSession(resolveSession);
           try {
-            await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
+            await execFileAsync3("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
           } catch {
           }
           return false;
         }
         jobLog(jobId, `Conflict resolution session ended for "${branch}"`);
-        const { stdout: status } = await execFileAsync2("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" });
+        const { stdout: status } = await execFileAsync3("git", ["-C", worktreePath, "status", "--porcelain"], { encoding: "utf8" });
         const stillConflicted = status.split("\n").some((line) => line.startsWith("UU ") || line.startsWith("AA ") || line.startsWith("DD "));
         if (stillConflicted) {
           jobLog(jobId, `Conflict resolution agent did not resolve all conflicts for "${branch}"`);
           appendFileSync2(logPath2, `[conflict-resolution] Still has unresolved conflicts after agent ran for "${branch}"
 `);
           try {
-            await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
+            await execFileAsync3("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
           } catch {
           }
           return false;
@@ -16068,7 +16180,7 @@ ${conflictedFiles}
         } catch {
         }
         try {
-          await execFileAsync2("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
+          await execFileAsync3("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" });
         } catch {
         }
         return false;
@@ -16127,7 +16239,7 @@ async function runCodexReview(job, jobSpec, acceptanceCriteria) {
     startingCommit = job.startingCommit;
   } else {
     try {
-      const { stdout } = await execFileAsync2("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
+      const { stdout } = await execFileAsync3("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
       startingCommit = stdout.trim();
     } catch (err) {
       return { pass: false, reason: `git rev-parse failed: ${String(err)}`, committed: false };
@@ -16135,21 +16247,21 @@ async function runCodexReview(job, jobSpec, acceptanceCriteria) {
   }
   let committed = false;
   try {
-    await execFileAsync2("git", ["add", "--all"], { cwd: worktreePath });
-    await execFileAsync2("git", [
+    await execFileAsync3("git", ["add", "--all"], { cwd: worktreePath });
+    await execFileAsync3("git", [
       "reset",
       "HEAD",
       "--",
       ...overlayPaths
     ], { cwd: worktreePath }).catch(() => {
     });
-    await execFileAsync2("git", ["commit", "-m", `codex: ${job.jobId}`], { cwd: worktreePath });
+    await execFileAsync3("git", ["commit", "-m", `codex: ${job.jobId}`], { cwd: worktreePath });
     committed = true;
   } catch {
   }
   let currentCommit;
   try {
-    const { stdout } = await execFileAsync2("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
+    const { stdout } = await execFileAsync3("git", ["rev-parse", "HEAD"], { cwd: worktreePath });
     currentCommit = stdout.trim();
   } catch (err) {
     return { pass: false, reason: `git rev-parse failed: ${String(err)}`, committed, startingCommit };
@@ -16158,7 +16270,7 @@ async function runCodexReview(job, jobSpec, acceptanceCriteria) {
   if (!committed && !codexSelfCommitted) {
     let uncommittedDiff = "";
     try {
-      const { stdout } = await execFileAsync2("git", [
+      const { stdout } = await execFileAsync3("git", [
         "diff",
         "HEAD",
         "--",
@@ -16186,7 +16298,7 @@ async function runCodexReview(job, jobSpec, acceptanceCriteria) {
   }
   let diff;
   try {
-    const { stdout } = await execFileAsync2("git", ["diff", `${startingCommit}..HEAD`], { cwd: worktreePath });
+    const { stdout } = await execFileAsync3("git", ["diff", `${startingCommit}..HEAD`], { cwd: worktreePath });
     diff = stdout;
   } catch (err) {
     return {
@@ -16222,7 +16334,7 @@ async function runCodexReview(job, jobSpec, acceptanceCriteria) {
   let reviewOutput;
   try {
     const shellCmd = `cat ${shellEscape([reviewPromptPath])} | claude --model claude-haiku-4-5-20251001 -p`;
-    const { stdout } = await execFileAsync2("bash", ["-c", shellCmd], {
+    const { stdout } = await execFileAsync3("bash", ["-c", shellCmd], {
       cwd: worktreePath,
       maxBuffer: 1024 * 1024
     });
@@ -16335,23 +16447,23 @@ async function spawnTmuxSession(sessionName, cmd, args, cwd, promptFile) {
     shellCmd
     // the command the session runs
   ];
-  await execFileAsync2("tmux", tmuxArgs);
+  await execFileAsync3("tmux", tmuxArgs);
 }
 async function killTmuxSession(sessionName) {
   try {
-    await execFileAsync2("tmux", ["kill-session", "-t", sessionName]);
+    await execFileAsync3("tmux", ["kill-session", "-t", sessionName]);
     console.log(`[executor] Killed tmux session: ${sessionName}`);
   } catch (err) {
     console.warn(`[executor] Could not kill tmux session ${sessionName}:`, err);
   }
 }
 async function capturePane(sessionName) {
-  const { stdout } = await execFileAsync2("tmux", ["capture-pane", "-t", sessionName, "-p"]);
+  const { stdout } = await execFileAsync3("tmux", ["capture-pane", "-t", sessionName, "-p"]);
   return stdout;
 }
 async function isTmuxSessionAlive(sessionName) {
   try {
-    await execFileAsync2("tmux", ["has-session", "-t", sessionName]);
+    await execFileAsync3("tmux", ["has-session", "-t", sessionName]);
     return true;
   } catch {
     return false;
@@ -16364,7 +16476,7 @@ function jobLogPath(jobId) {
   return `${JOB_LOG_DIR}/${jobId}-pipe-pane.log`;
 }
 async function startPipePane(sessionName, logPath2) {
-  await execFileAsync2("tmux", [
+  await execFileAsync3("tmux", [
     "pipe-pane",
     "-t",
     sessionName,
@@ -16399,7 +16511,7 @@ function shellEscape(parts) {
 // ../local-agent/dist/connection.js
 var ZAZIG_HOME_DIR = process.env["ZAZIG_HOME"] ?? join5(homedir3(), ".zazigv2");
 var CREDENTIALS_PATH = join5(ZAZIG_HOME_DIR, "credentials.json");
-var execFileAsync3 = promisify3(execFile3);
+var execFileAsync4 = promisify4(execFile4);
 var sleep2 = (ms) => new Promise((resolve4) => setTimeout(resolve4, ms));
 var AgentConnection = class {
   /** Anon-key client used as DB fallback when no JWT/service role key is configured. */
@@ -16846,7 +16958,7 @@ var AgentConnection = class {
   async closeOutdatedInteractiveSessions() {
     let sessions = [];
     try {
-      const { stdout } = await execFileAsync3("tmux", ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
+      const { stdout } = await execFileAsync4("tmux", ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
       sessions = stdout.split("\n").map((line) => line.trim()).filter(Boolean);
     } catch (err) {
       console.warn(`[local-agent] Could not enumerate tmux sessions while outdated: ${String(err)}`);
@@ -16875,7 +16987,7 @@ var AgentConnection = class {
     });
     for (const sessionName of targets) {
       try {
-        await execFileAsync3("tmux", ["kill-session", "-t", sessionName], { encoding: "utf8" });
+        await execFileAsync4("tmux", ["kill-session", "-t", sessionName], { encoding: "utf8" });
         console.warn(`[local-agent] Closed interactive tmux session while outdated: ${sessionName}`);
       } catch (err) {
         console.warn(`[local-agent] Failed to close tmux session ${sessionName}: ${String(err)}`);
@@ -16888,10 +17000,10 @@ var AgentConnection = class {
 import { mkdirSync as mkdirSync4, readFileSync as readFileSync5, writeFileSync as writeFileSync4, existsSync as existsSync5, rmSync as rmSync4 } from "node:fs";
 import { join as join6, dirname as dirname3, resolve as resolve3 } from "node:path";
 import { homedir as homedir4 } from "node:os";
-import { execFile as execFile4 } from "node:child_process";
-import { promisify as promisify4 } from "node:util";
+import { execFile as execFile5 } from "node:child_process";
+import { promisify as promisify5 } from "node:util";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
-var execFileAsync4 = promisify4(execFile4);
+var execFileAsync5 = promisify5(execFile5);
 function shellEscape2(parts) {
   return parts.map((p) => `'${p.replace(/'/g, `'"'"'`)}'`).join(" ");
 }
@@ -16944,14 +17056,14 @@ function viewerSessionName(companyName) {
 }
 async function killTmuxSession2(sessionName) {
   try {
-    await execFileAsync4("tmux", ["kill-session", "-t", sessionName]);
+    await execFileAsync5("tmux", ["kill-session", "-t", sessionName]);
     console.log(`[expert] Killed stale tmux session: ${sessionName}`);
   } catch {
   }
 }
 async function isTmuxSessionAlive2(sessionName) {
   try {
-    await execFileAsync4("tmux", ["has-session", "-t", sessionName]);
+    await execFileAsync5("tmux", ["has-session", "-t", sessionName]);
     return true;
   } catch {
     return false;
@@ -17006,7 +17118,7 @@ var ExpertSessionManager = class {
         bareRepoDir = await this.repoManager.ensureRepo(msg.repo_url, projectName);
         const worktreeTarget = join6(workspaceDir, "repo");
         try {
-          await execFileAsync4("git", [
+          await execFileAsync5("git", [
             "-C",
             bareRepoDir,
             "worktree",
@@ -17017,10 +17129,10 @@ var ExpertSessionManager = class {
         } catch {
         }
         rmSync4(worktreeTarget, { recursive: true, force: true });
-        await execFileAsync4("git", ["-C", bareRepoDir, "worktree", "prune"]);
+        await execFileAsync5("git", ["-C", bareRepoDir, "worktree", "prune"]);
         const { defaultBranch, tempRef } = await this.repoManager.fetchForExpertSession(projectName, sessionId);
         resolvedDefaultBranch = defaultBranch;
-        await execFileAsync4("git", [
+        await execFileAsync5("git", [
           "-C",
           bareRepoDir,
           "worktree",
@@ -17031,10 +17143,10 @@ var ExpertSessionManager = class {
           tempRef
         ]);
         try {
-          await execFileAsync4("git", ["-C", bareRepoDir, "update-ref", "-d", tempRef]);
+          await execFileAsync5("git", ["-C", bareRepoDir, "update-ref", "-d", tempRef]);
         } catch {
         }
-        const { stdout } = await execFileAsync4("git", ["-C", worktreeTarget, "rev-parse", "HEAD"]);
+        const { stdout } = await execFileAsync5("git", ["-C", worktreeTarget, "rev-parse", "HEAD"]);
         startCommitHash = stdout.trim();
         repoDir = worktreeTarget;
         console.log(`[expert] Git worktree created at ${worktreeTarget} (branch: ${expertBranch}, base: ${defaultBranch})`);
@@ -17163,7 +17275,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
         ]);
         const shellCmd = `unset CLAUDECODE; cat ${shellEscape2([promptFilePath])} | ${claudeCmd}`;
         await killTmuxSession2(tmuxSessionName);
-        await execFileAsync4("tmux", [
+        await execFileAsync5("tmux", [
           "new-session",
           "-d",
           "-s",
@@ -17209,7 +17321,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
         msg.model
       ]);
       const shellCmd = `unset CLAUDECODE; ${claudeCmd}`;
-      await execFileAsync4("tmux", [
+      await execFileAsync5("tmux", [
         "new-session",
         "-d",
         "-s",
@@ -17278,7 +17390,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
       viewerSession = viewerSessionName(companyName);
     } else {
       try {
-        const { stdout } = await execFileAsync4("tmux", [
+        const { stdout } = await execFileAsync5("tmux", [
           "list-sessions",
           "-F",
           "#{session_name}"
@@ -17297,7 +17409,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
       return null;
     }
     try {
-      const { stdout: windowId } = await execFileAsync4("tmux", [
+      const { stdout: windowId } = await execFileAsync5("tmux", [
         "list-windows",
         "-t",
         tmuxSessionName,
@@ -17310,21 +17422,21 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
         return null;
       }
       const viewerWindowName = displayName.toUpperCase().replace(/\s+/g, "-");
-      await execFileAsync4("tmux", [
+      await execFileAsync5("tmux", [
         "link-window",
         "-s",
         expertWindowId,
         "-t",
         `${viewerSession}:`
       ]);
-      await execFileAsync4("tmux", [
+      await execFileAsync5("tmux", [
         "rename-window",
         "-t",
         expertWindowId,
         viewerWindowName
       ]);
       try {
-        await execFileAsync4("tmux", [
+        await execFileAsync5("tmux", [
           "select-window",
           "-t",
           `${viewerSession}:${viewerWindowName}`
@@ -17396,8 +17508,8 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
     if (!singleLine)
       return;
     try {
-      await execFileAsync4("tmux", ["send-keys", "-t", cpoSessionName, "-l", singleLine]);
-      await execFileAsync4("tmux", ["send-keys", "-t", cpoSessionName, "Enter"]);
+      await execFileAsync5("tmux", ["send-keys", "-t", cpoSessionName, "-l", singleLine]);
+      await execFileAsync5("tmux", ["send-keys", "-t", cpoSessionName, "Enter"]);
       console.log(`[expert] Injected expert summary into CPO session ${cpoSessionName}`);
     } catch (err) {
       console.warn(`[expert] Failed to inject summary into CPO session ${cpoSessionName}:`, err);
@@ -17410,7 +17522,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
       return;
     if (session.viewerWindowName) {
       try {
-        await execFileAsync4("tmux", [
+        await execFileAsync5("tmux", [
           "unlink-window",
           "-k",
           "-t",
@@ -17426,13 +17538,13 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
     ];
     for (const target of directTargets) {
       try {
-        await execFileAsync4("tmux", ["select-window", "-t", target]);
+        await execFileAsync5("tmux", ["select-window", "-t", target]);
         return;
       } catch {
       }
     }
     try {
-      const { stdout } = await execFileAsync4("tmux", [
+      const { stdout } = await execFileAsync5("tmux", [
         "list-windows",
         "-t",
         session.viewerSession,
@@ -17446,7 +17558,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
         console.warn(`[expert] Could not find CPO window in viewer session ${session.viewerSession}`);
         return;
       }
-      await execFileAsync4("tmux", ["select-window", "-t", `${session.viewerSession}:${cpoIndex}`]);
+      await execFileAsync5("tmux", ["select-window", "-t", `${session.viewerSession}:${cpoIndex}`]);
     } catch (err) {
       console.warn(`[expert] Failed to switch viewer ${session.viewerSession} back to CPO:`, err);
     }
@@ -17461,7 +17573,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
     if (!session.repoDir || !session.bareRepoDir || !expertBranch || !session.startCommit)
       return;
     try {
-      const { stdout: currentHead } = await execFileAsync4("git", [
+      const { stdout: currentHead } = await execFileAsync5("git", [
         "-C",
         session.repoDir,
         "rev-parse",
@@ -17473,7 +17585,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
       }
       console.log(`[expert] Session ${session.sessionId} has unpushed commits (${session.startCommit.slice(0, 8)}..${head2.slice(0, 8)}). Pushing to origin/${expertBranch}...`);
       try {
-        await execFileAsync4("git", [
+        await execFileAsync5("git", [
           "-C",
           session.repoDir,
           "push",
@@ -17483,10 +17595,10 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
         console.log(`[expert] Pushed unpushed commits to origin/${expertBranch}`);
         try {
           const defaultBranch = session.defaultBranch ?? "master";
-          await execFileAsync4("git", ["-C", session.repoDir, "checkout", defaultBranch]);
-          await execFileAsync4("git", ["-C", session.repoDir, "merge", expertBranch]);
-          await execFileAsync4("git", ["-C", session.repoDir, "push", "origin", defaultBranch]);
-          await execFileAsync4("git", ["-C", session.repoDir, "push", "origin", "--delete", expertBranch]);
+          await execFileAsync5("git", ["-C", session.repoDir, "checkout", defaultBranch]);
+          await execFileAsync5("git", ["-C", session.repoDir, "merge", expertBranch]);
+          await execFileAsync5("git", ["-C", session.repoDir, "push", "origin", defaultBranch]);
+          await execFileAsync5("git", ["-C", session.repoDir, "push", "origin", "--delete", expertBranch]);
           console.log(`[expert] Merged ${expertBranch} to ${defaultBranch}, pushed ${defaultBranch}, and deleted origin/${expertBranch}`);
         } catch (mergeErr) {
           console.warn(`[expert] Merge/push to master failed after pushing ${expertBranch}; leaving origin/${expertBranch} for manual resolution`, mergeErr);
@@ -17495,7 +17607,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
         const rescueBranch = `rescue/expert-${session.sessionId.slice(0, 8)}`;
         console.warn(`[expert] Push to origin/${expertBranch} failed \u2014 saving work to ${rescueBranch}`);
         try {
-          await execFileAsync4("git", [
+          await execFileAsync5("git", [
             "-C",
             session.repoDir,
             "push",
@@ -17516,7 +17628,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
       return;
     try {
       if (session.bareRepoDir) {
-        await execFileAsync4("git", [
+        await execFileAsync5("git", [
           "-C",
           session.bareRepoDir,
           "worktree",
@@ -17524,14 +17636,14 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
           "--force",
           session.repoDir
         ]);
-        await execFileAsync4("git", [
+        await execFileAsync5("git", [
           "-C",
           session.bareRepoDir,
           "worktree",
           "prune"
         ]);
       } else {
-        await execFileAsync4("git", ["worktree", "remove", "--force", session.repoDir]);
+        await execFileAsync5("git", ["worktree", "remove", "--force", session.repoDir]);
       }
       console.log(`[expert] Removed git worktree ${session.repoDir}`);
     } catch (err) {
@@ -17551,9 +17663,9 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
 };
 
 // ../local-agent/dist/fix-agent.js
-import { execFile as execFile5 } from "node:child_process";
-import { promisify as promisify5 } from "node:util";
-var execFileAsync5 = promisify5(execFile5);
+import { execFile as execFile6 } from "node:child_process";
+import { promisify as promisify6 } from "node:util";
+var execFileAsync6 = promisify6(execFile6);
 var FixAgentManager = class {
   activeAgents = /* @__PURE__ */ new Map();
   repoDir;
@@ -17586,7 +17698,7 @@ var FixAgentManager = class {
       `Thread: ${safeThread}`
     ].join(" ");
     const shellCmd = `unset CLAUDECODE; ${shellEscape3(["claude", "-p", prompt])}`;
-    await execFileAsync5("tmux", [
+    await execFileAsync6("tmux", [
       "new-session",
       "-d",
       "-s",
@@ -17611,7 +17723,7 @@ var FixAgentManager = class {
     if (!agent)
       return;
     try {
-      await execFileAsync5("tmux", ["kill-session", "-t", agent.sessionName]);
+      await execFileAsync6("tmux", ["kill-session", "-t", agent.sessionName]);
       console.log(`[fix-agent] Killed tmux session: ${agent.sessionName}`);
     } catch {
     }
@@ -17632,9 +17744,9 @@ function shellEscape3(parts) {
 }
 
 // ../local-agent/dist/verifier.js
-import { execFile as execFile6 } from "node:child_process";
-import { promisify as promisify6 } from "node:util";
-var execFileAsync6 = promisify6(execFile6);
+import { execFile as execFile7 } from "node:child_process";
+import { promisify as promisify7 } from "node:util";
+var execFileAsync7 = promisify7(execFile7);
 function getErrorOutput(error) {
   if (typeof error !== "object" || error === null) {
     return String(error);
@@ -17645,7 +17757,7 @@ function getErrorOutput(error) {
   return [message, stdout, stderr].filter((part) => part.trim().length > 0).join("\n");
 }
 var defaultRunCommand = async (file, args, options) => {
-  const { stdout, stderr } = await execFileAsync6(file, args, options);
+  const { stdout, stderr } = await execFileAsync7(file, args, options);
   return {
     stdout: typeof stdout === "string" ? stdout : String(stdout ?? ""),
     stderr: typeof stderr === "string" ? stderr : String(stderr ?? "")
@@ -17816,7 +17928,26 @@ process.on("uncaughtException", (err) => {
   console.error("[local-agent] Uncaught exception (process NOT exiting):", err);
 });
 var shuttingDown = false;
-var REPO_REFRESH_INTERVAL_MS = 5 * 60 * 1e3;
+var MASTER_CHANGE_POLL_INTERVAL_MS = 3e4;
+var ANTHROPIC_KEY_REFRESH_INTERVAL_MS = 4 * 60 * 1e3;
+var execFileAsync8 = promisify8(execFile8);
+function refreshAnthropicKeyFromKeychain() {
+  if (platform() !== "darwin")
+    return;
+  try {
+    const raw = execSync2('security find-generic-password -s "Claude Code-credentials" -w', { stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" });
+    const parsed = JSON.parse(raw);
+    const token = parsed?.claudeAiOauth?.accessToken;
+    if (typeof token === "string" && token.startsWith("sk-ant-")) {
+      const current = process.env["ANTHROPIC_API_KEY"];
+      if (token !== current) {
+        process.env["ANTHROPIC_API_KEY"] = token;
+        console.log("[local-agent] ANTHROPIC_API_KEY refreshed from Keychain");
+      }
+    }
+  } catch {
+  }
+}
 async function main() {
   console.log("[local-agent] Initializing...");
   const config = loadConfig();
@@ -17892,33 +18023,36 @@ async function main() {
     }
   });
   await conn.start();
+  refreshAnthropicKeyFromKeychain();
+  const anthropicKeyRefreshTimer = setInterval(refreshAnthropicKeyFromKeychain, ANTHROPIC_KEY_REFRESH_INTERVAL_MS);
   const companyId = process.env["ZAZIG_COMPANY_ID"];
   let rolePromptChannel = null;
-  let repoRefreshTimer = null;
+  let masterChangePollTimer = null;
   if (companyId) {
     await discoverAndSpawnPersistentAgents(config.supabase.url, config.supabase.anon_key, companyId, executor);
-    let refreshRunning = false;
-    repoRefreshTimer = setInterval(() => {
-      void (async () => {
-        if (refreshRunning)
-          return;
-        refreshRunning = true;
+    const pollers = executor.getCompanyProjects().filter((project) => Boolean(project.repo_url)).map((project) => new MasterChangePoller({
+      repoPath: project.repo_url,
+      execFileAsync: execFileAsync8,
+      fetchBareRepo: async () => {
         try {
-          const projects = executor.getCompanyProjects();
-          for (const project of projects) {
-            if (!project.repo_url)
-              continue;
-            try {
-              await executor.repoManager.refreshWorktree(project.name);
-            } catch (err) {
-              console.warn(`[daemon] repo refresh failed for ${project.name}:`, err);
-            }
-          }
-        } finally {
-          refreshRunning = false;
+          await executor.repoManager.refreshWorktree(project.name);
+        } catch (err) {
+          console.error("[git master refresh] Bare repo fetch failed:", err);
+          throw err;
         }
-      })();
-    }, REPO_REFRESH_INTERVAL_MS);
+      },
+      getActiveSessions: () => executor.getMasterRefreshTargets(),
+      broadcast: async (message, sessionNames) => {
+        const notified = await executor.broadcastMasterRefreshNotification(message, sessionNames);
+        console.log(`[git master refresh] Notified ${notified} active sessions`);
+        return notified;
+      }
+    }));
+    masterChangePollTimer = setInterval(() => {
+      for (const poller of pollers) {
+        void poller.poll();
+      }
+    }, MASTER_CHANGE_POLL_INTERVAL_MS);
     rolePromptChannel = subscribeToRolePromptHotReload(conn, config.name, config.supabase.url, config.supabase.anon_key, companyId, executor);
   }
   const shutdown = async (signal) => {
@@ -17936,9 +18070,10 @@ async function main() {
       }
       rolePromptChannel = null;
     }
-    if (repoRefreshTimer) {
-      clearInterval(repoRefreshTimer);
-      repoRefreshTimer = null;
+    clearInterval(anthropicKeyRefreshTimer);
+    if (masterChangePollTimer) {
+      clearInterval(masterChangePollTimer);
+      masterChangePollTimer = null;
     }
     const gracePeriodMs = parseInt(process.env["ZAZIG_GRACEFUL_SHUTDOWN_MS"] ?? "10000", 10);
     console.log(`[local-agent] SHUTDOWN: Grace period started (${gracePeriodMs}ms)`);

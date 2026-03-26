@@ -438,7 +438,7 @@ function __addDisposableResource(env, value, async) {
   return value;
 }
 function __disposeResources(env) {
-  function fail8(e) {
+  function fail13(e) {
     env.error = env.hasError ? new _SuppressedError(e, env.error, "An error was suppressed during disposal.") : e;
     env.hasError = true;
   }
@@ -450,12 +450,12 @@ function __disposeResources(env) {
         if (r.dispose) {
           var result = r.dispose.call(r.value);
           if (r.async) return s |= 2, Promise.resolve(result).then(next, function(e) {
-            fail8(e);
+            fail13(e);
             return next();
           });
         } else s |= 1;
       } catch (e) {
-        fail8(e);
+        fail13(e);
       }
     }
     if (s === 1) return env.hasError ? Promise.reject(env.error) : Promise.resolve();
@@ -14785,15 +14785,15 @@ async function status() {
     }
     const machineId = String(m.id ?? "");
     if (machineId) {
-      const jobs = await apiFetch(`${creds.supabaseUrl}/rest/v1/jobs?select=id,status,context,slot_type,job_type&machine_id=eq.${encodeURIComponent(machineId)}&status=in.(queued,dispatched,executing,reviewing)`, headers);
-      const claudeActive = jobs.filter((j) => j.slot_type === "claude_code").length;
-      const codexActive = jobs.filter((j) => j.slot_type === "codex").length;
+      const jobs2 = await apiFetch(`${creds.supabaseUrl}/rest/v1/jobs?select=id,status,context,slot_type,job_type&machine_id=eq.${encodeURIComponent(machineId)}&status=in.(queued,dispatched,executing,reviewing)`, headers);
+      const claudeActive = jobs2.filter((j) => j.slot_type === "claude_code").length;
+      const codexActive = jobs2.filter((j) => j.slot_type === "codex").length;
       const claudeSlots = Number(m.slots_claude_code ?? cfg.slots.claude_code);
       const codexSlots = Number(m.slots_codex ?? cfg.slots.codex);
       console.log(`  Claude slots:   ${claudeActive}/${claudeSlots}`);
       console.log(`  Codex slots:    ${codexActive}/${codexSlots}`);
-      console.log(`  Active jobs:    ${jobs.length}`);
-      for (const job of jobs) {
+      console.log(`  Active jobs:    ${jobs2.length}`);
+      for (const job of jobs2) {
         const ctx = typeof job.context === "string" ? job.context.replace(/\s+/g, " ").trim().slice(0, 55) : String(job.id ?? "").slice(0, 8);
         console.log(`    \u2022 [${job.status}] ${ctx}`);
       }
@@ -15756,6 +15756,149 @@ async function features(args2) {
   process.exit(0);
 }
 
+// dist/commands/jobs.js
+var UUID_V4ISH_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function parseFlag(args2, name) {
+  const eq = args2.find((arg) => arg.startsWith(`--${name}=`));
+  if (eq !== void 0) {
+    const value2 = eq.slice(`--${name}=`.length);
+    return {
+      provided: true,
+      value: value2.length > 0 ? value2 : void 0
+    };
+  }
+  const idx = args2.indexOf(`--${name}`);
+  if (idx === -1) {
+    return { provided: false };
+  }
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--")) {
+    return { provided: true, value: void 0 };
+  }
+  return { provided: true, value };
+}
+function parseNumericFlag3(args2, name) {
+  const parsed = parseFlag(args2, name);
+  if (!parsed.provided)
+    return { provided: false };
+  if (!parsed.value)
+    return { provided: true };
+  const value = Number.parseInt(parsed.value, 10);
+  if (!Number.isFinite(value))
+    return { provided: true };
+  return { provided: true, value };
+}
+function isUuid2(value) {
+  return UUID_V4ISH_REGEX.test(value);
+}
+function printHelp() {
+  process.stdout.write("Usage: zazig jobs --company <company-id> [options]\n\n");
+  process.stdout.write("Required:\n");
+  process.stdout.write("  --company <uuid>       Company UUID\n\n");
+  process.stdout.write("Options:\n");
+  process.stdout.write("  --id <uuid>            Fetch a single job by id\n");
+  process.stdout.write("  --feature-id <uuid>    Filter jobs by feature id\n");
+  process.stdout.write("  --status <value>       Filter jobs by status\n");
+  process.stdout.write("  --limit <number>       Max results per page (default: 20)\n");
+  process.stdout.write("  --offset <number>      Results offset (default: 0)\n");
+  process.stdout.write("  --help                 Show this help\n");
+}
+function fail(message) {
+  process.stderr.write(JSON.stringify({ error: message }));
+  process.exit(1);
+}
+async function jobs(args2) {
+  if (args2.includes("--help") || args2.includes("-h") || args2.includes("help")) {
+    printHelp();
+    process.exit(0);
+  }
+  const company = parseFlag(args2, "company");
+  const id = parseFlag(args2, "id");
+  const featureId = parseFlag(args2, "feature-id");
+  const status2 = parseFlag(args2, "status");
+  const limitFlag = parseNumericFlag3(args2, "limit");
+  const offsetFlag = parseNumericFlag3(args2, "offset");
+  if (!company.value) {
+    fail("Missing required flag: --company <uuid>");
+  }
+  if (!isUuid2(company.value)) {
+    fail("Invalid --company value: expected UUID");
+  }
+  if (id.provided && !id.value) {
+    fail("Invalid --id value: expected UUID");
+  }
+  if (id.value && !isUuid2(id.value)) {
+    fail("Invalid --id value: expected UUID");
+  }
+  if (featureId.provided && !featureId.value) {
+    fail("Invalid --feature-id value: expected UUID");
+  }
+  if (featureId.value && !isUuid2(featureId.value)) {
+    fail("Invalid --feature-id value: expected UUID");
+  }
+  if (status2.provided && status2.value === void 0) {
+    fail("Invalid --status value");
+  }
+  if (limitFlag.provided && limitFlag.value === void 0) {
+    fail("Invalid --limit value: expected number");
+  }
+  if (offsetFlag.provided && offsetFlag.value === void 0) {
+    fail("Invalid --offset value: expected number");
+  }
+  if (limitFlag.value !== void 0 && limitFlag.value < 0) {
+    fail("Invalid --limit value: expected non-negative number");
+  }
+  if (offsetFlag.value !== void 0 && offsetFlag.value < 0) {
+    fail("Invalid --offset value: expected non-negative number");
+  }
+  const limit = limitFlag.value ?? 20;
+  const offset = offsetFlag.value ?? 0;
+  const company_id = company.value;
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    fail("Not logged in. Run zazig login");
+  }
+  const config = (() => {
+    try {
+      return loadConfig();
+    } catch {
+      return void 0;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
+  const body = {
+    company_id,
+    ...id.value ? { id: id.value } : {},
+    ...featureId.value ? { feature_id: featureId.value } : {},
+    ...status2.value !== void 0 ? { status: status2.value } : {},
+    limit,
+    offset
+  };
+  const response = await fetch(`${supabaseUrl}/functions/v1/query-jobs`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${creds.accessToken}`,
+      apikey: DEFAULT_SUPABASE_ANON_KEY,
+      "Content-Type": "application/json",
+      "x-company-id": company_id
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "unknown error");
+    fail(`HTTP ${response.status}: ${errorBody}`);
+  }
+  const data = await response.json();
+  process.stdout.write(JSON.stringify(data));
+  const count = Array.isArray(data.jobs) ? data.jobs.length : 0;
+  const total = typeof data.total === "number" ? data.total : count;
+  process.stderr.write(`Showing ${offset + 1}-${offset + count} of ${total} (--limit ${limit} --offset ${offset})
+`);
+  process.exit(0);
+}
+
 // dist/commands/projects.js
 function parseCompanyFlag5(args2) {
   const idx = args2.indexOf("--company");
@@ -15766,7 +15909,7 @@ function parseCompanyFlag5(args2) {
     return void 0;
   return value;
 }
-function parseNumericFlag3(args2, name) {
+function parseNumericFlag4(args2, name) {
   const eqValue = args2.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
   if (eqValue !== void 0) {
     const parsed2 = Number.parseInt(eqValue, 10);
@@ -15788,8 +15931,8 @@ async function projects(args2) {
     process.exit(1);
   }
   const includeFeatures = args2.includes("--include-features");
-  const limit = parseNumericFlag3(args2, "limit") ?? 20;
-  const offset = parseNumericFlag3(args2, "offset") ?? 0;
+  const limit = parseNumericFlag4(args2, "limit") ?? 20;
+  const offset = parseNumericFlag4(args2, "offset") ?? 0;
   let creds;
   try {
     creds = await getValidCredentials();
@@ -16104,6 +16247,7 @@ async function standup(args2) {
 
 // dist/commands/create-feature.js
 var VALID_PRIORITY = /* @__PURE__ */ new Set(["low", "medium", "high"]);
+var UUID_V4ISH_REGEX2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function parseStringFlag3(args2, name) {
   const eq = args2.find((a) => a.startsWith(`--${name}=`));
   if (eq) {
@@ -16141,11 +16285,14 @@ function parseBooleanFlag(args2, name) {
     return false;
   return void 0;
 }
-function fail(error) {
+function fail2(error) {
   process.stderr.write(JSON.stringify({ error }));
   process.exit(1);
 }
-function printHelp() {
+function isUuid3(value) {
+  return UUID_V4ISH_REGEX2.test(value);
+}
+function printHelp2() {
   const help = `Usage: zazig create-feature --company <uuid> --title <string> --description <string> --spec <string> --acceptance-tests <string> --priority <low|medium|high> [options]
 
 Flags:
@@ -16156,6 +16303,7 @@ Flags:
   --acceptance-tests <string>   Gherkin acceptance criteria (required)
   --priority <low|medium|high>  Priority level (required)
   --project-id <uuid>           Project ID (optional)
+  --depends-on <uuid>           Parent feature ID dependency (optional)
   --human-checklist <string>    Human checklist items (optional)
   --fast-track <true|false>     Skip breakdown and fast-track the feature (optional)
 
@@ -16166,39 +16314,43 @@ Example:
 }
 async function createFeature(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
-    printHelp();
+    printHelp2();
   }
   const company_id = parseStringFlag3(args2, "company");
   if (!company_id)
-    fail("Missing required flag: --company <uuid>");
+    fail2("Missing required flag: --company <uuid>");
   const title = parseStringFlag3(args2, "title");
   const description = parseStringFlag3(args2, "description");
   const spec = parseStringFlag3(args2, "spec");
   const acceptance_tests = parseStringFlag3(args2, "acceptance-tests");
   const priority = parseStringFlag3(args2, "priority");
   const project_id = parseStringFlag3(args2, "project-id");
+  const depends_on = parseStringFlag3(args2, "depends-on");
   const human_checklist = parseStringFlag3(args2, "human-checklist");
   const fast_track = parseBooleanFlag(args2, "fast-track");
   if (!title)
-    fail("Missing required flag: --title");
+    fail2("Missing required flag: --title");
   if (!description)
-    fail("Missing required flag: --description");
+    fail2("Missing required flag: --description");
   if (!spec)
-    fail("Missing required flag: --spec");
+    fail2("Missing required flag: --spec");
   if (!acceptance_tests)
-    fail("Missing required flag: --acceptance-tests");
+    fail2("Missing required flag: --acceptance-tests");
   if (!priority)
-    fail("Missing required flag: --priority (low|medium|high)");
+    fail2("Missing required flag: --priority (low|medium|high)");
   if (!VALID_PRIORITY.has(priority))
-    fail("Invalid --priority. Expected one of: low, medium, high");
+    fail2("Invalid --priority. Expected one of: low, medium, high");
+  if (depends_on !== void 0 && !isUuid3(depends_on)) {
+    fail2("Invalid --depends-on. Expected UUID");
+  }
   if (args2.some((a) => a.startsWith("--fast-track")) && fast_track === void 0) {
-    fail("Invalid --fast-track. Expected boolean: true or false");
+    fail2("Invalid --fast-track. Expected boolean: true or false");
   }
   let creds;
   try {
     creds = await getValidCredentials();
   } catch {
-    fail("Not logged in. Run zazig login");
+    fail2("Not logged in. Run zazig login");
   }
   const config = (() => {
     try {
@@ -16216,6 +16368,7 @@ async function createFeature(args2) {
     acceptance_tests,
     priority,
     ...project_id !== void 0 ? { project_id } : {},
+    ...depends_on !== void 0 ? { depends_on } : {},
     ...human_checklist !== void 0 ? { human_checklist } : {},
     ...fast_track !== void 0 ? { fast_track } : {}
   };
@@ -16231,7 +16384,7 @@ async function createFeature(args2) {
   });
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "unknown error");
-    fail(`HTTP ${response.status}: ${errorBody}`);
+    fail2(`HTTP ${response.status}: ${errorBody}`);
   }
   const data = await response.json();
   process.stdout.write(JSON.stringify(data));
@@ -16278,11 +16431,11 @@ function parseBooleanFlag2(args2, name) {
     return false;
   return void 0;
 }
-function fail2(error) {
+function fail3(error) {
   process.stderr.write(JSON.stringify({ error }));
   process.exit(1);
 }
-function printHelp2() {
+function printHelp3() {
   const help = `Usage: zazig update-feature --company <uuid> --id <uuid> [fields to update]
 
 Flags:
@@ -16306,14 +16459,14 @@ Example:
 }
 async function updateFeature(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
-    printHelp2();
+    printHelp3();
   }
   const company_id = parseStringFlag4(args2, "company");
   if (!company_id)
-    fail2("Missing required flag: --company <uuid>");
+    fail3("Missing required flag: --company <uuid>");
   const feature_id = parseStringFlag4(args2, "id");
   if (!feature_id)
-    fail2("Missing required flag: --id");
+    fail3("Missing required flag: --id");
   const title = parseStringFlag4(args2, "title");
   const description = parseStringFlag4(args2, "description");
   const spec = parseStringFlag4(args2, "spec");
@@ -16323,13 +16476,13 @@ async function updateFeature(args2) {
   const status2 = parseStringFlag4(args2, "status");
   const fast_track = parseBooleanFlag2(args2, "fast-track");
   if (priority !== void 0 && !VALID_PRIORITY2.has(priority)) {
-    fail2("Invalid --priority. Expected one of: low, medium, high");
+    fail3("Invalid --priority. Expected one of: low, medium, high");
   }
   if (status2 !== void 0 && !VALID_STATUS.has(status2)) {
-    fail2("Invalid --status. Expected one of: breaking_down, complete, cancelled");
+    fail3("Invalid --status. Expected one of: breaking_down, complete, cancelled");
   }
   if (args2.some((a) => a.startsWith("--fast-track")) && fast_track === void 0) {
-    fail2("Invalid --fast-track. Expected boolean: true or false");
+    fail3("Invalid --fast-track. Expected boolean: true or false");
   }
   const updates = {
     ...title !== void 0 ? { title } : {},
@@ -16342,13 +16495,13 @@ async function updateFeature(args2) {
     ...fast_track !== void 0 ? { fast_track } : {}
   };
   if (Object.keys(updates).length === 0) {
-    fail2("No-op update: provide at least one mutable field to update");
+    fail3("No-op update: provide at least one mutable field to update");
   }
   let creds;
   try {
     creds = await getValidCredentials();
   } catch {
-    fail2("Not logged in. Run zazig login");
+    fail3("Not logged in. Run zazig login");
   }
   const config = (() => {
     try {
@@ -16375,7 +16528,7 @@ async function updateFeature(args2) {
   });
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "unknown error");
-    fail2(`HTTP ${response.status}: ${errorBody}`);
+    fail3(`HTTP ${response.status}: ${errorBody}`);
   }
   const data = await response.json();
   process.stdout.write(JSON.stringify(data));
@@ -16406,11 +16559,11 @@ function parseCommaSeparatedFlag(args2, name) {
     return void 0;
   return value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
 }
-function fail3(error) {
+function fail4(error) {
   process.stderr.write(JSON.stringify({ error }));
   process.exit(1);
 }
-function printHelp3() {
+function printHelp4() {
   const help = `Usage: zazig create-idea --company <uuid> --raw-text <string> --originator <string> [options]
 
 Flags:
@@ -16434,11 +16587,11 @@ Example:
 }
 async function createIdea(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
-    printHelp3();
+    printHelp4();
   }
   const company_id = parseStringFlag5(args2, "company");
   if (!company_id)
-    fail3("Missing required flag: --company <uuid>");
+    fail4("Missing required flag: --company <uuid>");
   const raw_text = parseStringFlag5(args2, "raw-text");
   const originator = parseStringFlag5(args2, "originator");
   const title = parseStringFlag5(args2, "title");
@@ -16451,23 +16604,23 @@ async function createIdea(args2) {
   const tags = parseCommaSeparatedFlag(args2, "tags");
   const project_id = parseStringFlag5(args2, "project-id");
   if (!raw_text)
-    fail3("Missing required flag: --raw-text");
+    fail4("Missing required flag: --raw-text");
   if (!originator)
-    fail3("Missing required flag: --originator");
+    fail4("Missing required flag: --originator");
   if (source !== void 0 && !VALID_SOURCE.has(source)) {
-    fail3("Invalid --source. Expected one of: terminal, slack, telegram, agent, web, api, monitoring");
+    fail4("Invalid --source. Expected one of: terminal, slack, telegram, agent, web, api, monitoring");
   }
   if (domain !== void 0 && !VALID_DOMAIN.has(domain)) {
-    fail3("Invalid --domain. Expected one of: product, engineering, marketing, cross-cutting, unknown");
+    fail4("Invalid --domain. Expected one of: product, engineering, marketing, cross-cutting, unknown");
   }
   if (priority !== void 0 && !VALID_PRIORITY3.has(priority)) {
-    fail3("Invalid --priority. Expected one of: low, medium, high, urgent");
+    fail4("Invalid --priority. Expected one of: low, medium, high, urgent");
   }
   let creds;
   try {
     creds = await getValidCredentials();
   } catch {
-    fail3("Not logged in. Run zazig login");
+    fail4("Not logged in. Run zazig login");
   }
   const config = (() => {
     try {
@@ -16503,7 +16656,7 @@ async function createIdea(args2) {
   });
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "unknown error");
-    fail3(`HTTP ${response.status}: ${errorBody}`);
+    fail4(`HTTP ${response.status}: ${errorBody}`);
   }
   const data = await response.json();
   process.stdout.write(JSON.stringify(data));
@@ -16546,11 +16699,11 @@ function parseCommaSeparatedFlag2(args2, name) {
     return void 0;
   return value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
 }
-function fail4(error) {
+function fail5(error) {
   process.stderr.write(JSON.stringify({ error }));
   process.exit(1);
 }
-function printHelp4() {
+function printHelp5() {
   const help = `Usage: zazig update-idea --company <uuid> --id <uuid> [fields to update]
 
 Flags:
@@ -16577,14 +16730,14 @@ Example:
 }
 async function updateIdea(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
-    printHelp4();
+    printHelp5();
   }
   const company_id = parseStringFlag6(args2, "company");
   if (!company_id)
-    fail4("Missing required flag: --company <uuid>");
+    fail5("Missing required flag: --company <uuid>");
   const idea_id = parseStringFlag6(args2, "id");
   if (!idea_id)
-    fail4("Missing required flag: --id");
+    fail5("Missing required flag: --id");
   const title = parseStringFlag6(args2, "title");
   const description = parseStringFlag6(args2, "description");
   const status2 = parseStringFlag6(args2, "status");
@@ -16597,16 +16750,16 @@ async function updateIdea(args2) {
   const project_id = parseStringFlag6(args2, "project-id");
   const raw_text = parseStringFlag6(args2, "raw-text");
   if (status2 !== void 0 && !VALID_STATUS2.has(status2)) {
-    fail4("Invalid --status. Expected one of: new, triaging, triaged, developing, specced, workshop, hardening, parked, rejected, done");
+    fail5("Invalid --status. Expected one of: new, triaging, triaged, developing, specced, workshop, hardening, parked, rejected, done");
   }
   if (priority !== void 0 && !VALID_PRIORITY4.has(priority)) {
-    fail4("Invalid --priority. Expected one of: low, medium, high, urgent");
+    fail5("Invalid --priority. Expected one of: low, medium, high, urgent");
   }
   if (triage_route !== void 0 && !VALID_TRIAGE_ROUTE.has(triage_route)) {
-    fail4("Invalid --triage-route. Expected one of: promote, develop, workshop, harden, park, reject, founder-review");
+    fail5("Invalid --triage-route. Expected one of: promote, develop, workshop, harden, park, reject, founder-review");
   }
   if (complexity !== void 0 && !VALID_COMPLEXITY.has(complexity)) {
-    fail4("Invalid --complexity. Expected one of: simple, medium, complex");
+    fail5("Invalid --complexity. Expected one of: simple, medium, complex");
   }
   const updates = {
     ...raw_text !== void 0 ? { raw_text } : {},
@@ -16622,13 +16775,13 @@ async function updateIdea(args2) {
     ...project_id !== void 0 ? { project_id } : {}
   };
   if (Object.keys(updates).length === 0) {
-    fail4("No-op update: provide at least one mutable field to update");
+    fail5("No-op update: provide at least one mutable field to update");
   }
   let creds;
   try {
     creds = await getValidCredentials();
   } catch {
-    fail4("Not logged in. Run zazig login");
+    fail5("Not logged in. Run zazig login");
   }
   const config = (() => {
     try {
@@ -16655,7 +16808,7 @@ async function updateIdea(args2) {
   });
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "unknown error");
-    fail4(`HTTP ${response.status}: ${errorBody}`);
+    fail5(`HTTP ${response.status}: ${errorBody}`);
   }
   const data = await response.json();
   process.stdout.write(JSON.stringify(data));
@@ -16678,11 +16831,11 @@ function parseStringFlag7(args2, name) {
     return void 0;
   return value;
 }
-function fail5(error) {
+function fail6(error) {
   process.stderr.write(JSON.stringify({ error }));
   process.exit(1);
 }
-function printHelp5() {
+function printHelp6() {
   const help = `Usage: zazig promote-idea --company <uuid> --id <uuid> --to <feature|job|research|capability> [options]
 
 Flags:
@@ -16699,30 +16852,30 @@ Example:
 }
 async function promoteIdea(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
-    printHelp5();
+    printHelp6();
   }
   const company_id = parseStringFlag7(args2, "company");
   if (!company_id)
-    fail5("Missing required flag: --company <uuid>");
+    fail6("Missing required flag: --company <uuid>");
   const idea_id = parseStringFlag7(args2, "id");
   if (!idea_id)
-    fail5("Missing required flag: --id");
+    fail6("Missing required flag: --id");
   const promote_to = parseStringFlag7(args2, "to");
   if (!promote_to)
-    fail5("Missing required flag: --to (feature|job|research|capability)");
+    fail6("Missing required flag: --to (feature|job|research|capability)");
   if (!VALID_TO.has(promote_to)) {
-    fail5("Invalid --to. Expected one of: feature, job, research, capability");
+    fail6("Invalid --to. Expected one of: feature, job, research, capability");
   }
   const project_id = parseStringFlag7(args2, "project-id");
   if ((promote_to === "feature" || promote_to === "job") && !project_id) {
-    fail5("--project-id is required when --to is feature or job");
+    fail6("--project-id is required when --to is feature or job");
   }
   const title = parseStringFlag7(args2, "title");
   let creds;
   try {
     creds = await getValidCredentials();
   } catch {
-    fail5("Not logged in. Run zazig login");
+    fail6("Not logged in. Run zazig login");
   }
   const config = (() => {
     try {
@@ -16751,7 +16904,7 @@ async function promoteIdea(args2) {
   });
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "unknown error");
-    fail5(`HTTP ${response.status}: ${errorBody}`);
+    fail6(`HTTP ${response.status}: ${errorBody}`);
   }
   const data = await response.json();
   process.stdout.write(JSON.stringify(data));
@@ -16779,29 +16932,29 @@ function parseCommaSeparatedFlag3(args2, name) {
     return void 0;
   return value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
 }
-function fail6(error) {
+function fail7(error) {
   process.stderr.write(JSON.stringify({ error }));
   process.exit(1);
 }
 async function createRule(args2) {
   const company_id = parseStringFlag8(args2, "company");
   if (!company_id)
-    fail6("Missing required flag: --company <uuid>");
+    fail7("Missing required flag: --company <uuid>");
   const project_id = parseStringFlag8(args2, "project-id");
   const rule_text = parseStringFlag8(args2, "rule");
   const applies_to = parseCommaSeparatedFlag3(args2, "applies-to");
   if (!project_id)
-    fail6("Missing required flag: --project-id");
+    fail7("Missing required flag: --project-id");
   if (!rule_text)
-    fail6("Missing required flag: --rule");
+    fail7("Missing required flag: --rule");
   if (!applies_to || applies_to.length === 0) {
-    fail6("Missing required flag: --applies-to (comma-separated, e.g. code,combine)");
+    fail7("Missing required flag: --applies-to (comma-separated, e.g. code,combine)");
   }
   let creds;
   try {
     creds = await getValidCredentials();
   } catch {
-    fail6("Not logged in. Run zazig login");
+    fail7("Not logged in. Run zazig login");
   }
   const config = (() => {
     try {
@@ -16829,15 +16982,14 @@ async function createRule(args2) {
   });
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "unknown error");
-    fail6(`HTTP ${response.status}: ${errorBody}`);
+    fail7(`HTTP ${response.status}: ${errorBody}`);
   }
   const data = await response.json();
   process.stdout.write(JSON.stringify(data));
   process.exit(0);
 }
 
-// dist/commands/batch-create-jobs.js
-import { readFileSync as readFileSync11 } from "node:fs";
+// dist/commands/create-project-rule.js
 function parseStringFlag9(args2, name) {
   const eq = args2.find((a) => a.startsWith(`--${name}=`));
   if (eq) {
@@ -16852,42 +17004,152 @@ function parseStringFlag9(args2, name) {
     return void 0;
   return value;
 }
-function fail7(error) {
+function parseCommaSeparatedFlag4(args2, name) {
+  const value = parseStringFlag9(args2, name);
+  if (value === void 0)
+    return void 0;
+  return value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
+}
+function fail8(error) {
+  if (typeof error === "string") {
+    process.stderr.write(JSON.stringify({ error }));
+  } else {
+    process.stderr.write(JSON.stringify(error));
+  }
+  process.exit(1);
+}
+function printHelp7() {
+  const help = `Usage: zazig create-project-rule --company <uuid> --project-id <uuid> --rule-text <string> --applies-to <string>
+
+Flags:
+  --company <uuid>       Company ID (required)
+  --project-id <uuid>    Project ID to add the rule to (required)
+  --rule-text <string>   Rule text (required)
+  --applies-to <string>  Comma-separated job types (required, e.g. "code,combine")
+  --help, -h             Show this help and exit
+
+Example:
+  zazig create-project-rule --company <uuid> --project-id <uuid> --rule-text "Always use TypeScript" --applies-to "code,combine"`;
+  console.log(help);
+  process.exit(0);
+}
+async function createProjectRule(args2) {
+  if (args2.includes("--help") || args2.includes("-h")) {
+    printHelp7();
+  }
+  const company_id = parseStringFlag9(args2, "company");
+  if (!company_id)
+    fail8("Missing required flag: --company <uuid>");
+  const project_id = parseStringFlag9(args2, "project-id");
+  const rule_text = parseStringFlag9(args2, "rule-text");
+  const applies_to = parseCommaSeparatedFlag4(args2, "applies-to");
+  if (!project_id)
+    fail8("Missing required flag: --project-id <uuid>");
+  if (!rule_text)
+    fail8("Missing required flag: --rule-text <string>");
+  if (!applies_to || applies_to.length === 0) {
+    fail8("Missing required flag: --applies-to <string> (comma-separated, e.g. code,combine)");
+  }
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    fail8("Not logged in. Run zazig login");
+  }
+  const config = (() => {
+    try {
+      return loadConfig();
+    } catch {
+      return void 0;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
+  const body = {
+    company_id,
+    project_id,
+    rule_text,
+    applies_to
+  };
+  const response = await fetch(`${supabaseUrl}/functions/v1/create-project-rule`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${creds.accessToken}`,
+      apikey: DEFAULT_SUPABASE_ANON_KEY,
+      "Content-Type": "application/json",
+      "x-company-id": company_id
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    let errorJson;
+    try {
+      errorJson = errorText ? JSON.parse(errorText) : { error: "unknown error" };
+    } catch {
+      errorJson = { error: errorText || "unknown error" };
+    }
+    fail8({
+      status: response.status,
+      ...errorJson && typeof errorJson === "object" ? errorJson : { error: String(errorJson) }
+    });
+  }
+  const data = await response.json();
+  process.stdout.write(JSON.stringify(data));
+  process.exit(0);
+}
+
+// dist/commands/batch-create-jobs.js
+import { readFileSync as readFileSync11 } from "node:fs";
+function parseStringFlag10(args2, name) {
+  const eq = args2.find((a) => a.startsWith(`--${name}=`));
+  if (eq) {
+    const value2 = eq.slice(`--${name}=`.length);
+    return value2.length > 0 ? value2 : void 0;
+  }
+  const idx = args2.indexOf(`--${name}`);
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  return value;
+}
+function fail9(error) {
   process.stderr.write(JSON.stringify({ "error": error }));
   process.exit(1);
 }
-function parseJobsPayload(jobs, jobsFile) {
-  if (jobs && jobsFile || !jobs && !jobsFile) {
-    fail7("Provide exactly one of --jobs <json> or --jobs-file <path>");
+function parseJobsPayload(jobs2, jobsFile) {
+  if (jobs2 && jobsFile || !jobs2 && !jobsFile) {
+    fail9("Provide exactly one of --jobs <json> or --jobs-file <path>");
   }
   let rawJobs = "";
-  if (jobs) {
-    rawJobs = jobs;
+  if (jobs2) {
+    rawJobs = jobs2;
   } else {
     if (!jobsFile)
-      fail7("Missing required flag: --jobs-file <path>");
+      fail9("Missing required flag: --jobs-file <path>");
     try {
       rawJobs = readFileSync11(jobsFile, "utf8");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      fail7(`Failed to read --jobs-file at ${jobsFile}: ${message}`);
+      fail9(`Failed to read --jobs-file at ${jobsFile}: ${message}`);
     }
   }
   let parsed;
   try {
     parsed = JSON.parse(rawJobs);
   } catch (error) {
-    const source = jobs ? "--jobs" : "--jobs-file";
+    const source = jobs2 ? "--jobs" : "--jobs-file";
     const message = error instanceof Error ? error.message : String(error);
-    fail7(`Invalid JSON for ${source}: ${message}`);
+    fail9(`Invalid JSON for ${source}: ${message}`);
   }
   if (!Array.isArray(parsed)) {
-    const source = jobs ? "--jobs" : "--jobs-file";
-    fail7(`Invalid payload for ${source}: expected a JSON array of job objects`);
+    const source = jobs2 ? "--jobs" : "--jobs-file";
+    fail9(`Invalid payload for ${source}: expected a JSON array of job objects`);
   }
   return parsed;
 }
-function printHelp6() {
+function printHelp8() {
   const help = `Usage: zazig batch-create-jobs --company <uuid> --feature-id <uuid> (--jobs <json> | --jobs-file <path>)
 
 Flags:
@@ -16917,22 +17179,22 @@ Example:
 }
 async function batchCreateJobs(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
-    printHelp6();
+    printHelp8();
   }
-  const company_id = parseStringFlag9(args2, "company");
+  const company_id = parseStringFlag10(args2, "company");
   if (!company_id)
-    fail7("Missing required flag: --company <uuid>");
-  const feature_id = parseStringFlag9(args2, "feature-id");
+    fail9("Missing required flag: --company <uuid>");
+  const feature_id = parseStringFlag10(args2, "feature-id");
   if (!feature_id)
-    fail7("Missing required flag: --feature-id <uuid>");
-  const jobsArg = parseStringFlag9(args2, "jobs");
-  const jobsFile = parseStringFlag9(args2, "jobs-file");
-  const jobs = parseJobsPayload(jobsArg, jobsFile);
+    fail9("Missing required flag: --feature-id <uuid>");
+  const jobsArg = parseStringFlag10(args2, "jobs");
+  const jobsFile = parseStringFlag10(args2, "jobs-file");
+  const jobs2 = parseJobsPayload(jobsArg, jobsFile);
   let creds;
   try {
     creds = await getValidCredentials();
   } catch {
-    fail7("Not logged in. Run zazig login");
+    fail9("Not logged in. Run zazig login");
   }
   const config = (() => {
     try {
@@ -16952,14 +17214,313 @@ async function batchCreateJobs(args2) {
     },
     body: JSON.stringify({
       feature_id,
-      jobs
+      jobs: jobs2
     })
   });
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "unknown error");
-    fail7(`HTTP ${response.status}: ${errorBody}`);
+    fail9(`HTTP ${response.status}: ${errorBody}`);
   }
   const data = await response.json();
+  process.stdout.write(JSON.stringify(data));
+  process.exit(0);
+}
+
+// dist/commands/send-message-to-human.js
+function parseStringFlag11(args2, name) {
+  const eq = args2.find((a) => a.startsWith(`--${name}=`));
+  if (eq) {
+    const value2 = eq.slice(`--${name}=`.length);
+    return value2.length > 0 ? value2 : void 0;
+  }
+  const idx = args2.indexOf(`--${name}`);
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  return value;
+}
+function fail10(error) {
+  process.stderr.write(`${error}
+`);
+  process.exit(1);
+}
+function printHelp9() {
+  const help = `Usage: zazig send-message-to-human --company <uuid> --text <string> [options]
+
+Flags:
+  --company <uuid>            Company ID (required)
+  --text <string>             Message text (required)
+  --conversation-id <string>  Conversation identifier (optional; defaults to company default Slack channel)
+  --job-id <string>           Job ID for threading context (optional; overrides ZAZIG_JOB_ID)
+  --help                      Show this help message
+
+Example:
+  zazig send-message-to-human --company <uuid> --text "Need QA signoff" --job-id <job-id>`;
+  console.log(help);
+  process.exit(0);
+}
+async function sendMessageToHuman(args2) {
+  if (args2.includes("--help") || args2.includes("-h")) {
+    printHelp9();
+  }
+  const companyId = parseStringFlag11(args2, "company");
+  const text = parseStringFlag11(args2, "text");
+  const conversationId = parseStringFlag11(args2, "conversation-id");
+  const jobId = parseStringFlag11(args2, "job-id") ?? process.env["ZAZIG_JOB_ID"];
+  if (!companyId)
+    fail10("Usage: zazig send-message-to-human --company <company-id> --text <message>");
+  if (!text)
+    fail10("Missing required flag: --text <string>");
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    fail10("Not logged in. Run zazig login");
+  }
+  const config = (() => {
+    try {
+      return loadConfig();
+    } catch {
+      return void 0;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
+  const body = {
+    text,
+    ...conversationId !== void 0 ? { conversationId } : {},
+    ...jobId !== void 0 ? { jobId } : {}
+  };
+  let response;
+  try {
+    response = await fetch(`${supabaseUrl}/functions/v1/agent-message`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        apikey: DEFAULT_SUPABASE_ANON_KEY,
+        "Content-Type": "application/json",
+        "x-company-id": companyId
+      },
+      body: JSON.stringify(body)
+    });
+  } catch (error) {
+    fail10(`Network error: ${String(error)}`);
+  }
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "unknown error");
+    fail10(`HTTP ${response.status}: ${errorBody}`);
+  }
+  process.stdout.write("Message sent successfully.\n");
+  process.exit(0);
+}
+
+// dist/commands/start-expert-session.js
+function parseStringFlag12(args2, name) {
+  const eq = args2.find((a) => a.startsWith(`--${name}=`));
+  if (eq) {
+    const value2 = eq.slice(`--${name}=`.length);
+    return value2.length > 0 ? value2 : void 0;
+  }
+  const idx = args2.indexOf(`--${name}`);
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  return value;
+}
+function parseBooleanFlag3(args2, name) {
+  const eq = args2.find((a) => a.startsWith(`--${name}=`));
+  if (eq) {
+    const value2 = eq.slice(`--${name}=`.length).trim().toLowerCase();
+    if (value2 === "" || value2 === "true")
+      return true;
+    if (value2 === "false")
+      return false;
+    return void 0;
+  }
+  const idx = args2.indexOf(`--${name}`);
+  if (idx === -1)
+    return false;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return true;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true")
+    return true;
+  if (normalized === "false")
+    return false;
+  return void 0;
+}
+function fail11(error, details) {
+  process.stderr.write(JSON.stringify(details ? { error, details } : { error }));
+  process.exit(1);
+}
+function printHelp10() {
+  const help = `Usage: zazig start-expert-session --company <uuid> --role-name <string> --brief <string> --project-id <uuid> [options]
+
+Flags:
+  --company <uuid>         Company ID (required)
+  --role-name <string>     Role to start (required)
+  --brief <string>         Session brief (required)
+  --machine-name <string>  Machine name (default: auto)
+  --project-id <uuid>      Project ID to scope the session (required)
+  --headless               Run headless (optional, presence = true)
+  --batch-id <string>      Batch ID to associate session with (optional)
+
+Example:
+  zazig start-expert-session --company <uuid> --role-name test-deployment-expert --brief "Run deployment checks" --project-id <uuid> --headless`;
+  console.log(help);
+  process.exit(0);
+}
+async function startExpertSession(args2) {
+  if (args2.includes("--help") || args2.includes("-h")) {
+    printHelp10();
+  }
+  const company_id = parseStringFlag12(args2, "company");
+  if (!company_id)
+    fail11("Missing required flag: --company <uuid>");
+  const role_name = parseStringFlag12(args2, "role-name");
+  const brief = parseStringFlag12(args2, "brief");
+  const machine_name = parseStringFlag12(args2, "machine-name") ?? "auto";
+  const project_id = parseStringFlag12(args2, "project-id");
+  const headless = parseBooleanFlag3(args2, "headless");
+  const batch_id = parseStringFlag12(args2, "batch-id");
+  if (!role_name)
+    fail11("Missing required flag: --role-name");
+  if (!brief)
+    fail11("Missing required flag: --brief");
+  if (!project_id)
+    fail11("Missing required flag: --project-id");
+  if (args2.some((a) => a.startsWith("--headless")) && headless === void 0) {
+    fail11("Invalid --headless. Use --headless, --headless=true, or --headless=false");
+  }
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    fail11("Not logged in. Run zazig login");
+  }
+  const config = (() => {
+    try {
+      return loadConfig();
+    } catch {
+      return void 0;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
+  const body = {
+    company_id,
+    role_name,
+    brief,
+    machine_name,
+    project_id,
+    headless,
+    ...batch_id !== void 0 ? { batch_id } : {}
+  };
+  const response = await fetch(`${supabaseUrl}/functions/v1/start-expert-session`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${creds.accessToken}`,
+      apikey: DEFAULT_SUPABASE_ANON_KEY,
+      "Content-Type": "application/json",
+      "x-company-id": company_id
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "unknown error");
+    fail11(`HTTP ${response.status}`, errorBody);
+  }
+  const data = await response.json();
+  process.stdout.write(JSON.stringify(data));
+  process.exit(0);
+}
+
+// dist/commands/verify-staging.js
+function parseStringFlag13(args2, name) {
+  const eq = args2.find((a) => a.startsWith(`--${name}=`));
+  if (eq) {
+    const value2 = eq.slice(`--${name}=`.length);
+    return value2.length > 0 ? value2 : void 0;
+  }
+  const idx = args2.indexOf(`--${name}`);
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  return value;
+}
+function hasFlag(args2, name) {
+  return args2.includes(`--${name}`) || args2.some((a) => a.startsWith(`--${name}=`));
+}
+function fail12(error) {
+  process.stderr.write(JSON.stringify({ error }));
+  process.exit(1);
+}
+function printHelp11() {
+  const help = `Usage: zazig verify-staging --company <uuid> --id <feature-uuid> --by <name>
+       zazig verify-staging --company <uuid> --id <feature-uuid> --clear
+
+Flags:
+  --company <uuid>      Company ID (required)
+  --id <uuid>           Feature ID (required)
+  --by <name>           Verifier name (required unless --clear)
+  --clear               Clear staging verification fields
+  --help, -h            Show this help and exit
+
+Examples:
+  zazig verify-staging --company <uuid> --id <feature-uuid> --by chris
+  zazig verify-staging --company <uuid> --id <feature-uuid> --clear`;
+  console.log(help);
+  process.exit(0);
+}
+async function verifyStaging(args2) {
+  if (args2.includes("--help") || args2.includes("-h")) {
+    printHelp11();
+  }
+  const company_id = parseStringFlag13(args2, "company");
+  if (!company_id)
+    fail12("Missing required flag: --company <uuid>");
+  const feature_id = parseStringFlag13(args2, "id");
+  if (!feature_id)
+    fail12("Missing required flag: --id <feature-uuid>");
+  const clear = hasFlag(args2, "clear");
+  const by = parseStringFlag13(args2, "by")?.trim();
+  if (clear && by) {
+    fail12("Invalid flags: --clear cannot be used with --by");
+  }
+  if (!clear && !by) {
+    fail12("Missing required flag: --by <name> (or use --clear)");
+  }
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    fail12("Not logged in. Run zazig login");
+  }
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const supabase = createClient(creds.supabaseUrl, anonKey);
+  const { error: sessionError } = await supabase.auth.setSession({
+    access_token: creds.accessToken,
+    refresh_token: creds.refreshToken
+  });
+  if (sessionError) {
+    fail12(`Authentication failed: ${sessionError.message}`);
+  }
+  const updates = clear ? {
+    staging_verified_by: null,
+    staging_verified_at: null
+  } : {
+    staging_verified_by: by,
+    staging_verified_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  const { data, error } = await supabase.from("features").update(updates).eq("company_id", company_id).eq("id", feature_id).select("id, staging_verified_by, staging_verified_at").single();
+  if (error) {
+    fail12(error.message);
+  }
   process.stdout.write(JSON.stringify(data));
   process.exit(0);
 }
@@ -17019,6 +17580,9 @@ switch (cmd) {
   case "features":
     await features(args);
     break;
+  case "jobs":
+    await jobs(args);
+    break;
   case "projects":
     await projects(args);
     break;
@@ -17040,8 +17604,19 @@ switch (cmd) {
   case "create-rule":
     await createRule(args);
     break;
+  case "create-project-rule":
+    await createProjectRule(args);
+    break;
   case "batch-create-jobs":
     await batchCreateJobs(args);
+    break;
+  case "send-message-to-human":
+    await sendMessageToHuman(args);
+  case "start-expert-session":
+    await startExpertSession(args);
+    break;
+  case "verify-staging":
+    await verifyStaging(args);
     break;
   case void 0:
   case "--help":
@@ -17068,6 +17643,7 @@ switch (cmd) {
     console.log("  standup --company <company-id>   Print standup summary (or JSON with --json)");
     console.log("  ideas --company <company-id>     Query ideas (supports filter flags)");
     console.log("  features --company <company-id>  Query features (project/status/id filters)");
+    console.log("  jobs --company <company-id>      Query jobs (id/feature-id/status filters)");
     console.log("  projects --company <company-id>  List projects (optional --include-features)");
     console.log("  create-feature --company <company-id>  Create a feature");
     console.log("  update-feature --company <company-id>  Update a feature");
@@ -17075,7 +17651,11 @@ switch (cmd) {
     console.log("  update-idea --company <company-id>     Update an idea");
     console.log("  promote-idea --company <company-id>    Promote an idea");
     console.log("  create-rule --company <company-id>     Create a project rule");
+    console.log("  create-project-rule --company <company-id>  Create a project rule");
     console.log("  batch-create-jobs --company <id> --feature-id <id>  Create jobs for a feature");
+    console.log("  send-message-to-human --company <id> --text <msg>   Send a message to a human");
+    console.log("  start-expert-session --company <company-id>          Start an expert session");
+    console.log("  verify-staging --company <id> --id <feature-id>      Set or clear staging verification");
     break;
   default:
     console.error(`Unknown command: ${cmd}`);

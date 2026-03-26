@@ -506,12 +506,14 @@ export interface CompletedFeature {
   status: string;
   promoted_version: string | null;
   updated_at: string | null;
+  staging_verified_by: string | null;
+  staging_verified_at: string | null;
 }
 
 export async function fetchCompletedFeatures(companyId: string): Promise<CompletedFeature[]> {
   const { data, error } = await supabase
     .from("features")
-    .select("id, title, status, promoted_version, updated_at")
+    .select("id, title, status, promoted_version, updated_at, staging_verified_by, staging_verified_at")
     .eq("company_id", companyId)
     .eq("status", "complete")
     .order("updated_at", { ascending: false })
@@ -599,6 +601,9 @@ export interface FeatureDetail {
   created_at: string;
   updated_at: string | null;
   completed_at: string | null;
+  promoted_version: string | null;
+  staging_verified_by: string | null;
+  staging_verified_at: string | null;
   jobs: FeatureDetailJob[];
   sourceIdea: { title: string; raw_text: string; promoted_at: string | null } | null;
 }
@@ -665,7 +670,7 @@ export interface IdeaDetail {
 export async function fetchFeatureDetail(featureId: string): Promise<FeatureDetail> {
   const { data: feature, error: featureError } = await supabase
     .from("features")
-    .select("id, title, status, priority, description, error, spec, acceptance_tests, branch, pr_url, created_by, verification_type, created_at, updated_at, completed_at, source_idea_id")
+    .select("id, title, status, priority, description, error, spec, acceptance_tests, branch, pr_url, created_by, verification_type, created_at, updated_at, completed_at, promoted_version, staging_verified_by, staging_verified_at, source_idea_id")
     .eq("id", featureId)
     .single();
 
@@ -708,6 +713,9 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
     created_at: f.created_at as string,
     updated_at: (f.updated_at as string | null) ?? null,
     completed_at: (f.completed_at as string | null) ?? null,
+    promoted_version: (f.promoted_version as string | null) ?? null,
+    staging_verified_by: (f.staging_verified_by as string | null) ?? null,
+    staging_verified_at: (f.staging_verified_at as string | null) ?? null,
     jobs: ((jobs ?? []) as FeatureDetailJob[]).map((j) => ({
       id: j.id,
       title: j.title ?? "Job",

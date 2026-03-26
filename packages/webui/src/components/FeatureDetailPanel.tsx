@@ -7,6 +7,7 @@ import {
   type ErrorAnalysis,
   type FeatureDetail,
 } from "../lib/queries";
+import { supabase } from "../lib/supabase";
 import { useCompany } from "../hooks/useCompany";
 import FormattedProse from "./FormattedProse";
 import JobDetailExpand from "./JobDetailExpand";
@@ -173,6 +174,15 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
     return "";
   }
 
+  async function reloadFeature(): Promise<void> {
+    try {
+      const result = await fetchFeatureDetail(featureId);
+      setData(result);
+    } catch {
+      // ignore reload errors
+    }
+  }
+
   return (
     <>
       <div className="detail-backdrop" onClick={onClose} />
@@ -204,6 +214,25 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
                   {data.completed_at ? <tr><td className="detail-meta-key">Completed</td><td className="detail-meta-val">{formatDate(data.completed_at)}</td></tr> : null}
                 </tbody>
               </table>
+
+              {data.staging_verified_by ? (
+                <div className="detail-section">
+                  <div className="detail-badge--positive detail-staging-verified">
+                    Verified by {data.staging_verified_by}
+                    <button type="button" className="detail-unverify-btn" onClick={async () => { await supabase.from("features").update({ staging_verified_by: null, staging_verified_at: null }).eq("id", data.id); await reloadFeature(); }}>×</button>
+                  </div>
+                </div>
+              ) : null}
+              {data.status === "complete" && !data.promoted_version && !data.staging_verified_by ? (
+                <div className="detail-section">
+                  <button type="button" className="promote-btn" onClick={async () => {
+                    const name = prompt("Enter your name to mark as verified on staging:");
+                    if (!name?.trim()) return;
+                    await supabase.from("features").update({ staging_verified_by: name.trim(), staging_verified_at: new Date().toISOString() }).eq("id", data.id);
+                    await reloadFeature();
+                  }}>Mark verified on staging</button>
+                </div>
+              ) : null}
 
               {data.sourceIdea ? (
                 <div className="detail-section">

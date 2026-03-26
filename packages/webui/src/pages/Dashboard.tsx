@@ -636,6 +636,9 @@ export default function Dashboard(): JSX.Element {
                 .map((feature) => (
                   <article className="feature-card" key={feature.id}>
                     <div className="feature-title">{feature.title}</div>
+                    {feature.staging_verified_by ? (
+                      <span className="badge badge--positive">✓ Verified by {feature.staging_verified_by}</span>
+                    ) : null}
                   </article>
                 ))
             )}

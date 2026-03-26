@@ -293,11 +293,20 @@ describe('AC8: Migration removes query_jobs from all roles mcp_tools', () => {
     ).toBeTruthy();
   });
 
-  it('no migration re-adds query_jobs to any role', () => {
-    const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
+  it('no migration after the removal migration re-adds query_jobs to any role', () => {
+    const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
 
-    // Find all migrations that add query_jobs to mcp_tools (array_append / SET with it)
-    const reAddingFiles = files.filter((f) => {
+    // Find the removal migration so we only check migrations that come after it
+    const removalIndex = files.findIndex((f) => {
+      const content = fs.readFileSync(path.join(MIGRATIONS_DIR, f), 'utf-8');
+      return content.match(/array_remove.*query_jobs/i) || content.match(/remove.*query_jobs/i);
+    });
+
+    expect(removalIndex, 'No removal migration found').toBeGreaterThanOrEqual(0);
+
+    // Only check migrations after the removal migration
+    const laterFiles = files.slice(removalIndex + 1);
+    const reAddingFiles = laterFiles.filter((f) => {
       const content = fs.readFileSync(path.join(MIGRATIONS_DIR, f), 'utf-8');
       return (
         content.match(/array_append.*query_jobs/i) ||
@@ -307,16 +316,16 @@ describe('AC8: Migration removes query_jobs from all roles mcp_tools', () => {
 
     expect(
       reAddingFiles,
-      `Found migration(s) that re-add query_jobs: ${reAddingFiles.join(', ')}`,
+      `Found migration(s) after removal that re-add query_jobs: ${reAddingFiles.join(', ')}`,
     ).toHaveLength(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC9: zazig jobs is documented in the universal prompt layer
+// AC9: universal prompt layer updated (zazig jobs / --feature-id removed)
 // ---------------------------------------------------------------------------
 
-describe('AC9: zazig jobs is documented in the universal prompt layer', () => {
+describe('AC9: universal prompt layer updated after zazig jobs removal', () => {
   const PROMPT_LAYER_FILE = 'supabase/functions/_shared/prompt-layers.ts';
   let content: string | null;
 
@@ -328,8 +337,8 @@ describe('AC9: zazig jobs is documented in the universal prompt layer', () => {
     expect(content, `${PROMPT_LAYER_FILE} not found`).not.toBeNull();
   });
 
-  it('mentions "zazig jobs" command in UNIVERSAL_PROMPT_LAYER', () => {
-    expect(content).toMatch(/zazig jobs/);
+  it('no longer mentions "zazig jobs" command in UNIVERSAL_PROMPT_LAYER (removed)', () => {
+    expect(content).not.toMatch(/zazig jobs/);
   });
 
   it('documents --limit flag for zazig jobs', () => {
@@ -340,8 +349,8 @@ describe('AC9: zazig jobs is documented in the universal prompt layer', () => {
     expect(content).toMatch(/--offset/);
   });
 
-  it('documents --feature-id flag for zazig jobs', () => {
-    expect(content).toMatch(/--feature-id/);
+  it('no longer documents --feature-id flag (removed from prompt layer)', () => {
+    expect(content).not.toMatch(/--feature-id/);
   });
 
   it('documents --status flag for zazig jobs', () => {

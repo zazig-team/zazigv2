@@ -178,4 +178,4 @@ The CPO does not auto-promote. Explicit human approval is required before creati
 | query_features | Check for overlapping features | Stage 2a |
 | query_ideas | Check parked/rejected ideas for prior attempts | Stage 2a |
 | execute_sql | Search capabilities table for overlap | Stage 2a |
-| zazig send-message-to-human --company $ZAZIG_COMPANY_ID --text "..." [--conversation-id "..."] | Notify user of completion / near-duplicate alerts | Stage 2a, Stage 6 |
+| zazig send-message-to-human --company $ZAZIG_COMPANY_ID --text "<message>" [--conversation-id <id>] [--job-id <id>] | Notify user of completion / near-duplicate alerts | Stage 2a, Stage 6 |

@@ -38,6 +38,7 @@ import { promoteIdea } from "./commands/promote-idea.js";
 import { createRule } from "./commands/create-rule.js";
 import { createProjectRule } from "./commands/create-project-rule.js";
 import { batchCreateJobs } from "./commands/batch-create-jobs.js";
+import { startExpertSession } from "./commands/start-expert-session.js";
 import { getVersion } from "./lib/version.js";
 
 const [, , cmd, ...args] = process.argv;
@@ -148,6 +149,10 @@ switch (cmd) {
     await batchCreateJobs(args);
     break;
 
+  case "start-expert-session":
+    await startExpertSession(args);
+    break;
+
   case undefined:
   case "--help":
   case "-h":
@@ -182,6 +187,7 @@ switch (cmd) {
     console.log("  create-rule --company <company-id>     Create a project rule");
     console.log("  create-project-rule --company <company-id>  Create a project rule");
     console.log("  batch-create-jobs --company <id> --feature-id <id>  Create jobs for a feature");
+    console.log("  start-expert-session --company <company-id>          Start an expert session");
     break;
 
   default:

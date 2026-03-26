@@ -197,7 +197,7 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
                 <tbody>
                   <tr><td className="detail-meta-key">ID</td><td className="detail-meta-val">{data.id}</td></tr>
                   {data.priority ? <tr><td className="detail-meta-key">Priority</td><td className="detail-meta-val">{data.priority}</td></tr> : null}
-                  {data.branch ? <tr><td className="detail-meta-key">Branch</td><td className="detail-meta-val">{data.branch}</td></tr> : null}
+                  {data.branch ? <tr><td className="detail-meta-key">Branch</td><td className="detail-meta-val"><a href={`https://github.com/zazig-team/zazigv2/tree/${data.branch}`} target="_blank" rel="noreferrer">{data.branch}</a></td></tr> : null}
                   {data.created_by ? <tr><td className="detail-meta-key">Created by</td><td className="detail-meta-val">{data.created_by}</td></tr> : null}
                   {data.verification_type ? <tr><td className="detail-meta-key">Verification</td><td className="detail-meta-val">{data.verification_type}</td></tr> : null}
                   <tr><td className="detail-meta-key">Created</td><td className="detail-meta-val">{formatDate(data.created_at)}</td></tr>

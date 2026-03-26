@@ -31,3 +31,21 @@ Orchestrator integration: dispatch-time injection via `personalityPrompt` field 
 ## Trello Board
 Board ID: 69983c1bfc662b3b1cfd2441
 URL: https://trello.com/b/uyClelbo/personality
+
+## CPO CLI Commands
+
+Use CLI commands in place of removed write MCP tools.
+
+`zazig start-expert-session`
+  `--company <uuid>`        Company ID
+  `--role-name <string>`    Role to start (e.g. test-deployment-expert)
+  `--brief <string>`        Session brief
+  `--machine-name <string>` Machine to run on (default: auto)
+  `--project-id <uuid>`     Project scope
+  `--headless`              Run without TUI
+  `--batch-id <string>`     Optional batch association
+
+Example:
+`zazig start-expert-session --company 00000000-0000-0000-0000-000000000001 --role-name test-deployment-expert --brief "Investigate flaky deploy checks" --machine-name auto --project-id 11111111-1111-1111-1111-111111111111 --headless --batch-id deploy-ops-001`
+
+`create-project-rule` is now a CLI command: `zazig create-project-rule`.

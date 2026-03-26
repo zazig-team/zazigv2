@@ -21,9 +21,9 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-const PROJECT_SELECT_BASE = "id,name,description,status";
+const PROJECT_SELECT_BASE = "id,name,description,status,repo_url";
 const PROJECT_SELECT_WITH_FEATURES =
-  "id,name,description,status,features(id,title,description,priority,status)";
+  "id,name,description,status,repo_url,features(id,title,description,priority,status)";
 
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {

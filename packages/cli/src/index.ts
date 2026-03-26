@@ -39,6 +39,7 @@ import { createRule } from "./commands/create-rule.js";
 import { createProjectRule } from "./commands/create-project-rule.js";
 import { batchCreateJobs } from "./commands/batch-create-jobs.js";
 import { sendMessageToHuman } from "./commands/send-message-to-human.js";
+import { startExpertSession } from "./commands/start-expert-session.js";
 import { getVersion } from "./lib/version.js";
 
 const [, , cmd, ...args] = process.argv;
@@ -151,6 +152,9 @@ switch (cmd) {
 
   case "send-message-to-human":
     await sendMessageToHuman(args);
+
+  case "start-expert-session":
+    await startExpertSession(args);
     break;
 
   case undefined:
@@ -188,6 +192,7 @@ switch (cmd) {
     console.log("  create-project-rule --company <company-id>  Create a project rule");
     console.log("  batch-create-jobs --company <id> --feature-id <id>  Create jobs for a feature");
     console.log("  send-message-to-human --company <id> --text <msg>   Send a message to a human");
+    console.log("  start-expert-session --company <company-id>          Start an expert session");
     break;
 
   default:

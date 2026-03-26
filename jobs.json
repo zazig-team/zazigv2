@@ -1,0 +1,38 @@
+[
+  {
+    "title": "Migration: add staging_verified_by and staging_verified_at to features",
+    "spec": "Create a new Supabase migration file that adds two nullable columns to the `features` table:\n\n```sql\nALTER TABLE features\n  ADD COLUMN staging_verified_by text DEFAULT NULL,\n  ADD COLUMN staging_verified_at timestamptz DEFAULT NULL;\n```\n\nFile should be placed at `supabase/migrations/` with the next sequential timestamp prefix (check existing files for the naming pattern).\n\nNo index needed — these fields are only queried on low-volume completed/unpromoted features.\n\nDo NOT run `supabase db push` — just create the migration file.",
+    "acceptance_tests": "Given the migration file exists in supabase/migrations/\nWhen the migration is applied\nThen the features table has a staging_verified_by column of type text, nullable, defaulting to NULL\nAnd the features table has a staging_verified_at column of type timestamptz, nullable, defaulting to NULL",
+    "role": "junior-engineer",
+    "job_type": "code",
+    "complexity": "simple",
+    "depends_on": []
+  },
+  {
+    "title": "RLS: verify or add UPDATE policy for features table",
+    "spec": "Check `supabase/migrations/` for the existing RLS policies on the `features` table.\n\nLook for an UPDATE policy that allows authenticated clients to update features scoped to their company_id.\n\nIf one exists and is correct, no action needed — just note it in a comment or PR description.\n\nIf it is missing, create a new migration file that adds:\n```sql\nCREATE POLICY \"users can update own company features\"\n  ON features FOR UPDATE\n  USING (company_id = (SELECT company_id FROM users WHERE id = auth.uid()))\n  WITH CHECK (company_id = (SELECT company_id FROM users WHERE id = auth.uid()));\n```\n\nAdapt the exact policy to match the pattern used in existing SELECT/INSERT policies on the same table — look at how they scope to company_id.",
+    "acceptance_tests": "Given the features table has RLS enabled\nWhen an authenticated user attempts to UPDATE a feature row where company_id matches their company\nThen the update is permitted by RLS\nAnd when company_id does not match\nThen the update is rejected by RLS",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "medium",
+    "depends_on": []
+  },
+  {
+    "title": "WebUI Read: display staging verification badge on features",
+    "spec": "Update the WebUI to fetch and display staging verification state on features.\n\n1. Find all `supabase.from('features').select(...)` calls in the WebUI (check `packages/webui/src/`). Add `staging_verified_by` and `staging_verified_at` to those select strings wherever features are fetched for the detail view and completed-features list.\n\n2. Update the TypeScript feature type/interface to include:\n   - `staging_verified_by: string | null`\n   - `staging_verified_at: string | null`\n\n3. In the feature detail view and completed-features list components, add a verification badge:\n   - When `staging_verified_by` is not null: show a green badge reading \"Verified by {name} · {relative time}\" (e.g. use `date-fns` `formatDistanceToNow` if already available, or a simple fallback)\n   - When `staging_verified_by` is null: show nothing (or a subtle grey \"Unverified\" label if the design calls for it)\n\n4. Export or co-locate the badge as a reusable component — the write job will use it for optimistic updates.",
+    "acceptance_tests": "Given a feature with staging_verified_by = 'chris' and staging_verified_at set\nWhen the feature detail or completed-features list is rendered\nThen a green badge is visible showing 'Verified by chris' and a relative timestamp\n\nGiven a feature with staging_verified_by = NULL\nWhen the feature detail or completed-features list is rendered\nThen no green badge is shown\n\nGiven the feature type definition\nThen it includes staging_verified_by: string | null and staging_verified_at: string | null\n\nGiven the verification state persists in the database\nWhen the page is reloaded\nThen the verification badge state matches what is stored",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "medium",
+    "depends_on": ["temp:0"]
+  },
+  {
+    "title": "WebUI Write: mark/unmark staging verification on completed features",
+    "spec": "Add the interactive verification toggle to the WebUI.\n\n1. In the feature detail view (and completed-features list if applicable), conditionally render a \"Mark verified on staging\" button when:\n   - `feature.status === 'complete'`\n   - AND `feature.promoted_version == null` (or the equivalent field — check the feature type)\n   - AND `feature.staging_verified_by == null`\n\n2. On button click:\n   - Prompt the user for the verifier name. Use a sensible default (e.g. look for a current user name from the auth session, fall back to `'human'`)\n   - Execute: `supabase.from('features').update({ staging_verified_by: name, staging_verified_at: new Date().toISOString() }).eq('id', featureId)`\n   - Optimistically update local state so the green badge (from the Read job) appears immediately without waiting for a refetch\n\n3. On the green badge, render a small \"×\" button:\n   - Only visible when the feature is still complete+unpromoted (same conditions as the mark button)\n   - On click, execute: `supabase.from('features').update({ staging_verified_by: null, staging_verified_at: null }).eq('id', featureId)`\n   - Optimistically clear the badge and re-show the \"Mark verified on staging\" button\n\n4. Do NOT show the mark button or the × un-verify button on:\n   - Features with `promoted_version != null`\n   - Features with `status !== 'complete'`",
+    "acceptance_tests": "Given a feature with status='complete' and promoted_version=null and staging_verified_by=null\nWhen the feature is rendered\nThen a 'Mark verified on staging' button is visible\n\nGiven the 'Mark verified on staging' button is clicked and a name entered\nWhen the update completes\nThen staging_verified_by and staging_verified_at are set on the feature record in the database\nAnd the green badge appears immediately (optimistic update)\n\nGiven a feature showing the green verification badge\nWhen the × button on the badge is clicked\nThen staging_verified_by and staging_verified_at are set to NULL in the database\nAnd the badge is replaced by the 'Mark verified on staging' button immediately\n\nGiven a feature with promoted_version != null\nWhen the feature is rendered\nThen the 'Mark verified on staging' button is NOT shown\nAnd the × un-verify button is NOT shown\n\nGiven a feature with status != 'complete'\nWhen the feature is rendered\nThen the 'Mark verified on staging' button is NOT shown",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "complex",
+    "depends_on": ["temp:1", "temp:2"]
+  }
+]

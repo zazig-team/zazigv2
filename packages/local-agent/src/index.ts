@@ -40,6 +40,7 @@ import { loadConfig } from "./config.js";
 import { SlotTracker } from "./slots.js";
 import { AgentConnection } from "./connection.js";
 import { JobExecutor, type CompanyProject, type PersistentAgentJobDefinition } from "./executor.js";
+import { MasterChangePoller } from "./master-change-poller.js";
 import { ExpertSessionManager } from "./expert-session-manager.js";
 import { FixAgentManager } from "./fix-agent.js";
 import { JobVerifier } from "./verifier.js";
@@ -53,7 +54,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 // ---------------------------------------------------------------------------
 
 let shuttingDown = false;
-const REPO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const MASTER_CHANGE_POLL_INTERVAL_MS = 30_000;
 const ANTHROPIC_KEY_REFRESH_INTERVAL_MS = 4 * 60 * 1000; // 4 minutes — well under token expiry
 
 /**
@@ -217,7 +218,7 @@ async function main(): Promise<void> {
   // Discover and spawn persistent agents if ZAZIG_COMPANY_ID is set
   const companyId = process.env["ZAZIG_COMPANY_ID"];
   let rolePromptChannel: RealtimeChannel | null = null;
-  let repoRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  let masterPollerTimer: ReturnType<typeof setInterval> | null = null;
   if (companyId) {
     await discoverAndSpawnPersistentAgents(
       config.supabase.url,
@@ -226,26 +227,55 @@ async function main(): Promise<void> {
       executor,
     );
 
-    let refreshRunning = false;
-    repoRefreshTimer = setInterval(() => {
-      void (async () => {
-        if (refreshRunning) return;
-        refreshRunning = true;
-        try {
-          const projects = executor.getCompanyProjects();
-          for (const project of projects) {
-            if (!project.repo_url) continue;
-            try {
-              await executor.repoManager.refreshWorktree(project.name);
-            } catch (err) {
-              console.warn(`[daemon] repo refresh failed for ${project.name}:`, err);
-            }
+    // Start 30-second master change poller for each company project that has a bare repo.
+    // On detection of a new master SHA, fetch the bare repo and broadcast to all sessions.
+    const REPOS_BASE = join(homedir(), ".zazigv2/repos");
+    const projects = executor.getCompanyProjects();
+    for (const project of projects) {
+      if (!project.repo_url) continue;
+      const repoDir = join(REPOS_BASE, project.name);
+
+      const poller = new MasterChangePoller({
+        repoPath: repoDir,
+        // fetchBareRepo: on success logs '[git master refresh] Bare repo fetched successfully'
+        // on failure logs '[git master refresh] Bare repo fetch failed'
+        fetchBareRepo: async (path) => {
+          try {
+            await executor.repoManager.fetchOrigin(path);
+            console.log('[git master refresh] Bare repo fetched successfully');
+          } catch (err) {
+            console.error(
+              `[git master refresh] Bare repo fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+            throw err;
           }
-        } finally {
-          refreshRunning = false;
-        }
-      })();
-    }, REPO_REFRESH_INTERVAL_MS);
+        },
+        // broadcast: message contains 'Master branch updated on origin/master: X → Y'
+        // Poller also logs: [git master refresh] Master SHA changed, ls-remote failed, Notified N sessions
+        broadcast: async (message) => {
+          const expertSessions = [...expertManager.getActiveSessions().values()].map((s) => ({
+            tmuxSession: s.tmuxSession,
+            startedAt: 0, // Expert sessions are already running; no startup delay needed.
+          }));
+          return executor.broadcastToActiveSessions(message, expertSessions);
+        },
+      });
+      console.log('[git master refresh] Poller started');
+      poller.start();
+
+      let pollRunning = false;
+      masterPollerTimer = setInterval(() => {
+        void (async () => {
+          if (pollRunning) return;
+          pollRunning = true;
+          try {
+            await poller.poll();
+          } finally {
+            pollRunning = false;
+          }
+        })();
+      }, MASTER_CHANGE_POLL_INTERVAL_MS);
+    }
 
     rolePromptChannel = subscribeToRolePromptHotReload(
       conn,
@@ -280,9 +310,9 @@ async function main(): Promise<void> {
       rolePromptChannel = null;
     }
     clearInterval(anthropicKeyRefreshTimer);
-    if (repoRefreshTimer) {
-      clearInterval(repoRefreshTimer);
-      repoRefreshTimer = null;
+    if (masterPollerTimer) {
+      clearInterval(masterPollerTimer);
+      masterPollerTimer = null;
     }
 
     const gracePeriodMs = parseInt(process.env["ZAZIG_GRACEFUL_SHUTDOWN_MS"] ?? "10000", 10);

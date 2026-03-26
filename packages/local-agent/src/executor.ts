@@ -1250,6 +1250,71 @@ export class JobExecutor {
     return Array.from(this.activeJobs.keys());
   }
 
+  /**
+   * Broadcasts a notification message to all active tmux sessions:
+   * persistent agents, running job sessions, and expert sessions (via the
+   * ExpertSessionManager if provided).
+   *
+   * Uses 'notification' type so messages are dropped if the queue is full
+   * rather than blocking human messages.
+   *
+   * Per-session errors are caught and warned so a dead session does not
+   * prevent notifications from reaching the remaining sessions.
+   *
+   * Returns the count of sessions that were successfully notified.
+   */
+  public async broadcastToActiveSessions(
+    message: string,
+    expertSessions?: Array<{ tmuxSession: string; startedAt: number }>,
+  ): Promise<number> {
+    let notified = 0;
+
+    // Persistent agents
+    for (const agent of this.persistentAgents.values()) {
+      try {
+        await this.enqueueMessage(message, agent.tmuxSession, agent.startedAt, "notification");
+        notified++;
+      } catch (err) {
+        console.warn(
+          `[git master refresh] Failed to notify persistent agent session ${agent.tmuxSession}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    // Active job sessions (non-persistent, non-settled)
+    for (const job of this.activeJobs.values()) {
+      if (job.settled) continue;
+      // Skip persistent agent jobs (already covered above)
+      const isPersistent = [...this.persistentAgents.values()].some((a) => a.jobId === job.jobId);
+      if (isPersistent) continue;
+      try {
+        await this.enqueueMessage(message, job.sessionName, job.startedAt, "notification");
+        notified++;
+      } catch (err) {
+        console.warn(
+          `[git master refresh] Failed to notify job session ${job.sessionName}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    // Expert sessions (passed in from ExpertSessionManager)
+    if (expertSessions) {
+      for (const session of expertSessions) {
+        try {
+          await this.enqueueMessage(message, session.tmuxSession, session.startedAt, "notification");
+          notified++;
+        } catch (err) {
+          console.warn(
+            `[git master refresh] Failed to notify expert session ${session.tmuxSession}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+    }
+
+    console.log(`[git master refresh] Notified ${notified} active session(s)`);
+    return notified;
+  }
+
   /** Stops a single active job by ID using the standard stop flow. */
   public async stopJob(jobId: string): Promise<void> {
     await this.handleStopJob({

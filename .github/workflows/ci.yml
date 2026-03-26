@@ -24,8 +24,8 @@ jobs:
           # Get migration prefixes from master and this branch
           master_files=$(git ls-tree --name-only origin/master supabase/migrations/ | sed 's|supabase/migrations/||')
           branch_files=$(ls supabase/migrations/)
-          master_migrations=$(echo "$master_files" | grep -oE '^[0-9]+' | sort -n | uniq)
-          branch_migrations=$(echo "$branch_files" | grep -oE '^[0-9]+' | sort -n | uniq)
+          master_migrations=$(echo "$master_files" | grep -oE '^[0-9]+' | sort | uniq)
+          branch_migrations=$(echo "$branch_files" | grep -oE '^[0-9]+' | sort | uniq)
 
           # Find duplicates where the same prefix maps to different filenames
           duplicates=$(comm -12 <(echo "$master_migrations") <(echo "$branch_migrations") | while read -r prefix; do

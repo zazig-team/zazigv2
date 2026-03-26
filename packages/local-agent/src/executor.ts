@@ -3390,6 +3390,129 @@ export class JobExecutor {
       machineId: this.machineId,
     });
   }
+
+  /**
+   * Broadcasts a master branch update notification to all active tmux sessions.
+   * Collects session names from activeJobs (persistent agent jobs appear in both
+   * activeJobs and persistentAgents — the Set deduplicates them correctly).
+   * Per-session send-keys errors are logged as warnings and do not abort the broadcast.
+   *
+   * @returns Count of sessions successfully notified.
+   */
+  async broadcastMasterUpdate(
+    oldSha: string,
+    newSha: string,
+    extraTmuxSessions?: string[],
+  ): Promise<number> {
+    const shortOldSha = oldSha.slice(0, 7);
+    const shortNewSha = newSha.slice(0, 7);
+    const message = `[System] Master branch updated (${shortOldSha} -> ${shortNewSha}). Your worktree may be behind origin/master. Decide how to handle based on your current work.`;
+
+    const sessions = new Set<string>();
+    for (const job of this.activeJobs.values()) {
+      sessions.add(job.sessionName);
+    }
+    if (extraTmuxSessions) {
+      for (const s of extraTmuxSessions) {
+        sessions.add(s);
+      }
+    }
+
+    let notified = 0;
+    for (const session of sessions) {
+      try {
+        await execFileAsync("tmux", ["send-keys", "-t", session, "-l", message]);
+        await execFileAsync("tmux", ["send-keys", "-t", session, "Enter"]);
+        notified++;
+      } catch (err) {
+        console.warn(`[git master refresh] Failed to notify session ${session}:`, err);
+      }
+    }
+    return notified;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Master change poller
+// ---------------------------------------------------------------------------
+
+export interface MasterChangePollerOptions {
+  /** Defaults to the module-level execFileAsync. Override in tests. */
+  execFileAsync?: ExecFileAsyncFn;
+  broadcast: (message: string, sessionNames?: string[]) => Promise<number>;
+  fetchBareRepo: () => Promise<void>;
+  repoPath: string;
+  getActiveSessions?: () => Array<{ name: string }>;
+}
+
+/**
+ * Polls git ls-remote every 30 seconds to detect master branch SHA changes.
+ * On change: fetches the bare repo, then broadcasts to all active tmux sessions.
+ * All errors are caught and logged — the poller never throws.
+ */
+export class MasterChangePoller {
+  private currentSha: string | null = null;
+  private readonly exec: ExecFileAsyncFn;
+  private readonly broadcastFn: (message: string, sessionNames?: string[]) => Promise<number>;
+  private readonly fetchBareRepo: () => Promise<void>;
+  private readonly repoPath: string;
+  private readonly getActiveSessions?: () => Array<{ name: string }>;
+
+  constructor(opts: MasterChangePollerOptions) {
+    this.exec = opts.execFileAsync ?? (execFileAsync as unknown as ExecFileAsyncFn);
+    this.broadcastFn = opts.broadcast;
+    this.fetchBareRepo = opts.fetchBareRepo;
+    this.repoPath = opts.repoPath;
+    this.getActiveSessions = opts.getActiveSessions;
+  }
+
+  start(): void {
+    console.log("[git master refresh] Poller started");
+  }
+
+  async poll(): Promise<void> {
+    let newSha: string;
+    try {
+      const { stdout } = await this.exec("git", ["ls-remote", this.repoPath, "refs/heads/master"]);
+      newSha = stdout.split("\t")[0].trim();
+    } catch (err) {
+      console.warn("[git master refresh] ls-remote failed:", err);
+      return;
+    }
+
+    if (!this.currentSha) {
+      // First poll: store SHA without broadcasting
+      this.currentSha = newSha;
+      return;
+    }
+
+    if (newSha === this.currentSha) {
+      return;
+    }
+
+    const oldSha = this.currentSha;
+    console.log(`[git master refresh] Master SHA changed: ${oldSha.slice(0, 7)} -> ${newSha.slice(0, 7)}`);
+
+    try {
+      await this.fetchBareRepo();
+      console.log("[git master refresh] Bare repo fetched successfully");
+    } catch (err) {
+      console.error("[git master refresh] Bare repo fetch failed:", err);
+      // Do not update currentSha so next cycle retries
+      return;
+    }
+
+    // Update SHA only after successful fetch
+    this.currentSha = newSha;
+
+    const shortOldSha = oldSha.slice(0, 7);
+    const shortNewSha = newSha.slice(0, 7);
+    const message = `[System] Master branch updated (${shortOldSha} -> ${shortNewSha}). Your worktree may be behind origin/master. Decide how to handle based on your current work.`;
+
+    const sessionNames = this.getActiveSessions?.().map((s) => s.name);
+    const notified = await this.broadcastFn(message, sessionNames);
+    console.log(`[git master refresh] Notified ${notified} active session(s) of master update`);
+  }
 }
 
 // ---------------------------------------------------------------------------

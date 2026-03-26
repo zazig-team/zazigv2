@@ -39,7 +39,7 @@ process.on("uncaughtException", (err) => {
 import { loadConfig } from "./config.js";
 import { SlotTracker } from "./slots.js";
 import { AgentConnection } from "./connection.js";
-import { JobExecutor, type CompanyProject, type PersistentAgentJobDefinition } from "./executor.js";
+import { JobExecutor, MasterChangePoller, type CompanyProject, type PersistentAgentJobDefinition } from "./executor.js";
 import { ExpertSessionManager } from "./expert-session-manager.js";
 import { FixAgentManager } from "./fix-agent.js";
 import { JobVerifier } from "./verifier.js";
@@ -53,7 +53,6 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 // ---------------------------------------------------------------------------
 
 let shuttingDown = false;
-const REPO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const ANTHROPIC_KEY_REFRESH_INTERVAL_MS = 4 * 60 * 1000; // 4 minutes — well under token expiry
 
 /**
@@ -217,7 +216,7 @@ async function main(): Promise<void> {
   // Discover and spawn persistent agents if ZAZIG_COMPANY_ID is set
   const companyId = process.env["ZAZIG_COMPANY_ID"];
   let rolePromptChannel: RealtimeChannel | null = null;
-  let repoRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  let masterPollerTimer: ReturnType<typeof setInterval> | null = null;
   if (companyId) {
     await discoverAndSpawnPersistentAgents(
       config.supabase.url,
@@ -226,26 +225,28 @@ async function main(): Promise<void> {
       executor,
     );
 
-    let refreshRunning = false;
-    repoRefreshTimer = setInterval(() => {
-      void (async () => {
-        if (refreshRunning) return;
-        refreshRunning = true;
-        try {
-          const projects = executor.getCompanyProjects();
-          for (const project of projects) {
-            if (!project.repo_url) continue;
-            try {
-              await executor.repoManager.refreshWorktree(project.name);
-            } catch (err) {
-              console.warn(`[daemon] repo refresh failed for ${project.name}:`, err);
-            }
-          }
-        } finally {
-          refreshRunning = false;
-        }
-      })();
-    }, REPO_REFRESH_INTERVAL_MS);
+    const projects = executor.getCompanyProjects();
+    const primaryProject = projects.find((p) => !!p.repo_url);
+    if (primaryProject) {
+      const bareRepoPath = join(homedir(), ".zazigv2", "repos", primaryProject.name);
+      const masterPoller = new MasterChangePoller({
+        broadcast: async (message: string) => {
+          // Extract 7-char SHAs from the pre-built message to call broadcastMasterUpdate
+          const match = message.match(/\((\w+) -> (\w+)\)/);
+          if (!match) return 0;
+          return executor.broadcastMasterUpdate(match[1], match[2]);
+        },
+        fetchBareRepo: async () => {
+          await executor.repoManager.refreshWorktree(primaryProject.name);
+        },
+        repoPath: bareRepoPath,
+      });
+      masterPoller.start();
+      void masterPoller.poll(); // initial poll to record current SHA
+      masterPollerTimer = setInterval(() => {
+        void masterPoller.poll();
+      }, 30_000);
+    }
 
     rolePromptChannel = subscribeToRolePromptHotReload(
       conn,
@@ -280,9 +281,9 @@ async function main(): Promise<void> {
       rolePromptChannel = null;
     }
     clearInterval(anthropicKeyRefreshTimer);
-    if (repoRefreshTimer) {
-      clearInterval(repoRefreshTimer);
-      repoRefreshTimer = null;
+    if (masterPollerTimer) {
+      clearInterval(masterPollerTimer);
+      masterPollerTimer = null;
     }
 
     const gracePeriodMs = parseInt(process.env["ZAZIG_GRACEFUL_SHUTDOWN_MS"] ?? "10000", 10);

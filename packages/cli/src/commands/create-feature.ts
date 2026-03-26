@@ -3,6 +3,8 @@ import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 import { loadConfig } from "../lib/config.js";
 
 const VALID_PRIORITY = new Set(["low", "medium", "high"]);
+const UUID_V4ISH_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function parseStringFlag(args: string[], name: string): string | undefined {
   const eq = args.find((a) => a.startsWith(`--${name}=`));
@@ -42,6 +44,10 @@ function fail(error: string): never {
   process.exit(1);
 }
 
+function isUuid(value: string): boolean {
+  return UUID_V4ISH_REGEX.test(value);
+}
+
 function printHelp(): void {
   const help = `Usage: zazig create-feature --company <uuid> --title <string> --description <string> --spec <string> --acceptance-tests <string> --priority <low|medium|high> [options]
 
@@ -53,6 +59,7 @@ Flags:
   --acceptance-tests <string>   Gherkin acceptance criteria (required)
   --priority <low|medium|high>  Priority level (required)
   --project-id <uuid>           Project ID (optional)
+  --depends-on <uuid>           Parent feature ID dependency (optional)
   --human-checklist <string>    Human checklist items (optional)
   --fast-track <true|false>     Skip breakdown and fast-track the feature (optional)
 
@@ -76,6 +83,7 @@ export async function createFeature(args: string[]): Promise<void> {
   const acceptance_tests = parseStringFlag(args, "acceptance-tests");
   const priority = parseStringFlag(args, "priority");
   const project_id = parseStringFlag(args, "project-id");
+  const depends_on = parseStringFlag(args, "depends-on");
   const human_checklist = parseStringFlag(args, "human-checklist");
   const fast_track = parseBooleanFlag(args, "fast-track");
 
@@ -85,6 +93,9 @@ export async function createFeature(args: string[]): Promise<void> {
   if (!acceptance_tests) fail("Missing required flag: --acceptance-tests");
   if (!priority) fail("Missing required flag: --priority (low|medium|high)");
   if (!VALID_PRIORITY.has(priority)) fail("Invalid --priority. Expected one of: low, medium, high");
+  if (depends_on !== undefined && !isUuid(depends_on)) {
+    fail("Invalid --depends-on. Expected UUID");
+  }
   if (args.some((a) => a.startsWith("--fast-track")) && fast_track === undefined) {
     fail("Invalid --fast-track. Expected boolean: true or false");
   }
@@ -113,6 +124,7 @@ export async function createFeature(args: string[]): Promise<void> {
     acceptance_tests,
     priority,
     ...(project_id !== undefined ? { project_id } : {}),
+    ...(depends_on !== undefined ? { depends_on } : {}),
     ...(human_checklist !== undefined ? { human_checklist } : {}),
     ...(fast_track !== undefined ? { fast_track } : {}),
   };

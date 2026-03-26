@@ -41,6 +41,7 @@ import { createProjectRule } from "./commands/create-project-rule.js";
 import { batchCreateJobs } from "./commands/batch-create-jobs.js";
 import { sendMessageToHuman } from "./commands/send-message-to-human.js";
 import { startExpertSession } from "./commands/start-expert-session.js";
+import { verifyStaging } from "./commands/verify-staging.js";
 import { getVersion } from "./lib/version.js";
 
 const [, , cmd, ...args] = process.argv;
@@ -162,6 +163,10 @@ switch (cmd) {
     await startExpertSession(args);
     break;
 
+  case "verify-staging":
+    await verifyStaging(args);
+    break;
+
   case undefined:
   case "--help":
   case "-h":
@@ -199,6 +204,7 @@ switch (cmd) {
     console.log("  batch-create-jobs --company <id> --feature-id <id>  Create jobs for a feature");
     console.log("  send-message-to-human --company <id> --text <msg>   Send a message to a human");
     console.log("  start-expert-session --company <company-id>          Start an expert session");
+    console.log("  verify-staging --company <id> --id <feature-id>      Set or clear staging verification");
     break;
 
   default:

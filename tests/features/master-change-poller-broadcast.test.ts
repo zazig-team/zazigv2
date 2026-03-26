@@ -18,7 +18,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
@@ -39,12 +39,13 @@ function readRepoFile(relPath: string): string | null {
 // Try to import the MasterChangePoller from expected module locations
 async function tryImportPoller(): Promise<any> {
   const candidates = [
-    '../../packages/local-agent/src/master-change-poller.js',
-    '../../packages/local-agent/src/executor.js',
-    '../../packages/local-agent/src/index.js',
+    'packages/local-agent/src/master-change-poller.js',
+    'packages/local-agent/src/executor.js',
+    'packages/local-agent/src/index.js',
   ];
-  for (const modulePath of candidates) {
+  for (const relPath of candidates) {
     try {
+      const modulePath = pathToFileURL(path.join(REPO_ROOT, relPath)).href;
       const mod = await import(/* @vite-ignore */ modulePath);
       if (mod.MasterChangePoller || mod.createMasterChangePoller || mod.masterChangePoller) {
         return mod.MasterChangePoller ?? mod.createMasterChangePoller ?? mod.masterChangePoller;

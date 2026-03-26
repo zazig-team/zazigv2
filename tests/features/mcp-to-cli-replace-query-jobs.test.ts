@@ -253,11 +253,11 @@ describe('AC7: query-jobs edge function supports limit/offset with defaults', ()
   });
 
   it('defaults limit to 20 when not provided', () => {
-    expect(content).toMatch(/limit.*??\s*20|limit.*=.*20|\?\?\s*20|default.*20|20.*limit/);
+    expect(content).toMatch(/limit.*\?\?\s*20|limit.*=.*20|\?\?\s*20|default.*20|20.*limit/);
   });
 
   it('defaults offset to 0 when not provided', () => {
-    expect(content).toMatch(/offset.*??\s*0|offset.*=.*0|\?\?\s*0|default.*0|0.*offset/);
+    expect(content).toMatch(/offset.*\?\?\s*0|offset.*=.*0|\?\?\s*0|default.*0|0.*offset/);
   });
 
   it('applies limit to the Supabase query (.limit() call or range)', () => {

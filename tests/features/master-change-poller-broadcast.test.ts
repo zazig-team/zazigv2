@@ -39,9 +39,9 @@ function readRepoFile(relPath: string): string | null {
 // Try to import the MasterChangePoller from expected module locations
 async function tryImportPoller(): Promise<any> {
   const candidates = [
-    'packages/local-agent/src/master-change-poller.js',
-    'packages/local-agent/src/executor.js',
-    'packages/local-agent/src/index.js',
+    'packages/local-agent/src/master-change-poller.ts',
+    'packages/local-agent/src/executor.ts',
+    'packages/local-agent/src/index.ts',
   ];
   for (const relPath of candidates) {
     try {

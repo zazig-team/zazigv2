@@ -1,9 +1,25 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
+type ExecFileAsyncFn = (
+  command: string,
+  args: string[],
+  options?: { encoding?: BufferEncoding; maxBuffer?: number },
+) => Promise<{ stdout: string; stderr: string }>;
 
-function parseMasterSha(stdout) {
+type ActiveSession = { name: string };
+
+export interface MasterChangePollerDeps {
+  repoPath: string;
+  execFileAsync?: ExecFileAsyncFn;
+  fetchBareRepo: () => Promise<void>;
+  broadcast: (message: string, sessionNames: string[]) => Promise<number | void>;
+  getActiveSessions?: () => ActiveSession[];
+}
+
+const execFileAsync = promisify(execFile) as unknown as ExecFileAsyncFn;
+
+function parseMasterSha(stdout: string): string | null {
   const line = stdout.trim().split("\n")[0] ?? "";
   if (!line) return null;
   const [sha] = line.split(/\s+/);
@@ -11,25 +27,31 @@ function parseMasterSha(stdout) {
 }
 
 export class MasterChangePoller {
-  constructor(deps) {
+  private readonly repoPath: string;
+  private readonly exec: ExecFileAsyncFn;
+  private readonly fetchBareRepo: () => Promise<void>;
+  private readonly broadcast: (message: string, sessionNames: string[]) => Promise<number | void>;
+  private readonly getActiveSessions: () => ActiveSession[];
+  private lastMasterSha: string | null = null;
+  private started = false;
+
+  constructor(deps: MasterChangePollerDeps) {
     this.repoPath = deps.repoPath;
     this.exec = deps.execFileAsync ?? execFileAsync;
     this.fetchBareRepo = deps.fetchBareRepo;
     this.broadcast = deps.broadcast;
     this.getActiveSessions = deps.getActiveSessions ?? (() => []);
-    this.lastMasterSha = null;
-    this.started = false;
     this.start();
   }
 
-  start() {
+  start(): void {
     if (this.started) return;
     this.started = true;
     console.log("[git master refresh] Poller started");
   }
 
-  async poll() {
-    let currentMasterSha = null;
+  async poll(): Promise<void> {
+    let currentMasterSha: string | null = null;
     try {
       const { stdout } = await this.exec("git", [
         "ls-remote",

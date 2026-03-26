@@ -291,15 +291,18 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
                             staging_verified_by={data.staging_verified_by}
                             staging_verified_at={data.staging_verified_at}
                           />
-                          <span className="detail-verification-label">Verified by</span>
-                          <button
-                            className="detail-unverify-btn"
-                            type="button"
-                            onClick={() => void clearStagingVerification()}
-                            disabled={verificationUpdating}
-                          >
-                            Unverify
-                          </button>
+                          {/* Verified by {data.staging_verified_by} */}
+                          {data.status === "complete" && !data.promoted_version ? (
+                            <button
+                              className="detail-unverify-btn"
+                              type="button"
+                              title="Un-verify staging"
+                              onClick={() => void clearStagingVerification()}
+                              disabled={verificationUpdating}
+                            >
+                              ×
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>

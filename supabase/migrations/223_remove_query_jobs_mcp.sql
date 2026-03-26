@@ -1,3 +1,5 @@
+-- Migration 223: remove legacy query_jobs MCP tool from all roles
+-- (originally applied to staging as timestamp migration 20260326141425)
 UPDATE public.roles
 SET mcp_tools = array_remove(COALESCE(mcp_tools, '{}'::text[]), 'query_jobs')
 WHERE mcp_tools IS NOT NULL

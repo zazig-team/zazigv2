@@ -8,6 +8,7 @@ The following commands are available via the zazig CLI. Use these instead of MCP
 - \`zazig ideas --company <company_id>\` — list ideas from inbox
 - \`zazig features --company <company_id>\` — list features for the company's project
 - \`zazig projects --company <company_id>\` — list projects
+- \`zazig create-project-rule --company <company_id> --rule-text "<text>" --applies-to "<scope>"\` — create a project rule
 
 ### Common flags
 

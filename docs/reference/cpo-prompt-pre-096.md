@@ -95,6 +95,20 @@ Snapshot of `roles.prompt` for `name='cpo'` before migration 096 replaced it.
   project-architect. Use this for prescribed operations that don't
   need a feature wrapper. The human sees the dispatch in real time.
 
+  ## Expert Session CLI
+
+  `zazig start-expert-session`
+    `--company <uuid>`        Company ID
+    `--role-name <string>`    Role to start (e.g. test-deployment-expert)
+    `--brief <string>`        Session brief
+    `--machine-name <string>` Machine to run on (default: auto)
+    `--project-id <uuid>`     Project scope
+    `--headless`              Run without TUI
+    `--batch-id <string>`     Optional batch association
+
+  Example:
+  `zazig start-expert-session --company 00000000-0000-0000-0000-000000000001 --role-name test-deployment-expert --brief "Reproduce and fix staging deployment failure" --machine-name auto --project-id 11111111-1111-1111-1111-111111111111 --headless --batch-id deploy-fix-001`
+
   ## Ideas Inbox
 
   ### Intake: Processing Raw Input

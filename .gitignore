@@ -19,6 +19,11 @@ projects/personality/.claude/napkin.md
 /.claude
 /.claude
 
+# Release bundles (generated during promote by bundle.js)
+packages/cli/releases/zazig.mjs
+packages/local-agent/releases/zazig-agent.mjs
+packages/local-agent/releases/agent-mcp-server.mjs
+
 # Bun compile artifacts
 *.bun-build
 

@@ -426,12 +426,18 @@ async function runPromote(
   let commitSha: string;
   console.log("\nCommitting bundles and version bump...");
   try {
+    // Force-add bundles (they're gitignored to prevent accidental edits)
     execSync(
-      "git add " +
+      "git add --force " +
         [
           "packages/cli/releases/zazig.mjs",
           "packages/local-agent/releases/zazig-agent.mjs",
-          "packages/local-agent/releases/agent-mcp-server.mjs",
+        ].join(" "),
+      { cwd: repoRoot, stdio: "pipe" }
+    );
+    execSync(
+      "git add " +
+        [
           "packages/cli/package.json",
           "packages/local-agent/package.json",
         ].join(" "),

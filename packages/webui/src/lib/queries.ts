@@ -587,6 +587,7 @@ export interface FeatureDetail {
   id: string;
   title: string;
   status: string;
+  promoted_version: string | null;
   priority: string | null;
   description: string | null;
   error: string | null;
@@ -667,7 +668,7 @@ export interface IdeaDetail {
 export async function fetchFeatureDetail(featureId: string): Promise<FeatureDetail> {
   const { data: feature, error: featureError } = await supabase
     .from("features")
-    .select("id, title, status, priority, description, error, spec, acceptance_tests, branch, pr_url, created_by, verification_type, staging_verified_by, staging_verified_at, created_at, updated_at, completed_at, source_idea_id")
+    .select("id, title, status, promoted_version, priority, description, error, spec, acceptance_tests, branch, pr_url, created_by, verification_type, staging_verified_by, staging_verified_at, created_at, updated_at, completed_at, source_idea_id")
     .eq("id", featureId)
     .single();
 
@@ -698,6 +699,7 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
     id: f.id as string,
     title: f.title as string,
     status: f.status as string,
+    promoted_version: (f.promoted_version as string | null) ?? null,
     priority: (f.priority as string | null) ?? null,
     description: (f.description as string | null) ?? null,
     error: (f.error as string | null) ?? null,

@@ -20,4 +20,11 @@ The following commands are available via the zazig CLI. Use these instead of MCP
 Results are sorted newest-first by default. Output is JSON on stdout.
 
 **Run \`zazig <command> --help\` for full usage, required fields, and JSON schemas.**
+
+### Write commands
+
+- \`zazig batch-create-jobs --company <uuid> --feature-id <uuid> --jobs '<json array>'\` — create jobs for a feature in batch
+- \`zazig batch-create-jobs --company <uuid> --feature-id <uuid> --jobs-file <path>\` — alternative for large payloads (write JSON to a temp file and pass the path)
+- \`zazig create-project-rule --company <uuid> --project-id <uuid> --rule-text <string> --applies-to <csv>\` — create a reusable project rule for preventable patterns
+  Example: \`zazig create-project-rule --company 00000000-0000-0000-0000-000000000001 --project-id 11111111-1111-1111-1111-111111111111 --rule-text "Validate branch name before merge commands" --applies-to code,test\`
 `;

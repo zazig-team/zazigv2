@@ -508,8 +508,6 @@ export interface CompletedFeature {
   staging_verified_by: string | null;
   staging_verified_at: string | null;
   updated_at: string | null;
-  staging_verified_by: string | null;
-  staging_verified_at: string | null;
 }
 
 export async function fetchCompletedFeatures(companyId: string): Promise<CompletedFeature[]> {
@@ -606,9 +604,6 @@ export interface FeatureDetail {
   created_at: string;
   updated_at: string | null;
   completed_at: string | null;
-  promoted_version: string | null;
-  staging_verified_by: string | null;
-  staging_verified_at: string | null;
   jobs: FeatureDetailJob[];
   sourceIdea: { title: string; raw_text: string; promoted_at: string | null } | null;
 }
@@ -721,9 +716,6 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
     created_at: f.created_at as string,
     updated_at: (f.updated_at as string | null) ?? null,
     completed_at: (f.completed_at as string | null) ?? null,
-    promoted_version: (f.promoted_version as string | null) ?? null,
-    staging_verified_by: (f.staging_verified_by as string | null) ?? null,
-    staging_verified_at: (f.staging_verified_at as string | null) ?? null,
     jobs: ((jobs ?? []) as FeatureDetailJob[]).map((j) => ({
       id: j.id,
       title: j.title ?? "Job",

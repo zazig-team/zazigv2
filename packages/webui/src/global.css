@@ -2523,6 +2523,80 @@ input {
   color: var(--caution);
 }
 
+.staging-verify-btn {
+  border: 1px solid color-mix(in srgb, var(--positive) 35%, transparent);
+  background: var(--positive-dim);
+  color: var(--positive);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.staging-verify-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.staging-verify-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.staging-verify-muted {
+  color: var(--dust);
+}
+
+.staging-verified-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: none;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.staging-verified-badge--green {
+  color: var(--positive);
+  background: var(--positive-dim);
+}
+
+.staging-verified-name {
+  font-weight: 600;
+}
+
+.staging-verified-time {
+  opacity: 0.8;
+}
+
+.staging-verified-clear {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.staging-verified-clear:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--positive) 12%, transparent);
+}
+
+.staging-verified-clear:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.staging-verify-error {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
 .detail-jobs {
   display: flex;
   flex-direction: column;

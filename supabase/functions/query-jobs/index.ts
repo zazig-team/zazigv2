@@ -61,11 +61,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     const body = await req.json();
-    const { job_id, feature_id, status } = body;
+    const { job_id, feature_id, status, limit = 20, offset = 0 } = body;
 
-    if (!job_id && !feature_id) {
+    if (!job_id && !feature_id && !status) {
       return jsonResponse(
-        { error: "At least one of job_id or feature_id is required" },
+        { error: "At least one of job_id, feature_id, or status is required" },
         400,
       );
     }
@@ -86,22 +86,29 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     // Jobs for a feature, optionally filtered by status
+    const pageLimit = typeof limit === "number" ? limit : Number(limit);
+    const pageOffset = typeof offset === "number" ? offset : Number(offset);
+
     let query = supabase
       .from("jobs")
-      .select(JOB_SELECT)
-      .eq("feature_id", feature_id);
+      .select(JOB_SELECT, { count: "exact" })
+      .range(pageOffset, pageOffset + pageLimit - 1);
+
+    if (feature_id) {
+      query = query.eq("feature_id", feature_id);
+    }
 
     if (status) {
       query = query.eq("status", status);
     }
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
 
     if (error) {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    return jsonResponse({ jobs: data ?? [] });
+    return jsonResponse({ jobs: data ?? [], total_count: count ?? null });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

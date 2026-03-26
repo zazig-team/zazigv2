@@ -35,6 +35,8 @@ export interface PipelineFeature {
   criticalJobErrorCount: number;
   branch: string | null;
   promoted_version: string | null;
+  staging_verified_by: string | null;
+  staging_verified_at: string | null;
   jobs: PipelineFeatureJob[];
 }
 
@@ -388,6 +390,14 @@ function parseFeature(
     promoted_version:
       stringValue(raw.promoted_version) ??
       stringValue(raw.promotedVersion) ??
+      null,
+    staging_verified_by:
+      stringValue(raw.staging_verified_by) ??
+      stringValue(raw.stagingVerifiedBy) ??
+      null,
+    staging_verified_at:
+      stringValue(raw.staging_verified_at) ??
+      stringValue(raw.stagingVerifiedAt) ??
       null,
     jobs,
   };

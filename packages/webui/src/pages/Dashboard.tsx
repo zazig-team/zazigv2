@@ -3,6 +3,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useCompany } from "../hooks/useCompany";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
 import DashboardDetailPanel from "../components/DashboardDetailPanel";
+import StagingVerificationBadge from "../components/StagingVerificationBadge";
 import {
   fetchActionItems,
   fetchActivity,
@@ -636,6 +637,10 @@ export default function Dashboard(): JSX.Element {
                 .map((feature) => (
                   <article className="feature-card" key={feature.id}>
                     <div className="feature-title">{feature.title}</div>
+                    <StagingVerificationBadge
+                      staging_verified_by={feature.staging_verified_by}
+                      staging_verified_at={feature.staging_verified_at}
+                    />
                   </article>
                 ))
             )}
@@ -664,6 +669,10 @@ export default function Dashboard(): JSX.Element {
                   .map((feature) => (
                     <article className="feature-card" key={feature.id}>
                       <div className="feature-title">{feature.title}</div>
+                      <StagingVerificationBadge
+                        staging_verified_by={feature.staging_verified_by}
+                        staging_verified_at={feature.staging_verified_at}
+                      />
                       <span className="badge badge--positive version-badge">{feature.promoted_version}</span>
                     </article>
                   ))

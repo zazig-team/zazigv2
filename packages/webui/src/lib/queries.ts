@@ -505,13 +505,15 @@ export interface CompletedFeature {
   title: string;
   status: string;
   promoted_version: string | null;
+  staging_verified_by: string | null;
+  staging_verified_at: string | null;
   updated_at: string | null;
 }
 
 export async function fetchCompletedFeatures(companyId: string): Promise<CompletedFeature[]> {
   const { data, error } = await supabase
     .from("features")
-    .select("id, title, status, promoted_version, updated_at")
+    .select("id, title, status, promoted_version, staging_verified_by, staging_verified_at, updated_at")
     .eq("company_id", companyId)
     .eq("status", "complete")
     .order("updated_at", { ascending: false })
@@ -596,6 +598,9 @@ export interface FeatureDetail {
   pr_url: string | null;
   created_by: string | null;
   verification_type: string | null;
+  promoted_version: string | null;
+  staging_verified_by: string | null;
+  staging_verified_at: string | null;
   created_at: string;
   updated_at: string | null;
   completed_at: string | null;
@@ -665,7 +670,7 @@ export interface IdeaDetail {
 export async function fetchFeatureDetail(featureId: string): Promise<FeatureDetail> {
   const { data: feature, error: featureError } = await supabase
     .from("features")
-    .select("id, title, status, priority, description, error, spec, acceptance_tests, branch, pr_url, created_by, verification_type, created_at, updated_at, completed_at, source_idea_id")
+    .select("id, title, status, priority, description, error, spec, acceptance_tests, branch, pr_url, created_by, verification_type, promoted_version, staging_verified_by, staging_verified_at, created_at, updated_at, completed_at, source_idea_id")
     .eq("id", featureId)
     .single();
 
@@ -705,6 +710,9 @@ export async function fetchFeatureDetail(featureId: string): Promise<FeatureDeta
     pr_url: (f.pr_url as string | null) ?? null,
     created_by: (f.created_by as string | null) ?? null,
     verification_type: (f.verification_type as string | null) ?? null,
+    promoted_version: (f.promoted_version as string | null) ?? null,
+    staging_verified_by: (f.staging_verified_by as string | null) ?? null,
+    staging_verified_at: (f.staging_verified_at as string | null) ?? null,
     created_at: f.created_at as string,
     updated_at: (f.updated_at as string | null) ?? null,
     completed_at: (f.completed_at as string | null) ?? null,

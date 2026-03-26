@@ -7,9 +7,11 @@ import {
   type ErrorAnalysis,
   type FeatureDetail,
 } from "../lib/queries";
+import { supabase } from "../lib/supabase";
 import { useCompany } from "../hooks/useCompany";
 import FormattedProse from "./FormattedProse";
 import JobDetailExpand from "./JobDetailExpand";
+import StagingVerificationBadge from "./StagingVerificationBadge";
 
 interface FeatureDetailPanelProps {
   featureId: string;
@@ -77,6 +79,8 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [retried, setRetried] = useState(false);
+  const [verificationUpdating, setVerificationUpdating] = useState(false);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const { activeCompanyId } = useCompany();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -104,6 +108,8 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
     setRetrying(false);
     setRetryError(null);
     setRetried(false);
+    setVerificationUpdating(false);
+    setVerificationError(null);
     setSelectedJobId(null);
   }, [featureId]);
 
@@ -173,6 +179,80 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
     return "";
   }
 
+  async function markVerifiedOnStaging(): Promise<void> {
+    if (!data) return;
+
+    const verifierInput = window.prompt("Who verified this on staging?");
+    if (!verifierInput) return;
+
+    const verifierName = verifierInput.trim();
+    if (!verifierName) return;
+
+    setVerificationUpdating(true);
+    setVerificationError(null);
+
+    const existingVerifier = data.staging_verified_by ? data.staging_verified_by : null;
+    const nextVerifier = existingVerifier && existingVerifier === verifierName
+      ? existingVerifier
+      : verifierName;
+    const verifiedAt = new Date().toISOString();
+
+    try {
+      const { error: updateError } = await supabase
+        .from("features")
+        .update({
+          staging_verified_by: nextVerifier,
+          staging_verified_at: verifiedAt,
+        })
+        .eq("id", data.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setData((prev) =>
+        prev
+          ? { ...prev, staging_verified_by: nextVerifier, staging_verified_at: verifiedAt }
+          : prev
+      );
+    } catch (err) {
+      setVerificationError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setVerificationUpdating(false);
+    }
+  }
+
+  async function clearStagingVerification(): Promise<void> {
+    if (!data) return;
+
+    setVerificationUpdating(true);
+    setVerificationError(null);
+
+    try {
+      const { error: updateError } = await supabase
+        .from("features")
+        .update({
+          staging_verified_by: null,
+          staging_verified_at: null,
+        })
+        .eq("id", data.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setData((prev) =>
+        prev
+          ? { ...prev, staging_verified_by: null, staging_verified_at: null }
+          : prev
+      );
+    } catch (err) {
+      setVerificationError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setVerificationUpdating(false);
+    }
+  }
+
   return (
     <>
       <div className="detail-backdrop" onClick={onClose} />
@@ -202,8 +282,47 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
                   {data.verification_type ? <tr><td className="detail-meta-key">Verification</td><td className="detail-meta-val">{data.verification_type}</td></tr> : null}
                   <tr><td className="detail-meta-key">Created</td><td className="detail-meta-val">{formatDate(data.created_at)}</td></tr>
                   {data.completed_at ? <tr><td className="detail-meta-key">Completed</td><td className="detail-meta-val">{formatDate(data.completed_at)}</td></tr> : null}
+                  {data.staging_verified_by ? (
+                    <tr>
+                      <td className="detail-meta-key">Staging</td>
+                      <td className="detail-meta-val">
+                        <div className="detail-staging-verification">
+                          <StagingVerificationBadge
+                            staging_verified_by={data.staging_verified_by}
+                            staging_verified_at={data.staging_verified_at}
+                          />
+                          <span className="detail-verification-label">Verified by</span>
+                          <button
+                            className="detail-unverify-btn"
+                            type="button"
+                            onClick={() => void clearStagingVerification()}
+                            disabled={verificationUpdating}
+                          >
+                            Unverify
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
+
+              {data.status === "complete" && !data.promoted_version ? (
+                <div className="detail-section">
+                  <div className="detail-section-title">Staging Verification</div>
+                  {!data.staging_verified_by ? (
+                    <button
+                      className="promote-btn"
+                      type="button"
+                      disabled={verificationUpdating}
+                      onClick={() => void markVerifiedOnStaging()}
+                    >
+                      {verificationUpdating ? "Saving..." : "Mark verified on staging"}
+                    </button>
+                  ) : null}
+                  {verificationError ? <div className="promote-error">{verificationError}</div> : null}
+                </div>
+              ) : null}
 
               {data.sourceIdea ? (
                 <div className="detail-section">

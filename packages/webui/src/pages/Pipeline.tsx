@@ -10,6 +10,7 @@ import {
 import { usePolling } from "../hooks/usePolling";
 import { useRealtimeTable } from "../hooks/useRealtimeTable";
 import FeatureDetailPanel from "../components/FeatureDetailPanel";
+import StagingVerificationBadge from "../components/StagingVerificationBadge";
 
 type FilterMode = "all" | "mine" | "urgent" | "stale";
 
@@ -468,6 +469,10 @@ export default function Pipeline(): JSX.Element {
               <div className="card-accent" style={{ background: accentColor }} />
               <div className="card-body">
                 <div className="card-title">{feature.title}</div>
+                <StagingVerificationBadge
+                  staging_verified_by={feature.staging_verified_by}
+                  staging_verified_at={feature.staging_verified_at}
+                />
                 {showPromotedVersionBadge ? (
                   <div className="card-role-badge">{feature.promoted_version}</div>
                 ) : null}

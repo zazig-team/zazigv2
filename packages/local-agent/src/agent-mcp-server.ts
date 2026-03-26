@@ -3,7 +3,7 @@
 /**
  * Zazig Agent MCP Server — stdio MCP server for agent outbound messaging.
  *
- * Gives agents a `send_message` tool to reply to external platform messages.
+ * Gives agents outbound messaging via the zazig CLI (send-message-to-human).
  * Runs as a subprocess configured via .mcp.json in the agent workspace directory.
  *
  * Environment variables (provided by executor at spawn time):
@@ -64,62 +64,6 @@ const REQUEST_WORK_ROLE_ALLOWLIST: Record<string, Set<string>> = {
   cto: new Set(STANDALONE_ELIGIBLE_ROLES),
   "verification-specialist": new Set(["pipeline-technician"]),
 };
-
-server.tool(
-  "send_message",
-  "Send a message to the company's Slack channel. If conversation_id is omitted, the message goes to the default channel.",
-  {
-    text: z.string().describe("The message text to send"),
-    conversation_id: z.string().optional().describe("Optional conversation ID. If omitted, sends to the company's default Slack channel."),
-  },
-  guardedHandler("send_message", async ({ text, conversation_id }) => {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required",
-          },
-        ],
-      };
-    }
-
-    const jobId = process.env.ZAZIG_JOB_ID ?? "";
-
-    const response = await fetch(`${supabaseUrl}/functions/v1/agent-message`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${supabaseAnonKey}`,
-      },
-      body: JSON.stringify({
-        ...(conversation_id ? { conversationId: conversation_id } : {}),
-        text,
-        jobId,
-      }),
-    });
-
-    if (response.ok) {
-      return {
-        content: [{ type: "text" as const, text: "Message sent successfully." }],
-      };
-    }
-
-    const errorBody = await response.text().catch(() => "unknown error");
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: `Failed to send message (HTTP ${response.status}): ${errorBody}`,
-        },
-      ],
-      isError: true,
-    };
-  }),
-);
 
 server.tool(
   "enable_remote",

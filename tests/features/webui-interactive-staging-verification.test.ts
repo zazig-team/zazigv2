@@ -54,8 +54,7 @@ describe('RLS migration for staging verification columns', () => {
     const match = files.find(
       (f) =>
         f.toLowerCase().includes('staging_verified_rls') ||
-        f.toLowerCase().includes('staging_verified') ||
-        f.toLowerCase().includes('rls'),
+        f.toLowerCase().includes('staging_verified'),
     );
     if (match) {
       migrationFile = `supabase/migrations/${match}`;

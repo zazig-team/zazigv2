@@ -79,16 +79,16 @@ async function pickProject(projects: Project[]): Promise<Project> {
 }
 
 /**
- * Resolve the default branch in a bare repo (main or master).
+ * Resolve the default branch via remote tracking refs.
  */
 function resolveDefaultBranch(repoDir: string): string {
   try {
-    const ref = execSync("git symbolic-ref HEAD", { encoding: "utf-8", cwd: repoDir }).trim();
-    return ref.replace(/^refs\/heads\//, "");
+    const ref = execSync("git symbolic-ref refs/remotes/origin/HEAD", { encoding: "utf-8", cwd: repoDir }).trim();
+    return ref.replace(/^refs\/remotes\/origin\//, "");
   } catch { /* fallback */ }
-  for (const name of ["main", "master"]) {
+  for (const name of ["master", "main"]) {
     try {
-      execSync(`git rev-parse --verify refs/heads/${name}`, { cwd: repoDir, stdio: "pipe" });
+      execSync(`git rev-parse --verify refs/remotes/origin/${name}`, { cwd: repoDir, stdio: "pipe" });
       return name;
     } catch { continue; }
   }
@@ -202,6 +202,13 @@ async function registerAgentVersion(
 }
 
 export async function promote(args: string[]): Promise<void> {
+  // Promote always targets production — override any staging env vars so
+  // credentials, anon key, and Supabase URL resolve to production values.
+  delete process.env["ZAZIG_ENV"];
+  delete process.env["SUPABASE_URL"];
+  delete process.env["SUPABASE_ANON_KEY"];
+  process.env["ZAZIG_HOME"] = join(homedir(), ".zazigv2");
+
   // Handle --rollback (doesn't need company/project)
   if (args.includes("--rollback")) {
     const ok = rollbackBinaries();
@@ -249,49 +256,60 @@ export async function promote(args: string[]): Promise<void> {
   const project = await pickProject(projects);
   console.log(`Project: ${project.name}`);
 
-  // 4. Find the bare repo clone
-  const bareRepoDir = join(REPOS_BASE, project.name);
-  if (!existsSync(bareRepoDir)) {
-    console.error(`No local repo clone found at ${bareRepoDir}.`);
+  // 4. Find the local repo clone and ensure it's a normal (non-bare) clone.
+  const cloneDir = join(REPOS_BASE, project.name);
+  if (!existsSync(cloneDir)) {
+    console.error(`No local repo clone found at ${cloneDir}.`);
     console.error("Run 'zazig start' first to clone the project repo.");
     process.exitCode = 1;
     return;
   }
 
-  // 5. Fetch latest from origin (default branch only).
-  // Fetching all refs fails when remote branches have been force-pushed, because
-  // the bare repo's refs/heads/*:refs/heads/* refspec rejects non-fast-forward
-  // updates. We only need the default branch for promote, so fetch it explicitly.
+  // Migrate legacy bare clone → normal clone
+  try {
+    const isBare = execSync("git rev-parse --is-bare-repository", { encoding: "utf-8", cwd: cloneDir, stdio: "pipe" }).trim();
+    if (isBare === "true") {
+      const repoUrl = execSync("git remote get-url origin", { encoding: "utf-8", cwd: cloneDir, stdio: "pipe" }).trim();
+      console.log("Migrating legacy bare clone to normal clone...");
+      const tmpClone = `${cloneDir}-migrate-tmp`;
+      try { rmSync(tmpClone, { recursive: true, force: true }); } catch { /* */ }
+      execSync(`git clone "${repoUrl}" "${tmpClone}"`, { stdio: "pipe" });
+      rmSync(cloneDir, { recursive: true, force: true });
+      execSync(`mv "${tmpClone}" "${cloneDir}"`, { stdio: "pipe" });
+      console.log("Migration complete.");
+    }
+  } catch (err) {
+    console.error(`Failed to validate/migrate repo: ${String(err)}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // 5. Fetch latest from origin — updates origin/* tracking refs.
   console.log("\nFetching latest from origin...");
   try {
-    // Try master first, fall back to main — we don't know the default branch yet.
-    try {
-      execSync("git fetch origin master:refs/heads/master", { cwd: bareRepoDir, stdio: "pipe" });
-    } catch {
-      execSync("git fetch origin main:refs/heads/main", { cwd: bareRepoDir, stdio: "pipe" });
-    }
+    execSync("git fetch origin", { cwd: cloneDir, stdio: "pipe" });
   } catch (err) {
     console.warn(`Fetch warning (non-fatal): ${String(err)}`);
   }
-  // 6. Create a temporary worktree from the bare clone on master/main
-  const defaultBranch = resolveDefaultBranch(bareRepoDir);
 
-  // Sync refs/remotes/origin/<branch> to match refs/heads/<branch> for comparison.
-  // The bare repo uses refs/heads/*:refs/heads/* fetch refspec, so origin/* refs
-  // are never updated by fetch — we do it manually here.
-  try {
-    execSync(`git update-ref refs/remotes/origin/${defaultBranch} refs/heads/${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
-  } catch { /* non-fatal */ }
+  // 6. Create a temporary worktree in detached HEAD from origin/<default>.
+  //    We use a temporary branch (zazig-promote) to commit on, then push it
+  //    as the default branch. This avoids conflicts with branches that may
+  //    be checked out in other worktrees (e.g. the shared project worktree).
+  const defaultBranch = resolveDefaultBranch(cloneDir);
   const worktreePath = join(homedir(), ".zazigv2", "worktrees", "promote-tmp");
+  const promoteBranch = "zazig-promote";
 
-  // Clean up any stale promote worktree
-  try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" }); } catch { /* */ }
+  // Clean up any stale promote worktree / branch
+  try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: cloneDir, stdio: "pipe" }); } catch { /* */ }
   try { rmSync(worktreePath, { recursive: true, force: true }); } catch { /* */ }
-  try { execSync("git worktree prune", { cwd: bareRepoDir, stdio: "pipe" }); } catch { /* */ }
+  try { execSync("git worktree prune", { cwd: cloneDir, stdio: "pipe" }); } catch { /* */ }
+  try { execSync(`git branch -D ${promoteBranch}`, { cwd: cloneDir, stdio: "pipe" }); } catch { /* */ }
 
   console.log(`Creating worktree on ${defaultBranch}...`);
   try {
-    execSync(`git worktree add --force "${worktreePath}" ${defaultBranch}`, { cwd: bareRepoDir, stdio: "pipe" });
+    // Create a temporary branch from origin/<default> — won't conflict with anything
+    execSync(`git worktree add -b ${promoteBranch} "${worktreePath}" origin/${defaultBranch}`, { cwd: cloneDir, stdio: "pipe" });
   } catch (err) {
     console.error(`Failed to create worktree: ${String(err)}`);
     process.exitCode = 1;
@@ -303,11 +321,12 @@ export async function promote(args: string[]): Promise<void> {
   try {
     await runPromote(repoRoot, defaultBranch, creds, anonKey, supabase);
   } finally {
-    // Cleanup worktree
+    // Cleanup worktree and temp branch
     console.log("\nCleaning up temporary worktree...");
-    try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: bareRepoDir, stdio: "pipe" }); } catch { /* */ }
+    try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: cloneDir, stdio: "pipe" }); } catch { /* */ }
     try { rmSync(worktreePath, { recursive: true, force: true }); } catch { /* */ }
-    try { execSync("git worktree prune", { cwd: bareRepoDir, stdio: "pipe" }); } catch { /* */ }
+    try { execSync("git worktree prune", { cwd: cloneDir, stdio: "pipe" }); } catch { /* */ }
+    try { execSync(`git branch -D ${promoteBranch}`, { cwd: cloneDir, stdio: "pipe" }); } catch { /* */ }
   }
 }
 
@@ -318,29 +337,9 @@ async function runPromote(
   anonKey: string,
   supabase: SupabaseClient
 ): Promise<void> {
-  // 1. Safety checks — verify worktree is on the default branch
+  // 1. Safety check — verify worktree was created from origin/<default>
   try {
-    const branch = execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-    if (branch !== defaultBranch) {
-      console.error(`Worktree is on ${branch}, expected ${defaultBranch}.`);
-      process.exitCode = 1;
-      return;
-    }
-
-    // In a bare-repo worktree, origin/* refs don't exist — the fetch already
-    // updated refs/heads/master directly, so the worktree is up-to-date.
-    // Only compare if origin/<branch> actually resolves.
-    try {
-      const local = execSync("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-      const remote = execSync(`git rev-parse origin/${branch}`, { encoding: "utf-8", cwd: repoRoot, stdio: ["pipe", "pipe", "pipe"] }).trim();
-      if (local !== remote) {
-        console.error(`Local ${branch} (${local.slice(0, 7)}) differs from origin (${remote.slice(0, 7)}).`);
-        process.exitCode = 1;
-        return;
-      }
-    } catch {
-      // No origin/<branch> ref — bare repo, already up to date from fetch.
-    }
+    execSync("git rev-parse HEAD", { cwd: repoRoot, stdio: "pipe" });
   } catch (err) {
     console.error(`Git check failed: ${String(err)}`);
     process.exitCode = 1;
@@ -445,7 +444,7 @@ async function runPromote(
         { cwd: repoRoot, stdio: "pipe" }
       );
       commitSha = execSync("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-      execSync(`git push origin ${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
+      execSync(`git push origin HEAD:${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
       console.log(`Bundles and version bump committed and pushed (${commitSha.slice(0, 7)}).`);
     } else {
       console.error("No staged changes detected after bundle/version bump; promote cannot continue.");
@@ -458,37 +457,34 @@ async function runPromote(
     return;
   }
 
-  // 7. Fast-forward production branch (triggers production CI)
+  // 7. Fast-forward production branch (triggers production CI).
+  //    Verify current HEAD is a fast-forward of origin/production, then push
+  //    HEAD directly as production. No local checkout of "production" needed.
   console.log("\nUpdating production branch...");
   try {
-    // Ensure production branch exists locally
+    // Check if origin/production exists
+    let productionExists = true;
     try {
-      execSync("git rev-parse --verify production", { cwd: repoRoot, stdio: "pipe" });
+      execSync("git rev-parse --verify origin/production", { cwd: repoRoot, stdio: "pipe" });
     } catch {
+      productionExists = false;
+    }
+
+    if (productionExists) {
+      // Verify ff: origin/production must be an ancestor of HEAD
       try {
-        execSync("git branch production origin/production", { cwd: repoRoot, stdio: "pipe" });
+        execSync("git merge-base --is-ancestor origin/production HEAD", { cwd: repoRoot, stdio: "pipe" });
       } catch {
-        execSync("git branch production", { cwd: repoRoot, stdio: "pipe" });
+        console.error(
+          "Fast-forward into production failed. The production branch has diverged from master.\n" +
+          "To fix: git checkout production && git reset --hard master && git push --force-with-lease origin production"
+        );
+        process.exitCode = 1;
+        return;
       }
     }
 
-    // Checkout production branch, fast-forward merge, push.
-    // Note: we don't checkout back to defaultBranch afterwards — the temp
-    // worktree is force-removed in the finally block, and Git refuses
-    // checkout if the branch is checked out in another worktree (e.g. the
-    // CPO's shared worktree).
-    execSync("git checkout production", { cwd: repoRoot, stdio: "pipe" });
-    try {
-      execSync(`git merge ${defaultBranch} --ff-only`, { cwd: repoRoot, stdio: "pipe" });
-    } catch {
-      console.error(
-        "Fast-forward merge into production failed. The production branch has diverged from master.\n" +
-        "To fix: git checkout production && git reset --hard master && git push --force-with-lease origin production"
-      );
-      process.exitCode = 1;
-      return;
-    }
-    execSync("git push origin production", { cwd: repoRoot, stdio: "pipe" });
+    execSync("git push origin HEAD:production", { cwd: repoRoot, stdio: "pipe" });
     console.log("Production branch updated and pushed (triggers CI for Supabase deployment).");
   } catch (err) {
     console.error(`Production branch update failed: ${String(err)}`);

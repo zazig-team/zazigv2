@@ -36,7 +36,8 @@ interface ExpertSessionState {
   /** Effective workspace dir used as tmux cwd (repo worktree when available). */
   effectiveWorkspaceDir: string;
   repoDir?: string;
-  bareRepoDir?: string;
+  /** Parent clone directory used to manage this session's worktree. */
+  cloneDir?: string;
   /** Resolved default branch of the repo (e.g. "master" or "main"). */
   defaultBranch?: string;
   /** Branch used for expert work and post-session push/merge handling. */
@@ -211,7 +212,7 @@ export class ExpertSessionManager {
 
     // 3. Git worktree setup — skipped for repo-free experts (needs_repo === false)
     let repoDir: string | undefined;
-    let bareRepoDir: string | undefined;
+    let cloneDir: string | undefined;
     let startCommitHash: string | undefined;
     let resolvedDefaultBranch: string | undefined;
 
@@ -220,39 +221,33 @@ export class ExpertSessionManager {
     if (needsRepo && msg.project_id && msg.repo_url) {
       try {
         const projectName = msg.repo_url.split("/").pop()?.replace(/\.git$/, "") ?? msg.project_id;
-        bareRepoDir = await this.repoManager.ensureRepo(msg.repo_url, projectName);
+        cloneDir = await this.repoManager.ensureRepo(msg.repo_url, projectName);
         const worktreeTarget = join(workspaceDir, "repo");
 
         // Remove stale metadata/dir from interrupted sessions so each start gets a fresh worktree.
         try {
           await execFileAsync("git", [
-            "-C", bareRepoDir,
+            "-C", cloneDir,
             "worktree", "remove", "--force", worktreeTarget,
           ]);
         } catch {
           // No pre-existing worktree at this path — that's fine.
         }
         rmSync(worktreeTarget, { recursive: true, force: true });
-        await execFileAsync("git", ["-C", bareRepoDir, "worktree", "prune"]);
+        await execFileAsync("git", ["-C", cloneDir, "worktree", "prune"]);
 
-        // Fetch into a per-session temp ref — never touches refs/heads/{branch}, so
-        // concurrent sessions and checked-out worktrees don't block each other.
+        // Fetch latest — updates origin/* tracking refs without touching worktrees.
         const { defaultBranch, tempRef } = await this.repoManager.fetchForExpertSession(
           projectName, sessionId,
         );
         resolvedDefaultBranch = defaultBranch;
 
-        // Create expert branch from the temp ref, then clean up the temp ref.
+        // Create expert branch from the remote tracking ref.
         await execFileAsync("git", [
-          "-C", bareRepoDir,
+          "-C", cloneDir,
           "worktree", "add", "-b", expertBranch, worktreeTarget,
           tempRef,
         ]);
-        try {
-          await execFileAsync("git", ["-C", bareRepoDir, "update-ref", "-d", tempRef]);
-        } catch {
-          // Non-fatal — orphaned refs/zazig-expert-base/ refs can be bulk-pruned later.
-        }
 
         const { stdout } = await execFileAsync("git", ["-C", worktreeTarget, "rev-parse", "HEAD"]);
         startCommitHash = stdout.trim();
@@ -438,7 +433,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
         workspaceDir,
         effectiveWorkspaceDir,
         repoDir,
-        bareRepoDir,
+        cloneDir,
         defaultBranch: resolvedDefaultBranch,
         branch: msg.branch ?? undefined,
         expertBranch: repoDir ? expertBranch : undefined,
@@ -495,7 +490,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
       workspaceDir,
       effectiveWorkspaceDir,
       repoDir,
-      bareRepoDir,
+      cloneDir,
       defaultBranch: resolvedDefaultBranch,
       branch: repoDir ? expertBranch : undefined,
       expertBranch: repoDir ? expertBranch : undefined,
@@ -757,7 +752,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
    */
   private async pushUnpushedCommits(session: ExpertSessionState): Promise<void> {
     const expertBranch = session.expertBranch ?? session.branch;
-    if (!session.repoDir || !session.bareRepoDir || !expertBranch || !session.startCommit) return;
+    if (!session.repoDir || !session.cloneDir || !expertBranch || !session.startCommit) return;
 
     try {
       const { stdout: currentHead } = await execFileAsync("git", [
@@ -825,13 +820,13 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
     if (!session.repoDir) return;
 
     try {
-      if (session.bareRepoDir) {
+      if (session.cloneDir) {
         await execFileAsync("git", [
-          "-C", session.bareRepoDir,
+          "-C", session.cloneDir,
           "worktree", "remove", "--force", session.repoDir,
         ]);
         await execFileAsync("git", [
-          "-C", session.bareRepoDir,
+          "-C", session.cloneDir,
           "worktree", "prune",
         ]);
       } else {

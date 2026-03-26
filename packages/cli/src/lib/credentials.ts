@@ -10,10 +10,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_SUPABASE_ANON_KEY } from "./constants.js";
 
-const ZAZIGV2_DIR = process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
+function zazigDir(): string {
+  return process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
+}
 
 function credentialsPath(): string {
-  return join(ZAZIGV2_DIR, "credentials.json");
+  return join(zazigDir(), "credentials.json");
 }
 
 export interface Credentials {
@@ -37,7 +39,7 @@ export function loadCredentials(): Credentials {
 }
 
 export function saveCredentials(creds: Credentials): void {
-  mkdirSync(ZAZIGV2_DIR, { recursive: true });
+  mkdirSync(zazigDir(), { recursive: true });
   writeFileSync(credentialsPath(), JSON.stringify(creds, null, 2) + "\n", {
     mode: 0o600,
   });

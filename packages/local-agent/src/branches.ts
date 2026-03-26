@@ -139,7 +139,9 @@ export async function removeWorktree(repoDir: string, worktreePath: string): Pro
 const REPOS_BASE = join(process.env.HOME ?? "~", ".zazigv2/repos");
 
 /**
- * Manages bare repo clones, feature branches, job worktrees, pushing, and cleanup.
+ * Manages repo clones, feature branches, job worktrees, pushing, and cleanup.
+ * Uses a normal (non-bare) clone as the worktree parent. The clone's working
+ * tree is never used directly — all work happens in linked worktrees.
  * Uses a per-repo promise lock to prevent concurrent git operation races.
  */
 export class RepoManager {
@@ -167,32 +169,39 @@ export class RepoManager {
   }
 
   /**
-   * Bare-clone repoUrl to ~/.zazigv2/repos/{name}/ if not exists, else fetch --prune.
-   * Ensures the fetch refspec is set (bare clones of empty repos omit it).
-   * If the repo is empty (no commits), seeds it with an initial empty commit so
-   * branches can be created from it.
+   * Clone repoUrl to ~/.zazigv2/repos/{name}/ if not exists, else fetch.
+   * If an existing clone is bare (legacy), removes and re-clones as normal.
+   * If the repo is empty (no commits), seeds it with an initial empty commit.
    * Returns the repo dir path.
    */
   async ensureRepo(repoUrl: string, projectName: string): Promise<string> {
     const repoDir = join(REPOS_BASE, projectName);
     return this.withLock(repoDir, async () => {
       await mkdir(REPOS_BASE, { recursive: true });
-      if (!existsSync(repoDir)) {
-        await execFileAsync("git", ["clone", "--bare", repoUrl, repoDir], { encoding: "utf8" });
+
+      // Migrate legacy bare clones: detect and re-clone as normal
+      if (existsSync(repoDir)) {
+        try {
+          const isBare = await this.git(repoDir, "rev-parse", "--is-bare-repository");
+          if (isBare === "true") {
+            console.log(`[RepoManager] Migrating legacy bare clone to normal clone: ${repoDir}`);
+            rmSync(repoDir, { recursive: true, force: true });
+          }
+        } catch {
+          // Not a valid git repo — remove and re-clone
+          rmSync(repoDir, { recursive: true, force: true });
+        }
       }
-      // Ensure refspec does NOT force-update (no leading "+"). Without "+",
-      // git fetch refuses to overwrite branches that have diverged from
-      // the remote, which protects job branches with active worktrees from
-      // being clobbered by a concurrent job's fetch.
-      await this.git(repoDir, "config", "remote.origin.fetch", "refs/heads/*:refs/heads/*");
-      // Check if repo is empty. NOTE: rev-parse HEAD without --verify returns
-      // the literal string "HEAD" with exit 0 in an empty repo, so --verify
-      // is required to actually detect emptiness.
+
+      if (!existsSync(repoDir)) {
+        await execFileAsync("git", ["clone", repoUrl, repoDir], { encoding: "utf8" });
+      }
+
+      // Check if repo is empty
       try {
         await this.git(repoDir, "rev-parse", "--verify", "HEAD");
       } catch {
-        // Empty repo — clone from the remote URL, create an initial commit,
-        // push it to GitHub, then fetch into our bare repo.
+        // Empty repo — create an initial commit, push it
         const tmpDir = join(REPOS_BASE, `.tmp-init-${projectName}`);
         try {
           await execFileAsync("git", ["clone", repoUrl, tmpDir], { encoding: "utf8" });
@@ -201,13 +210,7 @@ export class RepoManager {
         } finally {
           await execFileAsync("rm", ["-rf", tmpDir]).catch(() => {});
         }
-        // Fetch the new commit into our bare repo (refspec is now set)
-        // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
-      // That's expected — diverged branches are intentionally protected. The other
-      // branches are still updated, so we log and continue.
-      try { await this.git(repoDir, "fetch", "origin"); } catch (e) {
-        console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
-      }
+        await this.git(repoDir, "fetch", "origin");
       }
       return repoDir;
     });
@@ -219,23 +222,18 @@ export class RepoManager {
    * If an existing worktree is corrupted, remove and recreate it.
    */
   async ensureWorktree(projectName: string): Promise<string> {
-    const bareDir = join(REPOS_BASE, projectName);
+    const cloneDir = join(REPOS_BASE, projectName);
     const worktreeDir = join(REPOS_BASE, `${projectName}-worktree`);
 
-    return this.withLock(bareDir, async () => {
+    return this.withLock(cloneDir, async () => {
       try {
-        if (!existsSync(bareDir)) {
-          throw new Error(`Bare repo missing: ${bareDir}`);
+        if (!existsSync(cloneDir)) {
+          throw new Error(`Repo clone missing: ${cloneDir}`);
         }
 
-        // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
-        // That's expected — diverged branches are intentionally protected. The other
-        // branches are still updated, so we log and continue.
-        try { await this.git(bareDir, "fetch", "origin"); } catch (e) {
-          console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
-        }
+        await this.git(cloneDir, "fetch", "origin");
 
-        const targetBranch = await this.resolveSharedWorktreeBranch(bareDir);
+        const targetBranch = await this.resolveSharedWorktreeBranch(cloneDir);
         console.log(`[RepoManager] ensureWorktree project=${projectName} branch=${targetBranch} path=${worktreeDir}`);
 
         if (existsSync(worktreeDir)) {
@@ -243,16 +241,17 @@ export class RepoManager {
           if (!isValid) {
             console.warn(`[RepoManager] ensureWorktree found invalid worktree at ${worktreeDir}; recreating`);
             rmSync(worktreeDir, { recursive: true, force: true });
-            await this.git(bareDir, "worktree", "prune");
+            await this.git(cloneDir, "worktree", "prune");
           }
         }
 
         if (!existsSync(worktreeDir)) {
-          await this.git(bareDir, "worktree", "add", worktreeDir, targetBranch);
+          // Create worktree from the latest remote tracking ref
+          await this.git(cloneDir, "worktree", "add", worktreeDir, targetBranch);
           console.log(`[RepoManager] ensureWorktree created ${worktreeDir} on ${targetBranch}`);
         } else {
           await this.git(worktreeDir, "checkout", targetBranch);
-          await this.git(worktreeDir, "reset", "--hard", targetBranch);
+          await this.git(worktreeDir, "reset", "--hard", `origin/${targetBranch}`);
           console.log(`[RepoManager] ensureWorktree refreshed ${worktreeDir} on ${targetBranch}`);
         }
 
@@ -267,48 +266,32 @@ export class RepoManager {
   }
 
   async refreshWorktree(projectName: string): Promise<void> {
-    const bareDir = join(REPOS_BASE, projectName);
+    const cloneDir = join(REPOS_BASE, projectName);
     const worktreeDir = join(REPOS_BASE, `${projectName}-worktree`);
 
     if (!existsSync(worktreeDir)) {
       return;
     }
 
-    await this.withLock(bareDir, async () => {
+    await this.withLock(cloneDir, async () => {
       if (!existsSync(worktreeDir)) {
         return;
       }
 
-      const targetBranch = await this.resolveSharedWorktreeBranch(bareDir);
+      const targetBranch = await this.resolveSharedWorktreeBranch(cloneDir);
 
-      // Fetch into a temporary ref. Git refuses to update refs/heads/{branch}
-      // when that branch is checked out in a linked worktree — even with `+`
-      // and `--force`. Fetching into a separate ref sidesteps this protection
-      // entirely, and we advance the worktree via rebase/reset instead.
-      //
-      // --refmap="" suppresses the configured refspec (refs/heads/*:refs/heads/*
-      // set by ensureRepo). Without this, Git also tries to update refs/heads/main
-      // via the configured refspec, which triggers the checked-out protection
-      // and fails the entire fetch.
-      const tempRef = `refs/zazig-refresh/${targetBranch}`;
+      // Fetch latest from origin — updates origin/* tracking refs without
+      // touching any local branches or worktrees.
       try {
-        await this.git(bareDir, "fetch", "--refmap=", "origin",
-          `+refs/heads/${targetBranch}:${tempRef}`);
+        await this.git(cloneDir, "fetch", "origin");
       } catch (error) {
         console.warn(
           `[RepoManager] refreshWorktree: fetch FAILED for ${projectName}: ${getErrorMessage(error)}`,
         );
-        return; // Can't refresh without a successful fetch
-      }
-
-      let remoteHead: string;
-      try {
-        remoteHead = await this.git(bareDir, "rev-parse", tempRef);
-      } catch {
-        console.warn(`[RepoManager] refreshWorktree: temp ref missing after fetch for ${projectName}`);
         return;
       }
 
+      const remoteHead = await this.git(cloneDir, "rev-parse", `origin/${targetBranch}`);
       const worktreeHead = await this.git(worktreeDir, "rev-parse", "HEAD");
       if (worktreeHead === remoteHead) {
         return; // Already up to date
@@ -333,13 +316,9 @@ export class RepoManager {
         }
 
         if (isFastForward) {
-          // Safe fast-forward — no local commits to preserve.
           await this.git(worktreeDir, "reset", "--hard", remoteHead);
           console.log(`[RepoManager] refreshed ${projectName}: ${worktreeHead.slice(0, 8)} → ${remoteHead.slice(0, 8)}`);
         } else {
-          // Worktree has local commits (e.g. CPO doc commits). Rebase them
-          // on top of the new remote head to preserve them while pulling in
-          // upstream changes.
           try {
             await this.git(worktreeDir, "rebase", remoteHead);
             const newHead = await this.git(worktreeDir, "rev-parse", "HEAD");
@@ -365,24 +344,21 @@ export class RepoManager {
   }
 
   /**
-   * Resolve the default branch in a bare repo.
-   * Tries symbolic-ref HEAD first, then falls back to common names.
+   * Resolve the default branch by checking origin's HEAD.
+   * Falls back to checking for common branch names.
    */
   private async resolveDefaultBranch(repoDir: string): Promise<string> {
-    // In a bare repo, HEAD is a symbolic ref like "refs/heads/main"
+    // Check what origin/HEAD points to
     try {
-      const ref = await this.git(repoDir, "symbolic-ref", "HEAD");
-      const branchName = ref.replace(/^refs\/heads\//, "");
-      // Verify the branch actually has commits
-      await this.git(repoDir, "rev-parse", "--verify", `refs/heads/${branchName}`);
-      return branchName;
+      const ref = await this.git(repoDir, "symbolic-ref", "refs/remotes/origin/HEAD");
+      return ref.replace(/^refs\/remotes\/origin\//, "");
     } catch {
-      // HEAD symbolic ref missing or points to nonexistent branch
+      // origin/HEAD not set
     }
-    // Fallback: try common default branch names
+    // Fallback: try common default branch names via tracking refs
     for (const name of ["main", "master"]) {
       try {
-        await this.git(repoDir, "rev-parse", "--verify", `refs/heads/${name}`);
+        await this.git(repoDir, "rev-parse", "--verify", `refs/remotes/origin/${name}`);
         return name;
       } catch {
         continue;
@@ -397,7 +373,7 @@ export class RepoManager {
    */
   private async resolveSharedWorktreeBranch(repoDir: string): Promise<string> {
     try {
-      await this.git(repoDir, "rev-parse", "--verify", "refs/heads/master");
+      await this.git(repoDir, "rev-parse", "--verify", "refs/remotes/origin/master");
       return "master";
     } catch {
       return this.resolveDefaultBranch(repoDir);
@@ -415,8 +391,6 @@ export class RepoManager {
 
   /**
    * Create feature branch off default branch if not exists. Idempotent.
-   * In a bare repo, branches fetched from origin live directly under refs/heads/,
-   * so there are no origin/* tracking refs.
    */
   async ensureFeatureBranch(repoDir: string, featureBranch: string): Promise<void> {
     return this.withLock(repoDir, async () => {
@@ -430,76 +404,40 @@ export class RepoManager {
 
       const defaultBranch = await this.resolveDefaultBranch(repoDir);
 
-      // Fetch the default branch into a temp ref. Git refuses to update
-      // refs/heads/{branch} when that branch is checked out in a linked worktree,
-      // even with --force. Fetching into a separate ref sidesteps this protection.
-      // --refmap="" suppresses the configured refspec so Git doesn't also try
-      // refs/heads/{branch}:refs/heads/{branch} (which would trigger the protection).
-      const tempRef = `refs/zazig-tmp/${defaultBranch}`;
+      // Fetch latest so we branch from the current remote HEAD
       try {
-        await this.git(repoDir, "fetch", "--refmap=", "origin",
-          `+refs/heads/${defaultBranch}:${tempRef}`);
+        await this.git(repoDir, "fetch", "origin");
       } catch (e) {
         console.warn(`[RepoManager] ensureFeatureBranch: fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
 
-      // Use the temp ref if available (fresh from origin); fall back to local ref.
-      let baseRef: string;
-      try {
-        await this.git(repoDir, "rev-parse", "--verify", tempRef);
-        baseRef = tempRef;
-      } catch {
-        baseRef = defaultBranch;
-      }
-
-      await this.git(repoDir, "branch", featureBranch, baseRef);
+      await this.git(repoDir, "branch", featureBranch, `origin/${defaultBranch}`);
     });
   }
 
   async fetchBranchForExpert(projectName: string, branch: string): Promise<void> {
-    const bareDir = join(REPOS_BASE, projectName);
-    return this.withLock(bareDir, async () => {
-      await this.git(
-        bareDir,
-        "fetch",
-        "--force",
-        "origin",
-        `+refs/heads/${branch}:refs/heads/${branch}`,
-      );
+    const cloneDir = join(REPOS_BASE, projectName);
+    return this.withLock(cloneDir, async () => {
+      await this.git(cloneDir, "fetch", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
     });
   }
 
   /**
-   * Fetch the default branch into a per-session temporary ref.
+   * Fetch the default branch for an expert session.
    *
-   * Unlike fetchBranchForExpert, this never updates refs/heads/{branch}, so it
-   * succeeds even when that branch is checked out in another worktree. Each
-   * session gets a distinct ref (refs/zazig-expert-base/{sessionId}), eliminating
-   * ref conflicts between concurrent sessions.
-   *
-   * The caller must delete the temp ref with:
-   *   git update-ref -d refs/zazig-expert-base/{sessionId}
-   * after the worktree is created.
-   *
-   * Returns the resolved default branch name and the temp ref path.
+   * Returns the resolved default branch name and the remote tracking ref
+   * that the worktree should be created from.
    */
   async fetchForExpertSession(
     projectName: string,
-    sessionId: string,
+    _sessionId: string,
   ): Promise<{ defaultBranch: string; tempRef: string }> {
-    const bareDir = join(REPOS_BASE, projectName);
-    return this.withLock(bareDir, async () => {
-      const defaultBranch = await this.resolveDefaultBranch(bareDir);
-      const tempRef = `refs/zazig-expert-base/${sessionId}`;
-      await this.git(
-        bareDir,
-        "fetch",
-        "--refmap=",
-        "--no-write-fetch-head",
-        "origin",
-        `+refs/heads/${defaultBranch}:${tempRef}`,
-      );
-      return { defaultBranch, tempRef };
+    const cloneDir = join(REPOS_BASE, projectName);
+    return this.withLock(cloneDir, async () => {
+      await this.git(cloneDir, "fetch", "origin");
+      const defaultBranch = await this.resolveDefaultBranch(cloneDir);
+      // Return the tracking ref — caller creates worktree from this
+      return { defaultBranch, tempRef: `origin/${defaultBranch}` };
     });
   }
 
@@ -513,10 +451,7 @@ export class RepoManager {
     jobId: string
   ): Promise<{ worktreePath: string; jobBranch: string }> {
     return this.withLock(repoDir, async () => {
-      // Fetch inside the lock so concurrent jobs can't clobber each other's branches
-      // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
-      // That's expected — diverged branches are intentionally protected. The other
-      // branches are still updated, so we log and continue.
+      // Fetch latest tracking refs
       try { await this.git(repoDir, "fetch", "origin"); } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
@@ -552,9 +487,8 @@ export class RepoManager {
 
   /**
    * Create a job worktree that inherits code from dependency branches.
-   * Validates all dependency branches exist in the bare repo and then creates
-   * job/{jobId} from depBranches[0]. No infrastructure-level merges are done here;
-   * conflict handling is delegated to the combiner agent.
+   * Validates all dependency branches exist and then creates
+   * job/{jobId} from depBranches[0].
    */
   async createDependentJobWorktree(
     repoDir: string,
@@ -564,7 +498,6 @@ export class RepoManager {
   ): Promise<{ worktreePath: string; jobBranch: string; conflictBranches: string[] }> {
     return this.withLock(repoDir, async () => {
       console.log(`[RepoManager] createDependentJobWorktree: jobId=${jobId}, depBranches=${JSON.stringify(depBranches)}`);
-      // Fetch may exit non-zero if some branches are rejected (non-fast-forward).
       try { await this.git(repoDir, "fetch", "origin"); } catch (e) {
         console.warn(`[RepoManager] fetch warning (non-fatal): ${getErrorMessage(e)}`);
       }
@@ -623,22 +556,18 @@ export class RepoManager {
       }
 
       // Multi-dep: merge remaining branches into the worktree.
-      // Ensure git user config exists for merge commits (CI may lack global config).
       try {
         await execFileAsync("git", ["-C", worktreePath, "config", "user.email"], { encoding: "utf8" });
       } catch {
         await execFileAsync("git", ["-C", worktreePath, "config", "user.email", "zazig-agent@zazig.com"], { encoding: "utf8" });
         await execFileAsync("git", ["-C", worktreePath, "config", "user.name", "zazig-agent"], { encoding: "utf8" });
       }
-      // Use refs/heads/ prefix so the ref resolves unambiguously in bare-repo worktrees.
       const conflictBranches: string[] = [];
       for (const branch of depBranches.slice(1)) {
-        const ref = `refs/heads/${branch}`;
         try {
-          await execFileAsync("git", ["-C", worktreePath, "merge", "--no-edit", ref], { encoding: "utf8" });
+          await execFileAsync("git", ["-C", worktreePath, "merge", "--no-edit", branch], { encoding: "utf8" });
           console.log(`[RepoManager] Merged dep branch "${branch}" cleanly into ${jobBranch}`);
         } catch (mergeErr) {
-          // Merge failed — could be conflict or unrelated histories
           const errMsg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
           console.warn(`[RepoManager] Merge failed for "${branch}" into ${jobBranch}: ${errMsg}`);
           try { await execFileAsync("git", ["-C", worktreePath, "merge", "--abort"], { encoding: "utf8" }); } catch {}

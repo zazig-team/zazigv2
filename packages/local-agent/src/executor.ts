@@ -453,7 +453,7 @@ interface ActiveJob {
   workspaceDir?: string;
   /** Git worktree path for this job — agent CWD and workspace root. */
   worktreePath?: string;
-  /** Bare repo directory used to manage this job's worktree. */
+  /** Clone directory used to manage this job's worktree. */
   repoDir?: string;
   /** Job branch name (job/{jobId}) pushed to origin after completion. */
   jobBranch?: string;
@@ -596,7 +596,7 @@ export class JobExecutor {
 
   /** Jobs that have been attempted (including failures) — prevents duplicate dispatch. */
 
-  /** Manages bare repo clones and job worktrees for all active jobs. */
+  /** Manages repo clones and job worktrees for all active jobs. */
   public readonly repoManager = new RepoManager();
 
   /** Map of role → active persistent agent state. Supports simultaneous CPO, CTO, etc. */
@@ -3723,7 +3723,7 @@ function buildCommand(
   if (slotType === "codex") {
     // Native Codex execution — prompt is piped via stdin (same as Claude).
     const args = ["exec", "-m", resolvedModel, "--full-auto", "-c", "sandbox_workspace_write.network_access=true", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
-    // Worktrees store their git index inside the parent bare repo dir.
+    // Worktrees store their git index inside the parent clone dir.
     // The sandbox must be able to write there for git add/commit to work.
     if (repoDir) {
       args.push("--add-dir", repoDir);

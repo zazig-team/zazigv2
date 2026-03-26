@@ -37,6 +37,7 @@ import { updateIdea } from "./commands/update-idea.js";
 import { promoteIdea } from "./commands/promote-idea.js";
 import { createRule } from "./commands/create-rule.js";
 import { batchCreateJobs } from "./commands/batch-create-jobs.js";
+import { sendMessageToHuman } from "./commands/send-message-to-human.js";
 import { getVersion } from "./lib/version.js";
 
 const [, , cmd, ...args] = process.argv;
@@ -143,6 +144,10 @@ switch (cmd) {
     await batchCreateJobs(args);
     break;
 
+  case "send-message-to-human":
+    await sendMessageToHuman(args);
+    break;
+
   case undefined:
   case "--help":
   case "-h":
@@ -176,6 +181,7 @@ switch (cmd) {
     console.log("  promote-idea --company <company-id>    Promote an idea");
     console.log("  create-rule --company <company-id>     Create a project rule");
     console.log("  batch-create-jobs --company <id> --feature-id <id>  Create jobs for a feature");
+    console.log("  send-message-to-human --company <id> --text <msg>   Send a message to a human");
     break;
 
   default:

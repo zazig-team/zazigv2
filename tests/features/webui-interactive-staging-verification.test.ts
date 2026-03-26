@@ -50,21 +50,19 @@ describe('RLS migration for staging verification columns', () => {
 
   beforeAll(() => {
     const files = getMigrationFiles();
-    // Find migration that mentions staging_verified RLS
-    const match = files.find(
-      (f) =>
-        f.toLowerCase().includes('staging_verified_rls') ||
-        f.toLowerCase().includes('staging_verified'),
+    // Prefer the explicit RLS migration file
+    const rlsMatch = files.find((f) =>
+      f.toLowerCase().includes('staging_verified_rls'),
     );
-    if (match) {
-      migrationFile = `supabase/migrations/${match}`;
+    if (rlsMatch) {
+      migrationFile = `supabase/migrations/${rlsMatch}`;
       migrationContent = readRepoFile(migrationFile);
     }
-    // Fallback: scan all migrations for staging_verified_by
+    // Fallback: scan all migrations for a CREATE POLICY referencing staging_verified_by
     if (!migrationContent) {
       for (const f of files) {
         const c = readRepoFile(`supabase/migrations/${f}`);
-        if (c && c.includes('staging_verified_by')) {
+        if (c && c.includes('staging_verified_by') && /CREATE\s+POLICY/i.test(c)) {
           migrationFile = `supabase/migrations/${f}`;
           migrationContent = c;
           break;

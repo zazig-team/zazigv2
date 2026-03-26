@@ -44,6 +44,8 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS feature_terminal_closes_idea ON public.features;
+
 CREATE TRIGGER feature_terminal_closes_idea
   AFTER UPDATE OF status ON public.features
   FOR EACH ROW

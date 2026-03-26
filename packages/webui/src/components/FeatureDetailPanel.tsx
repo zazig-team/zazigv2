@@ -8,6 +8,8 @@ import {
   type FeatureDetail,
 } from "../lib/queries";
 import { useCompany } from "../hooks/useCompany";
+import { useAuth } from "../hooks/useAuth";
+import { supabase } from "../lib/supabase";
 import FormattedProse from "./FormattedProse";
 import JobDetailExpand from "./JobDetailExpand";
 
@@ -40,22 +42,28 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+const STAGING_VERIFIER_NAME_KEY = "zazig.stagingVerifierName";
+
+function isCompletedStatus(status: string): boolean {
+  const normalized = status.toLowerCase();
+  return normalized === "complete" || normalized === "completed" || normalized === "shipped";
+}
+
 function formatRelativeTime(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "just now";
+  const timestamp = new Date(iso).getTime();
+  if (Number.isNaN(timestamp)) return formatDate(iso);
 
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
+  const elapsedSeconds = (Date.now() - timestamp) / 1000;
+  const absolute = Math.abs(elapsedSeconds);
+  const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
-  const diffMs = Date.now() - date.getTime();
-  const absMs = Math.abs(diffMs);
-  const suffix = diffMs >= 0 ? "ago" : "from now";
-
-  if (absMs < 60_000) return "just now";
-  if (absMs < 3_600_000) return `${Math.round(absMs / 60_000)}m ${suffix}`;
-  if (absMs < 86_400_000) return `${Math.round(absMs / 3_600_000)}h ${suffix}`;
-  if (absMs < 2_592_000_000) return `${Math.round(absMs / 86_400_000)}d ${suffix}`;
-  if (absMs < 31_536_000_000) return `${Math.round(absMs / 2_592_000_000)}mo ${suffix}`;
-  return `${Math.round(absMs / 31_536_000_000)}y ${suffix}`;
+  if (absolute < 60) return formatter.format(-Math.round(elapsedSeconds), "second");
+  if (absolute < 3600) return formatter.format(-Math.round(elapsedSeconds / 60), "minute");
+  if (absolute < 86400) return formatter.format(-Math.round(elapsedSeconds / 3600), "hour");
+  if (absolute < 2592000) return formatter.format(-Math.round(elapsedSeconds / 86400), "day");
+  if (absolute < 31536000) return formatter.format(-Math.round(elapsedSeconds / 2592000), "month");
+  return formatter.format(-Math.round(elapsedSeconds / 31536000), "year");
 }
 
 type DiagnosisState =
@@ -95,8 +103,11 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [retried, setRetried] = useState(false);
+  const [verificationSaving, setVerificationSaving] = useState(false);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const { activeCompanyId } = useCompany();
+  const { user } = useAuth();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -122,6 +133,8 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
     setRetrying(false);
     setRetryError(null);
     setRetried(false);
+    setVerificationSaving(false);
+    setVerificationError(null);
     setSelectedJobId(null);
   }, [featureId]);
 
@@ -191,6 +204,101 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
     return "";
   }
 
+  function verifierDefaultName(feature: FeatureDetail): string {
+    const storedName = typeof window !== "undefined"
+      ? (window.localStorage.getItem(STAGING_VERIFIER_NAME_KEY) ?? "").trim()
+      : "";
+    if (storedName) return storedName;
+
+    const metadata = (user?.user_metadata ?? null) as Record<string, unknown> | null;
+    const metadataName = typeof metadata?.full_name === "string"
+      ? metadata.full_name
+      : typeof metadata?.name === "string"
+      ? metadata.name
+      : typeof metadata?.preferred_name === "string"
+      ? metadata.preferred_name
+      : "";
+
+    const trimmedMetadataName = metadataName.trim();
+    if (trimmedMetadataName) return trimmedMetadataName;
+    if (user?.email) return user.email.split("@")[0] ?? user.email;
+    if (feature.created_by) return feature.created_by;
+    return "Verifier";
+  }
+
+  async function markStagingVerified(): Promise<void> {
+    if (!data || verificationSaving) return;
+    if (typeof window === "undefined") return;
+
+    const promptDefault = verifierDefaultName(data);
+    const prompted = window.prompt("Verifier name", promptDefault);
+    if (prompted === null) return;
+
+    const verifierName = prompted.trim();
+    if (!verifierName) return;
+
+    window.localStorage.setItem(STAGING_VERIFIER_NAME_KEY, verifierName);
+    const stagingVerifiedAt = new Date().toISOString();
+    const previous = data;
+
+    setVerificationError(null);
+    setVerificationSaving(true);
+    setData((current) => current
+      ? { ...current, staging_verified_by: verifierName, staging_verified_at: stagingVerifiedAt }
+      : current);
+
+    try {
+      const { error: updateError } = await supabase
+        .from("features")
+        .update({
+          staging_verified_by: verifierName,
+          staging_verified_at: stagingVerifiedAt,
+        })
+        .eq("id", featureId);
+      if (updateError) throw updateError;
+    } catch (err) {
+      setData(previous);
+      setVerificationError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setVerificationSaving(false);
+    }
+  }
+
+  async function clearStagingVerification(): Promise<void> {
+    if (!data || verificationSaving) return;
+    const previous = data;
+
+    setVerificationError(null);
+    setVerificationSaving(true);
+    setData((current) => current
+      ? { ...current, staging_verified_by: null, staging_verified_at: null }
+      : current);
+
+    try {
+      const { error: updateError } = await supabase
+        .from("features")
+        .update({
+          staging_verified_by: null,
+          staging_verified_at: null,
+        })
+        .eq("id", featureId);
+      if (updateError) throw updateError;
+    } catch (err) {
+      setData(previous);
+      setVerificationError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setVerificationSaving(false);
+    }
+  }
+
+  const canMarkVerifiedOnStaging = Boolean(
+    data &&
+    (data.status === "complete" || data.status === "completed" || data.status === "shipped") &&
+    data.promoted_version == null &&
+    !data.staging_verified_by &&
+    isCompletedStatus(data.status),
+  );
+
   return (
     <>
       <div className="detail-backdrop" onClick={onClose} />
@@ -226,6 +334,38 @@ export default function FeatureDetailPanel({ featureId, colorVar, onClose }: Fea
                   ) : null}
                   <tr><td className="detail-meta-key">Created</td><td className="detail-meta-val">{formatDate(data.created_at)}</td></tr>
                   {data.completed_at ? <tr><td className="detail-meta-key">Completed</td><td className="detail-meta-val">{formatDate(data.completed_at)}</td></tr> : null}
+                  <tr>
+                    <td className="detail-meta-key">Staging</td>
+                    <td className="detail-meta-val">
+                      {data.staging_verified_by ? (
+                        <span className="detail-badge detail-badge--positive staging-verified-badge staging-verified-badge--green">
+                          <span className="staging-verified-name">{data.staging_verified_by}</span>
+                          <span className="staging-verified-time">{formatRelativeTime(data.staging_verified_at)}</span>
+                          <button
+                            className="staging-verified-clear"
+                            type="button"
+                            aria-label="Un-verify staging verification"
+                            onClick={clearStagingVerification}
+                            disabled={verificationSaving}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ) : canMarkVerifiedOnStaging ? (
+                        <button
+                          className="staging-verify-btn"
+                          type="button"
+                          onClick={markStagingVerified}
+                          disabled={verificationSaving}
+                        >
+                          Mark verified on staging
+                        </button>
+                      ) : (
+                        <span className="staging-verify-muted">—</span>
+                      )}
+                      {verificationError ? <div className="promote-error staging-verify-error">{verificationError}</div> : null}
+                    </td>
+                  </tr>
                 </tbody>
               </table>
 

@@ -36,6 +36,7 @@ import { createIdea } from "./commands/create-idea.js";
 import { updateIdea } from "./commands/update-idea.js";
 import { promoteIdea } from "./commands/promote-idea.js";
 import { createRule } from "./commands/create-rule.js";
+import { createProjectRule } from "./commands/create-project-rule.js";
 import { batchCreateJobs } from "./commands/batch-create-jobs.js";
 import { sendMessageToHuman } from "./commands/send-message-to-human.js";
 import { getVersion } from "./lib/version.js";
@@ -140,6 +141,10 @@ switch (cmd) {
     await createRule(args);
     break;
 
+  case "create-project-rule":
+    await createProjectRule(args);
+    break;
+
   case "batch-create-jobs":
     await batchCreateJobs(args);
     break;
@@ -180,6 +185,7 @@ switch (cmd) {
     console.log("  update-idea --company <company-id>     Update an idea");
     console.log("  promote-idea --company <company-id>    Promote an idea");
     console.log("  create-rule --company <company-id>     Create a project rule");
+    console.log("  create-project-rule --company <company-id>  Create a project rule");
     console.log("  batch-create-jobs --company <id> --feature-id <id>  Create jobs for a feature");
     console.log("  send-message-to-human --company <id> --text <msg>   Send a message to a human");
     break;

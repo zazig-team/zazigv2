@@ -156,7 +156,12 @@ export async function jobs(args: string[]): Promise<void> {
     fail(`HTTP ${response.status}: ${errorBody}`);
   }
 
-  const data = (await response.json()) as { jobs?: unknown[] };
+  const data = (await response.json()) as { jobs?: unknown[]; total?: number };
   process.stdout.write(JSON.stringify(data));
+  const count = Array.isArray(data.jobs) ? data.jobs.length : 0;
+  const total = typeof data.total === "number" ? data.total : count;
+  process.stderr.write(
+    `Showing ${offset + 1}-${offset + count} of ${total} (--limit ${limit} --offset ${offset})\n`,
+  );
   process.exit(0);
 }

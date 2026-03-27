@@ -314,7 +314,7 @@ function reportRelativePath(role?: string): string {
 }
 
 /** Per-job report directory to prevent concurrent-completion races. */
-const REPORT_ARCHIVE_DIR = ".claude/job-reports";
+const REPORT_ARCHIVE_DIR = ".reports/job-reports";
 
 /** Roles that run without repository/worktree git context. */
 const NO_CODE_CONTEXT_ROLES = new Set([
@@ -2707,7 +2707,7 @@ export class JobExecutor {
       this.slots.release(job.slotType);
     }
 
-    // Look for the report file. Agents write .claude/cpo-report.md relative to
+    // Look for the report file. Agents write .reports/cpo-report.md relative to
     // their CWD which is the ephemeral workspace dir (e.g. ~/.zazigv2/job-<id>/).
     // Fall back to $HOME for persistent agents that don't have a workspace dir.
     const homeDir = process.env["HOME"] ?? "/tmp";

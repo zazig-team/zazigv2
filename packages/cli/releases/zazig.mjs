@@ -15376,9 +15376,7 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey, supabase) {
   try {
     const { count, error: promoteError } = await supabase.from("features").update({ promoted_version: newVersion }, { count: "exact" }).eq("status", "complete").is("promoted_version", null);
     if (promoteError) {
-      console.error(`Failed to update promoted_version on complete features: ${promoteError.message}`);
-      process.exitCode = 1;
-      return;
+      console.warn(`Warning: could not update promoted_version on features: ${promoteError.message}`);
     }
     console.log(`Marked ${count ?? 0} complete feature(s) with promoted_version=${newVersion}.`);
   } catch (err) {

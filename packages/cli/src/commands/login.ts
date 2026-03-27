@@ -22,14 +22,16 @@ interface OAuthTokens {
 type LoginMode = "auto" | "link" | "otp";
 
 export async function login(args: string[] = []): Promise<void> {
-  let mode: LoginMode;
+  let flags: LoginFlags;
   try {
-    mode = parseLoginMode(args);
+    flags = parseLoginFlags(args);
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
-    console.error("Usage: zazig login [--otp|--code|--link]");
+    console.error("Usage: zazig login [--otp|--code|--link] [--email <email>] [--non-interactive]");
     process.exit(1);
   }
+
+  const { mode, nonInteractive } = flags;
 
   // Only respect SUPABASE_URL/ANON_KEY env overrides when ZAZIG_ENV is explicitly
   // set (e.g. staging). Otherwise always use the hardcoded production defaults.
@@ -38,18 +40,35 @@ export async function login(args: string[] = []): Promise<void> {
   const supabaseUrl = (envOverride && process.env["SUPABASE_URL"]) || DEFAULT_SUPABASE_URL;
   const anonKey = (envOverride && process.env["SUPABASE_ANON_KEY"]) || DEFAULT_SUPABASE_ANON_KEY;
 
-  // 1. Prompt for email
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  // 1. Get email — from flag or interactive prompt
   let email: string;
-  try {
-    email = (await rl.question("Email address: ")).trim();
-  } finally {
-    rl.close();
+  if (flags.email) {
+    email = flags.email;
+  } else {
+    if (nonInteractive) {
+      console.error("--non-interactive requires --email <email>.");
+      process.exit(1);
+    }
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      email = (await rl.question("Email address: ")).trim();
+    } finally {
+      rl.close();
+    }
   }
 
   if (!email) {
     console.error("Email is required.");
     process.exit(1);
+  }
+
+  // Non-interactive mode: send the magic link and exit immediately.
+  // The magic link callback will still work when the user clicks it —
+  // zazig's auth handler stores the token independently of this process.
+  if (nonInteractive) {
+    await sendMagicLink({ supabaseUrl, anonKey, email });
+    console.log(`Magic link sent to ${email}. Click the link in your email to complete login.`);
+    return;
   }
 
   // OTP-only mode: no localhost callback server required.
@@ -130,10 +149,19 @@ export async function login(args: string[] = []): Promise<void> {
   }
 }
 
-function parseLoginMode(args: string[]): LoginMode {
-  let mode: LoginMode = "auto";
+interface LoginFlags {
+  mode: LoginMode;
+  email?: string;
+  nonInteractive: boolean;
+}
 
-  for (const arg of args) {
+function parseLoginFlags(args: string[]): LoginFlags {
+  let mode: LoginMode = "auto";
+  let email: string | undefined;
+  let nonInteractive = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     switch (arg) {
       case "--otp":
       case "--code":
@@ -148,12 +176,21 @@ function parseLoginMode(args: string[]): LoginMode {
         }
         mode = "link";
         break;
+      case "--email":
+        email = args[++i];
+        if (!email) {
+          throw new Error("--email requires a value.");
+        }
+        break;
+      case "--non-interactive":
+        nonInteractive = true;
+        break;
       default:
         throw new Error(`Unknown login option: ${arg}`);
     }
   }
 
-  return mode;
+  return { mode, email, nonInteractive };
 }
 
 async function startCallbackServer(port: number): Promise<{

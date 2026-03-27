@@ -133,7 +133,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       `  cd ./repos/${p.name} && git add <files> && git commit -m "docs: ..." && git push origin master`,
       ``,
       `The repo is refreshed automatically every 5 minutes. You can read, write, commit, and push.`,
-      `Do NOT use ~/.zazigv2/repos/ paths directly — that is the bare mirror and is read-only.`,
+      `Do NOT use ~/.zazigv2/repos/ paths directly — use the workspace symlink at repos/{project}/ instead.`,
       ``,
     ]);
     const localReposSection = [

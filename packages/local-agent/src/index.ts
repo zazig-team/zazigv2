@@ -56,7 +56,6 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 
 let shuttingDown = false;
 const MASTER_CHANGE_POLL_INTERVAL_MS = 30_000;
-const ANTHROPIC_KEY_REFRESH_INTERVAL_MS = 4 * 60 * 1000; // 4 minutes — well under token expiry
 const execFileAsync = promisify(execFile);
 
 function getProjectsFromCLI(companyId: string): CompanyProject[] {
@@ -103,6 +102,7 @@ function refreshAnthropicKeyFromKeychain(): void {
     // Keychain locked or entry missing — leave current value in place
   }
 }
+
 
 async function main(): Promise<void> {
   console.log("[local-agent] Initializing...");
@@ -230,11 +230,6 @@ async function main(): Promise<void> {
   // Start the connection (connects + begins poll loop)
   await conn.start();
 
-  // Periodically refresh ANTHROPIC_API_KEY from Keychain so new tmux sessions
-  // inherit the latest Claude Code OAuth token (CPO keeps it fresh).
-  refreshAnthropicKeyFromKeychain(); // immediate first read
-  const anthropicKeyRefreshTimer = setInterval(refreshAnthropicKeyFromKeychain, ANTHROPIC_KEY_REFRESH_INTERVAL_MS);
-
   // Discover and spawn persistent agents if ZAZIG_COMPANY_ID is set
   const companyId = process.env["ZAZIG_COMPANY_ID"];
   let rolePromptChannel: RealtimeChannel | null = null;
@@ -254,7 +249,7 @@ async function main(): Promise<void> {
         new MasterChangePoller({
           repoPath: project.repo_url,
           execFileAsync: execFileAsync as typeof execFileAsync,
-          fetchBareRepo: async () => {
+          fetchRepo: async () => {
             try {
               await executor.repoManager.refreshWorktree(project.name);
             } catch (err) {
@@ -309,7 +304,6 @@ async function main(): Promise<void> {
       }
       rolePromptChannel = null;
     }
-    clearInterval(anthropicKeyRefreshTimer);
     if (masterChangePollTimer) {
       clearInterval(masterChangePollTimer);
       masterChangePollTimer = null;

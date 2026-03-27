@@ -48,8 +48,8 @@ export { MasterChangePoller } from "./master-change-poller.js";
 
 // [git master refresh] Poller started
 // [git master refresh] Master SHA changed
-// [git master refresh] Bare repo fetched successfully
-// [git master refresh] Bare repo fetch failed
+// [git master refresh] Repo fetched successfully
+// [git master refresh] Repo fetch failed
 // [git master refresh] Notified active sessions
 // [git master refresh] ls-remote failed (git ls-remote refs/heads/master)
 // [git master refresh] Master branch updated on origin/master
@@ -3799,10 +3799,8 @@ async function spawnTmuxSession(
   // "cannot be launched inside another Claude Code session" detection.
   // When a promptFile is provided, pipe it via stdin to avoid OS argument
   // length limits (ARG_MAX) when the assembled context is large.
-  // ANTHROPIC_API_KEY: tmux inherits the calling process's full environment by
-  // default. `unset CLAUDECODE` only removes CLAUDECODE; all other env vars
-  // (including ANTHROPIC_API_KEY set by the daemon at startup) remain intact
-  // for the spawned claude -p process. No explicit forwarding is needed.
+  // Auth: Claude Code sessions use the local user's OAuth login.
+  // No API key injection needed.
   const claudeCmd = shellEscape([cmd, ...args]);
   // Merge stderr into stdout so pipe-pane captures error output too.
   const shellCmd = promptFile

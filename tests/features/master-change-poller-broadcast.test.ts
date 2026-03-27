@@ -181,7 +181,7 @@ describe('AC6: Daemon start — stores SHA, no broadcast, logs Poller started', 
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: mockBroadcast,
-      fetchBareRepo: vi.fn().mockResolvedValue(undefined),
+      fetchRepo: vi.fn().mockResolvedValue(undefined),
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -204,7 +204,7 @@ describe('AC6: Daemon start — stores SHA, no broadcast, logs Poller started', 
     const poller = new Poller({
       execFileAsync: vi.fn().mockResolvedValue({ stdout: 'sha1\trefs/heads/master\n', stderr: '' }),
       broadcast: vi.fn(),
-      fetchBareRepo: vi.fn(),
+      fetchRepo: vi.fn(),
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -243,7 +243,7 @@ describe('AC1: No SHA change — no notification sent', () => {
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: mockBroadcast,
-      fetchBareRepo: vi.fn().mockResolvedValue(undefined),
+      fetchRepo: vi.fn().mockResolvedValue(undefined),
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -271,7 +271,7 @@ describe('AC1: No SHA change — no notification sent', () => {
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: vi.fn(),
-      fetchBareRepo: mockFetch,
+      fetchRepo: mockFetch,
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -309,7 +309,7 @@ describe('AC2: SHA change — bare repo fetched and all sessions notified', () =
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: mockBroadcast,
-      fetchBareRepo: mockFetch,
+      fetchRepo: mockFetch,
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -335,7 +335,7 @@ describe('AC2: SHA change — bare repo fetched and all sessions notified', () =
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: mockBroadcast,
-      fetchBareRepo: vi.fn().mockResolvedValue(undefined),
+      fetchRepo: vi.fn().mockResolvedValue(undefined),
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -361,7 +361,7 @@ describe('AC2: SHA change — bare repo fetched and all sessions notified', () =
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: mockBroadcast,
-      fetchBareRepo: vi.fn().mockResolvedValue(undefined),
+      fetchRepo: vi.fn().mockResolvedValue(undefined),
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -392,7 +392,7 @@ describe('AC2: SHA change — bare repo fetched and all sessions notified', () =
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: vi.fn().mockResolvedValue(undefined),
-      fetchBareRepo: vi.fn().mockResolvedValue(undefined),
+      fetchRepo: vi.fn().mockResolvedValue(undefined),
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -431,7 +431,7 @@ describe('AC3: Bare repo fetch fails — no broadcast, error logged, retry next 
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: mockBroadcast,
-      fetchBareRepo: mockFetch,
+      fetchRepo: mockFetch,
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -458,7 +458,7 @@ describe('AC3: Bare repo fetch fails — no broadcast, error logged, retry next 
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: vi.fn(),
-      fetchBareRepo: vi.fn().mockRejectedValue(new Error('Connection refused')),
+      fetchRepo: vi.fn().mockRejectedValue(new Error('Connection refused')),
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -490,7 +490,7 @@ describe('AC3: Bare repo fetch fails — no broadcast, error logged, retry next 
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: vi.fn(),
-      fetchBareRepo: vi.fn().mockRejectedValue(new Error('Timeout')),
+      fetchRepo: vi.fn().mockRejectedValue(new Error('Timeout')),
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -523,7 +523,7 @@ describe('AC3: Bare repo fetch fails — no broadcast, error logged, retry next 
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: mockBroadcast,
-      fetchBareRepo: mockFetch,
+      fetchRepo: mockFetch,
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -581,7 +581,7 @@ describe('AC4: All active session types receive notification (persistent, expert
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: mockBroadcast,
-      fetchBareRepo: vi.fn().mockResolvedValue(undefined),
+      fetchRepo: vi.fn().mockResolvedValue(undefined),
       repoPath: '/tmp/test-repo.git',
       getActiveSessions: () => sessions,
     });
@@ -610,7 +610,7 @@ describe('AC4: All active session types receive notification (persistent, expert
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: vi.fn().mockResolvedValue(3), // returns count of notified sessions
-      fetchBareRepo: vi.fn().mockResolvedValue(undefined),
+      fetchRepo: vi.fn().mockResolvedValue(undefined),
       repoPath: '/tmp/test-repo.git',
       getActiveSessions: () => [
         { name: 's1' }, { name: 's2' }, { name: 's3' },
@@ -670,7 +670,7 @@ describe('AC5: Partial tmux failure — remaining sessions notified, warning log
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: mockBroadcast,
-      fetchBareRepo: vi.fn().mockResolvedValue(undefined),
+      fetchRepo: vi.fn().mockResolvedValue(undefined),
       repoPath: '/tmp/test-repo.git',
       getActiveSessions: () => sessionResults.map(name => ({ name })),
     });
@@ -723,7 +723,7 @@ describe('Error resilience: git ls-remote failure', () => {
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: mockBroadcast,
-      fetchBareRepo: vi.fn(),
+      fetchRepo: vi.fn(),
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -761,7 +761,7 @@ describe('Error resilience: git ls-remote failure', () => {
     const poller = new Poller({
       execFileAsync: mockExecFileAsync,
       broadcast: vi.fn(),
-      fetchBareRepo: vi.fn(),
+      fetchRepo: vi.fn(),
       repoPath: '/tmp/test-repo.git',
     });
 
@@ -788,8 +788,8 @@ describe('Logging: all poller logs use [git master refresh] prefix', () => {
     const requiredPhrases = [
       'Poller started',
       'Master SHA changed',
-      'Bare repo fetched successfully',
-      'Bare repo fetch failed',
+      'Repo fetched successfully',
+      'Repo fetch failed',
       'Notified',
       'ls-remote failed',
     ];

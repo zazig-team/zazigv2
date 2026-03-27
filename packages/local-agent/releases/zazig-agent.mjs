@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "51e5708";
+const AGENT_BUILD_HASH = "7bd6fb7";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -8075,8 +8075,8 @@ var require_main3 = __commonJS({
 
 // ../local-agent/dist/index.js
 import { createWriteStream } from "node:fs";
-import { execFile as execFile8 } from "node:child_process";
-import { homedir as homedir6 } from "node:os";
+import { execFile as execFile8, execFileSync as execFileSync2, execSync as execSync2 } from "node:child_process";
+import { homedir as homedir6, platform } from "node:os";
 import { join as join8 } from "node:path";
 import { promisify as promisify8 } from "node:util";
 
@@ -12908,7 +12908,7 @@ import { join as join5 } from "node:path";
 import { promisify as promisify4 } from "node:util";
 
 // ../local-agent/dist/executor.js
-import { execFile as execFile3 } from "node:child_process";
+import { execFile as execFile3, execFileSync } from "node:child_process";
 import { existsSync as existsSync4, readFileSync as readFileSync3, renameSync, unlinkSync, mkdirSync as mkdirSync2, rmSync as rmSync3, symlinkSync as symlinkSync2, appendFileSync as appendFileSync2, statSync } from "node:fs";
 import { promisify as promisify3 } from "node:util";
 import { homedir as homedir2 } from "node:os";
@@ -13780,7 +13780,7 @@ function parseMasterSha(stdout) {
 var MasterChangePoller = class {
   repoPath;
   exec;
-  fetchBareRepo;
+  fetchRepo;
   broadcast;
   getActiveSessions;
   lastMasterSha = null;
@@ -13788,7 +13788,7 @@ var MasterChangePoller = class {
   constructor(deps) {
     this.repoPath = deps.repoPath;
     this.exec = deps.execFileAsync ?? execFileAsync2;
-    this.fetchBareRepo = deps.fetchBareRepo;
+    this.fetchRepo = deps.fetchRepo;
     this.broadcast = deps.broadcast;
     this.getActiveSessions = deps.getActiveSessions ?? (() => []);
     this.start();
@@ -13826,10 +13826,10 @@ var MasterChangePoller = class {
     const previousMasterSha = this.lastMasterSha;
     console.log(`[git master refresh] Master SHA changed: ${previousMasterSha.slice(0, 7)} -> ${currentMasterSha.slice(0, 7)}`);
     try {
-      await this.fetchBareRepo();
-      console.log("[git master refresh] Bare repo fetched successfully");
+      await this.fetchRepo();
+      console.log("[git master refresh] Repo fetched successfully");
     } catch (err) {
-      console.error("[git master refresh] Bare repo fetch failed:", err);
+      console.error("[git master refresh] Repo fetch failed:", err);
       return;
     }
     const message = [
@@ -13863,6 +13863,20 @@ function resolveMcpServerPath() {
   return join4(thisDir, "agent-mcp-server.js");
 }
 var execFileAsync3 = promisify3(execFile3);
+function loadProjectsFromCLI(companyId) {
+  try {
+    const stdout = execFileSync("zazig", ["projects", "--company", companyId], {
+      encoding: "utf8",
+      timeout: 1e4
+    });
+    const parsed = JSON.parse(stdout);
+    const projects = Array.isArray(parsed?.projects) ? parsed.projects : [];
+    return projects.filter((project) => typeof project?.name === "string" && typeof project?.repo_url === "string").map((project) => ({ name: project.name, repo_url: project.repo_url }));
+  } catch (err) {
+    console.warn("[daemon] Failed to load projects from CLI \u2014 continuing with empty list:", err);
+    return [];
+  }
+}
 var POLL_INTERVAL_MS = 3e4;
 var SLOT_RECONCILE_INTERVAL_MS = 6e4;
 var PR_MONITOR_INTERVAL_MS = 6e4;
@@ -14599,6 +14613,12 @@ ${msg.text}`;
   }
   async monitorMasterCI() {
     try {
+      if (this.companyId) {
+        const refreshedProjects = loadProjectsFromCLI(this.companyId);
+        if (refreshedProjects.length > 0) {
+          this.companyProjects = [...refreshedProjects];
+        }
+      }
       const repoUrl = this.companyProjects[0]?.repo_url;
       if (!repoUrl) {
         console.log("[executor] Master CI monitor skipped: missing project repo_url");
@@ -17917,6 +17937,20 @@ process.on("uncaughtException", (err) => {
 var shuttingDown = false;
 var MASTER_CHANGE_POLL_INTERVAL_MS = 3e4;
 var execFileAsync8 = promisify8(execFile8);
+function getProjectsFromCLI(companyId) {
+  try {
+    const stdout = execFileSync2("zazig", ["projects", "--company", companyId], {
+      encoding: "utf8",
+      timeout: 1e4
+    });
+    const parsed = JSON.parse(stdout);
+    const projects = Array.isArray(parsed?.projects) ? parsed.projects : [];
+    return projects.filter((project) => typeof project?.name === "string" && typeof project?.repo_url === "string").map((project) => ({ name: project.name, repo_url: project.repo_url }));
+  } catch (err) {
+    console.warn("[daemon] Failed to load projects from CLI \u2014 continuing with empty list:", err);
+    return [];
+  }
+}
 async function main() {
   console.log("[local-agent] Initializing...");
   const config = loadConfig();
@@ -18000,7 +18034,7 @@ async function main() {
     const pollers = executor.getCompanyProjects().filter((project) => Boolean(project.repo_url)).map((project) => new MasterChangePoller({
       repoPath: project.repo_url,
       execFileAsync: execFileAsync8,
-      fetchBareRepo: async () => {
+      fetchRepo: async () => {
         try {
           await executor.repoManager.refreshWorktree(project.name);
         } catch (err) {
@@ -18099,31 +18133,17 @@ async function fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId) 
     throw new Error(`Failed to fetch persistent jobs: HTTP ${res.status} \u2014 body: ${body2.slice(0, 500)}`);
   }
   const payload = await res.json();
-  if (Array.isArray(payload)) {
-    return { jobs: payload, companyProjects: [] };
-  }
   if (!payload || typeof payload !== "object") {
     throw new Error("Persistent jobs endpoint returned invalid JSON payload");
   }
   const body = payload;
   const jobs = Array.isArray(body["jobs"]) ? body["jobs"] : Array.isArray(body["persistent_jobs"]) ? body["persistent_jobs"] : Array.isArray(body["persistentJobs"]) ? body["persistentJobs"] : [];
-  const projects = Array.isArray(body["company_projects"]) ? body["company_projects"] : Array.isArray(body["companyProjects"]) ? body["companyProjects"] : Array.isArray(body["projects"]) ? body["projects"] : [];
-  const companyProjects = [];
-  for (const project of projects) {
-    if (!project || typeof project !== "object")
-      continue;
-    const record = project;
-    const name = typeof record["name"] === "string" ? record["name"] : "";
-    const repoUrl = typeof record["repo_url"] === "string" ? record["repo_url"] : typeof record["repoUrl"] === "string" ? record["repoUrl"] : "";
-    if (!name || !repoUrl)
-      continue;
-    companyProjects.push({ name, repo_url: repoUrl });
-  }
-  return { jobs, companyProjects };
+  return { jobs };
 }
 async function discoverAndSpawnPersistentAgents(supabaseUrl, anonKey, companyId, executor) {
   try {
-    const { jobs, companyProjects } = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+    const { jobs } = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+    const companyProjects = getProjectsFromCLI(companyId);
     console.log(`[local-agent] Discovered ${jobs.length} persistent agent(s) for company ${companyId}`);
     console.log(`[local-agent] Discovered ${companyProjects.length} project repo(s) for company ${companyId}`);
     for (const project of companyProjects) {

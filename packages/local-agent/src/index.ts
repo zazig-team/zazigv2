@@ -12,8 +12,8 @@
  */
 
 import { createWriteStream } from "node:fs";
-import { execFile } from "node:child_process";
-import { homedir } from "node:os";
+import { execFile, execFileSync, execSync } from "node:child_process";
+import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -57,6 +57,52 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 let shuttingDown = false;
 const MASTER_CHANGE_POLL_INTERVAL_MS = 30_000;
 const execFileAsync = promisify(execFile);
+
+function getProjectsFromCLI(companyId: string): CompanyProject[] {
+  try {
+    const stdout = execFileSync("zazig", ["projects", "--company", companyId], {
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    const parsed = JSON.parse(stdout) as { projects?: Array<{ name?: string; repo_url?: string; status?: string }> };
+    const projects = Array.isArray(parsed?.projects) ? parsed.projects : [];
+
+    return projects
+      .filter((project) => typeof project?.name === "string" && typeof project?.repo_url === "string")
+      .map((project) => ({ name: project.name as string, repo_url: project.repo_url as string }));
+  } catch (err) {
+    console.warn("[daemon] Failed to load projects from CLI — continuing with empty list:", err);
+    return [];
+  }
+}
+
+/**
+ * Re-read the Claude Code OAuth token from the macOS Keychain.
+ * Claude Code (via CPO persistent agent) keeps this token fresh.
+ * We re-read periodically so new tmux sessions inherit the latest value.
+ */
+function refreshAnthropicKeyFromKeychain(): void {
+  if (platform() !== "darwin") return;
+
+  try {
+    const raw = execSync(
+      'security find-generic-password -s "Claude Code-credentials" -w',
+      { stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" },
+    );
+    const parsed = JSON.parse(raw);
+    const token = parsed?.claudeAiOauth?.accessToken;
+    if (typeof token === "string" && token.startsWith("sk-ant-")) {
+      const current = process.env["ANTHROPIC_API_KEY"];
+      if (token !== current) {
+        process.env["ANTHROPIC_API_KEY"] = token;
+        console.log("[local-agent] ANTHROPIC_API_KEY refreshed from Keychain");
+      }
+    }
+  } catch {
+    // Keychain locked or entry missing — leave current value in place
+  }
+}
+
 
 async function main(): Promise<void> {
   console.log("[local-agent] Initializing...");
@@ -336,7 +382,7 @@ async function fetchPersistentAgentDefinitions(
   supabaseUrl: string,
   anonKey: string,
   companyId: string,
-): Promise<{ jobs: PersistentAgentJobDefinition[]; companyProjects: CompanyProject[] }> {
+): Promise<{ jobs: PersistentAgentJobDefinition[] }> {
   // Edge Functions gateway verifies JWTs using the project's HS256 secret.
   // The Supabase Auth JWT (ES256) won't pass this check — use the anon key
   // as the Bearer token instead (it IS an HS256 JWT the gateway accepts).
@@ -357,9 +403,6 @@ async function fetchPersistentAgentDefinitions(
   }
 
   const payload = (await res.json()) as unknown;
-  if (Array.isArray(payload)) {
-    return { jobs: payload as PersistentAgentJobDefinition[], companyProjects: [] };
-  }
 
   if (!payload || typeof payload !== "object") {
     throw new Error("Persistent jobs endpoint returned invalid JSON payload");
@@ -372,27 +415,7 @@ async function fetchPersistentAgentDefinitions(
     Array.isArray(body["persistentJobs"]) ? body["persistentJobs"] :
     [];
 
-  const projects =
-    Array.isArray(body["company_projects"]) ? body["company_projects"] :
-    Array.isArray(body["companyProjects"]) ? body["companyProjects"] :
-    Array.isArray(body["projects"]) ? body["projects"] :
-    [];
-
-  const companyProjects: CompanyProject[] = [];
-  for (const project of projects) {
-    if (!project || typeof project !== "object") continue;
-    const record = project as Record<string, unknown>;
-    const name = typeof record["name"] === "string" ? record["name"] : "";
-    const repoUrl =
-      typeof record["repo_url"] === "string" ? record["repo_url"] :
-      typeof record["repoUrl"] === "string" ? record["repoUrl"] :
-      "";
-
-    if (!name || !repoUrl) continue;
-    companyProjects.push({ name, repo_url: repoUrl });
-  }
-
-  return { jobs: jobs as PersistentAgentJobDefinition[], companyProjects };
+  return { jobs: jobs as PersistentAgentJobDefinition[] };
 }
 
 async function discoverAndSpawnPersistentAgents(
@@ -402,7 +425,8 @@ async function discoverAndSpawnPersistentAgents(
   executor: JobExecutor,
 ): Promise<void> {
   try {
-    const { jobs, companyProjects } = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+    const { jobs } = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+    const companyProjects = getProjectsFromCLI(companyId);
 
     console.log(`[local-agent] Discovered ${jobs.length} persistent agent(s) for company ${companyId}`);
     console.log(`[local-agent] Discovered ${companyProjects.length} project repo(s) for company ${companyId}`);

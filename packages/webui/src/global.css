@@ -5041,6 +5041,32 @@ input {
   accent-color: var(--ember);
 }
 
+.settings-type-toggles {
+  display: flex;
+  gap: var(--sp-4);
+  padding: 10px 0;
+  border-top: 1px solid var(--chalk-light);
+}
+
+.settings-type-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.settings-type-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--ember);
+}
+
+.settings-type-toggle-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
 .settings-slider-row {
   display: flex;
   flex-direction: column;

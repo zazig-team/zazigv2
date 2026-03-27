@@ -2,32 +2,41 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCompany } from "../hooks/useCompany";
 import { supabase } from "../lib/supabase";
 
+type ItemType = "idea" | "brief" | "bug" | "test";
+const ITEM_TYPES: ItemType[] = ["idea", "brief", "bug", "test"];
+const ITEM_TYPE_LABELS: Record<ItemType, string> = {
+  idea: "Ideas",
+  brief: "Briefs",
+  bug: "Bugs",
+  test: "Tests",
+};
+
 interface CompanySettingsRow {
-  auto_triage: boolean | null;
+  auto_triage_types: string[] | null;
   triage_batch_size: number | null;
   triage_max_concurrent: number | null;
   triage_delay_minutes: number | null;
-  auto_spec: boolean | null;
+  auto_spec_types: string[] | null;
   spec_max_concurrent: number | null;
   spec_delay_minutes: number | null;
 }
 
 interface SettingsState {
-  autoTriage: boolean;
+  autoTriageTypes: ItemType[];
   triageBatchSize: number;
   triageMaxConcurrent: number;
   triageDelayMinutes: number;
-  autoSpec: boolean;
+  autoSpecTypes: ItemType[];
   specMaxConcurrent: number;
   specDelayMinutes: number;
 }
 
 const DEFAULT_SETTINGS: SettingsState = {
-  autoTriage: false,
+  autoTriageTypes: [],
   triageBatchSize: 5,
   triageMaxConcurrent: 3,
   triageDelayMinutes: 5,
-  autoSpec: false,
+  autoSpecTypes: [],
   specMaxConcurrent: 2,
   specDelayMinutes: 5,
 };
@@ -48,24 +57,36 @@ function normalizeNumber(
   return clamp(Math.round(value), min, max);
 }
 
+function parseTypes(raw: string[] | null): ItemType[] {
+  if (!raw) return [];
+  return raw.filter((t): t is ItemType => ITEM_TYPES.includes(t as ItemType));
+}
+
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sorted1 = [...a].sort();
+  const sorted2 = [...b].sort();
+  return sorted1.every((v, i) => v === sorted2[i]);
+}
+
 function mapRowToSettings(row: CompanySettingsRow): SettingsState {
   return {
-    autoTriage: Boolean(row.auto_triage),
+    autoTriageTypes: parseTypes(row.auto_triage_types),
     triageBatchSize: normalizeNumber(row.triage_batch_size, 5, 1, 20),
     triageMaxConcurrent: normalizeNumber(row.triage_max_concurrent, 3, 1, 10),
     triageDelayMinutes: normalizeNumber(row.triage_delay_minutes, 5, 1, 30),
-    autoSpec: Boolean(row.auto_spec),
+    autoSpecTypes: parseTypes(row.auto_spec_types),
     specMaxConcurrent: normalizeNumber(row.spec_max_concurrent, 2, 1, 5),
     specDelayMinutes: normalizeNumber(row.spec_delay_minutes, 5, 1, 30),
   };
 }
 
 function settingsChanged(current: SettingsState, initial: SettingsState): boolean {
-  return current.autoTriage !== initial.autoTriage
+  return !arraysEqual(current.autoTriageTypes, initial.autoTriageTypes)
     || current.triageBatchSize !== initial.triageBatchSize
     || current.triageMaxConcurrent !== initial.triageMaxConcurrent
     || current.triageDelayMinutes !== initial.triageDelayMinutes
-    || current.autoSpec !== initial.autoSpec
+    || !arraysEqual(current.autoSpecTypes, initial.autoSpecTypes)
     || current.specMaxConcurrent !== initial.specMaxConcurrent
     || current.specDelayMinutes !== initial.specDelayMinutes;
 }
@@ -73,10 +94,12 @@ function settingsChanged(current: SettingsState, initial: SettingsState): boolea
 function buildChangedFields(
   current: SettingsState,
   initial: SettingsState,
-): Partial<CompanySettingsRow> {
-  const changed: Partial<CompanySettingsRow> = {};
+): Record<string, unknown> {
+  const changed: Record<string, unknown> = {};
 
-  if (current.autoTriage !== initial.autoTriage) changed.auto_triage = current.autoTriage;
+  if (!arraysEqual(current.autoTriageTypes, initial.autoTriageTypes)) {
+    changed.auto_triage_types = current.autoTriageTypes;
+  }
   if (current.triageBatchSize !== initial.triageBatchSize) changed.triage_batch_size = current.triageBatchSize;
   if (current.triageMaxConcurrent !== initial.triageMaxConcurrent) {
     changed.triage_max_concurrent = current.triageMaxConcurrent;
@@ -84,11 +107,20 @@ function buildChangedFields(
   if (current.triageDelayMinutes !== initial.triageDelayMinutes) {
     changed.triage_delay_minutes = current.triageDelayMinutes;
   }
-  if (current.autoSpec !== initial.autoSpec) changed.auto_spec = current.autoSpec;
+  if (!arraysEqual(current.autoSpecTypes, initial.autoSpecTypes)) {
+    changed.auto_spec_types = current.autoSpecTypes;
+  }
   if (current.specMaxConcurrent !== initial.specMaxConcurrent) changed.spec_max_concurrent = current.specMaxConcurrent;
   if (current.specDelayMinutes !== initial.specDelayMinutes) changed.spec_delay_minutes = current.specDelayMinutes;
 
   return changed;
+}
+
+function toggleType(types: ItemType[], type: ItemType, enabled: boolean): ItemType[] {
+  if (enabled) {
+    return types.includes(type) ? types : [...types, type];
+  }
+  return types.filter((t) => t !== type);
 }
 
 export default function Settings(): JSX.Element {
@@ -118,7 +150,7 @@ export default function Settings(): JSX.Element {
     const { data, error } = await supabase
       .from("companies")
       .select(
-        "auto_triage, triage_batch_size, triage_max_concurrent, triage_delay_minutes, auto_spec, spec_max_concurrent, spec_delay_minutes",
+        "auto_triage_types, triage_batch_size, triage_max_concurrent, triage_delay_minutes, auto_spec_types, spec_max_concurrent, spec_delay_minutes",
       )
       .eq("id", activeCompanyId)
       .single();
@@ -176,6 +208,11 @@ export default function Settings(): JSX.Element {
 
   const controlsDisabled = loading || saving || !initialSettings;
 
+  function clearFeedback(): void {
+    setSaveError(null);
+    setSaveSuccess(null);
+  }
+
   if (!activeCompanyId) {
     return (
       <main className="settings-page">
@@ -216,22 +253,28 @@ export default function Settings(): JSX.Element {
 
       <section className="settings-card fade-up d1">
         <div className="settings-card-title">Auto-Triage</div>
-        <div className="settings-card-subtitle">Manage automated triage behavior for new ideas.</div>
+        <div className="settings-card-subtitle">Select which item types are automatically triaged.</div>
 
-        <label className="settings-toggle-row" htmlFor="auto-triage-toggle">
-          <span className="settings-toggle-label">Enable auto-triage</span>
-          <input
-            id="auto-triage-toggle"
-            type="checkbox"
-            checked={settings.autoTriage}
-            disabled={controlsDisabled}
-            onChange={(event) => {
-              setSettings((current) => ({ ...current, autoTriage: event.target.checked }));
-              setSaveError(null);
-              setSaveSuccess(null);
-            }}
-          />
-        </label>
+        <div className="settings-type-toggles">
+          {ITEM_TYPES.map((type) => (
+            <label className="settings-type-toggle" key={`triage-${type}`} htmlFor={`triage-${type}`}>
+              <input
+                id={`triage-${type}`}
+                type="checkbox"
+                checked={settings.autoTriageTypes.includes(type)}
+                disabled={controlsDisabled}
+                onChange={(event) => {
+                  setSettings((current) => ({
+                    ...current,
+                    autoTriageTypes: toggleType(current.autoTriageTypes, type, event.target.checked),
+                  }));
+                  clearFeedback();
+                }}
+              />
+              <span className="settings-type-toggle-label">{ITEM_TYPE_LABELS[type]}</span>
+            </label>
+          ))}
+        </div>
 
         <label className="settings-slider-row" htmlFor="triage-batch-size">
           <div className="settings-slider-labels">
@@ -248,8 +291,7 @@ export default function Settings(): JSX.Element {
             onChange={(event) => {
               const next = clamp(Number(event.target.value), 1, 20);
               setSettings((current) => ({ ...current, triageBatchSize: next }));
-              setSaveError(null);
-              setSaveSuccess(null);
+              clearFeedback();
             }}
           />
         </label>
@@ -269,8 +311,7 @@ export default function Settings(): JSX.Element {
             onChange={(event) => {
               const next = clamp(Number(event.target.value), 1, 10);
               setSettings((current) => ({ ...current, triageMaxConcurrent: next }));
-              setSaveError(null);
-              setSaveSuccess(null);
+              clearFeedback();
             }}
           />
         </label>
@@ -290,8 +331,7 @@ export default function Settings(): JSX.Element {
             onChange={(event) => {
               const next = clamp(Number(event.target.value), 1, 30);
               setSettings((current) => ({ ...current, triageDelayMinutes: next }));
-              setSaveError(null);
-              setSaveSuccess(null);
+              clearFeedback();
             }}
           />
         </label>
@@ -299,22 +339,28 @@ export default function Settings(): JSX.Element {
 
       <section className="settings-card fade-up d2">
         <div className="settings-card-title">Auto-Spec</div>
-        <div className="settings-card-subtitle">Manage automated spec writer session dispatch.</div>
+        <div className="settings-card-subtitle">Select which item types are automatically specced.</div>
 
-        <label className="settings-toggle-row" htmlFor="auto-spec-toggle">
-          <span className="settings-toggle-label">Enable auto-spec</span>
-          <input
-            id="auto-spec-toggle"
-            type="checkbox"
-            checked={settings.autoSpec}
-            disabled={controlsDisabled}
-            onChange={(event) => {
-              setSettings((current) => ({ ...current, autoSpec: event.target.checked }));
-              setSaveError(null);
-              setSaveSuccess(null);
-            }}
-          />
-        </label>
+        <div className="settings-type-toggles">
+          {ITEM_TYPES.map((type) => (
+            <label className="settings-type-toggle" key={`spec-${type}`} htmlFor={`spec-${type}`}>
+              <input
+                id={`spec-${type}`}
+                type="checkbox"
+                checked={settings.autoSpecTypes.includes(type)}
+                disabled={controlsDisabled}
+                onChange={(event) => {
+                  setSettings((current) => ({
+                    ...current,
+                    autoSpecTypes: toggleType(current.autoSpecTypes, type, event.target.checked),
+                  }));
+                  clearFeedback();
+                }}
+              />
+              <span className="settings-type-toggle-label">{ITEM_TYPE_LABELS[type]}</span>
+            </label>
+          ))}
+        </div>
 
         <label className="settings-slider-row" htmlFor="spec-max-concurrent">
           <div className="settings-slider-labels">
@@ -331,8 +377,7 @@ export default function Settings(): JSX.Element {
             onChange={(event) => {
               const next = clamp(Number(event.target.value), 1, 5);
               setSettings((current) => ({ ...current, specMaxConcurrent: next }));
-              setSaveError(null);
-              setSaveSuccess(null);
+              clearFeedback();
             }}
           />
         </label>
@@ -352,8 +397,7 @@ export default function Settings(): JSX.Element {
             onChange={(event) => {
               const next = clamp(Number(event.target.value), 1, 30);
               setSettings((current) => ({ ...current, specDelayMinutes: next }));
-              setSaveError(null);
-              setSaveSuccess(null);
+              clearFeedback();
             }}
           />
         </label>

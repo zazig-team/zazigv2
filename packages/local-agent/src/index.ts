@@ -203,11 +203,11 @@ async function main(): Promise<void> {
         new MasterChangePoller({
           repoPath: project.repo_url,
           execFileAsync: execFileAsync as typeof execFileAsync,
-          fetchBareRepo: async () => {
+          fetchRepo: async () => {
             try {
               await executor.repoManager.refreshWorktree(project.name);
             } catch (err) {
-              console.error("[git master refresh] Bare repo fetch failed:", err);
+              console.error("[git master refresh] Repo fetch failed:", err);
               throw err;
             }
           },

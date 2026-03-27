@@ -285,6 +285,14 @@ export async function promote(args: string[]): Promise<void> {
   }
 
   // 5. Fetch latest from origin — updates origin/* tracking refs.
+  // Fix legacy bare-repo refspec if present (self-healing migration).
+  try {
+    const refspec = execSync("git config --get remote.origin.fetch", { encoding: "utf-8", cwd: cloneDir, stdio: "pipe" }).trim();
+    if (!refspec.includes("refs/remotes/origin")) {
+      execSync('git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"', { cwd: cloneDir, stdio: "pipe" });
+      console.log("Fixed legacy refspec on repo clone.");
+    }
+  } catch { /* non-fatal */ }
   console.log("\nFetching latest from origin...");
   try {
     execSync("git fetch origin", { cwd: cloneDir, stdio: "pipe" });

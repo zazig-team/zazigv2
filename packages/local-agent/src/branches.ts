@@ -197,6 +197,15 @@ export class RepoManager {
         await execFileAsync("git", ["clone", repoUrl, repoDir], { encoding: "utf8" });
       }
 
+      // Fix legacy bare-repo refspec if present (self-healing migration)
+      try {
+        const refspec = await this.git(repoDir, "config", "--get", "remote.origin.fetch");
+        if (!refspec.includes("refs/remotes/origin")) {
+          await this.git(repoDir, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+          console.log(`[RepoManager] Fixed legacy refspec on ${projectName}`);
+        }
+      } catch { /* non-fatal */ }
+
       // Check if repo is empty
       try {
         await this.git(repoDir, "rev-parse", "--verify", "HEAD");

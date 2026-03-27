@@ -426,6 +426,8 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
   // 1b. Create .claude/ directory early so generated files can live under it.
   const claudeDir = join(config.workspaceDir, ".claude");
   mkdirSync(claudeDir, { recursive: true });
+  const reportsDir = join(config.workspaceDir, ".reports");
+  mkdirSync(reportsDir, { recursive: true });
 
   // 2. Write .mcp.json
   const mcpConfig = generateMcpConfig(config.mcpServerPath, {
@@ -565,6 +567,7 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
       "CLAUDE.md",
       ".mcp.json",
       ".claude/",
+      ".reports/",
       ".zazig-prompt.txt",
       "subagent-personality.md",
       "",

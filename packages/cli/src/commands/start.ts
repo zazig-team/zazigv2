@@ -103,6 +103,7 @@ function readRecentAgentErrorLines(logPath: string): string[] | null {
 export async function start(): Promise<void> {
   // Parse flags
   const noTui = process.argv.includes("--no-tui");
+  const defaults = process.argv.includes("--defaults");
   const companyFlagIdx = process.argv.indexOf("--company");
   const companyFlagValue = companyFlagIdx !== -1 ? process.argv[companyFlagIdx + 1] : undefined;
 
@@ -141,7 +142,15 @@ export async function start(): Promise<void> {
 
   // First-run config
   if (!configExists()) {
-    await promptForConfig(codexInstalled);
+    if (defaults) {
+      const name = generateMachineName();
+      const claudeCount = 4;
+      const codexCount = codexInstalled ? 4 : 0;
+      saveConfig({ name, slots: { claude_code: claudeCount, codex: codexCount } });
+      console.log(`Machine configured: ${name} (${claudeCount} Claude Code, ${codexCount} Codex)`);
+    } else {
+      await promptForConfig(codexInstalled);
+    }
   }
 
   const config = loadConfig();
@@ -294,7 +303,7 @@ export async function start(): Promise<void> {
     console.warn(`Skills sync skipped: ${String(err)}`);
   }
 
-  if (noTui) {
+  if (noTui || defaults) {
     console.log("Zazig started successfully (headless).");
     console.log(`Logs: ${logPathForCompany(company.id)}`);
   } else if (agentSessions.length === 0) {

@@ -1,0 +1,20 @@
+[
+  {
+    "title": "Create DB migration: AFTER INSERT trigger on agent_versions to stamp promoted_version",
+    "spec": "Create a Supabase migration file that adds an AFTER INSERT trigger on the agent_versions table.\n\nTrigger logic:\n- Fires AFTER INSERT on agent_versions\n- When NEW.env = 'production', execute:\n  UPDATE features\n  SET promoted_version = NEW.version\n  WHERE status = 'complete'\n    AND promoted_version IS NULL\n    AND company_id = '00000000-0000-0000-0000-000000000001';\n\nNotes:\n- agent_versions has no company_id column — hardcode the zazig company UUID in the WHERE clause\n- The trigger runs as the table owner (bypasses RLS) so no policy changes needed\n- The WHERE clause makes it idempotent: only unpromoted complete features are touched\n- Follow the existing migration file naming convention in the supabase/migrations directory",
+    "acceptance_tests": "Given a migration file exists in supabase/migrations for the agent_versions trigger\nWhen the migration is applied to the database\nThen a trigger named appropriately exists on agent_versions that fires AFTER INSERT\nAnd when a row with env='production' is inserted into agent_versions\nThen features with status='complete' and promoted_version IS NULL and company_id='00000000-0000-0000-0000-000000000001' have promoted_version set to NEW.version\nAnd features with promoted_version IS NOT NULL are not modified\nAnd features with status != 'complete' are not modified",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "simple",
+    "depends_on": []
+  },
+  {
+    "title": "Remove bulk promoted_version update block from promote.ts",
+    "spec": "Remove the direct Supabase .update() call from packages/cli/src/commands/promote.ts that manually stamps promoted_version on features. This logic is now handled by the DB trigger added in the companion migration job.\n\nSpecifically:\n- Locate the bulk update block around lines 521-535 that sets promoted_version on features where status='complete' and promoted_version IS NULL\n- Delete that entire block along with its surrounding try/catch and any associated log lines\n- Ensure promote still completes successfully end-to-end after the removal\n- Do not remove any other logic from promote.ts",
+    "acceptance_tests": "Given the direct Supabase .update() call for promoted_version has been removed from promote.ts\nWhen running zazig promote\nThen the command completes successfully without errors\nAnd the removed block (bulk update of promoted_version on features) no longer exists in promote.ts\nAnd no TypeScript compilation errors are introduced",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "simple",
+    "depends_on": ["temp:0"]
+  }
+]

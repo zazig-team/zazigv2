@@ -12,7 +12,7 @@
  */
 
 import { createWriteStream } from "node:fs";
-import { execFile, execFileSync, execSync } from "node:child_process";
+import { execFile, execSync } from "node:child_process";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -44,6 +44,7 @@ import { JobExecutor, type CompanyProject, type PersistentAgentJobDefinition } f
 import { ExpertSessionManager } from "./expert-session-manager.js";
 import { FixAgentManager } from "./fix-agent.js";
 import { MasterChangePoller } from "./master-change-poller.js";
+import { loadCompanyProjectsFromCli as loadCompanyProjectsFromCliShared } from "./company-projects-loader.js";
 import { JobVerifier } from "./verifier.js";
 import { resolveAgentVersion } from "./version.js";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
@@ -410,50 +411,7 @@ async function fetchPersistentAgentDefinitions(
 }
 
 function loadCompanyProjectsFromCli(companyId: string): CompanyProject[] {
-  try {
-    const raw = execFileSync("zazig", ["projects", "--company", companyId], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const parsed = JSON.parse(raw) as unknown;
-    let projectRecords: unknown[] | null = null;
-    if (Array.isArray(parsed)) {
-      projectRecords = parsed;
-    } else if (parsed && typeof parsed === "object") {
-      const projects = (parsed as Record<string, unknown>)["projects"];
-      if (Array.isArray(projects)) {
-        projectRecords = projects;
-      }
-    }
-
-    if (!projectRecords) {
-      console.warn(
-        `[local-agent] Failed to parse projects from zazig projects --company ${companyId}: malformed JSON shape`,
-      );
-      return [];
-    }
-
-    const projects: CompanyProject[] = [];
-    for (const project of projectRecords) {
-      if (!project || typeof project !== "object") continue;
-      const record = project as Record<string, unknown>;
-      const status = typeof record["status"] === "string" ? record["status"] : "";
-      if (status !== "active") continue;
-
-      const name = typeof record["name"] === "string" ? record["name"].trim() : "";
-      const repoUrl = typeof record["repo_url"] === "string" ? record["repo_url"].trim() : "";
-      if (!name || !repoUrl) continue;
-      projects.push({ name, repo_url: repoUrl });
-    }
-
-    return projects;
-  } catch (err) {
-    console.warn(
-      `[local-agent] Failed to load projects from zazig projects --company ${companyId}; continuing with empty project list`,
-      err,
-    );
-    return [];
-  }
+  return loadCompanyProjectsFromCliShared(companyId, { logPrefix: "local-agent" });
 }
 
 async function discoverAndSpawnPersistentAgents(

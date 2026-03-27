@@ -15,7 +15,7 @@
  *   role != null (persistent agents)   → `claude -p` (claude-opus-4-6, print mode)
  */
 
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync, symlinkSync, appendFileSync, createWriteStream, statSync } from "node:fs";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
@@ -28,6 +28,7 @@ import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageI
 import { PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
 import { generateExecSkill, publishSharedExecSkill, setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
+import { loadCompanyProjectsFromCli, type CompanyProject as CliCompanyProject } from "./company-projects-loader.js";
 
 /**
  * Resolve the MCP server path — prefers compiled binary in ~/.zazigv2/bin/,
@@ -506,10 +507,7 @@ interface ActivePersistentAgent {
   resetInProgress: boolean;
 }
 
-export interface CompanyProject {
-  name: string;
-  repo_url: string;
-}
+export type CompanyProject = CliCompanyProject;
 
 export interface PersistentAgentJobDefinition {
   role: string;
@@ -661,51 +659,8 @@ export class JobExecutor {
       return;
     }
 
-    try {
-      const raw = execFileSync("zazig", ["projects", "--company", this.companyId], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      const parsed = JSON.parse(raw) as unknown;
-      let projectRecords: unknown[] | null = null;
-      if (Array.isArray(parsed)) {
-        projectRecords = parsed;
-      } else if (parsed && typeof parsed === "object") {
-        const projects = (parsed as Record<string, unknown>)["projects"];
-        if (Array.isArray(projects)) {
-          projectRecords = projects;
-        }
-      }
-
-      if (!projectRecords) {
-        console.warn(
-          `[executor] Failed to parse projects from zazig projects --company ${this.companyId}: malformed JSON shape`,
-        );
-        this.setCompanyProjects([]);
-        return;
-      }
-
-      const projects: CompanyProject[] = [];
-      for (const project of projectRecords) {
-        if (!project || typeof project !== "object") continue;
-        const record = project as Record<string, unknown>;
-        const status = typeof record["status"] === "string" ? record["status"] : "";
-        if (status !== "active") continue;
-
-        const name = typeof record["name"] === "string" ? record["name"].trim() : "";
-        const repoUrl = typeof record["repo_url"] === "string" ? record["repo_url"].trim() : "";
-        if (!name || !repoUrl) continue;
-        projects.push({ name, repo_url: repoUrl });
-      }
-
-      this.setCompanyProjects(projects);
-    } catch (err) {
-      console.warn(
-        `[executor] Failed to load projects from zazig projects --company ${this.companyId}; continuing with empty project list`,
-        err,
-      );
-      this.setCompanyProjects([]);
-    }
+    const refreshedProjects = loadCompanyProjectsFromCli(this.companyId, { logPrefix: "executor" });
+    this.setCompanyProjects(refreshedProjects);
   }
 
   /** Resolve the machine UUID from the machines table (cached after first call). */

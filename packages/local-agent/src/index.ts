@@ -203,7 +203,7 @@ async function main(): Promise<void> {
         new MasterChangePoller({
           repoPath: project.repo_url,
           execFileAsync: execFileAsync as typeof execFileAsync,
-          fetchBareRepo: async () => {
+          fetchRepo: async () => {
             try {
               await executor.repoManager.refreshWorktree(project.name);
             } catch (err) {

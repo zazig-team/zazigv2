@@ -408,12 +408,16 @@ async function fetchPersistentAgentDefinitions(
     throw new Error("Persistent jobs endpoint returned invalid JSON payload");
   }
 
-  const body = payload as Record<string, unknown>;
-  const jobs =
-    Array.isArray(body["jobs"]) ? body["jobs"] :
-    Array.isArray(body["persistent_jobs"]) ? body["persistent_jobs"] :
-    Array.isArray(body["persistentJobs"]) ? body["persistentJobs"] :
-    [];
+  // The endpoint may return a raw array or an object with a jobs key
+  const jobs = Array.isArray(payload)
+    ? payload
+    : (() => {
+        const body = payload as Record<string, unknown>;
+        return Array.isArray(body["jobs"]) ? body["jobs"] :
+          Array.isArray(body["persistent_jobs"]) ? body["persistent_jobs"] :
+          Array.isArray(body["persistentJobs"]) ? body["persistentJobs"] :
+          [];
+      })();
 
   return { jobs: jobs as PersistentAgentJobDefinition[] };
 }

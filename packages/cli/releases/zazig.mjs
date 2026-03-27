@@ -15373,17 +15373,6 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey, supabase) {
     process.exitCode = 1;
     return;
   }
-  try {
-    const { count, error: promoteError } = await supabase.from("features").update({ promoted_version: newVersion }, { count: "exact" }).eq("status", "complete").is("promoted_version", null);
-    if (promoteError) {
-      console.warn(`Warning: could not update promoted_version on features: ${promoteError.message}`);
-    }
-    console.log(`Marked ${count ?? 0} complete feature(s) with promoted_version=${newVersion}.`);
-  } catch (err) {
-    console.error(`Failed to update promoted features: ${String(err)}`);
-    process.exitCode = 1;
-    return;
-  }
   console.log("\nCreating GitHub Release...");
   const tag = `v${newVersion}`;
   try {

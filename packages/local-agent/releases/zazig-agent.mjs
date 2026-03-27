@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "019be51";
+const AGENT_BUILD_HASH = "c9daff1";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -13168,6 +13168,8 @@ function setupJobWorkspace(config) {
   mkdirSync(config.workspaceDir, { recursive: true });
   const claudeDir = join2(config.workspaceDir, ".claude");
   mkdirSync(claudeDir, { recursive: true });
+  const reportsDir = join2(config.workspaceDir, ".reports");
+  mkdirSync(reportsDir, { recursive: true });
   const mcpConfig = generateMcpConfig(config.mcpServerPath, {
     supabaseUrl: config.supabaseUrl,
     supabaseAnonKey: config.supabaseAnonKey,
@@ -13245,6 +13247,7 @@ function setupJobWorkspace(config) {
       "CLAUDE.md",
       ".mcp.json",
       ".claude/",
+      ".reports/",
       ".zazig-prompt.txt",
       "subagent-personality.md",
       ""
@@ -13886,9 +13889,9 @@ var STUCK_NO_OUTPUT_MS = 5 * 6e4;
 var INTERACTIVE_JOB_TIMEOUT_MS = 30 * 6e4;
 function reportRelativePath(role) {
   const reportFile = role ? `${role}-report.md` : "cpo-report.md";
-  return `.claude/${reportFile}`;
+  return `.reports/${reportFile}`;
 }
-var REPORT_ARCHIVE_DIR = ".claude/job-reports";
+var REPORT_ARCHIVE_DIR = ".reports/job-reports";
 var NO_CODE_CONTEXT_ROLES = /* @__PURE__ */ new Set([
   "pipeline-technician",
   "monitoring-agent",
@@ -13896,7 +13899,7 @@ var NO_CODE_CONTEXT_ROLES = /* @__PURE__ */ new Set([
   "triage-analyst"
 ]);
 var CPO_STARTUP_DELAY_MS = 15e3;
-var DEFAULT_BOOT_PROMPT = "Read your state files. If .claude/{role}-report.md exists, review it for continuity. Check for pending work via your MCP tools. Orient yourself and begin.";
+var DEFAULT_BOOT_PROMPT = "Read your state files. If .reports/{role}-report.md exists, review it for continuity. Check for pending work via your MCP tools. Orient yourself and begin.";
 var MIN_SESSION_AGE_MS = 5 * 6e4;
 var RESET_FAILURE_WINDOW_MS = 10 * 6e4;
 var MAX_RESET_FAILURES = 3;
@@ -14297,7 +14300,7 @@ ${cpoContext}`);
     }
     if (msg.role === "reviewer" && worktreePath) {
       try {
-        unlinkSync(`${worktreePath}/.claude/reviewer-report.md`);
+        unlinkSync(`${worktreePath}/.reports/reviewer-report.md`);
       } catch {
       }
     }
@@ -15621,7 +15624,7 @@ ${msg.text}`;
         result = "FAILED: Reviewer job missing required worktreePath";
         jobLog(jobId, "Report search ERROR \u2014 reviewer job missing required worktreePath");
       } else {
-        const reviewerReportPath = `${job.worktreePath}/.claude/reviewer-report.md`;
+        const reviewerReportPath = `${job.worktreePath}/.reports/reviewer-report.md`;
         jobLog(jobId, `Report search \u2014 reviewer canonical path=${reviewerReportPath}`);
         try {
           renameSync(reviewerReportPath, jobReportPath);
@@ -15642,10 +15645,10 @@ ${msg.text}`;
       }
       candidatePaths.push(`${homeDir}/${rpPath}`);
       const REPORT_FALLBACKS = {
-        deployer: ".claude/deploy-report.md",
-        "test-deployer": ".claude/deploy-report.md",
-        tester: ".claude/tester-report.md",
-        "job-merger": ".claude/job-merger-report.md"
+        deployer: ".reports/deploy-report.md",
+        "test-deployer": ".reports/deploy-report.md",
+        tester: ".reports/tester-report.md",
+        "job-merger": ".reports/job-merger-report.md"
       };
       const fallback = job.role ? REPORT_FALLBACKS[job.role] : void 0;
       if (fallback && fallback !== rpPath) {

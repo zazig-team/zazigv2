@@ -3924,14 +3924,15 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
   const { data: companies } = await supabase
     .from("companies")
     .select(
-      "id, auto_triage, triage_batch_size, triage_max_concurrent, triage_delay_minutes",
+      "id, auto_triage_types, triage_batch_size, triage_max_concurrent, triage_delay_minutes",
     )
-    .eq("auto_triage", true)
+    .not("auto_triage_types", "eq", "{}")
     .eq("status", "active");
 
   if (!companies?.length) return;
 
   for (const company of companies) {
+    const enabledTypes: string[] = company.auto_triage_types ?? [];
     const companyId = company.id;
     const lastRun = autoTriageLastRun.get(companyId) ?? 0;
     if (Date.now() - lastRun < AUTO_TRIAGE_COOLDOWN_MS) continue;
@@ -3967,6 +3968,7 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
       .select("id")
       .eq("company_id", companyId)
       .eq("status", "new")
+      .in("item_type", enabledTypes)
       .lt("created_at", cutoff)
       .order("created_at", { ascending: true })
       .limit(maxIdeas);
@@ -4324,8 +4326,8 @@ async function dispatchAutoSpecSession(
 async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
   const { data: companies, error: companiesErr } = await supabase
     .from("companies")
-    .select("id, auto_spec, spec_max_concurrent")
-    .eq("auto_spec", true)
+    .select("id, auto_spec_types, spec_max_concurrent")
+    .not("auto_spec_types", "eq", "{}")
     .eq("status", "active");
 
   if (companiesErr) {
@@ -4340,10 +4342,12 @@ async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
   for (
     const company of companies as {
       id: string;
+      auto_spec_types: string[];
       spec_max_concurrent: number | null;
     }[]
   ) {
     const companyId = company.id;
+    const enabledTypes: string[] = company.auto_spec_types ?? [];
     const maxConcurrent = company.spec_max_concurrent ?? 2;
 
     const { count: activeSessions, error: activeErr } = await supabase
@@ -4375,6 +4379,7 @@ async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
         .eq("company_id", companyId)
         .eq("status", "triaged")
         .eq("triage_route", "develop")
+        .in("item_type", enabledTypes)
         .not("project_id", "is", null)
         .order("created_at", { ascending: true })
         .limit(slotsAvailable);

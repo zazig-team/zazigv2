@@ -42,6 +42,8 @@ import { batchCreateJobs } from "./commands/batch-create-jobs.js";
 import { sendMessageToHuman } from "./commands/send-message-to-human.js";
 import { startExpertSession } from "./commands/start-expert-session.js";
 import { verifyStaging } from "./commands/verify-staging.js";
+import { autoTriage } from "./commands/auto-triage.js";
+import { autoSpec } from "./commands/auto-spec.js";
 import { getVersion } from "./lib/version.js";
 
 const [, , cmd, ...args] = process.argv;
@@ -167,6 +169,14 @@ switch (cmd) {
     await verifyStaging(args);
     break;
 
+  case "auto-triage":
+    await autoTriage(args);
+    break;
+
+  case "auto-spec":
+    await autoSpec(args);
+    break;
+
   case undefined:
   case "--help":
   case "-h":
@@ -205,6 +215,8 @@ switch (cmd) {
     console.log("  send-message-to-human --company <id> --text <msg>   Send a message to a human");
     console.log("  start-expert-session --company <company-id>          Start an expert session");
     console.log("  verify-staging --company <id> --id <feature-id>      Set or clear staging verification");
+    console.log("  auto-triage --company <id> [--status] [--enable type,...] [--disable type,...]");
+    console.log("  auto-spec   --company <id> [--status] [--enable type,...] [--disable type,...]");
     break;
 
   default:

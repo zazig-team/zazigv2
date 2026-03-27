@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>zazig — Sign in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper:      #0C0D10;
+    --surface:    #16181D;
+    --border:     #252830;
+    --border-focus: #3A3E48;
+    --dust:       #505660;
+    --stone:      #868C98;
+    --graphite:   #B0B6C3;
+    --ink:        #EAECF1;
+    --ember:      #E8553A;
+    --ember-hover:#F06A52;
+    --ember-dim:  rgba(232, 85, 58, 0.12);
+    --positive:   #3ECF71;
+    --negative:   #EF5454;
+    --font-body:  'Plus Jakarta Sans', -apple-system, sans-serif;
+    --font-mono:  'JetBrains Mono', 'SF Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Grain ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    background-size: 256px 256px;
+  }
+
+  /* ── Layout ── */
+  .page {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: 48px 24px;
+  }
+
+  /* ── Card ── */
+  .login-card {
+    width: 100%;
+    max-width: 400px;
+    opacity: 0;
+    animation: fadeUp 0.6s ease-out 0.1s forwards;
+  }
+
+  /* ── Brand ── */
+  .brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 48px;
+  }
+
+  .brand-wordmark {
+    font-family: var(--font-body);
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--ink);
+    text-decoration: none;
+  }
+
+  .brand-dot {
+    width: 7px;
+    height: 7px;
+    background: var(--positive);
+    border-radius: 50%;
+    margin-left: 2px;
+    margin-bottom: -2px;
+    animation: breathe 4s ease-in-out infinite;
+    box-shadow: 0 0 12px rgba(62, 207, 113, 0.25);
+  }
+
+  /* ── Header ── */
+  .login-header {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+
+  .login-title {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    margin-bottom: 8px;
+  }
+
+  .login-subtitle {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--stone);
+    line-height: 1.5;
+  }
+
+  /* ── Form ── */
+  .login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .input-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--stone);
+    text-transform: uppercase;
+  }
+
+  .input-field {
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 400;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    outline: none;
+    transition: all 0.2s;
+    width: 100%;
+  }
+
+  .input-field::placeholder {
+    color: var(--dust);
+  }
+
+  .input-field:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px rgba(232, 85, 58, 0.08);
+  }
+
+  /* ── Buttons ── */
+  .btn-primary {
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--ember);
+    border: none;
+    border-radius: 10px;
+    padding: 14px 24px;
+    cursor: pointer;
+    transition: all 0.25s;
+    width: 100%;
+    text-align: center;
+    margin-top: 4px;
+  }
+
+  .btn-primary:hover {
+    background: var(--ember-hover);
+    box-shadow: 0 4px 20px rgba(232, 85, 58, 0.2);
+  }
+
+  .btn-primary:active {
+    transform: scale(0.98);
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  /* ── Divider ── */
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 8px 0;
+  }
+
+  .divider-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .divider-text {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    color: var(--dust);
+    text-transform: uppercase;
+  }
+
+  /* ── Google button ── */
+  .btn-google {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--graphite);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 13px 24px;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+  }
+
+  .btn-google:hover {
+    background: var(--surface);
+    border-color: var(--dust);
+    color: var(--ink);
+  }
+
+  .btn-google:active {
+    transform: scale(0.98);
+  }
+
+  .btn-google svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+
+  /* ── Footer text ── */
+  .login-footer {
+    text-align: center;
+    margin-top: 32px;
+    font-size: 13px;
+    color: var(--dust);
+  }
+
+  .login-footer a {
+    color: var(--stone);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s;
+  }
+
+  .login-footer a:hover {
+    color: var(--ink);
+  }
+
+  /* ── Success state ── */
+  .success-state {
+    display: none;
+    text-align: center;
+    padding: 20px 0;
+  }
+
+  .success-state.show {
+    display: block;
+  }
+
+  .success-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(62, 207, 113, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+  }
+
+  .success-icon svg {
+    width: 24px;
+    height: 24px;
+    color: var(--positive);
+  }
+
+  .success-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 8px;
+  }
+
+  .success-detail {
+    font-size: 14px;
+    color: var(--stone);
+    line-height: 1.5;
+  }
+
+  .success-detail strong {
+    color: var(--graphite);
+    font-weight: 500;
+  }
+
+  .success-resend {
+    margin-top: 24px;
+    font-size: 13px;
+    color: var(--dust);
+  }
+
+  .success-resend button {
+    background: none;
+    border: none;
+    color: var(--ember);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.2s;
+    padding: 0;
+  }
+
+  .success-resend button:hover {
+    color: var(--ember-hover);
+  }
+
+  /* ── Back link ── */
+  .back-link {
+    position: fixed;
+    top: 24px;
+    left: 24px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    color: var(--dust);
+    text-decoration: none;
+    text-transform: uppercase;
+    transition: color 0.2s;
+    z-index: 10;
+  }
+
+  .back-link:hover { color: var(--stone); }
+
+  .back-link svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* ── Terms ── */
+  .terms {
+    text-align: center;
+    margin-top: 48px;
+    font-size: 11px;
+    color: var(--dust);
+    line-height: 1.6;
+    max-width: 300px;
+  }
+
+  .terms a {
+    color: var(--stone);
+    text-decoration: none;
+  }
+
+  .terms a:hover {
+    text-decoration: underline;
+  }
+
+  /* ── Error state ── */
+  .input-error {
+    font-size: 12px;
+    color: var(--negative);
+    margin-top: 4px;
+    display: none;
+  }
+
+  .input-error.show {
+    display: block;
+  }
+
+  /* ── Animations ── */
+  @keyframes breathe {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    display: inline-block;
+    vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+
+<a href="landing.html" class="back-link">
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 4l-4 4 4 4"/></svg>
+  Back
+</a>
+
+<div class="page">
+  <div class="login-card">
+
+    <!-- Brand -->
+    <div class="brand">
+      <a href="landing.html" class="brand-wordmark">zazig</a>
+      <span class="brand-dot"></span>
+    </div>
+
+    <!-- Header -->
+    <div id="login-header" class="login-header">
+      <h1 class="login-title">Sign in to your workspace</h1>
+      <p class="login-subtitle">Enter your email to receive a magic link.</p>
+    </div>
+
+    <!-- Form -->
+    <div id="login-form" class="login-form">
+      <div class="input-group">
+        <label class="input-label" for="email">Email</label>
+        <input
+          type="email"
+          id="email"
+          class="input-field"
+          placeholder="you@company.com"
+          autocomplete="email"
+          autofocus
+        >
+        <span id="email-error" class="input-error">Please enter a valid email address</span>
+      </div>
+
+      <button id="magic-link-btn" class="btn-primary" onclick="handleMagicLink()">
+        Continue with magic link
+      </button>
+
+      <div class="divider">
+        <span class="divider-line"></span>
+        <span class="divider-text">or</span>
+        <span class="divider-line"></span>
+      </div>
+
+      <button class="btn-google" onclick="handleGoogle()">
+        <svg viewBox="0 0 18 18" fill="none">
+          <path d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+          <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/>
+          <path d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.997 8.997 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+          <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 6.29C4.672 4.163 6.656 2.58 9 2.58z" fill="#EA4335"/>
+        </svg>
+        Continue with Google
+      </button>
+    </div>
+
+    <!-- Success state (shown after magic link sent) -->
+    <div id="success-state" class="success-state">
+      <div class="success-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+        </svg>
+      </div>
+      <h2 class="success-title">Check your email</h2>
+      <p class="success-detail">
+        We sent a sign-in link to<br>
+        <strong id="sent-email">you@company.com</strong>
+      </p>
+      <p class="success-resend">
+        Didn't receive it? <button onclick="handleResend()">Resend link</button>
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div id="login-footer" class="login-footer">
+      Don't have an account? <a href="#">Request access</a>
+    </div>
+
+    <!-- Terms -->
+    <p class="terms">
+      By continuing, you agree to our
+      <a href="#">Terms of Service</a> and
+      <a href="#">Privacy Policy</a>.
+    </p>
+
+  </div>
+</div>
+
+<script>
+  // ── Mock auth flow ──
+  function validateEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
+  function handleMagicLink() {
+    const emailInput = document.getElementById('email');
+    const emailError = document.getElementById('email-error');
+    const email = emailInput.value.trim();
+
+    if (!validateEmail(email)) {
+      emailError.classList.add('show');
+      emailInput.style.borderColor = 'var(--negative)';
+      return;
+    }
+
+    emailError.classList.remove('show');
+    emailInput.style.borderColor = '';
+
+    // Show loading state
+    const btn = document.getElementById('magic-link-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    // Simulate sending magic link
+    setTimeout(() => {
+      document.getElementById('login-form').style.display = 'none';
+      document.getElementById('login-footer').style.display = 'none';
+      document.getElementById('login-header').style.display = 'none';
+      document.getElementById('sent-email').textContent = email;
+
+      const success = document.getElementById('success-state');
+      success.classList.add('show');
+    }, 1200);
+
+    // In production:
+    // const { error } = await supabase.auth.signInWithOtp({
+    //   email,
+    //   options: { emailRedirectTo: window.location.origin + '/dashboard' }
+    // });
+  }
+
+  function handleGoogle() {
+    // In production:
+    // await supabase.auth.signInWithOAuth({
+    //   provider: 'google',
+    //   options: { redirectTo: window.location.origin + '/dashboard' }
+    // });
+
+    // Mock: flash the button briefly
+    const btn = document.querySelector('.btn-google');
+    btn.style.borderColor = 'var(--dust)';
+    btn.style.background = 'var(--surface)';
+    setTimeout(() => {
+      // Would redirect to Google OAuth
+      alert('Would redirect to Google OAuth consent screen');
+      btn.style.borderColor = '';
+      btn.style.background = '';
+    }, 300);
+  }
+
+  function handleResend() {
+    const btn = event.target;
+    btn.textContent = 'Sent!';
+    btn.style.color = 'var(--positive)';
+    setTimeout(() => {
+      btn.textContent = 'Resend link';
+      btn.style.color = '';
+    }, 2000);
+  }
+
+  // Reset error state on input
+  document.getElementById('email').addEventListener('input', () => {
+    document.getElementById('email-error').classList.remove('show');
+    document.getElementById('email').style.borderColor = '';
+  });
+
+  // Enter key submits
+  document.getElementById('email').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleMagicLink();
+  });
+</script>
+
+</body>
+</html>

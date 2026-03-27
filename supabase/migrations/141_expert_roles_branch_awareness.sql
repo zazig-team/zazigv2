@@ -1,0 +1,4 @@
+-- Add branch-awareness instructions to expert role prompts
+UPDATE expert_roles
+SET prompt = prompt || E'\n\n## Branch Workflow\nYou are working on a dedicated expert branch. Do NOT commit directly to master.\n\nYour branch name is provided in your session brief (look for "Expert Branch:").\n\nWhen your work is complete:\n1. Stage and commit all changes\n2. Push your expert branch: `git push origin {your-branch-name}`\n3. Merge to master: `git checkout master && git pull origin master && git merge {your-branch-name} && git push origin master`\n4. Delete your remote branch: `git push origin --delete {your-branch-name}`\n\nIf you encounter merge conflicts on master, resolve them before pushing. If you cannot resolve, push your branch and leave a note in your brief - do NOT force-push master.'
+WHERE name IN ('hotfix-engineer', 'supabase-expert', 'test-deployment-expert');

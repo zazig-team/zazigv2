@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Approach D — Hybrid List + Inline Detail</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+  :root {
+    --paper: #0c0d10;
+    --white: #16181d;
+    --chalk: #252830;
+    --chalk-light: #1d2026;
+    --dust: #505660;
+    --stone: #868c98;
+    --graphite: #b0b6c3;
+    --ink: #eaecf1;
+    --ember: #e8553a;
+    --positive: #3ecf71;
+    --caution: #e5b835;
+    --negative: #ef5454;
+    --col-ideas: #e5b835;
+    --col-bug: #ef5454;
+    --col-brief: #6b9fd4;
+    --col-test: #a78bfa;
+    --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", "SF Mono", monospace;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--paper);
+    color: var(--ink);
+    min-height: 100vh;
+    padding: 32px 40px;
+  }
+
+  .page-header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .page-title { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+  .page-subtitle { font-family: var(--font-mono); font-size: 11px; color: var(--dust); }
+
+  .tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--chalk);
+  }
+  .tab {
+    padding: 10px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--stone);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tab:hover { color: var(--graphite); }
+  .tab.active {
+    color: var(--ink);
+    border-bottom-color: var(--col-ideas);
+  }
+  .tab-count {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dust);
+    background: var(--chalk);
+    padding: 1px 7px;
+    border-radius: 10px;
+  }
+  .tab.active .tab-count {
+    background: rgba(229, 184, 53, 0.15);
+    color: var(--col-ideas);
+  }
+
+  /* List */
+  .idea-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 960px;
+  }
+
+  /* Row — collapsed */
+  .idea-row {
+    background: var(--white);
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .idea-row:hover {
+    background: var(--chalk-light);
+    border-color: var(--dust);
+  }
+
+  .row-summary {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+  }
+
+  .row-accent {
+    width: 3px;
+    align-self: stretch;
+    flex-shrink: 0;
+  }
+  .row-accent.idea { background: var(--col-ideas); }
+  .row-accent.bug { background: var(--col-bug); }
+  .row-accent.brief { background: var(--col-brief); }
+
+  .row-icon {
+    width: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    flex-shrink: 0;
+    padding-top: 13px;
+  }
+
+  .row-body {
+    flex: 1;
+    min-width: 0;
+    padding: 11px 0;
+  }
+  .row-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--ink);
+    margin-bottom: 3px;
+  }
+  .row-desc {
+    font-size: 12px;
+    color: var(--stone);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .row-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 16px 11px 0;
+    flex-shrink: 0;
+  }
+
+  .priority-badge {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 500;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+  }
+  .priority-badge.urgent { background: rgba(239, 84, 84, 0.15); color: var(--negative); }
+  .priority-badge.high { background: rgba(232, 85, 58, 0.15); color: var(--ember); }
+  .priority-badge.med { background: rgba(80, 86, 96, 0.3); color: var(--stone); }
+  .priority-badge.low { background: rgba(80, 86, 96, 0.15); color: var(--dust); }
+
+  .source-label, .age-label {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--dust);
+  }
+  .source-label { min-width: 52px; }
+  .age-label { min-width: 28px; text-align: right; }
+
+  /* Expanded state */
+  .idea-row.expanded {
+    border-color: rgba(229, 184, 53, 0.25);
+    background: rgba(229, 184, 53, 0.03);
+  }
+
+  .row-detail {
+    display: none;
+    padding: 0 20px 20px 43px;
+  }
+  .idea-row.expanded .row-detail {
+    display: block;
+    animation: detailIn 0.2s ease;
+  }
+
+  .detail-divider {
+    height: 1px;
+    background: var(--chalk);
+    margin: 12px 0 16px 0;
+  }
+
+  .detail-text {
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--graphite);
+    margin-bottom: 16px;
+    max-width: 720px;
+  }
+
+  .detail-meta-row {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .detail-meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .detail-meta-key {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--dust);
+  }
+  .detail-meta-val {
+    font-size: 12px;
+    color: var(--stone);
+  }
+
+  .detail-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .action-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: rgba(229, 184, 53, 0.12);
+    border: 1px solid rgba(229, 184, 53, 0.25);
+    border-radius: var(--radius-sm);
+    color: var(--col-ideas);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .action-btn-primary:hover {
+    background: rgba(229, 184, 53, 0.2);
+    border-color: rgba(229, 184, 53, 0.4);
+  }
+  .action-btn {
+    padding: 8px 14px;
+    background: transparent;
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-sm);
+    color: var(--stone);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .action-btn:hover {
+    background: var(--chalk);
+    color: var(--ink);
+  }
+
+  .chevron {
+    width: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 13px;
+    padding-right: 12px;
+    color: var(--dust);
+    font-size: 10px;
+    transition: transform 0.2s ease;
+  }
+  .idea-row.expanded .chevron {
+    transform: rotate(90deg);
+    color: var(--col-ideas);
+  }
+
+  .approach-label {
+    position: fixed;
+    top: 16px;
+    right: 24px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--dust);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    opacity: 0.5;
+  }
+
+  .hint {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--dust);
+    margin-bottom: 16px;
+    opacity: 0.6;
+  }
+
+  @keyframes detailIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+
+<div class="approach-label">Approach D &mdash; Hybrid</div>
+
+<div class="page-header">
+  <div class="page-title">Ideas</div>
+  <div class="page-subtitle">triage workflow</div>
+</div>
+
+<div class="tabs">
+  <div class="tab active">Inbox <span class="tab-count">25</span></div>
+  <div class="tab">Triaged <span class="tab-count">12</span></div>
+  <div class="tab">Workshop <span class="tab-count">3</span></div>
+  <div class="tab">Parked <span class="tab-count">14</span></div>
+  <div class="tab">Shipped <span class="tab-count">22</span></div>
+</div>
+
+<div class="hint">click a row to expand &middot; arrow keys to navigate</div>
+
+<div class="idea-list">
+
+  <!-- Collapsed row -->
+  <div class="idea-row" onclick="toggleRow(this)">
+    <div class="row-summary">
+      <div class="row-accent idea"></div>
+      <div class="row-icon">💡</div>
+      <div class="row-body">
+        <div class="row-title">Idea Hardening Pipeline — Port fragile bash scripts to typed Node modules</div>
+        <div class="row-desc">Replace shell-based pipeline scripts with strongly typed Node.js modules for reliability</div>
+      </div>
+      <div class="row-meta">
+        <span class="priority-badge med">MED</span>
+        <span class="source-label">terminal</span>
+        <span class="age-label">2h</span>
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="row-detail">
+      <div class="detail-divider"></div>
+      <div class="detail-text">
+        Replace shell-based pipeline scripts with strongly typed Node.js modules for reliability and testability. The current bash scripts are fragile, hard to debug, and lack type safety. Moving to Node with TypeScript gives us proper error handling, testability, and IDE support.
+      </div>
+      <div class="detail-meta-row">
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Source</span>
+          <span class="detail-meta-val">terminal</span>
+        </div>
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Originator</span>
+          <span class="detail-meta-val">tom</span>
+        </div>
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Created</span>
+          <span class="detail-meta-val">2026-03-09 12:30</span>
+        </div>
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Type</span>
+          <span class="detail-meta-val">Idea</span>
+        </div>
+      </div>
+      <div class="detail-actions">
+        <button class="action-btn-primary">Promote to Feature</button>
+        <button class="action-btn">Triage</button>
+        <button class="action-btn">Park</button>
+        <button class="action-btn">Reject</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Collapsed row -->
+  <div class="idea-row" onclick="toggleRow(this)">
+    <div class="row-summary">
+      <div class="row-accent idea"></div>
+      <div class="row-icon">💡</div>
+      <div class="row-body">
+        <div class="row-title">Promote-to-Capability transition flow for graduated ideas</div>
+        <div class="row-desc">When an idea graduates to a capability, auto-link and preserve the audit trail</div>
+      </div>
+      <div class="row-meta">
+        <span class="priority-badge med">MED</span>
+        <span class="source-label">terminal</span>
+        <span class="age-label">2h</span>
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="row-detail">
+      <div class="detail-divider"></div>
+      <div class="detail-text">
+        When an idea graduates to a capability, auto-link and preserve the audit trail through the full promotion chain. Currently ideas can be promoted to features but there's no path to capability promotion with proper linkage.
+      </div>
+      <div class="detail-meta-row">
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Source</span>
+          <span class="detail-meta-val">terminal</span>
+        </div>
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Originator</span>
+          <span class="detail-meta-val">tom</span>
+        </div>
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Created</span>
+          <span class="detail-meta-val">2026-03-09 12:15</span>
+        </div>
+      </div>
+      <div class="detail-actions">
+        <button class="action-btn-primary">Promote to Feature</button>
+        <button class="action-btn">Triage</button>
+        <button class="action-btn">Park</button>
+        <button class="action-btn">Reject</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EXPANDED row — this one is open by default to show the pattern -->
+  <div class="idea-row expanded" onclick="toggleRow(this)">
+    <div class="row-summary">
+      <div class="row-accent idea"></div>
+      <div class="row-icon">💡</div>
+      <div class="row-body">
+        <div class="row-title">CI-Gated Pipeline: PR gate enforcement before merge</div>
+        <div class="row-desc">Block merge to main unless CI pipeline passes all required checks</div>
+      </div>
+      <div class="row-meta">
+        <span class="priority-badge high">HIGH</span>
+        <span class="source-label">agent</span>
+        <span class="age-label">7h</span>
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="row-detail">
+      <div class="detail-divider"></div>
+      <div class="detail-text">
+        Block merge to main unless CI pipeline passes all required checks including type-check, lint, and integration tests. Currently, PRs can be merged without any automated verification, which has led to several broken builds landing on main.
+        <br><br>
+        This should integrate with the existing GitHub Actions workflow and enforce branch protection rules. Required checks should include: TypeScript compilation, ESLint, unit tests, and the integration test suite. Failed checks should block the merge button and post a clear status comment.
+        <br><br>
+        Consider also adding a "bypass" mechanism for emergency hotfixes that requires explicit approval from a designated reviewer.
+      </div>
+      <div class="detail-meta-row">
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Source</span>
+          <span class="detail-meta-val">agent</span>
+        </div>
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Originator</span>
+          <span class="detail-meta-val">cpo-agent</span>
+        </div>
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Created</span>
+          <span class="detail-meta-val">2026-03-09 07:12</span>
+        </div>
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Type</span>
+          <span class="detail-meta-val">Idea</span>
+        </div>
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Priority</span>
+          <span class="detail-meta-val">High</span>
+        </div>
+      </div>
+      <div class="detail-actions">
+        <button class="action-btn-primary">Promote to Feature</button>
+        <button class="action-btn">Triage</button>
+        <button class="action-btn">Park</button>
+        <button class="action-btn">Reject</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Collapsed rows -->
+  <div class="idea-row" onclick="toggleRow(this)">
+    <div class="row-summary">
+      <div class="row-accent idea"></div>
+      <div class="row-icon">💡</div>
+      <div class="row-body">
+        <div class="row-title">PAI hardening: prompt frequency limits and token budgets</div>
+        <div class="row-desc">Add rate limiting to prevent runaway prompt loops from burning through API token allocations</div>
+      </div>
+      <div class="row-meta">
+        <span class="priority-badge low">LOW</span>
+        <span class="source-label">terminal</span>
+        <span class="age-label">1d</span>
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="row-detail">
+      <div class="detail-divider"></div>
+      <div class="detail-text">
+        Add rate limiting to prevent runaway prompt loops from burning through API token allocations. Needs configurable limits per agent role and per-session token caps with graceful shutdown when budget is exhausted.
+      </div>
+      <div class="detail-meta-row">
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Source</span>
+          <span class="detail-meta-val">terminal</span>
+        </div>
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Originator</span>
+          <span class="detail-meta-val">tom</span>
+        </div>
+        <div class="detail-meta-item">
+          <span class="detail-meta-key">Created</span>
+          <span class="detail-meta-val">2026-03-08 14:00</span>
+        </div>
+      </div>
+      <div class="detail-actions">
+        <button class="action-btn-primary">Promote to Feature</button>
+        <button class="action-btn">Triage</button>
+        <button class="action-btn">Park</button>
+        <button class="action-btn">Reject</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="idea-row" onclick="toggleRow(this)">
+    <div class="row-summary">
+      <div class="row-accent idea"></div>
+      <div class="row-icon">💡</div>
+      <div class="row-body">
+        <div class="row-title">Spec validation: file path assertions in acceptance tests</div>
+        <div class="row-desc">Feature specs should validate that referenced file paths actually exist in the codebase</div>
+      </div>
+      <div class="row-meta">
+        <span class="priority-badge high">HIGH</span>
+        <span class="source-label">agent</span>
+        <span class="age-label">1d</span>
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="row-detail">
+      <div class="detail-divider"></div>
+      <div class="detail-text">Feature specs should validate that referenced file paths actually exist in the codebase before execution begins. Several failed features traced back to specs referencing files that had been moved or renamed.</div>
+      <div class="detail-meta-row">
+        <div class="detail-meta-item"><span class="detail-meta-key">Source</span><span class="detail-meta-val">agent</span></div>
+        <div class="detail-meta-item"><span class="detail-meta-key">Created</span><span class="detail-meta-val">2026-03-08 09:00</span></div>
+      </div>
+      <div class="detail-actions">
+        <button class="action-btn-primary">Promote to Feature</button>
+        <button class="action-btn">Triage</button>
+        <button class="action-btn">Park</button>
+        <button class="action-btn">Reject</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="idea-row" onclick="toggleRow(this)">
+    <div class="row-summary">
+      <div class="row-accent bug"></div>
+      <div class="row-icon">🐛</div>
+      <div class="row-body">
+        <div class="row-title">Fix: min(uuid) error in 121_seed migration on fresh installs</div>
+        <div class="row-desc">Fresh installs crash on seed migration due to min() aggregate on empty table</div>
+      </div>
+      <div class="row-meta">
+        <span class="priority-badge urgent">URGENT</span>
+        <span class="source-label">agent</span>
+        <span class="age-label">1d</span>
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="row-detail">
+      <div class="detail-divider"></div>
+      <div class="detail-text">Fresh installs crash on seed migration due to min() aggregate on empty table returning null. The migration assumes at least one company row exists, but on a clean database the SELECT min(id) returns NULL which cascades into a NOT NULL constraint violation on the capabilities insert.</div>
+      <div class="detail-meta-row">
+        <div class="detail-meta-item"><span class="detail-meta-key">Source</span><span class="detail-meta-val">agent</span></div>
+        <div class="detail-meta-item"><span class="detail-meta-key">Type</span><span class="detail-meta-val">Bug</span></div>
+        <div class="detail-meta-item"><span class="detail-meta-key">Created</span><span class="detail-meta-val">2026-03-08 06:45</span></div>
+      </div>
+      <div class="detail-actions">
+        <button class="action-btn-primary">Promote to Feature</button>
+        <button class="action-btn">Triage</button>
+        <button class="action-btn">Park</button>
+        <button class="action-btn">Reject</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="idea-row" onclick="toggleRow(this)">
+    <div class="row-summary">
+      <div class="row-accent idea"></div>
+      <div class="row-icon">💡</div>
+      <div class="row-body">
+        <div class="row-title">Auto-Triage: Automated inbox scoring with configurable rules</div>
+        <div class="row-desc">Score incoming ideas automatically based on keyword matching, priority signals, and source credibility</div>
+      </div>
+      <div class="row-meta">
+        <span class="priority-badge med">MED</span>
+        <span class="source-label">terminal</span>
+        <span class="age-label">2d</span>
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="row-detail">
+      <div class="detail-divider"></div>
+      <div class="detail-text">Score incoming ideas automatically based on keyword matching, priority signals, and source credibility weighting. Could use a simple rule engine initially, with an LLM-based scorer as a future upgrade.</div>
+      <div class="detail-meta-row">
+        <div class="detail-meta-item"><span class="detail-meta-key">Source</span><span class="detail-meta-val">terminal</span></div>
+        <div class="detail-meta-item"><span class="detail-meta-key">Created</span><span class="detail-meta-val">2026-03-07 10:00</span></div>
+      </div>
+      <div class="detail-actions">
+        <button class="action-btn-primary">Promote to Feature</button>
+        <button class="action-btn">Triage</button>
+        <button class="action-btn">Park</button>
+        <button class="action-btn">Reject</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="idea-row" onclick="toggleRow(this)">
+    <div class="row-summary">
+      <div class="row-accent idea"></div>
+      <div class="row-icon">💡</div>
+      <div class="row-body">
+        <div class="row-title">Model & Subscription Flexibility — decouple roles from hardcoded models</div>
+        <div class="row-desc">Introduce machine_backends table so agents can use different models based on availability and tier</div>
+      </div>
+      <div class="row-meta">
+        <span class="priority-badge high">HIGH</span>
+        <span class="source-label">terminal</span>
+        <span class="age-label">2d</span>
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="row-detail">
+      <div class="detail-divider"></div>
+      <div class="detail-text">Decouple agent roles from hardcoded model assignments. Introduce a machine_backends table so each machine can register its available models and the orchestrator can route work based on capability requirements, tier, and current availability. Includes runtime model probing and preference chains with fallback.</div>
+      <div class="detail-meta-row">
+        <div class="detail-meta-item"><span class="detail-meta-key">Source</span><span class="detail-meta-val">terminal</span></div>
+        <div class="detail-meta-item"><span class="detail-meta-key">Created</span><span class="detail-meta-val">2026-03-07 08:30</span></div>
+      </div>
+      <div class="detail-actions">
+        <button class="action-btn-primary">Promote to Feature</button>
+        <button class="action-btn">Triage</button>
+        <button class="action-btn">Park</button>
+        <button class="action-btn">Reject</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="idea-row" onclick="toggleRow(this)">
+    <div class="row-summary">
+      <div class="row-accent bug"></div>
+      <div class="row-icon">🐛</div>
+      <div class="row-body">
+        <div class="row-title">BUG: Persistent agent spawn race condition on cold start</div>
+        <div class="row-desc">Cold start sometimes spawns duplicate agents due to timing window between heartbeat check and spawn</div>
+      </div>
+      <div class="row-meta">
+        <span class="priority-badge med">MED</span>
+        <span class="source-label">terminal</span>
+        <span class="age-label">3d</span>
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="row-detail">
+      <div class="detail-divider"></div>
+      <div class="detail-text">Cold start sometimes spawns duplicate agents due to timing window between heartbeat check and spawn trigger. The daemon checks for existing heartbeats, but between the check and the actual spawn command, another instance can also pass the check and spawn.</div>
+      <div class="detail-meta-row">
+        <div class="detail-meta-item"><span class="detail-meta-key">Source</span><span class="detail-meta-val">terminal</span></div>
+        <div class="detail-meta-item"><span class="detail-meta-key">Type</span><span class="detail-meta-val">Bug</span></div>
+        <div class="detail-meta-item"><span class="detail-meta-key">Created</span><span class="detail-meta-val">2026-03-06 15:00</span></div>
+      </div>
+      <div class="detail-actions">
+        <button class="action-btn-primary">Promote to Feature</button>
+        <button class="action-btn">Triage</button>
+        <button class="action-btn">Park</button>
+        <button class="action-btn">Reject</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="idea-row" onclick="toggleRow(this)">
+    <div class="row-summary">
+      <div class="row-accent idea"></div>
+      <div class="row-icon">💡</div>
+      <div class="row-body">
+        <div class="row-title">Codex fallback and graceful degradation when API quota exceeded</div>
+        <div class="row-desc">Gracefully handle API quota exhaustion by queuing work and falling back to cheaper models</div>
+      </div>
+      <div class="row-meta">
+        <span class="priority-badge high">HIGH</span>
+        <span class="source-label">terminal</span>
+        <span class="age-label">4d</span>
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="row-detail">
+      <div class="detail-divider"></div>
+      <div class="detail-text">Gracefully handle API quota exhaustion by queuing work and falling back to cheaper models. Currently when quota is exceeded, agents just fail. Should detect quota errors, pause dispatching, and either retry with a lower-tier model or queue the work for later.</div>
+      <div class="detail-meta-row">
+        <div class="detail-meta-item"><span class="detail-meta-key">Source</span><span class="detail-meta-val">terminal</span></div>
+        <div class="detail-meta-item"><span class="detail-meta-key">Created</span><span class="detail-meta-val">2026-03-05 11:00</span></div>
+      </div>
+      <div class="detail-actions">
+        <button class="action-btn-primary">Promote to Feature</button>
+        <button class="action-btn">Triage</button>
+        <button class="action-btn">Park</button>
+        <button class="action-btn">Reject</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="idea-row" onclick="toggleRow(this)">
+    <div class="row-summary">
+      <div class="row-accent idea"></div>
+      <div class="row-icon">💡</div>
+      <div class="row-body">
+        <div class="row-title">Make git hooks more configurable per-repo</div>
+        <div class="row-desc">Allow each repo to define its own pre-commit and pre-push hooks via a config file</div>
+      </div>
+      <div class="row-meta">
+        <span class="priority-badge med">MED</span>
+        <span class="source-label">terminal</span>
+        <span class="age-label">4d</span>
+      </div>
+      <div class="chevron">▶</div>
+    </div>
+    <div class="row-detail">
+      <div class="detail-divider"></div>
+      <div class="detail-text">Allow each repo to define its own pre-commit and pre-push hooks via a config file rather than relying on global git hook templates. Different repos have different linting and testing requirements.</div>
+      <div class="detail-meta-row">
+        <div class="detail-meta-item"><span class="detail-meta-key">Source</span><span class="detail-meta-val">terminal</span></div>
+        <div class="detail-meta-item"><span class="detail-meta-key">Created</span><span class="detail-meta-val">2026-03-05 09:30</span></div>
+      </div>
+      <div class="detail-actions">
+        <button class="action-btn-primary">Promote to Feature</button>
+        <button class="action-btn">Triage</button>
+        <button class="action-btn">Park</button>
+        <button class="action-btn">Reject</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function toggleRow(row) {
+  const wasExpanded = row.classList.contains('expanded');
+  // Close all
+  document.querySelectorAll('.idea-row.expanded').forEach(r => r.classList.remove('expanded'));
+  // Open clicked one (unless it was already open)
+  if (!wasExpanded) {
+    row.classList.add('expanded');
+    // Scroll into view if needed
+    setTimeout(() => {
+      row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 50);
+  }
+}
+
+// Keyboard navigation
+document.addEventListener('keydown', (e) => {
+  const rows = Array.from(document.querySelectorAll('.idea-row'));
+  const current = document.querySelector('.idea-row.expanded');
+  const idx = current ? rows.indexOf(current) : -1;
+
+  if (e.key === 'ArrowDown' || e.key === 'j') {
+    e.preventDefault();
+    const next = rows[Math.min(idx + 1, rows.length - 1)];
+    if (next) toggleRow(next);
+  } else if (e.key === 'ArrowUp' || e.key === 'k') {
+    e.preventDefault();
+    const prev = rows[Math.max(idx - 1, 0)];
+    if (prev) toggleRow(prev);
+  } else if (e.key === 'Escape') {
+    if (current) current.classList.remove('expanded');
+  }
+});
+</script>
+
+</body>
+</html>

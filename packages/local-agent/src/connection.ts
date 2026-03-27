@@ -1,0 +1,608 @@
+/**
+ * connection.ts — local-agent connection manager
+ *
+ * Manages inbound polling and outbound HTTP delivery:
+ *   - Inbound HTTP poll: `functions/v1/agent-inbound-poll` — receives orchestrator messages
+ *   - Outbound HTTP:     `functions/v1/agent-event`        — sends JobAck/JobComplete/JobFailed
+ */
+
+import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
+import { execFile } from "node:child_process";
+import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import { isOrchestratorMessage } from "@zazigv2/shared";
+import { jobLog } from "./executor.js";
+import type { OrchestratorMessage, AgentMessage } from "@zazigv2/shared";
+import type { MachineConfig } from "./config.js";
+import type { SlotTracker } from "./slots.js";
+
+const ZAZIG_HOME_DIR = process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
+const CREDENTIALS_PATH = join(ZAZIG_HOME_DIR, "credentials.json");
+const execFileAsync = promisify(execFile);
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+export type MessageHandler = (msg: OrchestratorMessage) => void;
+
+export class AgentConnection {
+  /** Anon-key client used as DB fallback when no JWT/service role key is configured. */
+  readonly supabase: SupabaseClient;
+  /** Service-role client for direct DB writes (bypasses RLS). Falls back to anon client if service_role_key not set. */
+  readonly dbClient: SupabaseClient;
+  private readonly supabaseUrl: string;
+  private readonly supabaseAnonKey: string;
+  private readonly serviceRoleKey: string | undefined;
+  private readonly machineName: string;
+  private readonly primaryCompanyId: string | undefined;
+  private readonly agentVersion: string;
+  public companyIds: string[] = [];
+  private readonly config: MachineConfig;
+  private readonly slots: SlotTracker;
+  private readonly handlers: MessageHandler[] = [];
+
+  private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private realtimeChannel: RealtimeChannel | null = null;
+  private realtimeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private realtimeReconnectAttempts = 0;
+  private realtimeLastSubscribedAt = 0;
+  private isPolling = false;
+  private stopped = false;
+  private outdated = false;
+  private outdatedShutdownInProgress = false;
+
+  constructor(config: MachineConfig, slots: SlotTracker, agentVersion: string) {
+    this.config = config;
+    this.supabaseUrl = config.supabase.url;
+    this.supabaseAnonKey = config.supabase.anon_key;
+    this.serviceRoleKey = config.supabase.service_role_key;
+    this.machineName = config.name;
+    this.primaryCompanyId = config.company_id;
+    this.agentVersion = agentVersion;
+    this.slots = slots;
+
+    if (config.supabase.access_token && !config.supabase.refresh_token) {
+      throw new Error("[local-agent] refresh_token is required when access_token is set — daemon refused to start");
+    }
+
+    this.supabase = createClient(config.supabase.url, config.supabase.anon_key, {
+      realtime: {
+        params: {
+          eventsPerSecond: 10,
+        },
+      },
+    });
+
+    // Prefer authenticated JWT with auto-refresh for DB writes (respects RLS).
+    // Fall back to service_role key (bypasses RLS), then anon client.
+    if (config.supabase.access_token && config.supabase.refresh_token) {
+      // Create client with autoRefreshToken enabled (default).
+      // We'll call auth.setSession() in start() to activate the managed session.
+      this.dbClient = createClient(config.supabase.url, config.supabase.anon_key);
+      console.log("[local-agent] Using authenticated JWT with auto-refresh for DB writes");
+    } else if (config.supabase.service_role_key) {
+      this.dbClient = createClient(config.supabase.url, config.supabase.service_role_key);
+      console.log("[local-agent] Using service_role key for DB writes");
+    } else {
+      this.dbClient = this.supabase;
+      console.warn("[local-agent] No access token or service_role key set — DB writes will use anon key (may fail)");
+    }
+  }
+
+  /** Register a handler for incoming OrchestratorMessages. */
+  onMessage(handler: MessageHandler): void {
+    this.handlers.push(handler);
+  }
+
+  /**
+   * Re-initialize the supabase-js auth session from credentials.json.
+   * Called when supabase-js fires SIGNED_OUT (typically after a failed auto-refresh
+   * due to transient network errors). Guards against infinite loops via a cooldown.
+   */
+  private sessionRecoveryCooldownUntil = 0;
+
+  private async recoverSessionFromDisk(): Promise<void> {
+    const now = Date.now();
+    if (now < this.sessionRecoveryCooldownUntil) {
+      console.log("[local-agent] Session recovery skipped (cooldown active)");
+      return;
+    }
+    // 5-minute cooldown to prevent rapid retry storms
+    this.sessionRecoveryCooldownUntil = now + 5 * 60 * 1000;
+
+    try {
+      let existing: Record<string, unknown> = {};
+      try {
+        existing = JSON.parse(readFileSync(CREDENTIALS_PATH, "utf-8"));
+      } catch {
+        console.warn("[local-agent] Session recovery: could not read credentials.json");
+        return;
+      }
+      const accessToken = typeof existing.accessToken === "string" ? existing.accessToken : "";
+      const refreshToken = typeof existing.refreshToken === "string" ? existing.refreshToken : "";
+      if (!refreshToken) {
+        console.warn("[local-agent] Session recovery: no refresh token in credentials.json");
+        return;
+      }
+      const { error } = await this.dbClient.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      if (error) {
+        console.error(`[local-agent] Session recovery failed: ${error.message}`);
+      } else {
+        console.log("[local-agent] Auth session recovered successfully");
+      }
+    } catch (err) {
+      console.warn(`[local-agent] Session recovery error: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Get a valid auth token, force-refreshing if the current session is expired.
+   * Safety net for when supabase-js auto-refresh silently fails.
+   */
+  private async getAuthToken(): Promise<string> {
+    const { data: { session } } = await this.dbClient.auth.getSession();
+    if (session?.access_token) {
+      const expiry = session.expires_at ?? 0;
+      if (expiry > Math.floor(Date.now() / 1000) + 30) {
+        return session.access_token;
+      }
+      // Token expired or expiring soon — force refresh
+      console.log("[Connection] Token expired, forcing refresh...");
+      const { data: { session: refreshed }, error } = await this.dbClient.auth.refreshSession();
+      if (!error && refreshed?.access_token) {
+        console.log("[Connection] Token force-refreshed successfully");
+        return refreshed.access_token;
+      }
+      console.warn(`[Connection] Token force-refresh failed: ${error?.message ?? "no session"}`);
+    } else if (this.config.supabase.refresh_token) {
+      // No in-memory session — supabase-js may have fired SIGNED_OUT due to a failed refresh.
+      // Trigger recovery in the background so the next poll can use a valid token.
+      void this.recoverSessionFromDisk();
+    }
+    return this.serviceRoleKey ?? this.supabaseAnonKey;
+  }
+
+  /**
+   * Send an AgentMessage to the orchestrator via the `agent-event` edge function.
+   */
+  async sendMessage(msg: AgentMessage): Promise<void> {
+    if (this.stopped) {
+      console.warn("[local-agent] sendMessage called while stopped; message dropped:", msg.type);
+      return;
+    }
+    await this.sendToOrchestrator(msg);
+  }
+
+  private async sendToOrchestrator(msg: AgentMessage): Promise<boolean> {
+    const url = `${this.config.supabase.url}/functions/v1/agent-event`;
+    const token = await this.getAuthToken();
+
+    for (const delay of [0, 1000, 5000, 15000]) {
+      if (delay > 0) await sleep(delay);
+
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(msg),
+        });
+
+        if (res.ok) return true;
+        console.warn(`[local-agent] agent-event failed (${res.status}), retrying...`);
+      } catch (e) {
+        console.warn(`[local-agent] agent-event error: ${e}, retrying...`);
+      }
+    }
+
+    console.error(`[local-agent] agent-event failed after all retries — message dropped: type=${msg.type}${("jobId" in msg && msg.jobId) ? ` jobId=${msg.jobId}` : ""}`);
+    return false;
+  }
+
+  /**
+   * Query user_companies to get all companies the authenticated user belongs to.
+   * Falls back to config.company_id if the query fails or returns nothing.
+   *
+   * IMPORTANT: Only queries when using an authenticated JWT (RLS filters by user).
+   * With service_role key, RLS is bypassed and the query would return ALL companies
+   * for ALL users — causing this machine to register under other users' companies.
+   */
+  async getCompanyIds(): Promise<string[]> {
+    // Service-role client bypasses RLS — cannot safely query user_companies.
+    // Fall back to config.company_id (caller handles the empty-array case).
+    if (!this.config.supabase.access_token) {
+      console.warn("[local-agent] No access token — skipping user_companies query (service_role would bypass RLS)");
+      return [];
+    }
+
+    try {
+      const { data } = await this.dbClient
+        .from("user_companies")
+        .select("company_id");
+      return (data ?? []).map(r => r.company_id);
+    } catch (err) {
+      console.warn(`[local-agent] Failed to query user_companies: ${String(err)}`);
+      return [];
+    }
+  }
+
+  /** Start inbound poll loop. */
+  async start(): Promise<void> {
+    console.log(`[local-agent] Starting daemon for machine: ${this.machineName}`);
+    this.stopped = false;
+
+    // Initialize managed auth session for automatic token refresh.
+    // supabase-js will refresh the access token ~10s before expiry.
+    if (this.config.supabase.access_token && this.config.supabase.refresh_token) {
+      const { error } = await this.dbClient.auth.setSession({
+        access_token: this.config.supabase.access_token,
+        refresh_token: this.config.supabase.refresh_token,
+      });
+      if (error) {
+        throw new Error(`[local-agent] Failed to set auth session: ${error.message}`);
+      } else {
+        console.log("[local-agent] Auth session initialized — auto-refresh enabled");
+      }
+
+      // Write refreshed tokens back to credentials.json so CLI commands also benefit.
+      // Also recover from SIGNED_OUT — supabase-js clears the session when auto-refresh
+      // fails (e.g. during transient network errors). Re-initialize from disk so the daemon
+      // regains an authenticated session and resumes writing fresh tokens.
+      this.dbClient.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_OUT" && !this.stopped) {
+          console.warn("[local-agent] Auth session signed out (supabase-js lost session) — attempting recovery from disk");
+          void this.recoverSessionFromDisk();
+          return;
+        }
+
+        if (session?.access_token && session?.refresh_token) {
+          try {
+            // Read existing credentials to preserve email and other fields
+            let existing: Record<string, unknown> = {};
+            try {
+              existing = JSON.parse(readFileSync(CREDENTIALS_PATH, "utf-8"));
+            } catch { /* file may not exist yet */ }
+
+            const creds = {
+              ...existing,
+              accessToken: session.access_token,
+              refreshToken: session.refresh_token,
+              email: session.user?.email ?? existing.email,
+              supabaseUrl: this.config.supabase.url,
+            };
+            mkdirSync(ZAZIG_HOME_DIR, { recursive: true });
+            writeFileSync(CREDENTIALS_PATH, JSON.stringify(creds, null, 2) + "\n", { mode: 0o600 });
+            console.log(`[local-agent] Credentials refreshed and saved to disk (event=${event})`);
+          } catch (err) {
+            console.warn(`[local-agent] Failed to save refreshed credentials: ${String(err)}`);
+          }
+        }
+      });
+    }
+
+    // Discover all companies for the authenticated user
+    const discovered = await this.getCompanyIds();
+    if (discovered.length > 0) {
+      this.companyIds = discovered;
+      console.log(`[local-agent] User belongs to ${discovered.length} company(ies): ${discovered.join(", ")}`);
+    } else if (this.primaryCompanyId) {
+      this.companyIds = [this.primaryCompanyId];
+      console.warn("[local-agent] Could not discover companies from user_companies — falling back to config.company_id");
+    } else {
+      console.warn("[local-agent] No companies found and no company_id in config");
+      this.companyIds = [];
+    }
+
+    if (!this.config.supabase.access_token && !this.config.supabase.service_role_key) {
+      console.warn("[local-agent] No access token set — multi-company lookup requires an authenticated JWT");
+    }
+
+    // Register/upsert machine row so status queries work
+    await this.registerMachine();
+
+    this.startPollLoop();
+    this.subscribeToRealtimeBroadcast();
+  }
+
+  /** Gracefully disconnect and stop all timers. */
+  async stop(): Promise<void> {
+    this.stopped = true;
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+    if (this.realtimeReconnectTimer) {
+      clearTimeout(this.realtimeReconnectTimer);
+      this.realtimeReconnectTimer = null;
+    }
+    if (this.realtimeChannel) {
+      try {
+        await this.realtimeChannel.unsubscribe();
+      } catch { /* best-effort */ }
+      this.realtimeChannel = null;
+    }
+    console.log(`[local-agent] Daemon stopped.`);
+  }
+
+  private startPollLoop(): void {
+    void this.poll();
+    this.pollInterval = setInterval(() => {
+      void this.poll();
+    }, 10_000);
+  }
+
+  private async poll(): Promise<void> {
+    if (this.isPolling) return;
+    this.isPolling = true;
+    try {
+      if (!this.primaryCompanyId) {
+        console.warn("[Connection] Poll skipped: missing primary company id");
+        return;
+      }
+
+      const url = `${this.supabaseUrl}/functions/v1/agent-inbound-poll`;
+      const token = await this.getAuthToken();
+      const slotsAvailable = this.slots.getAvailable();
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          machine_name: this.machineName,
+          company_id: this.primaryCompanyId,
+          slots_available: slotsAvailable,
+          agent_version: this.agentVersion,
+        }),
+      });
+      if (!response.ok) {
+        console.warn(`[Connection] Poll failed: ${response.status} ${response.statusText}`);
+        return;
+      }
+      const result = await response.json() as {
+        jobs?: unknown[];
+        experts?: unknown[];
+        heartbeat?: string;
+        outdated?: boolean;
+        required_version?: string;
+      };
+      if (result.outdated && result.required_version && !this.outdated) {
+        this.onOutdatedDetected(this.agentVersion, result.required_version);
+      }
+      const jobs = result.jobs ?? [];
+      for (const item of jobs) {
+        this.handleIncomingPayload(item);
+      }
+      const experts = result.experts ?? [];
+      for (const item of experts) {
+        this.handleIncomingPayload(item);
+      }
+    } catch (err) {
+      console.warn(`[Connection] Poll unreachable: ${String(err)}`);
+    } finally {
+      this.isPolling = false;
+    }
+  }
+
+  private handleIncomingPayload(payload: unknown): void {
+    if (!isOrchestratorMessage(payload)) {
+      const obj = typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : {};
+      const jobId = typeof obj.jobId === "string" ? obj.jobId : undefined;
+      const msgType = typeof obj.type === "string" ? obj.type : "unknown";
+      const cardType = typeof obj.cardType === "string" ? obj.cardType : undefined;
+      console.warn(
+        `[local-agent] Rejected invalid message: type=${msgType}, jobId=${jobId ?? "none"}, cardType=${cardType ?? "none"}. ` +
+        `Full payload: ${JSON.stringify(payload)}`,
+      );
+      if (jobId) {
+        // Write to per-job log so it's findable
+        try {
+          const logDir = join(ZAZIG_HOME_DIR, "job-logs");
+          mkdirSync(logDir, { recursive: true });
+          appendFileSync(
+            join(logDir, `${jobId}-pre-post.log`),
+            `${new Date().toISOString()} REJECTED by validator: type=${msgType}, cardType=${cardType ?? "none"}\n`,
+          );
+        } catch { /* best-effort */ }
+      }
+      return;
+    }
+
+    if (this.outdated && (payload.type === "start_job" || payload.type === "start_expert")) {
+      console.warn(
+        `[local-agent] Ignoring ${payload.type} while agent is outdated and awaiting upgrade`
+      );
+      return;
+    }
+
+    console.log(`[local-agent] Received message: type=${payload.type}`, JSON.stringify(payload));
+
+    // Log to per-job file immediately so every message is traceable from arrival
+    if ("jobId" in payload && typeof payload.jobId === "string") {
+      const msg = payload as unknown as Record<string, unknown>;
+      jobLog(payload.jobId, `RECV from orchestrator: type=${payload.type}, slotType=${msg.slotType ?? "none"}, role=${msg.role ?? "none"}, cardType=${msg.cardType ?? "none"}`);
+    }
+
+    for (const handler of this.handlers) {
+      try {
+        handler(payload);
+      } catch (err) {
+        console.error("[local-agent] Message handler threw:", err);
+      }
+    }
+  }
+
+  /**
+   * Subscribe to the Realtime broadcast channel for this machine+company.
+   * Used for low-latency delivery of expert session commands.
+   * Reconnects with exponential backoff on failure (1s → 2s → 4s → ... capped at 30s).
+   */
+  private subscribeToRealtimeBroadcast(): void {
+    if (!this.primaryCompanyId) {
+      console.warn("[local-agent] No company ID — skipping Realtime broadcast subscription");
+      return;
+    }
+
+    const channelName = `agent:${this.machineName}:${this.primaryCompanyId}`;
+
+    // Clean up previous channel if reconnecting
+    if (this.realtimeChannel) {
+      try { void this.supabase.removeChannel(this.realtimeChannel); } catch { /* best-effort */ }
+      this.realtimeChannel = null;
+    }
+
+    this.realtimeChannel = this.supabase
+      .channel(channelName)
+      .on("broadcast", { event: "start_expert" }, (msg) => {
+        if (msg.payload) {
+          console.log(`[local-agent] Realtime broadcast received: start_expert`);
+          this.handleIncomingPayload(msg.payload);
+        }
+      })
+      .subscribe((status, err) => {
+        if (status === "SUBSCRIBED") {
+          console.log(`[local-agent] Subscribed to Realtime broadcast channel: ${channelName}`);
+          this.realtimeLastSubscribedAt = Date.now();
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          // Only reset backoff if the connection was stable for >30s — prevents permanent 1s loops
+          // when Supabase Realtime is flapping.
+          const stableDurationMs = this.realtimeLastSubscribedAt > 0
+            ? Date.now() - this.realtimeLastSubscribedAt
+            : 0;
+          if (stableDurationMs > 30_000) {
+            this.realtimeReconnectAttempts = 0;
+          }
+          console.error(`[local-agent] Realtime broadcast channel error (status=${status}):`, err ?? "unknown");
+          this.scheduleRealtimeReconnect();
+        }
+      });
+  }
+
+  private scheduleRealtimeReconnect(): void {
+    if (this.stopped) return;
+    if (this.realtimeReconnectTimer) return; // already scheduled
+
+    const delay = Math.min(
+      1_000 * Math.pow(2, this.realtimeReconnectAttempts),
+      30_000,
+    );
+    this.realtimeReconnectAttempts++;
+
+    console.log(
+      `[local-agent] Realtime broadcast reconnecting in ${delay}ms (attempt #${this.realtimeReconnectAttempts})...`,
+    );
+
+    this.realtimeReconnectTimer = setTimeout(() => {
+      this.realtimeReconnectTimer = null;
+      this.subscribeToRealtimeBroadcast();
+    }, delay);
+  }
+
+  private async registerMachine(): Promise<void> {
+    if (this.companyIds.length === 0) {
+      console.warn("[local-agent] No companies — skipping machine registration");
+      return;
+    }
+
+    const slotsAvailable = this.slots.getAvailable();
+    const row = {
+      name: this.machineName,
+      status: "online",
+      last_heartbeat: new Date().toISOString(),
+      slots_claude_code: slotsAvailable.claude_code,
+      slots_codex: slotsAvailable.codex,
+      agent_version: this.agentVersion,
+    };
+
+    let failures = 0;
+    for (const companyId of this.companyIds) {
+      const { error } = await this.dbClient
+        .from("machines")
+        .upsert(
+          { ...row, company_id: companyId },
+          { onConflict: "company_id,name" }
+        );
+      if (error) {
+        console.warn(`[local-agent] Machine registration failed for company ${companyId}: ${error.message}`);
+        failures++;
+      }
+    }
+
+    if (failures === 0) {
+      console.log(`[local-agent] Machine registered for ${this.companyIds.length} company(ies)`);
+    } else {
+      console.warn(`[local-agent] Machine registration: ${this.companyIds.length - failures}/${this.companyIds.length} succeeded`);
+    }
+  }
+
+  private onOutdatedDetected(currentVersion: string, requiredVersion: string): void {
+    if (this.outdatedShutdownInProgress) return;
+    this.outdatedShutdownInProgress = true;
+    this.outdated = true;
+
+    const mismatchMessage =
+      `ERROR: Agent version mismatch — local: ${currentVersion}, backend: ${requiredVersion}. Shutting down. Restart with updated code.`;
+    console.error(`[local-agent] ${mismatchMessage}`);
+    process.stderr.write(`${mismatchMessage}\n`);
+
+    void this.shutdownForVersionMismatch();
+  }
+
+  private async shutdownForVersionMismatch(): Promise<void> {
+    try {
+      await this.closeOutdatedInteractiveSessions();
+      await this.stop();
+    } catch (err) {
+      console.error("[local-agent] Failed during version mismatch shutdown:", err);
+    } finally {
+      process.exit(1);
+    }
+  }
+
+  private async closeOutdatedInteractiveSessions(): Promise<void> {
+    let sessions: string[] = [];
+    try {
+      const { stdout } = await execFileAsync("tmux", ["list-sessions", "-F", "#{session_name}"], { encoding: "utf8" });
+      sessions = stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+    } catch (err) {
+      console.warn(`[local-agent] Could not enumerate tmux sessions while outdated: ${String(err)}`);
+      return;
+    }
+
+    const companyPrefixes = new Set<string>();
+    if (this.primaryCompanyId) companyPrefixes.add(this.primaryCompanyId.slice(0, 8));
+    for (const companyId of this.companyIds) {
+      companyPrefixes.add(companyId.slice(0, 8));
+    }
+
+    const targets = sessions.filter((sessionName) => {
+      if (sessionName.startsWith("expert-")) return true;
+      if (sessionName === `${this.machineName}-cpo`) return true;
+      if (sessionName === `${this.machineName}-cto`) return true;
+      for (const prefix of companyPrefixes) {
+        if (sessionName === `${this.machineName}-${prefix}-cpo`) return true;
+        if (sessionName === `${this.machineName}-${prefix}-cto`) return true;
+      }
+      return false;
+    });
+
+    for (const sessionName of targets) {
+      try {
+        await execFileAsync("tmux", ["kill-session", "-t", sessionName], { encoding: "utf8" });
+        console.warn(`[local-agent] Closed interactive tmux session while outdated: ${sessionName}`);
+      } catch (err) {
+        console.warn(`[local-agent] Failed to close tmux session ${sessionName}: ${String(err)}`);
+      }
+    }
+  }
+
+}

@@ -1,0 +1,13 @@
+-- Move write CLI commands from universal prompt layer into role-specific prompts.
+-- CPO gets: create-feature, update-feature, create-idea, update-idea, promote-idea
+-- Breakdown specialist gets: batch-create-jobs
+
+-- CPO: append write CLI commands to prompt
+UPDATE public.roles
+SET prompt = prompt || E'\n\n---\n\n' || E'## CLI Write Commands\n\nUse these CLI commands instead of MCP tools for write operations. Run `zazig <command> --help` for full usage and required fields.\n\n- `zazig create-feature --company <uuid> --title <str> --description <str> --spec <str> --acceptance-tests <str> --priority <low|medium|high> [--project-id <uuid>] [--human-checklist <str>] [--fast-track <bool>]`\n- `zazig update-feature --company <uuid> --id <uuid> [--title <str>] [--description <str>] [--spec <str>] [--acceptance-tests <str>] [--priority <low|medium|high>] [--status <breaking_down|complete|cancelled>] [--human-checklist <str>] [--fast-track <bool>]`\n- `zazig create-idea --company <uuid> --raw-text <str> --originator <str> [--title <str>] [--description <str>] [--source <terminal|slack|telegram|agent|web|api|monitoring>] [--domain <product|engineering|marketing|cross-cutting|unknown>] [--priority <low|medium|high|urgent>] [--scope <str>] [--complexity <str>] [--tags <comma,separated>] [--project-id <uuid>]`\n- `zazig update-idea --company <uuid> --id <uuid> [--title <str>] [--description <str>] [--status <new|triaging|triaged|developing|specced|workshop|hardening|parked|rejected|done>] [--priority <low|medium|high|urgent>] [--triage-notes <str>] [--triage-route <promote|develop|workshop|harden|park|reject|founder-review>] [--spec <str>] [--tags <comma,separated>] [--complexity <simple|medium|complex>] [--project-id <uuid>] [--raw-text <str>]`\n- `zazig promote-idea --company <uuid> --id <uuid> --to <feature|job|research|capability> [--project-id <uuid>] [--title <str>]` (--project-id required when --to is feature or job)'
+WHERE name = 'cpo';
+
+-- Breakdown specialist: append batch-create-jobs CLI command to prompt
+UPDATE public.roles
+SET prompt = prompt || E'\n\n---\n\n' || E'## CLI Write Commands\n\nUse these CLI commands instead of MCP tools for write operations. Run `zazig batch-create-jobs --help` for full usage, required fields, and JSON schema.\n\n- `zazig batch-create-jobs --company <uuid> --feature-id <uuid> --jobs ''<json array>''` — create jobs for a feature in batch\n- `zazig batch-create-jobs --company <uuid> --feature-id <uuid> --jobs-file <path>` — alternative for large payloads (write JSON to a temp file and pass the path)'
+WHERE name = 'breakdown-specialist';

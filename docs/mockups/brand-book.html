@@ -1,0 +1,1793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>zazig — Design Language</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ============================================
+     ZAZIG DESIGN LANGUAGE — TOKEN SYSTEM
+     ============================================ */
+  :root {
+    /* — Palette: named after physical materials — */
+    --paper:        #F7F6F2;
+    --white:        #FFFFFF;
+    --chalk:        #E9E6DE;
+    --chalk-light:  #F0EEE9;
+    --dust:         #B5B0A2;
+    --stone:        #7C7868;
+    --graphite:     #52504A;
+    --ink:          #1C1B17;
+
+    /* — Accent: Ember — */
+    --ember:        #C54B2A;
+    --ember-hover:  #A83D22;
+    --ember-dim:    rgba(197, 75, 42, 0.10);
+    --ember-glow:   rgba(197, 75, 42, 0.25);
+    --ember-wash:   #FDF0EC;
+
+    /* — Semantic — */
+    --positive:     #2B7A4B;
+    --positive-dim: rgba(43, 122, 75, 0.10);
+    --caution:      #B8860B;
+    --caution-dim:  rgba(184, 134, 11, 0.10);
+    --negative:     #C53030;
+    --negative-dim: rgba(197, 48, 48, 0.10);
+    --info:         #4A6FA5;
+    --info-dim:     rgba(74, 111, 165, 0.10);
+
+    /* — Typography — */
+    --font-sans:    'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-mono:    'JetBrains Mono', 'SF Mono', monospace;
+
+    /* — Spacing (8px grid) — */
+    --sp-1: 4px;
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-5: 24px;
+    --sp-6: 32px;
+    --sp-7: 48px;
+    --sp-8: 64px;
+    --sp-9: 96px;
+
+    /* — Radii — */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+
+    /* — Shadows — */
+    --shadow-sm: 0 1px 2px rgba(28,27,23,0.05);
+    --shadow-md: 0 2px 8px rgba(28,27,23,0.06), 0 0 0 1px rgba(28,27,23,0.04);
+    --shadow-lg: 0 8px 24px rgba(28,27,23,0.08), 0 0 0 1px rgba(28,27,23,0.04);
+    --shadow-xl: 0 16px 48px rgba(28,27,23,0.10), 0 0 0 1px rgba(28,27,23,0.04);
+  }
+
+  /* ============================================
+     BASE
+     ============================================ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html {
+    font-size: 16px;
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.6;
+  }
+
+  ::selection {
+    background: var(--ember-dim);
+    color: var(--ink);
+  }
+
+  /* ============================================
+     COVER
+     ============================================ */
+  .cover {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: var(--sp-8);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cover::before {
+    content: '';
+    position: absolute;
+    top: -200px;
+    right: -200px;
+    width: 600px;
+    height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--ember-dim) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .cover-wordmark {
+    font-family: var(--font-sans);
+    font-weight: 800;
+    font-size: 72px;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: var(--sp-5);
+  }
+
+  .dispatch-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    background: var(--ember);
+    border-radius: 50%;
+    box-shadow: 0 0 16px var(--ember-glow);
+    animation: breathe 4s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+
+  .dispatch-dot--sm {
+    width: 7px;
+    height: 7px;
+    box-shadow: 0 0 10px var(--ember-glow);
+  }
+
+  .dispatch-dot--status-positive { background: var(--positive); box-shadow: 0 0 16px rgba(43,122,75,0.3); }
+  .dispatch-dot--status-caution  { background: var(--caution); box-shadow: 0 0 16px rgba(184,134,11,0.3); }
+  .dispatch-dot--status-negative { background: var(--negative); box-shadow: 0 0 16px rgba(197,48,48,0.3); }
+
+  @keyframes breathe {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.7; transform: scale(0.92); }
+  }
+
+  .cover-subtitle {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: 24px;
+    color: var(--stone);
+    letter-spacing: -0.01em;
+    margin-bottom: var(--sp-8);
+  }
+
+  .cover-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dust);
+  }
+
+  /* ============================================
+     SECTIONS
+     ============================================ */
+  .section {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: var(--sp-9) var(--sp-6);
+  }
+
+  .section + .section {
+    border-top: 1px solid var(--chalk);
+  }
+
+  .section-number {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--dust);
+    margin-bottom: var(--sp-3);
+  }
+
+  .section-title {
+    font-family: var(--font-sans);
+    font-size: 40px;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 1.15;
+    color: var(--ink);
+    margin-bottom: var(--sp-4);
+  }
+
+  .section-lead {
+    font-size: 17px;
+    color: var(--stone);
+    line-height: 1.7;
+    max-width: 640px;
+    margin-bottom: var(--sp-7);
+  }
+
+  /* ============================================
+     COLOUR PALETTE
+     ============================================ */
+  .palette-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: var(--sp-4);
+    margin-bottom: var(--sp-7);
+  }
+
+  .swatch {
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--chalk);
+    transition: box-shadow 0.25s ease, transform 0.25s ease;
+  }
+
+  .swatch:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+  }
+
+  .swatch-color {
+    height: 88px;
+    position: relative;
+  }
+
+  .swatch-info {
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--white);
+  }
+
+  .swatch-name {
+    font-weight: 700;
+    font-size: 13px;
+    text-transform: capitalize;
+    margin-bottom: 2px;
+  }
+
+  .swatch-hex {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--stone);
+  }
+
+  .swatch-role {
+    font-size: 11px;
+    color: var(--dust);
+    margin-top: var(--sp-1);
+  }
+
+  /* Accent palette row */
+  .accent-strip {
+    display: flex;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+    margin-bottom: var(--sp-6);
+    height: 120px;
+  }
+
+  .accent-strip > div {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    padding: var(--sp-3);
+  }
+
+  .accent-strip-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: rgba(255,255,255,0.2);
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+
+  /* ============================================
+     TYPOGRAPHY SPECIMENS
+     ============================================ */
+  .type-specimen {
+    margin-bottom: var(--sp-7);
+    padding-bottom: var(--sp-7);
+    border-bottom: 1px solid var(--chalk);
+  }
+
+  .type-specimen:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .type-specimen-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ember);
+    margin-bottom: var(--sp-3);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+
+  .type-specimen-sample {
+    margin-bottom: var(--sp-3);
+  }
+
+  .type-specimen-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dust);
+  }
+
+  .display-heading {
+    font-family: var(--font-sans);
+    font-weight: 800;
+    font-size: 48px;
+    line-height: 1.1;
+    letter-spacing: -0.035em;
+    color: var(--ink);
+  }
+
+  .display-soft {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: 48px;
+    line-height: 1.15;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+  }
+
+  .display-soft-italic {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-style: italic;
+    font-size: 28px;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    color: var(--stone);
+  }
+
+  .heading-sans {
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: 28px;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+
+  .body-text {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: 15px;
+    line-height: 1.65;
+    color: var(--graphite);
+    max-width: 560px;
+  }
+
+  .label-text {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--stone);
+  }
+
+  .mono-text {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--graphite);
+  }
+
+  /* ============================================
+     TYPE SCALE
+     ============================================ */
+  .scale-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-5);
+    padding: var(--sp-3) 0;
+    border-bottom: 1px solid var(--chalk-light);
+  }
+
+  .scale-row:last-child { border-bottom: none; }
+
+  .scale-size {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dust);
+    width: 100px;
+    flex-shrink: 0;
+  }
+
+  .scale-sample {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ============================================
+     SPACING
+     ============================================ */
+  .spacing-demo {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--sp-5);
+    flex-wrap: wrap;
+    margin-bottom: var(--sp-7);
+  }
+
+  .spacing-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+
+  .spacing-block-visual {
+    background: var(--ember-dim);
+    border: 1px solid var(--ember);
+    border-radius: 3px;
+  }
+
+  .spacing-block-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--stone);
+  }
+
+  /* ============================================
+     COMPONENTS
+     ============================================ */
+  .component-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--sp-6);
+    margin-bottom: var(--sp-7);
+  }
+
+  @media (max-width: 768px) {
+    .component-grid { grid-template-columns: 1fr; }
+    .cover-wordmark { font-size: 48px; }
+    .section-title { font-size: 32px; }
+    .display-serif, .display-serif-italic { font-size: 36px; }
+  }
+
+  /* Card */
+  .card {
+    background: var(--white);
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-lg);
+    padding: var(--sp-5);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+  }
+
+  .card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+
+  .card-label {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--stone);
+    margin-bottom: var(--sp-2);
+  }
+
+  .card-title {
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    margin-bottom: var(--sp-2);
+  }
+
+  .card-body {
+    font-size: 14px;
+    color: var(--stone);
+    line-height: 1.55;
+  }
+
+  /* Buttons */
+  .btn-row {
+    display: flex;
+    gap: var(--sp-3);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .btn {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 13px;
+    padding: 10px 20px;
+    border-radius: var(--radius-sm);
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    letter-spacing: -0.01em;
+  }
+
+  .btn-primary {
+    background: var(--ember);
+    color: var(--white);
+  }
+  .btn-primary:hover {
+    background: var(--ember-hover);
+    box-shadow: 0 2px 8px var(--ember-glow);
+  }
+
+  .btn-secondary {
+    background: var(--white);
+    color: var(--ink);
+    border: 1px solid var(--chalk);
+  }
+  .btn-secondary:hover {
+    border-color: var(--dust);
+    background: var(--chalk-light);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--stone);
+  }
+  .btn-ghost:hover {
+    color: var(--ink);
+    background: var(--chalk-light);
+  }
+
+  .btn-danger {
+    background: var(--negative-dim);
+    color: var(--negative);
+  }
+  .btn-danger:hover {
+    background: var(--negative);
+    color: var(--white);
+  }
+
+  /* Badges */
+  .badge-row {
+    display: flex;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .badge {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 99px;
+    letter-spacing: 0.02em;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .badge-ember   { background: var(--ember-dim); color: var(--ember); }
+  .badge-positive { background: var(--positive-dim); color: var(--positive); }
+  .badge-caution { background: var(--caution-dim); color: var(--caution); }
+  .badge-negative { background: var(--negative-dim); color: var(--negative); }
+  .badge-neutral { background: var(--chalk-light); color: var(--stone); }
+
+  .badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  /* Progress Bar */
+  .progress {
+    height: 6px;
+    background: var(--chalk);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: var(--sp-3) 0;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s ease;
+  }
+
+  .progress-fill--ember   { background: var(--ember); }
+  .progress-fill--positive { background: var(--positive); }
+  .progress-fill--caution  { background: var(--caution); }
+
+  /* Input */
+  .input {
+    font-family: var(--font-sans);
+    font-size: 14px;
+    padding: 10px 14px;
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-sm);
+    background: var(--white);
+    color: var(--ink);
+    width: 100%;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .input:focus {
+    border-color: var(--ember);
+    box-shadow: 0 0 0 3px var(--ember-dim);
+  }
+
+  .input::placeholder {
+    color: var(--dust);
+  }
+
+  /* Status Indicator */
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3) 0;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .status-dot--live    { background: var(--positive); box-shadow: 0 0 8px rgba(43,122,75,0.4); animation: breathe 3s ease-in-out infinite; }
+  .status-dot--busy    { background: var(--caution); box-shadow: 0 0 8px rgba(184,134,11,0.3); }
+  .status-dot--offline { background: var(--dust); }
+
+  .status-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--ink);
+  }
+
+  .status-detail {
+    font-size: 13px;
+    color: var(--stone);
+  }
+
+  /* ============================================
+     DARK MODE PREVIEW
+     ============================================ */
+  .dark-preview {
+    background: #0C0B09;
+    border-radius: var(--radius-lg);
+    padding: var(--sp-7);
+    margin-top: var(--sp-7);
+    color: #F5F4F0;
+  }
+
+  .dark-preview .section-number { color: #6B6860; }
+  .dark-preview .section-title { color: #F5F4F0; }
+  .dark-preview .section-lead { color: #A09C90; }
+
+  .dark-card {
+    background: #1A1917;
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: var(--radius-lg);
+    padding: var(--sp-5);
+    margin-bottom: var(--sp-4);
+  }
+
+  .dark-card .card-label { color: #7C7868; }
+  .dark-card .card-title { color: #F5F4F0; }
+  .dark-card .card-body  { color: #A09C90; }
+
+  .dark-swatch-row {
+    display: flex;
+    gap: var(--sp-3);
+    margin-top: var(--sp-5);
+  }
+
+  .dark-swatch {
+    flex: 1;
+    height: 64px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: flex-end;
+    padding: var(--sp-2);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .dark-swatch span {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    opacity: 0.7;
+  }
+
+  /* ============================================
+     DASHBOARD PREVIEW
+     ============================================ */
+  .dash-preview {
+    background: var(--paper);
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-xl);
+    margin-top: var(--sp-7);
+  }
+
+  .dash-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sp-3) var(--sp-5);
+    background: var(--white);
+    border-bottom: 1px solid var(--chalk);
+  }
+
+  .dash-nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-sans);
+    font-weight: 800;
+    font-size: 16px;
+    letter-spacing: -0.03em;
+  }
+
+  .dash-nav-links {
+    display: flex;
+    gap: var(--sp-5);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--stone);
+  }
+
+  .dash-nav-link--active {
+    color: var(--ink);
+    position: relative;
+  }
+
+  .dash-nav-link--active::after {
+    content: '';
+    position: absolute;
+    bottom: -13px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--ember);
+    border-radius: 1px;
+  }
+
+  .dash-body {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: var(--sp-5);
+    padding: var(--sp-5);
+    min-height: 500px;
+  }
+
+  .dash-main { display: flex; flex-direction: column; gap: var(--sp-5); }
+
+  .dash-greeting {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: 32px;
+    line-height: 1.2;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+    margin-bottom: var(--sp-1);
+  }
+
+  .dash-date {
+    font-size: 13px;
+    color: var(--stone);
+    margin-bottom: var(--sp-5);
+  }
+
+  .dash-goals {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: var(--sp-4);
+  }
+
+  .dash-goal {
+    background: var(--white);
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-md);
+    padding: var(--sp-4);
+    transition: box-shadow 0.2s ease;
+  }
+
+  .dash-goal:hover { box-shadow: var(--shadow-md); }
+
+  .dash-goal-rank {
+    font-family: var(--font-sans);
+    font-weight: 800;
+    font-size: 40px;
+    color: var(--chalk);
+    line-height: 1;
+    letter-spacing: -0.04em;
+    margin-bottom: var(--sp-2);
+  }
+
+  .dash-goal-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--ink);
+    margin-bottom: var(--sp-2);
+    line-height: 1.35;
+  }
+
+  .dash-goal-metric {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dust);
+  }
+
+  .dash-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-5);
+  }
+
+  .dash-sidebar-section-title {
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--stone);
+    margin-bottom: var(--sp-3);
+  }
+
+  .dash-team-member {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: 6px 0;
+  }
+
+  .dash-team-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--chalk);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 11px;
+    color: var(--stone);
+    flex-shrink: 0;
+  }
+
+  .dash-team-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    flex: 1;
+  }
+
+  .dash-team-status {
+    font-size: 12px;
+    color: var(--dust);
+  }
+
+  /* Decision card in dashboard */
+  .dash-decision {
+    background: var(--white);
+    border: 1px solid var(--chalk);
+    border-left: 3px solid var(--ember);
+    border-radius: var(--radius-md);
+    padding: var(--sp-4);
+  }
+
+  .dash-decision-from {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ember);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: var(--sp-2);
+  }
+
+  .dash-decision-title {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--ink);
+    margin-bottom: var(--sp-3);
+    line-height: 1.4;
+  }
+
+  .dash-decision-options {
+    display: flex;
+    gap: var(--sp-2);
+  }
+
+  .dash-decision-option {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    background: var(--chalk-light);
+    color: var(--graphite);
+    border: 1px solid var(--chalk);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .dash-decision-option:hover {
+    background: var(--ember-wash);
+    border-color: var(--ember);
+    color: var(--ember);
+  }
+
+  /* ============================================
+     PRINCIPLES
+     ============================================ */
+  .principles-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--sp-5);
+  }
+
+  .principle {
+    padding: var(--sp-5);
+    border: 1px solid var(--chalk);
+    border-radius: var(--radius-md);
+    background: var(--white);
+  }
+
+  .principle-number {
+    font-family: var(--font-sans);
+    font-weight: 800;
+    font-size: 32px;
+    color: var(--chalk);
+    letter-spacing: -0.04em;
+    margin-bottom: var(--sp-3);
+    line-height: 1;
+  }
+
+  .principle-title {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--ink);
+    margin-bottom: var(--sp-2);
+  }
+
+  .principle-body {
+    font-size: 13px;
+    color: var(--stone);
+    line-height: 1.6;
+  }
+
+  /* ============================================
+     FOOTER
+     ============================================ */
+  .footer {
+    text-align: center;
+    padding: var(--sp-8) var(--sp-6);
+    border-top: 1px solid var(--chalk);
+  }
+
+  .footer-text {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--dust);
+    letter-spacing: 0.04em;
+  }
+
+  /* ============================================
+     ANIMATIONS
+     ============================================ */
+  .fade-up {
+    opacity: 0;
+    transform: translateY(16px);
+    animation: fadeUp 0.6s ease forwards;
+  }
+
+  @keyframes fadeUp {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .stagger-1 { animation-delay: 0.05s; }
+  .stagger-2 { animation-delay: 0.1s; }
+  .stagger-3 { animation-delay: 0.15s; }
+  .stagger-4 { animation-delay: 0.2s; }
+  .stagger-5 { animation-delay: 0.25s; }
+  .stagger-6 { animation-delay: 0.3s; }
+
+  /* ============================================
+     TOKEN TABLE
+     ============================================ */
+  .token-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .token-table th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--stone);
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 2px solid var(--chalk);
+  }
+
+  .token-table td {
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--chalk-light);
+    vertical-align: middle;
+  }
+
+  .token-table tr:last-child td { border-bottom: none; }
+
+  .token-table .token-name {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ember);
+  }
+
+  .token-table .token-value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--stone);
+  }
+
+  .token-swatch {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: 1px solid var(--chalk);
+    display: inline-block;
+    vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== COVER ===== -->
+<div class="cover fade-up">
+  <div class="cover-wordmark">
+    zazig<span class="dispatch-dot"></span>
+  </div>
+  <div class="cover-subtitle">Design Language</div>
+  <div class="cover-meta">v1.0 &mdash; March 2026</div>
+</div>
+
+<!-- ===== 01 PRINCIPLES ===== -->
+<div class="section">
+  <div class="section-number">01</div>
+  <div class="section-title">Principles</div>
+  <div class="section-lead">
+    Zazig puts an autonomous executive team in the founder's hands. The design language
+    reflects that relationship: strategic clarity, warm authority, and the quiet confidence
+    of a system that runs while you sleep.
+  </div>
+
+  <div class="principles-grid">
+    <div class="principle fade-up stagger-1">
+      <div class="principle-number">1</div>
+      <div class="principle-title">Strategic Clarity</div>
+      <div class="principle-body">Every pixel serves the founder's decision-making. Information density without noise. Show what matters, hide what doesn't.</div>
+    </div>
+    <div class="principle fade-up stagger-2">
+      <div class="principle-number">2</div>
+      <div class="principle-title">Warm Authority</div>
+      <div class="principle-body">Not cold. Not casual. The tone of a trusted advisor briefing you over morning coffee. Editorial gravitas with human warmth.</div>
+    </div>
+    <div class="principle fade-up stagger-3">
+      <div class="principle-number">3</div>
+      <div class="principle-title">Alive, Not Animated</div>
+      <div class="principle-body">Motion is purposeful. The dispatch dot breathes because the system is alive. Things move because state changed, not for decoration.</div>
+    </div>
+    <div class="principle fade-up stagger-4">
+      <div class="principle-number">4</div>
+      <div class="principle-title">Grounded Materials</div>
+      <div class="principle-body">Colours named after physical things — paper, ink, stone, ember. The interface should feel like it could exist in the real world.</div>
+    </div>
+    <div class="principle fade-up stagger-5">
+      <div class="principle-number">5</div>
+      <div class="principle-title">One Accent, Used Well</div>
+      <div class="principle-body">Ember is the single strong colour. It marks decisions, actions, and the live pulse of the system. Restraint over rainbow.</div>
+    </div>
+    <div class="principle fade-up stagger-6">
+      <div class="principle-number">6</div>
+      <div class="principle-title">Progressive Disclosure</div>
+      <div class="principle-body">Show the headline first. Let the founder drill in if they want the detail. Default view is the executive summary, not the spreadsheet.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 02 COLOUR ===== -->
+<div class="section">
+  <div class="section-number">02</div>
+  <div class="section-title">Colour</div>
+  <div class="section-lead">
+    Named after materials, not numbers. Each colour has a physical-world analogue, grounding
+    the interface in something tangible. The palette is warm: ivory backgrounds, near-black
+    ink, and a single ember accent that marks everything that demands attention.
+  </div>
+
+  <!-- Accent strip -->
+  <div class="accent-strip">
+    <div style="background: var(--ember-wash);"><span class="accent-strip-label" style="color: var(--ember);">Wash</span></div>
+    <div style="background: var(--ember-dim);"><span class="accent-strip-label" style="color: var(--ember);">Dim</span></div>
+    <div style="background: var(--ember);"><span class="accent-strip-label" style="color: #fff;">Ember</span></div>
+    <div style="background: var(--ember-hover);"><span class="accent-strip-label" style="color: #fff;">Hover</span></div>
+    <div style="background: #7A2E17;"><span class="accent-strip-label" style="color: rgba(255,255,255,0.8);">Deep</span></div>
+  </div>
+
+  <!-- Neutral palette -->
+  <div class="palette-grid">
+    <div class="swatch">
+      <div class="swatch-color" style="background: var(--paper); border-bottom: 1px solid var(--chalk);"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Paper</div>
+        <div class="swatch-hex">#F7F6F2</div>
+        <div class="swatch-role">Page background</div>
+      </div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-color" style="background: var(--white); border-bottom: 1px solid var(--chalk);"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">White</div>
+        <div class="swatch-hex">#FFFFFF</div>
+        <div class="swatch-role">Card surfaces</div>
+      </div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-color" style="background: var(--chalk);"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Chalk</div>
+        <div class="swatch-hex">#E9E6DE</div>
+        <div class="swatch-role">Borders, dividers</div>
+      </div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-color" style="background: var(--dust);"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Dust</div>
+        <div class="swatch-hex">#B5B0A2</div>
+        <div class="swatch-role">Tertiary text, placeholders</div>
+      </div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-color" style="background: var(--stone);"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Stone</div>
+        <div class="swatch-hex">#7C7868</div>
+        <div class="swatch-role">Secondary text</div>
+      </div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-color" style="background: var(--graphite);"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Graphite</div>
+        <div class="swatch-hex">#52504A</div>
+        <div class="swatch-role">Body text</div>
+      </div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-color" style="background: var(--ink);"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Ink</div>
+        <div class="swatch-hex">#1C1B17</div>
+        <div class="swatch-role">Headings, primary text</div>
+      </div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-color" style="background: var(--ember);"></div>
+      <div class="swatch-info">
+        <div class="swatch-name">Ember</div>
+        <div class="swatch-hex">#C54B2A</div>
+        <div class="swatch-role">Primary accent</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Semantic colours -->
+  <div style="margin-top: var(--sp-5);">
+    <div class="card-label" style="margin-bottom: var(--sp-4);">Semantic</div>
+    <div class="palette-grid">
+      <div class="swatch">
+        <div class="swatch-color" style="background: var(--positive);"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">Positive</div>
+          <div class="swatch-hex">#2B7A4B</div>
+          <div class="swatch-role">Success, healthy, live</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background: var(--caution);"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">Caution</div>
+          <div class="swatch-hex">#B8860B</div>
+          <div class="swatch-role">Warnings, needs attention</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background: var(--negative);"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">Negative</div>
+          <div class="swatch-hex">#C53030</div>
+          <div class="swatch-role">Errors, failures, blocked</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background: var(--info);"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">Info</div>
+          <div class="swatch-hex">#4A6FA5</div>
+          <div class="swatch-role">Links, informational</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 03 TYPOGRAPHY ===== -->
+<div class="section">
+  <div class="section-number">03</div>
+  <div class="section-title">Typography</div>
+  <div class="section-lead">
+    Two fonts. Plus Jakarta Sans does everything — weight and size create all the
+    hierarchy. Heavy (800) for structural headings. Regular (400) at large sizes for
+    personal, conversational moments. Bold (700) for card titles. JetBrains Mono
+    for data and code. That's it.
+  </div>
+
+  <div class="type-specimen">
+    <div class="type-specimen-label"><span class="dispatch-dot dispatch-dot--sm"></span> Display — Plus Jakarta Sans 800</div>
+    <div class="type-specimen-sample display-heading">Strategic Overview</div>
+    <div class="type-specimen-meta">Plus Jakarta Sans 800 &middot; -0.035em tracking &middot; Line-height 1.1 &middot; Structural headings, page titles</div>
+  </div>
+
+  <div class="type-specimen">
+    <div class="type-specimen-label"><span class="dispatch-dot dispatch-dot--sm"></span> Soft — Plus Jakarta Sans 400</div>
+    <div class="type-specimen-sample display-soft">Good morning, Tom</div>
+    <div class="type-specimen-sample display-soft-italic" style="margin-top: var(--sp-3);">Your executive team, autonomous</div>
+    <div class="type-specimen-meta">Plus Jakarta Sans 400 &amp; 400 Italic &middot; -0.025em tracking &middot; Greetings, taglines, conversational moments</div>
+  </div>
+
+  <div class="type-specimen">
+    <div class="type-specimen-label"><span class="dispatch-dot dispatch-dot--sm"></span> Heading — Plus Jakarta Sans Bold</div>
+    <div class="type-specimen-sample heading-sans">Product-market fit signal</div>
+    <div class="type-specimen-meta">Plus Jakarta Sans 700 &middot; -0.02em tracking &middot; Line-height 1.25 &middot; Card titles, subheadings</div>
+  </div>
+
+  <div class="type-specimen">
+    <div class="type-specimen-label"><span class="dispatch-dot dispatch-dot--sm"></span> Body — Plus Jakarta Sans Regular</div>
+    <div class="type-specimen-sample body-text">3+ beta users actively using zazig weekly, with at least one saying they would pay for it. This is where we learn whether solopreneurs are the right market.</div>
+    <div class="type-specimen-meta">Plus Jakarta Sans 400 &middot; 15px &middot; Line-height 1.65</div>
+  </div>
+
+  <div class="type-specimen">
+    <div class="type-specimen-label"><span class="dispatch-dot dispatch-dot--sm"></span> Label</div>
+    <div class="type-specimen-sample label-text">Focus Areas &middot; Pipeline Reliability &middot; Target Date</div>
+    <div class="type-specimen-meta">Plus Jakarta Sans 600 &middot; 11px &middot; 0.06em tracking &middot; Uppercase</div>
+  </div>
+
+  <div class="type-specimen">
+    <div class="type-specimen-label"><span class="dispatch-dot dispatch-dot--sm"></span> Mono — JetBrains Mono</div>
+    <div class="type-specimen-sample mono-text">3e75a071-fac0-467d &middot; 72% &middot; 2026-04-01 &middot; queued &rarr; building &rarr; complete</div>
+    <div class="type-specimen-meta">JetBrains Mono 400 &middot; 13px &middot; Line-height 1.5</div>
+  </div>
+
+  <!-- Type Scale -->
+  <div style="margin-top: var(--sp-7);">
+    <div class="card-label" style="margin-bottom: var(--sp-4);">Scale</div>
+    <div class="scale-row">
+      <div class="scale-size">40px / Display</div>
+      <div class="scale-sample" style="font-family: var(--font-sans); font-weight: 800; font-size: 40px; line-height: 1.1; letter-spacing: -0.035em;">Strategic Overview</div>
+    </div>
+    <div class="scale-row">
+      <div class="scale-size">32px / Greeting</div>
+      <div class="scale-sample" style="font-family: var(--font-sans); font-weight: 400; font-size: 32px; line-height: 1.2; letter-spacing: -0.025em;">Good morning, Tom</div>
+    </div>
+    <div class="scale-row">
+      <div class="scale-size">22px / Heading</div>
+      <div class="scale-sample" style="font-family: var(--font-sans); font-weight: 700; font-size: 22px; letter-spacing: -0.02em;">Your Goals</div>
+    </div>
+    <div class="scale-row">
+      <div class="scale-size">16px / Subhead</div>
+      <div class="scale-sample" style="font-family: var(--font-sans); font-weight: 700; font-size: 16px;">First external beta user</div>
+    </div>
+    <div class="scale-row">
+      <div class="scale-size">15px / Body</div>
+      <div class="scale-sample" style="font-family: var(--font-sans); font-size: 15px; color: var(--graphite);">One solopreneur has connected a repo and had their agent team ship a feature.</div>
+    </div>
+    <div class="scale-row">
+      <div class="scale-size">13px / Small</div>
+      <div class="scale-sample" style="font-family: var(--font-sans); font-size: 13px; color: var(--stone);">Updated 2 hours ago &middot; CPO is reviewing the pipeline</div>
+    </div>
+    <div class="scale-row">
+      <div class="scale-size">11px / Caption</div>
+      <div class="scale-sample" style="font-family: var(--font-sans); font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--stone);">Focus Area &middot; Pipeline &middot; Target Date</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 04 THE DISPATCH DOT ===== -->
+<div class="section">
+  <div class="section-number">04</div>
+  <div class="section-title" style="display: flex; align-items: center; gap: 16px;">The Dispatch Dot <span class="dispatch-dot" style="position: relative; top: -2px;"></span></div>
+  <div class="section-lead">
+    The brand device. A filled circle that breathes. It appears next to the wordmark, as
+    status indicators throughout the interface, and wherever the system's liveness needs
+    to be communicated. Colour-aware: ember by default, semantic colours for status.
+  </div>
+
+  <div style="display: flex; gap: var(--sp-7); align-items: flex-start; flex-wrap: wrap;">
+    <!-- Wordmark usage -->
+    <div>
+      <div class="card-label" style="margin-bottom: var(--sp-4);">Wordmark</div>
+      <div style="font-family: var(--font-sans); font-weight: 800; font-size: 32px; letter-spacing: -0.04em; display: flex; align-items: baseline; gap: 5px;">
+        zazig<span class="dispatch-dot" style="width: 8px; height: 8px;"></span>
+      </div>
+    </div>
+
+    <!-- Status variants -->
+    <div style="flex: 1; min-width: 240px;">
+      <div class="card-label" style="margin-bottom: var(--sp-4);">Status Variants</div>
+      <div style="display: flex; gap: var(--sp-5); align-items: center;">
+        <div style="text-align: center;">
+          <span class="dispatch-dot" style="width: 10px; height: 10px;"></span>
+          <div style="font-size: 11px; color: var(--stone); margin-top: var(--sp-2);">Default</div>
+        </div>
+        <div style="text-align: center;">
+          <span class="dispatch-dot dispatch-dot--status-positive" style="width: 10px; height: 10px;"></span>
+          <div style="font-size: 11px; color: var(--stone); margin-top: var(--sp-2);">Healthy</div>
+        </div>
+        <div style="text-align: center;">
+          <span class="dispatch-dot dispatch-dot--status-caution" style="width: 10px; height: 10px;"></span>
+          <div style="font-size: 11px; color: var(--stone); margin-top: var(--sp-2);">Attention</div>
+        </div>
+        <div style="text-align: center;">
+          <span class="dispatch-dot dispatch-dot--status-negative" style="width: 10px; height: 10px;"></span>
+          <div style="font-size: 11px; color: var(--stone); margin-top: var(--sp-2);">Blocked</div>
+        </div>
+        <div style="text-align: center;">
+          <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--dust)"></span>
+          <div style="font-size: 11px; color: var(--stone); margin-top: var(--sp-2);">Offline</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 05 SPACING ===== -->
+<div class="section">
+  <div class="section-number">05</div>
+  <div class="section-title">Spacing</div>
+  <div class="section-lead">
+    An 8px base grid with a 4px micro step. Tighter spacing groups related elements;
+    generous spacing lets hero content breathe.
+  </div>
+
+  <div class="spacing-demo">
+    <div class="spacing-block">
+      <div class="spacing-block-visual" style="width: 4px; height: 32px;"></div>
+      <div class="spacing-block-label">4</div>
+    </div>
+    <div class="spacing-block">
+      <div class="spacing-block-visual" style="width: 8px; height: 32px;"></div>
+      <div class="spacing-block-label">8</div>
+    </div>
+    <div class="spacing-block">
+      <div class="spacing-block-visual" style="width: 12px; height: 32px;"></div>
+      <div class="spacing-block-label">12</div>
+    </div>
+    <div class="spacing-block">
+      <div class="spacing-block-visual" style="width: 16px; height: 32px;"></div>
+      <div class="spacing-block-label">16</div>
+    </div>
+    <div class="spacing-block">
+      <div class="spacing-block-visual" style="width: 24px; height: 32px;"></div>
+      <div class="spacing-block-label">24</div>
+    </div>
+    <div class="spacing-block">
+      <div class="spacing-block-visual" style="width: 32px; height: 32px;"></div>
+      <div class="spacing-block-label">32</div>
+    </div>
+    <div class="spacing-block">
+      <div class="spacing-block-visual" style="width: 48px; height: 32px;"></div>
+      <div class="spacing-block-label">48</div>
+    </div>
+    <div class="spacing-block">
+      <div class="spacing-block-visual" style="width: 64px; height: 32px;"></div>
+      <div class="spacing-block-label">64</div>
+    </div>
+    <div class="spacing-block">
+      <div class="spacing-block-visual" style="width: 96px; height: 32px;"></div>
+      <div class="spacing-block-label">96</div>
+    </div>
+  </div>
+
+  <table class="token-table">
+    <thead>
+      <tr><th>Token</th><th>Value</th><th>Usage</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="token-name">--sp-1</td><td class="token-value">4px</td><td>Micro gaps, icon-to-text</td></tr>
+      <tr><td class="token-name">--sp-2</td><td class="token-value">8px</td><td>Tight element spacing</td></tr>
+      <tr><td class="token-name">--sp-3</td><td class="token-value">12px</td><td>Compact groups</td></tr>
+      <tr><td class="token-name">--sp-4</td><td class="token-value">16px</td><td>Standard card padding</td></tr>
+      <tr><td class="token-name">--sp-5</td><td class="token-value">24px</td><td>Section gaps, generous padding</td></tr>
+      <tr><td class="token-name">--sp-6</td><td class="token-value">32px</td><td>Major groups</td></tr>
+      <tr><td class="token-name">--sp-7</td><td class="token-value">48px</td><td>Page sections</td></tr>
+      <tr><td class="token-name">--sp-8</td><td class="token-value">64px</td><td>Hero spacing</td></tr>
+      <tr><td class="token-name">--sp-9</td><td class="token-value">96px</td><td>Section dividers</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ===== 06 COMPONENTS ===== -->
+<div class="section">
+  <div class="section-number">06</div>
+  <div class="section-title">Components</div>
+  <div class="section-lead">
+    Flat surfaces with warm borders. Cards lift on hover — one pixel, no more. Shadows are
+    barely there, just enough to suggest depth without theatrics. Everything animates at 200ms.
+  </div>
+
+  <div class="component-grid">
+    <!-- Buttons -->
+    <div>
+      <div class="card-label" style="margin-bottom: var(--sp-4);">Buttons</div>
+      <div class="btn-row" style="margin-bottom: var(--sp-4);">
+        <button class="btn btn-primary">Accept</button>
+        <button class="btn btn-secondary">Defer</button>
+        <button class="btn btn-ghost">Dismiss</button>
+        <button class="btn btn-danger">Cancel</button>
+      </div>
+      <div style="font-size: 12px; color: var(--dust);">
+        14px radius-sm &middot; 600 weight &middot; 200ms transitions
+      </div>
+    </div>
+
+    <!-- Badges -->
+    <div>
+      <div class="card-label" style="margin-bottom: var(--sp-4);">Badges &amp; Status</div>
+      <div class="badge-row" style="margin-bottom: var(--sp-4);">
+        <span class="badge badge-ember"><span class="badge-dot"></span>Decision</span>
+        <span class="badge badge-positive"><span class="badge-dot"></span>Shipped</span>
+        <span class="badge badge-caution"><span class="badge-dot"></span>Building</span>
+        <span class="badge badge-negative"><span class="badge-dot"></span>Failed</span>
+        <span class="badge badge-neutral">Parked</span>
+      </div>
+      <div style="font-size: 12px; color: var(--dust);">
+        Pill shape &middot; 10% opacity fill &middot; Dot prefix for active states
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div>
+      <div class="card-label" style="margin-bottom: var(--sp-4);">Progress</div>
+      <div>
+        <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: var(--sp-1);">
+          <span style="font-weight: 600;">First beta user</span>
+          <span style="color: var(--stone); font-family: var(--font-mono); font-size: 12px;">72%</span>
+        </div>
+        <div class="progress"><div class="progress-fill progress-fill--ember" style="width: 72%;"></div></div>
+      </div>
+      <div style="margin-top: var(--sp-4);">
+        <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: var(--sp-1);">
+          <span style="font-weight: 600;">Pipeline health</span>
+          <span style="color: var(--stone); font-family: var(--font-mono); font-size: 12px;">89%</span>
+        </div>
+        <div class="progress"><div class="progress-fill progress-fill--positive" style="width: 89%;"></div></div>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div>
+      <div class="card-label" style="margin-bottom: var(--sp-4);">Input</div>
+      <input class="input" type="text" placeholder="Tell the CPO what to work on..." style="margin-bottom: var(--sp-3);">
+      <div style="font-size: 12px; color: var(--dust);">
+        Ember focus ring &middot; 3px outset &middot; Warm placeholder text
+      </div>
+    </div>
+  </div>
+
+  <!-- Cards -->
+  <div class="card-label" style="margin-bottom: var(--sp-4);">Cards</div>
+  <div class="component-grid">
+    <div class="card">
+      <div class="card-label">Focus Area</div>
+      <div class="card-title">Pipeline Reliability</div>
+      <div class="card-body">Features ship without human intervention. Pipeline handles failures gracefully, retries intelligently, surfaces clear status.</div>
+      <div class="progress" style="margin-top: var(--sp-3);"><div class="progress-fill progress-fill--caution" style="width: 45%;"></div></div>
+    </div>
+
+    <div class="dash-decision">
+      <div class="dash-decision-from">CPO &middot; Strategic</div>
+      <div class="dash-decision-title">Should the free trial be 14 days or 30 days?</div>
+      <div class="dash-decision-options">
+        <span class="dash-decision-option">14 days</span>
+        <span class="dash-decision-option">30 days</span>
+        <span class="dash-decision-option">Let's discuss</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Team status -->
+  <div style="margin-top: var(--sp-6);">
+    <div class="card-label" style="margin-bottom: var(--sp-4);">Team Status</div>
+    <div style="max-width: 400px;">
+      <div class="status-row">
+        <span class="status-dot status-dot--live"></span>
+        <span class="status-name">CPO</span>
+        <span class="status-detail" style="margin-left: auto;">Reviewing feature specs</span>
+      </div>
+      <div class="status-row">
+        <span class="status-dot status-dot--busy"></span>
+        <span class="status-name">CTO</span>
+        <span class="status-detail" style="margin-left: auto;">Building auth module</span>
+      </div>
+      <div class="status-row">
+        <span class="status-dot status-dot--offline"></span>
+        <span class="status-name">CMO</span>
+        <span class="status-detail" style="margin-left: auto;">Offline</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 07 DARK MODE ===== -->
+<div class="section">
+  <div class="section-number">07</div>
+  <div class="section-title">Dark Mode</div>
+  <div class="section-lead">
+    For immersive contexts — the setup room, the strategy sim, late-night sessions. Same
+    warm character, inverted. Ember burns brighter on dark. Surfaces are warm charcoal,
+    not cold grey.
+  </div>
+
+  <div class="dark-preview">
+    <div class="dark-swatch-row" style="margin-bottom: var(--sp-6);">
+      <div class="dark-swatch" style="background: #0C0B09;"><span style="color: #F5F4F0;">bg</span></div>
+      <div class="dark-swatch" style="background: #1A1917;"><span style="color: #F5F4F0;">surface</span></div>
+      <div class="dark-swatch" style="background: #2A2824;"><span style="color: #F5F4F0;">raised</span></div>
+      <div class="dark-swatch" style="background: #E0623F;"><span style="color: #fff;">ember</span></div>
+      <div class="dark-swatch" style="background: #F5F4F0;"><span style="color: #0C0B09;">text</span></div>
+    </div>
+
+    <div class="dark-card">
+      <div class="card-label" style="color: #7C7868;">Decision &middot; CPO</div>
+      <div class="card-title" style="color: #F5F4F0; margin-top: var(--sp-2);">Which initiative should we prioritise next?</div>
+      <div class="card-body" style="color: #A09C90; margin-top: var(--sp-2);">Three features are ready for breakdown. Pipeline capacity is limited to 2 concurrent builds. Choose which moves first.</div>
+      <div style="display: flex; gap: var(--sp-2); margin-top: var(--sp-4);">
+        <span style="font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: var(--radius-sm); background: rgba(255,255,255,0.06); color: #F5F4F0; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">Onboarding flow</span>
+        <span style="font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: var(--radius-sm); background: rgba(224,98,63,0.15); color: #E0623F; border: 1px solid rgba(224,98,63,0.3); cursor: pointer;">Pipeline retry logic</span>
+        <span style="font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: var(--radius-sm); background: rgba(255,255,255,0.06); color: #F5F4F0; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">Slack notifications</span>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: var(--sp-3); margin-top: var(--sp-4); align-items: center;">
+      <span class="dispatch-dot" style="background: #E0623F; box-shadow: 0 0 16px rgba(224,98,63,0.4);"></span>
+      <span style="font-family: var(--font-sans); font-weight: 800; font-size: 20px; letter-spacing: -0.03em; color: #F5F4F0;">zazig</span>
+      <span style="font-family: var(--font-sans); font-weight: 400; font-size: 14px; color: #7C7868; margin-left: var(--sp-3); letter-spacing: 0.02em;">The system is running</span>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 08 DASHBOARD PREVIEW ===== -->
+<div class="section">
+  <div class="section-number">08</div>
+  <div class="section-title">Founder Dashboard</div>
+  <div class="section-lead">
+    The founder's single pane of glass. Goals at the top, decisions in the centre, team
+    status in the sidebar. Everything the founder needs to make one good decision before
+    their first meeting.
+  </div>
+
+  <div class="dash-preview">
+    <!-- Nav -->
+    <div class="dash-nav">
+      <div class="dash-nav-brand">
+        <span class="dispatch-dot dispatch-dot--sm dispatch-dot--status-positive"></span>
+        zazig
+      </div>
+      <div class="dash-nav-links">
+        <span class="dash-nav-link--active">Dashboard</span>
+        <span>Pipeline</span>
+        <span>Decisions</span>
+        <span>Team</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: var(--sp-3);">
+        <span style="font-size: 12px; color: var(--dust); font-family: var(--font-mono);">zazig-dev</span>
+        <div style="width: 28px; height: 28px; border-radius: 50%; background: var(--ink); color: var(--white); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11px;">TW</div>
+      </div>
+    </div>
+
+    <!-- Body -->
+    <div class="dash-body">
+      <div class="dash-main">
+        <!-- Greeting -->
+        <div>
+          <div class="dash-greeting">Good morning, Tom</div>
+          <div class="dash-date">Monday 3 March &middot; Your team shipped 2 features and has 1 decision waiting</div>
+        </div>
+
+        <!-- Goals -->
+        <div>
+          <div class="card-label" style="margin-bottom: var(--sp-3);">Goals</div>
+          <div class="dash-goals">
+            <div class="dash-goal">
+              <div class="dash-goal-rank">1</div>
+              <div class="dash-goal-title">First external beta user</div>
+              <div class="progress"><div class="progress-fill progress-fill--ember" style="width: 35%;"></div></div>
+              <div class="dash-goal-metric">1 user &middot; by Apr 1</div>
+            </div>
+            <div class="dash-goal">
+              <div class="dash-goal-rank">2</div>
+              <div class="dash-goal-title">Product-market fit signal</div>
+              <div class="progress"><div class="progress-fill progress-fill--caution" style="width: 15%;"></div></div>
+              <div class="dash-goal-metric">3+ WAU &middot; by May 1</div>
+            </div>
+            <div class="dash-goal">
+              <div class="dash-goal-rank">3</div>
+              <div class="dash-goal-title">Fundable or profitable</div>
+              <div class="progress"><div class="progress-fill progress-fill--positive" style="width: 8%;"></div></div>
+              <div class="dash-goal-metric">Revenue or raise &middot; by Jun 30</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Decision -->
+        <div>
+          <div class="card-label" style="margin-bottom: var(--sp-3);">Decisions Waiting</div>
+          <div class="dash-decision">
+            <div class="dash-decision-from">CPO &middot; Tactical</div>
+            <div class="dash-decision-title">Three features are ready. Which should we prioritise?</div>
+            <div class="dash-decision-options">
+              <span class="dash-decision-option">Onboarding flow</span>
+              <span class="dash-decision-option">Slack notifications</span>
+              <span class="dash-decision-option">Pipeline retries</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sidebar -->
+      <div class="dash-sidebar">
+        <div>
+          <div class="dash-sidebar-section-title">Focus Areas</div>
+          <div style="display: flex; flex-direction: column; gap: var(--sp-2);">
+            <div style="font-size: 13px; font-weight: 600; color: var(--ink); padding: 6px 0; border-bottom: 1px solid var(--chalk-light); display: flex; justify-content: space-between;">
+              The Full Loop <span class="badge badge-ember" style="font-size: 10px; padding: 2px 8px;">Active</span>
+            </div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--ink); padding: 6px 0; border-bottom: 1px solid var(--chalk-light); display: flex; justify-content: space-between;">
+              Pipeline Reliability <span class="badge badge-positive" style="font-size: 10px; padding: 2px 8px;">On track</span>
+            </div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--ink); padding: 6px 0; border-bottom: 1px solid var(--chalk-light); display: flex; justify-content: space-between;">
+              Onboarding <span class="badge badge-neutral" style="font-size: 10px; padding: 2px 8px;">Planned</span>
+            </div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--ink); padding: 6px 0; border-bottom: 1px solid var(--chalk-light); display: flex; justify-content: space-between;">
+              Visibility <span class="badge badge-caution" style="font-size: 10px; padding: 2px 8px;">Needs work</span>
+            </div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--stone); padding: 6px 0; display: flex; justify-content: space-between;">
+              Autonomous Org <span class="badge badge-neutral" style="font-size: 10px; padding: 2px 8px;">Future</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="dash-sidebar-section-title">Your Team</div>
+          <div class="dash-team-member">
+            <span class="status-dot status-dot--live"></span>
+            <div class="dash-team-avatar">CP</div>
+            <div>
+              <div class="dash-team-name">CPO</div>
+              <div class="dash-team-status">Reviewing specs</div>
+            </div>
+          </div>
+          <div class="dash-team-member">
+            <span class="status-dot status-dot--busy"></span>
+            <div class="dash-team-avatar">CT</div>
+            <div>
+              <div class="dash-team-name">CTO</div>
+              <div class="dash-team-status">Architecture review</div>
+            </div>
+          </div>
+          <div class="dash-team-member">
+            <span class="status-dot status-dot--live"></span>
+            <div class="dash-team-avatar">E1</div>
+            <div>
+              <div class="dash-team-name">Engineer</div>
+              <div class="dash-team-status">Building auth module</div>
+            </div>
+          </div>
+          <div class="dash-team-member">
+            <span class="status-dot status-dot--offline"></span>
+            <div class="dash-team-avatar">E2</div>
+            <div>
+              <div class="dash-team-name">Engineer</div>
+              <div class="dash-team-status">Idle</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 09 TOKEN REFERENCE ===== -->
+<div class="section">
+  <div class="section-number">09</div>
+  <div class="section-title">Token Reference</div>
+  <div class="section-lead">
+    The complete set of CSS custom properties. Copy these into any zazig surface —
+    dashboard, marketing site, onboarding, pitch deck.
+  </div>
+
+  <div class="component-grid">
+    <div>
+      <div class="card-label" style="margin-bottom: var(--sp-4);">Colour Tokens</div>
+      <table class="token-table">
+        <thead><tr><th></th><th>Token</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td><span class="token-swatch" style="background: var(--paper);"></span></td><td class="token-name">--paper</td><td class="token-value">#F7F6F2</td></tr>
+          <tr><td><span class="token-swatch" style="background: var(--white);"></span></td><td class="token-name">--white</td><td class="token-value">#FFFFFF</td></tr>
+          <tr><td><span class="token-swatch" style="background: var(--chalk);"></span></td><td class="token-name">--chalk</td><td class="token-value">#E9E6DE</td></tr>
+          <tr><td><span class="token-swatch" style="background: var(--dust);"></span></td><td class="token-name">--dust</td><td class="token-value">#B5B0A2</td></tr>
+          <tr><td><span class="token-swatch" style="background: var(--stone);"></span></td><td class="token-name">--stone</td><td class="token-value">#7C7868</td></tr>
+          <tr><td><span class="token-swatch" style="background: var(--graphite);"></span></td><td class="token-name">--graphite</td><td class="token-value">#52504A</td></tr>
+          <tr><td><span class="token-swatch" style="background: var(--ink);"></span></td><td class="token-name">--ink</td><td class="token-value">#1C1B17</td></tr>
+          <tr><td><span class="token-swatch" style="background: var(--ember);"></span></td><td class="token-name">--ember</td><td class="token-value">#C54B2A</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <div class="card-label" style="margin-bottom: var(--sp-4);">Typography Tokens</div>
+      <table class="token-table">
+        <thead><tr><th>Token</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td class="token-name">--font-sans</td><td class="token-value">Plus Jakarta Sans 400–800</td></tr>
+          <tr><td class="token-name">--font-mono</td><td class="token-value">JetBrains Mono 400–500</td></tr>
+        </tbody>
+      </table>
+
+      <div class="card-label" style="margin-bottom: var(--sp-4); margin-top: var(--sp-6);">Shadow Tokens</div>
+      <table class="token-table">
+        <thead><tr><th>Token</th><th>Usage</th></tr></thead>
+        <tbody>
+          <tr><td class="token-name">--shadow-sm</td><td class="token-value">Cards at rest</td></tr>
+          <tr><td class="token-name">--shadow-md</td><td class="token-value">Cards on hover, dropdowns</td></tr>
+          <tr><td class="token-name">--shadow-lg</td><td class="token-value">Modals, popovers</td></tr>
+          <tr><td class="token-name">--shadow-xl</td><td class="token-value">Preview frames</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ===== FOOTER ===== -->
+<div class="footer">
+  <div style="display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: var(--sp-3);">
+    <span style="font-family: var(--font-sans); font-weight: 800; font-size: 14px; letter-spacing: -0.03em;">zazig</span>
+    <span class="dispatch-dot dispatch-dot--sm"></span>
+  </div>
+  <div class="footer-text">Design Language v1.0 &middot; March 2026</div>
+</div>
+
+</body>
+</html>

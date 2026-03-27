@@ -1,0 +1,41 @@
+node_modules/
+dist/
+packages/*/node_modules/
+packages/*/dist/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+coverage/
+.turbo/
+*.tsbuildinfo
+.obsidian/
+projects/personality/.claude/napkin.md
+.claude/handover.yml
+.mcp.json
+.zazig-prompt.txt
+.vercel
+/.claude
+/.claude
+
+# Release bundles (generated during promote by bundle.js)
+packages/cli/releases/zazig.mjs
+packages/local-agent/releases/zazig-agent.mjs
+packages/local-agent/releases/agent-mcp-server.mjs
+
+# Bun compile artifacts
+*.bun-build
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+# zazig workspace files (auto-generated)
+CLAUDE.md
+.mcp.json
+.claude/
+.zazig-prompt.txt
+subagent-personality.md

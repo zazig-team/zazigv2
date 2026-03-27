@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zazig Tech Tree</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0c111b;
+    --bg-card: #151c2c;
+    --border: #1e293b;
+    --text: #cbd5e1;
+    --text-dim: #475569;
+    --text-bright: #f1f5f9;
+    --shipped: #10b981;
+    --active: #f59e0b;
+    --draft: #818cf8;
+    --locked: #334155;
+    --lane-brain: #a855f7;
+    --lane-identity: #3b82f6;
+    --lane-infra: #10b981;
+    --lane-pipeline: #f59e0b;
+    --lane-interface: #ec4899;
+    --lane-platform: #06b6d4;
+    --lane-strategy: #f97316;
+  }
+
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    overflow-x: auto; overflow-y: hidden;
+    height: 100vh; width: 100vw; user-select: none;
+  }
+
+  .scroll-container {
+    min-width: 100vw; min-height: 100vh;
+    position: relative; padding-bottom: 60px;
+  }
+
+  .header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: linear-gradient(180deg, var(--bg) 70%, transparent);
+    padding: 14px 28px 28px; display: flex; align-items: baseline; gap: 16px;
+    pointer-events: none;
+  }
+  .header h1 { font-size: 11px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; color: var(--text-dim); }
+  .header h1 span { color: var(--text-bright); font-size: 16px; letter-spacing: 0.5px; margin-left: 6px; }
+
+  .legend {
+    position: fixed; bottom: 16px; left: 28px; z-index: 100;
+    display: flex; gap: 16px; font-size: 11px; pointer-events: none;
+    background: rgba(12,17,27,0.92); padding: 8px 14px; border-radius: 6px; backdrop-filter: blur(8px);
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; color: var(--text-dim); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+  .legend-dot.shipped { background: var(--shipped); }
+  .legend-dot.active { background: var(--active); }
+  .legend-dot.draft { background: var(--draft); }
+  .legend-dot.locked { background: var(--locked); }
+
+  .lane-labels {
+    position: fixed; left: 0; top: 0; z-index: 50;
+    background: linear-gradient(90deg, var(--bg) 85%, transparent);
+    width: 160px; height: 100vh; padding-top: 60px;
+  }
+  .lane-label {
+    position: absolute; left: 0; width: 146px; padding: 8px 12px;
+    font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
+    text-transform: uppercase; text-align: right; white-space: nowrap; border-right: 2px solid;
+  }
+
+  .lane-stripe {
+    position: absolute; left: 158px; width: 2400px; height: 70px;
+    border-radius: 3px; opacity: 0.025;
+  }
+
+  .node {
+    position: absolute; width: 180px; height: 56px;
+    border-radius: 6px; padding: 8px 10px; cursor: pointer;
+    transition: all 0.15s; border-left: 3px solid;
+    display: flex; flex-direction: column; justify-content: center;
+    background: var(--bg-card);
+  }
+  .node:hover { transform: translateY(-1px); z-index: 10; }
+  .node.shipped { border-left-color: var(--shipped); }
+  .node.shipped:hover { box-shadow: 0 0 16px rgba(16,185,129,0.15); }
+  .node.active { border-left-color: var(--active); }
+  .node.active:hover { box-shadow: 0 0 16px rgba(245,158,11,0.15); }
+  .node.draft { border-left-color: var(--draft); }
+  .node.draft:hover { box-shadow: 0 0 16px rgba(129,140,248,0.15); }
+  .node.locked { border-left-color: var(--locked); opacity: 0.4; }
+  .node.locked:hover { opacity: 0.65; }
+
+  .node-top { display: flex; align-items: center; gap: 6px; }
+  .node-icon { font-size: 15px; flex-shrink: 0; }
+  .node-title { font-size: 12px; font-weight: 600; color: var(--text-bright); line-height: 1.2; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .node.locked .node-title { color: var(--text-dim); }
+  .node-bar { margin-top: 5px; height: 2px; background: #1e293b; border-radius: 1px; overflow: hidden; }
+  .node-bar-fill { height: 100%; border-radius: 1px; }
+  .node.shipped .node-bar-fill { background: var(--shipped); }
+  .node.active .node-bar-fill { background: var(--active); }
+  .node.draft .node-bar-fill { background: var(--draft); }
+  .node-status-dot { position: absolute; top: 6px; right: 6px; width: 5px; height: 5px; border-radius: 50%; }
+  .node.shipped .node-status-dot { background: var(--shipped); box-shadow: 0 0 4px var(--shipped); }
+  .node.active .node-status-dot { background: var(--active); box-shadow: 0 0 4px var(--active); }
+  .node.draft .node-status-dot { background: var(--draft); }
+  .node.locked .node-status-dot { background: var(--locked); }
+
+  .node.next-up { box-shadow: 0 0 0 2px rgba(245,158,11,0.4), 0 0 20px rgba(245,158,11,0.1); }
+  .node.next-up::after {
+    content: 'NEXT'; position: absolute; top: -8px; right: 8px;
+    font-size: 8px; font-weight: 700; letter-spacing: 1px;
+    color: var(--active); background: var(--bg); padding: 1px 5px; border-radius: 3px;
+  }
+
+  .tooltip {
+    display: none; position: fixed; z-index: 200;
+    background: #1a2236; border: 1px solid #2d3a52; border-radius: 8px;
+    padding: 14px 16px; max-width: 320px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    pointer-events: none;
+  }
+  .tooltip.visible { display: block; }
+  .tooltip-title { font-size: 13px; font-weight: 600; color: var(--text-bright); margin-bottom: 4px; }
+  .tooltip-status { font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
+  .tooltip-status.shipped { color: var(--shipped); }
+  .tooltip-status.active { color: var(--active); }
+  .tooltip-status.draft { color: var(--draft); }
+  .tooltip-status.locked { color: var(--locked); }
+  .tooltip-body { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+  .tooltip-deps { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 10px; color: var(--text-dim); line-height: 1.6; }
+  .tooltip-deps strong { color: var(--text); }
+
+  .connections { position: absolute; top: 0; left: 0; pointer-events: none; }
+
+  .scroll-hint {
+    position: fixed; right: 28px; top: 50%; transform: translateY(-50%);
+    z-index: 80; color: var(--text-dim); font-size: 11px;
+    writing-mode: vertical-rl; letter-spacing: 2px; opacity: 0.4;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 0.15; } }
+
+  /* ============ MODAL ============ */
+  .modal-overlay {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7); z-index: 300; backdrop-filter: blur(4px);
+    justify-content: center; align-items: center;
+  }
+  .modal-overlay.visible { display: flex; }
+
+  .modal {
+    background: #131a2b; border: 1px solid #2d3a52; border-radius: 12px;
+    width: 680px; max-width: 90vw; max-height: 85vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+  }
+
+  .modal-header {
+    padding: 20px 24px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: flex-start; gap: 12px; flex-shrink: 0;
+  }
+  .modal-icon { font-size: 28px; }
+  .modal-header-text { flex: 1; }
+  .modal-title { font-size: 18px; font-weight: 700; color: var(--text-bright); margin-bottom: 4px; }
+  .modal-meta { display: flex; gap: 12px; align-items: center; }
+  .modal-status-badge {
+    font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 4px;
+  }
+  .modal-status-badge.shipped { color: var(--shipped); background: rgba(16,185,129,0.1); }
+  .modal-status-badge.active { color: var(--active); background: rgba(245,158,11,0.1); }
+  .modal-status-badge.draft { color: var(--draft); background: rgba(129,140,248,0.1); }
+  .modal-status-badge.locked { color: var(--locked); background: rgba(51,65,85,0.3); }
+  .modal-progress-text { font-size: 11px; color: var(--text-dim); }
+  .modal-close {
+    background: none; border: none; color: var(--text-dim); font-size: 20px;
+    cursor: pointer; padding: 4px 8px; border-radius: 4px; line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+
+  .modal-body {
+    padding: 20px 24px; overflow-y: auto; flex: 1;
+    scrollbar-width: thin; scrollbar-color: #2d3a52 transparent;
+  }
+  .modal-body::-webkit-scrollbar { width: 6px; }
+  .modal-body::-webkit-scrollbar-thumb { background: #2d3a52; border-radius: 3px; }
+
+  /* Markdown rendering */
+  .modal-content { user-select: text; }
+  .modal-content h2 { font-size: 14px; font-weight: 700; color: var(--text-bright); margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .modal-content h3 { font-size: 13px; font-weight: 600; color: var(--text-bright); margin: 16px 0 6px; }
+  .modal-content p { font-size: 12px; color: var(--text); line-height: 1.65; margin-bottom: 10px; }
+  .modal-content ul, .modal-content ol { font-size: 12px; color: var(--text); line-height: 1.65; margin: 0 0 10px 18px; }
+  .modal-content li { margin-bottom: 4px; }
+  .modal-content strong { color: var(--text-bright); }
+  .modal-content code { background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 3px; font-size: 11px; color: #93c5fd; }
+  .modal-content pre { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin: 10px 0; overflow-x: auto; }
+  .modal-content pre code { background: none; padding: 0; font-size: 11px; color: var(--text); }
+  .modal-content blockquote { border-left: 3px solid var(--border); padding-left: 12px; color: var(--text-dim); margin: 10px 0; }
+  .modal-content table { border-collapse: collapse; margin: 10px 0; font-size: 11px; width: 100%; }
+  .modal-content th { text-align: left; padding: 6px 10px; border-bottom: 2px solid var(--border); color: var(--text-bright); font-weight: 600; }
+  .modal-content td { padding: 5px 10px; border-bottom: 1px solid var(--border); }
+
+  .modal-footer {
+    padding: 14px 24px; border-top: 1px solid var(--border); flex-shrink: 0;
+    display: flex; gap: 16px; flex-wrap: wrap;
+  }
+  .modal-dep-tag {
+    font-size: 10px; padding: 3px 8px; border-radius: 4px;
+    border: 1px solid var(--border); color: var(--text-dim);
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .modal-dep-tag .dot { width: 5px; height: 5px; border-radius: 50%; }
+  .modal-dep-tag .dot.shipped { background: var(--shipped); }
+  .modal-dep-tag .dot.active { background: var(--active); }
+  .modal-dep-tag .dot.draft { background: var(--draft); }
+  .modal-dep-tag .dot.locked { background: var(--locked); }
+  .modal-footer-label { font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); width: 100%; }
+</style>
+</head>
+<body>
+
+<div class="header"><h1>zazig<span>Tech Tree</span></h1></div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot shipped"></div>Shipped</div>
+  <div class="legend-item"><div class="legend-dot active"></div>In Progress</div>
+  <div class="legend-item"><div class="legend-dot draft"></div>Designed</div>
+  <div class="legend-item"><div class="legend-dot locked"></div>Locked</div>
+</div>
+
+<div class="scroll-hint" id="scroll-hint">SCROLL &#8594;</div>
+
+<div class="tooltip" id="tooltip">
+  <div class="tooltip-title" id="tt-title"></div>
+  <div class="tooltip-status" id="tt-status"></div>
+  <div class="tooltip-body" id="tt-body"></div>
+  <div class="tooltip-deps" id="tt-deps"></div>
+</div>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <span class="modal-icon" id="modal-icon"></span>
+      <div class="modal-header-text">
+        <div class="modal-title" id="modal-title"></div>
+        <div class="modal-meta">
+          <span class="modal-status-badge" id="modal-status"></span>
+          <span class="modal-progress-text" id="modal-progress"></span>
+        </div>
+      </div>
+      <button class="modal-close" id="modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-content" id="modal-content"></div>
+    </div>
+    <div class="modal-footer" id="modal-footer"></div>
+  </div>
+</div>
+
+<div class="scroll-container" id="container">
+  <div class="lane-labels" id="lane-labels"></div>
+  <svg class="connections" id="connections"></svg>
+</div>
+
+<script>
+const LANE_H = 82, LANE_TOP = 72, COL_W = 210, COL_LEFT = 170, NODE_W = 180, NODE_H = 56;
+
+const LANES = [
+  { id: 'brain', label: 'Agent Brain', color: 'var(--lane-brain)' },
+  { id: 'identity', label: 'Agent Identity', color: 'var(--lane-identity)' },
+  { id: 'infra', label: 'Infrastructure', color: 'var(--lane-infra)' },
+  { id: 'pipeline', label: 'Pipeline', color: 'var(--lane-pipeline)' },
+  { id: 'interface', label: 'Interface', color: 'var(--lane-interface)' },
+  { id: 'platform', label: 'Platform', color: 'var(--lane-platform)' },
+  { id: 'strategy', label: 'Strategy', color: 'var(--lane-strategy)' },
+];
+const laneIndex = {}; LANES.forEach((l, i) => { laneIndex[l.id] = i; });
+
+const NODES = [
+  // === Agent Brain ===
+  { id: 'personality', lane: 'brain', col: 0, icon: '🧬', title: 'Personality', status: 'shipped', progress: 85,
+    tooltip: '9 numeric dimensions per archetype. Compiled into prompt at dispatch.',
+    deps: [], unlocks: ['memory-p1'],
+    details: `## What It Is
+
+Personality as **bounded numeric coordinates**, not prose. Each exec archetype (e.g. "Pragmatist CTO") has 9 dimensions with min/max bounds:
+
+- Verbosity (10-40), Formality (60-90), Risk tolerance (20-50), etc.
+- Compiled into a natural-language prompt snippet at dispatch time
+- Agent never sees raw numbers — only the compiled personality description
+
+## Three-Layer Stack
+
+1. **Archetype Philosophy** (immutable) — "The Pragmatist values shipping over perfection"
+2. **Personality Dimensions** (numeric bounds per archetype)
+3. **Per-user Contextual Modifiers** — small ±5 offset on one dimension based on who's talking
+
+## What's Built
+
+- Archetype definitions in DB (exec_archetypes table)
+- Dimension compilation logic
+- Prompt injection at dispatch time
+- Archetype picker in WebUI with write-back
+
+## What's Next
+
+- Personality evolution tracking (personality_evolution_log table exists but unused)
+- Dimension drift detection — has the agent's behavior shifted over time?
+- Founder calibration — Tom/Chris tune the dimensions based on experience
+
+## Key Decision
+
+Personality is **anti-SOUL.md**. OpenClaw/Spacebot used long prose personality files that agents could self-modify. We use coordinates that the orchestrator controls — deterministic, bounded, not vulnerable to prompt injection.
+
+## Design Doc
+\`docs/plans/shipped/2026-02-20-exec-personality-system-design.md\`` },
+
+  { id: 'memory-p1', lane: 'brain', col: 1, icon: '🧠', title: 'Memory P1', status: 'active', progress: 35, nextUp: true,
+    tooltip: '9-type taxonomy. Schema deployed. Next: orchestrator bulletin injection.',
+    deps: ['personality'], unlocks: ['doctrines-p1'],
+    details: `## What It Is
+
+A **9-type memory taxonomy** inspired by Google's always-on-memory-agent research. Every memory chunk is typed, scored, and retrieved by relevance:
+
+| Type | Example |
+|------|---------|
+| Identity | "I am the CPO of zazig-dev" |
+| Decision | "We chose coordinates over prose for personality" |
+| Gotcha | "GoTrue reads redirect_to as a query param, not body" |
+| Fact | "Staging Supabase ref is ciksoitqfwkgnxxtkscq" |
+| Preference | "Tom prefers TypeScript for everything" |
+| Observation | "Codex jobs fail silently when job_type not in CardType" |
+| Moment | "2026-03-05: 7 features bulk-failed at same second" |
+| Relationship | "Chris handles staging/production, Tom handles orchestrator" |
+| Procedure | "Deploy edge functions: SUPABASE_ACCESS_TOKEN=... npx supabase functions deploy" |
+
+## Architecture
+
+- **Tier-specific budgets**: Persistent agents ~1500 tokens, contractors ~400 tokens
+- **Mandatory slot reservation** for memory retrieval in every job
+- **LLM rerank**: Retrieve top 20 by vector similarity, rerank to top 5 by LLM judgment
+- **Consolidation sleep cycles**: Periodic job that merges duplicates, promotes observations to facts, decays stale memories
+
+## What's Built
+
+- Schema and data model (memory_chunks table)
+- Retrieval query design
+- Token budget calculations
+
+## What's Next (Phase 1)
+
+- **Bulletin injection**: Orchestrator assembles a "memory bulletin" at dispatch time — top memories relevant to the current job context
+- **LLM rerank implementation**: Vector similarity alone misses nuance
+- **Write path**: Agents can store memories via MCP tool during execution
+
+## Design Doc
+\`docs/plans/active/2026-03-03-memory-system-design.md\`` },
+
+  { id: 'doctrines-p1', lane: 'brain', col: 2, icon: '📜', title: 'Doctrines', status: 'draft', progress: 15,
+    tooltip: 'Role-specific heuristics, proactively injected. Architecture approved (v5).',
+    deps: ['memory-p1'], unlocks: ['memory-p2'],
+    details: `## What It Is
+
+**Doctrines** are role-specific heuristics, frameworks, and policies that shape how an agent thinks. They're the "beliefs" layer — injected proactively into every prompt, not searched reactively.
+
+Examples:
+- CPO Doctrine: "Never create features directly — commission a Project Architect"
+- CTO Doctrine: "Frame rules as beliefs — agents adhere to beliefs more reliably than rules"
+- Senior Eng Doctrine: "Every PR must have tests that exercise the acceptance criteria"
+
+## How It Works
+
+- ~500 tokens per role, cached across jobs (static prefix)
+- Stored in DB as structured entries per role
+- Orchestrator injects at Layer 4 of the prompt stack
+- Agents don't search for doctrines — they're always present
+- Different roles can have **contradictory** doctrines (CPO values speed, reviewer values thoroughness)
+
+## Doctrines vs Canons
+
+| | Doctrines | Canons |
+|---|---|---|
+| Scope | Per-role | Company-wide |
+| Injection | Proactive (always present) | Reactive (searched on demand) |
+| Size | ~500 tokens | Unlimited (retrieved subset) |
+| Nature | Heuristics, policies | Reference knowledge (books, playbooks) |
+
+## What's Next
+
+1. Initial doctrine library: CPO, CTO, Senior Engineer (3 roles)
+2. Injection flow via orchestrator prompt assembly
+3. Evaluation harness — do doctrines actually change agent behavior?
+
+## Design Doc
+\`docs/plans/active/2026-02-22-exec-knowledge-architecture-v5.md\`` },
+
+  { id: 'memory-p2', lane: 'brain', col: 3, icon: '🧠', title: 'Memory P2', status: 'locked', progress: 0,
+    tooltip: 'Active consolidation sleep cycles. Merge duplicates, promote observations.',
+    deps: ['doctrines-p1'], unlocks: ['canons'],
+    details: `## What It Is
+
+Phase 2 of the memory system adds **active consolidation** — the system doesn't just store memories, it actively maintains and improves them.
+
+## Key Capabilities
+
+- **Consolidation sleep cycles**: Periodic background job that processes the memory store
+  - Merge near-duplicate memories (e.g., two "Gotcha" entries about the same issue)
+  - Promote recurring observations to facts (if observed 3+ times, it's a fact)
+  - Decay stale memories (reduce relevance score over time if never retrieved)
+  - Cross-reference memories with new context
+
+- **Memory quality scoring**: Each memory gets a confidence score based on:
+  - Source reliability (human > exec > contractor)
+  - Confirmation count (how many times has this been independently observed?)
+  - Recency (when was this last relevant?)
+
+## Prerequisites
+
+- Memory P1 must be deployed and generating memories
+- Doctrines must be working (consolidation uses doctrine context to evaluate memories)
+
+## Design Doc
+\`docs/plans/active/2026-03-03-memory-system-design.md\` (Section 4.6: Active Consolidation)` },
+
+  { id: 'canons', lane: 'brain', col: 4, icon: '📚', title: 'Canons', status: 'locked', progress: 0,
+    tooltip: 'Shared reference knowledge. Hybrid search: vector + BM25.',
+    deps: ['memory-p2'], unlocks: ['auto-spec'],
+    details: `## What It Is
+
+**Canons** are shared reference knowledge — books, playbooks, regulations, industry standards. Unlike doctrines (per-role, proactive), canons are company-wide and retrieved on demand via hybrid search.
+
+## Examples
+
+- "The Lean Startup" methodology — available to any agent doing product work
+- Company coding standards — available to engineers and reviewers
+- Apple App Store review guidelines — available to anyone building iOS features
+- Internal post-mortems — available to anyone investigating similar issues
+
+## How It Works
+
+- Stored as chunked documents with embeddings
+- **Hybrid retrieval**: Vector similarity + BM25 keyword search
+- **LLM rerank**: Top 20 candidates reranked to top 5 by relevance to current task
+- Any role can search canons, but retrieval is context-aware (CPO gets product-relevant chunks, engineer gets technical chunks)
+
+## Prerequisites
+
+- Memory P2 (consolidation patterns reused for canon maintenance)
+- Embedding infrastructure
+
+## Future: Canon Marketplace
+
+Eventually, canons could be shared across companies — "install" a canon package like "SaaS Pricing Best Practices" or "GDPR Compliance Playbook".
+
+## Design Doc
+\`docs/plans/active/2026-02-22-exec-knowledge-architecture-v5.md\` (Layer 5: Canons)` },
+
+  { id: 'auto-spec', lane: 'brain', col: 5, icon: '🤖', title: 'Auto-Spec', status: 'locked', progress: 0,
+    tooltip: 'CPO auto-specs triaged ideas when pipeline quiet. The brain fully online.',
+    deps: ['canons', 'auto-greenlight'], unlocks: ['strategy-sim'],
+    details: `## What It Is
+
+The culmination of the Agent Brain lane. CPO operates **autonomously** — when the pipeline is quiet and triaged ideas are waiting, CPO automatically:
+
+1. Picks the highest-priority triaged idea
+2. Promotes it to a feature
+3. Writes a full spec with acceptance criteria
+4. Pushes it to \`ready_for_breakdown\`
+
+This requires LLM judgment (unlike Auto-Greenlight which is mechanical).
+
+## Prerequisites
+
+Everything in the brain lane must be online:
+- **Memory**: CPO remembers past decisions, user preferences, project context
+- **Doctrines**: CPO follows its role-specific heuristics for product decisions
+- **Canons**: CPO references company knowledge (strategy docs, past specs)
+- **Auto-Greenlight**: Pipeline capacity detection working
+
+## Autonomy Model
+
+Auto-spec runs on the **CPO major heartbeat** — a scheduled persistent job that fires periodically. It checks:
+1. Is the pipeline idle? (no running builds)
+2. Are there triaged ideas waiting?
+3. Does the company have capacity for new work?
+
+If all yes → spec the next idea.
+
+## Design Doc
+\`docs/plans/active/2026-03-03-auto-scheduling-design.md\`` },
+
+  // === Agent Identity ===
+  { id: 'roles', lane: 'identity', col: 0, icon: '🎭', title: 'Roles & Prompts', status: 'shipped', progress: 100,
+    tooltip: 'Role table, prompt injection, skills system.',
+    deps: [], unlocks: ['persistent-id'],
+    details: `## What It Is
+
+The foundation of agent identity. Every agent has a **role** that defines:
+
+- **Prompt** (Layer 2): operational scope, responsibilities, hard stops, output contract
+- **Skills**: procedural capability files loaded per job from \`~/.claude/skills/\`
+- **Model**: which LLM to use (being replaced by model preferences — see Model Flexibility)
+- **Persistence**: whether this role auto-creates standing jobs
+
+## Current Roles
+
+| Role | Model | Persistent | Type |
+|------|-------|-----------|------|
+| CPO | Opus | Yes | Executive |
+| CTO | Sonnet | Yes | Executive |
+| Senior Engineer | Sonnet | No | Employee |
+| Reviewer | Sonnet | No | Employee |
+| Junior Engineer | Codex | No | Employee |
+| Breakdown Specialist | Sonnet | No | Contractor |
+| Project Architect | Sonnet | No | Contractor |
+| Verification Specialist | Sonnet | No | Contractor |
+
+## Three Tiers
+
+- **Executives**: Full identity, full knowledge, persistent, autonomous
+- **Employees**: Lite personality, narrow doctrines, persistent, routine work
+- **Contractors**: No persistent identity, narrow skill, ephemeral, commissioned on-demand
+
+## Design Doc
+\`docs/plans/shipped/2026-02-20-role-prompts-and-skills-design.md\`` },
+
+  { id: 'persistent-id', lane: 'identity', col: 1, icon: '🪪', title: 'Persistent Identity', status: 'active', progress: 60, nextUp: true,
+    tooltip: 'Role-agnostic executor, prompt stack from DB. Next: messaging finalization.',
+    deps: ['roles'], unlocks: ['bootstrap-parity'],
+    details: `## What It Is
+
+The shift from **role-specific executor code** to a **role-agnostic system** where all identity comes from the database. The local agent executor is "dumb" — it just:
+
+1. Receives a StartJob message
+2. Fetches the prompt stack from the orchestrator
+3. Spawns Claude Code with that prompt
+4. Reports results
+
+All the intelligence is in the **prompt stack assembly** on the server side.
+
+## 6-Layer Prompt Stack
+
+1. **Personality** — compiled from archetype dimensions
+2. **Role Prompt** — operational scope, responsibilities
+3. **Doctrines** — role-specific heuristics (proactive)
+4. **Canon pointers** — relevant reference knowledge
+5. **Skills** — procedural capability files
+6. **Task context** — the actual job spec + memory bulletin
+
+Layers 1-3 are cached (static prefix). Layers 4-6 are per-job (dynamic suffix).
+
+## What's Built
+
+- Role-agnostic \`handlePersistentJob\` in executor
+- Prompt stack assembly in orchestrator
+- MCP tool infrastructure (role-scoped .mcp.json per workspace)
+
+## What's Next
+
+- Messaging instructions moved from code constant to \`roles.prompt\` (DB-driven)
+- Full MCP tool docstring injection
+- \`prompt_stack\` column on jobs table for observability
+
+## Design Doc
+\`docs/plans/active/2026-02-24-persistent-agent-identity-design.md\`` },
+
+  { id: 'bootstrap-parity', lane: 'identity', col: 2, icon: '🔄', title: 'Bootstrap Parity', status: 'locked', progress: 0,
+    tooltip: 'All persistent agents bootstrap identically. No executor special cases.',
+    deps: ['persistent-id'], unlocks: ['future-roles'],
+    details: `## What It Is
+
+Ensure every persistent agent role (CPO, CTO, and future CMO/CEO) bootstraps with **identical infrastructure**:
+
+- Same workspace setup process
+- Same MCP tools (role-scoped via .mcp.json)
+- Same CLAUDE.md assembly logic
+- Same settings.json template
+- No special cases in executor code
+
+## Why It Matters
+
+Right now, CPO has some special-case handling in the executor. Before we can add CTO, CMO, or CEO as persistent agents, we need the bootstrap to be fully generic. Adding a new persistent role should be: create the role in DB, set \`is_persistent: true\`, done.
+
+## Prerequisites
+
+- Persistent Agent Identity must be fully role-agnostic (no CPO-specific code paths)
+
+## Design Doc
+\`docs/plans/archived/2026-02-25-persistent-agent-bootstrap-parity-proposal.md\`` },
+
+  { id: 'future-roles', lane: 'identity', col: 4, icon: '👥', title: 'Future Roles', status: 'locked', progress: 0,
+    tooltip: 'CMO, CEO, VP-Eng, Marketing, specialized researchers.',
+    deps: ['bootstrap-parity', 'canons', 'model-flex'], unlocks: ['strategy-sim'],
+    details: `## What It Is
+
+Expanding the exec team beyond CPO and CTO. Each new role needs:
+
+- Personality archetype + dimensions
+- Role prompt (operational scope)
+- Doctrines (role-specific heuristics)
+- Canon access (relevant reference knowledge)
+- MCP tools (role-scoped)
+- Model assignment (via Model Flexibility)
+
+## Planned Roles
+
+| Role | Type | Purpose |
+|------|------|---------|
+| CMO | Persistent | Marketing strategy, content, brand |
+| CEO | Persistent | Vision, fundraising, board relations |
+| VP-Eng | Persistent | Technical strategy, architecture decisions |
+| Market Researcher | Ephemeral | Competitive scanning, signal collection |
+| Product Manager | Ephemeral | Deep research, market analysis |
+
+## Prerequisites
+
+- **Bootstrap Parity**: Generic persistent agent setup
+- **Canons**: Each role needs reference knowledge
+- **Model Flexibility**: Different roles may use different models (CMO on Gemini for research, CEO on Opus for strategy)
+
+## Key Insight
+
+Users unlock roles by adding "connections" (subscriptions/tools). The Roles Marketplace in the WebUI shows what's available and what you need to activate each role.` },
+
+  // === Infrastructure ===
+  { id: 'data-model', lane: 'infra', col: 0, icon: '🗃️', title: 'Data Model', status: 'shipped', progress: 100,
+    tooltip: 'Multi-tenant schema. 17+ tables. Foundation for everything.',
+    deps: [], unlocks: ['orchestrator'],
+    details: `## What It Is
+
+The core multi-tenant database schema powering everything. 17+ tables in Supabase Postgres.
+
+## Key Tables
+
+| Table | Purpose |
+|-------|---------|
+| companies | Multi-tenant company records |
+| roles | Agent role definitions (name, prompt, model, persistent) |
+| company_roles | Which roles are enabled per company |
+| machines | Physical machines with slot capacity |
+| projects | Top-level project containers |
+| features | Product features with pipeline status |
+| jobs | Individual work units (DAG with depends_on) |
+| messages | Inter-agent messaging |
+| events | System event log |
+| ideas | Inbox items (ideas, briefs, bugs, tests) |
+| goals | Company-level measurable objectives |
+| focus_areas | Current work themes |
+| exec_archetypes | Personality archetype definitions |
+| memory_chunks | Agent memory storage |
+
+## Design Doc
+\`docs/plans/shipped/2026-02-19-zazigv2-data-model.md\`` },
+
+  { id: 'orchestrator', lane: 'infra', col: 1, icon: '⚙️', title: 'Orchestrator', status: 'shipped', progress: 100,
+    tooltip: 'Supabase Edge Function. Deterministic dispatch. No LLM.',
+    deps: ['data-model'], unlocks: ['deep-heartbeat'],
+    details: `## What It Is
+
+The **deterministic** orchestrator — a Supabase Edge Function that runs pure logic, no LLM. It:
+
+1. Polls the job queue for \`queued\` jobs
+2. Checks machine slot availability via heartbeats
+3. Routes jobs by complexity → role → model → available machine
+4. Dispatches via Supabase Realtime websockets
+5. Manages job lifecycle transitions
+
+## Key Behaviors
+
+- **DAG dispatch**: Respects \`depends_on\` UUID arrays — won't dispatch a job until all dependencies complete
+- **Slot tracking**: Calculates available = total - in-use per machine
+- **Complexity routing**: simple → junior-engineer, medium → senior-engineer, complex → CPO
+- **Machine recovery**: 2-min heartbeat timeout, 60s cooldown after reconnect
+
+## Architecture Decision
+
+The orchestrator is **deliberately non-AI**. All routing decisions are deterministic. This means:
+- Changes ship instantly (edge function redeploy, no model retraining)
+- Behavior is predictable and debuggable
+- The "intelligence" lives in the agents, not the dispatcher
+
+## Design Doc
+\`docs/plans/shipped/2026-02-18-orchestration-server-design.md\`` },
+
+  { id: 'deep-heartbeat', lane: 'infra', col: 2, icon: '💓', title: 'Deep Heartbeat', status: 'active', progress: 45, nextUp: true,
+    tooltip: 'Per-job health, stuck detection. Schema deployed.',
+    deps: ['orchestrator'], unlocks: ['triggers'],
+    details: `## What It Is
+
+Goes beyond "machine alive/dead" to **per-job health reporting**. The heartbeat payload includes:
+
+- Job progress indicators (what stage is the agent at?)
+- Context health (is the context window filling up? Is the agent looping?)
+- Stuck detection (no progress for N minutes → alert)
+- Resource usage (token consumption rate)
+
+## Why It Matters
+
+Without deep heartbeat, we only know "the machine is online." We don't know if a specific job is stuck in an infinite loop, running out of context, or making progress. This is the foundation for self-healing.
+
+## What's Built
+
+- Health payload schema
+- Heartbeat receiver edge function
+- Stuck detection thresholds (configurable per job type)
+- Machine dead detection (2-min timeout)
+
+## What's Next
+
+- Event queue consumer for health alerts
+- Lifecycle hook callbacks (on-stuck, on-context-full)
+- Job-level health dashboard in WebUI
+- Automatic stuck job recovery (kill + re-queue)
+
+## Design Doc
+\`docs/plans/active/2026-02-22-triggers-and-events-design.md\` (Subsystem 1)` },
+
+  { id: 'triggers', lane: 'infra', col: 3, icon: '⚡', title: 'Triggers & Events', status: 'active', progress: 25,
+    tooltip: '9 subsystems. Cron scheduler partial. Next: event queue, lifecycle hooks.',
+    deps: ['deep-heartbeat'], unlocks: ['auto-greenlight'],
+    details: `## What It Is
+
+The nervous system of zazig — **9 subsystems** that make the platform reactive:
+
+1. **Deep Health Heartbeat** — per-job health (partially built)
+2. **Cron/Scheduler** — \`pg_cron\` + \`run_scheduler()\` for timed jobs
+3. **Agent Wake System** — universal poke to wake sleeping agents
+4. **System Events Queue** — claim/ack pattern for reliable event processing
+5. **Lifecycle Hooks** — callbacks on job-start/complete/fail
+6. **Concurrency Lanes** — main + background lanes per job
+7. **External Triggers** — webhooks from Slack/GitHub/etc
+8. **Emergency Stop** — kill all agents gracefully
+9. **Daemon Restart Recovery** — persist in-flight work across restarts
+
+## What's Built
+
+- Subsystem 1 (health heartbeat) — schema + receiver
+- Subsystem 2 (cron scheduler) — Postgres functions, partial
+- Stuck detection thresholds
+
+## What's Next (Priority Order)
+
+1. **Event queue** (claim/ack) — reliable event processing
+2. **Lifecycle hooks** — job-complete triggers breakdown, verification, etc.
+3. **Concurrency lanes** — background tasks don't block main work
+4. **External triggers** — GitHub webhook on PR merge → trigger deployment
+
+## Design Doc
+\`docs/plans/active/2026-02-22-triggers-and-events-design.md\`` },
+
+  { id: 'auto-greenlight', lane: 'infra', col: 4, icon: '🟢', title: 'Auto-Greenlight', status: 'locked', progress: 0,
+    tooltip: 'Mechanical. Promotes specced features when capacity exists.',
+    deps: ['triggers'], unlocks: ['auto-spec'],
+    details: `## What It Is
+
+**Mechanical** (no LLM needed) autonomous behavior. On the orchestrator heartbeat, check:
+
+1. Are there features in \`created\` status with a spec? (i.e., specced but not yet promoted)
+2. Is there pipeline capacity? (slots available, no bottlenecks)
+3. Is the pipeline healthy? (no stuck jobs, no failures)
+
+If all yes → automatically promote the feature to \`ready_for_breakdown\`, which triggers the Breakdown Specialist contractor.
+
+## Why Mechanical
+
+This is a simple state check, not a judgment call. The CPO already decided the feature should be built (by speccing it). Auto-greenlight just removes the manual "click the button" step.
+
+## Prerequisites
+
+- Triggers & Events must be working (orchestrator heartbeat with capacity checks)
+- Pipeline health scoring
+
+## Design Doc
+\`docs/plans/active/2026-03-03-auto-scheduling-design.md\`` },
+
+  // === Pipeline ===
+  { id: 'pipeline', lane: 'pipeline', col: 0, icon: '🔄', title: 'Pipeline Engine', status: 'shipped', progress: 100,
+    tooltip: 'Feature + job state machines. DAG dispatch. 8/8 tests pass.',
+    deps: [], unlocks: ['contractors'],
+    details: `## What It Is
+
+The execution pipeline with two levels:
+
+### Feature Level (human-facing)
+\`created → ready_for_breakdown → breakdown → building → combining → verifying → deploying_to_test → ready_to_test → deploying_to_prod → complete\`
+
+### Job Level (machine-facing)
+\`queued → executing → complete | failed | cancelled\`
+
+## Key Features
+
+- **DAG dispatch**: Jobs have \`depends_on\` UUID arrays. Orchestrator walks the graph before dispatching — parallel fan-out, sequential dependencies, fan-in to combiner.
+- **8/8 infrastructure tests pass**: Single dispatch, DAG chain, parallel fan-in, commission contractor, workspace assembly, temp ref resolution, slot routing, full Entry Point A.
+
+## Three Entry Points
+
+- **A**: Human → CPO → structured features → jobs
+- **B**: Standalone quick fix (skip CPO, direct to engineer)
+- **C**: Agent-initiated (Monitoring Agent → proposal → CPO → human approval)
+
+## Design Doc
+\`docs/plans/shipped/2026-02-24-software-development-pipeline-design.md\`` },
+
+  { id: 'contractors', lane: 'pipeline', col: 1, icon: '🔨', title: 'Contractors', status: 'shipped', progress: 100,
+    tooltip: 'Skill + MCP pattern. Jobify, featurify, verify-feature shipped.',
+    deps: ['pipeline'], unlocks: ['verification'],
+    details: `## What It Is
+
+The **Contractor Pattern**: a reasoning skill (the brain) wrapping role-scoped MCP tools (the hands).
+
+## How It Works
+
+1. CPO commissions a contractor (e.g., "break this feature into jobs")
+2. Orchestrator creates a job with the contractor's role
+3. Contractor loads its skill file (e.g., jobify)
+4. Skill contains reasoning steps + calls to MCP tools
+5. MCP tools make typed DB writes (batch_create_jobs, update_feature, etc.)
+
+## Shipped Contractors
+
+| Contractor | Skill | Purpose |
+|-----------|-------|---------|
+| Breakdown Specialist | jobify | Reads feature spec → creates jobs with Gherkin AC |
+| Project Architect | featurify | Reads project plan → creates feature outlines |
+| Verification Specialist | verify-feature | Reads AC → actively tests the system |
+
+## Key Decisions
+
+- Contractors are **ephemeral** — no persistent identity, no memory across jobs
+- Skills are the brain, MCP tools are the hands — separation of concerns
+- All tiers get MCP tools, role-scoped via \`.mcp.json\`
+
+## Design Docs
+- \`docs/plans/shipped/2026-02-24-jobify-skill-design.md\`
+- \`docs/plans/shipped/2026-02-24-featurify-skill-design.md\`` },
+
+  { id: 'verification', lane: 'pipeline', col: 2, icon: '✅', title: 'Verification', status: 'shipped', progress: 80,
+    tooltip: 'Active AC testing. Orchestrator branches on verification_type.',
+    deps: ['contractors'], unlocks: ['monitoring'],
+    details: `## What It Is
+
+Two verification paths for completed features:
+
+- **Passive** (default): Existing reviewer role does code review
+- **Active** (\`verification_type: 'active'\`): Verification Specialist contractor actively exercises the system against Gherkin acceptance criteria
+
+## How Active Verification Works
+
+1. All jobs in a feature complete
+2. Orchestrator checks \`features.verification_type\`
+3. If \`active\`: commissions Verification Specialist with full workspace
+4. Specialist reads AC, exercises system, reports pass/fail per criterion
+5. Feature moves to \`complete\` or back to \`building\` on failure
+
+## What's Built
+
+- Verification Specialist role + skill
+- \`verification_type\` column on features (migration 047)
+- Orchestrator branching logic
+- Passive review flow
+
+## What's Next
+
+- AC execution framework (structured test runner, not just "try it and see")
+- Failure triage (which specific criteria failed? Route back to right engineer)
+
+## Design Doc
+\`docs/plans/shipped/2026-02-24-verification-specialist-design.md\`` },
+
+  { id: 'monitoring', lane: 'pipeline', col: 3, icon: '👁️', title: 'Monitoring Agent', status: 'locked', progress: 0,
+    tooltip: 'Signal collection, anomaly detection. Needs triggers/cron.',
+    deps: ['verification', 'triggers'], unlocks: ['product-intel'],
+    details: `## What It Is
+
+A dedicated contractor (separate from CPO) that scans for signals and anomalies. Runs on a cron schedule via the Triggers & Events scheduler.
+
+## Responsibilities
+
+- Scan external sources (GitHub activity, HN, Reddit, Twitter) for relevant signals
+- Monitor internal pipeline health (stuck jobs, failure patterns, bottlenecks)
+- Surface anomalies to CPO for triage
+- File agent-initiated proposals (Entry Point C) when issues are detected
+
+## Key Decision
+
+Monitoring is **separate from CPO**. The CPO shouldn't be doing its own surveillance — that's a different cognitive mode. The Monitoring Agent observes and reports; the CPO decides what to do about it.
+
+## Prerequisites
+
+- Triggers & Events (cron scheduler for periodic scans)
+- Contractor pattern (already shipped)
+
+## Design Doc
+\`docs/plans/active/2026-02-20-product-intelligence-pipeline-design.md\`` },
+
+  { id: 'product-intel', lane: 'pipeline', col: 4, icon: '🔬', title: 'Product Intelligence', status: 'locked', progress: 0,
+    tooltip: 'Market Researcher, PM pipeline. Ephemeral, commissioned by CPO.',
+    deps: ['monitoring'], unlocks: ['strategy-sim'],
+    details: `## What It Is
+
+Two ephemeral agent roles for market intelligence:
+
+1. **Market Researcher** — daily cron job, scans external sources, surfaces competitive signals
+2. **Product Manager** — on-demand deep research commissioned by CPO or Monitoring Agent
+
+## Data Flow
+
+\`\`\`
+External Sources → Market Researcher → Signals Table → CPO Triage → Action
+                                                      ↗
+Monitoring Agent → anomaly detection ─────────────────┘
+\`\`\`
+
+## Prerequisites
+
+- Monitoring Agent (feeds signals)
+- Triggers & Events (cron scheduling)
+- Interactive Jobs (PM may need human input for research direction)
+
+## Design Doc
+\`docs/plans/active/2026-02-20-product-intelligence-pipeline-design.md\`` },
+
+  // === Interface ===
+  { id: 'cli', lane: 'interface', col: 0, icon: '🖥️', title: 'CLI & Agent', status: 'shipped', progress: 100,
+    tooltip: 'zazig start/stop/status/chat. Daemon, tmux, heartbeats.',
+    deps: [], unlocks: ['terminal-cpo'],
+    details: `## What It Is
+
+The \`zazig\` CLI binary and local agent daemon.
+
+## Commands
+
+| Command | Purpose |
+|---------|---------|
+| \`zazig login\` | Authenticate via Supabase (magic link + OTP) |
+| \`zazig start\` | Start daemon, register machine, probe backends |
+| \`zazig stop\` | Gracefully stop daemon and all agent sessions |
+| \`zazig status\` | Show machine status, running jobs, slot usage |
+| \`zazig chat\` | Reconnect to running TUI |
+
+## Architecture
+
+- CLI is an esbuild bundle (\`releases/zazig.mjs\`)
+- Daemon runs as detached Node.js process
+- Spawns Claude Code sessions in tmux panes
+- Heartbeats every 30s with slot availability
+- Config stored in \`~/.zazigv2/config.json\`
+
+## Design Doc
+\`docs/plans/shipped/2026-02-21-cli-local-agent-design.md\`` },
+
+  { id: 'terminal-cpo', lane: 'interface', col: 1, icon: '📺', title: 'Terminal CPO', status: 'shipped', progress: 90,
+    tooltip: 'Split-screen TUI. CPO output + user input via tmux.',
+    deps: ['cli'], unlocks: ['gateway-p1'],
+    details: `## What It Is
+
+A split-screen terminal UI (Node + blessed) that gives you direct visibility into what the CPO is doing:
+
+- **Top pane**: Live CPO Claude Code session output (via \`tmux capture-pane\` polling)
+- **Bottom pane**: User input line → \`tmux send-keys\` to inject messages into CPO session
+
+## Key Features
+
+- \`zazig start\` spawns all persistent agents and shows TUI
+- \`zazig chat\` reconnects to a running TUI
+- Tabs to switch between persistent agent sessions (CPO, CTO, etc.)
+- Full visibility into agent tool use, thinking, and actions
+
+## Why Terminal First
+
+Slack is async and lossy — you miss tool calls, thinking steps, errors. The terminal gives you the full picture. Slack becomes a secondary notification channel, not the primary interface.
+
+## Design Doc
+\`docs/plans/shipped/2026-02-25-terminal-first-cpo-design.md\`` },
+
+  { id: 'gateway-p1', lane: 'interface', col: 2, icon: '💬', title: 'Gateway (Slack)', status: 'active', progress: 40, nextUp: true,
+    tooltip: 'Socket Mode receiver built. Next: Slack MCP integration.',
+    deps: ['terminal-cpo', 'persistent-id'], unlocks: ['interactive'],
+    details: `## What It Is
+
+Bidirectional Slack integration for the CPO and other persistent agents.
+
+## Architecture
+
+- **Inbound** (Slack → Agent): Socket Mode listener in local agent daemon receives messages at ~100ms latency (push, not polling). Routes to appropriate agent via \`tmux send-keys\`.
+- **Outbound** (Agent → Slack): MCP tools available to agents (\`send_message\`, \`post_thread\`, etc.)
+
+## What's Built
+
+- Socket Mode receiver architecture
+- Wire protocol (message format, routing)
+- Slack app configuration
+
+## What's Next
+
+1. Slack MCP tool integration (post-message, thread handling)
+2. Busy-detection for CPO session (queue messages if agent is mid-task)
+3. Queue/inject message routing (priority messages jump the queue)
+
+## Design Docs
+- \`docs/plans/active/2026-02-22-agent-messaging-bidirectional.md\`
+- \`docs/plans/active/2026-02-21-cpo-slack-chat-design.md\`` },
+
+  { id: 'interactive', lane: 'interface', col: 3, icon: '🤝', title: 'Interactive Jobs', status: 'draft', progress: 5,
+    tooltip: 'Remote control, TUI mode. For test deploy + feature testing.',
+    deps: ['gateway-p1', 'triggers'], unlocks: ['gateway-p2'],
+    details: `## What It Is
+
+Real-time human-agent collaboration via Claude Code's \`/remote-control\`. Two scenarios:
+
+1. **Test deploy config**: Agent needs human help creating \`zazig.test.yaml\` → spawns interactive session, posts remote-control URL to Slack
+2. **Feature testing**: Human reviews deployed feature with agent, approves or rejects
+
+## How It Works
+
+- Interactive jobs spawn Claude Code in **TUI mode** (no \`-p\` flag)
+- Longer timeout (30 min vs standard 10 min)
+- Agent calls \`enable_remote\` MCP tool → generates \`/remote-control\` URL
+- URL posted to Slack → human clicks → real-time collaboration
+
+## Prerequisites
+
+- Gateway (for Slack URL posting)
+- Triggers (for timeout management, lifecycle hooks)
+- \`interactive\` column on roles table
+
+## Design Docs
+- \`docs/plans/active/2026-02-27-interactive-jobs-remote-control-design.md\`
+- \`docs/plans/active/2026-02-27-interactive-jobs-implementation-plan.md\`` },
+
+  { id: 'gateway-p2', lane: 'interface', col: 4, icon: '🌐', title: 'Multi-Channel', status: 'locked', progress: 0,
+    tooltip: 'Telegram, Discord, universal message routing.',
+    deps: ['interactive'], unlocks: [],
+    details: `## What It Is
+
+Extending the Gateway beyond Slack to other messaging platforms:
+
+- **Telegram**: Bot API adapter (research complete — \`docs/research/2026-03-01-telegram-bot-research.md\`)
+- **Discord**: Bot adapter
+- **Universal routing**: Platform-agnostic message format, routed to correct adapter
+
+## Architecture
+
+Each platform gets an **adapter** implementing a common interface. The agent doesn't know which platform it's talking to — it just sends/receives messages via MCP tools. The routing layer handles platform-specific formatting.
+
+## Prerequisites
+
+- Interactive Jobs (the full messaging pipeline must work end-to-end on Slack first)
+- Gateway P1 patterns proven and stable` },
+
+  // === Platform ===
+  { id: 'webui', lane: 'platform', col: 0, icon: '📊', title: 'WebUI', status: 'active', progress: 55,
+    tooltip: 'Auth, pipeline board, team, Realtime. Next: detail panels.',
+    deps: [], unlocks: ['model-flex'],
+    details: `## What It Is
+
+The web dashboard at **www.zazig.com**. Built with vanilla JS (no framework), hosted on Vercel.
+
+## What's Built (Phase 1-2)
+
+- Google OAuth + magic link authentication
+- Pipeline board (kanban-style feature/job status)
+- Team page (archetype picker with write-back)
+- Realtime subscriptions (live updates via Supabase)
+- Theme persistence, goal progress, focus area health
+- Intake columns (Ideas, Triage, Proposal)
+
+## What's Next
+
+- Detail panels (click a feature/idea/job → see full spec, AC, status)
+- Type chips (idea/brief/bug/test visual indicators)
+- Idea filtering and horizon-based parking
+- Submission form for new inbox items
+
+## Deployment
+
+- **Prod**: \`www.zazig.com\` (Vercel project \`zazigv2-webui\`, manual deploy)
+- **Staging**: \`zazigv2-webui-staging.vercel.app\` (auto-deploy from master)` },
+
+  { id: 'model-flex', lane: 'platform', col: 1, icon: '🔀', title: 'Model Flexibility', status: 'draft', progress: 10,
+    tooltip: 'Dynamic backends, model preferences, runtime probing. Designed today.',
+    deps: ['webui', 'orchestrator', 'cli'], unlocks: ['roles-market'],
+    details: `## What It Is
+
+Decouples roles from hardcoded models. Three layers:
+
+1. **Backends** — execution environments (claude-code, codex-cli, gemini-cli, ollama, openai-api). Each machine has N backends with slot capacity + discovered model list.
+2. **Role Model Preferences** — ordered fallback list per role (\`[claude-sonnet-4-6, gemini-2.5-pro, qwen-3]\`). Orchestrator walks list, picks first available.
+3. **Runtime Probing** — local agent discovers available models by testing. Heartbeats carry live truth. Token exhaustion = model drops off next probe.
+
+## Key Changes
+
+- New \`machine_backends\` table replaces \`slots_claude_code\`/\`slots_codex\`
+- \`model_preferences text[]\` replaces \`default_model\` on roles
+- Backend interface: \`detect()\`, \`authenticate()\`, \`probeModels()\`, \`execute()\`
+- CLI + API backends from day one
+
+## User Experience
+
+- **Day 1**: Sign up, connect Claude, zero config. CPO=Opus, everything else=Sonnet.
+- **Later**: Add Codex → Junior Engineer unlocks. Want deep research? → needs Gemini or Perplexity.
+- Users see "Connections", not CLIs or API keys.
+
+## Design Doc
+\`docs/plans/active/2026-03-06-model-flexibility-design.md\`` },
+
+  { id: 'roles-market', lane: 'platform', col: 2, icon: '🏪', title: 'Roles Marketplace', status: 'locked', progress: 0,
+    tooltip: '"I got a new tool" / "I want a capability" paths. Fleet view.',
+    deps: ['model-flex'], unlocks: ['local-models', 'future-roles'],
+    details: `## What It Is
+
+The WebUI view where users discover and activate roles. Two paths:
+
+### Path A: "I got a new tool"
+User connects Codex → WebUI shows: "Codex unlocks Junior Engineer (fast parallel coding). Activate?" → User confirms → role activates.
+
+### Path B: "I want a capability"
+User browses available roles → sees "Deep Researcher" → clicks → "This role needs one of: Gemini, Perplexity, Grok. Which do you have?" → picks → role activates.
+
+## Views
+
+1. **Fleet view**: All machines, backends, capacity, live model availability
+2. **Roles grid**: Active roles (configured, serving) vs available roles (need a connection to unlock)
+3. **Role config modal**: Drag-to-reorder model preference list
+
+## Part of Model Flexibility design
+\`docs/plans/active/2026-03-06-model-flexibility-design.md\` (Section: WebUI)` },
+
+  { id: 'local-models', lane: 'platform', col: 3, icon: '💻', title: 'Local Models', status: 'locked', progress: 0,
+    tooltip: 'Ollama, LM Studio, Qwen on Mac Mini. Privacy-first.',
+    deps: ['roles-market'], unlocks: [],
+    details: `## What It Is
+
+Support for locally-hosted models as backends. The agent probes \`localhost:11434/api/tags\` (Ollama) or similar endpoints and reports available models in the heartbeat.
+
+## Use Cases
+
+- **Privacy**: Sensitive tasks run on local models, never leave the machine
+- **Cost**: Local models are free after hardware investment
+- **Experimentation**: Try new models without subscription commitment
+- **Offline**: Work without internet (model + Supabase local dev)
+
+## Supported Runtimes
+
+- **Ollama**: HTTP API, auto-discovers pulled models
+- **LM Studio**: Local server mode
+- **vLLM**: For more serious local deployment
+
+## Part of Model Flexibility design
+\`docs/plans/active/2026-03-06-model-flexibility-design.md\` (Backend: ollama)` },
+
+  // === Strategy ===
+  { id: 'goals', lane: 'strategy', col: 0, icon: '🎯', title: 'Goals & Focus', status: 'shipped', progress: 70,
+    tooltip: 'Measurable goals, focus area themes. Tables + seeding deployed.',
+    deps: [], unlocks: ['health'],
+    details: `## What It Is
+
+Two object types for strategic alignment:
+
+### Goals
+Measurable end-states at the company level. Example: "Ship MVP by March 2026" with quantifiable criteria.
+
+### Focus Areas
+Current work themes, cadence-driven. Example: "Agent Reliability" — all features and jobs during this sprint relate to making agents more reliable.
+
+## How They Connect
+
+- Every feature links to a focus area (\`feature.focus_area_id\`)
+- Every decision references which goal it serves
+- CPO uses focus areas to prioritize what to work on next
+- Dashboard shows goal progress and focus area health
+
+## What's Built
+
+- Goals + focus_areas tables
+- Feature FK to focus_area
+- Seeding data for zazig-dev
+- WebUI goal progress bars
+
+## What's Next
+
+- CPO advice system (recommends work by focus area priority)
+- Consequence tracking (log predicted vs actual outcomes per decision)
+
+## Design Doc
+\`docs/plans/shipped/2026-02-27-goals-and-focus-areas-design.md\`` },
+
+  { id: 'health', lane: 'strategy', col: 1, icon: '📈', title: 'Health Scoring', status: 'draft', progress: 10,
+    tooltip: 'Automated health across 6 dimensions. Manual v1 done.',
+    deps: ['goals'], unlocks: ['strategy-sim'],
+    details: `## What It Is
+
+Automated health assessment for each focus area, scored across 6 dimensions:
+
+1. **Velocity** — are features shipping?
+2. **Blocking** — how many items are stuck?
+3. **Quality** — failure rate, rejection rate
+4. **Learning** — are agents getting better at this type of work?
+5. **Direction confidence** — is the goal still clear?
+6. **Team morale** — proxy signals (cycle time, rework rate)
+
+## Two Versions
+
+- **v1 (Manual)**: Spreadsheet-based assessment, done once (2026-03-03)
+- **v2 (Automated)**: CPO major heartbeat job that scores health automatically, feeds dashboard
+
+## Prerequisites
+
+- Goals & Focus Areas (the objects being scored)
+- Deep Heartbeat / Triggers (CPO scheduled job for automated scoring)
+
+## Design Doc
+\`docs/plans/active/2026-03-03-focus-area-health-assessment-process.md\`` },
+
+  { id: 'strategy-sim', lane: 'strategy', col: 5, icon: '🏛️', title: 'Strategy Sim', status: 'locked', progress: 0,
+    tooltip: 'The endgame. Consequence tracking, gamified decisions, Civ-style advisor.',
+    deps: ['health', 'product-intel', 'auto-spec', 'future-roles'], unlocks: [],
+    details: `## What It Is
+
+The **endgame**. A Civilization-style strategy interface where:
+
+- Every decision is logged with predicted consequences
+- Consequences are tracked over time (did the prediction come true?)
+- CPO acts as an advisor recommending next moves
+- Gamified question interface ("You have 3 slots available. Research suggests competitors are moving into X. What do you prioritize?")
+- **This tech tree becomes a live, data-driven feature** — not a static page
+
+## Prerequisites
+
+Everything converges here:
+- **Health Scoring**: Know which areas are thriving or struggling
+- **Product Intelligence**: Market signals, competitive landscape
+- **Auto-Spec**: CPO can act on decisions autonomously
+- **Future Roles**: Full exec team providing multi-perspective advice
+
+## Inspiration
+
+Sid Meier's Civilization tech tree. The idea that you can see how things connect, what unlocks what, and make strategic choices about where to invest next. But with real data, real consequences, and AI advisors.
+
+## Idea Reference
+Parked idea: \`4aa07b29 — Strategy Sim: Civ-style decision interface\`` },
+];
+
+const nodeMap = {};
+NODES.forEach(n => { nodeMap[n.id] = n; });
+
+function nodeX(n) { return COL_LEFT + n.col * COL_W; }
+function nodeY(n) { return LANE_TOP + laneIndex[n.lane] * LANE_H; }
+function nodeRight(n) { return nodeX(n) + NODE_W; }
+function nodeLeft(n) { return nodeX(n); }
+function nodeCY(n) { return nodeY(n) + NODE_H / 2; }
+
+// ============================================================
+// RENDER
+// ============================================================
+const container = document.getElementById('container');
+const laneLabels = document.getElementById('lane-labels');
+const svg = document.getElementById('connections');
+const tooltip = document.getElementById('tooltip');
+
+const maxCol = Math.max(...NODES.map(n => n.col));
+const totalWidth = COL_LEFT + (maxCol + 1) * COL_W + 80;
+container.style.width = totalWidth + 'px';
+svg.setAttribute('width', totalWidth);
+svg.setAttribute('height', LANE_TOP + LANES.length * LANE_H + 40);
+
+LANES.forEach((lane, i) => {
+  const y = LANE_TOP + i * LANE_H;
+  const label = document.createElement('div');
+  label.className = 'lane-label';
+  label.style.top = (y + 12) + 'px';
+  label.style.color = lane.color;
+  label.style.borderRightColor = lane.color;
+  label.textContent = lane.label;
+  laneLabels.appendChild(label);
+  const stripe = document.createElement('div');
+  stripe.className = 'lane-stripe';
+  stripe.style.top = (y - 6) + 'px';
+  stripe.style.background = lane.color;
+  container.appendChild(stripe);
+});
+
+NODES.forEach(node => {
+  const el = document.createElement('div');
+  el.className = 'node ' + node.status + (node.nextUp ? ' next-up' : '');
+  el.id = 'node-' + node.id;
+  el.style.left = nodeX(node) + 'px';
+  el.style.top = nodeY(node) + 'px';
+  const showBar = node.progress > 0 && node.progress < 100;
+  el.innerHTML = `
+    <div class="node-status-dot"></div>
+    <div class="node-top">
+      <span class="node-icon">${node.icon}</span>
+      <span class="node-title">${node.title}</span>
+    </div>
+    ${showBar ? `<div class="node-bar"><div class="node-bar-fill" style="width:${node.progress}%"></div></div>` : ''}
+  `;
+  el.addEventListener('mouseenter', e => showTooltip(e, node));
+  el.addEventListener('mouseleave', hideTooltip);
+  el.addEventListener('mousemove', moveTooltip);
+  el.addEventListener('click', e => { e.stopPropagation(); hideTooltip(); openModal(node); });
+  container.appendChild(el);
+});
+
+// Connections
+requestAnimationFrame(() => {
+  let paths = '';
+  NODES.forEach(node => {
+    node.unlocks.forEach(targetId => {
+      const target = nodeMap[targetId];
+      if (!target) return;
+      const fromX = nodeRight(node), fromY = nodeCY(node);
+      const toX = nodeLeft(target), toY = nodeCY(target);
+      let color, opacity, dash;
+      if (node.status === 'shipped' && target.status === 'shipped') { color = '#10b981'; opacity = 0.5; }
+      else if (node.status === 'shipped' || node.status === 'active') { color = '#f59e0b'; opacity = 0.3; }
+      else { color = '#334155'; opacity = 0.2; }
+      dash = (target.status === 'locked') ? '3,3' : 'none';
+      const sameLane = node.lane === target.lane;
+      const gap = toX - fromX;
+      if (sameLane && Math.abs(fromY - toY) < 5 && gap > 0 && gap < COL_W + 20) {
+        paths += `<line x1="${fromX+3}" y1="${fromY}" x2="${toX-3}" y2="${toY}" stroke="${color}" stroke-opacity="${opacity}" stroke-width="1.5" stroke-dasharray="${dash}" />`;
+      } else {
+        const cpX = Math.max(30, Math.abs(gap) * 0.35);
+        paths += `<path d="M${fromX+3},${fromY} C${fromX+cpX},${fromY} ${toX-cpX},${toY} ${toX-3},${toY}" fill="none" stroke="${color}" stroke-opacity="${opacity}" stroke-width="1.5" stroke-dasharray="${dash}" />`;
+      }
+      paths += `<polygon points="${toX-3},${toY} ${toX-7},${toY-3} ${toX-7},${toY+3}" fill="${color}" fill-opacity="${opacity}" />`;
+    });
+  });
+  svg.innerHTML = paths;
+});
+
+// ============================================================
+// TOOLTIP (hover)
+// ============================================================
+function showTooltip(e, node) {
+  const deps = node.deps.map(id => { const d = nodeMap[id]; const m = d?.status === 'shipped' ? '✓' : d?.status === 'active' ? '◑' : '○'; return m + ' ' + (d?.title || id); });
+  const unlockNames = node.unlocks.map(id => nodeMap[id]?.title || id);
+  document.getElementById('tt-title').textContent = node.icon + ' ' + node.title;
+  const se = document.getElementById('tt-status');
+  se.textContent = node.status.toUpperCase() + (node.progress > 0 && node.progress < 100 ? ' — ' + node.progress + '%' : '');
+  se.className = 'tooltip-status ' + node.status;
+  document.getElementById('tt-body').textContent = node.tooltip + ' (click for details)';
+  let html = '';
+  if (deps.length) html += '<strong>Requires:</strong> ' + deps.join(', ') + '<br>';
+  if (unlockNames.length) html += '<strong>Unlocks:</strong> ' + unlockNames.join(', ');
+  document.getElementById('tt-deps').innerHTML = html || '<strong>Foundational</strong>';
+  tooltip.classList.add('visible');
+  moveTooltip(e);
+}
+function moveTooltip(e) {
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + 320 > window.innerWidth) x = e.clientX - 334;
+  if (y + 200 > window.innerHeight) y = e.clientY - 200;
+  tooltip.style.left = x + 'px'; tooltip.style.top = y + 'px';
+}
+function hideTooltip() { tooltip.classList.remove('visible'); }
+
+// ============================================================
+// MODAL (click)
+// ============================================================
+const modalOverlay = document.getElementById('modal-overlay');
+
+function openModal(node) {
+  document.getElementById('modal-icon').textContent = node.icon;
+  document.getElementById('modal-title').textContent = node.title;
+
+  const badge = document.getElementById('modal-status');
+  badge.textContent = node.status.toUpperCase();
+  badge.className = 'modal-status-badge ' + node.status;
+
+  const prog = document.getElementById('modal-progress');
+  prog.textContent = node.progress > 0 && node.progress < 100 ? node.progress + '% complete' : node.progress === 100 ? 'Complete' : '';
+
+  // Render markdown details
+  const content = document.getElementById('modal-content');
+  if (typeof marked !== 'undefined' && node.details) {
+    content.innerHTML = marked.parse(node.details);
+  } else {
+    content.innerHTML = '<p>' + (node.details || node.tooltip).replace(/\n/g, '<br>') + '</p>';
+  }
+
+  // Footer: deps + unlocks
+  const footer = document.getElementById('modal-footer');
+  let footerHtml = '';
+  if (node.deps.length) {
+    footerHtml += '<div class="modal-footer-label">Requires</div>';
+    node.deps.forEach(id => {
+      const d = nodeMap[id];
+      if (d) footerHtml += `<span class="modal-dep-tag"><span class="dot ${d.status}"></span>${d.icon} ${d.title}</span>`;
+    });
+  }
+  if (node.unlocks.length) {
+    footerHtml += '<div class="modal-footer-label" style="margin-top:8px">Unlocks</div>';
+    node.unlocks.forEach(id => {
+      const d = nodeMap[id];
+      if (d) footerHtml += `<span class="modal-dep-tag"><span class="dot ${d.status}"></span>${d.icon} ${d.title}</span>`;
+    });
+  }
+  footer.innerHTML = footerHtml;
+
+  modalOverlay.classList.add('visible');
+  document.body.style.overflowX = 'hidden';
+}
+
+function closeModal() {
+  modalOverlay.classList.remove('visible');
+  document.body.style.overflowX = 'auto';
+}
+
+document.getElementById('modal-close').addEventListener('click', closeModal);
+modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// Hide scroll hint
+document.body.addEventListener('scroll', () => {
+  const hint = document.getElementById('scroll-hint');
+  if (hint) hint.style.display = 'none';
+}, { once: true });
+</script>
+</body>
+</html>

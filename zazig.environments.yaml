@@ -1,0 +1,21 @@
+name: zazigv2
+environments:
+  staging:
+    deploy:
+      provider: supabase
+      project_ref: ymgjtrbrvhezxpwjuhbu
+      edge_functions: true
+      migrations: true
+    agent:
+      source: repo
+      doppler_config: stg
+  production:
+    deploy:
+      provider: supabase
+      project_ref: jmussmwglgbwncgygzbz
+      edge_functions: true
+      migrations: true
+    agent:
+      source: pinned
+      doppler_config: prd
+    promote_from: staging

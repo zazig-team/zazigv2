@@ -15,7 +15,7 @@
  *   role != null (persistent agents)   → `claude -p` (claude-opus-4-6, print mode)
  */
 
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync, symlinkSync, appendFileSync, createWriteStream, statSync } from "node:fs";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
@@ -28,7 +28,6 @@ import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageI
 import { PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
 import { generateExecSkill, publishSharedExecSkill, setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
-import { loadProjectsFromCLI } from "./projects.js";
 
 /**
  * Resolve the MCP server path — prefers compiled binary in ~/.zazigv2/bin/,
@@ -56,6 +55,24 @@ export { MasterChangePoller } from "./master-change-poller.js";
 // [git master refresh] Master branch updated on origin/master
 
 const execFileAsync = promisify(execFile);
+
+function loadProjectsFromCLI(companyId: string): CompanyProject[] {
+  try {
+    const stdout = execFileSync("zazig", ["projects", "--company", companyId], {
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    const parsed = JSON.parse(stdout) as { projects?: Array<{ name?: string; repo_url?: string; status?: string }> };
+    const projects = Array.isArray(parsed?.projects) ? parsed.projects : [];
+
+    return projects
+      .filter((project) => typeof project?.name === "string" && typeof project?.repo_url === "string")
+      .map((project) => ({ name: project.name as string, repo_url: project.repo_url as string }));
+  } catch (err) {
+    console.warn("[daemon] Failed to load projects from CLI — continuing with empty list:", err);
+    return [];
+  }
+}
 
 type ExecFileAsyncFn = (
   command: string,
@@ -1399,12 +1416,14 @@ export class JobExecutor {
 
   private async monitorMasterCI(): Promise<void> {
     try {
-      const refreshedProjects = this.companyId ? loadProjectsFromCLI(this.companyId) : [];
-      if (refreshedProjects.length > 0 || this.companyProjects.length === 0) {
-        this.companyProjects = [...refreshedProjects];
+      if (this.companyId) {
+        const refreshedProjects = loadProjectsFromCLI(this.companyId);
+        if (refreshedProjects.length > 0) {
+          this.companyProjects = [...refreshedProjects];
+        }
       }
 
-      const repoUrl = refreshedProjects[0]?.repo_url ?? this.companyProjects[0]?.repo_url;
+      const repoUrl = this.companyProjects[0]?.repo_url;
       if (!repoUrl) {
         console.log("[executor] Master CI monitor skipped: missing project repo_url");
         return;

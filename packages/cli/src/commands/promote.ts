@@ -517,29 +517,7 @@ async function runPromote(
     return;
   }
 
-  // 9. Mark complete, unpromoted features as promoted in this version
-  try {
-    // SQL equivalent: UPDATE features SET promoted_version = <newVersion>
-    // WHERE status = 'complete' AND promoted_version IS NULL;
-    const { count, error: promoteError } = await supabase
-      .from("features")
-      .update({ promoted_version: newVersion }, { count: "exact" })
-      .eq("status", "complete")
-      .is("promoted_version", null);
-
-    if (promoteError) {
-      console.warn(`Warning: could not update promoted_version on features: ${promoteError.message}`);
-      // Non-fatal — don't block the GitHub release for a metadata update
-    }
-
-    console.log(`Marked ${count ?? 0} complete feature(s) with promoted_version=${newVersion}.`);
-  } catch (err) {
-    console.error(`Failed to update promoted features: ${String(err)}`);
-    process.exitCode = 1;
-    return;
-  }
-
-  // 10. Create GitHub Release and upload binaries
+  // 9. Create GitHub Release and upload binaries
   console.log("\nCreating GitHub Release...");
   const tag = `v${newVersion}`;
   try {
@@ -560,7 +538,7 @@ async function runPromote(
     console.error("Binaries were not uploaded. You can retry with: gh release create ...");
   }
 
-  // 11. Cleanup compile temp dir
+  // 10. Cleanup compile temp dir
   try { rmSync(compileOutDir, { recursive: true, force: true }); } catch { /* */ }
 
   const sha = commitSha.slice(0, 7);

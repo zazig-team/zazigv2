@@ -28,6 +28,7 @@ import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageI
 import { PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
 import { generateExecSkill, publishSharedExecSkill, setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
+import { loadProjectsFromCLI } from "./projects.js";
 
 /**
  * Resolve the MCP server path — prefers compiled binary in ~/.zazigv2/bin/,
@@ -1398,7 +1399,12 @@ export class JobExecutor {
 
   private async monitorMasterCI(): Promise<void> {
     try {
-      const repoUrl = this.companyProjects[0]?.repo_url;
+      const refreshedProjects = this.companyId ? loadProjectsFromCLI(this.companyId) : [];
+      if (refreshedProjects.length > 0 || this.companyProjects.length === 0) {
+        this.companyProjects = [...refreshedProjects];
+      }
+
+      const repoUrl = refreshedProjects[0]?.repo_url ?? this.companyProjects[0]?.repo_url;
       if (!repoUrl) {
         console.log("[executor] Master CI monitor skipped: missing project repo_url");
         return;

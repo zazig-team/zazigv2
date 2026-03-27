@@ -528,9 +528,8 @@ async function runPromote(
       .is("promoted_version", null);
 
     if (promoteError) {
-      console.error(`Failed to update promoted_version on complete features: ${promoteError.message}`);
-      process.exitCode = 1;
-      return;
+      console.warn(`Warning: could not update promoted_version on features: ${promoteError.message}`);
+      // Non-fatal — don't block the GitHub release for a metadata update
     }
 
     console.log(`Marked ${count ?? 0} complete feature(s) with promoted_version=${newVersion}.`);

@@ -240,7 +240,7 @@ describe("RepoManager.refreshWorktree", () => {
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
       const manager = new branches.RepoManager();
-      const bareDir = await manager.ensureRepo(sourceDir, "refresh-noop-project");
+      const repoDir = await manager.ensureRepo(sourceDir, "refresh-noop-project");
       const worktreePath = await manager.ensureWorktree("refresh-noop-project");
       const beforeHead = git(worktreePath, "rev-parse", "HEAD");
 
@@ -251,14 +251,14 @@ describe("RepoManager.refreshWorktree", () => {
       expect(consoleLogSpy).not.toHaveBeenCalledWith(
         expect.stringContaining("[RepoManager] refreshed refresh-noop-project worktree:"),
       );
-      expect(git(bareDir, "rev-parse", "refs/heads/main")).toBe(beforeHead);
+      expect(git(repoDir, "rev-parse", "refs/heads/main")).toBe(beforeHead);
     } finally {
       consoleLogSpy.mockRestore();
       rmSync(sourceDir, { recursive: true, force: true });
     }
   });
 
-  it("resets the shared worktree when it is behind the bare repo branch", async () => {
+  it("resets the shared worktree when it is behind the repo branch", async () => {
     const sourceDir = createSourceRepo();
     try {
       const manager = new branches.RepoManager();
@@ -305,7 +305,7 @@ describe("RepoManager.refreshWorktree", () => {
     }
   });
 
-  it("handles bare repo fetch failures gracefully", async () => {
+  it("handles repo fetch failures gracefully", async () => {
     const sourceDir = createSourceRepo();
     const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
@@ -316,11 +316,11 @@ describe("RepoManager.refreshWorktree", () => {
       commitFileInRepo(sourceDir, "remote-warning.txt", "remote warning\n", "remote warning commit");
 
       const originalGit = (manager as any).git.bind(manager);
-      const bareDir = join(tempHomeDir, ".zazigv2", "repos", "refresh-fetch-warning-project");
+      const repoDir = join(tempHomeDir, ".zazigv2", "repos", "refresh-fetch-warning-project");
       const gitSpy = vi.spyOn(manager as any, "git").mockImplementation(async (repoDirPath: unknown, ...args: unknown[]) => {
         const repoDirPathStr = String(repoDirPath);
         const gitArgs = args.map(String);
-        if (repoDirPathStr === bareDir && gitArgs[0] === "fetch") {
+        if (repoDirPathStr === repoDir && gitArgs[0] === "fetch") {
           throw new Error("simulated fetch failure");
         }
         return originalGit(repoDirPathStr, ...gitArgs);
@@ -352,8 +352,8 @@ describe("RepoManager.fetchBranchForExpert", () => {
       await manager.ensureRepo(sourceDir, "expert-fetch-project");
       await manager.fetchBranchForExpert("expert-fetch-project", "expert/review");
 
-      const bareDir = join(tempHomeDir, ".zazigv2", "repos", "expert-fetch-project");
-      expect(git(bareDir, "rev-parse", "refs/remotes/origin/expert/review")).toBe(expertHead);
+      const repoDir = join(tempHomeDir, ".zazigv2", "repos", "expert-fetch-project");
+      expect(git(repoDir, "rev-parse", "refs/remotes/origin/expert/review")).toBe(expertHead);
     } finally {
       rmSync(sourceDir, { recursive: true, force: true });
     }
@@ -405,7 +405,7 @@ describe("RepoManager.createDependentJobWorktree", () => {
   it("merges multiple dependency branches into the worktree", async () => {
     const sourceDir = createSourceRepo();
     const manager = new branches.RepoManager();
-    let bareDir = "";
+    let repoDir = "";
     let worktreePath = "";
 
     try {
@@ -417,10 +417,10 @@ describe("RepoManager.createDependentJobWorktree", () => {
       commitFileInRepo(sourceDir, "dep-two.txt", "dep two\n", "dep two commit");
       git(sourceDir, "checkout", "main");
 
-      bareDir = await manager.ensureRepo(sourceDir, "dependent-job-merge-project");
-      await manager.ensureFeatureBranch(bareDir, "feature/dependent-base");
+      repoDir = await manager.ensureRepo(sourceDir, "dependent-job-merge-project");
+      await manager.ensureFeatureBranch(repoDir, "feature/dependent-base");
       const result = await manager.createDependentJobWorktree(
-        bareDir,
+        repoDir,
         "feature/dependent-base",
         "dependent-merge",
         ["job/dep-one", "job/dep-two"],
@@ -435,8 +435,8 @@ describe("RepoManager.createDependentJobWorktree", () => {
       // HEAD should be a merge commit (has two parents)
       expect(() => git(worktreePath, "rev-parse", "HEAD^2")).not.toThrow();
     } finally {
-      if (bareDir && worktreePath) {
-        await manager.removeJobWorktree(bareDir, worktreePath);
+      if (repoDir && worktreePath) {
+        await manager.removeJobWorktree(repoDir, worktreePath);
       }
       rmSync(sourceDir, { recursive: true, force: true });
     }
@@ -445,7 +445,7 @@ describe("RepoManager.createDependentJobWorktree", () => {
   it("single dep branch creates worktree without merge", async () => {
     const sourceDir = createSourceRepo();
     const manager = new branches.RepoManager();
-    let bareDir = "";
+    let repoDir = "";
     let worktreePath = "";
 
     try {
@@ -453,10 +453,10 @@ describe("RepoManager.createDependentJobWorktree", () => {
       const depHead = commitFileInRepo(sourceDir, "dep.txt", "dep\n", "dep commit");
       git(sourceDir, "checkout", "main");
 
-      bareDir = await manager.ensureRepo(sourceDir, "dependent-job-single-project");
-      await manager.ensureFeatureBranch(bareDir, "feature/dependent-base");
+      repoDir = await manager.ensureRepo(sourceDir, "dependent-job-single-project");
+      await manager.ensureFeatureBranch(repoDir, "feature/dependent-base");
       const result = await manager.createDependentJobWorktree(
-        bareDir,
+        repoDir,
         "feature/dependent-base",
         "dependent-single",
         ["job/dep-single"],
@@ -470,8 +470,8 @@ describe("RepoManager.createDependentJobWorktree", () => {
       expect(() => git(worktreePath, "rev-parse", "HEAD^2")).toThrow();
       expect(existsSync(join(worktreePath, "dep.txt"))).toBe(true);
     } finally {
-      if (bareDir && worktreePath) {
-        await manager.removeJobWorktree(bareDir, worktreePath);
+      if (repoDir && worktreePath) {
+        await manager.removeJobWorktree(repoDir, worktreePath);
       }
       rmSync(sourceDir, { recursive: true, force: true });
     }
@@ -480,7 +480,7 @@ describe("RepoManager.createDependentJobWorktree", () => {
   it("does not throw when dependency branches conflict with each other", async () => {
     const sourceDir = createSourceRepo();
     const manager = new branches.RepoManager();
-    let bareDir = "";
+    let repoDir = "";
     let worktreePath = "";
 
     try {
@@ -492,11 +492,11 @@ describe("RepoManager.createDependentJobWorktree", () => {
       commitFileInRepo(sourceDir, "conflict.txt", "from dep two\n", "dep two change");
       git(sourceDir, "checkout", "main");
 
-      bareDir = await manager.ensureRepo(sourceDir, "dependent-job-conflict-project");
-      await manager.ensureFeatureBranch(bareDir, "feature/dependent-conflict");
+      repoDir = await manager.ensureRepo(sourceDir, "dependent-job-conflict-project");
+      await manager.ensureFeatureBranch(repoDir, "feature/dependent-conflict");
 
       const result = await manager.createDependentJobWorktree(
-        bareDir,
+        repoDir,
         "feature/dependent-conflict",
         "dependent-conflict",
         ["job/conflict-one", "job/conflict-two"],
@@ -509,8 +509,8 @@ describe("RepoManager.createDependentJobWorktree", () => {
       expect(git(worktreePath, "show", "HEAD:conflict.txt")).toBe("from dep one");
       expect(() => git(worktreePath, "rev-parse", "HEAD^2")).toThrow();
     } finally {
-      if (bareDir && worktreePath) {
-        await manager.removeJobWorktree(bareDir, worktreePath);
+      if (repoDir && worktreePath) {
+        await manager.removeJobWorktree(repoDir, worktreePath);
       }
       rmSync(sourceDir, { recursive: true, force: true });
     }
@@ -525,18 +525,18 @@ describe("RepoManager.createDependentJobWorktree", () => {
       commitFileInRepo(sourceDir, "existing.txt", "existing dep\n", "existing dep commit");
       git(sourceDir, "checkout", "main");
 
-      const bareDir = await manager.ensureRepo(sourceDir, "dependent-job-missing-branch-project");
-      await manager.ensureFeatureBranch(bareDir, "feature/dependent-validation");
+      const repoDir = await manager.ensureRepo(sourceDir, "dependent-job-missing-branch-project");
+      await manager.ensureFeatureBranch(repoDir, "feature/dependent-validation");
 
       await expect(
         manager.createDependentJobWorktree(
-          bareDir,
+          repoDir,
           "feature/dependent-validation",
           "dependent-missing",
           ["job/existing-dep", "job/missing-dep"],
         ),
       ).rejects.toThrow('dependency branch not found: job/missing-dep');
-      expect(git(bareDir, "branch", "--list", "job/dependent-missing")).toBe("");
+      expect(git(repoDir, "branch", "--list", "job/dependent-missing")).toBe("");
     } finally {
       rmSync(sourceDir, { recursive: true, force: true });
     }

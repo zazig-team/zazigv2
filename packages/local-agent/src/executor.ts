@@ -310,7 +310,7 @@ const INTERACTIVE_JOB_TIMEOUT_MS = 30 * 60_000;
 /** Shared report file written by claude/codex agents. */
 function reportRelativePath(role?: string): string {
   const reportFile = role ? `${role}-report.md` : "cpo-report.md";
-  return `.claude/${reportFile}`;
+  return `.reports/${reportFile}`;
 }
 
 /** Per-job report directory to prevent concurrent-completion races. */
@@ -329,7 +329,7 @@ const NO_CODE_CONTEXT_ROLES = new Set([
 const CPO_STARTUP_DELAY_MS = 15_000;
 
 const DEFAULT_BOOT_PROMPT =
-  "Read your state files. If .claude/{role}-report.md exists, review it for continuity. Check for pending work via your MCP tools. Orient yourself and begin.";
+  "Read your state files. If .reports/{role}-report.md exists, review it for continuity. Check for pending work via your MCP tools. Orient yourself and begin.";
 
 /** Minimum session age before Cache-TTL may reset a persistent exec. */
 const MIN_SESSION_AGE_MS = 5 * 60_000;
@@ -413,7 +413,7 @@ export const FILE_WRITING_RULES = `## File Writing Rules
 ALL file operations (reads, writes, edits) MUST stay within your working directory.
 Do NOT use absolute paths to other repositories or user home directories.
 
-- Session reports → \`.claude/{role}-report.md\` in your working directory
+- Session reports → \`.reports/{role}-report.md\` in your working directory
 - Design documents, proposals, plans, specs → \`docs/plans/YYYY-MM-DD-descriptive-slug.md\` (relative to your working directory)
 - Never reference paths outside your working directory — they belong to other projects`;
 
@@ -1023,7 +1023,7 @@ export class JobExecutor {
     const reportPath = `${process.env["HOME"] ?? "/tmp"}/${reportRelativePath(msg.role)}`;
     try { unlinkSync(reportPath); } catch { /* no stale report — fine */ }
     if (msg.role === "reviewer" && worktreePath) {
-      try { unlinkSync(`${worktreePath}/.claude/reviewer-report.md`); } catch { /* no stale report — fine */ }
+      try { unlinkSync(`${worktreePath}/.reports/reviewer-report.md`); } catch { /* no stale report — fine */ }
     }
 
     // --- 6. Kill stale tmux session if it exists (from a previous dispatch) ---
@@ -2723,7 +2723,7 @@ export class JobExecutor {
         result = "FAILED: Reviewer job missing required worktreePath";
         jobLog(jobId, "Report search ERROR — reviewer job missing required worktreePath");
       } else {
-        const reviewerReportPath = `${job.worktreePath}/.claude/reviewer-report.md`;
+        const reviewerReportPath = `${job.worktreePath}/.reports/reviewer-report.md`;
         jobLog(jobId, `Report search — reviewer canonical path=${reviewerReportPath}`);
         try {
           renameSync(reviewerReportPath, jobReportPath);
@@ -2749,10 +2749,10 @@ export class JobExecutor {
       // the executor's convention ({role}-report.md).  Add known alternates so we
       // find the report regardless of which name the agent used.
       const REPORT_FALLBACKS: Record<string, string> = {
-        deployer: ".claude/deploy-report.md",
-        "test-deployer": ".claude/deploy-report.md",
-        tester: ".claude/tester-report.md",
-        "job-merger": ".claude/job-merger-report.md",
+        deployer: ".reports/deploy-report.md",
+        "test-deployer": ".reports/deploy-report.md",
+        tester: ".reports/tester-report.md",
+        "job-merger": ".reports/job-merger-report.md",
       };
       const fallback = job.role ? REPORT_FALLBACKS[job.role] : undefined;
       if (fallback && fallback !== rpPath) {

@@ -353,7 +353,7 @@ describe("RepoManager.fetchBranchForExpert", () => {
       await manager.fetchBranchForExpert("expert-fetch-project", "expert/review");
 
       const bareDir = join(tempHomeDir, ".zazigv2", "repos", "expert-fetch-project");
-      expect(git(bareDir, "rev-parse", "refs/heads/expert/review")).toBe(expertHead);
+      expect(git(bareDir, "rev-parse", "refs/remotes/origin/expert/review")).toBe(expertHead);
     } finally {
       rmSync(sourceDir, { recursive: true, force: true });
     }
@@ -370,7 +370,7 @@ describe("RepoManager.fetchBranchForExpert", () => {
     });
 
     const gitSpy = vi.spyOn(manager as any, "git").mockImplementation(async (_repoDirPath: unknown, ...args: unknown[]) => {
-      const branchArg = String(args[3] ?? "");
+      const branchArg = String(args[2] ?? "");
       started.push(branchArg);
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
@@ -393,8 +393,8 @@ describe("RepoManager.fetchBranchForExpert", () => {
 
     expect(maxInFlight).toBe(1);
     expect(started).toEqual([
-      "+refs/heads/branch-a:refs/heads/branch-a",
-      "+refs/heads/branch-b:refs/heads/branch-b",
+      "+refs/heads/branch-a:refs/remotes/origin/branch-a",
+      "+refs/heads/branch-b:refs/remotes/origin/branch-b",
     ]);
 
     gitSpy.mockRestore();

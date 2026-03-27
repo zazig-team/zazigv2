@@ -507,11 +507,23 @@ export class RepoManager {
       }
 
       // Verify each dep branch exists before creating the worktree.
+      // After a normal clone, branches are remote tracking refs (refs/remotes/origin/*)
+      // not local refs (refs/heads/*), so check both locations.
       const missingBranches: string[] = [];
+      const resolvedRefs = new Map<string, string>();
       for (const branch of depBranches) {
-        try {
-          await execFileAsync("git", ["-C", repoDir, "rev-parse", "--verify", `refs/heads/${branch}`], { encoding: "utf8" });
-        } catch {
+        let found = false;
+        for (const refPrefix of [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
+          try {
+            await execFileAsync("git", ["-C", repoDir, "rev-parse", "--verify", refPrefix], { encoding: "utf8" });
+            resolvedRefs.set(branch, refPrefix === `refs/heads/${branch}` ? branch : `origin/${branch}`);
+            found = true;
+            break;
+          } catch {
+            // try next
+          }
+        }
+        if (!found) {
           missingBranches.push(branch);
         }
       }
@@ -526,7 +538,7 @@ export class RepoManager {
       const worktreePath = join(WORKTREE_BASE, `job-${jobId}`);
       await mkdir(WORKTREE_BASE, { recursive: true });
 
-      const baseBranch = depBranches[0] ?? featureBranch;
+      const baseBranch = resolvedRefs.get(depBranches[0]!) ?? depBranches[0] ?? featureBranch;
       console.log(`[RepoManager] Creating jobBranch="${jobBranch}" from baseBranch="${baseBranch}", depBranches=${JSON.stringify(depBranches)}`);
 
       // Clean up any existing worktree for this job branch
@@ -564,8 +576,9 @@ export class RepoManager {
       }
       const conflictBranches: string[] = [];
       for (const branch of depBranches.slice(1)) {
+        const mergeRef = resolvedRefs.get(branch) ?? branch;
         try {
-          await execFileAsync("git", ["-C", worktreePath, "merge", "--no-edit", branch], { encoding: "utf8" });
+          await execFileAsync("git", ["-C", worktreePath, "merge", "--no-edit", mergeRef], { encoding: "utf8" });
           console.log(`[RepoManager] Merged dep branch "${branch}" cleanly into ${jobBranch}`);
         } catch (mergeErr) {
           const errMsg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);

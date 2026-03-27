@@ -38,7 +38,9 @@ function makeSupabaseClient() {
         update: vi.fn((data: Record<string, unknown>) => ({
           eq: vi.fn((col: string, val: string) => {
             updates.push({ table, data, eqColumn: col, eqValue: val });
-            return Promise.resolve({ error: null });
+            return {
+              select: vi.fn(() => Promise.resolve({ error: null, data: [{ id: val }] })),
+            };
           }),
         })),
       })),
@@ -459,7 +461,7 @@ describe("ExpertSessionManager", () => {
       workspaceDir: "/tmp/workspace-root",
       effectiveWorkspaceDir: "/tmp/workspace-root/repo",
       repoDir: "/tmp/workspace-root/repo",
-      bareRepoDir: "/tmp/repos/project.git",
+      cloneDir: "/tmp/repos/project.git",
       displayName: "Research Expert",
       tmuxSession: "expert-123",
       viewerSession: "zazig-view-acme",
@@ -666,7 +668,7 @@ describe("ExpertSessionManager", () => {
       await (manager as any).pushUnpushedCommits({
         sessionId: "deadbeef-1234-4567-89ab-abcdef012345",
         repoDir: "/tmp/workspace-root/repo",
-        bareRepoDir: "/tmp/repos/project.git",
+        cloneDir: "/tmp/repos/project.git",
         expertBranch: "expert/research-expert-deadbeef",
         startCommit: "abc12345",
       });
@@ -719,7 +721,7 @@ describe("ExpertSessionManager", () => {
       await (manager as any).pushUnpushedCommits({
         sessionId: "deadbeef-1234-4567-89ab-abcdef012345",
         repoDir: "/tmp/workspace-root/repo",
-        bareRepoDir: "/tmp/repos/project.git",
+        cloneDir: "/tmp/repos/project.git",
         expertBranch: "expert/research-expert-deadbeef",
         startCommit: "abc12345",
       });

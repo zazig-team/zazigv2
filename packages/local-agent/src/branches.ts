@@ -246,6 +246,9 @@ export class RepoManager {
         }
 
         if (!existsSync(worktreeDir)) {
+          // Detach HEAD in the clone so the target branch isn't "checked out" there,
+          // allowing git worktree add to use it without conflict.
+          await this.git(cloneDir, "checkout", "--detach").catch(() => {});
           // Create worktree from the latest remote tracking ref
           await this.git(cloneDir, "worktree", "add", worktreeDir, targetBranch);
           console.log(`[RepoManager] ensureWorktree created ${worktreeDir} on ${targetBranch}`);

@@ -48,8 +48,8 @@ export { MasterChangePoller } from "./master-change-poller.js";
 
 // [git master refresh] Poller started
 // [git master refresh] Master SHA changed
-// [git master refresh] Bare repo fetched successfully
-// [git master refresh] Bare repo fetch failed
+// [git master refresh] Repo fetched successfully
+// [git master refresh] Repo fetch failed
 // [git master refresh] Notified active sessions
 // [git master refresh] ls-remote failed (git ls-remote refs/heads/master)
 // [git master refresh] Master branch updated on origin/master

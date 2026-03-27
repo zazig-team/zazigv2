@@ -12,7 +12,7 @@ type ActiveSession = { name: string };
 export interface MasterChangePollerDeps {
   repoPath: string;
   execFileAsync?: ExecFileAsyncFn;
-  fetchBareRepo: () => Promise<void>;
+  fetchRepo: () => Promise<void>;
   broadcast: (message: string, sessionNames: string[]) => Promise<number | void>;
   getActiveSessions?: () => ActiveSession[];
 }
@@ -29,7 +29,7 @@ function parseMasterSha(stdout: string): string | null {
 export class MasterChangePoller {
   private readonly repoPath: string;
   private readonly exec: ExecFileAsyncFn;
-  private readonly fetchBareRepo: () => Promise<void>;
+  private readonly fetchRepo: () => Promise<void>;
   private readonly broadcast: (message: string, sessionNames: string[]) => Promise<number | void>;
   private readonly getActiveSessions: () => ActiveSession[];
   private lastMasterSha: string | null = null;
@@ -38,7 +38,7 @@ export class MasterChangePoller {
   constructor(deps: MasterChangePollerDeps) {
     this.repoPath = deps.repoPath;
     this.exec = deps.execFileAsync ?? execFileAsync;
-    this.fetchBareRepo = deps.fetchBareRepo;
+    this.fetchRepo = deps.fetchRepo;
     this.broadcast = deps.broadcast;
     this.getActiveSessions = deps.getActiveSessions ?? (() => []);
     this.start();
@@ -84,10 +84,10 @@ export class MasterChangePoller {
     );
 
     try {
-      await this.fetchBareRepo();
-      console.log("[git master refresh] Bare repo fetched successfully");
+      await this.fetchRepo();
+      console.log("[git master refresh] Repo fetched successfully");
     } catch (err) {
-      console.error("[git master refresh] Bare repo fetch failed:", err);
+      console.error("[git master refresh] Repo fetch failed:", err);
       return;
     }
 

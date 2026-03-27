@@ -122,7 +122,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const repoLines = (projects ?? []).flatMap((p: { name: string }) => [
       `**${p.name}**`,
       ``,
-      `Repo path: \`./repos/${p.name}/\` — this is a writable git checkout on master.`,
+      "Repo path: `./repos/${p.name}/` — this is a writable git checkout on master.".replace("${p.name}", p.name),
       ``,
       `All git operations use this path:`,
       `  git -C ./repos/${p.name} log master..{branch}`,
@@ -183,7 +183,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
           : undefined,
         skills: role.skills ?? [],
         mcp_tools: role.mcp_tools ?? [],
-        projects: projects ?? [],
         model: role.default_model ?? "claude-opus-4-6",
         slot_type: role.slot_type ?? "claude_code",
       };

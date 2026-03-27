@@ -15,7 +15,7 @@
  *   role != null (persistent agents)   → `claude -p` (claude-opus-4-6, print mode)
  */
 
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync, symlinkSync, appendFileSync, createWriteStream, statSync } from "node:fs";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
@@ -519,7 +519,6 @@ export interface PersistentAgentJobDefinition {
   model: string;
   slot_type: string;
   mcp_tools?: string[];
-  projects?: CompanyProjectContext[];
 }
 
 type PersistentStartJob = StartJob & {
@@ -654,6 +653,59 @@ export class JobExecutor {
 
   getCompanyProjects(): CompanyProject[] {
     return [...this.companyProjects];
+  }
+
+  private refreshCompanyProjectsFromCli(): void {
+    if (!this.companyId) {
+      this.setCompanyProjects([]);
+      return;
+    }
+
+    try {
+      const raw = execFileSync("zazig", ["projects", "--company", this.companyId], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      const parsed = JSON.parse(raw) as unknown;
+      let projectRecords: unknown[] | null = null;
+      if (Array.isArray(parsed)) {
+        projectRecords = parsed;
+      } else if (parsed && typeof parsed === "object") {
+        const projects = (parsed as Record<string, unknown>)["projects"];
+        if (Array.isArray(projects)) {
+          projectRecords = projects;
+        }
+      }
+
+      if (!projectRecords) {
+        console.warn(
+          `[executor] Failed to parse projects from zazig projects --company ${this.companyId}: malformed JSON shape`,
+        );
+        this.setCompanyProjects([]);
+        return;
+      }
+
+      const projects: CompanyProject[] = [];
+      for (const project of projectRecords) {
+        if (!project || typeof project !== "object") continue;
+        const record = project as Record<string, unknown>;
+        const status = typeof record["status"] === "string" ? record["status"] : "";
+        if (status !== "active") continue;
+
+        const name = typeof record["name"] === "string" ? record["name"].trim() : "";
+        const repoUrl = typeof record["repo_url"] === "string" ? record["repo_url"].trim() : "";
+        if (!name || !repoUrl) continue;
+        projects.push({ name, repo_url: repoUrl });
+      }
+
+      this.setCompanyProjects(projects);
+    } catch (err) {
+      console.warn(
+        `[executor] Failed to load projects from zazig projects --company ${this.companyId}; continuing with empty project list`,
+        err,
+      );
+      this.setCompanyProjects([]);
+    }
   }
 
   /** Resolve the machine UUID from the machines table (cached after first call). */
@@ -1167,7 +1219,7 @@ export class JobExecutor {
       ...(job.sub_agent_prompt ? { subAgentPrompt: job.sub_agent_prompt } : {}),
       roleSkills: job.skills?.length ? job.skills : undefined,
       roleMcpTools: job.mcp_tools?.length ? job.mcp_tools : undefined,
-      companyProjects: job.projects?.length ? job.projects : undefined,
+      companyProjects: this.companyProjects.length ? this.companyProjects : undefined,
     };
 
     // Persistent agents don't consume slots — they run alongside claimed jobs.
@@ -1398,7 +1450,9 @@ export class JobExecutor {
 
   private async monitorMasterCI(): Promise<void> {
     try {
-      const repoUrl = this.companyProjects[0]?.repo_url;
+      this.refreshCompanyProjectsFromCli();
+      const companyProjects = this.getCompanyProjects();
+      const repoUrl = companyProjects[0]?.repo_url;
       if (!repoUrl) {
         console.log("[executor] Master CI monitor skipped: missing project repo_url");
         return;

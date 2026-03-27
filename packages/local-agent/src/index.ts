@@ -12,7 +12,7 @@
  */
 
 import { createWriteStream } from "node:fs";
-import { execFile, execSync } from "node:child_process";
+import { execFile, execFileSync, execSync } from "node:child_process";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -370,7 +370,7 @@ async function fetchPersistentAgentDefinitions(
   supabaseUrl: string,
   anonKey: string,
   companyId: string,
-): Promise<{ jobs: PersistentAgentJobDefinition[]; companyProjects: CompanyProject[] }> {
+): Promise<{ jobs: PersistentAgentJobDefinition[] }> {
   // Edge Functions gateway verifies JWTs using the project's HS256 secret.
   // The Supabase Auth JWT (ES256) won't pass this check — use the anon key
   // as the Bearer token instead (it IS an HS256 JWT the gateway accepts).
@@ -392,7 +392,7 @@ async function fetchPersistentAgentDefinitions(
 
   const payload = (await res.json()) as unknown;
   if (Array.isArray(payload)) {
-    return { jobs: payload as PersistentAgentJobDefinition[], companyProjects: [] };
+    return { jobs: payload as PersistentAgentJobDefinition[] };
   }
 
   if (!payload || typeof payload !== "object") {
@@ -406,27 +406,54 @@ async function fetchPersistentAgentDefinitions(
     Array.isArray(body["persistentJobs"]) ? body["persistentJobs"] :
     [];
 
-  const projects =
-    Array.isArray(body["company_projects"]) ? body["company_projects"] :
-    Array.isArray(body["companyProjects"]) ? body["companyProjects"] :
-    Array.isArray(body["projects"]) ? body["projects"] :
-    [];
+  return { jobs: jobs as PersistentAgentJobDefinition[] };
+}
 
-  const companyProjects: CompanyProject[] = [];
-  for (const project of projects) {
-    if (!project || typeof project !== "object") continue;
-    const record = project as Record<string, unknown>;
-    const name = typeof record["name"] === "string" ? record["name"] : "";
-    const repoUrl =
-      typeof record["repo_url"] === "string" ? record["repo_url"] :
-      typeof record["repoUrl"] === "string" ? record["repoUrl"] :
-      "";
+function loadCompanyProjectsFromCli(companyId: string): CompanyProject[] {
+  try {
+    const raw = execFileSync("zazig", ["projects", "--company", companyId], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const parsed = JSON.parse(raw) as unknown;
+    let projectRecords: unknown[] | null = null;
+    if (Array.isArray(parsed)) {
+      projectRecords = parsed;
+    } else if (parsed && typeof parsed === "object") {
+      const projects = (parsed as Record<string, unknown>)["projects"];
+      if (Array.isArray(projects)) {
+        projectRecords = projects;
+      }
+    }
 
-    if (!name || !repoUrl) continue;
-    companyProjects.push({ name, repo_url: repoUrl });
+    if (!projectRecords) {
+      console.warn(
+        `[local-agent] Failed to parse projects from zazig projects --company ${companyId}: malformed JSON shape`,
+      );
+      return [];
+    }
+
+    const projects: CompanyProject[] = [];
+    for (const project of projectRecords) {
+      if (!project || typeof project !== "object") continue;
+      const record = project as Record<string, unknown>;
+      const status = typeof record["status"] === "string" ? record["status"] : "";
+      if (status !== "active") continue;
+
+      const name = typeof record["name"] === "string" ? record["name"].trim() : "";
+      const repoUrl = typeof record["repo_url"] === "string" ? record["repo_url"].trim() : "";
+      if (!name || !repoUrl) continue;
+      projects.push({ name, repo_url: repoUrl });
+    }
+
+    return projects;
+  } catch (err) {
+    console.warn(
+      `[local-agent] Failed to load projects from zazig projects --company ${companyId}; continuing with empty project list`,
+      err,
+    );
+    return [];
   }
-
-  return { jobs: jobs as PersistentAgentJobDefinition[], companyProjects };
 }
 
 async function discoverAndSpawnPersistentAgents(
@@ -436,7 +463,8 @@ async function discoverAndSpawnPersistentAgents(
   executor: JobExecutor,
 ): Promise<void> {
   try {
-    const { jobs, companyProjects } = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+    const { jobs } = await fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId);
+    const companyProjects = loadCompanyProjectsFromCli(companyId);
 
     console.log(`[local-agent] Discovered ${jobs.length} persistent agent(s) for company ${companyId}`);
     console.log(`[local-agent] Discovered ${companyProjects.length} project repo(s) for company ${companyId}`);

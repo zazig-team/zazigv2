@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "7bd6fb7";
+const AGENT_BUILD_HASH = "019be51";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -18129,15 +18129,17 @@ async function fetchPersistentAgentDefinitions(supabaseUrl, anonKey, companyId) 
     }
   });
   if (!res.ok) {
-    const body2 = await res.text().catch(() => "");
-    throw new Error(`Failed to fetch persistent jobs: HTTP ${res.status} \u2014 body: ${body2.slice(0, 500)}`);
+    const body = await res.text().catch(() => "");
+    throw new Error(`Failed to fetch persistent jobs: HTTP ${res.status} \u2014 body: ${body.slice(0, 500)}`);
   }
   const payload = await res.json();
   if (!payload || typeof payload !== "object") {
     throw new Error("Persistent jobs endpoint returned invalid JSON payload");
   }
-  const body = payload;
-  const jobs = Array.isArray(body["jobs"]) ? body["jobs"] : Array.isArray(body["persistent_jobs"]) ? body["persistent_jobs"] : Array.isArray(body["persistentJobs"]) ? body["persistentJobs"] : [];
+  const jobs = Array.isArray(payload) ? payload : (() => {
+    const body = payload;
+    return Array.isArray(body["jobs"]) ? body["jobs"] : Array.isArray(body["persistent_jobs"]) ? body["persistent_jobs"] : Array.isArray(body["persistentJobs"]) ? body["persistentJobs"] : [];
+  })();
   return { jobs };
 }
 async function discoverAndSpawnPersistentAgents(supabaseUrl, anonKey, companyId, executor) {

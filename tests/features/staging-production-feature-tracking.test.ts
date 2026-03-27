@@ -89,10 +89,10 @@ describe('Database migration for promoted_version', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC1 + AC2 + failure cases: promote.ts updates promoted_version after insert
+// AC1 + AC2 + failure cases: promote.ts relies on DB trigger after insert
 // ---------------------------------------------------------------------------
 
-describe('promote.ts CLI command — promoted_version update', () => {
+describe('promote.ts CLI command — promoted_version stamping path', () => {
   const FILE = 'packages/cli/src/commands/promote.ts';
   let content: string | null;
 
@@ -104,43 +104,30 @@ describe('promote.ts CLI command — promoted_version update', () => {
     expect(content, `${FILE} not found`).not.toBeNull();
   });
 
-  it('AC1: runs UPDATE features SET promoted_version after agent_versions insert', () => {
-    // Must contain an UPDATE on features setting promoted_version
-    expect(content).toMatch(/UPDATE.*features.*SET.*promoted_version|promoted_version.*UPDATE.*features/is);
+  it('AC1: registers production version in agent_versions after production push', () => {
+    expect(content).toMatch(/registerAgentVersion\(\s*supabase\s*,\s*['"]production['"]\s*,\s*newVersion\s*,\s*commitSha\s*\)/);
   });
 
-  it('AC1: sets promoted_version to the new version string', () => {
-    // The version value passed to the update
-    expect(content).toMatch(/promoted_version\s*=\s*\$|promoted_version.*version|promoted_version.*:\s*version/i);
+  it('AC1: documents trigger-based promoted_version stamping', () => {
+    expect(content).toMatch(/promoted_version is now stamped automatically by the DB trigger/i);
   });
 
-  it('AC1: only updates features with status = complete', () => {
-    expect(content).toMatch(/status.*=.*complete|status.*complete/i);
+  it('AC1: does not perform direct features bulk update in promote.ts', () => {
+    expect(content).not.toMatch(
+      /\.from\(\s*['"]features['"]\s*\)[\s\S]*?\.update\(\s*\{\s*promoted_version\s*:\s*newVersion\s*\}/,
+    );
   });
 
-  it('AC1+AC3(idempotent): WHERE clause includes promoted_version IS NULL (idempotency)', () => {
-    expect(content).toMatch(/promoted_version\s+IS\s+NULL/i);
+  it('failure case 1: no warning log for direct promoted_version update failures', () => {
+    expect(content).not.toMatch(/Warning:\s*could not update promoted_version on features/i);
   });
 
-  it('failure case 1: no error when no unpromoted complete features exist (idempotent update)', () => {
-    // The update should not throw if 0 rows are updated — no error check that would throw on 0 rows
-    // Verify the code does NOT have a "throw if count === 0" pattern for this update
-    // We check that the update either uses .update() with a filter (Supabase style) which is safe
-    expect(content).toMatch(/\.update\(|UPDATE features SET promoted_version/i);
-  });
-
-  it('failure case 2: update WHERE clause restricts to status=complete only', () => {
-    // Must NOT update features with other statuses
-    // The WHERE clause must include status = complete
-    expect(content).toMatch(/status.*complete.*promoted_version\s+IS\s+NULL|promoted_version\s+IS\s+NULL.*status.*complete/is);
-  });
-
-  it('uses the same Supabase client as the agent_versions insert', () => {
+  it('keeps version registration in the same promote flow path', () => {
     // Both operations use supabase client — verify supabase is used for both
     const agentVersionsInsertIdx = content?.indexOf('agent_versions') ?? -1;
-    const featuresUpdateIdx = content?.indexOf('promoted_version') ?? -1;
+    const promotedVersionTriggerNoteIdx = content?.indexOf('promoted_version is now stamped automatically by the DB trigger') ?? -1;
     expect(agentVersionsInsertIdx).toBeGreaterThan(-1);
-    expect(featuresUpdateIdx).toBeGreaterThan(-1);
+    expect(promotedVersionTriggerNoteIdx).toBeGreaterThan(-1);
   });
 });
 

@@ -12,8 +12,8 @@
  */
 
 import { createWriteStream } from "node:fs";
-import { execFile, execSync } from "node:child_process";
-import { homedir, platform } from "node:os";
+import { execFile } from "node:child_process";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -56,35 +56,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 
 let shuttingDown = false;
 const MASTER_CHANGE_POLL_INTERVAL_MS = 30_000;
-const ANTHROPIC_KEY_REFRESH_INTERVAL_MS = 4 * 60 * 1000; // 4 minutes — well under token expiry
 const execFileAsync = promisify(execFile);
-
-/**
- * Re-read the Claude Code OAuth token from the macOS Keychain.
- * Claude Code (via CPO persistent agent) keeps this token fresh.
- * We re-read periodically so new tmux sessions inherit the latest value.
- */
-function refreshAnthropicKeyFromKeychain(): void {
-  if (platform() !== "darwin") return;
-
-  try {
-    const raw = execSync(
-      'security find-generic-password -s "Claude Code-credentials" -w',
-      { stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" },
-    );
-    const parsed = JSON.parse(raw);
-    const token = parsed?.claudeAiOauth?.accessToken;
-    if (typeof token === "string" && token.startsWith("sk-ant-")) {
-      const current = process.env["ANTHROPIC_API_KEY"];
-      if (token !== current) {
-        process.env["ANTHROPIC_API_KEY"] = token;
-        console.log("[local-agent] ANTHROPIC_API_KEY refreshed from Keychain");
-      }
-    }
-  } catch {
-    // Keychain locked or entry missing — leave current value in place
-  }
-}
 
 async function main(): Promise<void> {
   console.log("[local-agent] Initializing...");
@@ -212,11 +184,6 @@ async function main(): Promise<void> {
   // Start the connection (connects + begins poll loop)
   await conn.start();
 
-  // Periodically refresh ANTHROPIC_API_KEY from Keychain so new tmux sessions
-  // inherit the latest Claude Code OAuth token (CPO keeps it fresh).
-  refreshAnthropicKeyFromKeychain(); // immediate first read
-  const anthropicKeyRefreshTimer = setInterval(refreshAnthropicKeyFromKeychain, ANTHROPIC_KEY_REFRESH_INTERVAL_MS);
-
   // Discover and spawn persistent agents if ZAZIG_COMPANY_ID is set
   const companyId = process.env["ZAZIG_COMPANY_ID"];
   let rolePromptChannel: RealtimeChannel | null = null;
@@ -291,7 +258,6 @@ async function main(): Promise<void> {
       }
       rolePromptChannel = null;
     }
-    clearInterval(anthropicKeyRefreshTimer);
     if (masterChangePollTimer) {
       clearInterval(masterChangePollTimer);
       masterChangePollTimer = null;

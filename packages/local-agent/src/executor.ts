@@ -3774,10 +3774,8 @@ async function spawnTmuxSession(
   // "cannot be launched inside another Claude Code session" detection.
   // When a promptFile is provided, pipe it via stdin to avoid OS argument
   // length limits (ARG_MAX) when the assembled context is large.
-  // ANTHROPIC_API_KEY: tmux inherits the calling process's full environment by
-  // default. `unset CLAUDECODE` only removes CLAUDECODE; all other env vars
-  // (including ANTHROPIC_API_KEY set by the daemon at startup) remain intact
-  // for the spawned claude -p process. No explicit forwarding is needed.
+  // Auth: Claude Code sessions use the local user's OAuth login.
+  // No API key injection needed.
   const claudeCmd = shellEscape([cmd, ...args]);
   // Merge stderr into stdout so pipe-pane captures error output too.
   const shellCmd = promptFile

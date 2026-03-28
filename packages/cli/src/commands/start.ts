@@ -2,6 +2,7 @@
  * start.ts — zazig start
  *
  * Starts the local-agent daemon in the background.
+ *   0. Runs preflight tool checks (git/tmux/node/gh/jq/claude) before startup.
  *   1. Verifies credentials (auto-refreshes expired token).
  *   2. On first run: prompts for slot config and saves ~/.zazigv2/config.json.
  *   3. Fetches user companies, picks one (or uses --company flag).
@@ -99,6 +100,37 @@ function readRecentAgentErrorLines(logPath: string): string[] | null {
   }
 }
 
+function parseVersionTuple(output: string): [number, number, number] | null {
+  const match = output.match(/(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  if (!match) return null;
+
+  const major = Number.parseInt(match[1], 10);
+  const minor = Number.parseInt(match[2] ?? "0", 10);
+  const patch = Number.parseInt(match[3] ?? "0", 10);
+  if ([major, minor, patch].some((value) => Number.isNaN(value))) return null;
+
+  return [major, minor, patch];
+}
+
+function compareMinimumVersion(
+  foundOutput: string,
+  minimumVersion: string,
+): { meetsMinimum: boolean; foundVersion: string } {
+  const foundTuple = parseVersionTuple(foundOutput.trim());
+  const minimumTuple = parseVersionTuple(minimumVersion);
+  if (!foundTuple || !minimumTuple) {
+    return { meetsMinimum: false, foundVersion: "installed but version unknown" };
+  }
+
+  const foundVersion = foundTuple.join(".");
+  for (let i = 0; i < 3; i++) {
+    if (foundTuple[i] > minimumTuple[i]) return { meetsMinimum: true, foundVersion };
+    if (foundTuple[i] < minimumTuple[i]) return { meetsMinimum: false, foundVersion };
+  }
+
+  return { meetsMinimum: true, foundVersion };
+}
+
 
 export async function start(): Promise<void> {
   // Parse flags
@@ -106,6 +138,82 @@ export async function start(): Promise<void> {
   const defaults = process.argv.includes("--defaults");
   const companyFlagIdx = process.argv.indexOf("--company");
   const companyFlagValue = companyFlagIdx !== -1 ? process.argv[companyFlagIdx + 1] : undefined;
+  const zazigEnv = process.env["ZAZIG_ENV"] ?? "production";
+
+  const requiredFailures: string[] = [];
+  const addMissingToolFailure = (tool: string, installHint: string): void => {
+    requiredFailures.push(`${tool} is not installed. ${installHint}`);
+  };
+  const addVersionFailure = (tool: string, found: string, required: string): void => {
+    requiredFailures.push(`${tool} version ${found} is below minimum ${required}. Please upgrade.`);
+  };
+
+  try {
+    const gitVersionOutput = String(execSync("git --version", { stdio: "pipe" })).trim();
+    const gitVersionCheck = compareMinimumVersion(gitVersionOutput, "2.29.0");
+    if (!gitVersionCheck.meetsMinimum) {
+      addVersionFailure("git", gitVersionCheck.foundVersion, "2.29.0");
+    }
+  } catch {
+    addMissingToolFailure("git", "brew install git / apt install git");
+  }
+
+  try {
+    execSync("tmux -V", { stdio: "pipe" });
+  } catch {
+    addMissingToolFailure("tmux", "brew install tmux / apt install tmux");
+  }
+
+  try {
+    const nodeVersionOutput = String(execSync("node --version", { stdio: "pipe" })).trim();
+    const nodeVersionCheck = compareMinimumVersion(nodeVersionOutput, "20.0.0");
+    if (!nodeVersionCheck.meetsMinimum) {
+      addVersionFailure("node", nodeVersionCheck.foundVersion, "20.0.0");
+    }
+  } catch {
+    addMissingToolFailure("node", "brew install node or nvm - must be >= 20");
+  }
+
+  try {
+    const ghVersionOutput = String(execSync("gh --version", { stdio: "pipe" })).trim();
+    const ghVersionCheck = compareMinimumVersion(ghVersionOutput, "2.0.0");
+    if (!ghVersionCheck.meetsMinimum) {
+      addVersionFailure("gh", ghVersionCheck.foundVersion, "2.0.0");
+    }
+  } catch {
+    addMissingToolFailure("gh", "brew install gh / https://cli.github.com");
+  }
+
+  try {
+    execSync("jq --version", { stdio: "pipe" });
+  } catch {
+    addMissingToolFailure("jq", "brew install jq / apt install jq");
+  }
+
+  const failures = requiredFailures;
+  if (failures.length > 0) {
+    console.error("Required tool preflight checks failed:");
+    failures.forEach((failure) => console.error(`  - ${failure}`));
+    process.exitCode = 1;
+    return;
+  }
+
+  // Optional tooling checks (warn only; do not block startup).
+  if (zazigEnv === "staging") {
+    try {
+      execSync("bun --version", { stdio: "pipe" });
+    } catch {
+      console.warn("Optional tool missing for staging: bun (install: brew install bun)");
+    }
+  }
+
+  if (process.platform === "darwin") {
+    try {
+      execSync("codesign --version", { stdio: "pipe" });
+    } catch {
+      console.warn("Optional tool missing on macOS: codesign (install via xcode-select --install)");
+    }
+  }
 
   // Check prerequisites
   let claudeInstalled = false;
@@ -170,7 +278,6 @@ export async function start(): Promise<void> {
   console.log(`Starting zazig for ${company.name}...`);
 
   // Auto-update check (production only)
-  const zazigEnv = process.env["ZAZIG_ENV"] ?? "production";
   if (zazigEnv === "production") {
     try {
       const updateResult = await checkForUpdate(creds.supabaseUrl, anonKey, "production");
@@ -249,7 +356,7 @@ export async function start(): Promise<void> {
     console.log(`Agent started (PID ${pid}). Logs: ${logPathForCompany(company.id)}`);
   } catch (err) {
     console.error(`Failed to start daemon: ${String(err)}`);
-    process.exitCode = 1;
+    process.exitCode ||= 1;
     return;
   }
 

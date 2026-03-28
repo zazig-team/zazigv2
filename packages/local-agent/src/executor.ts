@@ -919,7 +919,7 @@ export class JobExecutor {
             console.log(`[executor] Merge conflicts for jobId=${jobId}: ${depResult.conflictBranches.join(", ")}`);
 
             const resolved = await this.resolveDepMergeConflicts(
-              jobId, worktreePath, msg.dependencyBranches[0], depResult.conflictBranches, msg.model,
+              jobId, worktreePath, msg.dependencyBranches[0], depResult.conflictBranches,
             );
 
             if (!resolved) {
@@ -3281,7 +3281,6 @@ export class JobExecutor {
     worktreePath: string,
     baseBranch: string,
     conflictBranches: string[],
-    model: string,
   ): Promise<boolean> {
     for (const branch of conflictBranches) {
       jobLog(jobId, `Attempting merge + conflict resolution for branch: ${branch}`);
@@ -3355,7 +3354,7 @@ export class JobExecutor {
         // Spawn tmux session running claude -p, with a wrapper that:
         // 1. Logs the exit code so we can see if claude crashed vs completed
         // 2. Keeps the session alive for 5s after exit so pipe-pane can flush
-        const claudeCmd = shellEscape(["claude", "--model", model, "-p"]);
+        const claudeCmd = shellEscape(["claude", "--model", "claude-sonnet-4-6", "-p"]);
         const wrappedCmd = [
           `unset CLAUDECODE`,
           `echo "[conflict-resolution] Starting claude -p at $(date -u +%Y-%m-%dT%H:%M:%SZ)"`,

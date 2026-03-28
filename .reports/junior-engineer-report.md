@@ -1,6 +1,6 @@
 status: pass
-summary: Extended `zazig start` preflight to collect and print a separate optional-warning block for staging `bun` and macOS `codesign` checks without blocking startup, while preserving existing codex soft-check flow.
+summary: Hardcoded the dependency-merge conflict resolution subprocess to always run Claude with model claude-sonnet-4-6 and removed model passthrough at the call boundary.
 files_changed:
-  - packages/cli/src/commands/start.ts
+  - packages/local-agent/src/executor.ts
   - .reports/junior-engineer-report.md
-failure_reason: 
+failure_reason:

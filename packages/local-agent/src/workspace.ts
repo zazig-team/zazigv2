@@ -423,6 +423,14 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
   // 1. Ensure workspace directory exists
   mkdirSync(config.workspaceDir, { recursive: true });
 
+  // 1a. Ensure workspace memory directory exists and seed MEMORY.md once.
+  const workspaceMemoryDir = join(config.workspaceDir, ".memory");
+  mkdirSync(workspaceMemoryDir, { recursive: true });
+  const workspaceMemoryMdPath = join(workspaceMemoryDir, "MEMORY.md");
+  if (!existsSync(workspaceMemoryMdPath)) {
+    writeFileSync(workspaceMemoryMdPath, "");
+  }
+
   // 1b. Create .claude/ directory early so generated files can live under it.
   const claudeDir = join(config.workspaceDir, ".claude");
   mkdirSync(claudeDir, { recursive: true });

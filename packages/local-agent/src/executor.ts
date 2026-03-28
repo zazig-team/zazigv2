@@ -522,6 +522,10 @@ interface ActivePersistentAgent {
   rolePromptSnapshot: string;
   originalJob: PersistentStartJob;
   resetInProgress: boolean;
+  /** Timestamp of last memory sync nudge, or null if not yet nudged this idle period. */
+  lastMemorySyncAt: number | null;
+  /** Whether agent was active since last memory sync (used to reset sync state). */
+  wasActiveAfterSync: boolean;
 }
 
 export interface CompanyProject {
@@ -2047,6 +2051,8 @@ export class JobExecutor {
       rolePromptSnapshot: roleConfig.prompt,
       originalJob: { ...msg, companyProjects: msg.companyProjects ? [...msg.companyProjects] : undefined },
       resetInProgress: false,
+      lastMemorySyncAt: null,
+      wasActiveAfterSync: false,
     };
     this.persistentAgents.set(role, persistentAgent);
 
@@ -2064,10 +2070,38 @@ export class JobExecutor {
           if (changed) {
             persistentAgent.lastOutputHash = outputHash;
             persistentAgent.lastActivityAt = Date.now();
+            // Agent became active — reset sync state so next idle period gets a fresh nudge
+            persistentAgent.lastMemorySyncAt = null;
+            persistentAgent.wasActiveAfterSync = true;
           }
           console.log(
             `[executor] Persistent heartbeat ${persistentAgent.role}: changed=${changed} idle=${Math.floor((Date.now() - persistentAgent.lastActivityAt) / 1000)}s`,
           );
+
+          const IDLE_SYNC_THRESHOLD_MS = 5 * 60_000;
+          const idleSinceActivity = Date.now() - persistentAgent.lastActivityAt;
+          const shouldNudge =
+            idleSinceActivity >= IDLE_SYNC_THRESHOLD_MS &&
+            persistentAgent.lastMemorySyncAt === null &&
+            !persistentAgent.resetInProgress;
+
+          if (shouldNudge) {
+            persistentAgent.lastMemorySyncAt = Date.now();
+            const syncPrompt =
+              "Review this session. If anything worth remembering happened — decisions, preferences, corrections, context — update your .memory/ files. Remove or update any stale memories. If nothing notable, do nothing.";
+            try {
+              await execFileAsync("tmux", [
+                "send-keys",
+                "-t",
+                persistentAgent.tmuxSession,
+                syncPrompt,
+                "Enter",
+              ]);
+              console.log(`[executor] Injected memory sync nudge for ${persistentAgent.role} (idle=${Math.floor(idleSinceActivity / 1000)}s)`);
+            } catch (err) {
+              console.warn(`[executor] Memory sync nudge failed for ${persistentAgent.role}: ${String(err)}`);
+            }
+          }
         } catch (err) {
           console.warn(`[executor] Failed to capture pane for ${persistentAgent.role}: ${String(err)}`);
         }

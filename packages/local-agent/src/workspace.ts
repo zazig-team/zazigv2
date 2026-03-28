@@ -177,6 +177,27 @@ At the end of every work session, update your memory files in \`.claude/memory/\
 These files are read by other sessions via the exec context skill. Keep them current.
 `;
 
+const PERSISTENT_MEMORY_SYSTEM_SECTION = `## Workspace Memory System (.memory/)
+
+Memory lives at \`.memory/\` in the workspace root.
+
+- \`.memory/MEMORY.md\` is the index: one line per entry, max 150 characters per line, max 200 lines total.
+- Each memory is its own file with frontmatter fields: \`name\`, \`description\`, \`type\`, then body content.
+- Valid memory types are: \`user\`, \`feedback\`, \`project\`, \`reference\`.
+- Write memory inline during conversation when notable information appears (decisions, corrections, preferences, context).
+- Before creating a memory file, check for existing memory on the topic and update it instead of creating duplicates.
+- Do not create memory for routine operations (standups, pipeline queries, status checks).
+- On idle sync prompts, review memories, remove stale entries, and merge near-duplicates.
+`;
+
+function withPersistentMemorySystemSection(claudeMdContent: string): string {
+  if (claudeMdContent.includes("## Workspace Memory System (.memory/)")) {
+    return claudeMdContent;
+  }
+  const separator = claudeMdContent.endsWith("\n") ? "\n" : "\n\n";
+  return `${claudeMdContent}${separator}${PERSISTENT_MEMORY_SYSTEM_SECTION}`;
+}
+
 /**
  * Returns the fully-prefixed MCP tool names that a given role is allowed to
  * invoke, plus the standard Claude Code tools every agent needs.
@@ -446,14 +467,18 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
   );
 
   // 3. Write CLAUDE.md
+  const claudeMdContent = config.heartbeatMd !== undefined
+    ? withPersistentMemorySystemSection(config.claudeMdContent)
+    : config.claudeMdContent;
   writeFileSync(
     join(config.workspaceDir, "CLAUDE.md"),
-    config.claudeMdContent,
+    claudeMdContent,
   );
 
   // 3b. Write HEARTBEAT.md for persistent execs, even when blank, so resets
   // can clear stale task files when the DB value changes.
   if (config.heartbeatMd !== undefined) {
+    // Persistent agents also use the workspace-root .memory/ system documented in CLAUDE.md.
     const hasMemoryMaintenance = config.heartbeatMd.includes("## Memory Maintenance");
     const heartbeatContent = hasMemoryMaintenance
       ? config.heartbeatMd

@@ -199,11 +199,15 @@ export async function start(): Promise<void> {
   }
 
   // Optional tooling checks (warn only; do not block startup).
+  const optionalWarnings: string[] = [];
+
   if (zazigEnv === "staging") {
     try {
       execSync("bun --version", { stdio: "pipe" });
     } catch {
-      console.warn("Optional tool missing for staging: bun (install: brew install bun)");
+      optionalWarnings.push(
+        "WARN: Optional tool missing for staging: bun (install: brew install oven-sh/bun/bun)"
+      );
     }
   }
 
@@ -211,8 +215,15 @@ export async function start(): Promise<void> {
     try {
       execSync("codesign --version", { stdio: "pipe" });
     } catch {
-      console.warn("Optional tool missing on macOS: codesign (install via xcode-select --install)");
+      optionalWarnings.push(
+        "WARN: Optional tool missing on macOS: codesign (install: Install Xcode Command Line Tools (xcode-select --install))"
+      );
     }
+  }
+
+  if (optionalWarnings.length > 0) {
+    console.warn("Optional tool preflight warnings:");
+    optionalWarnings.forEach((warning) => console.warn(`  - ${warning}`));
   }
 
   // Check prerequisites

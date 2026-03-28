@@ -329,7 +329,7 @@ const NO_CODE_CONTEXT_ROLES = new Set([
 const CPO_STARTUP_DELAY_MS = 15_000;
 
 const DEFAULT_BOOT_PROMPT =
-  "Read your state files. If .reports/{role}-report.md exists, review it for continuity. Check for pending work via your MCP tools. Orient yourself and begin.";
+  "If .memory/MEMORY.md exists, read it and load relevant memories before doing anything else. Read your state files. If .reports/{role}-report.md exists, review it for continuity. Check for pending work via your MCP tools. Orient yourself and begin.";
 
 /** Minimum session age before Cache-TTL may reset a persistent exec. */
 const MIN_SESSION_AGE_MS = 5 * 60_000;

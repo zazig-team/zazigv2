@@ -820,6 +820,25 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         .filter((b): b is string => typeof b === "string" && b.length > 0);
     }
 
+    // Merge serialisation gate: only one merge job per project can be in-flight at a time.
+    if (job.job_type === "merge") {
+      const { data: inFlightMerges } = await supabase
+        .from("jobs")
+        .select("id")
+        .eq("project_id", job.project_id)
+        .eq("job_type", "merge")
+        .in("status", ["queued", "executing"])
+        .neq("id", job.id)
+        .limit(1);
+
+      if (inFlightMerges && inFlightMerges.length > 0) {
+        console.log(
+          `[orchestrator] merge job ${job.id} waiting — another merge for project ${job.project_id} is in-flight`,
+        );
+        continue;
+      }
+    }
+
     // Resolve model + slot type.
     // Non-engineer roles use their role's default_model & slot_type from the DB.
     // Engineer roles (senior-engineer, junior-engineer) use complexity routing.

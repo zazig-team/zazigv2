@@ -3544,7 +3544,7 @@ async function runCodexReview(
       const { stdout } = await execFileAsync("git", [
         "diff", "HEAD", "--", ".",
         ...overlayPaths.map((path) => `:!${path}`),
-      ], { cwd: worktreePath });
+      ], { cwd: worktreePath, maxBuffer: 10 * 1024 * 1024 });
       uncommittedDiff = stdout;
     } catch (err) {
       return { pass: false, reason: `git diff failed: ${String(err)}`, committed: false };
@@ -3569,7 +3569,7 @@ async function runCodexReview(
   // 2. Review all changes from the starting commit to HEAD.
   let diff: string;
   try {
-    const { stdout } = await execFileAsync("git", ["diff", `${startingCommit}..HEAD`], { cwd: worktreePath });
+    const { stdout } = await execFileAsync("git", ["diff", `${startingCommit}..HEAD`], { cwd: worktreePath, maxBuffer: 10 * 1024 * 1024 });
     diff = stdout;
   } catch (err) {
     return {
@@ -3750,7 +3750,17 @@ function buildCommand(
     // Worktrees store their git index inside the parent clone dir.
     // The sandbox must be able to write there for git add/commit to work.
     if (repoDir) {
+      console.log(`[buildCommand] codex: adding --add-dir repoDir=${repoDir} for worktreePath=${worktreePath}`);
       args.push("--add-dir", repoDir);
+      // Worktree git metadata (index.lock, HEAD, etc.) lives at
+      // <repoDir>/.git/worktrees/<name>/ which is under repoDir, but the
+      // worktree's .git file resolves via gitdir which the sandbox may follow
+      // outside the --add-dir tree. Explicitly grant the .git/worktrees dir
+      // to ensure the sandbox can write index.lock regardless of resolution.
+      const gitWorktreesDir = join(repoDir, ".git", "worktrees");
+      args.push("--add-dir", gitWorktreesDir);
+    } else {
+      console.warn(`[buildCommand] codex: repoDir is undefined — sandbox may block git commit in worktree`);
     }
     if (complexity === "medium") {
       args.push("-c", "model_reasoning_effort=xhigh");

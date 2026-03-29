@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "c9daff1";
+const AGENT_BUILD_HASH = "e89f8e0";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -14210,7 +14210,7 @@ ${cpoContext}`);
           if (depResult.conflictBranches.length > 0) {
             jobLog(jobId, `Merge conflicts with branches: ${depResult.conflictBranches.join(", ")} \u2014 spawning conflict resolution agent`);
             console.log(`[executor] Merge conflicts for jobId=${jobId}: ${depResult.conflictBranches.join(", ")}`);
-            const resolved = await this.resolveDepMergeConflicts(jobId, worktreePath, msg.dependencyBranches[0], depResult.conflictBranches, msg.model);
+            const resolved = await this.resolveDepMergeConflicts(jobId, worktreePath, msg.dependencyBranches[0], depResult.conflictBranches);
             if (!resolved) {
               jobLog(jobId, `FAILED to resolve merge conflicts \u2014 failing job`);
               if (slotAcquired)
@@ -16067,7 +16067,7 @@ ${msg.text}`;
    * a short-lived `claude -p` agent to resolve each conflict inline.
    * Returns true if all conflicts were resolved, false otherwise.
    */
-  async resolveDepMergeConflicts(jobId, worktreePath, baseBranch, conflictBranches, model) {
+  async resolveDepMergeConflicts(jobId, worktreePath, baseBranch, conflictBranches) {
     for (const branch of conflictBranches) {
       jobLog(jobId, `Attempting merge + conflict resolution for branch: ${branch}`);
       try {
@@ -16129,7 +16129,7 @@ ${msg.text}`;
         appendFileSync2(logPath2, `[conflict-resolution] Conflicted files:
 ${conflictedFiles}
 `);
-        const claudeCmd = shellEscape(["claude", "--model", model, "-p"]);
+        const claudeCmd = shellEscape(["claude", "--model", "claude-sonnet-4-6", "-p"]);
         const wrappedCmd = [
           `unset CLAUDECODE`,
           `echo "[conflict-resolution] Starting claude -p at $(date -u +%Y-%m-%dT%H:%M:%SZ)"`,

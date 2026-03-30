@@ -1,16 +1,22 @@
 status: success
-branch: feature/serialise-feature-to-master-merge-jobs-p-598bebb2
+branch: feature/tui-phase-1c-sessionviewer-embedding-act-c66ab174
 merged:
-  - job/ad04befb-1b20-45f0-a61f-44186bcd6a62
-conflicts_resolved:
+  - job/15a55a70-8d70-42a0-9581-1b5fd73e6a41
+conflicts_resolved: []
 failure_reason:
 
-## Notes
+PR: https://github.com/zazig-team/zazigv2/pull/377
 
-- Merged job/ad04befb-1b20-45f0-a61f-44186bcd6a62 cleanly with no conflicts
-- CI workflow already exists on master branch — skipped CI injection
-- Feature branch pushed to origin
-- PR created: https://github.com/zazig-team/zazigv2/pull/371
-- Changes include: acceptance criteria tests for serialise-merge-jobs-per-project feature
-  - tests/features/serialise-merge-jobs-per-project.test.ts (459 lines, new file)
-  - .reports/test-engineer-report.md (updated)
+## Notes
+- Job branch merged cleanly with no conflicts using `git merge --no-ff`
+- CI workflow already exists on master — skipped CI injection
+- Feature branch pushed and PR created at zazig-team/zazigv2#377
+
+## Files merged
+- packages/tui/src/components/SessionViewer.ts (new)
+- packages/tui/src/lib/tmux.ts (new)
+- tests/features/tui-sessionviewer-embedding.test.ts (new)
+- tests/vitest.config.ts (updated)
+- .reports/junior-engineer-report.md (updated)
+- .reports/senior-engineer-report.md (updated)
+- .reports/test-engineer-report.md (updated)

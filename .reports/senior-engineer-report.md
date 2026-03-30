@@ -1,5 +1,5 @@
 status: pass
-summary: Resolved merge conflicts in TUI sidebar subcomponents and verified Sidebar.tsx composes AlertsFeed, LocalStatus, and PipelineSummary into a vertical 30% width layout
+summary: Implemented Sidebar.tsx composing AlertsFeed, LocalStatus, and PipelineSummary in a vertical 30%-width Ink Box; resolved merge conflicts in TUI sidebar subcomponents; all 49 feature tests pass.
 files_changed:
   - packages/tui/src/components/AlertsFeed.tsx
   - packages/tui/src/components/LocalStatus.tsx

@@ -82,6 +82,15 @@ export function listAgentSessions(): AgentSession[] {
     });
   }
 
+  // Persistent agents not found in tmux output are not alive — add them as
+  // placeholders so the TopBar can show them dimmed (isAlive: false)
+  const aliveRoles = new Set(sessions.map((s) => s.role));
+  for (const role of PERSISTENT_ROLES) {
+    if (!aliveRoles.has(role)) {
+      sessions.push({ role, sessionName: role, isAlive: false });
+    }
+  }
+
   return sessions;
 }
 

@@ -1,6 +1,6 @@
 status: pass
-summary: Hardcoded the dependency-merge conflict resolution subprocess to always run Claude with model claude-sonnet-4-6 and removed model passthrough at the call boundary.
+summary: Added typed tmux session utilities for switching sessions and embedding a session pane with async child_process execution and session-not-found handling.
 files_changed:
-  - packages/local-agent/src/executor.ts
+  - packages/tui/src/lib/tmux.ts
   - .reports/junior-engineer-report.md
 failure_reason:

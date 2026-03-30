@@ -1,5 +1,5 @@
 status: pass
-summary: Extended `zazig start` preflight checks to validate required CLI tools and versions with resilient parsing, collect and report all required failures together, and preserve existing Claude/Codex behavior.
+summary: Extended SessionViewer with liveness polling every 2s, centered "Session ended"/"Waiting for agents..." placeholders, and automatic re-embedding when a dead session reappears; added hasSession export to tmux.ts.
 files_changed:
-  - packages/cli/src/commands/start.ts
-failure_reason:
+  - packages/tui/src/components/SessionViewer.ts
+  - packages/tui/src/lib/tmux.ts

@@ -1,10 +1,4 @@
 {
-  "permissions": {
-    "allow": [
-      "mcp__zazig-messaging__execute_sql",
-      "mcp__claude-peers__set_summary"
-    ]
-  },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "zazig-messaging"

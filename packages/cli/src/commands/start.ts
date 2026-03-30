@@ -8,7 +8,7 @@
  *   3. Fetches user companies, picks one (or uses --company flag).
  *   4. Stops existing daemon if already running for that company.
  *   5. Spawns the local-agent as a detached child process.
- *   6. Waits 3s, discovers agent sessions, launches TUI (unless --no-tui).
+ *   6. Waits 3s, discovers agent sessions.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -27,7 +27,7 @@ import {
   logPathForCompany,
   removePidFileForCompany,
 } from "../lib/daemon.js";
-import { launchTui, discoverAgentSessions } from "./chat.js";
+import { discoverAgentSessions } from "./chat.js";
 import { syncSkillsForCompany } from "./skills.js";
 import { getVersion } from "../lib/version.js";
 import { hasPinnedBuild, getCurrentBuildSha } from "../lib/builds.js";
@@ -134,7 +134,6 @@ function compareMinimumVersion(
 
 export async function start(): Promise<void> {
   // Parse flags
-  const noTui = process.argv.includes("--no-tui");
   const defaults = process.argv.includes("--defaults");
   const companyFlagIdx = process.argv.indexOf("--company");
   const companyFlagValue = companyFlagIdx !== -1 ? process.argv[companyFlagIdx + 1] : undefined;
@@ -421,20 +420,10 @@ export async function start(): Promise<void> {
     console.warn(`Skills sync skipped: ${String(err)}`);
   }
 
-  if (noTui || defaults) {
-    console.log("Zazig started successfully (headless).");
-    console.log(`Logs: ${logPathForCompany(company.id)}`);
-  } else if (agentSessions.length === 0) {
+  console.log("Zazig started successfully.");
+  console.log(`Logs: ${logPathForCompany(company.id)}`);
+  if (agentSessions.length === 0) {
     console.log("No agent sessions found. Daemon may still be starting up.");
-    console.log(`Logs: ${logPathForCompany(company.id)}`);
-  } else {
-    launchTui({
-      companyName: company.name,
-      agents: agentSessions,
-      onShutdown: () => {
-        console.log("\nDetached from agents (daemon still running in background).");
-        console.log("Run 'zazig chat' to reconnect, or 'zazig stop' to stop it.");
-      },
-    });
   }
+  console.log("Run 'zazig chat' to reconnect, or 'zazig stop' to stop it.");
 }

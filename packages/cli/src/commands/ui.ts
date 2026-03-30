@@ -53,7 +53,7 @@ export async function ui(args: string[]): Promise<void> {
   }
 
   const tuiEntry = resolve(process.cwd(), "packages/tui/src/index.tsx");
-  const child = spawn("tsx", [tuiEntry, "--company", company.id], {
+  const child = spawn("bun", ["run", tuiEntry, "--company", company.id], {
     stdio: "inherit",
     env: process.env,
   });

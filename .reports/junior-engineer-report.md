@@ -1,6 +1,6 @@
 status: pass
-summary: Hardcoded the dependency-merge conflict resolution subprocess to always run Claude with model claude-sonnet-4-6 and removed model passthrough at the call boundary.
+summary: Wired useTmuxSessions hook and TopBar into App.tsx with correct onSelect prop interface, passing selectedSession for future SessionPane use; all 30 feature tests pass.
 files_changed:
-  - packages/local-agent/src/executor.ts
-  - .reports/junior-engineer-report.md
+  - packages/tui/src/App.tsx
+  - packages/tui/src/components/TopBar.tsx
 failure_reason:

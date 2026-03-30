@@ -1,6 +1,10 @@
 status: pass
-summary: Hardcoded the dependency-merge conflict resolution subprocess to always run Claude with model claude-sonnet-4-6 and removed model passthrough at the call boundary.
+summary: Created PipelineSummary, Sidebar, AlertsFeed, LocalStatus, and CriticalBanner Ink components with hardcoded Phase 1 placeholder counts and layouts.
 files_changed:
-  - packages/local-agent/src/executor.ts
+  - packages/tui/src/components/PipelineSummary.tsx
+  - packages/tui/src/components/Sidebar.tsx
+  - packages/tui/src/components/AlertsFeed.tsx
+  - packages/tui/src/components/LocalStatus.tsx
+  - packages/tui/src/components/CriticalBanner.tsx
   - .reports/junior-engineer-report.md
 failure_reason:

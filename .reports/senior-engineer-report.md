@@ -1,5 +1,9 @@
 status: pass
-summary: Extended `zazig start` preflight checks to validate required CLI tools and versions with resilient parsing, collect and report all required failures together, and preserve existing Claude/Codex behavior.
+summary: Resolved merge conflicts in TUI sidebar subcomponents and verified Sidebar.tsx composes AlertsFeed, LocalStatus, and PipelineSummary into a vertical 30% width layout
 files_changed:
-  - packages/cli/src/commands/start.ts
+  - packages/tui/src/components/AlertsFeed.tsx
+  - packages/tui/src/components/LocalStatus.tsx
+  - packages/tui/src/components/PipelineSummary.tsx
+  - packages/tui/src/components/CriticalBanner.tsx
+  - packages/tui/src/components/Sidebar.tsx
 failure_reason:

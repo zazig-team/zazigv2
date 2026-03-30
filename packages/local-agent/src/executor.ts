@@ -1438,7 +1438,7 @@ export class JobExecutor {
       const ownerRepo = match[1];
       const { stdout } = await execFileAsync("gh", [
         "api",
-        `repos/${ownerRepo}/actions/runs?branch=master&event=push&per_page=1`,
+        `repos/${ownerRepo}/actions/workflows/deploy-edge-functions.yml/runs?branch=master&event=push&per_page=1`,
       ], { encoding: "utf8" });
       const payload = JSON.parse(stdout) as {
         workflow_runs?: Array<{

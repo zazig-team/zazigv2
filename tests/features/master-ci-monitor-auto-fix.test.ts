@@ -79,7 +79,7 @@ describe('Structural: executor contains master CI monitor', () => {
   it('polls the master branch using gh api with correct parameters', () => {
     expect(executor).not.toBeNull();
     // Must use: gh api repos/{owner}/{repo}/actions/runs?branch=master&event=push&per_page=1
-    expect(executor).toMatch(/actions\/runs/);
+    expect(executor).toMatch(/actions\/.*\/runs/);
     expect(executor).toMatch(/branch=master/);
     expect(executor).toMatch(/per_page=1/);
   });
@@ -159,7 +159,7 @@ describe('AC1: Failing master CI run triggers fast-tracked fix feature creation'
     // Mock gh api returning a failed run
     mockExecFileAsync.mockImplementation(async (_cmd: string, args: string[]) => {
       const url = args.join(' ');
-      if (url.includes('actions/runs') && url.includes('branch=master')) {
+      if (url.includes('/runs') && url.includes('branch=master')) {
         return {
           stdout: JSON.stringify({
             workflow_runs: [{
@@ -215,7 +215,7 @@ describe('AC1: Failing master CI run triggers fast-tracked fix feature creation'
 
     mockExecFileAsync.mockImplementation(async (_cmd: string, args: string[]) => {
       const url = args.join(' ');
-      if (url.includes('actions/runs') && url.includes('branch=master')) {
+      if (url.includes('/runs') && url.includes('branch=master')) {
         return {
           stdout: JSON.stringify({
             workflow_runs: [{
@@ -268,7 +268,7 @@ describe('AC2/FC2: Dedup guard prevents duplicate fix features', () => {
     vi.useFakeTimers();
     mockExecFileAsync = vi.fn().mockImplementation(async (_cmd: string, args: string[]) => {
       const url = args.join(' ');
-      if (url.includes('actions/runs') && url.includes('branch=master')) {
+      if (url.includes('/runs') && url.includes('branch=master')) {
         return {
           stdout: JSON.stringify({
             workflow_runs: [{
@@ -404,7 +404,7 @@ describe('AC3/FC3: Loop guard — max 3 consecutive fix features', () => {
     vi.useFakeTimers();
     mockExecFileAsync = vi.fn().mockImplementation(async (_cmd: string, args: string[]) => {
       const url = args.join(' ');
-      if (url.includes('actions/runs') && url.includes('branch=master')) {
+      if (url.includes('/runs') && url.includes('branch=master')) {
         // Return a new failure each time (incrementing run IDs to bypass same-run dedup)
         const runId = Date.now();
         return {
@@ -513,7 +513,7 @@ describe('AC3/FC3: Loop guard — max 3 consecutive fix features', () => {
     // Simulate a green CI run
     mockExecFileAsync.mockImplementationOnce(async (_cmd: string, args: string[]) => {
       const url = args.join(' ');
-      if (url.includes('actions/runs') && url.includes('branch=master')) {
+      if (url.includes('/runs') && url.includes('branch=master')) {
         return {
           stdout: JSON.stringify({
             workflow_runs: [{ id: 500, conclusion: 'success', head_sha: 'greensha', name: 'CI' }],
@@ -767,7 +767,7 @@ describe('Feature: fix feature creation payload', () => {
 
     const mockExec = vi.fn().mockImplementation(async (_cmd: string, args: string[]) => {
       const url = args.join(' ');
-      if (url.includes('actions/runs') && url.includes('branch=master')) {
+      if (url.includes('/runs') && url.includes('branch=master')) {
         return {
           stdout: JSON.stringify({
             workflow_runs: [{ id: 42, conclusion: 'failure', head_sha: 'deadcode', name: 'CI' }],

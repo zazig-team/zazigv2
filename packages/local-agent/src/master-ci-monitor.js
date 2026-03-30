@@ -30,7 +30,7 @@ export class MasterCiMonitor {
     try {
       const { stdout } = await this.execFileAsync("gh", [
         "api",
-        `repos/${this.owner}/${this.repo}/actions/runs?branch=master&event=push&per_page=1`,
+        `repos/${this.owner}/${this.repo}/actions/workflows/deploy-edge-functions.yml/runs?branch=master&event=push&per_page=1`,
       ], { encoding: "utf8" });
 
       const payload = JSON.parse(stdout);

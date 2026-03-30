@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { listAgentSessions, AgentSession } from '../lib/tmux.js';
 
+export type { AgentSession };
+
 interface UseTmuxSessionsResult {
   sessions: AgentSession[];
   selectedSession: AgentSession | null;

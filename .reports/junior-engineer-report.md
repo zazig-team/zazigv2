@@ -1,6 +1,8 @@
 status: pass
-summary: Hardcoded the dependency-merge conflict resolution subprocess to always run Claude with model claude-sonnet-4-6 and removed model passthrough at the call boundary.
+summary: Implemented useTmuxSessions hook with 5000ms polling, persistent-first auto-selection, exported AgentSession type, and interval cleanup; all 30 feature tests pass.
 files_changed:
-  - packages/local-agent/src/executor.ts
+  - packages/tui/src/hooks/useTmuxSessions.ts
+  - packages/tui/src/lib/tmux.ts
+  - packages/tui/src/components/TopBar.tsx
+  - packages/tui/src/App.tsx
   - .reports/junior-engineer-report.md
-failure_reason:

@@ -135,8 +135,8 @@ describe("setupJobWorkspace", () => {
     // Verify mkdirSync called with workspaceDir (recursive)
     expect(mkdirSyncMock).toHaveBeenCalledWith("/tmp/test-workspace", { recursive: true });
 
-    // Verify writeFileSync called 5 times (.mcp.json, CLAUDE.md, settings.json, workspace-config.json, settings.local.json)
-    expect(writeFileSyncMock).toHaveBeenCalledTimes(5);
+    // Verify writeFileSync called 6 times (.memory/MEMORY.md, .mcp.json, CLAUDE.md, settings.json, workspace-config.json, settings.local.json)
+    expect(writeFileSyncMock).toHaveBeenCalledTimes(6);
 
     // 1. .mcp.json
     const mcpCall = writeFileSyncMock.mock.calls.find(
@@ -185,6 +185,12 @@ describe("setupJobWorkspace", () => {
       enableAllProjectMcpServers: true,
       enabledMcpjsonServers: ["zazig-messaging"],
     });
+
+    // 6. .memory/MEMORY.md (seeded once for all workspaces)
+    const memoryMdCall = writeFileSyncMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("MEMORY.md") && (call[0] as string).includes(".memory"),
+    );
+    expect(memoryMdCall).toBeDefined();
   });
 
   it("adds worktree metadata path to settings permissions when .git points to an absolute gitdir", () => {

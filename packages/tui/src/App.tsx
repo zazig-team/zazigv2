@@ -11,7 +11,7 @@ export function App() {
       <TopBar
         sessions={sessions}
         selectedSession={selectedSession}
-        setSelectedSession={setSelectedSession}
+        onSelect={setSelectedSession}
       />
       <Box flexGrow={1}>
         {/* SessionPane will use selectedSession to display the active session */}

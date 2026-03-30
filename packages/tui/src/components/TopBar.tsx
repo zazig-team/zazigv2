@@ -6,17 +6,17 @@ import { isPersistentAgent } from '../lib/tmux.js';
 interface TopBarProps {
   sessions: AgentSession[];
   selectedSession: AgentSession | null;
-  setSelectedSession: (session: AgentSession | null) => void;
+  onSelect: (session: AgentSession | null) => void;
 }
 
-export function TopBar({ sessions, selectedSession, setSelectedSession }: TopBarProps) {
+export function TopBar({ sessions, selectedSession, onSelect }: TopBarProps) {
   useInput((input, key) => {
     if (key.tab) {
       // Cycle to next session
       if (sessions.length === 0) return;
       const currentIndex = sessions.findIndex(s => s.sessionName === selectedSession?.sessionName);
       const nextIndex = (currentIndex + 1) % sessions.length;
-      setSelectedSession(sessions[nextIndex]);
+      onSelect(sessions[nextIndex]);
       return;
     }
 
@@ -25,7 +25,7 @@ export function TopBar({ sessions, selectedSession, setSelectedSession }: TopBar
     if (!isNaN(digit) && digit >= 1 && digit <= 9) {
       const index = digit - 1;
       if (index < sessions.length) {
-        setSelectedSession(sessions[index]);
+        onSelect(sessions[index]);
       }
     }
   });

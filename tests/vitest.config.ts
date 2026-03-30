@@ -10,5 +10,6 @@ export default defineConfig({
     globals: true,
     passWithNoTests: true,
     include: ['features/**/*.test.ts'],
+    restoreMocks: true,
   },
 });

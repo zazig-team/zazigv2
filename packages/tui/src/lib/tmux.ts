@@ -1,6 +1,6 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from "node:child_process";
 
-export const PERSISTENT_ROLES = ['cpo', 'cto', 'vpe'];
+export const PERSISTENT_ROLES = ["cpo", "cto", "vpe"];
 
 export interface AgentSession {
   role: string;
@@ -13,6 +13,27 @@ export interface AgentSession {
  * e.g. macbook-550e8400-e29b-41d4-a716-446655440000-cpo
  */
 const ZAZIG_SESSION_PATTERN = /^[^-]+-[0-9a-f-]+-[a-z-]+$/;
+
+export type SessionGeometry = {
+  top?: number;
+  left?: number;
+  width: number;
+  height: number;
+};
+
+type ExecResult = {
+  stdout: string;
+  stderr: string;
+};
+
+export class TmuxSessionNotFoundError extends Error {
+  readonly code = "TMUX_SESSION_NOT_FOUND" as const;
+
+  constructor(public readonly sessionName: string) {
+    super(`tmux session not found: ${sessionName}`);
+    this.name = "TmuxSessionNotFoundError";
+  }
+}
 
 /**
  * Returns true if the role is a persistent agent (cpo, cto, vpe)
@@ -31,16 +52,15 @@ export function isPersistentAgent(role: string): boolean {
 export function listAgentSessions(): AgentSession[] {
   let output: string;
   try {
-    output = execFileSync('tmux', ['list-sessions', '-F', '#{session_name}'], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
+    output = execFileSync("tmux", ["list-sessions", "-F", "#{session_name}"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
     });
   } catch {
-    // tmux not running or no sessions
     return [];
   }
 
-  const lines = output.split('\n').filter(Boolean);
+  const lines = output.split("\n").filter(Boolean);
   const sessions: AgentSession[] = [];
 
   for (const sessionName of lines) {
@@ -48,34 +68,107 @@ export function listAgentSessions(): AgentSession[] {
       continue;
     }
 
-    // Extract role: last segment(s) after machine and companyId
-    // companyId is a UUID-like string: 8-4-4-4-12 hex chars joined with dashes
-    // Pattern: <machine>-<uuid_with_dashes>-<role>
-    // UUID portion: we look for the first segment that looks like start of UUID
-    const parts = sessionName.split('-');
-    // Find where the UUID-like part ends: UUID = 8-4-4-4-12 = 5 groups
-    // machine is parts[0], then UUID is next 5 parts, then role is remaining
+    const parts = sessionName.split("-");
     if (parts.length < 7) {
       continue;
     }
 
-    // machine = parts[0]
-    // companyId = parts[1..5] (UUID segments)
-    // role = parts[6..] joined with '-'
-    const role = parts.slice(6).join('-');
+    const role = parts.slice(6).join("-");
 
     sessions.push({
       role,
       sessionName,
-      // isAlive is true when the session appears in the list-sessions output
       isAlive: true,
     });
   }
 
-  // For persistent agents not found in the tmux output, they are not alive
-  // (we only return sessions that exist in tmux output with isAlive: true)
-  // Dead expert sessions are excluded (not in list = isAlive false)
-  // The filter above already handles this — only alive sessions are in output
-
   return sessions;
+}
+
+function isSessionNotFoundMessage(message: string): boolean {
+  return /can't find session|no such session/i.test(message);
+}
+
+function runTmux(args: string[]): Promise<ExecResult> {
+  return new Promise((resolve, reject) => {
+    execFile("tmux", args, (error, stdout, stderr) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve({
+        stdout: String(stdout ?? ""),
+        stderr: String(stderr ?? ""),
+      });
+    });
+  });
+}
+
+async function assertSessionExists(sessionName: string): Promise<void> {
+  try {
+    await runTmux(["has-session", "-t", sessionName]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isSessionNotFoundMessage(message)) {
+      throw new TmuxSessionNotFoundError(sessionName);
+    }
+    throw error;
+  }
+}
+
+function assertSessionName(sessionName: string): void {
+  if (!sessionName || !sessionName.trim()) {
+    throw new Error("sessionName must be a non-empty string");
+  }
+}
+
+function assertGeometry(geometry: SessionGeometry): void {
+  if (!Number.isFinite(geometry.width) || geometry.width <= 0) {
+    throw new Error("geometry.width must be a positive number");
+  }
+  if (!Number.isFinite(geometry.height) || geometry.height <= 0) {
+    throw new Error("geometry.height must be a positive number");
+  }
+
+  const top = geometry.top ?? 0;
+  const left = geometry.left ?? 0;
+  if (!Number.isFinite(top) || top < 0) {
+    throw new Error("geometry.top must be a non-negative number");
+  }
+  if (!Number.isFinite(left) || left < 0) {
+    throw new Error("geometry.left must be a non-negative number");
+  }
+}
+
+export async function hasSession(sessionName: string): Promise<boolean> {
+  assertSessionName(sessionName);
+  try {
+    await runTmux(["has-session", "-t", sessionName]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function switchSession(sessionName: string): Promise<void> {
+  assertSessionName(sessionName);
+  await assertSessionExists(sessionName);
+  await runTmux(["switch-client", "-t", sessionName]);
+}
+
+export async function embedSession(sessionName: string, geometry: SessionGeometry): Promise<void> {
+  assertSessionName(sessionName);
+  assertGeometry(geometry);
+  await assertSessionExists(sessionName);
+
+  await runTmux(["join-pane", "-s", `${sessionName}:`, "-t", "."]);
+  await runTmux([
+    "resize-pane",
+    "-t",
+    ".",
+    "-x",
+    String(Math.floor(geometry.width)),
+    "-y",
+    String(Math.floor(geometry.height)),
+  ]);
 }

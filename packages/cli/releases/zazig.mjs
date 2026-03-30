@@ -153,11 +153,11 @@ function __metadata(metadataKey, metadataValue) {
 }
 function __awaiter(thisArg, _arguments, P, generator) {
   function adopt(value) {
-    return value instanceof P ? value : new P(function(resolve4) {
-      resolve4(value);
+    return value instanceof P ? value : new P(function(resolve5) {
+      resolve5(value);
     });
   }
-  return new (P || (P = Promise))(function(resolve4, reject) {
+  return new (P || (P = Promise))(function(resolve5, reject) {
     function fulfilled(value) {
       try {
         step(generator.next(value));
@@ -173,7 +173,7 @@ function __awaiter(thisArg, _arguments, P, generator) {
       }
     }
     function step(result) {
-      result.done ? resolve4(result.value) : adopt(result.value).then(fulfilled, rejected);
+      result.done ? resolve5(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
     step((generator = generator.apply(thisArg, _arguments || [])).next());
   });
@@ -364,14 +364,14 @@ function __asyncValues(o) {
   }, i);
   function verb(n) {
     i[n] = o[n] && function(v) {
-      return new Promise(function(resolve4, reject) {
-        v = o[n](v), settle(resolve4, reject, v.done, v.value);
+      return new Promise(function(resolve5, reject) {
+        v = o[n](v), settle(resolve5, reject, v.done, v.value);
       });
     };
   }
-  function settle(resolve4, reject, d, v) {
+  function settle(resolve5, reject, d, v) {
     Promise.resolve(v).then(function(v2) {
-      resolve4({ value: v2, done: d });
+      resolve5({ value: v2, done: d });
     }, reject);
   }
 }
@@ -2013,15 +2013,15 @@ var require_RealtimeChannel = __commonJS({
             }
           }
         } else {
-          return new Promise((resolve4) => {
+          return new Promise((resolve5) => {
             var _a2, _b2, _c;
             const push = this._push(args2.type, args2, opts.timeout || this.timeout);
             if (args2.type === "broadcast" && !((_c = (_b2 = (_a2 = this.params) === null || _a2 === void 0 ? void 0 : _a2.config) === null || _b2 === void 0 ? void 0 : _b2.broadcast) === null || _c === void 0 ? void 0 : _c.ack)) {
-              resolve4("ok");
+              resolve5("ok");
             }
-            push.receive("ok", () => resolve4("ok"));
-            push.receive("error", () => resolve4("error"));
-            push.receive("timeout", () => resolve4("timed out"));
+            push.receive("ok", () => resolve5("ok"));
+            push.receive("error", () => resolve5("error"));
+            push.receive("timeout", () => resolve5("timed out"));
           });
         }
       }
@@ -2049,16 +2049,16 @@ var require_RealtimeChannel = __commonJS({
         };
         this.joinPush.destroy();
         let leavePush = null;
-        return new Promise((resolve4) => {
+        return new Promise((resolve5) => {
           leavePush = new push_1.default(this, constants_1.CHANNEL_EVENTS.leave, {}, timeout);
           leavePush.receive("ok", () => {
             onClose();
-            resolve4("ok");
+            resolve5("ok");
           }).receive("timeout", () => {
             onClose();
-            resolve4("timed out");
+            resolve5("timed out");
           }).receive("error", () => {
-            resolve4("error");
+            resolve5("error");
           });
           leavePush.send();
           if (!this._canPush()) {
@@ -8135,7 +8135,7 @@ async function getValidCredentials() {
   let lastStatus = 0;
   for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
     if (attempt > 0) {
-      await new Promise((resolve4) => setTimeout(resolve4, retryDelaysMs[attempt]));
+      await new Promise((resolve5) => setTimeout(resolve5, retryDelaysMs[attempt]));
     }
     let resp;
     try {
@@ -8305,8 +8305,8 @@ function parseLoginFlags(args2) {
 }
 async function startCallbackServer(port) {
   let resolveCallback;
-  const callbackPromise = new Promise((resolve4) => {
-    resolveCallback = resolve4;
+  const callbackPromise = new Promise((resolve5) => {
+    resolveCallback = resolve5;
   });
   const callbackHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -8408,7 +8408,7 @@ if (at && rt) {
       res.end();
     }
   });
-  await new Promise((resolve4) => server.listen(port, "127.0.0.1", resolve4));
+  await new Promise((resolve5) => server.listen(port, "127.0.0.1", resolve5));
   return { server, callbackPromise };
 }
 async function sendMagicLink({ supabaseUrl, anonKey, email, redirectTo }) {
@@ -8528,17 +8528,17 @@ function isAbortError(err) {
   return err instanceof Error && (err.name === "AbortError" || /aborted/i.test(err.message));
 }
 function findAvailablePort(preferredPort) {
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     const server = http.createServer();
     server.listen(preferredPort, "127.0.0.1", () => {
       const addr = server.address();
-      server.close(() => resolve4(addr.port));
+      server.close(() => resolve5(addr.port));
     });
     server.on("error", () => {
       const s = http.createServer();
       s.listen(0, "127.0.0.1", () => {
         const addr = s.address();
-        s.close(() => resolve4(addr.port));
+        s.close(() => resolve5(addr.port));
       });
     });
   });
@@ -10586,7 +10586,7 @@ var _getRequestParams = (method, options, parameters, body) => {
   return _objectSpread22(_objectSpread22({}, params), parameters);
 };
 async function _handleRequest(fetcher, method, url, options, parameters, body, namespace) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
       if (!result.ok) throw result;
       if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
@@ -10596,7 +10596,7 @@ async function _handleRequest(fetcher, method, url, options, parameters, body, n
         if (!contentType || !contentType.includes("application/json")) return {};
       }
       return result.json();
-    }).then((data) => resolve4(data)).catch((error) => handleError(error, reject, options, namespace));
+    }).then((data) => resolve5(data)).catch((error) => handleError(error, reject, options, namespace));
   });
 }
 function createFetchApi(namespace = "storage") {
@@ -14455,7 +14455,7 @@ async function checkForUpdate(supabaseUrl, anonKey, env) {
 
 // dist/commands/start.js
 function sleep(ms) {
-  return new Promise((resolve4) => setTimeout(resolve4, ms));
+  return new Promise((resolve5) => setTimeout(resolve5, ms));
 }
 function generateMachineName() {
   const raw = hostname().toLowerCase();
@@ -14797,7 +14797,7 @@ Agent failed to start. Check logs: ${logPath}`);
 
 // dist/commands/stop.js
 function sleep2(ms) {
-  return new Promise((resolve4) => setTimeout(resolve4, ms));
+  return new Promise((resolve5) => setTimeout(resolve5, ms));
 }
 function isRunning2(pid) {
   try {
@@ -17800,6 +17800,63 @@ async function autoSpec(args2) {
   });
 }
 
+// dist/commands/ui.js
+import { spawn as spawn2 } from "node:child_process";
+import { resolve as resolve4 } from "node:path";
+function parseCompanyFlag8(args2) {
+  const index = args2.indexOf("--company");
+  if (index === -1)
+    return void 0;
+  return args2[index + 1];
+}
+function resolveCompanyFromFlag(companies, companyFlag) {
+  if (!companyFlag)
+    return void 0;
+  return companies.find((company) => company.id === companyFlag || company.name === companyFlag);
+}
+async function ui(args2) {
+  let credentials;
+  try {
+    credentials = await getValidCredentials();
+  } catch {
+    console.error("Not logged in. Run 'zazig login' first.");
+    process.exitCode = 1;
+    return;
+  }
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const companies = await fetchUserCompanies(credentials.supabaseUrl, anonKey, credentials.accessToken);
+  const companyFlag = parseCompanyFlag8(args2);
+  const selectedFromFlag = resolveCompanyFromFlag(companies, companyFlag);
+  const company = selectedFromFlag ?? await pickCompany(companies);
+  const config = loadConfig();
+  if (!isDaemonRunningForCompany(company.id)) {
+    const env = {
+      ...process.env,
+      SUPABASE_ACCESS_TOKEN: credentials.accessToken,
+      SUPABASE_REFRESH_TOKEN: credentials.refreshToken ?? "",
+      SUPABASE_URL: credentials.supabaseUrl,
+      ZAZIG_MACHINE_NAME: config.name,
+      ZAZIG_COMPANY_ID: company.id,
+      ZAZIG_COMPANY_NAME: company.name,
+      ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
+      ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2)
+    };
+    startDaemonForCompany(env, company.id);
+  }
+  const tuiEntry = resolve4(process.cwd(), "packages/tui/src/index.tsx");
+  const child = spawn2("tsx", [tuiEntry, "--company", company.id], {
+    stdio: "inherit",
+    env: process.env
+  });
+  await new Promise((resolvePromise) => {
+    child.on("exit", (code) => {
+      if (typeof code === "number" && code !== 0)
+        process.exitCode = code;
+      resolvePromise();
+    });
+  });
+}
+
 // dist/index.js
 var [, , cmd, ...args] = process.argv;
 switch (cmd) {
@@ -17824,6 +17881,9 @@ switch (cmd) {
     break;
   case "chat":
     await chat();
+    break;
+  case "ui":
+    await ui(args);
     break;
   case "status":
     await status();
@@ -17913,6 +17973,7 @@ switch (cmd) {
     console.log("  start              Start the local agent daemon in the background");
     console.log("  stop               Stop the running daemon");
     console.log("  chat               Reconnect TUI to a running daemon");
+    console.log("  ui                 Ensure daemon is running, then launch Ink TUI");
     console.log("  status             Show agent state and active jobs");
     console.log("  personality <role> Show or switch exec personality (--show, --archetype)");
     console.log("  skills <subcmd>    Inspect/sync workspace skill links (status, sync)");

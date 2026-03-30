@@ -1,6 +1,6 @@
 {
   "name": "@zazigv2/local-agent",
-  "version": "0.55.0",
+  "version": "0.56.0",
   "private": true,
   "description": "Local agent daemon — connects to Supabase Realtime, executes tmux sessions",
   "type": "module",

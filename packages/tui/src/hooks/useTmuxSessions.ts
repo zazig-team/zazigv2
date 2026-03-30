@@ -1,5 +1,11 @@
-import { useState, useEffect } from 'react';
-import { listAgentSessions, AgentSession } from '../lib/tmux.js';
+import { useState, useEffect, useRef } from 'react';
+import { listAgentSessions, isPersistentAgent } from '../lib/tmux.js';
+
+export interface AgentSession {
+  role: string;
+  sessionName: string;
+  isAlive: boolean;
+}
 
 interface UseTmuxSessionsResult {
   sessions: AgentSession[];
@@ -10,26 +16,39 @@ interface UseTmuxSessionsResult {
 export function useTmuxSessions(): UseTmuxSessionsResult {
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<AgentSession | null>(null);
+  const didAutoSelectRef = useRef(false);
 
   useEffect(() => {
-    const poll = () => {
-      const current = listAgentSessions();
+    const pickInitialSession = (current: AgentSession[]): AgentSession | null => {
+      if (current.length === 0) {
+        return null;
+      }
+
+      const firstPersistent = current.find(session => isPersistentAgent(session.role));
+      return firstPersistent ?? current[0];
+    };
+
+    const poll = async () => {
+      const current = await Promise.resolve(listAgentSessions());
       setSessions(current);
-      // Auto-select first session if none selected
+
+      if (!didAutoSelectRef.current) {
+        setSelectedSession(pickInitialSession(current));
+        didAutoSelectRef.current = true;
+        return;
+      }
+
       setSelectedSession(prev => {
-        if (prev === null && current.length > 0) {
-          return current[0];
+        if (prev === null) {
+          return null;
         }
-        // Keep selected if still alive
-        if (prev !== null) {
-          const still = current.find(s => s.sessionName === prev.sessionName);
-          return still ?? (current.length > 0 ? current[0] : null);
-        }
-        return prev;
+
+        const stillExists = current.find(s => s.sessionName === prev.sessionName);
+        return stillExists ?? null;
       });
     };
 
-    poll();
+    void poll();
     const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);
   }, []);

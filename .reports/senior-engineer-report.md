@@ -1,5 +1,6 @@
 status: pass
-summary: Extended `zazig start` preflight checks to validate required CLI tools and versions with resilient parsing, collect and report all required failures together, and preserve existing Claude/Codex behavior.
+summary: Implemented a new Ink CriticalBanner component with visible-gated rendering, full-width red rounded border styling, and a 15-second auto-dismiss callback timer.
 files_changed:
-  - packages/cli/src/commands/start.ts
+  - packages/tui/src/components/CriticalBanner.tsx
+  - .reports/senior-engineer-report.md
 failure_reason:

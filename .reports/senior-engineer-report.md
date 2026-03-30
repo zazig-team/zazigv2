@@ -1,5 +1,6 @@
 status: pass
-summary: Extended `zazig start` preflight checks to validate required CLI tools and versions with resilient parsing, collect and report all required failures together, and preserve existing Claude/Codex behavior.
+summary: Implemented SessionViewer as a proper exported React-compatible function with SESSION_ENDED_MESSAGE and WAITING_MESSAGE constants that calls embedSession/switchSession, and fixed spy-residue test failures by adding restoreMocks:true to vitest config.
 files_changed:
-  - packages/cli/src/commands/start.ts
+  - packages/tui/src/components/SessionViewer.ts
+  - tests/vitest.config.ts
 failure_reason:

@@ -4,7 +4,7 @@ import AlertsFeed from './AlertsFeed.js';
 import LocalStatus from './LocalStatus.js';
 import PipelineSummary from './PipelineSummary.js';
 
-const Sidebar: React.FC = () => {
+export default function Sidebar() {
   return (
     <Box flexDirection="column" width="30%">
       <AlertsFeed />
@@ -12,6 +12,4 @@ const Sidebar: React.FC = () => {
       <PipelineSummary />
     </Box>
   );
-};
-
-export default Sidebar;
+}

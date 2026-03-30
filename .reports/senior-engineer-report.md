@@ -1,5 +1,6 @@
 status: pass
-summary: Extended `zazig start` preflight checks to validate required CLI tools and versions with resilient parsing, collect and report all required failures together, and preserve existing Claude/Codex behavior.
+summary: Implemented Sidebar.tsx composing AlertsFeed, LocalStatus, and PipelineSummary in a vertical 30%-width Ink Box; all 49 feature tests pass.
 files_changed:
-  - packages/cli/src/commands/start.ts
+  - packages/tui/src/components/Sidebar.tsx
+  - .reports/senior-engineer-report.md
 failure_reason:

@@ -1,29 +1,33 @@
 status: pass
 
-## Test Files Created
+## Test files created
 
-- `tests/features/serialise-merge-jobs-per-project.test.ts` — 27 test cases
+- `tests/features/tui-sessionviewer-embedding.test.ts`
 
-## Summary
+## Test cases written: 13
 
-Written 27 test cases across 10 describe blocks covering all acceptance criteria
-and failure cases for the "Serialise feature-to-master merge jobs per project" feature.
+### tmux utility library (4 tests)
+- exports a `switchSession` function
+- exports an `embedSession` function
+- `switchSession` invokes a tmux command targeting the given session name
+- `embedSession` invokes a tmux command with session name and geometry
 
-### Test Groups
+### SessionViewer component — module exports (1 test)
+- exports a SessionViewer component as default or named export
 
-1. **Structural** — dispatchQueuedJobs contains merge serialisation gate (8 tests)
-2. **AC1** — Only one merge job per project enriched to queued (3 tests)
-3. **AC2** — Gate unblocks when in-flight merge job is no longer active (2 tests)
-4. **AC3** — Failed merge unblocks queue (1 test)
-5. **AC4** — Gate is per project_id — different projects unaffected (2 tests)
-6. **AC5** — FIFO ordering preserved (2 tests)
-7. **AC6** — Gate is in orchestrator only — daemon/executor/merge agent unchanged (4 tests)
-8. **FC1** — No false positive blocks (2 tests)
-9. **FC2** — Gate only applies to merge job type — other types unaffected (4 tests)
-10. **FC3** — Overlapping orchestrator runs do not double-queue (2 tests)
-11. **Logging** — Gate produces expected log message (4 tests)
+### Acceptance criteria — session display and switching (4 tests)
+- CPO agent selected → `embedSession` called with CPO session name
+- User switches to CTO tab → `switchSession` called with CTO session name
+- `switchSession` resolves cleanly with a valid session name
+- `embedSession` resolves cleanly with a valid session name and geometry
 
-### Notes
+### Edge cases (4 tests)
+- Active session dies → component renders 'Session ended' placeholder
+- No sessions running → component renders 'Waiting for agents...' placeholder
+- `switchSession` rejects on empty session name
+- `embedSession` rejects on empty session name
 
-- All tests written to FAIL against current codebase (no merge gate exists in dispatchQueuedJobs yet)
-- `tests/vitest.config.ts` uses `features/**/*.test.ts` — no `package.json` changes needed
+## Notes
+
+- `package.json` (root) delegates to workspace test scripts; `tests/package.json` uses `vitest run` which discovers all `tests/features/**/*.test.ts` files recursively — no changes required.
+- All tests import from `packages/tui/src/lib/tmux.js` and `packages/tui/src/components/SessionViewer.js`, which do not exist yet. Tests are expected to fail until the feature is implemented.

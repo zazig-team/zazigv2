@@ -1,5 +1,9 @@
 status: pass
-summary: Extended `zazig start` preflight checks to validate required CLI tools and versions with resilient parsing, collect and report all required failures together, and preserve existing Claude/Codex behavior.
+summary: Implemented tmux-backed agent session discovery in packages/tui/src/lib/tmux.ts with PERSISTENT_ROLES, listAgentSessions(), and isPersistentAgent(), plus useTmuxSessions hook, TopBar component, and App.tsx wiring — all 30 feature tests pass.
 files_changed:
-  - packages/cli/src/commands/start.ts
+  - packages/tui/src/lib/tmux.ts
+  - packages/tui/src/hooks/useTmuxSessions.ts
+  - packages/tui/src/components/TopBar.tsx
+  - packages/tui/src/App.tsx
+  - .reports/senior-engineer-report.md
 failure_reason:

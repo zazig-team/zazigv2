@@ -1,16 +1,15 @@
 status: success
-branch: feature/serialise-feature-to-master-merge-jobs-p-598bebb2
+branch: feature/tui-phase-1b-top-bar-with-live-agent-tab-2a485803
 merged:
-  - job/ad04befb-1b20-45f0-a61f-44186bcd6a62
-conflicts_resolved:
+  - job/84d1f6ce-b550-4eb7-be63-91fa29f344fb
+  - job/369c02f4-5332-40cf-a849-80ff1014a58f
+conflicts_resolved: []
 failure_reason:
 
 ## Notes
 
-- Merged job/ad04befb-1b20-45f0-a61f-44186bcd6a62 cleanly with no conflicts
-- CI workflow already exists on master branch — skipped CI injection
+- job/369c02f4-5332-40cf-a849-80ff1014a58f was already merged into job/84d1f6ce-b550-4eb7-be63-91fa29f344fb; both are recorded as merged
+- CI workflow already exists on master — no injection needed
 - Feature branch pushed to origin
-- PR created: https://github.com/zazig-team/zazigv2/pull/371
-- Changes include: acceptance criteria tests for serialise-merge-jobs-per-project feature
-  - tests/features/serialise-merge-jobs-per-project.test.ts (459 lines, new file)
-  - .reports/test-engineer-report.md (updated)
+- PR created: https://github.com/zazig-team/zazigv2/pull/376
+- Files merged: packages/tui/src/App.tsx, packages/tui/src/components/TopBar.tsx, packages/tui/src/hooks/useTmuxSessions.ts, packages/tui/src/lib/tmux.ts, tests/features/tui-topbar-agent-tabs.test.ts

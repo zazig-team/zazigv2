@@ -10,13 +10,14 @@ const CriticalBanner: React.FC<CriticalBannerProps> = ({ show = false, message =
   const [visible, setVisible] = useState(show);
 
   useEffect(() => {
+    setVisible(show);
     if (show) {
-      setVisible(true);
       const timer = setTimeout(() => {
         setVisible(false);
       }, 15000);
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [show]);
 
   if (!visible) {

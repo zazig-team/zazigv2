@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "e89f8e0";
+const AGENT_BUILD_HASH = "1f32430";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -16290,7 +16290,7 @@ async function runCodexReview(job, jobSpec, acceptanceCriteria) {
         "--",
         ".",
         ...overlayPaths.map((path) => `:!${path}`)
-      ], { cwd: worktreePath });
+      ], { cwd: worktreePath, maxBuffer: 10 * 1024 * 1024 });
       uncommittedDiff = stdout;
     } catch (err) {
       return { pass: false, reason: `git diff failed: ${String(err)}`, committed: false };
@@ -16312,7 +16312,7 @@ async function runCodexReview(job, jobSpec, acceptanceCriteria) {
   }
   let diff;
   try {
-    const { stdout } = await execFileAsync3("git", ["diff", `${startingCommit}..HEAD`], { cwd: worktreePath });
+    const { stdout } = await execFileAsync3("git", ["diff", `${startingCommit}..HEAD`], { cwd: worktreePath, maxBuffer: 10 * 1024 * 1024 });
     diff = stdout;
   } catch (err) {
     return {
@@ -16433,7 +16433,12 @@ function buildCommand(slotType, complexity, model, worktreePath, promptFilePath,
   if (slotType === "codex") {
     const args = ["exec", "-m", resolvedModel, "--full-auto", "-c", "sandbox_workspace_write.network_access=true", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
     if (repoDir) {
+      console.log(`[buildCommand] codex: adding --add-dir repoDir=${repoDir} for worktreePath=${worktreePath}`);
       args.push("--add-dir", repoDir);
+      const gitWorktreesDir = join4(repoDir, ".git", "worktrees");
+      args.push("--add-dir", gitWorktreesDir);
+    } else {
+      console.warn(`[buildCommand] codex: repoDir is undefined \u2014 sandbox may block git commit in worktree`);
     }
     if (complexity === "medium") {
       args.push("-c", "model_reasoning_effort=xhigh");

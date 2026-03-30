@@ -10,7 +10,7 @@ conflicts_resolved:
   - {file: packages/tui/src/components/CriticalBanner.tsx, resolution: used callback-based onDismiss pattern with round borderStyle from job/99ee1818, keeping all intended functionality}
 failure_reason:
 
-## Notes
+---
 
 - CI workflow already exists on master branch — skipped injection
 - PR created: https://github.com/zazig-team/zazigv2/pull/374

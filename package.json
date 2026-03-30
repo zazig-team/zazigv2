@@ -8,6 +8,7 @@
     "packages/orchestrator",
     "packages/local-agent",
     "packages/cli",
+    "packages/tui",
     "packages/webui",
     "tests"
   ],

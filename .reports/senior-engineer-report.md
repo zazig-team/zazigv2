@@ -1,6 +1,5 @@
 status: pass
-summary: Implemented SessionViewer as a proper exported React-compatible function with SESSION_ENDED_MESSAGE and WAITING_MESSAGE constants that calls embedSession/switchSession, and fixed spy-residue test failures by adding restoreMocks:true to vitest config.
+summary: Extended SessionViewer with liveness polling every 2s, centered "Session ended"/"Waiting for agents..." placeholders, and automatic re-embedding when a dead session reappears; added hasSession export to tmux.ts.
 files_changed:
   - packages/tui/src/components/SessionViewer.ts
-  - tests/vitest.config.ts
-failure_reason:
+  - packages/tui/src/lib/tmux.ts

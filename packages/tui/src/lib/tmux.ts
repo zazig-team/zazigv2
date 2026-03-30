@@ -75,6 +75,16 @@ function assertGeometry(geometry: SessionGeometry): void {
   }
 }
 
+export async function hasSession(sessionName: string): Promise<boolean> {
+  assertSessionName(sessionName);
+  try {
+    await runTmux(["has-session", "-t", sessionName]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function switchSession(sessionName: string): Promise<void> {
   assertSessionName(sessionName);
   await assertSessionExists(sessionName);

@@ -7,12 +7,19 @@
  * embedded pane — Ink does not intercept keyboard input once the pane is
  * joined.
  *
+ * Edge cases handled:
+ *   - sessionName is null/empty: renders a "Waiting for agents..." placeholder
+ *     without issuing any tmux commands.
+ *   - Session dies while viewing: polls every 2 s, detects when the session
+ *     is gone, and renders a "Session ended" placeholder. Continues polling;
+ *     if the session reappears it re-embeds automatically.
+ *
  * Requires `react` and `ink` at runtime. Import and render via:
  *   import { render } from 'ink';
  *   render(React.createElement(SessionViewer, { sessionName: 'cpo-agent' }));
  */
 
-import { embedSession, switchSession } from "../lib/tmux.js";
+import { embedSession, hasSession, switchSession } from "../lib/tmux.js";
 import type { SessionGeometry } from "../lib/tmux.js";
 
 // ---------------------------------------------------------------------------
@@ -21,6 +28,9 @@ import type { SessionGeometry } from "../lib/tmux.js";
 
 export const SESSION_ENDED_MESSAGE = "Session ended";
 export const WAITING_MESSAGE = "Waiting for agents...";
+
+/** How often (ms) to poll tmux for session liveness. */
+const POLL_INTERVAL_MS = 2000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,17 +67,11 @@ function computeGeometry(): SessionGeometry {
 /**
  * React/Ink component that embeds a tmux session into the TUI content area.
  *
- * On mount and whenever `sessionName` changes, the component calls
- * `embedSession` to position the session's active pane in the Ink-allocated
- * region.  When the session name changes (tab switch), `switchSession` is
- * called to update the displayed pane.
- *
- * The Ink Box dimensions are derived from `process.stdout.columns/rows` minus
- * the space consumed by the sidebar and top bar, and are passed as geometry to
- * `embedSession` so the tmux pane is sized to match.
- *
- * Input routing: after `join-pane` the embedded tmux pane receives keyboard
- * input directly — Ink does not intercept it.
+ * States:
+ *   - waiting: sessionName is null/empty — shows "Waiting for agents..."
+ *   - embedded: session is live — tmux pane is joined into the Ink region
+ *   - ended: session was live but has died — shows "Session ended", keeps
+ *     polling and re-embeds when the same session name reappears
  *
  * This function is a valid React functional component when used with React ≥ 18
  * and Ink ≥ 5.  The dependency on React/Ink is intentionally deferred via
@@ -81,7 +85,7 @@ export function SessionViewer(props: SessionViewerProps): unknown {
   // being installed (e.g. in unit-test environments that only inspect exports).
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = (globalThis as Record<string, unknown>)["React"] as
-    | { useState: Function; useEffect: Function }
+    | { useState: Function; useEffect: Function; useRef: Function }
     | undefined;
 
   if (!React) {
@@ -93,33 +97,89 @@ export function SessionViewer(props: SessionViewerProps): unknown {
     };
   }
 
-  const { useState, useEffect } = React;
+  const { useState, useEffect, useRef } = React;
 
+  // null = session is embedded (no placeholder); string = placeholder message
   const [message, setMessage] = useState<string | null>(
     sessionName ? null : WAITING_MESSAGE
   );
 
+  // Track whether the session is currently embedded so re-embed logic is clean.
+  const isEmbedded = useRef<boolean>(false);
+
   const geometry = computeGeometry();
 
-  // Embed or switch the session whenever the selection changes.
+  // Main effect: embed/switch session and start liveness polling.
   useEffect(() => {
     let cancelled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-    if (!sessionName) {
-      setMessage(WAITING_MESSAGE);
-      return;
+    function stopPolling() {
+      if (pollTimer !== null) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
     }
 
-    embedSession(sessionName, geometry)
-      .then(() => {
-        if (!cancelled) setMessage(null);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setMessage(`${SESSION_ENDED_MESSAGE}: ${err.message}`);
-      });
+    async function embed() {
+      if (cancelled) return;
+      try {
+        await embedSession(sessionName as string, geometry);
+        if (!cancelled) {
+          isEmbedded.current = true;
+          setMessage(null);
+        }
+      } catch {
+        if (!cancelled) {
+          isEmbedded.current = false;
+          setMessage(SESSION_ENDED_MESSAGE);
+        }
+      }
+    }
+
+    if (!sessionName) {
+      stopPolling();
+      isEmbedded.current = false;
+      setMessage(WAITING_MESSAGE);
+      return () => { cancelled = true; };
+    }
+
+    // Embed the session initially.
+    embed().then(() => {
+      if (cancelled) return;
+
+      // Start polling for liveness every POLL_INTERVAL_MS.
+      pollTimer = setInterval(async () => {
+        if (cancelled) return;
+        let alive = false;
+        try {
+          alive = await hasSession(sessionName as string);
+        } catch {
+          alive = false;
+        }
+
+        if (cancelled) return;
+
+        if (!alive) {
+          if (isEmbedded.current) {
+            // Session just died — switch to placeholder.
+            isEmbedded.current = false;
+            setMessage(SESSION_ENDED_MESSAGE);
+          }
+          // Keep polling so we can re-embed when it reappears.
+        } else {
+          if (!isEmbedded.current) {
+            // Session reappeared — re-embed.
+            await embed();
+          }
+        }
+      }, POLL_INTERVAL_MS);
+    });
 
     return () => {
       cancelled = true;
+      stopPolling();
+      isEmbedded.current = false;
     };
   }, [sessionName]);
 
@@ -127,8 +187,8 @@ export function SessionViewer(props: SessionViewerProps): unknown {
   useEffect(() => {
     if (!sessionName) return;
 
-    switchSession(sessionName).catch((err: Error) => {
-      setMessage(`${SESSION_ENDED_MESSAGE}: ${err.message}`);
+    switchSession(sessionName).catch(() => {
+      setMessage(SESSION_ENDED_MESSAGE);
     });
   }, [sessionName]);
 
@@ -144,12 +204,28 @@ export function SessionViewer(props: SessionViewerProps): unknown {
 
   const { Box, Text } = ink;
 
+  if (message) {
+    // Render a centred placeholder (no tmux pane embedded).
+    return Box(
+      {
+        width: geometry.width,
+        height: geometry.height,
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+      },
+      Text({ color: "gray", dimColor: true }, message)
+    );
+  }
+
+  // Session is actively embedded — render an empty box that Ink leaves alone
+  // so the tmux pane can occupy the region.
   return Box(
     {
       width: geometry.width,
       height: geometry.height,
       flexDirection: "column",
     },
-    message ? Text({ color: "gray" }, message) : null
+    null
   );
 }

@@ -153,11 +153,11 @@ function __metadata(metadataKey, metadataValue) {
 }
 function __awaiter(thisArg, _arguments, P, generator) {
   function adopt(value) {
-    return value instanceof P ? value : new P(function(resolve4) {
-      resolve4(value);
+    return value instanceof P ? value : new P(function(resolve5) {
+      resolve5(value);
     });
   }
-  return new (P || (P = Promise))(function(resolve4, reject) {
+  return new (P || (P = Promise))(function(resolve5, reject) {
     function fulfilled(value) {
       try {
         step(generator.next(value));
@@ -173,7 +173,7 @@ function __awaiter(thisArg, _arguments, P, generator) {
       }
     }
     function step(result) {
-      result.done ? resolve4(result.value) : adopt(result.value).then(fulfilled, rejected);
+      result.done ? resolve5(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
     step((generator = generator.apply(thisArg, _arguments || [])).next());
   });
@@ -364,14 +364,14 @@ function __asyncValues(o) {
   }, i);
   function verb(n) {
     i[n] = o[n] && function(v) {
-      return new Promise(function(resolve4, reject) {
-        v = o[n](v), settle(resolve4, reject, v.done, v.value);
+      return new Promise(function(resolve5, reject) {
+        v = o[n](v), settle(resolve5, reject, v.done, v.value);
       });
     };
   }
-  function settle(resolve4, reject, d, v) {
+  function settle(resolve5, reject, d, v) {
     Promise.resolve(v).then(function(v2) {
-      resolve4({ value: v2, done: d });
+      resolve5({ value: v2, done: d });
     }, reject);
   }
 }
@@ -2013,15 +2013,15 @@ var require_RealtimeChannel = __commonJS({
             }
           }
         } else {
-          return new Promise((resolve4) => {
+          return new Promise((resolve5) => {
             var _a2, _b2, _c;
             const push = this._push(args2.type, args2, opts.timeout || this.timeout);
             if (args2.type === "broadcast" && !((_c = (_b2 = (_a2 = this.params) === null || _a2 === void 0 ? void 0 : _a2.config) === null || _b2 === void 0 ? void 0 : _b2.broadcast) === null || _c === void 0 ? void 0 : _c.ack)) {
-              resolve4("ok");
+              resolve5("ok");
             }
-            push.receive("ok", () => resolve4("ok"));
-            push.receive("error", () => resolve4("error"));
-            push.receive("timeout", () => resolve4("timed out"));
+            push.receive("ok", () => resolve5("ok"));
+            push.receive("error", () => resolve5("error"));
+            push.receive("timeout", () => resolve5("timed out"));
           });
         }
       }
@@ -2049,16 +2049,16 @@ var require_RealtimeChannel = __commonJS({
         };
         this.joinPush.destroy();
         let leavePush = null;
-        return new Promise((resolve4) => {
+        return new Promise((resolve5) => {
           leavePush = new push_1.default(this, constants_1.CHANNEL_EVENTS.leave, {}, timeout);
           leavePush.receive("ok", () => {
             onClose();
-            resolve4("ok");
+            resolve5("ok");
           }).receive("timeout", () => {
             onClose();
-            resolve4("timed out");
+            resolve5("timed out");
           }).receive("error", () => {
-            resolve4("error");
+            resolve5("error");
           });
           leavePush.send();
           if (!this._canPush()) {
@@ -8135,7 +8135,7 @@ async function getValidCredentials() {
   let lastStatus = 0;
   for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
     if (attempt > 0) {
-      await new Promise((resolve4) => setTimeout(resolve4, retryDelaysMs[attempt]));
+      await new Promise((resolve5) => setTimeout(resolve5, retryDelaysMs[attempt]));
     }
     let resp;
     try {
@@ -8169,27 +8169,41 @@ async function getValidCredentials() {
 
 // dist/commands/login.js
 async function login(args2 = []) {
-  let mode;
+  let flags;
   try {
-    mode = parseLoginMode(args2);
+    flags = parseLoginFlags(args2);
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
-    console.error("Usage: zazig login [--otp|--code|--link]");
+    console.error("Usage: zazig login [--otp|--code|--link] [--email <email>] [--non-interactive]");
     process.exit(1);
   }
+  const { mode, nonInteractive } = flags;
   const envOverride = Boolean(process.env["ZAZIG_ENV"]);
   const supabaseUrl = envOverride && process.env["SUPABASE_URL"] || DEFAULT_SUPABASE_URL;
   const anonKey = envOverride && process.env["SUPABASE_ANON_KEY"] || DEFAULT_SUPABASE_ANON_KEY;
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
   let email;
-  try {
-    email = (await rl.question("Email address: ")).trim();
-  } finally {
-    rl.close();
+  if (flags.email) {
+    email = flags.email;
+  } else {
+    if (nonInteractive) {
+      console.error("--non-interactive requires --email <email>.");
+      process.exit(1);
+    }
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      email = (await rl.question("Email address: ")).trim();
+    } finally {
+      rl.close();
+    }
   }
   if (!email) {
     console.error("Email is required.");
     process.exit(1);
+  }
+  if (nonInteractive) {
+    await sendMagicLink({ supabaseUrl, anonKey, email });
+    console.log(`Magic link sent to ${email}. Click the link in your email to complete login.`);
+    return;
   }
   if (mode === "otp") {
     await sendMagicLink({ supabaseUrl, anonKey, email });
@@ -8254,9 +8268,12 @@ async function login(args2 = []) {
     server.close();
   }
 }
-function parseLoginMode(args2) {
+function parseLoginFlags(args2) {
   let mode = "auto";
-  for (const arg of args2) {
+  let email;
+  let nonInteractive = false;
+  for (let i = 0; i < args2.length; i++) {
+    const arg = args2[i];
     switch (arg) {
       case "--otp":
       case "--code":
@@ -8271,16 +8288,25 @@ function parseLoginMode(args2) {
         }
         mode = "link";
         break;
+      case "--email":
+        email = args2[++i];
+        if (!email) {
+          throw new Error("--email requires a value.");
+        }
+        break;
+      case "--non-interactive":
+        nonInteractive = true;
+        break;
       default:
         throw new Error(`Unknown login option: ${arg}`);
     }
   }
-  return mode;
+  return { mode, email, nonInteractive };
 }
 async function startCallbackServer(port) {
   let resolveCallback;
-  const callbackPromise = new Promise((resolve4) => {
-    resolveCallback = resolve4;
+  const callbackPromise = new Promise((resolve5) => {
+    resolveCallback = resolve5;
   });
   const callbackHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -8382,7 +8408,7 @@ if (at && rt) {
       res.end();
     }
   });
-  await new Promise((resolve4) => server.listen(port, "127.0.0.1", resolve4));
+  await new Promise((resolve5) => server.listen(port, "127.0.0.1", resolve5));
   return { server, callbackPromise };
 }
 async function sendMagicLink({ supabaseUrl, anonKey, email, redirectTo }) {
@@ -8502,17 +8528,17 @@ function isAbortError(err) {
   return err instanceof Error && (err.name === "AbortError" || /aborted/i.test(err.message));
 }
 function findAvailablePort(preferredPort) {
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     const server = http.createServer();
     server.listen(preferredPort, "127.0.0.1", () => {
       const addr = server.address();
-      server.close(() => resolve4(addr.port));
+      server.close(() => resolve5(addr.port));
     });
     server.on("error", () => {
       const s = http.createServer();
       s.listen(0, "127.0.0.1", () => {
         const addr = s.address();
-        s.close(() => resolve4(addr.port));
+        s.close(() => resolve5(addr.port));
       });
     });
   });
@@ -10560,7 +10586,7 @@ var _getRequestParams = (method, options, parameters, body) => {
   return _objectSpread22(_objectSpread22({}, params), parameters);
 };
 async function _handleRequest(fetcher, method, url, options, parameters, body, namespace) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
       if (!result.ok) throw result;
       if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
@@ -10570,7 +10596,7 @@ async function _handleRequest(fetcher, method, url, options, parameters, body, n
         if (!contentType || !contentType.includes("application/json")) return {};
       }
       return result.json();
-    }).then((data) => resolve4(data)).catch((error) => handleError(error, reject, options, namespace));
+    }).then((data) => resolve5(data)).catch((error) => handleError(error, reject, options, namespace));
   });
 }
 function createFetchApi(namespace = "storage") {
@@ -14429,7 +14455,7 @@ async function checkForUpdate(supabaseUrl, anonKey, env) {
 
 // dist/commands/start.js
 function sleep(ms) {
-  return new Promise((resolve4) => setTimeout(resolve4, ms));
+  return new Promise((resolve5) => setTimeout(resolve5, ms));
 }
 function generateMachineName() {
   const raw = hostname().toLowerCase();
@@ -14478,10 +14504,108 @@ function readRecentAgentErrorLines(logPath) {
     return null;
   }
 }
+function parseVersionTuple(output) {
+  const match = output.match(/(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  if (!match)
+    return null;
+  const major = Number.parseInt(match[1], 10);
+  const minor = Number.parseInt(match[2] ?? "0", 10);
+  const patch = Number.parseInt(match[3] ?? "0", 10);
+  if ([major, minor, patch].some((value) => Number.isNaN(value)))
+    return null;
+  return [major, minor, patch];
+}
+function compareMinimumVersion(foundOutput, minimumVersion) {
+  const foundTuple = parseVersionTuple(foundOutput.trim());
+  const minimumTuple = parseVersionTuple(minimumVersion);
+  if (!foundTuple || !minimumTuple) {
+    return { meetsMinimum: false, foundVersion: "installed but version unknown" };
+  }
+  const foundVersion = foundTuple.join(".");
+  for (let i = 0; i < 3; i++) {
+    if (foundTuple[i] > minimumTuple[i])
+      return { meetsMinimum: true, foundVersion };
+    if (foundTuple[i] < minimumTuple[i])
+      return { meetsMinimum: false, foundVersion };
+  }
+  return { meetsMinimum: true, foundVersion };
+}
 async function start() {
   const noTui = process.argv.includes("--no-tui");
+  const defaults = process.argv.includes("--defaults");
   const companyFlagIdx = process.argv.indexOf("--company");
   const companyFlagValue = companyFlagIdx !== -1 ? process.argv[companyFlagIdx + 1] : void 0;
+  const zazigEnv = process.env["ZAZIG_ENV"] ?? "production";
+  const requiredFailures = [];
+  const addMissingToolFailure = (tool, installHint) => {
+    requiredFailures.push(`${tool} is not installed. ${installHint}`);
+  };
+  const addVersionFailure = (tool, found, required) => {
+    requiredFailures.push(`${tool} version ${found} is below minimum ${required}. Please upgrade.`);
+  };
+  try {
+    const gitVersionOutput = String(execSync5("git --version", { stdio: "pipe" })).trim();
+    const gitVersionCheck = compareMinimumVersion(gitVersionOutput, "2.29.0");
+    if (!gitVersionCheck.meetsMinimum) {
+      addVersionFailure("git", gitVersionCheck.foundVersion, "2.29.0");
+    }
+  } catch {
+    addMissingToolFailure("git", "brew install git / apt install git");
+  }
+  try {
+    execSync5("tmux -V", { stdio: "pipe" });
+  } catch {
+    addMissingToolFailure("tmux", "brew install tmux / apt install tmux");
+  }
+  try {
+    const nodeVersionOutput = String(execSync5("node --version", { stdio: "pipe" })).trim();
+    const nodeVersionCheck = compareMinimumVersion(nodeVersionOutput, "20.0.0");
+    if (!nodeVersionCheck.meetsMinimum) {
+      addVersionFailure("node", nodeVersionCheck.foundVersion, "20.0.0");
+    }
+  } catch {
+    addMissingToolFailure("node", "brew install node or nvm - must be >= 20");
+  }
+  try {
+    const ghVersionOutput = String(execSync5("gh --version", { stdio: "pipe" })).trim();
+    const ghVersionCheck = compareMinimumVersion(ghVersionOutput, "2.0.0");
+    if (!ghVersionCheck.meetsMinimum) {
+      addVersionFailure("gh", ghVersionCheck.foundVersion, "2.0.0");
+    }
+  } catch {
+    addMissingToolFailure("gh", "brew install gh / https://cli.github.com");
+  }
+  try {
+    execSync5("jq --version", { stdio: "pipe" });
+  } catch {
+    addMissingToolFailure("jq", "brew install jq / apt install jq");
+  }
+  const failures = requiredFailures;
+  if (failures.length > 0) {
+    console.error("Required tool preflight checks failed:");
+    failures.forEach((failure) => console.error(`  - ${failure}`));
+    process.exitCode = 1;
+    return;
+  }
+  const optionalWarnings = [];
+  if (zazigEnv === "staging") {
+    try {
+      execSync5("bun --version", { stdio: "pipe" });
+    } catch {
+      optionalWarnings.push("WARN: Optional tool missing for staging: bun (install: brew install oven-sh/bun/bun)");
+    }
+  }
+  if (process.platform === "darwin") {
+    try {
+      execSync5("codesign --version", { stdio: "pipe" });
+    } catch {
+      optionalWarnings.push("WARN: Optional tool missing on macOS: codesign (install: Install Xcode Command Line Tools (xcode-select --install))");
+    }
+  }
+  if (optionalWarnings.length > 0) {
+    console.warn("Optional tool preflight warnings:");
+    optionalWarnings.forEach((warning) => console.warn(`  - ${warning}`));
+  }
   let claudeInstalled = false;
   try {
     execSync5("claude --version", { stdio: "pipe" });
@@ -14512,7 +14636,15 @@ async function start() {
     return;
   }
   if (!configExists()) {
-    await promptForConfig(codexInstalled);
+    if (defaults) {
+      const name = generateMachineName();
+      const claudeCount = 4;
+      const codexCount = codexInstalled ? 4 : 0;
+      saveConfig({ name, slots: { claude_code: claudeCount, codex: codexCount } });
+      console.log(`Machine configured: ${name} (${claudeCount} Claude Code, ${codexCount} Codex)`);
+    } else {
+      await promptForConfig(codexInstalled);
+    }
   }
   const config = loadConfig();
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
@@ -14525,7 +14657,6 @@ async function start() {
   }
   console.log(`zazig ${getVersion()}`);
   console.log(`Starting zazig for ${company.name}...`);
-  const zazigEnv = process.env["ZAZIG_ENV"] ?? "production";
   if (zazigEnv === "production") {
     try {
       const updateResult = await checkForUpdate(creds.supabaseUrl, anonKey, "production");
@@ -14599,7 +14730,7 @@ Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.
     console.log(`Agent started (PID ${pid}). Logs: ${logPathForCompany(company.id)}`);
   } catch (err) {
     console.error(`Failed to start daemon: ${String(err)}`);
-    process.exitCode = 1;
+    process.exitCode ||= 1;
     return;
   }
   process.stdout.write("Waiting for agents to spawn...");
@@ -14646,7 +14777,7 @@ Agent failed to start. Check logs: ${logPath}`);
   } catch (err) {
     console.warn(`Skills sync skipped: ${String(err)}`);
   }
-  if (noTui) {
+  if (noTui || defaults) {
     console.log("Zazig started successfully (headless).");
     console.log(`Logs: ${logPathForCompany(company.id)}`);
   } else if (agentSessions.length === 0) {
@@ -14666,7 +14797,7 @@ Agent failed to start. Check logs: ${logPath}`);
 
 // dist/commands/stop.js
 function sleep2(ms) {
-  return new Promise((resolve4) => setTimeout(resolve4, ms));
+  return new Promise((resolve5) => setTimeout(resolve5, ms));
 }
 function isRunning2(pid) {
   try {
@@ -17531,6 +17662,201 @@ async function verifyStaging(args2) {
   process.exit(0);
 }
 
+// dist/lib/automation-config.js
+var VALID_TYPES = ["idea", "brief", "bug", "test"];
+function parseCompanyFlag7(args2) {
+  const idx = args2.indexOf("--company");
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  return value;
+}
+function parseTypeList(args2, flag) {
+  const idx = args2.indexOf(flag);
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return [];
+  return value.split(",").map((t) => t.trim().toLowerCase());
+}
+function validateTypes(types) {
+  const invalid = types.filter((t) => !VALID_TYPES.includes(t));
+  if (invalid.length > 0) {
+    console.error(`Invalid item type(s): ${invalid.join(", ")}`);
+    console.error(`Valid types: ${VALID_TYPES.join(", ")}`);
+    process.exit(1);
+  }
+  return types;
+}
+async function automationConfig(opts) {
+  const { args: args2, columnName, label } = opts;
+  const companyId = parseCompanyFlag7(args2);
+  if (!companyId) {
+    console.error(`Usage: zazig ${label} --company <company-id> [--status] [--enable type,...] [--disable type,...]`);
+    process.exit(1);
+  }
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    console.error("Not logged in. Run 'zazig login' first.");
+    process.exit(1);
+  }
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const supabaseUrl = creds.supabaseUrl;
+  const showStatus = args2.includes("--status");
+  const enableTypes = parseTypeList(args2, "--enable");
+  const disableTypes = parseTypeList(args2, "--disable");
+  if (!showStatus && !enableTypes && !disableTypes) {
+    await printStatus(supabaseUrl, anonKey, creds.accessToken, companyId, columnName, label);
+    return;
+  }
+  if (showStatus && !enableTypes && !disableTypes) {
+    await printStatus(supabaseUrl, anonKey, creds.accessToken, companyId, columnName, label);
+    return;
+  }
+  const current = await fetchCurrentTypes(supabaseUrl, anonKey, creds.accessToken, companyId, columnName);
+  const currentSet = new Set(current);
+  if (enableTypes) {
+    for (const t of validateTypes(enableTypes)) {
+      currentSet.add(t);
+    }
+  }
+  if (disableTypes) {
+    for (const t of validateTypes(disableTypes)) {
+      currentSet.delete(t);
+    }
+  }
+  const updated = [...currentSet].sort();
+  const resp = await fetch(`${supabaseUrl}/rest/v1/companies?id=eq.${companyId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: anonKey,
+      Authorization: `Bearer ${creds.accessToken}`,
+      Prefer: "return=minimal"
+    },
+    body: JSON.stringify({ [columnName]: updated })
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    console.error(`Failed to update ${label}: ${resp.status} ${body}`);
+    process.exit(1);
+  }
+  if (updated.length === 0) {
+    console.log(`${label}: disabled (no types enabled)`);
+  } else {
+    console.log(`${label}: ${updated.join(", ")}`);
+  }
+  if (showStatus) {
+    await printStatus(supabaseUrl, anonKey, creds.accessToken, companyId, columnName, label);
+  }
+}
+async function fetchCurrentTypes(supabaseUrl, anonKey, accessToken, companyId, columnName) {
+  const resp = await fetch(`${supabaseUrl}/rest/v1/companies?id=eq.${companyId}&select=${columnName}`, {
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  if (!resp.ok) {
+    console.error(`Failed to fetch ${columnName}: ${resp.status}`);
+    process.exit(1);
+  }
+  const rows = await resp.json();
+  if (!rows.length) {
+    console.error(`Company ${companyId} not found.`);
+    process.exit(1);
+  }
+  return rows[0][columnName] ?? [];
+}
+async function printStatus(supabaseUrl, anonKey, accessToken, companyId, columnName, label) {
+  const types = await fetchCurrentTypes(supabaseUrl, anonKey, accessToken, companyId, columnName);
+  console.log(`${label} status:`);
+  for (const t of VALID_TYPES) {
+    const enabled = types.includes(t);
+    console.log(`  ${enabled ? "[x]" : "[ ]"} ${t}`);
+  }
+}
+
+// dist/commands/auto-triage.js
+async function autoTriage(args2) {
+  await automationConfig({
+    args: args2,
+    columnName: "auto_triage_types",
+    label: "auto-triage"
+  });
+}
+
+// dist/commands/auto-spec.js
+async function autoSpec(args2) {
+  await automationConfig({
+    args: args2,
+    columnName: "auto_spec_types",
+    label: "auto-spec"
+  });
+}
+
+// dist/commands/ui.js
+import { spawn as spawn2 } from "node:child_process";
+import { resolve as resolve4 } from "node:path";
+function parseCompanyFlag8(args2) {
+  const index = args2.indexOf("--company");
+  if (index === -1)
+    return void 0;
+  return args2[index + 1];
+}
+function resolveCompanyFromFlag(companies, companyFlag) {
+  if (!companyFlag)
+    return void 0;
+  return companies.find((company) => company.id === companyFlag || company.name === companyFlag);
+}
+async function ui(args2) {
+  let credentials;
+  try {
+    credentials = await getValidCredentials();
+  } catch {
+    console.error("Not logged in. Run 'zazig login' first.");
+    process.exitCode = 1;
+    return;
+  }
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const companies = await fetchUserCompanies(credentials.supabaseUrl, anonKey, credentials.accessToken);
+  const companyFlag = parseCompanyFlag8(args2);
+  const selectedFromFlag = resolveCompanyFromFlag(companies, companyFlag);
+  const company = selectedFromFlag ?? await pickCompany(companies);
+  const config = loadConfig();
+  if (!isDaemonRunningForCompany(company.id)) {
+    const env = {
+      ...process.env,
+      SUPABASE_ACCESS_TOKEN: credentials.accessToken,
+      SUPABASE_REFRESH_TOKEN: credentials.refreshToken ?? "",
+      SUPABASE_URL: credentials.supabaseUrl,
+      ZAZIG_MACHINE_NAME: config.name,
+      ZAZIG_COMPANY_ID: company.id,
+      ZAZIG_COMPANY_NAME: company.name,
+      ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
+      ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2)
+    };
+    startDaemonForCompany(env, company.id);
+  }
+  const tuiEntry = resolve4(process.cwd(), "packages/tui/src/index.tsx");
+  const child = spawn2("tsx", [tuiEntry, "--company", company.id], {
+    stdio: "inherit",
+    env: process.env
+  });
+  await new Promise((resolvePromise) => {
+    child.on("exit", (code) => {
+      if (typeof code === "number" && code !== 0)
+        process.exitCode = code;
+      resolvePromise();
+    });
+  });
+}
+
 // dist/index.js
 var [, , cmd, ...args] = process.argv;
 switch (cmd) {
@@ -17555,6 +17881,9 @@ switch (cmd) {
     break;
   case "chat":
     await chat();
+    break;
+  case "ui":
+    await ui(args);
     break;
   case "status":
     await status();
@@ -17624,6 +17953,12 @@ switch (cmd) {
   case "verify-staging":
     await verifyStaging(args);
     break;
+  case "auto-triage":
+    await autoTriage(args);
+    break;
+  case "auto-spec":
+    await autoSpec(args);
+    break;
   case void 0:
   case "--help":
   case "-h":
@@ -17638,6 +17973,7 @@ switch (cmd) {
     console.log("  start              Start the local agent daemon in the background");
     console.log("  stop               Stop the running daemon");
     console.log("  chat               Reconnect TUI to a running daemon");
+    console.log("  ui                 Ensure daemon is running, then launch Ink TUI");
     console.log("  status             Show agent state and active jobs");
     console.log("  personality <role> Show or switch exec personality (--show, --archetype)");
     console.log("  skills <subcmd>    Inspect/sync workspace skill links (status, sync)");
@@ -17662,6 +17998,8 @@ switch (cmd) {
     console.log("  send-message-to-human --company <id> --text <msg>   Send a message to a human");
     console.log("  start-expert-session --company <company-id>          Start an expert session");
     console.log("  verify-staging --company <id> --id <feature-id>      Set or clear staging verification");
+    console.log("  auto-triage --company <id> [--status] [--enable type,...] [--disable type,...]");
+    console.log("  auto-spec   --company <id> [--status] [--enable type,...] [--disable type,...]");
     break;
   default:
     console.error(`Unknown command: ${cmd}`);

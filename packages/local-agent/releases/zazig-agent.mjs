@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "c9daff1";
+const AGENT_BUILD_HASH = "1f32430";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -14210,7 +14210,7 @@ ${cpoContext}`);
           if (depResult.conflictBranches.length > 0) {
             jobLog(jobId, `Merge conflicts with branches: ${depResult.conflictBranches.join(", ")} \u2014 spawning conflict resolution agent`);
             console.log(`[executor] Merge conflicts for jobId=${jobId}: ${depResult.conflictBranches.join(", ")}`);
-            const resolved = await this.resolveDepMergeConflicts(jobId, worktreePath, msg.dependencyBranches[0], depResult.conflictBranches, msg.model);
+            const resolved = await this.resolveDepMergeConflicts(jobId, worktreePath, msg.dependencyBranches[0], depResult.conflictBranches);
             if (!resolved) {
               jobLog(jobId, `FAILED to resolve merge conflicts \u2014 failing job`);
               if (slotAcquired)
@@ -16067,7 +16067,7 @@ ${msg.text}`;
    * a short-lived `claude -p` agent to resolve each conflict inline.
    * Returns true if all conflicts were resolved, false otherwise.
    */
-  async resolveDepMergeConflicts(jobId, worktreePath, baseBranch, conflictBranches, model) {
+  async resolveDepMergeConflicts(jobId, worktreePath, baseBranch, conflictBranches) {
     for (const branch of conflictBranches) {
       jobLog(jobId, `Attempting merge + conflict resolution for branch: ${branch}`);
       try {
@@ -16129,7 +16129,7 @@ ${msg.text}`;
         appendFileSync2(logPath2, `[conflict-resolution] Conflicted files:
 ${conflictedFiles}
 `);
-        const claudeCmd = shellEscape(["claude", "--model", model, "-p"]);
+        const claudeCmd = shellEscape(["claude", "--model", "claude-sonnet-4-6", "-p"]);
         const wrappedCmd = [
           `unset CLAUDECODE`,
           `echo "[conflict-resolution] Starting claude -p at $(date -u +%Y-%m-%dT%H:%M:%SZ)"`,
@@ -16290,7 +16290,7 @@ async function runCodexReview(job, jobSpec, acceptanceCriteria) {
         "--",
         ".",
         ...overlayPaths.map((path) => `:!${path}`)
-      ], { cwd: worktreePath });
+      ], { cwd: worktreePath, maxBuffer: 10 * 1024 * 1024 });
       uncommittedDiff = stdout;
     } catch (err) {
       return { pass: false, reason: `git diff failed: ${String(err)}`, committed: false };
@@ -16312,7 +16312,7 @@ async function runCodexReview(job, jobSpec, acceptanceCriteria) {
   }
   let diff;
   try {
-    const { stdout } = await execFileAsync3("git", ["diff", `${startingCommit}..HEAD`], { cwd: worktreePath });
+    const { stdout } = await execFileAsync3("git", ["diff", `${startingCommit}..HEAD`], { cwd: worktreePath, maxBuffer: 10 * 1024 * 1024 });
     diff = stdout;
   } catch (err) {
     return {
@@ -16433,7 +16433,12 @@ function buildCommand(slotType, complexity, model, worktreePath, promptFilePath,
   if (slotType === "codex") {
     const args = ["exec", "-m", resolvedModel, "--full-auto", "-c", "sandbox_workspace_write.network_access=true", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
     if (repoDir) {
+      console.log(`[buildCommand] codex: adding --add-dir repoDir=${repoDir} for worktreePath=${worktreePath}`);
       args.push("--add-dir", repoDir);
+      const gitWorktreesDir = join4(repoDir, ".git", "worktrees");
+      args.push("--add-dir", gitWorktreesDir);
+    } else {
+      console.warn(`[buildCommand] codex: repoDir is undefined \u2014 sandbox may block git commit in worktree`);
     }
     if (complexity === "medium") {
       args.push("-c", "model_reasoning_effort=xhigh");

@@ -1,35 +1,46 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Box, Text } from 'ink';
 
-interface CriticalBannerProps {
-  show?: boolean;
-  message?: string;
-}
+export type CriticalBannerProps = {
+  message: string;
+  visible: boolean;
+  onDismiss?: () => void;
+};
 
-export default function CriticalBanner({ show = false, message = 'CRITICAL ALERT' }: CriticalBannerProps) {
-  const [visible, setVisible] = useState(show);
+const AUTO_DISMISS_MS = 15000;
 
+export default function CriticalBanner({
+  message,
+  visible,
+  onDismiss
+}: CriticalBannerProps) {
   useEffect(() => {
-    if (!show) {
-      setVisible(false);
+    if (!visible || !onDismiss) {
       return;
     }
-    setVisible(true);
-    const timer = setTimeout(() => {
-      setVisible(false);
-    }, 15000);
-    return () => clearTimeout(timer);
-  }, [show]);
+
+    const dismissTimer = setTimeout(() => {
+      onDismiss();
+    }, AUTO_DISMISS_MS);
+
+    return () => {
+      clearTimeout(dismissTimer);
+    };
+  }, [visible, onDismiss]);
 
   if (!visible) {
     return null;
   }
 
   return (
-    <Box width="100%" flexDirection="row" borderStyle="single" borderColor="red">
-      <Text color="red" bold>
-        ● CRITICAL: {message}
-      </Text>
+    <Box
+      width="100%"
+      borderStyle="round"
+      borderColor="red"
+      color="red"
+      paddingX={1}
+    >
+      <Text color="red">{message}</Text>
     </Box>
   );
 }

@@ -37,7 +37,6 @@ export default function CriticalBanner({
       width="100%"
       borderStyle="round"
       borderColor="red"
-      color="red"
       paddingX={1}
     >
       <Text color="red">{message}</Text>

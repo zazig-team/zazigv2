@@ -100,12 +100,12 @@ export function SessionViewer(props: SessionViewerProps): unknown {
   const { useState, useEffect, useRef } = React;
 
   // null = session is embedded (no placeholder); string = placeholder message
-  const [message, setMessage] = useState<string | null>(
-    sessionName ? null : WAITING_MESSAGE
+  const [message, setMessage] = useState(
+    sessionName ? null : (WAITING_MESSAGE as string | null)
   );
 
   // Track whether the session is currently embedded so re-embed logic is clean.
-  const isEmbedded = useRef<boolean>(false);
+  const isEmbedded = useRef(false);
 
   const geometry = computeGeometry();
 

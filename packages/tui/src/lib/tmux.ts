@@ -21,8 +21,26 @@ export class TmuxSessionNotFoundError extends Error {
   }
 }
 
+type TmuxExecError = Error & {
+  stderr?: string;
+};
+
+function getTmuxErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const stderr = (error as TmuxExecError).stderr;
+    return `${error.message} ${String(stderr ?? "")}`.trim();
+  }
+  return String(error);
+}
+
 function isSessionNotFoundMessage(message: string): boolean {
-  return /can't find session|no such session/i.test(message);
+  return /can't find session|no such session|no server running/i.test(message);
+}
+
+function isSafeDetachErrorMessage(message: string): boolean {
+  return /can't find pane|can't find window|not enough panes|can't break with only one pane|no current client/i.test(
+    message
+  );
 }
 
 function runTmux(args: string[]): Promise<ExecResult> {
@@ -44,7 +62,7 @@ async function assertSessionExists(sessionName: string): Promise<void> {
   try {
     await runTmux(["has-session", "-t", sessionName]);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getTmuxErrorMessage(error);
     if (isSessionNotFoundMessage(message)) {
       throw new TmuxSessionNotFoundError(sessionName);
     }
@@ -81,6 +99,20 @@ export async function switchSession(sessionName: string): Promise<void> {
   await runTmux(["switch-client", "-t", sessionName]);
 }
 
+export async function hasSession(sessionName: string): Promise<boolean> {
+  assertSessionName(sessionName);
+  try {
+    await runTmux(["has-session", "-t", sessionName]);
+    return true;
+  } catch (error) {
+    const message = getTmuxErrorMessage(error);
+    if (isSessionNotFoundMessage(message)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 export async function embedSession(sessionName: string, geometry: SessionGeometry): Promise<void> {
   assertSessionName(sessionName);
   assertGeometry(geometry);
@@ -97,4 +129,16 @@ export async function embedSession(sessionName: string, geometry: SessionGeometr
     "-y",
     String(Math.floor(geometry.height)),
   ]);
+}
+
+export async function detachEmbeddedPane(): Promise<void> {
+  try {
+    await runTmux(["break-pane", "-d", "-t", "."]);
+  } catch (error) {
+    const message = getTmuxErrorMessage(error);
+    if (isSafeDetachErrorMessage(message)) {
+      return;
+    }
+    throw error;
+  }
 }

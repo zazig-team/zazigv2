@@ -12,7 +12,7 @@
  *   render(React.createElement(SessionViewer, { sessionName: 'cpo-agent' }));
  */
 
-import { embedSession, switchSession } from "../lib/tmux.js";
+import { detachEmbeddedPane, embedSession, hasSession } from "../lib/tmux.js";
 import type { SessionGeometry } from "../lib/tmux.js";
 
 // ---------------------------------------------------------------------------
@@ -21,6 +21,18 @@ import type { SessionGeometry } from "../lib/tmux.js";
 
 export const SESSION_ENDED_MESSAGE = "Session ended";
 export const WAITING_MESSAGE = "Waiting for agents...";
+const SESSION_POLL_INTERVAL_MS = 1500;
+
+type ReactRuntime = {
+  useState: <T>(initialState: T) => [T, (value: T) => void];
+  useEffect: (effect: () => void | (() => void), deps?: unknown[]) => void;
+  useRef: <T>(initialValue: T) => { current: T };
+};
+
+type InkRuntime = {
+  Box: (props: Record<string, unknown>, ...children: unknown[]) => unknown;
+  Text: (props: Record<string, unknown>, ...children: unknown[]) => unknown;
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,12 +88,17 @@ function computeGeometry(): SessionGeometry {
  */
 export function SessionViewer(props: SessionViewerProps): unknown {
   const { sessionName } = props;
+  const geometry = computeGeometry();
+  const geometryKey = `${geometry.top}:${geometry.left}:${geometry.width}:${geometry.height}`;
+  const normalizedSessionName =
+    typeof sessionName === "string" ? sessionName.trim() : "";
+  const hasSelectedSession = normalizedSessionName.length > 0;
 
   // Lazy-load React hooks to allow the module to be imported without React
   // being installed (e.g. in unit-test environments that only inspect exports).
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = (globalThis as Record<string, unknown>)["React"] as
-    | { useState: Function; useEffect: Function }
+    | ReactRuntime
     | undefined;
 
   if (!React) {
@@ -89,53 +106,118 @@ export function SessionViewer(props: SessionViewerProps): unknown {
     return {
       type: "SessionViewer",
       props,
-      message: sessionName ? null : WAITING_MESSAGE,
+      message: hasSelectedSession ? null : WAITING_MESSAGE,
     };
   }
 
-  const { useState, useEffect } = React;
+  const { useState, useEffect, useRef } = React;
 
   const [message, setMessage] = useState<string | null>(
-    sessionName ? null : WAITING_MESSAGE
+    hasSelectedSession ? null : WAITING_MESSAGE
   );
+  const embeddedSessionRef = useRef<string | null>(null);
+  const embeddedGeometryRef = useRef<string | null>(null);
 
-  const geometry = computeGeometry();
-
-  // Embed or switch the session whenever the selection changes.
+  // Poll session liveness while a session is selected. Move to placeholders
+  // when no session is selected or when the active session disappears.
   useEffect(() => {
     let cancelled = false;
+    let pollInFlight = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
 
-    if (!sessionName) {
-      setMessage(WAITING_MESSAGE);
-      return;
+    const clearEmbeddedPane = async (): Promise<void> => {
+      if (!embeddedSessionRef.current) {
+        return;
+      }
+      try {
+        await detachEmbeddedPane();
+      } catch {
+        // Best effort cleanup; rendering falls back to placeholder either way.
+      }
+      if (!cancelled) {
+        embeddedSessionRef.current = null;
+        embeddedGeometryRef.current = null;
+      }
+    };
+
+    const showPlaceholder = async (nextMessage: string): Promise<void> => {
+      await clearEmbeddedPane();
+      if (!cancelled) {
+        setMessage(nextMessage);
+      }
+    };
+
+    const syncSessionState = async (): Promise<void> => {
+      if (cancelled || pollInFlight) {
+        return;
+      }
+
+      pollInFlight = true;
+      try {
+        if (!hasSelectedSession) {
+          await showPlaceholder(WAITING_MESSAGE);
+          return;
+        }
+
+        const alive = await hasSession(normalizedSessionName);
+        if (!alive) {
+          await showPlaceholder(SESSION_ENDED_MESSAGE);
+          return;
+        }
+
+        const needsEmbed =
+          embeddedSessionRef.current !== normalizedSessionName ||
+          embeddedGeometryRef.current !== geometryKey;
+
+        if (needsEmbed) {
+          if (
+            embeddedSessionRef.current &&
+            embeddedSessionRef.current !== normalizedSessionName
+          ) {
+            await clearEmbeddedPane();
+          }
+
+          await embedSession(normalizedSessionName, geometry);
+          if (!cancelled) {
+            embeddedSessionRef.current = normalizedSessionName;
+            embeddedGeometryRef.current = geometryKey;
+          }
+        }
+
+        if (!cancelled) {
+          setMessage(null);
+        }
+      } catch {
+        await showPlaceholder(SESSION_ENDED_MESSAGE);
+      } finally {
+        pollInFlight = false;
+      }
+    };
+
+    void syncSessionState();
+
+    if (hasSelectedSession) {
+      timer = setInterval(() => {
+        void syncSessionState();
+      }, SESSION_POLL_INTERVAL_MS);
     }
-
-    embedSession(sessionName, geometry)
-      .then(() => {
-        if (!cancelled) setMessage(null);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setMessage(`${SESSION_ENDED_MESSAGE}: ${err.message}`);
-      });
 
     return () => {
       cancelled = true;
+      if (timer) {
+        clearInterval(timer);
+      }
     };
-  }, [sessionName]);
-
-  // Handle tab switches after the initial embed.
-  useEffect(() => {
-    if (!sessionName) return;
-
-    switchSession(sessionName).catch((err: Error) => {
-      setMessage(`${SESSION_ENDED_MESSAGE}: ${err.message}`);
-    });
-  }, [sessionName]);
+  }, [
+    geometryKey,
+    hasSelectedSession,
+    normalizedSessionName,
+  ]);
 
   // Dynamically resolve Ink's Box and Text to avoid compile-time dependency.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const ink = (globalThis as Record<string, unknown>)["ink"] as
-    | { Box: Function; Text: Function }
+    | InkRuntime
     | undefined;
 
   if (!ink) {
@@ -149,7 +231,9 @@ export function SessionViewer(props: SessionViewerProps): unknown {
       width: geometry.width,
       height: geometry.height,
       flexDirection: "column",
+      justifyContent: message ? "center" : "flex-start",
+      alignItems: message ? "center" : "stretch",
     },
-    message ? Text({ color: "gray" }, message) : null
+    message ? Text({ color: "gray", dimColor: true }, message) : null
   );
 }

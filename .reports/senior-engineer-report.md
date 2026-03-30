@@ -1,5 +1,14 @@
 status: pass
-summary: Extended `zazig start` preflight checks to validate required CLI tools and versions with resilient parsing, collect and report all required failures together, and preserve existing Claude/Codex behavior.
+summary: Implemented a new packages/tui Ink scaffold, wired it into the monorepo workspace, and added a CLI ui command that ensures daemon startup before launching the TUI.
 files_changed:
-  - packages/cli/src/commands/start.ts
-failure_reason:
+  - package.json
+  - packages/tui/package.json
+  - packages/tui/tsconfig.json
+  - packages/tui/src/index.tsx
+  - packages/tui/src/App.tsx
+  - packages/tui/src/components/TopBar.tsx
+  - packages/tui/src/components/SessionPane.tsx
+  - packages/tui/src/components/Sidebar.tsx
+  - packages/cli/src/commands/ui.ts
+  - packages/cli/src/index.ts
+failure_reason: n/a

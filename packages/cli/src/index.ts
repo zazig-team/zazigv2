@@ -44,6 +44,7 @@ import { startExpertSession } from "./commands/start-expert-session.js";
 import { verifyStaging } from "./commands/verify-staging.js";
 import { autoTriage } from "./commands/auto-triage.js";
 import { autoSpec } from "./commands/auto-spec.js";
+import { ui } from "./commands/ui.js";
 import { getVersion } from "./lib/version.js";
 
 const [, , cmd, ...args] = process.argv;
@@ -76,6 +77,10 @@ switch (cmd) {
 
   case "chat":
     await chat();
+    break;
+
+  case "ui":
+    await ui(args);
     break;
 
   case "status":
@@ -191,6 +196,7 @@ switch (cmd) {
     console.log("  start              Start the local agent daemon in the background");
     console.log("  stop               Stop the running daemon");
     console.log("  chat               Reconnect TUI to a running daemon");
+    console.log("  ui                 Ensure daemon is running, then launch Ink TUI");
     console.log("  status             Show agent state and active jobs");
     console.log("  personality <role> Show or switch exec personality (--show, --archetype)");
     console.log("  skills <subcmd>    Inspect/sync workspace skill links (status, sync)");

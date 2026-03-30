@@ -196,7 +196,7 @@ switch (cmd) {
     console.log("  start              Start the local agent daemon in the background");
     console.log("  stop               Stop the running daemon");
     console.log("  chat               Reconnect TUI to a running daemon");
-    console.log("  ui                 Ensure daemon is running, then launch Ink TUI");
+    console.log("  ui                 Launch the zazig TUI");
     console.log("  status             Show agent state and active jobs");
     console.log("  personality <role> Show or switch exec personality (--show, --archetype)");
     console.log("  skills <subcmd>    Inspect/sync workspace skill links (status, sync)");

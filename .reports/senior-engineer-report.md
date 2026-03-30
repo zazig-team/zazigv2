@@ -1,14 +1,11 @@
-status: pass
-summary: Implemented a new packages/tui Ink scaffold, wired it into the monorepo workspace, and added a CLI ui command that ensures daemon startup before launching the TUI.
+status: fail
+summary: Implemented `zazig ui` to resolve company context, ensure daemon startup, and launch the TUI via `@zazig/tui`, with command registration and workspace dependency wiring.
 files_changed:
-  - package.json
-  - packages/tui/package.json
-  - packages/tui/tsconfig.json
-  - packages/tui/src/index.tsx
-  - packages/tui/src/App.tsx
-  - packages/tui/src/components/TopBar.tsx
-  - packages/tui/src/components/SessionPane.tsx
-  - packages/tui/src/components/Sidebar.tsx
   - packages/cli/src/commands/ui.ts
   - packages/cli/src/index.ts
-failure_reason: n/a
+  - packages/cli/package.json
+  - packages/tui/src/index.tsx
+  - packages/tui/package.json
+  - packages/tui/tsconfig.json
+  - package-lock.json
+failure_reason: Could not create git index lock in the worktree metadata path (`.git/worktrees/.../index.lock`) due sandbox permission denial, so commit could not be completed.

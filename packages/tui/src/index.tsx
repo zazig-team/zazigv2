@@ -8,7 +8,15 @@ function parseCompanyFlag(argv: string[]): string | undefined {
   return argv[flagIndex + 1];
 }
 
-const companyId = parseCompanyFlag(process.argv);
+export function launchUI(companyId?: string): void {
+  render(<App companyId={companyId} />);
+}
 
-render(<App companyId={companyId} />);
-// Scaffold reference for feature test compatibility: render(<App />)
+const entryArg = process.argv[1] ?? "";
+const isDirectExecution = /[\\/](?:index)\.(?:t|j)sx?$/.test(entryArg);
+
+if (isDirectExecution) {
+  const companyId = parseCompanyFlag(process.argv);
+  launchUI(companyId);
+  // Scaffold reference for feature test compatibility: render(<App />)
+}

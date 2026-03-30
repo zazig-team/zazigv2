@@ -1,11 +1,11 @@
-import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { launchUI } from "@zazig/tui";
 import { loadConfig } from "../lib/config.js";
 import { fetchUserCompanies, pickCompany } from "../lib/company-picker.js";
 import { getValidCredentials } from "../lib/credentials.js";
 import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
 import { isDaemonRunningForCompany, startDaemonForCompany } from "../lib/daemon.js";
 
+// packages/tui workspace export used by zazig ui.
 function parseCompanyFlag(args: string[]): string | undefined {
   const index = args.indexOf("--company");
   if (index === -1) return undefined;
@@ -30,12 +30,30 @@ export async function ui(args: string[]): Promise<void> {
     return;
   }
 
+  let config;
+  try {
+    config = loadConfig();
+  } catch (error) {
+    console.error(String(error));
+    process.exitCode = 1;
+    return;
+  }
+
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
   const companies = await fetchUserCompanies(credentials.supabaseUrl, anonKey, credentials.accessToken);
   const companyFlag = parseCompanyFlag(args);
   const selectedFromFlag = resolveCompanyFromFlag(companies, companyFlag);
-  const company = selectedFromFlag ?? (await pickCompany(companies));
-  const config = loadConfig();
+
+  if (companyFlag && !selectedFromFlag) {
+    console.error(`Unknown company: ${companyFlag}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const selectedFromConfig = config.company_id
+    ? companies.find((company) => company.id === config.company_id)
+    : undefined;
+  const company = selectedFromFlag ?? selectedFromConfig ?? (await pickCompany(companies));
 
   if (!isDaemonRunningForCompany(company.id)) {
     const env: NodeJS.ProcessEnv = {
@@ -48,20 +66,16 @@ export async function ui(args: string[]): Promise<void> {
       ZAZIG_COMPANY_NAME: company.name,
       ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
       ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
+      ...(process.env["ZAZIG_HOME"] ? { ZAZIG_HOME: process.env["ZAZIG_HOME"] } : {}),
     };
-    startDaemonForCompany(env, company.id);
+    try {
+      startDaemonForCompany(env, company.id);
+    } catch (error) {
+      console.error(`Failed to start daemon: ${String(error)}`);
+      process.exitCode = 1;
+      return;
+    }
   }
 
-  const tuiEntry = resolve(process.cwd(), "packages/tui/src/index.tsx");
-  const child = spawn("tsx", [tuiEntry, "--company", company.id], {
-    stdio: "inherit",
-    env: process.env,
-  });
-
-  await new Promise<void>((resolvePromise) => {
-    child.on("exit", (code) => {
-      if (typeof code === "number" && code !== 0) process.exitCode = code;
-      resolvePromise();
-    });
-  });
+  launchUI(company.id);
 }

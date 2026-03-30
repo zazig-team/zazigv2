@@ -25,6 +25,14 @@ function isSessionNotFoundMessage(message: string): boolean {
   return /can't find session|no such session/i.test(message);
 }
 
+function isPaneNotFoundMessage(message: string): boolean {
+  return /can't find pane|no current pane|no pane/i.test(message);
+}
+
+function isNotInTmuxMessage(message: string): boolean {
+  return /not in a tmux session|failed to connect to server/i.test(message);
+}
+
 function runTmux(args: string[]): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     execFile("tmux", args, (error, stdout, stderr) => {
@@ -38,18 +46,6 @@ function runTmux(args: string[]): Promise<ExecResult> {
       });
     });
   });
-}
-
-async function assertSessionExists(sessionName: string): Promise<void> {
-  try {
-    await runTmux(["has-session", "-t", sessionName]);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (isSessionNotFoundMessage(message)) {
-      throw new TmuxSessionNotFoundError(sessionName);
-    }
-    throw error;
-  }
 }
 
 function assertSessionName(sessionName: string): void {
@@ -72,6 +68,40 @@ function assertGeometry(geometry: SessionGeometry): void {
   }
   if (!Number.isFinite(left) || left < 0) {
     throw new Error("geometry.left must be a non-negative number");
+  }
+}
+
+export async function hasSession(sessionName: string): Promise<boolean> {
+  assertSessionName(sessionName);
+
+  try {
+    await runTmux(["has-session", "-t", sessionName]);
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isSessionNotFoundMessage(message)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function assertSessionExists(sessionName: string): Promise<void> {
+  const exists = await hasSession(sessionName);
+  if (!exists) {
+    throw new TmuxSessionNotFoundError(sessionName);
+  }
+}
+
+export async function detachEmbeddedPane(): Promise<void> {
+  try {
+    await runTmux(["break-pane", "-d", "-t", "."]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isPaneNotFoundMessage(message) || isNotInTmuxMessage(message)) {
+      return;
+    }
+    throw error;
   }
 }
 

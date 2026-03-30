@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
-const columns = [
+const COLUMNS = [
   { label: 'Ready', count: 0 },
   { label: 'Building', count: 0 },
   { label: 'CI Check', count: 0 },
@@ -9,20 +9,20 @@ const columns = [
   { label: 'Shipped', count: 0 },
 ];
 
-const PipelineSummary: React.FC = () => {
+export default function PipelineSummary() {
   return (
-    <Box flexDirection="column" borderStyle="single" paddingX={1}>
+    <Box flexDirection="column">
       <Text bold>PIPELINE</Text>
       <Box flexDirection="column" marginTop={1}>
-        {columns.map(({ label, count }) => (
-          <Box key={label} flexDirection="row" gap={1}>
-            <Text>{label}:</Text>
-            <Text>{count}</Text>
+        {COLUMNS.map((col) => (
+          <Box key={col.label} flexDirection="row">
+            <Box width={12}>
+              <Text>{col.label}</Text>
+            </Box>
+            <Text dimColor>{col.count}</Text>
           </Box>
         ))}
       </Box>
     </Box>
   );
-};
-
-export default PipelineSummary;
+}

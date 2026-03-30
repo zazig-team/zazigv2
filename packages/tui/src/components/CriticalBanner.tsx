@@ -6,17 +6,19 @@ interface CriticalBannerProps {
   message?: string;
 }
 
-const CriticalBanner: React.FC<CriticalBannerProps> = ({ show = false, message = 'Critical alert!' }) => {
+export default function CriticalBanner({ show = false, message = 'CRITICAL ALERT' }: CriticalBannerProps) {
   const [visible, setVisible] = useState(show);
 
   useEffect(() => {
-    setVisible(show);
-    if (show) {
-      const timer = setTimeout(() => {
-        setVisible(false);
-      }, 15000);
-      return () => clearTimeout(timer);
+    if (!show) {
+      setVisible(false);
+      return;
     }
+    setVisible(true);
+    const timer = setTimeout(() => {
+      setVisible(false);
+    }, 15000);
+    return () => clearTimeout(timer);
   }, [show]);
 
   if (!visible) {
@@ -24,10 +26,10 @@ const CriticalBanner: React.FC<CriticalBannerProps> = ({ show = false, message =
   }
 
   return (
-    <Box width="100%" borderStyle="single" paddingX={1}>
-      <Text color="red" bold>CRITICAL: {message}</Text>
+    <Box width="100%" flexDirection="row" borderStyle="single" borderColor="red">
+      <Text color="red" bold>
+        ● CRITICAL: {message}
+      </Text>
     </Box>
   );
-};
-
-export default CriticalBanner;
+}

@@ -4,40 +4,65 @@ import { Box, Text } from 'ink';
 type Severity = 'critical' | 'warning' | 'info';
 
 interface Alert {
-  id: string;
+  id: number;
   severity: Severity;
   message: string;
   timestamp: string;
 }
 
 const SAMPLE_ALERTS: Alert[] = [
-  { id: '1', severity: 'critical', message: 'Build failed on feature/auth', timestamp: '2m ago' },
-  { id: '2', severity: 'warning', message: 'CI check slow on feature/payments', timestamp: '5m ago' },
-  { id: '3', severity: 'info', message: 'Job dispatched for feature/ui', timestamp: '10m ago' },
+  {
+    id: 1,
+    severity: 'critical',
+    message: 'Build pipeline failure on main branch',
+    timestamp: '2 min ago',
+  },
+  {
+    id: 2,
+    severity: 'warning',
+    message: 'CI check timeout on feature/auth-refactor',
+    timestamp: '5 min ago',
+  },
+  {
+    id: 3,
+    severity: 'info',
+    message: 'Agent job completed successfully',
+    timestamp: '10 min ago',
+  },
+  {
+    id: 4,
+    severity: 'warning',
+    message: 'Merge conflict detected in PR #42',
+    timestamp: '15 min ago',
+  },
 ];
 
-function getSeverityColor(severity: Severity): string {
-  if (severity === 'critical') return 'red';
-  if (severity === 'warning') return 'yellow';
-  return 'white';
+function SeverityDot({ severity }: { severity: Severity }) {
+  if (severity === 'critical') {
+    return <Text color="red">●</Text>;
+  }
+  if (severity === 'warning') {
+    return <Text color="yellow">●</Text>;
+  }
+  return <Text dimColor>●</Text>;
 }
 
-const AlertsFeed: React.FC = () => {
+export default function AlertsFeed() {
   return (
-    <Box flexDirection="column" borderStyle="single" paddingX={1}>
-      <Text bold>ALERTS</Text>
-      <Box flexDirection="column" marginTop={1}>
-        {SAMPLE_ALERTS.map((alert) => (
-          <Box key={alert.id} flexDirection="row" gap={1}>
-            <Text color={getSeverityColor(alert.severity)} dimColor={alert.severity === 'info'}>
-              ● {alert.message}
-            </Text>
+    <Box flexDirection="column">
+      {SAMPLE_ALERTS.map((alert) => (
+        <Box key={alert.id} flexDirection="row" marginBottom={0}>
+          <Box marginRight={1}>
+            <SeverityDot severity={alert.severity} />
+          </Box>
+          <Box flexGrow={1}>
+            <Text>{alert.message}</Text>
+          </Box>
+          <Box marginLeft={1}>
             <Text dimColor>{alert.timestamp}</Text>
           </Box>
-        ))}
-      </Box>
+        </Box>
+      ))}
     </Box>
   );
-};
-
-export default AlertsFeed;
+}

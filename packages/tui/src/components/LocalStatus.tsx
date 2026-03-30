@@ -6,41 +6,43 @@ interface Agent {
   status: 'active' | 'idle' | 'expert';
 }
 
-const agents: Agent[] = [
+const SAMPLE_AGENTS: Agent[] = [
+  { name: 'claude-1', status: 'active' },
   { name: 'codex-1', status: 'idle' },
-  { name: 'codex-2', status: 'idle' },
-  { name: 'cc-1', status: 'idle' },
-  { name: 'cc-2', status: 'idle' },
+  { name: 'expert-session', status: 'expert' },
 ];
 
-function getStatusColor(status: Agent['status']): string {
-  if (status === 'active') return 'green';
-  if (status === 'expert') return 'yellow';
-  return 'gray';
+function AgentDot({ status }: { status: Agent['status'] }) {
+  if (status === 'active') {
+    return <Text color="green">●</Text>;
+  }
+  if (status === 'expert') {
+    return <Text color="cyan">●</Text>;
+  }
+  return <Text dimColor>●</Text>;
 }
 
-const LocalStatus: React.FC = () => {
+export default function LocalStatus() {
   return (
-    <Box flexDirection="column" borderStyle="single" paddingX={1}>
+    <Box flexDirection="column">
       <Text bold>THIS MACHINE</Text>
-      <Box flexDirection="column" marginTop={1}>
-        <Text>Codex: 0/4</Text>
+      <Box flexDirection="row" marginTop={1}>
+        <Text>Codex: 0/4  </Text>
         <Text>CC: 0/4</Text>
       </Box>
       <Box flexDirection="column" marginTop={1}>
-        {agents.map((agent) => (
-          <Box key={agent.name} flexDirection="row" gap={1}>
-            <Text color={getStatusColor(agent.status)}>●</Text>
+        {SAMPLE_AGENTS.map((agent) => (
+          <Box key={agent.name} flexDirection="row">
+            <Box marginRight={1}>
+              <AgentDot status={agent.status} />
+            </Box>
             <Text>{agent.name}</Text>
-            {agent.status === 'expert' && <Text color="yellow"> [expert session]</Text>}
+            {agent.status === 'expert' && (
+              <Text dimColor> (expert session)</Text>
+            )}
           </Box>
         ))}
       </Box>
-      <Box marginTop={1}>
-        <Text dimColor>Expert session: none</Text>
-      </Box>
     </Box>
   );
-};
-
-export default LocalStatus;
+}

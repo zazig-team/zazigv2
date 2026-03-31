@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron';
-import pty, { type IPty } from 'node-pty';
+import * as pty from 'node-pty';
+import { type IPty } from 'node-pty';
 
 import { TERMINAL_OUTPUT } from './ipc-channels';
 

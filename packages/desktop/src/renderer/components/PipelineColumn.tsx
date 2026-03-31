@@ -26,9 +26,18 @@ interface PipelineColumnProps {
   onWatchClick: (job: PipelineJob) => void;
 }
 
+export interface Company {
+  id: string;
+  name: string;
+}
+
 type Unsubscribe = () => void;
 type ZazigBridge = {
   onPipelineUpdate?: (callback: (payload: unknown) => void) => Unsubscribe | void;
+  onCompaniesLoaded?: (
+    callback: (payload: { companies: Company[]; selectedId: string | null }) => void,
+  ) => Unsubscribe | void;
+  selectCompany?: (id: string) => void;
 };
 type WindowWithZazig = Window & {
   zazig?: ZazigBridge;
@@ -299,7 +308,7 @@ function parsePipelinePayload(payload: unknown): PipelineViewData {
     getString(status.company_name) ||
     getString(status.companyName) ||
     getString(asRecord(status.company).name) ||
-    'Unknown company';
+    'Select a company';
 
   return {
     companyName,
@@ -311,8 +320,16 @@ function parsePipelinePayload(payload: unknown): PipelineViewData {
   };
 }
 
-function StatusBar(props: { companyName: string; daemonRunning: boolean }): React.JSX.Element {
-  const { companyName, daemonRunning } = props;
+function StatusBar(props: {
+  companyName: string;
+  daemonRunning: boolean;
+  companies: Company[];
+  selectedCompanyId: string | null;
+  onSelectCompany: (id: string) => void;
+}): React.JSX.Element {
+  const { companyName, daemonRunning, companies, selectedCompanyId, onSelectCompany } = props;
+  const showDropdown = companies.length > 1;
+
   return (
     <div
       style={{
@@ -336,7 +353,39 @@ function StatusBar(props: { companyName: string; daemonRunning: boolean }): Reac
           {daemonRunning ? 'Daemon running' : 'Daemon stopped'}
         </span>
       </div>
-      <div style={{ fontWeight: 600, fontSize: 14 }}>{companyName}</div>
+      {showDropdown ? (
+        <select
+          aria-label="Select company"
+          value={selectedCompanyId ?? ''}
+          onChange={(e) => {
+            if (e.target.value) onSelectCompany(e.target.value);
+          }}
+          style={{
+            width: '100%',
+            background: '#101e33',
+            color: '#e4ebff',
+            border: '1px solid #2a3852',
+            borderRadius: 6,
+            padding: '4px 6px',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          {!selectedCompanyId && (
+            <option value="" disabled>
+              Select a company
+            </option>
+          )}
+          {companies.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <div style={{ fontWeight: 600, fontSize: 14 }}>{companyName}</div>
+      )}
     </div>
   );
 }
@@ -372,6 +421,8 @@ export default function PipelineColumn({
   const [pipeline, setPipeline] = useState<PipelineViewData>(PLACEHOLDER_PIPELINE);
   const [hasLiveUpdate, setHasLiveUpdate] = useState(false);
   const [isCompletedOpen, setIsCompletedOpen] = useState(false); // collapsed by default
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
 
   useEffect(() => {
     const bridge = (window as WindowWithZazig).zazig;
@@ -391,6 +442,32 @@ export default function PipelineColumn({
     };
   }, []);
 
+  useEffect(() => {
+    const bridge = (window as WindowWithZazig).zazig;
+    if (!bridge?.onCompaniesLoaded) {
+      return undefined;
+    }
+
+    const unsubscribe = bridge.onCompaniesLoaded(
+      (payload: { companies: Company[]; selectedId: string | null }) => {
+        setCompanies(payload.companies);
+        setSelectedCompanyId(payload.selectedId);
+      },
+    );
+
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, []);
+
+  const handleSelectCompany = (id: string) => {
+    setSelectedCompanyId(id);
+    const bridge = (window as WindowWithZazig).zazig;
+    bridge?.selectCompany?.(id);
+  };
+
   const completedItems = useMemo(() => pipeline.recentlyCompleted.slice(0, 5), [pipeline.recentlyCompleted]);
 
   return (
@@ -406,7 +483,13 @@ export default function PipelineColumn({
         borderRight: '1px solid #22314b',
       }}
     >
-      <StatusBar companyName={pipeline.companyName} daemonRunning={pipeline.daemonRunning} />
+      <StatusBar
+        companyName={pipeline.companyName}
+        daemonRunning={pipeline.daemonRunning}
+        companies={companies}
+        selectedCompanyId={selectedCompanyId}
+        onSelectCompany={handleSelectCompany}
+      />
 
       <div style={{ padding: 10, overflowY: 'auto', flex: 1 }}>
         <Section title="Active Jobs">

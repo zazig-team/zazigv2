@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
 import {
+  COMPANIES_LOADED,
   PIPELINE_UPDATE,
+  SELECT_COMPANY,
   TERMINAL_ATTACH,
   TERMINAL_DETACH,
   TERMINAL_INPUT,
@@ -11,6 +13,7 @@ import {
 
 type PipelineUpdateCallback = (payload: unknown) => void;
 type TerminalOutputCallback = (payload: string) => void;
+type CompaniesLoadedCallback = (payload: unknown) => void;
 type Unsubscribe = () => void;
 
 function subscribe<T>(channel: string, callback: (payload: T) => void): Unsubscribe {
@@ -42,6 +45,12 @@ const zazigBridge = {
   },
   terminalResize(cols: number, rows: number): void {
     ipcRenderer.send(TERMINAL_RESIZE, { cols, rows });
+  },
+  onCompaniesLoaded(callback: CompaniesLoadedCallback): Unsubscribe {
+    return subscribe(COMPANIES_LOADED, callback);
+  },
+  selectCompany(id: string): void {
+    ipcRenderer.send(SELECT_COMPANY, id);
   },
 };
 

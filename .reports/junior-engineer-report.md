@@ -1,7 +1,9 @@
 status: pass
-summary: Updated expert session merge instructions and safety-net workflow to use push-to-merge (`git push origin {branch}:master`) with PR fallback via `gh pr create` when direct push is rejected.
+summary: Implemented desktop company picker dropdown with persistence, auto-selection, and --company flag injection into all CLI calls.
 files_changed:
-  - packages/local-agent/src/expert-session-manager.ts
-  - packages/local-agent/src/expert-session-manager.test.ts
-  - supabase/migrations/141_expert_roles_branch_awareness.sql
-  - .reports/junior-engineer-report.md
+  - packages/desktop/src/main/cli.ts
+  - packages/desktop/src/main/index.ts
+  - packages/desktop/src/main/ipc-channels.ts
+  - packages/desktop/src/main/poller.ts
+  - packages/desktop/src/main/preload.ts
+  - packages/desktop/src/renderer/components/PipelineColumn.tsx

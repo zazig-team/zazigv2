@@ -44,6 +44,8 @@ import { startExpertSession } from "./commands/start-expert-session.js";
 import { verifyStaging } from "./commands/verify-staging.js";
 import { autoTriage } from "./commands/auto-triage.js";
 import { autoSpec } from "./commands/auto-spec.js";
+import { companies } from "./commands/companies.js";
+import { agents } from "./commands/agents.js";
 
 import { getVersion } from "./lib/version.js";
 
@@ -68,11 +70,11 @@ switch (cmd) {
     break;
 
   case "start":
-    await start();
+    await start(args);
     break;
 
   case "stop":
-    await stop();
+    await stop(args);
     break;
 
   case "chat":
@@ -80,7 +82,7 @@ switch (cmd) {
     break;
 
   case "status":
-    await status();
+    await status(args);
     break;
 
   case "personality":
@@ -178,6 +180,14 @@ switch (cmd) {
     await autoSpec(args);
     break;
 
+  case "companies":
+    await companies(args);
+    break;
+
+  case "agents":
+    await agents(args);
+    break;
+
   case undefined:
   case "--help":
   case "-h":
@@ -189,7 +199,7 @@ switch (cmd) {
     console.log("  login --otp        Force one-time code flow (no localhost callback)");
     console.log("  logout             Log out and remove stored credentials");
     console.log("  setup              Create a company, onboard a project, invite teammates");
-    console.log("  start              Start the local agent daemon in the background");
+    console.log("  start [--company <id>] [--json] [--defaults]  Start the local agent daemon in the background");
     console.log("  stop               Stop the running daemon");
     console.log("  chat               Reconnect TUI to a running daemon");
 

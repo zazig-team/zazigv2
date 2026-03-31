@@ -2,32 +2,34 @@ status: pass
 
 ## Test files created
 
-- `tests/features/tui-sessionviewer-embedding.test.ts`
+- `tests/features/cli-machine-readable-companies-command.test.ts` — 13 test cases
+- `tests/features/cli-machine-readable-agents-command.test.ts` — 18 test cases
+- `tests/features/cli-machine-readable-json-flags.test.ts` — 26 test cases
 
-## Test cases written: 13
+## Total test cases: 57
 
-### tmux utility library (4 tests)
-- exports a `switchSession` function
-- exports an `embedSession` function
-- `switchSession` invokes a tmux command targeting the given session name
-- `embedSession` invokes a tmux command with session name and geometry
+### cli-machine-readable-companies-command.test.ts
+Covers AC1, AC9, FC1. Verifies `companies.ts` command existence and implementation:
+`fetchUserCompanies()`, `getValidCredentials()`, JSON output `{ "companies": [{ "id", "name" }] }`,
+error handling for unauthenticated state, CLI index registration.
 
-### SessionViewer component — module exports (1 test)
-- exports a SessionViewer component as default or named export
+### cli-machine-readable-agents-command.test.ts
+Covers AC2, AC3, AC9, AC11, FC3, FC5. Verifies `agents.ts` command existence and implementation:
+`discoverAgentSessions()` reuse, Supabase queries for `persistent_agents` and `jobs` tables,
+`type` field with values `persistent`/`job`/`expert`, `--type` filter flag, `tmux_session` and
+`status` fields, orphaned/unknown status handling, empty `{ "agents": [] }` when no agents found,
+CLI index registration.
 
-### Acceptance criteria — session display and switching (4 tests)
-- CPO agent selected → `embedSession` called with CPO session name
-- User switches to CTO tab → `switchSession` called with CTO session name
-- `switchSession` resolves cleanly with a valid session name
-- `embedSession` resolves cleanly with a valid session name and geometry
-
-### Edge cases (4 tests)
-- Active session dies → component renders 'Session ended' placeholder
-- No sessions running → component renders 'Waiting for agents...' placeholder
-- `switchSession` rejects on empty session name
-- `embedSession` rejects on empty session name
+### cli-machine-readable-json-flags.test.ts
+Covers AC4, AC5, AC6, AC7, AC8, AC9, AC10, AC11, FC2, FC4. Verifies `--json` flag on:
+- `status.ts`: `{ "running": false }` when daemon stopped; full JSON when running
+- `start.ts`: `--json` + `--company` for non-interactive mode, `{ "started": true/false }`
+- `stop.ts`: `--company` flag (currently missing), `{ "stopped": true/false }`
+- `login.ts`: `{ "logged_in": true/false, "email", "supabase_url" }`, progress to stderr
 
 ## Notes
 
-- `package.json` (root) delegates to workspace test scripts; `tests/package.json` uses `vitest run` which discovers all `tests/features/**/*.test.ts` files recursively — no changes required.
-- All tests import from `packages/tui/src/lib/tmux.js` and `packages/tui/src/components/SessionViewer.js`, which do not exist yet. Tests are expected to fail until the feature is implemented.
+- No changes to `package.json` needed — `tests/vitest.config.ts` already uses
+  `include: ['features/**/*.test.ts']` which covers the new files recursively.
+- All tests are written to FAIL against the current codebase: no `companies.ts` or `agents.ts`
+  exist; existing `status.ts`, `start.ts`, `stop.ts`, and `login.ts` do not yet handle `--json`.

@@ -1,5 +1,10 @@
 status: pass
-summary: Extended SessionViewer with liveness polling every 2s, centered "Session ended"/"Waiting for agents..." placeholders, and automatic re-embedding when a dead session reappears; added hasSession export to tmux.ts.
+summary: Implemented --json machine-readable mode for start/status/stop commands; added companies and agents commands with JSON output and tmux/Supabase correlation.
 files_changed:
-  - packages/tui/src/components/SessionViewer.ts
-  - packages/tui/src/lib/tmux.ts
+  - packages/cli/src/commands/start.ts
+  - packages/cli/src/commands/status.ts
+  - packages/cli/src/commands/stop.ts
+  - packages/cli/src/commands/agents.ts
+  - packages/cli/src/commands/companies.ts
+  - packages/cli/src/index.ts
+failure_reason:

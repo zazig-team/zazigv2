@@ -28,6 +28,7 @@ const rendererConfig = {
   bundle: true,
   platform: 'browser',
   format: 'iife',
+  loader: { '.css': 'css' },
   sourcemap: true,
 };
 

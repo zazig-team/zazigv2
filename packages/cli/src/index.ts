@@ -82,7 +82,7 @@ switch (cmd) {
     break;
 
   case "status":
-    await status();
+    await status(args);
     break;
 
   case "personality":

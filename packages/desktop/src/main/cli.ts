@@ -3,13 +3,37 @@ import { spawn } from 'child_process';
 const CLI_BIN = process.env.ZAZIG_CLI_BIN || 'zazig';
 const JSON_FLAG = '--json';
 
+let activeCompanyId: string | null = null;
+
+export function setActiveCompanyId(id: string | null): void {
+  activeCompanyId = id;
+}
+
+export function getActiveCompanyId(): string | null {
+  return activeCompanyId;
+}
+
 function ensureJsonFlag(args: string[]): string[] {
   return args.includes(JSON_FLAG) ? args : [...args, JSON_FLAG];
 }
 
+function buildCommandArgs(args: string[]): string[] {
+  const command = args[0];
+  const needsCompany =
+    activeCompanyId !== null &&
+    command !== 'companies' &&
+    !args.includes('--company');
+
+  const withCompany = needsCompany
+    ? [command, '--company', activeCompanyId as string, ...args.slice(1)]
+    : args;
+
+  return ensureJsonFlag(withCompany);
+}
+
 export async function runCLI(args: string[]): Promise<unknown> {
   return new Promise((resolve) => {
-    const commandArgs = ensureJsonFlag(args);
+    const commandArgs = buildCommandArgs(args);
     const child = spawn(CLI_BIN, commandArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });

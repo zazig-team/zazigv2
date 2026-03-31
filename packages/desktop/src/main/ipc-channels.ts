@@ -4,3 +4,5 @@ export const TERMINAL_OUTPUT = 'terminal:output';
 export const TERMINAL_RESIZE = 'terminal:resize';
 export const TERMINAL_ATTACH = 'terminal:attach';
 export const TERMINAL_DETACH = 'terminal:detach';
+export const COMPANIES_LOADED = 'companies:loaded';
+export const SELECT_COMPANY = 'companies:select';

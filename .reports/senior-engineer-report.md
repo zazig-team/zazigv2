@@ -1,10 +1,8 @@
 status: pass
-summary: Implemented the Electron main-process CLI data layer, 5-second pipeline poller diff/broadcast, shared IPC channel constants, preload IPC bridge, and poller lifecycle wiring in main startup/shutdown.
+summary: Implemented the desktop pipeline sidebar component with live IPC updates, local-session indicators, required sections, and a full-height two-panel App layout with terminal placeholder.
 files_changed:
-  - packages/desktop/src/main/cli.ts
-  - packages/desktop/src/main/poller.ts
-  - packages/desktop/src/main/ipc-channels.ts
-  - packages/desktop/src/main/preload.ts
-  - packages/desktop/src/main/index.ts
+  - packages/desktop/src/renderer/components/PipelineColumn.tsx
+  - packages/desktop/src/renderer/App.tsx
+  - packages/desktop/src/renderer/index.tsx
   - .reports/senior-engineer-report.md
-failure_reason: ""
+failure_reason:

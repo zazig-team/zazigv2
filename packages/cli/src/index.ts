@@ -45,6 +45,7 @@ import { verifyStaging } from "./commands/verify-staging.js";
 import { autoTriage } from "./commands/auto-triage.js";
 import { autoSpec } from "./commands/auto-spec.js";
 import { companies } from "./commands/companies.js";
+import { agents } from "./commands/agents.js";
 
 import { getVersion } from "./lib/version.js";
 
@@ -181,6 +182,10 @@ switch (cmd) {
 
   case "companies":
     await companies();
+    break;
+
+  case "agents":
+    await agents(args);
     break;
 
   case undefined:

@@ -44,6 +44,7 @@ import { startExpertSession } from "./commands/start-expert-session.js";
 import { verifyStaging } from "./commands/verify-staging.js";
 import { autoTriage } from "./commands/auto-triage.js";
 import { autoSpec } from "./commands/auto-spec.js";
+import { companies } from "./commands/companies.js";
 
 import { getVersion } from "./lib/version.js";
 
@@ -176,6 +177,10 @@ switch (cmd) {
 
   case "auto-spec":
     await autoSpec(args);
+    break;
+
+  case "companies":
+    await companies();
     break;
 
   case undefined:

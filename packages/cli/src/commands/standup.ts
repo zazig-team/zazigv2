@@ -304,7 +304,7 @@ function formatTextOutput(report: StandupReport): string {
 }
 
 export async function standup(args: string[]): Promise<void> {
-  const companyId = parseCompanyFlag(args);
+  const companyId = parseCompanyFlag(args) ?? (() => { try { return loadConfig().company_id; } catch { return undefined; } })();
   if (!companyId) {
     process.stderr.write("Usage: zazig standup --company <company-id> [--json]\n");
     process.exit(1);

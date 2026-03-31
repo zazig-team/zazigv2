@@ -1,26 +1,21 @@
 status: success
-branch: feature/electron-desktop-app-v1-0-12dee32e
+branch: feature/desktop-company-picker-dropdown-to-selec-9d25de2d
 merged:
-  - job/0870982c-9857-4ea2-9f47-a0fe8851ae57
-  - job/cb55e659-595d-4f98-917c-dc986abe94ef
+  - job/ebd4de18-0435-4c7d-b72a-76a356d2b0d9
 conflicts_resolved: []
 failure_reason:
 
-PR: https://github.com/zazig-team/zazigv2/pull/379
+PR created: https://github.com/zazig-team/zazigv2/pull/381
 
 ## Notes
-- Both job branches merged successfully with no conflicts
+- Job branch merged successfully with no conflicts
 - CI workflow already exists on master — skipped CI injection
-- Feature branch pushed and PR created at zazig-team/zazigv2#379
+- Feature branch pushed and PR created at zazig-team/zazigv2#381
 
-## Job 1 (0870982c): Electron desktop app scaffold
-- Added packages/desktop with main/preload/renderer structure
-- Added packages/cli/src/commands/desktop.ts (zazig desktop command)
-- Added feature tests for launch/structure and terminal/sessions
-- Updated bun.lock and package.json
-
-## Job 2 (cb55e659): Electron desktop app implementation
-- Added main process: cli.ts, ipc-channels.ts, poller.ts, pty.ts
-- Added renderer: App.tsx, PipelineColumn.tsx, TerminalPane.tsx, global.d.ts
-- Updated preload.ts with full IPC bridge
-- Updated package-lock.json with new dependencies
+## Job (ebd4de18): Desktop company picker dropdown
+- packages/desktop/src/main/cli.ts — company picker CLI support
+- packages/desktop/src/main/index.ts — IPC handlers for company selection
+- packages/desktop/src/main/ipc-channels.ts — new IPC channel definitions
+- packages/desktop/src/main/poller.ts — poller updates for company data
+- packages/desktop/src/main/preload.ts — preload bridge exposure
+- packages/desktop/src/renderer/components/PipelineColumn.tsx — dropdown UI

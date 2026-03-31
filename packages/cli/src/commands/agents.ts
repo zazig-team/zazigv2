@@ -1,218 +1,174 @@
-import { discoverAgentSessions } from "./chat.js";
+/**
+ * agents.ts — zazig agents
+ *
+ * Lists all running agents for a company as JSON.
+ * Combines data from:
+ *   - tmux sessions (via discoverAgentSessions) for actual running state
+ *   - Supabase persistent_agents table for persistent agents
+ *   - Supabase jobs table for active job agents
+ *
+ * Usage:
+ *   zazig agents --company <id>
+ *   zazig agents --company <id> --type persistent|job|expert
+ */
+
 import { getValidCredentials } from "../lib/credentials.js";
 import { loadConfig } from "../lib/config.js";
 import { DEFAULT_SUPABASE_ANON_KEY } from "../lib/constants.js";
+import { discoverAgentSessions } from "./chat.js";
 
 type AgentType = "persistent" | "job" | "expert";
 
-interface PersistentAgentEntry {
-  type: "persistent";
-  role: string;
-  status: string;
-  tmux_session: string | null;
-  company_id: string;
-  last_heartbeat?: string | null;
+interface AgentEntry {
+  "id": string | null;
+  "type": AgentType;
+  "role": string;
+  "status": string;
+  "tmux_session": string | null;
 }
 
-interface JobAgentEntry {
-  type: "job";
-  role: string;
-  status: string;
-  tmux_session: string | null;
-  job_id: string;
-  context?: string | null;
-  slot_type?: string | null;
-}
+function parseArgs(args: string[]): { companyId: string | null; typeFilter: AgentType | null } {
+  let companyId: string | null = null;
+  let typeFilter: AgentType | null = null;
 
-interface ExpertAgentEntry {
-  type: "expert";
-  role: string;
-  status: string;
-  tmux_session: string | null;
-  brief?: string | null;
-}
-
-type AgentEntry = PersistentAgentEntry | JobAgentEntry | ExpertAgentEntry;
-
-function parseFlag(args: string[], name: string): string | undefined {
-  const eq = args.find((a) => a.startsWith(`--${name}=`));
-  if (eq) return eq.slice(`--${name}=`.length) || undefined;
-  const idx = args.indexOf(`--${name}`);
-  if (idx === -1) return undefined;
-  const val = args[idx + 1];
-  return val && !val.startsWith("--") ? val : undefined;
-}
-
-function classifyRole(role: string): AgentType {
-  if (role.startsWith("job-")) return "job";
-  if (role.startsWith("expert-")) return "expert";
-  return "persistent";
-}
-
-export async function agents(args: string[]): Promise<void> {
-  const companyId = parseFlag(args, "company");
-  const typeFilter = parseFlag(args, "type") as AgentType | undefined;
-
-  if (!companyId) {
-    process.stderr.write(JSON.stringify({ error: "Missing required flag: --company <uuid>" }) + "\n");
-    process.exit(1);
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--company" && args[i + 1]) {
+      companyId = args[++i]!;
+    } else if (args[i] === "--type" && args[i + 1]) {
+      typeFilter = args[++i] as AgentType;
+    }
   }
 
-  // Get machine config to obtain machineId for session discovery
-  let machineId: string;
-  try {
-    const config = loadConfig();
-    machineId = config.name;
-  } catch {
-    // No daemon running / no config — return empty agents list
-    process.stdout.write(JSON.stringify({ "agents": [] }));
-    process.exit(0);
+  return { companyId, typeFilter };
+}
+
+export async function agents(args: string[] = []): Promise<void> {
+  const { companyId, typeFilter } = parseArgs(args);
+
+  if (!companyId) {
+    process.stdout.write(JSON.stringify({ "error": "--company <id> is required" }) + "\n");
+    process.exitCode = 1;
+    process.exit(1);
     return;
   }
 
-  // Get credentials for Supabase queries
-  let creds: Awaited<ReturnType<typeof getValidCredentials>>;
+  let creds;
   try {
     creds = await getValidCredentials();
   } catch {
-    process.stderr.write(JSON.stringify({ error: "Not logged in. Run zazig login" }) + "\n");
+    process.stdout.write(JSON.stringify({ "agents": [], error: "Not logged in. Run 'zazig login' first." }) + "\n");
+    process.exitCode = 1;
     process.exit(1);
     return;
   }
 
-  const supabaseUrl = creds.supabaseUrl;
-
-  // Discover active zazig tmux sessions on this machine for this company
-  const tmuxSessions = discoverAgentSessions(machineId, companyId);
-
-  // Query persistent_agents table for this company
-  let persistentAgentRows: Array<{
-    id: string;
-    role: string;
-    status: string;
-    last_heartbeat: string | null;
-  }> = [];
+  let cfg;
   try {
-    const url = `${supabaseUrl}/rest/v1/persistent_agents?company_id=eq.${companyId}&select=id,role,status,last_heartbeat`;
-    const resp = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-        apikey: DEFAULT_SUPABASE_ANON_KEY,
-        "Content-Type": "application/json",
-      },
-    });
-    if (resp.ok) {
-      persistentAgentRows = (await resp.json()) as typeof persistentAgentRows;
-    }
-  } catch { /* ignore — treat as empty */ }
+    cfg = loadConfig();
+  } catch {
+    // No config — can't discover tmux sessions by machine name, use empty string
+    cfg = { name: "", slots: { claude_code: 0, codex: 0 } };
+  }
 
-  // Query jobs table for active job agents on this machine
-  // Active statuses: queued, dispatched, executing, reviewing
-  let jobRows: Array<{
-    id: string;
-    status: string;
-    slot_type: string | null;
-    context: string | null;
-  }> = [];
+  // Discover tmux sessions for this machine + company
+  const tmuxSessions = discoverAgentSessions(cfg.name, companyId);
+  const matchedSessions = new Set<string>();
+
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const headers: Record<string, string> = {
+    apikey: anonKey,
+    Authorization: `Bearer ${creds.accessToken}`,
+  };
+
+  const result: AgentEntry[] = [];
+
+  // Query persistent agents from Supabase
+  let persistentAgents: Array<Record<string, unknown>> = [];
   try {
-    const activeStatuses = "queued,dispatched,executing,reviewing";
-    const url = `${supabaseUrl}/rest/v1/jobs?company_id=eq.${companyId}&status=in.(${activeStatuses})&machine_id=eq.${machineId}&select=id,status,slot_type,context`;
-    const resp = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-        apikey: DEFAULT_SUPABASE_ANON_KEY,
-        "Content-Type": "application/json",
-      },
-    });
+    const resp = await fetch(
+      `${creds.supabaseUrl}/rest/v1/persistent_agents?select=id,role,status,machine_id&company_id=eq.${encodeURIComponent(companyId)}`,
+      { headers }
+    );
     if (resp.ok) {
-      jobRows = (await resp.json()) as typeof jobRows;
+      persistentAgents = (await resp.json()) as Array<Record<string, unknown>>;
     }
-  } catch { /* ignore — treat as empty */ }
+  } catch { /* best-effort */ }
 
-  const allAgents: AgentEntry[] = [];
+  // Match persistent agents with tmux sessions
+  for (const agent of persistentAgents) {
+    const role = String(agent["role"] ?? "unknown");
+    const session = tmuxSessions.find((s) => s.role === role || s.role.startsWith(role));
+    const tmuxSession = session ? session.sessionName : null;
+    if (tmuxSession) matchedSessions.add(tmuxSession);
 
-  // --- Persistent agents ---
-  const persistentSessions = tmuxSessions.filter((s) => classifyRole(s.role) === "persistent");
-  const persistentSessionByRole = new Map(persistentSessions.map((s) => [s.role, s]));
-  const matchedPersistentRoles = new Set<string>();
+    const agentStatus = tmuxSession ? String(agent["status"] ?? "running") : "orphaned";
 
-  for (const row of persistentAgentRows) {
-    const session = persistentSessionByRole.get(row.role);
-    matchedPersistentRoles.add(row.role);
-    allAgents.push({
+    result.push({
+      id: String(agent["id"] ?? ""),
       type: "persistent",
-      role: row.role,
-      status: session ? row.status : "orphaned",
-      tmux_session: session?.sessionName ?? null,
-      company_id: companyId,
-      last_heartbeat: row.last_heartbeat,
-    });
-  }
-  // Unmatched persistent tmux sessions → unknown
-  for (const session of persistentSessions) {
-    if (!matchedPersistentRoles.has(session.role)) {
-      allAgents.push({
-        type: "persistent",
-        role: session.role,
-        status: "unknown",
-        tmux_session: session.sessionName,
-        company_id: companyId,
-      });
-    }
-  }
-
-  // --- Job agents ---
-  const jobSessions = tmuxSessions.filter((s) => classifyRole(s.role) === "job");
-  const jobSessionByJobId = new Map(
-    jobSessions.map((s) => [s.role.replace(/^job-/, ""), s]),
-  );
-  const matchedJobIds = new Set<string>();
-
-  for (const row of jobRows) {
-    const session = jobSessionByJobId.get(row.id);
-    matchedJobIds.add(row.id);
-    allAgents.push({
-      type: "job",
-      role: row.slot_type ?? "agent",
-      status: session ? row.status : "orphaned",
-      tmux_session: session?.sessionName ?? null,
-      job_id: row.id,
-      context: row.context,
-      slot_type: row.slot_type,
-    });
-  }
-  // Unmatched job tmux sessions → unknown
-  for (const session of jobSessions) {
-    const jobId = session.role.replace(/^job-/, "");
-    if (!matchedJobIds.has(jobId)) {
-      allAgents.push({
-        type: "job",
-        role: "agent",
-        status: "unknown",
-        tmux_session: session.sessionName,
-        job_id: jobId,
-      });
-    }
-  }
-
-  // --- Expert agents ---
-  // Expert sessions have role like "expert-{role-slug}" in tmux session name
-  const expertSessions = tmuxSessions.filter((s) => classifyRole(s.role) === "expert");
-  for (const session of expertSessions) {
-    const role = session.role.replace(/^expert-/, "");
-    allAgents.push({
-      type: "expert",
       role,
-      status: "running",
+      status: agentStatus,
+      tmux_session: tmuxSession,
+    });
+  }
+
+  // Query active job agents from Supabase
+  let jobAgents: Array<Record<string, unknown>> = [];
+  try {
+    const resp = await fetch(
+      `${creds.supabaseUrl}/rest/v1/jobs?select=id,status,context,slot_type,job_type&company_id=eq.${encodeURIComponent(companyId)}&status=in.(queued,dispatched,executing,reviewing)`,
+      { headers }
+    );
+    if (resp.ok) {
+      jobAgents = (await resp.json()) as Array<Record<string, unknown>>;
+    }
+  } catch { /* best-effort */ }
+
+  for (const job of jobAgents) {
+    const jobId = String(job["id"] ?? "");
+    const session = tmuxSessions.find((s) => s.role.includes(jobId.slice(0, 8)));
+    const tmuxSession = session ? session.sessionName : null;
+    if (tmuxSession) matchedSessions.add(tmuxSession);
+
+    result.push({
+      id: jobId,
+      type: "job",
+      role: String(job["job_type"] ?? "job"),
+      status: String(job["status"] ?? "unknown"),
+      tmux_session: tmuxSession,
+    });
+  }
+
+  // Expert agents: tmux sessions matching "expert" pattern not already matched
+  for (const session of tmuxSessions) {
+    if (matchedSessions.has(session.sessionName)) continue;
+    if (session.role.includes("expert")) {
+      matchedSessions.add(session.sessionName);
+      result.push({
+        id: null,
+        type: "expert",
+        role: session.role,
+        status: "running",
+        tmux_session: session.sessionName,
+      });
+    }
+  }
+
+  // Unknown sessions: tmux sessions not matched to any DB row
+  for (const session of tmuxSessions) {
+    if (matchedSessions.has(session.sessionName)) continue;
+    result.push({
+      id: null,
+      type: "job",
+      role: session.role,
+      status: "unknown",
       tmux_session: session.sessionName,
     });
   }
 
-  // Apply optional --type filter
-  const filtered = typeFilter
-    ? allAgents.filter((a) => a.type === typeFilter)
-    : allAgents;
+  // Apply --type filter if provided
+  const filtered = typeFilter ? result.filter((a) => a.type === typeFilter) : result;
 
-  process.stdout.write(JSON.stringify({ "agents": filtered }));
+  process.stdout.write(JSON.stringify({ "agents": filtered }) + "\n");
   process.exit(0);
 }

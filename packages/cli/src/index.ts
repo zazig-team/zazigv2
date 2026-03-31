@@ -181,7 +181,7 @@ switch (cmd) {
     break;
 
   case "companies":
-    await companies();
+    await companies(args);
     break;
 
   case "agents":

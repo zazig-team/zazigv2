@@ -51,7 +51,7 @@ export async function stop(args: string[] = []): Promise<void> {
     creds = await getValidCredentials();
   } catch {
     if (jsonMode) {
-      process.stdout.write(JSON.stringify({ stopped: false, error: "Not logged in. Run 'zazig login' first." }));
+      process.stdout.write(JSON.stringify({ "stopped": false, "error": "Not logged in. Run 'zazig login' first." }) + "\n");
       process.exit(1);
     }
     console.error("Not logged in. Run 'zazig login' first.");
@@ -64,25 +64,25 @@ export async function stop(args: string[] = []): Promise<void> {
   let company: { id: string; name: string };
 
   if (companyIdFlag) {
-    // Non-interactive: find the company from the list by id
+    // Non-interactive: find the company from the list by id or name
     let companies: { id: string; name: string }[];
     try {
       companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (jsonMode) {
-        process.stdout.write(JSON.stringify({ stopped: false, error: msg }));
+        process.stdout.write(JSON.stringify({ "stopped": false, "error": msg }) + "\n");
         process.exit(1);
       }
       console.error(`Failed to fetch companies: ${msg}`);
       process.exitCode = 1;
       return;
     }
-    const found = companies.find((c) => c.id === companyIdFlag);
+    const found = companies.find((c) => c.id === companyIdFlag || c.name === companyIdFlag);
     if (!found) {
       const msg = `Company not found: ${companyIdFlag}`;
       if (jsonMode) {
-        process.stdout.write(JSON.stringify({ stopped: false, error: msg }));
+        process.stdout.write(JSON.stringify({ "stopped": false, "error": msg }) + "\n");
         process.exit(1);
       }
       console.error(msg);
@@ -91,7 +91,7 @@ export async function stop(args: string[] = []): Promise<void> {
     }
     company = found;
   } else {
-    // Interactive path (unchanged)
+    // Interactive path
     const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
     company = await pickCompany(companies);
   }
@@ -99,7 +99,7 @@ export async function stop(args: string[] = []): Promise<void> {
   const pid = readPidForCompany(company.id);
   if (!pid || !isRunning(pid)) {
     if (jsonMode) {
-      process.stdout.write(JSON.stringify({ stopped: false, error: "Daemon is not running" }));
+      process.stdout.write(JSON.stringify({ "stopped": false, "error": `Agent is not running for ${company.name}.`, "company_id": company.id }) + "\n");
       process.exit(1);
     }
     console.log(`Agent is not running for ${company.name}.`);
@@ -131,7 +131,7 @@ export async function stop(args: string[] = []): Promise<void> {
   removePidFileForCompany(company.id);
 
   if (jsonMode) {
-    process.stdout.write(JSON.stringify({ stopped: true, pid, company_id: company.id }));
+    process.stdout.write(JSON.stringify({ "stopped": true, "pid": pid, "company_id": company.id }) + "\n");
     process.exit(0);
   } else {
     console.log(" stopped.");

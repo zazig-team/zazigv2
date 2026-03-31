@@ -1,5 +1,5 @@
 status: pass
-summary: Implemented zazig start/status/stop/agents machine-readable mode with --json flags; companies command; tmux/Supabase correlation for agents.
+summary: Implemented --json machine-readable mode for start/status/stop commands; added companies and agents commands with JSON output and tmux/Supabase correlation.
 files_changed:
   - packages/cli/src/commands/start.ts
   - packages/cli/src/commands/status.ts

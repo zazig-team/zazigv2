@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
-    "@zazigv2/local-agent": "*"
+    "@zazigv2/local-agent": "*",
+    "@zazigv2/shared": "*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

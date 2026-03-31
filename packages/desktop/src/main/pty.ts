@@ -17,6 +17,7 @@ const TMUX_BIN = (() => {
 let activeSession: string | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
 let lastSnapshot = '';
+let sendCount = 0;
 
 function broadcastTerminalOutput(data: string): void {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -44,10 +45,12 @@ async function pollCapture(): Promise<void> {
   if (!activeSession) return;
 
   const content = await capturePane(activeSession);
-  console.error(`[pty] capture-pane for ${activeSession}: ${content.length} bytes, changed=${content !== lastSnapshot}`);
-  if (content !== lastSnapshot) {
+  // Always resend for the first few polls — the renderer may not have its
+  // IPC listener registered yet when the first capture arrives.
+  const forceResend = sendCount < 5;
+  if (content !== lastSnapshot || forceResend) {
     lastSnapshot = content;
-    // Send full pane content — renderer's xterm should handle it as a refresh
+    sendCount++;
     broadcastTerminalOutput('\x1b[2J\x1b[H' + content);
   }
 }
@@ -62,6 +65,7 @@ export function attach(session: string): string {
 
   activeSession = normalizedSession;
   lastSnapshot = '';
+  sendCount = 0;
 
   // Initial capture
   void pollCapture();

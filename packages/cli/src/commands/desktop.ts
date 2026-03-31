@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
@@ -98,10 +98,13 @@ export async function desktop(args: string[] = process.argv.slice(3)): Promise<v
     return;
   }
 
+  const cliBin = basename(process.argv[1] ?? "zazig");
+
   await new Promise<void>((resolveLaunch) => {
     const child = spawn(electronBinary, [desktopEntry], {
       cwd: desktopDir,
       stdio: "inherit",
+      env: { ...process.env, ZAZIG_CLI_BIN: cliBin },
     });
 
     child.on("error", (err) => {

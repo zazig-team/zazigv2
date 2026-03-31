@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 
+const CLI_BIN = process.env.ZAZIG_CLI_BIN || 'zazig';
 const JSON_FLAG = '--json';
 
 function ensureJsonFlag(args: string[]): string[] {
@@ -9,7 +10,7 @@ function ensureJsonFlag(args: string[]): string[] {
 export async function runCLI(args: string[]): Promise<unknown> {
   return new Promise((resolve) => {
     const commandArgs = ensureJsonFlag(args);
-    const child = spawn('zazig', commandArgs, {
+    const child = spawn(CLI_BIN, commandArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -32,14 +33,14 @@ export async function runCLI(args: string[]): Promise<unknown> {
     });
 
     child.on('error', (error) => {
-      console.error(`[desktop] Failed to run zazig ${commandArgs.join(' ')}`, error);
+      console.error(`[desktop] Failed to run ${CLI_BIN} ${commandArgs.join(' ')}`, error);
       finish(null);
     });
 
     child.on('close', (code) => {
       if (code !== 0 || stderr.trim().length > 0) {
         console.error(
-          `[desktop] zazig ${commandArgs.join(' ')} exited with code ${code ?? 'unknown'}`,
+          `[desktop] ${CLI_BIN} ${commandArgs.join(' ')} exited with code ${code ?? 'unknown'}`,
           stderr.trim(),
         );
         finish(null);
@@ -48,7 +49,7 @@ export async function runCLI(args: string[]): Promise<unknown> {
 
       const output = stdout.trim();
       if (output.length === 0) {
-        console.error(`[desktop] zazig ${commandArgs.join(' ')} returned empty stdout`);
+        console.error(`[desktop] ${CLI_BIN} ${commandArgs.join(' ')} returned empty stdout`);
         finish(null);
         return;
       }

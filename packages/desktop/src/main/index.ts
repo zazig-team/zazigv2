@@ -42,7 +42,8 @@ async function attachDefaultSession(): Promise<void> {
     return;
   }
 
-  pty.sendSyntheticTerminalMessage('No active agents — run `zazig start` to begin\r\n');
+  const cliBin = process.env.ZAZIG_CLI_BIN || 'zazig';
+  pty.sendSyntheticTerminalMessage(`No active agents — run \`${cliBin} start\` to begin\r\n`);
 }
 
 function registerTerminalIpcHandlers(): void {

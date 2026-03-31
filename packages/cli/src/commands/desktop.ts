@@ -81,7 +81,10 @@ export async function desktop(args: string[] = process.argv.slice(3)): Promise<v
   const desktopDir = join(repoRoot, "packages", "desktop");
   const desktopEntry = join(desktopDir, "dist", "main.js");
 
-  if (!existsSync(desktopEntry)) {
+  // Always rebuild in staging mode to pick up source changes; in production
+  // only build when dist/main.js is missing.
+  const isStaging = !!process.env["ZAZIG_REPO_PATH"];
+  if (isStaging || !existsSync(desktopEntry)) {
     try {
       await runBuild(desktopDir);
     } catch (err) {

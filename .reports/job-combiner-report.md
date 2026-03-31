@@ -1,19 +1,20 @@
 status: success
-branch: feature/fix-expert-session-merge-workflow-push-t-175c588e
+branch: feature/desktop-terminal-sidecar-websocket-bridg-a5f0f782
 merged:
-  - job/16589481-7ff4-47e3-b827-e8ee99e76596
+  - job/01541ea2-9c18-42a0-b967-a19fca39d7aa
 conflicts_resolved: []
 failure_reason:
 
-PR: https://github.com/zazig-team/zazigv2/pull/380
+PR: https://github.com/zazig-team/zazigv2/pull/382
 
 ## Notes
 - Job branch merged successfully with no conflicts
 - CI workflow already exists on master — skipped CI injection
-- Feature branch pushed and PR created at zazig-team/zazigv2#380
+- Feature branch pushed and PR created at zazig-team/zazigv2#382
 
-## Job (16589481): Fix expert session merge workflow push-to-merge pattern
-- Updated `packages/local-agent/src/expert-session-manager.ts` to use push-to-merge pattern with PR fallback
-- Updated `packages/local-agent/src/expert-session-manager.test.ts` with tests for new workflow
-- Minor fix in `supabase/migrations/141_expert_roles_branch_awareness.sql`
+## Job (01541ea2): Desktop terminal sidecar WebSocket bridge
+- Added `packages/desktop/src/sidecar/server.ts` — new WebSocket sidecar server
+- Updated `packages/desktop/src/main/index.ts` to integrate sidecar
+- Refactored `packages/desktop/src/main/pty.ts` for cleaner PTY management
+- Updated `packages/desktop/esbuild.config.mjs` and `package.json`
 - Updated `.reports/junior-engineer-report.md`

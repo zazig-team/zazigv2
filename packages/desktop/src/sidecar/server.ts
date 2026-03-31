@@ -5,6 +5,15 @@
  * bidirectionally over a WebSocket connection.
  */
 import pty from 'node-pty';
+import { execSync } from 'child_process';
+
+const TMUX_BIN = (() => {
+  try {
+    return execSync('which tmux').toString().trim();
+  } catch {
+    return '/usr/local/bin/tmux';
+  }
+})();
 
 interface WsData {
   ptyProcess: ReturnType<typeof pty.spawn> | null;
@@ -37,7 +46,8 @@ const server = Bun.serve<WsData>({
         console.error(`[sidecar] session name received: ${sessionName}`);
 
         // Spawn: tmux attach -t <session> via node-pty
-        const ptyProcess = pty.spawn('tmux', ['attach', '-t', sessionName], {
+        console.error(`[sidecar] using tmux binary: ${TMUX_BIN}`);
+        const ptyProcess = pty.spawn(TMUX_BIN, ['attach', '-t', sessionName], {
           name: 'xterm-256color',
           cols: 80,
           rows: 24,

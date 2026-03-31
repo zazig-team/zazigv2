@@ -41,7 +41,7 @@ const zazigBridge = {
     ipcRenderer.send(TERMINAL_INPUT, data);
   },
   terminalResize(cols: number, rows: number): void {
-    ipcRenderer.send(TERMINAL_RESIZE, cols, rows);
+    ipcRenderer.send(TERMINAL_RESIZE, { cols, rows });
   },
 };
 

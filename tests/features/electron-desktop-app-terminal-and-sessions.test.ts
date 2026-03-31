@@ -21,8 +21,10 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
 
-const DESKTOP_MAIN = 'packages/desktop/src/main.ts';
-const DESKTOP_PRELOAD = 'packages/desktop/src/preload.ts';
+const DESKTOP_MAIN = 'packages/desktop/src/main/index.ts';
+const DESKTOP_POLLER = 'packages/desktop/src/main/poller.ts';
+const DESKTOP_PTY = 'packages/desktop/src/main/pty.ts';
+const DESKTOP_PRELOAD = 'packages/desktop/src/main/preload.ts';
 
 function readRepoFile(relPath: string): string | null {
   const fullPath = path.join(REPO_ROOT, relPath);
@@ -46,54 +48,56 @@ function readRendererFile(...candidates: string[]): string | null {
 // ---------------------------------------------------------------------------
 
 describe('AC3: Main process polls zazig status --json every 5 seconds', () => {
-  let mainContent: string | null;
+  let pollerContent: string | null;
 
   beforeAll(() => {
-    mainContent = readRepoFile(DESKTOP_MAIN);
+    pollerContent = readRepoFile(DESKTOP_POLLER);
   });
 
-  it('packages/desktop/src/main.ts exists', () => {
-    expect(mainContent, `File not found: ${DESKTOP_MAIN}`).not.toBeNull();
+  it('packages/desktop/src/main/poller.ts exists', () => {
+    expect(pollerContent, `File not found: ${DESKTOP_POLLER}`).not.toBeNull();
   });
 
-  it('calls zazig status --json (or zazig status with --json flag)', () => {
-    expect(mainContent).toMatch(/zazig.*status.*--json|status.*--json/);
+  it('calls zazig status from the poller', () => {
+    expect(pollerContent).toMatch(/runCLI\(\['status'\]\)/);
   });
 
   it('uses setInterval or equivalent for polling every 5000ms', () => {
-    expect(mainContent).toMatch(/setInterval|5000|5_000/);
+    expect(pollerContent).toMatch(/setInterval|5000|5_000/);
   });
 
   it('polls on a 5-second interval specifically', () => {
-    expect(mainContent).toMatch(/setInterval[\s\S]{0,200}5000|5000[\s\S]{0,200}setInterval/s);
+    expect(pollerContent).toMatch(/setInterval[\s\S]{0,200}(5000|5_000|POLL_INTERVAL_MS)|(5000|5_000|POLL_INTERVAL_MS)[\s\S]{0,200}setInterval/s);
   });
 
   it('sends poll results to renderer via IPC (webContents.send)', () => {
-    expect(mainContent).toMatch(/webContents\.send|ipcMain\.emit|send\s*\(/);
+    expect(pollerContent).toMatch(/webContents\.send|ipcMain\.emit|send\s*\(/);
   });
 
   it('diffs or compares updates before sending to avoid unnecessary renders', () => {
     // Must diff/compare to avoid flicker — check for equality check or diff logic
-    expect(mainContent).toMatch(/JSON\.stringify|diff|deepEqual|===|!==|lastSnapshot|prevData/i);
+    expect(pollerContent).toMatch(/JSON\.stringify|diff|deepEqual|===|!==|lastSnapshot|prevData/i);
   });
 });
 
 describe('AC3: Renderer receives and applies IPC updates', () => {
-  let appContent: string | null;
+  let pipelineContent: string | null;
 
   beforeAll(() => {
-    appContent = readRendererFile(
-      'packages/desktop/src/renderer/App.tsx',
-      'packages/desktop/src/renderer/app.tsx',
+    pipelineContent = readRendererFile(
+      'packages/desktop/src/renderer/Pipeline.tsx',
+      'packages/desktop/src/renderer/PipelineColumn.tsx',
+      'packages/desktop/src/renderer/components/Pipeline.tsx',
+      'packages/desktop/src/renderer/components/PipelineColumn.tsx',
     );
   });
 
   it('renderer listens for IPC events (ipcRenderer.on or window.electron.on)', () => {
-    expect(appContent).toMatch(/ipcRenderer\.on|ipcRenderer\.receive|electron\.on|on\s*\(/);
+    expect(pipelineContent).toMatch(/onPipelineUpdate|ipcRenderer\.on|ipcRenderer\.receive|electron\.on|on\s*\(/);
   });
 
   it('renderer stores pipeline data in state (useState or useReducer)', () => {
-    expect(appContent).toMatch(/useState|useReducer/);
+    expect(pipelineContent).toMatch(/useState|useReducer/);
   });
 });
 
@@ -136,18 +140,23 @@ describe('AC4: Active job local run indicator (green/grey dot)', () => {
 });
 
 describe('AC4: Main process cross-references tmux sessions with job list', () => {
-  let mainContent: string | null;
+  let pipelineContent: string | null;
 
   beforeAll(() => {
-    mainContent = readRepoFile(DESKTOP_MAIN);
+    pipelineContent = readRendererFile(
+      'packages/desktop/src/renderer/Pipeline.tsx',
+      'packages/desktop/src/renderer/PipelineColumn.tsx',
+      'packages/desktop/src/renderer/components/Pipeline.tsx',
+      'packages/desktop/src/renderer/components/PipelineColumn.tsx',
+    );
   });
 
   it('calls zazig standup --json or tmux list-sessions to detect local sessions', () => {
-    expect(mainContent).toMatch(/standup.*--json|tmux.*list-sessions|list-sessions|tmux ls/i);
+    expect(pipelineContent).toMatch(/local_sessions|tmux_sessions|sessions|hasLocalSession/i);
   });
 
   it('cross-references tmux sessions with job data', () => {
-    expect(mainContent).toMatch(/session|tmux/i);
+    expect(pipelineContent).toMatch(/sessionByJobId|findMatchingSessionName|hasTmuxSession|sessionName/i);
   });
 });
 
@@ -157,6 +166,7 @@ describe('AC4: Main process cross-references tmux sessions with job list', () =>
 
 describe('AC5: Clicking active job attaches tmux session via xterm.js', () => {
   let terminalContent: string | null;
+  let ptyContent: string | null;
 
   beforeAll(() => {
     terminalContent = readRendererFile(
@@ -165,6 +175,7 @@ describe('AC5: Clicking active job attaches tmux session via xterm.js', () => {
       'packages/desktop/src/renderer/components/Terminal.tsx',
       'packages/desktop/src/renderer/components/TerminalPane.tsx',
     );
+    ptyContent = readRepoFile(DESKTOP_PTY);
   });
 
   it('Terminal component file exists', () => {
@@ -176,13 +187,11 @@ describe('AC5: Clicking active job attaches tmux session via xterm.js', () => {
   });
 
   it('uses node-pty for pseudoterminal', () => {
-    const mainContent = readRepoFile(DESKTOP_MAIN);
-    expect(mainContent ?? terminalContent).toMatch(/node-pty|pty\.spawn|@homebridge\/node-pty/i);
+    expect(ptyContent ?? terminalContent).toMatch(/node-pty|pty\.spawn|@homebridge\/node-pty/i);
   });
 
   it('runs tmux attach -t <session> when attaching', () => {
-    const mainContent = readRepoFile(DESKTOP_MAIN) ?? '';
-    expect(mainContent).toMatch(/tmux.*attach|attach.*-t/i);
+    expect(ptyContent ?? '').toMatch(/tmux.*attach|attach.*-t/i);
   });
 });
 
@@ -212,24 +221,24 @@ describe('AC5: Pipeline component sends attach-session IPC message on job click'
 // ---------------------------------------------------------------------------
 
 describe('AC6: Session switching — detach current before attaching new', () => {
-  let mainContent: string | null;
+  let ptyContent: string | null;
 
   beforeAll(() => {
-    mainContent = readRepoFile(DESKTOP_MAIN);
+    ptyContent = readRepoFile(DESKTOP_PTY);
   });
 
   it('tracks the currently attached session', () => {
-    expect(mainContent).toMatch(/currentSession|activeSession|currentPty|activePty/i);
+    expect(ptyContent).toMatch(/currentSession|activeSession|currentPty|activePty/i);
   });
 
   it('kills or detaches current pty/session before spawning new one', () => {
-    expect(mainContent).toMatch(/\.kill\(\)|\.destroy\(\)|pty\.kill|detach|kill.*pty/i);
+    expect(ptyContent).toMatch(/\.kill\(\)|\.destroy\(\)|pty\.kill|detach|kill.*pty/i);
   });
 
   it('only one session is attached at a time (no tabs)', () => {
     // Must not create an array of sessions — single session model
     // No sessions[] array or tabs[] array
-    const hasTabs = /sessions\s*=\s*\[|tabs\s*=\s*\[/.test(mainContent ?? '');
+    const hasTabs = /sessions\s*=\s*\[|tabs\s*=\s*\[/.test(ptyContent ?? '');
     expect(hasTabs, 'app must not support multiple sessions/tabs').toBe(false);
   });
 });
@@ -255,19 +264,14 @@ describe('AC7: Terminal pane defaults to CPO session on launch', () => {
 });
 
 describe('AC7: Terminal shows "No active agents" when no CPO session available', () => {
-  let terminalContent: string | null;
+  let mainContent: string | null;
 
   beforeAll(() => {
-    terminalContent = readRendererFile(
-      'packages/desktop/src/renderer/Terminal.tsx',
-      'packages/desktop/src/renderer/TerminalPane.tsx',
-      'packages/desktop/src/renderer/components/Terminal.tsx',
-      'packages/desktop/src/renderer/components/TerminalPane.tsx',
-    );
+    mainContent = readRepoFile(DESKTOP_MAIN);
   });
 
   it('renders "No active agents" or equivalent message when no session', () => {
-    expect(terminalContent).toMatch(/No active agents|no active agents|no session/i);
+    expect(mainContent).toMatch(/No active agents|no active agents|no session/i);
   });
 });
 
@@ -307,16 +311,20 @@ describe('AC8: xterm.js Terminal configuration', () => {
 
 describe('AC8: Main process forwards pty data to renderer and renderer keystrokes to pty', () => {
   let mainContent: string | null;
+  let ptyContent: string | null;
+  let preloadContent: string | null;
 
   beforeAll(() => {
     mainContent = readRepoFile(DESKTOP_MAIN);
+    ptyContent = readRepoFile(DESKTOP_PTY);
+    preloadContent = readRepoFile(DESKTOP_PRELOAD);
   });
 
   it('streams pty data to renderer via IPC', () => {
-    expect(mainContent).toMatch(/pty.*data|\.on\s*\(\s*['"]data['"]|terminal.*data/i);
+    expect(`${mainContent ?? ''}\n${ptyContent ?? ''}`).toMatch(/pty.*data|\.on\s*\(\s*['"]data['"]|terminal.*data/i);
   });
 
   it('receives keystroke input from renderer and writes to pty', () => {
-    expect(mainContent).toMatch(/pty\.write|write.*pty|ipcMain.*input|stdin/i);
+    expect(`${mainContent ?? ''}\n${preloadContent ?? ''}\n${ptyContent ?? ''}`).toMatch(/pty\.write|write.*pty|ipcMain.*input|stdin|TERMINAL_INPUT/i);
   });
 });

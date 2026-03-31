@@ -20,7 +20,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
 
 const DESKTOP_PKG_JSON = 'packages/desktop/package.json';
-const DESKTOP_MAIN = 'packages/desktop/src/main.ts';
+const DESKTOP_MAIN = 'packages/desktop/src/main/index.ts';
 const DESKTOP_RENDERER_DIR = 'packages/desktop/src/renderer';
 const CLI_DESKTOP_CMD = 'packages/cli/src/commands/desktop.ts';
 
@@ -109,7 +109,7 @@ describe('AC1: Electron main process creates a BrowserWindow', () => {
     mainContent = readRepoFile(DESKTOP_MAIN);
   });
 
-  it('packages/desktop/src/main.ts exists', () => {
+  it('packages/desktop/src/main/index.ts exists', () => {
     expect(mainContent, `File not found: ${DESKTOP_MAIN}`).not.toBeNull();
   });
 
@@ -223,6 +223,7 @@ describe('AC2: Recently completed section shows last 5 and is collapsible', () =
 
 describe('AC9: Watch button on non-running job shows "not running locally" message', () => {
   let pipelineContent: string | null;
+  let appContent: string | null;
 
   beforeAll(() => {
     pipelineContent =
@@ -230,6 +231,9 @@ describe('AC9: Watch button on non-running job shows "not running locally" messa
       ?? readRepoFile('packages/desktop/src/renderer/PipelineColumn.tsx')
       ?? readRepoFile('packages/desktop/src/renderer/components/Pipeline.tsx')
       ?? readRepoFile('packages/desktop/src/renderer/components/PipelineColumn.tsx');
+    appContent =
+      readRepoFile('packages/desktop/src/renderer/App.tsx')
+      ?? readRepoFile('packages/desktop/src/renderer/app.tsx');
   });
 
   it('renders a Watch button', () => {
@@ -237,7 +241,7 @@ describe('AC9: Watch button on non-running job shows "not running locally" messa
   });
 
   it('shows a "not running locally" or equivalent message when Watch clicked on non-running job', () => {
-    expect(pipelineContent).toMatch(/not running locally|not running|no.*session/i);
+    expect(`${pipelineContent ?? ''}\n${appContent ?? ''}`).toMatch(/not running locally|not running|no.*session/i);
   });
 });
 

@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "1f32430";
+const AGENT_BUILD_HASH = "1d1fdbf";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -12997,6 +12997,25 @@ At the end of every work session, update your memory files in \`.claude/memory/\
 
 These files are read by other sessions via the exec context skill. Keep them current.
 `;
+var PERSISTENT_MEMORY_SYSTEM_SECTION = `## Workspace Memory System (.memory/)
+
+Memory lives at \`.memory/\` in the workspace root.
+
+- \`.memory/MEMORY.md\` is the index: one line per entry, max 150 characters per line, max 200 lines total.
+- Each memory is its own file with frontmatter fields: \`name\`, \`description\`, \`type\`, then body content.
+- Valid memory types are: \`user\`, \`feedback\`, \`project\`, \`reference\`.
+- Write memory inline during conversation when notable information appears (decisions, corrections, preferences, context).
+- Before creating a memory file, check for existing memory on the topic and update it instead of creating duplicates.
+- Do not create memory for routine operations (standups, pipeline queries, status checks).
+- On idle sync prompts, review memories, remove stale entries, and merge near-duplicates.
+`;
+function withPersistentMemorySystemSection(claudeMdContent) {
+  if (claudeMdContent.includes("## Workspace Memory System (.memory/)")) {
+    return claudeMdContent;
+  }
+  const separator = claudeMdContent.endsWith("\n") ? "\n" : "\n\n";
+  return `${claudeMdContent}${separator}${PERSISTENT_MEMORY_SYSTEM_SECTION}`;
+}
 function generateAllowedTools(role, mcpTools) {
   const roleDefaults = ROLE_DEFAULT_MCP_TOOLS[role] ?? [];
   const extra = mcpTools ?? [];
@@ -13166,6 +13185,12 @@ function seedMemoryFiles(claudeDir, roleDisplayName) {
 }
 function setupJobWorkspace(config) {
   mkdirSync(config.workspaceDir, { recursive: true });
+  const workspaceMemoryDir = join2(config.workspaceDir, ".memory");
+  mkdirSync(workspaceMemoryDir, { recursive: true });
+  const workspaceMemoryMdPath = join2(workspaceMemoryDir, "MEMORY.md");
+  if (!existsSync2(workspaceMemoryMdPath)) {
+    writeFileSync(workspaceMemoryMdPath, "");
+  }
   const claudeDir = join2(config.workspaceDir, ".claude");
   mkdirSync(claudeDir, { recursive: true });
   const reportsDir = join2(config.workspaceDir, ".reports");
@@ -13181,7 +13206,8 @@ function setupJobWorkspace(config) {
     machineId: config.machineId
   });
   writeFileSync(join2(config.workspaceDir, ".mcp.json"), JSON.stringify(mcpConfig, null, 2));
-  writeFileSync(join2(config.workspaceDir, "CLAUDE.md"), config.claudeMdContent);
+  const claudeMdContent = config.heartbeatMd !== void 0 ? withPersistentMemorySystemSection(config.claudeMdContent) : config.claudeMdContent;
+  writeFileSync(join2(config.workspaceDir, "CLAUDE.md"), claudeMdContent);
   if (config.heartbeatMd !== void 0) {
     const hasMemoryMaintenance = config.heartbeatMd.includes("## Memory Maintenance");
     const heartbeatContent = hasMemoryMaintenance ? config.heartbeatMd : `${config.heartbeatMd}${config.heartbeatMd.endsWith("\n") || config.heartbeatMd.length === 0 ? "" : "\n\n"}${MEMORY_MAINTENANCE_SECTION}`;
@@ -13899,7 +13925,7 @@ var NO_CODE_CONTEXT_ROLES = /* @__PURE__ */ new Set([
   "triage-analyst"
 ]);
 var CPO_STARTUP_DELAY_MS = 15e3;
-var DEFAULT_BOOT_PROMPT = "Read your state files. If .reports/{role}-report.md exists, review it for continuity. Check for pending work via your MCP tools. Orient yourself and begin.";
+var DEFAULT_BOOT_PROMPT = "If .memory/MEMORY.md exists, read it and load relevant memories before doing anything else. Read your state files. If .reports/{role}-report.md exists, review it for continuity. Check for pending work via your MCP tools. Orient yourself and begin.";
 var MIN_SESSION_AGE_MS = 5 * 6e4;
 var RESET_FAILURE_WINDOW_MS = 10 * 6e4;
 var MAX_RESET_FAILURES = 3;
@@ -14635,7 +14661,7 @@ ${msg.text}`;
       const ownerRepo = match[1];
       const { stdout } = await execFileAsync3("gh", [
         "api",
-        `repos/${ownerRepo}/actions/runs?branch=master&event=push&per_page=1`
+        `repos/${ownerRepo}/actions/workflows/deploy-edge-functions.yml/runs?branch=master&event=push&per_page=1`
       ], { encoding: "utf8" });
       const payload = JSON.parse(stdout);
       const latestRun = payload.workflow_runs?.[0];
@@ -15104,7 +15130,9 @@ ${msg.text}`;
       lastResetAt: null,
       rolePromptSnapshot: roleConfig.prompt,
       originalJob: { ...msg, companyProjects: msg.companyProjects ? [...msg.companyProjects] : void 0 },
-      resetInProgress: false
+      resetInProgress: false,
+      lastMemorySyncAt: null,
+      wasActiveAfterSync: false
     };
     this.persistentAgents.set(role, persistentAgent);
     const uuid = this.machineUuid;
@@ -15120,8 +15148,29 @@ ${msg.text}`;
           if (changed) {
             persistentAgent.lastOutputHash = outputHash;
             persistentAgent.lastActivityAt = Date.now();
+            persistentAgent.lastMemorySyncAt = null;
+            persistentAgent.wasActiveAfterSync = true;
           }
           console.log(`[executor] Persistent heartbeat ${persistentAgent.role}: changed=${changed} idle=${Math.floor((Date.now() - persistentAgent.lastActivityAt) / 1e3)}s`);
+          const IDLE_SYNC_THRESHOLD_MS = 5 * 6e4;
+          const idleSinceActivity = Date.now() - persistentAgent.lastActivityAt;
+          const shouldNudge = idleSinceActivity >= IDLE_SYNC_THRESHOLD_MS && persistentAgent.lastMemorySyncAt === null && !persistentAgent.resetInProgress;
+          if (shouldNudge) {
+            persistentAgent.lastMemorySyncAt = Date.now();
+            const syncPrompt = "Review this session. If anything worth remembering happened \u2014 decisions, preferences, corrections, context \u2014 update your .memory/ files. Remove or update any stale memories. If nothing notable, do nothing.";
+            try {
+              await execFileAsync3("tmux", [
+                "send-keys",
+                "-t",
+                persistentAgent.tmuxSession,
+                syncPrompt,
+                "Enter"
+              ]);
+              console.log(`[executor] Injected memory sync nudge for ${persistentAgent.role} (idle=${Math.floor(idleSinceActivity / 1e3)}s)`);
+            } catch (err) {
+              console.warn(`[executor] Memory sync nudge failed for ${persistentAgent.role}: ${String(err)}`);
+            }
+          }
         } catch (err) {
           console.warn(`[executor] Failed to capture pane for ${persistentAgent.role}: ${String(err)}`);
         }

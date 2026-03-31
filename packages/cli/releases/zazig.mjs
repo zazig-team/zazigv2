@@ -153,11 +153,11 @@ function __metadata(metadataKey, metadataValue) {
 }
 function __awaiter(thisArg, _arguments, P, generator) {
   function adopt(value) {
-    return value instanceof P ? value : new P(function(resolve5) {
-      resolve5(value);
+    return value instanceof P ? value : new P(function(resolve4) {
+      resolve4(value);
     });
   }
-  return new (P || (P = Promise))(function(resolve5, reject) {
+  return new (P || (P = Promise))(function(resolve4, reject) {
     function fulfilled(value) {
       try {
         step(generator.next(value));
@@ -173,7 +173,7 @@ function __awaiter(thisArg, _arguments, P, generator) {
       }
     }
     function step(result) {
-      result.done ? resolve5(result.value) : adopt(result.value).then(fulfilled, rejected);
+      result.done ? resolve4(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
     step((generator = generator.apply(thisArg, _arguments || [])).next());
   });
@@ -364,14 +364,14 @@ function __asyncValues(o) {
   }, i);
   function verb(n) {
     i[n] = o[n] && function(v) {
-      return new Promise(function(resolve5, reject) {
-        v = o[n](v), settle(resolve5, reject, v.done, v.value);
+      return new Promise(function(resolve4, reject) {
+        v = o[n](v), settle(resolve4, reject, v.done, v.value);
       });
     };
   }
-  function settle(resolve5, reject, d, v) {
+  function settle(resolve4, reject, d, v) {
     Promise.resolve(v).then(function(v2) {
-      resolve5({ value: v2, done: d });
+      resolve4({ value: v2, done: d });
     }, reject);
   }
 }
@@ -888,13 +888,13 @@ var require_websocket_factory = __commonJS({
         if (env.constructor) {
           return env.constructor;
         }
-        let errorMessage = env.error || "WebSocket not supported in this environment.";
+        let errorMessage2 = env.error || "WebSocket not supported in this environment.";
         if (env.workaround) {
-          errorMessage += `
+          errorMessage2 += `
 
 Suggested solution: ${env.workaround}`;
         }
-        throw new Error(errorMessage);
+        throw new Error(errorMessage2);
       }
       /**
        * Creates a WebSocket using the detected constructor.
@@ -1958,13 +1958,13 @@ var require_RealtimeChannel = __commonJS({
         if (response.status === 202) {
           return { success: true };
         }
-        let errorMessage = response.statusText;
+        let errorMessage2 = response.statusText;
         try {
           const errorBody = await response.json();
-          errorMessage = errorBody.error || errorBody.message || errorMessage;
+          errorMessage2 = errorBody.error || errorBody.message || errorMessage2;
         } catch (_b) {
         }
-        return Promise.reject(new Error(errorMessage));
+        return Promise.reject(new Error(errorMessage2));
       }
       /**
        * Sends a message into the channel.
@@ -2013,15 +2013,15 @@ var require_RealtimeChannel = __commonJS({
             }
           }
         } else {
-          return new Promise((resolve5) => {
+          return new Promise((resolve4) => {
             var _a2, _b2, _c;
             const push = this._push(args2.type, args2, opts.timeout || this.timeout);
             if (args2.type === "broadcast" && !((_c = (_b2 = (_a2 = this.params) === null || _a2 === void 0 ? void 0 : _a2.config) === null || _b2 === void 0 ? void 0 : _b2.broadcast) === null || _c === void 0 ? void 0 : _c.ack)) {
-              resolve5("ok");
+              resolve4("ok");
             }
-            push.receive("ok", () => resolve5("ok"));
-            push.receive("error", () => resolve5("error"));
-            push.receive("timeout", () => resolve5("timed out"));
+            push.receive("ok", () => resolve4("ok"));
+            push.receive("error", () => resolve4("error"));
+            push.receive("timeout", () => resolve4("timed out"));
           });
         }
       }
@@ -2049,16 +2049,16 @@ var require_RealtimeChannel = __commonJS({
         };
         this.joinPush.destroy();
         let leavePush = null;
-        return new Promise((resolve5) => {
+        return new Promise((resolve4) => {
           leavePush = new push_1.default(this, constants_1.CHANNEL_EVENTS.leave, {}, timeout);
           leavePush.receive("ok", () => {
             onClose();
-            resolve5("ok");
+            resolve4("ok");
           }).receive("timeout", () => {
             onClose();
-            resolve5("timed out");
+            resolve4("timed out");
           }).receive("error", () => {
-            resolve5("error");
+            resolve4("error");
           });
           leavePush.send();
           if (!this._canPush()) {
@@ -2437,9 +2437,9 @@ var require_RealtimeClient = __commonJS({
             this.conn = websocket_factory_1.default.createWebSocket(this.endpointURL());
           } catch (error) {
             this._setConnectionState("disconnected");
-            const errorMessage = error.message;
-            if (errorMessage.includes("Node.js")) {
-              throw new Error(`${errorMessage}
+            const errorMessage2 = error.message;
+            if (errorMessage2.includes("Node.js")) {
+              throw new Error(`${errorMessage2}
 
 To use Realtime in Node.js, you need to provide a WebSocket implementation:
 
@@ -2454,7 +2454,7 @@ Option 2: Install and provide the "ws" package:
     transport: ws
   })`);
             }
-            throw new Error(`WebSocket not available: ${errorMessage}`);
+            throw new Error(`WebSocket not available: ${errorMessage2}`);
           }
         }
         this._setupConnectionHandlers();
@@ -8135,7 +8135,7 @@ async function getValidCredentials() {
   let lastStatus = 0;
   for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
     if (attempt > 0) {
-      await new Promise((resolve5) => setTimeout(resolve5, retryDelaysMs[attempt]));
+      await new Promise((resolve4) => setTimeout(resolve4, retryDelaysMs[attempt]));
     }
     let resp;
     try {
@@ -8174,10 +8174,17 @@ async function login(args2 = []) {
     flags = parseLoginFlags(args2);
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
-    console.error("Usage: zazig login [--otp|--code|--link] [--email <email>] [--non-interactive]");
+    console.error("Usage: zazig login [--otp|--code|--link] [--email <email>] [--non-interactive] [--json]");
     process.exit(1);
   }
-  const { mode, nonInteractive } = flags;
+  const { mode, nonInteractive, json } = flags;
+  const progress = (msg) => {
+    if (json) {
+      process.stderr.write(msg + "\n");
+    } else {
+      console.log(msg);
+    }
+  };
   const envOverride = Boolean(process.env["ZAZIG_ENV"]);
   const supabaseUrl = envOverride && process.env["SUPABASE_URL"] || DEFAULT_SUPABASE_URL;
   const anonKey = envOverride && process.env["SUPABASE_ANON_KEY"] || DEFAULT_SUPABASE_ANON_KEY;
@@ -8189,7 +8196,7 @@ async function login(args2 = []) {
       console.error("--non-interactive requires --email <email>.");
       process.exit(1);
     }
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    const rl = createInterface({ input: process.stdin, output: process.stderr });
     try {
       email = (await rl.question("Email address: ")).trim();
     } finally {
@@ -8197,20 +8204,32 @@ async function login(args2 = []) {
     }
   }
   if (!email) {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "logged_in": false, "error": "Email is required." }) + "\n");
+      process.exit(1);
+    }
     console.error("Email is required.");
     process.exit(1);
   }
   if (nonInteractive) {
     await sendMagicLink({ supabaseUrl, anonKey, email });
-    console.log(`Magic link sent to ${email}. Click the link in your email to complete login.`);
+    progress(`Magic link sent to ${email}. Click the link in your email to complete login.`);
     return;
   }
   if (mode === "otp") {
-    await sendMagicLink({ supabaseUrl, anonKey, email });
-    console.log(`Sign-in code sent to ${email} \u2014 paste the code from your email below.`);
-    const code = await promptForRequiredOtpCode();
-    const tokens = await verifyOtpCode({ supabaseUrl, anonKey, email, code });
-    persistCredentials({ tokens, email, supabaseUrl });
+    try {
+      await sendMagicLink({ supabaseUrl, anonKey, email });
+      progress(`Sign-in code sent to ${email} \u2014 paste the code from your email below.`);
+      const code = await promptForRequiredOtpCode(json);
+      const tokens = await verifyOtpCode({ supabaseUrl, anonKey, email, code });
+      persistCredentials({ tokens, email, supabaseUrl, json });
+    } catch (err) {
+      if (json) {
+        process.stdout.write(JSON.stringify({ "logged_in": false, "error": err instanceof Error ? err.message : String(err) }) + "\n");
+        process.exit(1);
+      }
+      throw err;
+    }
     return;
   }
   const port = await findAvailablePort(3e3);
@@ -8220,7 +8239,7 @@ async function login(args2 = []) {
   try {
     const redirectTo = `http://127.0.0.1:${port}/callback`;
     await sendMagicLink({ supabaseUrl, anonKey, email, redirectTo });
-    console.log(`Magic link sent to ${email} \u2014 click the link in your email to finish login.`);
+    progress(`Magic link sent to ${email} \u2014 click the link in your email to finish login.`);
     const timeoutPromise = loginTimeout(timeoutMs);
     let tokens;
     if (mode === "link") {
@@ -8231,9 +8250,9 @@ async function login(args2 = []) {
         kind: "callback",
         value
       }));
-      console.log("If your email shows a one-time code instead of a link, paste it and press Enter.");
-      console.log("Or press Enter to continue waiting for the link callback.\n");
-      const otpPromptPromise = promptForOptionalOtpCode(otpPromptAbort.signal).then((value) => ({
+      progress("If your email shows a one-time code instead of a link, paste it and press Enter.");
+      progress("Or press Enter to continue waiting for the link callback.\n");
+      const otpPromptPromise = promptForOptionalOtpCode(otpPromptAbort.signal, json).then((value) => ({
         kind: "otp",
         value
       }));
@@ -8256,13 +8275,20 @@ async function login(args2 = []) {
             code: first.value
           });
         } catch (err) {
-          console.error(`Code verification failed: ${err instanceof Error ? err.message : String(err)}`);
-          console.error("Continuing to wait for the magic link callback...");
+          process.stderr.write(`Code verification failed: ${err instanceof Error ? err.message : String(err)}
+`);
+          process.stderr.write("Continuing to wait for the magic link callback...\n");
           tokens = await Promise.race([callbackPromise, timeoutPromise]);
         }
       }
     }
-    persistCredentials({ tokens, email, supabaseUrl });
+    persistCredentials({ tokens, email, supabaseUrl, json });
+  } catch (err) {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "logged_in": false, "error": err instanceof Error ? err.message : String(err) }) + "\n");
+      process.exit(1);
+    }
+    throw err;
   } finally {
     otpPromptAbort?.abort();
     server.close();
@@ -8272,6 +8298,7 @@ function parseLoginFlags(args2) {
   let mode = "auto";
   let email;
   let nonInteractive = false;
+  let json = false;
   for (let i = 0; i < args2.length; i++) {
     const arg = args2[i];
     switch (arg) {
@@ -8297,16 +8324,19 @@ function parseLoginFlags(args2) {
       case "--non-interactive":
         nonInteractive = true;
         break;
+      case "--json":
+        json = true;
+        break;
       default:
         throw new Error(`Unknown login option: ${arg}`);
     }
   }
-  return { mode, email, nonInteractive };
+  return { mode, email, nonInteractive, json };
 }
 async function startCallbackServer(port) {
   let resolveCallback;
-  const callbackPromise = new Promise((resolve5) => {
-    resolveCallback = resolve5;
+  const callbackPromise = new Promise((resolve4) => {
+    resolveCallback = resolve4;
   });
   const callbackHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -8408,7 +8438,7 @@ if (at && rt) {
       res.end();
     }
   });
-  await new Promise((resolve5) => server.listen(port, "127.0.0.1", resolve5));
+  await new Promise((resolve4) => server.listen(port, "127.0.0.1", resolve4));
   return { server, callbackPromise };
 }
 async function sendMagicLink({ supabaseUrl, anonKey, email, redirectTo }) {
@@ -8481,14 +8511,18 @@ async function verifyOtpCode({ supabaseUrl, anonKey, email, code }) {
   }
   throw new Error(`Could not verify one-time code (${errors.join("; ")})`);
 }
-function persistCredentials({ tokens, email, supabaseUrl }) {
+function persistCredentials({ tokens, email, supabaseUrl, json = false }) {
   saveCredentials({
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     email,
     supabaseUrl
   });
-  console.log(`Logged in as ${email}`);
+  if (json) {
+    process.stdout.write(JSON.stringify({ "logged_in": true, "email": email, "supabase_url": supabaseUrl }) + "\n");
+  } else {
+    console.log(`Logged in as ${email}`);
+  }
 }
 function loginTimeout(timeoutMs) {
   return new Promise((_, reject) => {
@@ -8496,8 +8530,9 @@ function loginTimeout(timeoutMs) {
     t.unref();
   });
 }
-async function promptForOptionalOtpCode(signal) {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+async function promptForOptionalOtpCode(signal, json = false) {
+  const out = json ? process.stderr : process.stdout;
+  const rl = createInterface({ input: process.stdin, output: out });
   try {
     const value = (await rl.question("One-time code (optional): ", { signal })).trim();
     return value.length > 0 ? value : null;
@@ -8510,15 +8545,16 @@ async function promptForOptionalOtpCode(signal) {
     rl.close();
   }
 }
-async function promptForRequiredOtpCode() {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+async function promptForRequiredOtpCode(json = false) {
+  const out = json ? process.stderr : process.stdout;
+  const rl = createInterface({ input: process.stdin, output: out });
   try {
     while (true) {
       const value = (await rl.question("One-time code: ")).trim();
       if (value.length > 0) {
         return value;
       }
-      console.error("A one-time code is required. Paste the code from your email.");
+      process.stderr.write("A one-time code is required. Paste the code from your email.\n");
     }
   } finally {
     rl.close();
@@ -8528,17 +8564,17 @@ function isAbortError(err) {
   return err instanceof Error && (err.name === "AbortError" || /aborted/i.test(err.message));
 }
 function findAvailablePort(preferredPort) {
-  return new Promise((resolve5) => {
+  return new Promise((resolve4) => {
     const server = http.createServer();
     server.listen(preferredPort, "127.0.0.1", () => {
       const addr = server.address();
-      server.close(() => resolve5(addr.port));
+      server.close(() => resolve4(addr.port));
     });
     server.on("error", () => {
       const s = http.createServer();
       s.listen(0, "127.0.0.1", () => {
         const addr = s.address();
-        s.close(() => resolve5(addr.port));
+        s.close(() => resolve4(addr.port));
       });
     });
   });
@@ -10586,7 +10622,7 @@ var _getRequestParams = (method, options, parameters, body) => {
   return _objectSpread22(_objectSpread22({}, params), parameters);
 };
 async function _handleRequest(fetcher, method, url, options, parameters, body, namespace) {
-  return new Promise((resolve5, reject) => {
+  return new Promise((resolve4, reject) => {
     fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
       if (!result.ok) throw result;
       if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
@@ -10596,7 +10632,7 @@ async function _handleRequest(fetcher, method, url, options, parameters, body, n
         if (!contentType || !contentType.includes("application/json")) return {};
       }
       return result.json();
-    }).then((data) => resolve5(data)).catch((error) => handleError(error, reject, options, namespace));
+    }).then((data) => resolve4(data)).catch((error) => handleError(error, reject, options, namespace));
   });
 }
 function createFetchApi(namespace = "storage") {
@@ -13205,30 +13241,30 @@ async function setup() {
     let companyId;
     let companyName;
     if (choice === "2") {
-      const { data: companies, error } = await supabase.from("companies").select("id, name").order("name");
-      if (error || !companies || companies.length === 0) {
+      const { data: companies2, error } = await supabase.from("companies").select("id, name").order("name");
+      if (error || !companies2 || companies2.length === 0) {
         console.error("No companies found. Create one first (option 1).");
         process.exitCode = 1;
         return;
       }
-      if (companies.length === 1) {
-        companyId = companies[0].id;
-        companyName = companies[0].name;
+      if (companies2.length === 1) {
+        companyId = companies2[0].id;
+        companyName = companies2[0].name;
         console.log(`
 Company: ${companyName}`);
       } else {
         console.log("\nYour companies:");
-        for (let i = 0; i < companies.length; i++) {
-          console.log(`  [${i + 1}] ${companies[i].name}`);
+        for (let i = 0; i < companies2.length; i++) {
+          console.log(`  [${i + 1}] ${companies2[i].name}`);
         }
-        const idx = parseInt((await rl.question(`Select company [1-${companies.length}]: `)).trim(), 10) - 1;
-        if (idx < 0 || idx >= companies.length) {
+        const idx = parseInt((await rl.question(`Select company [1-${companies2.length}]: `)).trim(), 10) - 1;
+        if (idx < 0 || idx >= companies2.length) {
           console.error("Invalid selection.");
           process.exitCode = 1;
           return;
         }
-        companyId = companies[idx].id;
-        companyName = companies[idx].name;
+        companyId = companies2[idx].id;
+        companyName = companies2[idx].name;
       }
     } else {
       const name = (await rl.question("\nCompany name: ")).trim();
@@ -13627,26 +13663,26 @@ async function fetchUserCompanies(supabaseUrl, anonKey, accessToken) {
   const rows = await res.json();
   return rows.map((r) => ({ id: r.companies.id, name: r.companies.name }));
 }
-async function pickCompany(companies) {
-  if (companies.length === 0) {
+async function pickCompany(companies2) {
+  if (companies2.length === 0) {
     throw new Error("You don't belong to any companies. Run 'zazig setup' first.");
   }
-  if (companies.length === 1) {
-    return companies[0];
+  if (companies2.length === 1) {
+    return companies2[0];
   }
   console.log("\nWhich company?\n");
-  for (let i = 0; i < companies.length; i++) {
-    console.log(`  ${i + 1}. ${companies[i].name}`);
+  for (let i = 0; i < companies2.length; i++) {
+    console.log(`  ${i + 1}. ${companies2[i].name}`);
   }
   const rl = createInterface3({ input: process.stdin, output: process.stdout });
   try {
     const ans = await rl.question(`
 Choice [1]: `);
     const idx = (parseInt(ans.trim(), 10) || 1) - 1;
-    if (idx < 0 || idx >= companies.length) {
+    if (idx < 0 || idx >= companies2.length) {
       throw new Error("Invalid choice.");
     }
-    return companies[idx];
+    return companies2[idx];
   } finally {
     rl.close();
   }
@@ -13786,8 +13822,8 @@ function discoverAgentSessions(machineId, companyId) {
   }
 }
 function launchTui(options) {
-  const { companyName, agents, onShutdown } = options;
-  if (agents.length === 0) {
+  const { companyName, agents: agents2, onShutdown } = options;
+  if (agents2.length === 0) {
     console.error("No persistent agents running.");
     return;
   }
@@ -13796,7 +13832,7 @@ function launchTui(options) {
     execSync2(`tmux kill-session -t ${viewerSession}`, { stdio: "pipe" });
   } catch {
   }
-  const firstAgent = agents[0];
+  const firstAgent = agents2[0];
   try {
     const firstAgentWindowId = getFirstWindowId(firstAgent.sessionName);
     if (!firstAgentWindowId) {
@@ -13814,8 +13850,8 @@ function launchTui(options) {
     console.error(`Failed to create viewer session: ${String(err)}`);
     return;
   }
-  for (let i = 1; i < agents.length; i++) {
-    const agent = agents[i];
+  for (let i = 1; i < agents2.length; i++) {
+    const agent = agents2[i];
     try {
       const agentWindowId = getFirstWindowId(agent.sessionName);
       if (!agentWindowId) {
@@ -13852,7 +13888,7 @@ function launchTui(options) {
   try {
     writeFileSync4(scriptPath, scriptLines.join("\n") + "\n");
     chmodSync(scriptPath, 493);
-    const firstRole = agents[0].role.toUpperCase();
+    const firstRole = agents2[0].role.toUpperCase();
     const initialColor = roleColors[firstRole] ?? defaultColor;
     execSync2(`tmux set -t ${viewerSession} status-style "${initialColor}"`, { stdio: "pipe" });
     execSync2(`tmux set -t ${viewerSession} status-left " ${companyName} | "`, { stdio: "pipe" });
@@ -13886,8 +13922,8 @@ async function chat() {
     return;
   }
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
-  const company = await pickCompany(companies);
+  const companies2 = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
+  const company = await pickCompany(companies2);
   if (!isDaemonRunningForCompany(company.id)) {
     console.error(`Zazig is not running for ${company.name}. Run 'zazig start' first.`);
     process.exitCode = 1;
@@ -14136,10 +14172,10 @@ function parseCompanyFlag(args2) {
     return void 0;
   return args2[idx + 1];
 }
-function resolveCompany(companies, selected, companyFlag) {
+function resolveCompany(companies2, selected, companyFlag) {
   if (!companyFlag)
     return selected;
-  const found = companies.find((c) => c.id === companyFlag || c.name === companyFlag);
+  const found = companies2.find((c) => c.id === companyFlag || c.name === companyFlag);
   if (!found) {
     throw new Error(`Unknown company: ${companyFlag}`);
   }
@@ -14207,9 +14243,9 @@ function printAvailableSkills(available) {
 async function loadContext(args2) {
   const creds = await getValidCredentials();
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
-  const selected = await pickCompany(companies);
-  const company = resolveCompany(companies, selected, parseCompanyFlag(args2));
+  const companies2 = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
+  const selected = await pickCompany(companies2);
+  const company = resolveCompany(companies2, selected, parseCompanyFlag(args2));
   return { company, anonKey, supabaseUrl: creds.supabaseUrl, accessToken: creds.accessToken };
 }
 async function skills(args2) {
@@ -14455,7 +14491,7 @@ async function checkForUpdate(supabaseUrl, anonKey, env) {
 
 // dist/commands/start.js
 function sleep(ms) {
-  return new Promise((resolve5) => setTimeout(resolve5, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function generateMachineName() {
   const raw = hostname().toLowerCase();
@@ -14530,12 +14566,64 @@ function compareMinimumVersion(foundOutput, minimumVersion) {
   }
   return { meetsMinimum: true, foundVersion };
 }
-async function start() {
-  const noTui = process.argv.includes("--no-tui");
-  const defaults = process.argv.includes("--defaults");
-  const companyFlagIdx = process.argv.indexOf("--company");
-  const companyFlagValue = companyFlagIdx !== -1 ? process.argv[companyFlagIdx + 1] : void 0;
+function hasFlag(args2, name) {
+  return args2.includes(`--${name}`) || args2.some((arg) => arg.startsWith(`--${name}=`));
+}
+function readFlagValue(args2, name) {
+  const eqValue = args2.find((arg) => arg.startsWith(`--${name}=`))?.split("=")[1];
+  if (eqValue)
+    return eqValue;
+  const idx = args2.indexOf(`--${name}`);
+  const value = idx !== -1 ? args2[idx + 1] : void 0;
+  if (!value || value.startsWith("--"))
+    return void 0;
+  return value;
+}
+function errorMessage(err) {
+  return err instanceof Error ? err.message : String(err);
+}
+async function start(args2 = process.argv.slice(3)) {
+  const defaults = hasFlag(args2, "defaults");
+  const jsonMode = hasFlag(args2, "json");
+  const companyFlagPresent = hasFlag(args2, "company");
+  const companyFlagValue = readFlagValue(args2, "company");
   const zazigEnv = process.env["ZAZIG_ENV"] ?? "production";
+  const writeJson2 = (payload) => {
+    process.stdout.write(`${JSON.stringify(payload)}
+`);
+  };
+  const log = (...parts) => {
+    if (jsonMode) {
+      console.error(...parts);
+      return;
+    }
+    console.log(...parts);
+  };
+  const warn = (...parts) => {
+    if (jsonMode) {
+      console.error(...parts);
+      return;
+    }
+    console.warn(...parts);
+  };
+  const writeProgress = (message) => {
+    if (jsonMode) {
+      process.stderr.write(message);
+      return;
+    }
+    process.stdout.write(message);
+  };
+  const fail13 = (message) => {
+    if (jsonMode) {
+      writeJson2({ "started": false, "error": message });
+    }
+    process.exitCode = 1;
+  };
+  if (companyFlagPresent && !companyFlagValue) {
+    console.error("Invalid --company value: expected --company <uuid>.");
+    fail13("Invalid --company value.");
+    return;
+  }
   const requiredFailures = [];
   const addMissingToolFailure = (tool, installHint) => {
     requiredFailures.push(`${tool} is not installed. ${installHint}`);
@@ -14584,7 +14672,7 @@ async function start() {
   if (failures.length > 0) {
     console.error("Required tool preflight checks failed:");
     failures.forEach((failure) => console.error(`  - ${failure}`));
-    process.exitCode = 1;
+    fail13(`Required tool preflight checks failed: ${failures.join(" | ")}`);
     return;
   }
   const optionalWarnings = [];
@@ -14603,8 +14691,8 @@ async function start() {
     }
   }
   if (optionalWarnings.length > 0) {
-    console.warn("Optional tool preflight warnings:");
-    optionalWarnings.forEach((warning) => console.warn(`  - ${warning}`));
+    warn("Optional tool preflight warnings:");
+    optionalWarnings.forEach((warning) => warn(`  - ${warning}`));
   }
   let claudeInstalled = false;
   try {
@@ -14618,7 +14706,7 @@ async function start() {
     console.error("Install it:");
     console.error("  npm install -g @anthropic-ai/claude-code\n");
     console.error("Then authenticate:  claude login\n");
-    process.exitCode = 1;
+    fail13("Claude Code is not installed.");
     return;
   }
   let codexInstalled = false;
@@ -14632,50 +14720,98 @@ async function start() {
     creds = await getValidCredentials();
   } catch {
     console.error("Not logged in. Run 'zazig login' first.");
-    process.exitCode = 1;
+    fail13("Not logged in. Run 'zazig login' first.");
     return;
   }
   if (!configExists()) {
-    if (defaults) {
+    if (defaults || jsonMode) {
       const name = generateMachineName();
       const claudeCount = 4;
-      const codexCount = codexInstalled ? 4 : 0;
+      const codexCount = 4;
       saveConfig({ name, slots: { claude_code: claudeCount, codex: codexCount } });
-      console.log(`Machine configured: ${name} (${claudeCount} Claude Code, ${codexCount} Codex)`);
+      log(`Machine configured: ${name} (${claudeCount} Claude Code, ${codexCount} Codex)`);
     } else {
       await promptForConfig(codexInstalled);
     }
   }
-  const config = loadConfig();
-  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
-  let company = await pickCompany(companies);
-  if (companyFlagValue) {
-    const found = companies.find((c) => c.id === companyFlagValue || c.name === companyFlagValue);
-    if (found)
-      company = found;
+  let config;
+  try {
+    config = loadConfig();
+  } catch (err) {
+    const message = `Failed to load config: ${errorMessage(err)}`;
+    console.error(message);
+    fail13(message);
+    return;
   }
-  console.log(`zazig ${getVersion()}`);
-  console.log(`Starting zazig for ${company.name}...`);
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  let companies2;
+  try {
+    companies2 = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
+  } catch (err) {
+    const message = `Failed to fetch companies: ${errorMessage(err)}`;
+    console.error(message);
+    fail13(message);
+    return;
+  }
+  let company;
+  if (companyFlagValue) {
+    const found = companies2.find((c) => c.id === companyFlagValue || c.name === companyFlagValue);
+    if (!found) {
+      const message = `Company not found for --company '${companyFlagValue}'.`;
+      console.error(message);
+      fail13(message);
+      return;
+    }
+    company = found;
+  } else if (jsonMode) {
+    if (companies2.length === 0) {
+      const message = "You don't belong to any companies. Run 'zazig setup' first.";
+      console.error(message);
+      fail13(message);
+      return;
+    }
+    if (companies2.length > 1) {
+      const message = "Multiple companies found. Use --company <uuid> with --json.";
+      console.error(message);
+      fail13(message);
+      return;
+    }
+    company = companies2[0];
+  } else {
+    try {
+      company = await pickCompany(companies2);
+    } catch (err) {
+      const message = errorMessage(err);
+      console.error(message);
+      fail13(message);
+      return;
+    }
+  }
+  log(`zazig ${getVersion()}`);
+  log(`Starting zazig for ${company.name}...`);
   if (zazigEnv === "production") {
     try {
       const updateResult = await checkForUpdate(creds.supabaseUrl, anonKey, "production");
       if (updateResult.status === "update-available") {
-        console.log(`Update available: v${updateResult.remoteVersion}`);
-        console.log("Downloading...");
+        log(`Update available: v${updateResult.remoteVersion}`);
+        log("Downloading...");
         await downloadAndInstall(updateResult.remoteVersion);
-        console.log(`
-Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.`);
+        const message = `Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.`;
+        log(`
+${message}`);
+        if (jsonMode) {
+          fail13(message);
+        }
         return;
       }
     } catch (err) {
-      console.warn(`Auto-update check failed (continuing with current version): ${String(err)}`);
+      warn(`Auto-update check failed (continuing with current version): ${String(err)}`);
     }
   }
   if (isDaemonRunningForCompany(company.id)) {
     const oldPid = readPidForCompany(company.id);
     if (oldPid && isProcessRunning(oldPid)) {
-      process.stdout.write(`Stopping existing daemon (PID ${oldPid})...`);
+      writeProgress(`Stopping existing daemon (PID ${oldPid})...`);
       try {
         process.kill(oldPid, "SIGTERM");
       } catch {
@@ -14692,7 +14828,7 @@ Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.
         } catch {
         }
       }
-      console.log(" stopped.");
+      log(" stopped.");
     }
     removePidFileForCompany(company.id);
   }
@@ -14714,26 +14850,27 @@ Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.
     if (existsSync9(binAgent)) {
       agentEntryOverride = binAgent;
       const ver = getLocalVersion();
-      console.log(`Using zazig-agent binary${ver ? ` (v${ver})` : ""}`);
+      log(`Using zazig-agent binary${ver ? ` (v${ver})` : ""}`);
     } else if (hasPinnedBuild()) {
       const buildDir = join10(homedir9(), ".zazigv2", "builds", "current");
       agentEntryOverride = join10(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
       const sha = getCurrentBuildSha();
-      console.log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);
+      log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);
     }
   } else if (zazigEnv === "staging") {
-    console.log("Using repo build (staging mode)");
+    log("Using repo build (staging mode)");
   }
   let pid;
   try {
     pid = startDaemonForCompany(env, company.id, agentEntryOverride);
-    console.log(`Agent started (PID ${pid}). Logs: ${logPathForCompany(company.id)}`);
+    log(`Agent started (PID ${pid}). Logs: ${logPathForCompany(company.id)}`);
   } catch (err) {
-    console.error(`Failed to start daemon: ${String(err)}`);
-    process.exitCode ||= 1;
+    const message = `Failed to start daemon: ${String(err)}`;
+    console.error(message);
+    fail13(message);
     return;
   }
-  process.stdout.write("Waiting for agents to spawn...");
+  writeProgress("Waiting for agents to spawn...");
   let agentSessions = [];
   let lastCount = 0;
   let stablePolls = 0;
@@ -14744,16 +14881,18 @@ Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.
       const logPath = logPathForCompany(company.id);
       const errorLines = readRecentAgentErrorLines(logPath);
       if (!errorLines || errorLines.length === 0) {
+        const message = `Agent failed to start. Check logs: ${logPath}`;
         console.error(`
-Agent failed to start. Check logs: ${logPath}`);
+${message}`);
+        fail13(message);
       } else {
         console.error("\nAgent failed to start.");
         for (const line of errorLines) {
           console.error(`  ${line}`);
         }
         console.error(`Logs: ${logPath}`);
+        fail13(`Agent failed to start. Check logs: ${logPath}`);
       }
-      process.exitCode = 1;
       return;
     }
     agentSessions = discoverAgentSessions(config.name, company.id);
@@ -14765,39 +14904,38 @@ Agent failed to start. Check logs: ${logPath}`);
       stablePolls = 0;
     }
     lastCount = agentSessions.length;
-    process.stdout.write(".");
+    writeProgress(".");
   }
-  console.log(agentSessions.length > 0 ? ` found ${agentSessions.length} agent(s).` : "");
+  log(agentSessions.length > 0 ? ` found ${agentSessions.length} agent(s).` : "");
   try {
     const sync = await syncSkillsForCompany(creds.supabaseUrl, anonKey, company.id);
-    console.log(`Skills sync: added=${sync.added}, updated=${sync.updated}, removed=${sync.removed}, unchanged=${sync.unchanged}`);
+    log(`Skills sync: added=${sync.added}, updated=${sync.updated}, removed=${sync.removed}, unchanged=${sync.unchanged}`);
     for (const warning of sync.warnings) {
-      console.warn(warning);
+      warn(warning);
     }
   } catch (err) {
-    console.warn(`Skills sync skipped: ${String(err)}`);
+    warn(`Skills sync skipped: ${String(err)}`);
   }
-  if (noTui || defaults) {
-    console.log("Zazig started successfully (headless).");
-    console.log(`Logs: ${logPathForCompany(company.id)}`);
-  } else if (agentSessions.length === 0) {
-    console.log("No agent sessions found. Daemon may still be starting up.");
-    console.log(`Logs: ${logPathForCompany(company.id)}`);
-  } else {
-    launchTui({
-      companyName: company.name,
-      agents: agentSessions,
-      onShutdown: () => {
-        console.log("\nDetached from agents (daemon still running in background).");
-        console.log("Run 'zazig chat' to reconnect, or 'zazig stop' to stop it.");
-      }
+  if (jsonMode) {
+    writeJson2({
+      "started": true,
+      "pid": pid,
+      "company_id": company.id,
+      "company_name": company.name
     });
+    return;
   }
+  console.log("Zazig started successfully.");
+  console.log(`Logs: ${logPathForCompany(company.id)}`);
+  if (agentSessions.length === 0) {
+    console.log("No agent sessions found. Daemon may still be starting up.");
+  }
+  console.log("Run 'zazig chat' to reconnect, or 'zazig stop' to stop it.");
 }
 
 // dist/commands/stop.js
 function sleep2(ms) {
-  return new Promise((resolve5) => setTimeout(resolve5, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function isRunning2(pid) {
   try {
@@ -14807,24 +14945,80 @@ function isRunning2(pid) {
     return false;
   }
 }
-async function stop() {
+function parseFlag(args2, flag) {
+  const idx = args2.indexOf(flag);
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  return value;
+}
+function hasFlag2(args2, flag) {
+  return args2.includes(flag);
+}
+async function stop(args2 = []) {
+  const companyIdFlag = parseFlag(args2, "--company");
+  const jsonMode = hasFlag2(args2, "--json");
   let creds;
   try {
     creds = await getValidCredentials();
   } catch {
+    if (jsonMode) {
+      process.stdout.write(JSON.stringify({ "stopped": false, "error": "Not logged in. Run 'zazig login' first." }) + "\n");
+      process.exit(1);
+    }
     console.error("Not logged in. Run 'zazig login' first.");
     process.exitCode = 1;
     return;
   }
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
-  const company = await pickCompany(companies);
+  let company;
+  if (companyIdFlag) {
+    let companies2;
+    try {
+      companies2 = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (jsonMode) {
+        process.stdout.write(JSON.stringify({ "stopped": false, "error": msg }) + "\n");
+        process.exit(1);
+      }
+      console.error(`Failed to fetch companies: ${msg}`);
+      process.exitCode = 1;
+      return;
+    }
+    const found = companies2.find((c) => c.id === companyIdFlag || c.name === companyIdFlag);
+    if (!found) {
+      const msg = `Company not found: ${companyIdFlag}`;
+      if (jsonMode) {
+        process.stdout.write(JSON.stringify({ "stopped": false, "error": msg }) + "\n");
+        process.exit(1);
+      }
+      console.error(msg);
+      process.exitCode = 1;
+      return;
+    }
+    company = found;
+  } else {
+    const companies2 = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
+    company = await pickCompany(companies2);
+  }
   const pid = readPidForCompany(company.id);
   if (!pid || !isRunning2(pid)) {
+    if (jsonMode) {
+      process.stdout.write(JSON.stringify({ "stopped": false, "error": `Agent is not running for ${company.name}.`, "company_id": company.id }) + "\n");
+      process.exit(1);
+    }
     console.log(`Agent is not running for ${company.name}.`);
     return;
   }
-  process.stdout.write(`Stopping zazig for ${company.name} (PID ${pid})...`);
+  if (jsonMode) {
+    process.stderr.write(`Stopping zazig for ${company.name} (PID ${pid})...
+`);
+  } else {
+    process.stdout.write(`Stopping zazig for ${company.name} (PID ${pid})...`);
+  }
   try {
     process.kill(pid, "SIGTERM");
   } catch {
@@ -14842,7 +15036,12 @@ async function stop() {
     }
   }
   removePidFileForCompany(company.id);
-  console.log(" stopped.");
+  if (jsonMode) {
+    process.stdout.write(JSON.stringify({ "stopped": true, "pid": pid, "company_id": company.id }) + "\n");
+    process.exit(0);
+  } else {
+    console.log(" stopped.");
+  }
 }
 
 // dist/commands/status.js
@@ -14855,6 +15054,26 @@ function apiFetch(url, headers) {
       throw new Error(`HTTP ${r.status}`);
     return r.json();
   });
+}
+function hasJsonFlag(args2) {
+  return args2.includes("--json");
+}
+function writeJson(payload) {
+  process.stdout.write(`${JSON.stringify(payload)}
+`);
+}
+function toContextString(context, id) {
+  if (typeof context === "string") {
+    return context;
+  }
+  if (typeof context === "object" && context !== null) {
+    try {
+      return JSON.stringify(context);
+    } catch {
+      return String(id ?? "");
+    }
+  }
+  return String(id ?? "");
 }
 function findRunningDaemon() {
   const zazigDir2 = join11(homedir10(), ".zazigv2");
@@ -14876,7 +15095,103 @@ function findRunningDaemon() {
   }
   return null;
 }
-async function status() {
+async function statusJson() {
+  const daemon = findRunningDaemon();
+  if (!daemon) {
+    writeJson({ "running": false });
+    process.exitCode = 0;
+    return;
+  }
+  const { pid, companyId } = daemon;
+  const output = {
+    "running": true,
+    "pid": pid,
+    "version": getVersion(),
+    "machine_name": "unknown",
+    "connection_status": "unknown",
+    "last_heartbeat_seconds_ago": null,
+    "slots": {
+      "claude_code": { "active": 0, "total": 0 },
+      "codex": { "active": 0, "total": 0 }
+    },
+    "active_jobs": [],
+    "persistent_agents": []
+  };
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch (err) {
+    process.stderr.write(`(could not fetch live status: ${String(err)})
+`);
+    writeJson(output);
+    process.exitCode = 0;
+    return;
+  }
+  let cfg;
+  try {
+    cfg = loadConfig();
+    output.machine_name = cfg.name;
+    output.slots = {
+      "claude_code": { "active": 0, "total": Number(cfg.slots.claude_code) },
+      "codex": { "active": 0, "total": Number(cfg.slots.codex) }
+    };
+  } catch (err) {
+    process.stderr.write(`(could not fetch live status: ${String(err)})
+`);
+    writeJson(output);
+    process.exitCode = 0;
+    return;
+  }
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const headers = {
+    apikey: anonKey,
+    Authorization: `Bearer ${creds.accessToken}`
+  };
+  try {
+    const machines = await apiFetch(`${creds.supabaseUrl}/rest/v1/machines?select=id,name,status,last_heartbeat,slots_claude_code,slots_codex,company_id&name=eq.${encodeURIComponent(cfg.name)}` + (companyId ? `&company_id=eq.${encodeURIComponent(companyId)}` : ""), headers);
+    if (machines.length > 0) {
+      const m = machines[0];
+      output.machine_name = String(m.name ?? cfg.name);
+      output.connection_status = String(m.status ?? "unknown");
+      if (typeof m.last_heartbeat === "string") {
+        output.last_heartbeat_seconds_ago = Math.round((Date.now() - new Date(m.last_heartbeat).getTime()) / 1e3);
+      }
+      const machineId = String(m.id ?? "");
+      if (machineId) {
+        const jobs2 = await apiFetch(`${creds.supabaseUrl}/rest/v1/jobs?select=id,status,context,slot_type,job_type&machine_id=eq.${encodeURIComponent(machineId)}&status=in.(queued,dispatched,executing,reviewing)`, headers);
+        const claudeActive = jobs2.filter((j) => j.slot_type === "claude_code").length;
+        const codexActive = jobs2.filter((j) => j.slot_type === "codex").length;
+        const claudeSlots = Number(m.slots_claude_code ?? cfg.slots.claude_code);
+        const codexSlots = Number(m.slots_codex ?? cfg.slots.codex);
+        output.slots = {
+          "claude_code": { "active": claudeActive, "total": claudeSlots },
+          "codex": { "active": codexActive, "total": codexSlots }
+        };
+        output.active_jobs = jobs2.map((job) => ({
+          "id": String(job.id ?? ""),
+          "status": String(job.status ?? ""),
+          "slot_type": String(job.slot_type ?? ""),
+          "job_type": String(job.job_type ?? ""),
+          "context": toContextString(job.context, job.id)
+        }));
+      }
+      const companyIds = machines.map((row) => String(row.company_id ?? "")).filter((id) => id.length > 0);
+      if (companyIds.length > 0 && machineId) {
+        const persistentAgents = await apiFetch(`${creds.supabaseUrl}/rest/v1/persistent_agents?select=id,role,status,machine_id,last_heartbeat&company_id=in.(${companyIds.join(",")})&machine_id=eq.${encodeURIComponent(machineId)}`, headers);
+        output.persistent_agents = persistentAgents.map((agent) => ({
+          "role": String(agent.role ?? "unknown"),
+          "status": String(agent.status ?? "unknown")
+        }));
+      }
+    }
+  } catch (err) {
+    process.stderr.write(`(could not fetch live status: ${String(err)})
+`);
+  }
+  writeJson(output);
+  process.exitCode = 0;
+}
+async function statusHuman() {
   const daemon = findRunningDaemon();
   if (!daemon) {
     console.log("Agent is not running.");
@@ -14947,6 +15262,13 @@ async function status() {
   } catch (err) {
     console.log(`  (could not fetch live status: ${String(err)})`);
   }
+}
+async function status(args2 = process.argv.slice(3)) {
+  if (hasJsonFlag(args2)) {
+    await statusJson();
+    return;
+  }
+  await statusHuman();
 }
 
 // dist/commands/personality.js
@@ -15270,16 +15592,16 @@ async function promote(args2) {
     process.exitCode = 1;
     return;
   }
-  let companies;
+  let companies2;
   try {
-    companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
+    companies2 = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
   } catch (err) {
     console.error(`Failed to fetch companies: ${String(err)}`);
     console.error("Your session may have expired. Run 'zazig login' and try again.");
     process.exitCode = 1;
     return;
   }
-  const company = await pickCompany(companies);
+  const company = await pickCompany(companies2);
   console.log(`
 Company: ${company.name}`);
   const projects2 = await fetchProjects(creds.supabaseUrl, anonKey, creds.accessToken, company.id);
@@ -15895,7 +16217,7 @@ async function features(args2) {
 
 // dist/commands/jobs.js
 var UUID_V4ISH_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-function parseFlag(args2, name) {
+function parseFlag2(args2, name) {
   const eq = args2.find((arg) => arg.startsWith(`--${name}=`));
   if (eq !== void 0) {
     const value2 = eq.slice(`--${name}=`.length);
@@ -15915,7 +16237,7 @@ function parseFlag(args2, name) {
   return { provided: true, value };
 }
 function parseNumericFlag3(args2, name) {
-  const parsed = parseFlag(args2, name);
+  const parsed = parseFlag2(args2, name);
   if (!parsed.provided)
     return { provided: false };
   if (!parsed.value)
@@ -15949,10 +16271,10 @@ async function jobs(args2) {
     printHelp();
     process.exit(0);
   }
-  const company = parseFlag(args2, "company");
-  const id = parseFlag(args2, "id");
-  const featureId = parseFlag(args2, "feature-id");
-  const status2 = parseFlag(args2, "status");
+  const company = parseFlag2(args2, "company");
+  const id = parseFlag2(args2, "id");
+  const featureId = parseFlag2(args2, "feature-id");
+  const status2 = parseFlag2(args2, "status");
   const limitFlag = parseNumericFlag3(args2, "limit");
   const offsetFlag = parseNumericFlag3(args2, "offset");
   if (!company.value) {
@@ -16126,7 +16448,7 @@ function parseCompanyFlag6(args2) {
     return void 0;
   return value;
 }
-function hasJsonFlag(args2) {
+function hasJsonFlag2(args2) {
   return args2.includes("--json");
 }
 function isRecord(value) {
@@ -16333,7 +16655,7 @@ async function standup(args2) {
     process.stderr.write("Usage: zazig standup --company <company-id> [--json]\n");
     process.exit(1);
   }
-  const jsonOutput = hasJsonFlag(args2);
+  const jsonOutput = hasJsonFlag2(args2);
   let creds;
   try {
     creds = await getValidCredentials();
@@ -17590,7 +17912,7 @@ function parseStringFlag13(args2, name) {
     return void 0;
   return value;
 }
-function hasFlag(args2, name) {
+function hasFlag3(args2, name) {
   return args2.includes(`--${name}`) || args2.some((a) => a.startsWith(`--${name}=`));
 }
 function fail12(error) {
@@ -17624,7 +17946,7 @@ async function verifyStaging(args2) {
   const feature_id = parseStringFlag13(args2, "id");
   if (!feature_id)
     fail12("Missing required flag: --id <feature-uuid>");
-  const clear = hasFlag(args2, "clear");
+  const clear = hasFlag3(args2, "clear");
   const by = parseStringFlag13(args2, "by")?.trim();
   if (clear && by) {
     fail12("Invalid flags: --clear cannot be used with --by");
@@ -17800,61 +18122,151 @@ async function autoSpec(args2) {
   });
 }
 
-// dist/commands/ui.js
-import { spawn as spawn2 } from "node:child_process";
-import { resolve as resolve4 } from "node:path";
-function parseCompanyFlag8(args2) {
-  const index = args2.indexOf("--company");
-  if (index === -1)
-    return void 0;
-  return args2[index + 1];
-}
-function resolveCompanyFromFlag(companies, companyFlag) {
-  if (!companyFlag)
-    return void 0;
-  return companies.find((company) => company.id === companyFlag || company.name === companyFlag);
-}
-async function ui(args2) {
-  let credentials;
+// dist/commands/companies.js
+async function companies(_args = []) {
+  let creds;
   try {
-    credentials = await getValidCredentials();
+    creds = await getValidCredentials();
   } catch {
-    console.error("Not logged in. Run 'zazig login' first.");
+    process.stdout.write(JSON.stringify({ "error": "Not logged in. Run 'zazig login' first." }) + "\n");
     process.exitCode = 1;
+    process.exit(1);
     return;
   }
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const companies = await fetchUserCompanies(credentials.supabaseUrl, anonKey, credentials.accessToken);
-  const companyFlag = parseCompanyFlag8(args2);
-  const selectedFromFlag = resolveCompanyFromFlag(companies, companyFlag);
-  const company = selectedFromFlag ?? await pickCompany(companies);
-  const config = loadConfig();
-  if (!isDaemonRunningForCompany(company.id)) {
-    const env = {
-      ...process.env,
-      SUPABASE_ACCESS_TOKEN: credentials.accessToken,
-      SUPABASE_REFRESH_TOKEN: credentials.refreshToken ?? "",
-      SUPABASE_URL: credentials.supabaseUrl,
-      ZAZIG_MACHINE_NAME: config.name,
-      ZAZIG_COMPANY_ID: company.id,
-      ZAZIG_COMPANY_NAME: company.name,
-      ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
-      ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2)
-    };
-    startDaemonForCompany(env, company.id);
+  let companiesList;
+  try {
+    companiesList = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
+  } catch (err) {
+    process.stdout.write(JSON.stringify({ "error": `Failed to fetch companies: ${String(err)}` }) + "\n");
+    process.exitCode = 1;
+    process.exit(1);
+    return;
   }
-  const tuiEntry = resolve4(process.cwd(), "packages/tui/src/index.tsx");
-  const child = spawn2("tsx", [tuiEntry, "--company", company.id], {
-    stdio: "inherit",
-    env: process.env
-  });
-  await new Promise((resolvePromise) => {
-    child.on("exit", (code) => {
-      if (typeof code === "number" && code !== 0)
-        process.exitCode = code;
-      resolvePromise();
+  const output = {
+    "companies": companiesList.map((c) => ({ "id": c.id, "name": c.name }))
+  };
+  process.stdout.write(JSON.stringify(output) + "\n");
+  process.exit(0);
+}
+
+// dist/commands/agents.js
+function parseArgs(args2) {
+  let companyId = null;
+  let typeFilter = null;
+  for (let i = 0; i < args2.length; i++) {
+    if (args2[i] === "--company" && args2[i + 1]) {
+      companyId = args2[++i];
+    } else if (args2[i] === "--type" && args2[i + 1]) {
+      typeFilter = args2[++i];
+    }
+  }
+  return { companyId, typeFilter };
+}
+async function agents(args2 = []) {
+  const { companyId, typeFilter } = parseArgs(args2);
+  if (!companyId) {
+    process.stdout.write(JSON.stringify({ "error": "--company <id> is required" }) + "\n");
+    process.exitCode = 1;
+    process.exit(1);
+    return;
+  }
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    process.stdout.write(JSON.stringify({ "agents": [], error: "Not logged in. Run 'zazig login' first." }) + "\n");
+    process.exitCode = 1;
+    process.exit(1);
+    return;
+  }
+  let cfg;
+  try {
+    cfg = loadConfig();
+  } catch {
+    cfg = { name: "", slots: { claude_code: 0, codex: 0 } };
+  }
+  const tmuxSessions = discoverAgentSessions(cfg.name, companyId);
+  const matchedSessions = /* @__PURE__ */ new Set();
+  const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
+  const headers = {
+    apikey: anonKey,
+    Authorization: `Bearer ${creds.accessToken}`
+  };
+  const result = [];
+  let persistentAgents = [];
+  try {
+    const resp = await fetch(`${creds.supabaseUrl}/rest/v1/persistent_agents?select=id,role,status,machine_id&company_id=eq.${encodeURIComponent(companyId)}`, { headers });
+    if (resp.ok) {
+      persistentAgents = await resp.json();
+    }
+  } catch {
+  }
+  for (const agent of persistentAgents) {
+    const role = String(agent["role"] ?? "unknown");
+    const session = tmuxSessions.find((s) => s.role === role || s.role.startsWith(role));
+    const tmuxSession = session ? session.sessionName : null;
+    if (tmuxSession)
+      matchedSessions.add(tmuxSession);
+    const agentStatus = tmuxSession ? String(agent["status"] ?? "running") : "orphaned";
+    result.push({
+      id: String(agent["id"] ?? ""),
+      type: "persistent",
+      role,
+      status: agentStatus,
+      tmux_session: tmuxSession
     });
-  });
+  }
+  let jobAgents = [];
+  try {
+    const resp = await fetch(`${creds.supabaseUrl}/rest/v1/jobs?select=id,status,context,slot_type,job_type&company_id=eq.${encodeURIComponent(companyId)}&status=in.(queued,dispatched,executing,reviewing)`, { headers });
+    if (resp.ok) {
+      jobAgents = await resp.json();
+    }
+  } catch {
+  }
+  for (const job of jobAgents) {
+    const jobId = String(job["id"] ?? "");
+    const session = tmuxSessions.find((s) => s.role.includes(jobId.slice(0, 8)));
+    const tmuxSession = session ? session.sessionName : null;
+    if (tmuxSession)
+      matchedSessions.add(tmuxSession);
+    result.push({
+      id: jobId,
+      type: "job",
+      role: String(job["job_type"] ?? "job"),
+      status: String(job["status"] ?? "unknown"),
+      tmux_session: tmuxSession
+    });
+  }
+  for (const session of tmuxSessions) {
+    if (matchedSessions.has(session.sessionName))
+      continue;
+    if (session.role.includes("expert")) {
+      matchedSessions.add(session.sessionName);
+      result.push({
+        id: null,
+        type: "expert",
+        role: session.role,
+        status: "running",
+        tmux_session: session.sessionName
+      });
+    }
+  }
+  for (const session of tmuxSessions) {
+    if (matchedSessions.has(session.sessionName))
+      continue;
+    result.push({
+      id: null,
+      type: "job",
+      role: session.role,
+      status: "unknown",
+      tmux_session: session.sessionName
+    });
+  }
+  const filtered = typeFilter ? result.filter((a) => a.type === typeFilter) : result;
+  process.stdout.write(JSON.stringify({ "agents": filtered }) + "\n");
+  process.exit(0);
 }
 
 // dist/index.js
@@ -17874,19 +18286,16 @@ switch (cmd) {
     await setup();
     break;
   case "start":
-    await start();
+    await start(args);
     break;
   case "stop":
-    await stop();
+    await stop(args);
     break;
   case "chat":
     await chat();
     break;
-  case "ui":
-    await ui(args);
-    break;
   case "status":
-    await status();
+    await status(args);
     break;
   case "personality":
     await personality(args);
@@ -17959,6 +18368,12 @@ switch (cmd) {
   case "auto-spec":
     await autoSpec(args);
     break;
+  case "companies":
+    await companies(args);
+    break;
+  case "agents":
+    await agents(args);
+    break;
   case void 0:
   case "--help":
   case "-h":
@@ -17970,10 +18385,9 @@ switch (cmd) {
     console.log("  login --otp        Force one-time code flow (no localhost callback)");
     console.log("  logout             Log out and remove stored credentials");
     console.log("  setup              Create a company, onboard a project, invite teammates");
-    console.log("  start              Start the local agent daemon in the background");
+    console.log("  start [--company <id>] [--json] [--defaults]  Start the local agent daemon in the background");
     console.log("  stop               Stop the running daemon");
     console.log("  chat               Reconnect TUI to a running daemon");
-    console.log("  ui                 Ensure daemon is running, then launch Ink TUI");
     console.log("  status             Show agent state and active jobs");
     console.log("  personality <role> Show or switch exec personality (--show, --archetype)");
     console.log("  skills <subcmd>    Inspect/sync workspace skill links (status, sync)");

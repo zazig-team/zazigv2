@@ -110,10 +110,10 @@ async function initCompanies(): Promise<void> {
   const prefs = loadPrefs();
   let selectedId: string | null = null;
 
-  if (companies.length === 1) {
-    selectedId = companies[0].id;
-  } else if (prefs.selectedCompanyId && companies.some((c) => c.id === prefs.selectedCompanyId)) {
+  if (prefs.selectedCompanyId && companies.some((c) => c.id === prefs.selectedCompanyId)) {
     selectedId = prefs.selectedCompanyId;
+  } else if (companies.length > 0) {
+    selectedId = companies[0].id;
   }
 
   if (selectedId) {
@@ -157,9 +157,9 @@ function createWindow(): BrowserWindow {
 app.whenReady().then(() => {
   registerTerminalIpcHandlers();
   const win = createWindow();
-  startPipelinePoller();
-  win.webContents.once('did-finish-load', () => {
-    void initCompanies();
+  win.webContents.once('did-finish-load', async () => {
+    await initCompanies();
+    startPipelinePoller();
     void attachDefaultSession();
   });
 

@@ -93,6 +93,7 @@ const server = Bun.serve<WsData>({
   },
 });
 
-// Print the port number to stdout so the parent process can read it
-console.log(server.port);
+// Print the port number to stdout so the parent process can read it.
+// Use write() instead of console.log() to avoid buffering issues in Bun.
+process.stdout.write(server.port + '\n');
 console.error(`[sidecar] listening on port ${server.port}`);

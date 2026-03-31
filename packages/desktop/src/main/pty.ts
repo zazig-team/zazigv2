@@ -33,10 +33,11 @@ function normalizeSessionName(session: string): string {
 async function capturePane(session: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync(TMUX_BIN, [
-      'capture-pane', '-t', session, '-p', '-e', '-S', '-200',
+      'capture-pane', '-t', session, '-p', '-S', '-200',
     ]);
     return stdout;
-  } catch {
+  } catch (err) {
+    console.error('[pty] capture-pane error:', err);
     return '';
   }
 }
@@ -51,7 +52,10 @@ async function pollCapture(): Promise<void> {
   if (content !== lastSnapshot || forceResend) {
     lastSnapshot = content;
     sendCount++;
-    broadcastTerminalOutput('\x1b[2J\x1b[H' + content);
+    // Strip trailing empty lines, convert newlines to \r\n for xterm
+    const trimmed = content.replace(/\n+$/, '');
+    const formatted = trimmed.split('\n').join('\r\n');
+    broadcastTerminalOutput('\x1b[2J\x1b[H' + formatted);
   }
 }
 

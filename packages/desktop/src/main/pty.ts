@@ -1,8 +1,18 @@
 import { BrowserWindow } from 'electron';
+import { execFileSync } from 'child_process';
 import * as pty from 'node-pty';
 import { type IPty } from 'node-pty';
 
 import { TERMINAL_OUTPUT } from './ipc-channels';
+
+// Electron doesn't inherit full shell PATH — resolve tmux location at startup
+const TMUX_BIN = (() => {
+  try {
+    return execFileSync('/bin/sh', ['-lc', 'which tmux']).toString().trim();
+  } catch {
+    return '/usr/local/bin/tmux';
+  }
+})();
 
 let activePty: IPty | null = null;
 let activeSession: string | null = null;
@@ -39,7 +49,7 @@ export function attach(session: string): string {
 
   killActivePty();
 
-  const nextPty = pty.spawn('tmux', ['attach', '-t', normalizedSession], {
+  const nextPty = pty.spawn(TMUX_BIN, ['attach', '-t', normalizedSession], {
     name: 'xterm-256color',
     cols: 120,
     rows: 30,

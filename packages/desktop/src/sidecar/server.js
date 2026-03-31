@@ -41,7 +41,6 @@ const httpServer = createServer();
 const wss = new WebSocketServer({ server: httpServer });
 
 wss.on('connection', (ws) => {
-  console.error('[sidecar] WebSocket client connected');
   let ptyProcess = null;
   let sessionReceived = false;
 
@@ -49,8 +48,6 @@ wss.on('connection', (ws) => {
     if (!sessionReceived) {
       sessionReceived = true;
       const sessionName = message.toString().trim();
-      console.error(`[sidecar] session name received: ${sessionName}`);
-      console.error(`[sidecar] using tmux binary: ${TMUX_BIN}`);
 
       try {
         ptyProcess = pty.spawn(TMUX_BIN, ['attach', '-t', sessionName], {
@@ -60,7 +57,6 @@ wss.on('connection', (ws) => {
           cwd: process.env.HOME || process.cwd(),
           env: process.env,
         });
-        console.error(`[sidecar] PTY spawned for session: ${sessionName} (pid=${ptyProcess.pid})`);
       } catch (err) {
         console.error(`[sidecar] PTY spawn failed:`, err);
         ws.close();
@@ -73,8 +69,7 @@ wss.on('connection', (ws) => {
         }
       });
 
-      ptyProcess.onExit(({ exitCode }) => {
-        console.error(`[sidecar] PTY exited with code ${exitCode}`);
+      ptyProcess.onExit(() => {
         ws.close();
       });
       return;
@@ -96,7 +91,6 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    console.error('[sidecar] WebSocket client disconnected');
     if (ptyProcess) {
       ptyProcess.kill();
       ptyProcess = null;
@@ -108,5 +102,4 @@ wss.on('connection', (ws) => {
 httpServer.listen(0, '127.0.0.1', () => {
   const port = httpServer.address().port;
   process.stdout.write(port + '\n');
-  console.error(`[sidecar] listening on port ${port}`);
 });

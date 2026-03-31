@@ -1,6 +1,7 @@
 status: pass
-summary: Implemented a new `zazig desktop` CLI subcommand that builds `packages/desktop` on demand, resolves and launches Electron, and is registered in CLI help/dispatch.
+summary: Updated expert session merge instructions and safety-net workflow to use push-to-merge (`git push origin {branch}:master`) with PR fallback via `gh pr create` when direct push is rejected.
 files_changed:
-  - packages/cli/src/commands/desktop.ts
-  - packages/cli/src/index.ts
-failure_reason: ""
+  - packages/local-agent/src/expert-session-manager.ts
+  - packages/local-agent/src/expert-session-manager.test.ts
+  - supabase/migrations/141_expert_roles_branch_awareness.sql
+  - .reports/junior-engineer-report.md

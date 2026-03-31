@@ -1,26 +1,19 @@
 status: success
-branch: feature/electron-desktop-app-v1-0-12dee32e
+branch: feature/fix-expert-session-merge-workflow-push-t-175c588e
 merged:
-  - job/0870982c-9857-4ea2-9f47-a0fe8851ae57
-  - job/cb55e659-595d-4f98-917c-dc986abe94ef
+  - job/16589481-7ff4-47e3-b827-e8ee99e76596
 conflicts_resolved: []
 failure_reason:
 
-PR: https://github.com/zazig-team/zazigv2/pull/379
+PR: https://github.com/zazig-team/zazigv2/pull/380
 
 ## Notes
-- Both job branches merged successfully with no conflicts
+- Job branch merged successfully with no conflicts
 - CI workflow already exists on master — skipped CI injection
-- Feature branch pushed and PR created at zazig-team/zazigv2#379
+- Feature branch pushed and PR created at zazig-team/zazigv2#380
 
-## Job 1 (0870982c): Electron desktop app scaffold
-- Added packages/desktop with main/preload/renderer structure
-- Added packages/cli/src/commands/desktop.ts (zazig desktop command)
-- Added feature tests for launch/structure and terminal/sessions
-- Updated bun.lock and package.json
-
-## Job 2 (cb55e659): Electron desktop app implementation
-- Added main process: cli.ts, ipc-channels.ts, poller.ts, pty.ts
-- Added renderer: App.tsx, PipelineColumn.tsx, TerminalPane.tsx, global.d.ts
-- Updated preload.ts with full IPC bridge
-- Updated package-lock.json with new dependencies
+## Job (16589481): Fix expert session merge workflow push-to-merge pattern
+- Updated `packages/local-agent/src/expert-session-manager.ts` to use push-to-merge pattern with PR fallback
+- Updated `packages/local-agent/src/expert-session-manager.test.ts` with tests for new workflow
+- Minor fix in `supabase/migrations/141_expert_roles_branch_awareness.sql`
+- Updated `.reports/junior-engineer-report.md`

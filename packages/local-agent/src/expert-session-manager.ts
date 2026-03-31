@@ -481,6 +481,18 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
     // 11. Update DB: expert_sessions → running
     await this.updateSessionStatus(sessionId, "running");
 
+    // 11b. Inject "Do Task" prompt after startup delay so the expert begins work
+    const EXPERT_STARTUP_DELAY_MS = 15_000;
+    setTimeout(async () => {
+      try {
+        await execFileAsync("tmux", ["send-keys", "-t", tmuxSessionName, "-l", "Do Task"]);
+        await execFileAsync("tmux", ["send-keys", "-t", tmuxSessionName, "Enter"]);
+        console.log(`[expert] Injected boot prompt into session ${tmuxSessionName}`);
+      } catch (err) {
+        console.error(`[expert] Failed to inject boot prompt into ${tmuxSessionName}:`, err);
+      }
+    }, EXPERT_STARTUP_DELAY_MS);
+
     // 12. Link window into viewer TUI and switch
     const viewerLink = await this.linkToViewerTui(msg, tmuxSessionName, displayName);
 

@@ -106,12 +106,12 @@ async function findCpoTmuxSession(): Promise<string | null> {
 async function attachDefaultSession(): Promise<void> {
   const status = await runCLI(['status']);
 
-  console.error(`[desktop] status result:`, JSON.stringify(status));
-  console.error(`[desktop] hasCpoRunning:`, hasCpoRunning(status));
+  console.log(`[desktop] status result: ${JSON.stringify(status)}`);
+  console.log(`[desktop] hasCpoRunning: ${hasCpoRunning(status)}`);
 
   if (hasCpoRunning(status)) {
     const tmuxSession = await findCpoTmuxSession();
-    console.error(`[desktop] found tmux session:`, tmuxSession);
+    console.log(`[desktop] found tmux session: ${tmuxSession}`);
     if (tmuxSession) {
       pty.attach(tmuxSession);
       return;
@@ -119,7 +119,7 @@ async function attachDefaultSession(): Promise<void> {
   }
 
   const cliBin = process.env.ZAZIG_CLI_BIN || 'zazig';
-  console.error(`[desktop] no CPO session found, showing fallback message`);
+  console.log(`[desktop] no CPO session found, showing fallback message`);
   pty.sendSyntheticTerminalMessage(`No active agents — run \`${cliBin} start\` to begin\r\n`);
 }
 
@@ -196,15 +196,19 @@ app.whenReady().then(() => {
   registerTerminalIpcHandlers();
   const win = createWindow();
   win.webContents.once('did-finish-load', async () => {
+    console.log('[desktop] starting sidecar...');
     try {
       const port = await spawnSidecar();
-      console.error(`[desktop] sidecar started on port ${port}`);
+      console.log(`[desktop] sidecar started on port ${port}`);
       pty.setSidecarPort(port);
     } catch (err) {
-      console.error('[desktop] Failed to start sidecar:', err);
+      console.log('[desktop] Failed to start sidecar: ' + String(err));
     }
+    console.log('[desktop] initializing companies...');
     await initCompanies();
+    console.log('[desktop] starting poller...');
     startPipelinePoller();
+    console.log('[desktop] attaching default session...');
     void attachDefaultSession();
   });
 

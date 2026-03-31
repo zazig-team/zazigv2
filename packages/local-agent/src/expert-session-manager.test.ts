@@ -644,7 +644,7 @@ describe("ExpertSessionManager", () => {
   });
 
   describe("pushUnpushedCommits", () => {
-    it("pushes expert branch commits, merges to master, and deletes remote expert branch", async () => {
+    it("pushes expert branch directly to master via push-to-merge and deletes remote expert branch", async () => {
       const supabase = makeSupabaseClient();
       const repoManager = makeRepoManager();
       const { ExpertSessionManager } = await import("./expert-session-manager.js");
@@ -677,21 +677,19 @@ describe("ExpertSessionManager", () => {
         "-C", "/tmp/workspace-root/repo",
         "push", "origin", "HEAD:refs/heads/expert/research-expert-deadbeef",
       ]);
+      // push-to-merge: no checkout or local merge
       expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
-        "-C", "/tmp/workspace-root/repo", "checkout", "master",
-      ]);
-      expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
-        "-C", "/tmp/workspace-root/repo", "merge", "expert/research-expert-deadbeef",
-      ]);
-      expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
-        "-C", "/tmp/workspace-root/repo", "push", "origin", "master",
+        "-C", "/tmp/workspace-root/repo",
+        "push", "origin", "expert/research-expert-deadbeef:master",
       ]);
       expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
         "-C", "/tmp/workspace-root/repo", "push", "origin", "--delete", "expert/research-expert-deadbeef",
       ]);
+      expect(mockExecFileAsync).not.toHaveBeenCalledWith("git", expect.arrayContaining(["checkout"]));
+      expect(mockExecFileAsync).not.toHaveBeenCalledWith("git", expect.arrayContaining(["merge"]));
     });
 
-    it("does not delete remote expert branch when merge to master fails", async () => {
+    it("falls back to gh pr create when direct push to master is rejected", async () => {
       const supabase = makeSupabaseClient();
       const repoManager = makeRepoManager();
       const { ExpertSessionManager } = await import("./expert-session-manager.js");
@@ -705,13 +703,14 @@ describe("ExpertSessionManager", () => {
         repoManager: repoManager as any,
       });
 
-      const mergeErr = new Error("merge conflict");
+      const pushErr = new Error("non-fast-forward");
       mockExecFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
         if (cmd === "git" && args[2] === "rev-parse" && args[3] === "HEAD") {
           return { stdout: "deadbeefcafebabe\n", stderr: "" };
         }
-        if (cmd === "git" && args[2] === "merge") {
-          throw mergeErr;
+        // Reject the push-to-merge (expert branch → master)
+        if (cmd === "git" && args[2] === "push" && args[4] === "expert/research-expert-deadbeef:master") {
+          throw pushErr;
         }
         return { stdout: "", stderr: "" };
       });
@@ -723,25 +722,24 @@ describe("ExpertSessionManager", () => {
         repoDir: "/tmp/workspace-root/repo",
         cloneDir: "/tmp/repos/project.git",
         expertBranch: "expert/research-expert-deadbeef",
+        displayName: "Research Expert",
         startCommit: "abc12345",
       });
 
-      expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
-        "-C", "/tmp/workspace-root/repo",
-        "push", "origin", "HEAD:refs/heads/expert/research-expert-deadbeef",
+      expect(mockExecFileAsync).toHaveBeenCalledWith("gh", [
+        "pr", "create",
+        "--base", "master",
+        "--head", "expert/research-expert-deadbeef",
+        "--title", "Expert session: Research Expert",
+        "--body", expect.stringContaining("deadbeef-1234-4567-89ab-abcdef012345"),
       ]);
-      expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
-        "-C", "/tmp/workspace-root/repo", "checkout", "master",
-      ]);
-      expect(mockExecFileAsync).toHaveBeenCalledWith("git", [
-        "-C", "/tmp/workspace-root/repo", "merge", "expert/research-expert-deadbeef",
-      ]);
+      // Remote expert branch should NOT be deleted when direct push failed
       expect(mockExecFileAsync).not.toHaveBeenCalledWith("git", [
         "-C", "/tmp/workspace-root/repo", "push", "origin", "--delete", "expert/research-expert-deadbeef",
       ]);
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Merge/push to master failed after pushing expert/research-expert-deadbeef"),
-        mergeErr,
+        expect.stringContaining("Direct push of expert/research-expert-deadbeef to master rejected"),
+        pushErr,
       );
       warnSpy.mockRestore();
     });

@@ -1,6 +1,8 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
 
+import { startPipelinePoller, stopPipelinePoller } from './poller';
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 800,
@@ -17,6 +19,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   createWindow();
+  startPipelinePoller();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -29,4 +32,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('will-quit', () => {
+  stopPipelinePoller();
 });

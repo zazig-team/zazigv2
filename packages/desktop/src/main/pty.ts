@@ -1,23 +1,15 @@
 import { BrowserWindow } from 'electron';
-import { execFileSync, execFile } from 'child_process';
-import { promisify } from 'util';
+import WebSocket from 'ws';
 
 import { TERMINAL_OUTPUT } from './ipc-channels';
 
-const execFileAsync = promisify(execFile);
-
-const TMUX_BIN = (() => {
-  try {
-    return execFileSync('/bin/sh', ['-lc', 'which tmux']).toString().trim();
-  } catch {
-    return '/usr/local/bin/tmux';
-  }
-})();
+// The sidecar (server.ts) uses node-pty to spawn: tmux attach -t <session>
+// This module connects to the sidecar WebSocket, relays terminal data to the
+// renderer, and forwards input/resize messages to the sidecar.
 
 let activeSession: string | null = null;
-let pollTimer: NodeJS.Timeout | null = null;
-let lastSnapshot = '';
-let sendCount = 0;
+let ws: WebSocket | null = null;
+let sidecarPort: number | null = null;
 
 function broadcastTerminalOutput(data: string): void {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -26,84 +18,74 @@ function broadcastTerminalOutput(data: string): void {
   }
 }
 
-function normalizeSessionName(session: string): string {
-  return session.trim();
-}
-
-async function capturePane(session: string): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync(TMUX_BIN, [
-      'capture-pane', '-t', session, '-p', '-S', '-200',
-    ]);
-    return stdout;
-  } catch (err) {
-    console.error('[pty] capture-pane error:', err);
-    return '';
-  }
-}
-
-async function pollCapture(): Promise<void> {
-  if (!activeSession) return;
-
-  const content = await capturePane(activeSession);
-  // Always resend for the first few polls — the renderer may not have its
-  // IPC listener registered yet when the first capture arrives.
-  const forceResend = sendCount < 5;
-  if (content !== lastSnapshot || forceResend) {
-    lastSnapshot = content;
-    sendCount++;
-    // Strip trailing empty lines, convert newlines to \r\n for xterm
-    const trimmed = content.replace(/\n+$/, '');
-    const formatted = trimmed.split('\n').join('\r\n');
-    broadcastTerminalOutput('\x1b[2J\x1b[H' + formatted);
-  }
+export function setSidecarPort(port: number): void {
+  sidecarPort = port;
 }
 
 export function attach(session: string): string {
-  const normalizedSession = normalizeSessionName(session);
+  const normalizedSession = session.trim();
   if (!normalizedSession) {
     throw new Error('Session name is required');
   }
 
   detach();
 
+  if (!sidecarPort) {
+    throw new Error('Sidecar not available');
+  }
+
   activeSession = normalizedSession;
-  lastSnapshot = '';
-  sendCount = 0;
 
-  // Initial capture
-  void pollCapture();
+  const socket = new WebSocket(`ws://127.0.0.1:${sidecarPort}`);
+  ws = socket;
 
-  // Poll every 500ms for pane changes
-  pollTimer = setInterval(() => {
-    void pollCapture();
-  }, 500);
+  socket.on('open', () => {
+    // Send session name as the first message
+    socket.send(normalizedSession);
+  });
+
+  socket.on('message', (data) => {
+    // Relay terminal data from sidecar to renderer
+    const text = Buffer.isBuffer(data) ? data.toString() : String(data);
+    broadcastTerminalOutput(text);
+  });
+
+  socket.on('close', () => {
+    if (ws === socket) {
+      ws = null;
+      activeSession = null;
+    }
+  });
+
+  socket.on('error', (err) => {
+    console.error('[pty] WebSocket error:', err);
+    if (ws === socket) {
+      ws = null;
+      activeSession = null;
+    }
+  });
 
   return normalizedSession;
 }
 
 export function detach(): void {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
+  const socket = ws;
+  ws = null;
   activeSession = null;
-  lastSnapshot = '';
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.close();
+  }
 }
 
-export function resize(_cols: number, _rows: number): void {
-  // Resize not applicable — we're observing an existing tmux session
+export function resize(cols: number, rows: number): void {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'resize', cols, rows }));
 }
 
 export function write(data: string): void {
-  if (!activeSession) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
   if (!data) return;
-
-  try {
-    execFileSync(TMUX_BIN, ['send-keys', '-t', activeSession, '-l', data]);
-  } catch (error) {
-    console.error('[desktop] Failed to send keys to tmux', error);
-  }
+  ws.send(data);
 }
 
 export function getActiveSession(): string | null {

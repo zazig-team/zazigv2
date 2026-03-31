@@ -8,7 +8,7 @@ const mainConfig = {
   bundle: true,
   platform: 'node',
   format: 'cjs',
-  external: ['electron'],
+  external: ['electron', 'ws'],
   sourcemap: true,
 };
 

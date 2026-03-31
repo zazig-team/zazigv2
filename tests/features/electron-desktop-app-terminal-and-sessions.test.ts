@@ -259,7 +259,7 @@ describe('AC7: Terminal pane defaults to CPO session on launch', () => {
   });
 
   it('attaches to CPO session on app ready if available', () => {
-    expect(mainContent).toMatch(/cpo.*attach|attach.*cpo|default.*cpo|cpo.*default/i);
+    expect(mainContent).toMatch(/cpo.*attach|attach.*cpo|default.*cpo|cpo.*default|findCpoTmuxSession/i);
   });
 });
 

@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
+import { spawn as spawnChild, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -14,6 +15,37 @@ import {
 } from './ipc-channels';
 import { resetPollerSnapshot, startPipelinePoller, stopPipelinePoller } from './poller';
 import * as pty from './pty';
+
+let sidecarProcess: ChildProcess | null = null;
+
+function spawnSidecar(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const sidecarScript = path.join(__dirname, '..', 'src', 'sidecar', 'server.ts');
+    const proc = spawnChild('bun', [sidecarScript], {
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    sidecarProcess = proc;
+
+    let buf = '';
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      buf += chunk.toString();
+      const line = buf.split('\n')[0].trim();
+      if (line) {
+        const port = parseInt(line, 10);
+        if (!isNaN(port) && port > 0) {
+          resolve(port);
+        }
+      }
+    });
+
+    proc.on('error', reject);
+    proc.on('exit', (code) => {
+      if (code !== 0 && code !== null) {
+        reject(new Error(`Sidecar exited with code ${code}`));
+      }
+    });
+  });
+}
 
 interface Company {
   id: string;
@@ -164,6 +196,12 @@ app.whenReady().then(() => {
   registerTerminalIpcHandlers();
   const win = createWindow();
   win.webContents.once('did-finish-load', async () => {
+    try {
+      const port = await spawnSidecar();
+      pty.setSidecarPort(port);
+    } catch (err) {
+      console.error('[desktop] Failed to start sidecar:', err);
+    }
     await initCompanies();
     startPipelinePoller();
     void attachDefaultSession();
@@ -185,4 +223,7 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   pty.detach();
   stopPipelinePoller();
+  if (sidecarProcess && !sidecarProcess.killed) {
+    sidecarProcess.kill();
+  }
 });

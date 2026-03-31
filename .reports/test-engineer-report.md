@@ -2,34 +2,36 @@ status: pass
 
 ## Test files created
 
-- `tests/features/cli-machine-readable-companies-command.test.ts` — 13 test cases
-- `tests/features/cli-machine-readable-agents-command.test.ts` — 18 test cases
-- `tests/features/cli-machine-readable-json-flags.test.ts` — 26 test cases
+- `tests/features/electron-desktop-app-launch-and-structure.test.ts` — 22 test cases
+- `tests/features/electron-desktop-app-terminal-and-sessions.test.ts` — 27 test cases
 
-## Total test cases: 57
+## Total test cases: 49
 
-### cli-machine-readable-companies-command.test.ts
-Covers AC1, AC9, FC1. Verifies `companies.ts` command existence and implementation:
-`fetchUserCompanies()`, `getValidCredentials()`, JSON output `{ "companies": [{ "id", "name" }] }`,
-error handling for unauthenticated state, CLI index registration.
+### electron-desktop-app-launch-and-structure.test.ts
+Covers AC1, AC2, AC9, AC10.
+- AC1: zazig desktop CLI command (desktop.ts) exists and spawns Electron
+- AC1: packages/desktop package.json exists with electron + esbuild deps
+- AC1: Electron main.ts creates BrowserWindow and loads renderer
+- AC1: Renderer has two-panel split-view layout (App.tsx/Layout.tsx)
+- AC2: Pipeline column shows active jobs, failed, backlog, recently completed, status bar
+- AC2: Recently completed limited to 5 items and collapsible
+- AC9: Watch button shows "not running locally" message for non-running jobs
+- AC10: No code signing, DMG targets, or auto-update packages
 
-### cli-machine-readable-agents-command.test.ts
-Covers AC2, AC3, AC9, AC11, FC3, FC5. Verifies `agents.ts` command existence and implementation:
-`discoverAgentSessions()` reuse, Supabase queries for `persistent_agents` and `jobs` tables,
-`type` field with values `persistent`/`job`/`expert`, `--type` filter flag, `tmux_session` and
-`status` fields, orphaned/unknown status handling, empty `{ "agents": [] }` when no agents found,
-CLI index registration.
-
-### cli-machine-readable-json-flags.test.ts
-Covers AC4, AC5, AC6, AC7, AC8, AC9, AC10, AC11, FC2, FC4. Verifies `--json` flag on:
-- `status.ts`: `{ "running": false }` when daemon stopped; full JSON when running
-- `start.ts`: `--json` + `--company` for non-interactive mode, `{ "started": true/false }`
-- `stop.ts`: `--company` flag (currently missing), `{ "stopped": true/false }`
-- `login.ts`: `{ "logged_in": true/false, "email", "supabase_url" }`, progress to stderr
+### electron-desktop-app-terminal-and-sessions.test.ts
+Covers AC3, AC4, AC5, AC6, AC7, AC8.
+- AC3: Main process polls zazig status --json every 5000ms via setInterval, diffs before sending
+- AC3: Renderer receives IPC updates and stores in React state
+- AC4: Green/grey dot per active job based on tmux session presence
+- AC4: Main process cross-references standup/tmux sessions with job list
+- AC5: Terminal.tsx uses xterm.js; main uses node-pty + tmux attach -t
+- AC5: Pipeline onClick sends attach IPC message
+- AC6: Tracks currentSession, kills pty before attaching new one, single session only
+- AC7: Attaches CPO session by default on launch; shows "No active agents" when unavailable
+- AC8: xterm mouseMode enabled, FitAddon resize, scrollback buffer
+- AC8: Main streams pty data to renderer and writes renderer input to pty
 
 ## Notes
 
-- No changes to `package.json` needed — `tests/vitest.config.ts` already uses
-  `include: ['features/**/*.test.ts']` which covers the new files recursively.
-- All tests are written to FAIL against the current codebase: no `companies.ts` or `agents.ts`
-  exist; existing `status.ts`, `start.ts`, `stop.ts`, and `login.ts` do not yet handle `--json`.
+- No changes to `package.json` needed — test script delegates to workspace runners which use vitest recursively.
+- All tests written to FAIL against current codebase: `packages/desktop` does not exist yet.

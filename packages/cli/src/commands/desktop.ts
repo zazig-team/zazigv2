@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
@@ -98,7 +98,7 @@ export async function desktop(args: string[] = process.argv.slice(3)): Promise<v
     return;
   }
 
-  const cliBin = basename(process.argv[1] ?? "zazig");
+  const cliBin = process.env["ZAZIG_REPO_PATH"] ? "zazig-staging" : "zazig";
 
   await new Promise<void>((resolveLaunch) => {
     const child = spawn(electronBinary, [desktopEntry], {

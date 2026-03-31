@@ -64,3 +64,8 @@ export function stopPipelinePoller(): void {
   pollTimer = null;
   previousSnapshot = null;
 }
+
+export function resetPollerSnapshot(): void {
+  previousSnapshot = null;
+  void pollOnce();
+}

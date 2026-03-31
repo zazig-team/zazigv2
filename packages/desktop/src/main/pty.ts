@@ -1,19 +1,7 @@
 import { BrowserWindow } from 'electron';
-import { execFileSync } from 'child_process';
-import * as pty from 'node-pty';
-import { type IPty } from 'node-pty';
+import { spawn, execFileSync, type ChildProcess } from 'child_process';
 
 import { TERMINAL_OUTPUT } from './ipc-channels';
-
-// Electron doesn't inherit the full shell PATH. Resolve it once at startup
-// so node-pty can find tmux and other binaries.
-const SHELL_PATH = (() => {
-  try {
-    return execFileSync('/bin/sh', ['-lc', 'echo $PATH']).toString().trim();
-  } catch {
-    return process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin';
-  }
-})();
 
 const TMUX_BIN = (() => {
   try {
@@ -23,7 +11,7 @@ const TMUX_BIN = (() => {
   }
 })();
 
-let activePty: IPty | null = null;
+let activeChild: ChildProcess | null = null;
 let activeSession: string | null = null;
 
 function broadcastTerminalOutput(data: string): void {
@@ -37,16 +25,16 @@ function normalizeSessionName(session: string): string {
   return session.trim();
 }
 
-function killActivePty(): void {
-  if (!activePty) return;
+function killActiveChild(): void {
+  if (!activeChild) return;
 
   try {
-    activePty.kill();
+    activeChild.kill();
   } catch (error) {
-    console.error('[desktop] Failed to kill active PTY', error);
+    console.error('[desktop] Failed to kill active child', error);
   }
 
-  activePty = null;
+  activeChild = null;
   activeSession = null;
 }
 
@@ -56,53 +44,73 @@ export function attach(session: string): string {
     throw new Error('Session name is required');
   }
 
-  killActivePty();
+  killActiveChild();
 
-  const nextPty = pty.spawn(TMUX_BIN, ['attach', '-t', normalizedSession], {
-    name: 'xterm-256color',
-    cols: 120,
-    rows: 30,
-    cwd: process.env.HOME ?? process.cwd(),
-    env: { ...process.env, PATH: SHELL_PATH, TERM: 'xterm-256color' },
+  // Use tmux pipe-pane to stream output from the session, and send-keys for input.
+  // This avoids needing node-pty (which requires Electron-specific native rebuild).
+  // tmux capture-pane + pipe-pane gives us a read-only view of the session.
+  const child = spawn(TMUX_BIN, [
+    'pipe-pane', '-t', normalizedSession, '-o', 'cat',
+  ], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, TERM: 'xterm-256color' },
   });
 
-  activePty = nextPty;
+  activeChild = child;
   activeSession = normalizedSession;
 
-  nextPty.onData((data) => {
-    broadcastTerminalOutput(data);
+  child.stdout?.on('data', (data: Buffer) => {
+    broadcastTerminalOutput(data.toString());
   });
 
-  nextPty.onExit(() => {
-    if (activePty !== nextPty) return;
-    activePty = null;
+  child.on('exit', () => {
+    if (activeChild !== child) return;
+    activeChild = null;
     activeSession = null;
     broadcastTerminalOutput('');
   });
+
+  // Capture the current pane content immediately so the user sees existing output
+  try {
+    const captured = execFileSync(TMUX_BIN, [
+      'capture-pane', '-t', normalizedSession, '-p', '-S', '-100',
+    ]).toString();
+    if (captured.trim()) {
+      broadcastTerminalOutput(captured);
+    }
+  } catch {
+    // ignore — pane might not have content yet
+  }
 
   return normalizedSession;
 }
 
 export function detach(): void {
-  killActivePty();
+  if (activeSession) {
+    // Stop the pipe-pane
+    try {
+      execFileSync(TMUX_BIN, ['pipe-pane', '-t', activeSession]);
+    } catch {
+      // ignore
+    }
+  }
+  killActiveChild();
 }
 
-export function resize(cols: number, rows: number): void {
-  if (!activePty) return;
-  if (cols <= 0 || rows <= 0) return;
-
-  try {
-    activePty.resize(cols, rows);
-  } catch (error) {
-    console.error('[desktop] Failed to resize PTY', error);
-  }
+export function resize(_cols: number, _rows: number): void {
+  // Resize not applicable — we're observing an existing tmux session, not owning it
 }
 
 export function write(data: string): void {
-  if (!activePty) return;
+  if (!activeSession) return;
   if (!data) return;
 
-  activePty.write(data);
+  // Send keystrokes to the tmux session
+  try {
+    execFileSync(TMUX_BIN, ['send-keys', '-t', activeSession, '-l', data]);
+  } catch (error) {
+    console.error('[desktop] Failed to send keys to tmux', error);
+  }
 }
 
 export function getActiveSession(): string | null {

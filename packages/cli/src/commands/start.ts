@@ -132,12 +132,23 @@ function compareMinimumVersion(
 }
 
 
-export async function start(): Promise<void> {
+export async function start(args: string[] = []): Promise<void> {
   // Parse flags
-  const defaults = process.argv.includes("--defaults");
-  const companyFlagIdx = process.argv.indexOf("--company");
-  const companyFlagValue = companyFlagIdx !== -1 ? process.argv[companyFlagIdx + 1] : undefined;
+  const argv = args.length > 0 ? args : process.argv.slice(2);
+  const defaults = argv.includes("--defaults");
+  const json = argv.includes("--json");
+  const companyFlagIdx = argv.indexOf("--company");
+  const companyFlagValue = companyFlagIdx !== -1 ? argv[companyFlagIdx + 1] : undefined;
   const zazigEnv = process.env["ZAZIG_ENV"] ?? "production";
+
+  // Helper to emit progress output — to stderr only when --json is active
+  const progress = (msg: string): void => {
+    if (json) {
+      process.stderr.write(msg + "\n");
+    } else {
+      console.log(msg);
+    }
+  };
 
   const requiredFailures: string[] = [];
   const addMissingToolFailure = (tool: string, installHint: string): void => {
@@ -191,6 +202,10 @@ export async function start(): Promise<void> {
 
   const failures = requiredFailures;
   if (failures.length > 0) {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "started": false, "error": failures.join("; ") }) + "\n");
+      process.exit(1);
+    }
     console.error("Required tool preflight checks failed:");
     failures.forEach((failure) => console.error(`  - ${failure}`));
     process.exitCode = 1;
@@ -221,8 +236,12 @@ export async function start(): Promise<void> {
   }
 
   if (optionalWarnings.length > 0) {
-    console.warn("Optional tool preflight warnings:");
-    optionalWarnings.forEach((warning) => console.warn(`  - ${warning}`));
+    if (json) {
+      optionalWarnings.forEach((w) => process.stderr.write(w + "\n"));
+    } else {
+      console.warn("Optional tool preflight warnings:");
+      optionalWarnings.forEach((warning) => console.warn(`  - ${warning}`));
+    }
   }
 
   // Check prerequisites
@@ -233,6 +252,10 @@ export async function start(): Promise<void> {
   } catch { /* not installed */ }
 
   if (!claudeInstalled) {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "started": false, "error": "Claude Code is not installed. Install: npm install -g @anthropic-ai/claude-code" }) + "\n");
+      process.exit(1);
+    }
     console.error("Claude Code is not installed.");
     console.error("zazig requires Claude Code to run AI coding agents.\n");
     console.error("Install it:");
@@ -253,19 +276,23 @@ export async function start(): Promise<void> {
   try {
     creds = await getValidCredentials();
   } catch {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "started": false, "error": "Not logged in. Run 'zazig login' first." }) + "\n");
+      process.exit(1);
+    }
     console.error("Not logged in. Run 'zazig login' first.");
     process.exitCode = 1;
     return;
   }
 
-  // First-run config
+  // First-run config — skip interactive prompts when --json is set (non-interactive mode)
   if (!configExists()) {
-    if (defaults) {
+    if (defaults || json) {
       const name = generateMachineName();
       const claudeCount = 4;
       const codexCount = codexInstalled ? 4 : 0;
       saveConfig({ name, slots: { claude_code: claudeCount, codex: codexCount } });
-      console.log(`Machine configured: ${name} (${claudeCount} Claude Code, ${codexCount} Codex)`);
+      progress(`Machine configured: ${name} (${claudeCount} Claude Code, ${codexCount} Codex)`);
     } else {
       await promptForConfig(codexInstalled);
     }
@@ -275,31 +302,51 @@ export async function start(): Promise<void> {
 
   // Fetch companies and pick one
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
-  const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
-  let company = await pickCompany(companies);
-
-  // --company flag override
-  if (companyFlagValue) {
-    const found = companies.find((c) => c.id === companyFlagValue || c.name === companyFlagValue);
-    if (found) company = found;
+  let companies;
+  try {
+    companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
+  } catch (err) {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "started": false, "error": `Failed to fetch companies: ${String(err)}` }) + "\n");
+      process.exit(1);
+    }
+    throw err;
   }
 
-  console.log(`zazig ${getVersion()}`);
-  console.log(`Starting zazig for ${company.name}...`);
+  // --company flag: use it directly when provided (non-interactive); otherwise use pickCompany
+  let company;
+  if (companyFlagValue) {
+    const found = companies.find((c) => c.id === companyFlagValue || c.name === companyFlagValue);
+    if (!found) {
+      if (json) {
+        process.stdout.write(JSON.stringify({ "started": false, "error": `Company not found: ${companyFlagValue}` }) + "\n");
+        process.exit(1);
+      }
+      console.error(`Company not found: ${companyFlagValue}`);
+      process.exitCode = 1;
+      return;
+    }
+    company = found;
+  } else {
+    company = await pickCompany(companies);
+  }
+
+  progress(`zazig ${getVersion()}`);
+  progress(`Starting zazig for ${company.name}...`);
 
   // Auto-update check (production only)
   if (zazigEnv === "production") {
     try {
       const updateResult = await checkForUpdate(creds.supabaseUrl, anonKey, "production");
       if (updateResult.status === "update-available") {
-        console.log(`Update available: v${updateResult.remoteVersion}`);
-        console.log("Downloading...");
+        progress(`Update available: v${updateResult.remoteVersion}`);
+        progress("Downloading...");
         await downloadAndInstall(updateResult.remoteVersion);
-        console.log(`\nUpdated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.`);
+        progress(`Updated zazig to v${updateResult.remoteVersion}. Please run 'zazig start' again.`);
         return;
       }
     } catch (err) {
-      console.warn(`Auto-update check failed (continuing with current version): ${String(err)}`);
+      process.stderr.write(`Auto-update check failed (continuing with current version): ${String(err)}\n`);
     }
   }
 
@@ -307,7 +354,7 @@ export async function start(): Promise<void> {
   if (isDaemonRunningForCompany(company.id)) {
     const oldPid = readPidForCompany(company.id);
     if (oldPid && isProcessRunning(oldPid)) {
-      process.stdout.write(`Stopping existing daemon (PID ${oldPid})...`);
+      process.stderr.write(`Stopping existing daemon (PID ${oldPid})...\n`);
       try { process.kill(oldPid, "SIGTERM"); } catch { /* */ }
 
       const deadline = Date.now() + 10_000;
@@ -318,7 +365,7 @@ export async function start(): Promise<void> {
       if (isProcessRunning(oldPid)) {
         try { process.kill(oldPid, "SIGKILL"); } catch { /* */ }
       }
-      console.log(" stopped.");
+      process.stderr.write("stopped.\n");
     }
     removePidFileForCompany(company.id);
   }
@@ -348,32 +395,36 @@ export async function start(): Promise<void> {
     if (existsSync(binAgent)) {
       agentEntryOverride = binAgent;
       const ver = getLocalVersion();
-      console.log(`Using zazig-agent binary${ver ? ` (v${ver})` : ""}`);
+      progress(`Using zazig-agent binary${ver ? ` (v${ver})` : ""}`);
     } else if (hasPinnedBuild()) {
       // Legacy fallback — old pinned .mjs build
       const buildDir = join(homedir(), ".zazigv2", "builds", "current");
       agentEntryOverride = join(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
       const sha = getCurrentBuildSha();
-      console.log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);
+      progress(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);
     }
   } else if (zazigEnv === "staging") {
-    console.log("Using repo build (staging mode)");
+    progress("Using repo build (staging mode)");
   }
 
   let pid: number;
   try {
     pid = startDaemonForCompany(env, company.id, agentEntryOverride);
-    console.log(`Agent started (PID ${pid}). Logs: ${logPathForCompany(company.id)}`);
+    progress(`Agent started (PID ${pid}). Logs: ${logPathForCompany(company.id)}`);
   } catch (err) {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "started": false, "error": `Failed to start daemon: ${String(err)}` }) + "\n");
+      process.exit(1);
+    }
     console.error(`Failed to start daemon: ${String(err)}`);
-    process.exitCode ||= 1;
+    process.exitCode = 1;
     return;
   }
 
   // Poll for agent sessions (up to 30s).
   // Wait until the count stabilizes (same count for 2 consecutive polls)
   // so we don't miss agents that spawn slightly after the first one.
-  process.stdout.write("Waiting for agents to spawn...");
+  process.stderr.write("Waiting for agents to spawn...\n");
   let agentSessions: ReturnType<typeof discoverAgentSessions> = [];
   let lastCount = 0;
   let stablePolls = 0;
@@ -383,14 +434,16 @@ export async function start(): Promise<void> {
     if (!isProcessRunning(pid)) {
       const logPath = logPathForCompany(company.id);
       const errorLines = readRecentAgentErrorLines(logPath);
-      if (!errorLines || errorLines.length === 0) {
-        console.error(`\nAgent failed to start. Check logs: ${logPath}`);
-      } else {
-        console.error("\nAgent failed to start.");
-        for (const line of errorLines) {
-          console.error(`  ${line}`);
-        }
-        console.error(`Logs: ${logPath}`);
+      const errorMsg = errorLines && errorLines.length > 0
+        ? `Agent failed to start: ${errorLines.join("; ")}`
+        : `Agent failed to start. Check logs: ${logPath}`;
+      if (json) {
+        process.stdout.write(JSON.stringify({ "started": false, "error": errorMsg }) + "\n");
+        process.exit(1);
+      }
+      process.stderr.write(`\n${errorMsg}\n`);
+      if (errorLines && errorLines.length > 0) {
+        process.stderr.write(`Logs: ${logPath}\n`);
       }
       process.exitCode = 1;
       return;
@@ -403,21 +456,26 @@ export async function start(): Promise<void> {
       stablePolls = 0;
     }
     lastCount = agentSessions.length;
-    process.stdout.write(".");
+    process.stderr.write(".");
   }
-  console.log(agentSessions.length > 0 ? ` found ${agentSessions.length} agent(s).` : "");
+  process.stderr.write(agentSessions.length > 0 ? ` found ${agentSessions.length} agent(s).\n` : "\n");
 
   // Best-effort skill link reconciliation for persistent workspaces.
   try {
     const sync = await syncSkillsForCompany(creds.supabaseUrl, anonKey, company.id);
-    console.log(
+    progress(
       `Skills sync: added=${sync.added}, updated=${sync.updated}, removed=${sync.removed}, unchanged=${sync.unchanged}`,
     );
     for (const warning of sync.warnings) {
-      console.warn(warning);
+      process.stderr.write(warning + "\n");
     }
   } catch (err) {
-    console.warn(`Skills sync skipped: ${String(err)}`);
+    process.stderr.write(`Skills sync skipped: ${String(err)}\n`);
+  }
+
+  if (json) {
+    process.stdout.write(JSON.stringify({ "started": true, "pid": pid, "company_id": company.id, "company_name": company.name }) + "\n");
+    return;
   }
 
   console.log("Zazig started successfully.");

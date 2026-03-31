@@ -27,11 +27,20 @@ export async function login(args: string[] = []): Promise<void> {
     flags = parseLoginFlags(args);
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
-    console.error("Usage: zazig login [--otp|--code|--link] [--email <email>] [--non-interactive]");
+    console.error("Usage: zazig login [--otp|--code|--link] [--email <email>] [--non-interactive] [--json]");
     process.exit(1);
   }
 
-  const { mode, nonInteractive } = flags;
+  const { mode, nonInteractive, json } = flags;
+
+  // Helper to emit progress — goes to stderr when --json is active so stdout stays pure JSON.
+  const progress = (msg: string): void => {
+    if (json) {
+      process.stderr.write(msg + "\n");
+    } else {
+      console.log(msg);
+    }
+  };
 
   // Only respect SUPABASE_URL/ANON_KEY env overrides when ZAZIG_ENV is explicitly
   // set (e.g. staging). Otherwise always use the hardcoded production defaults.
@@ -49,7 +58,7 @@ export async function login(args: string[] = []): Promise<void> {
       console.error("--non-interactive requires --email <email>.");
       process.exit(1);
     }
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    const rl = createInterface({ input: process.stdin, output: process.stderr });
     try {
       email = (await rl.question("Email address: ")).trim();
     } finally {
@@ -58,6 +67,10 @@ export async function login(args: string[] = []): Promise<void> {
   }
 
   if (!email) {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "logged_in": false, "error": "Email is required." }) + "\n");
+      process.exit(1);
+    }
     console.error("Email is required.");
     process.exit(1);
   }
@@ -67,17 +80,25 @@ export async function login(args: string[] = []): Promise<void> {
   // zazig's auth handler stores the token independently of this process.
   if (nonInteractive) {
     await sendMagicLink({ supabaseUrl, anonKey, email });
-    console.log(`Magic link sent to ${email}. Click the link in your email to complete login.`);
+    progress(`Magic link sent to ${email}. Click the link in your email to complete login.`);
     return;
   }
 
   // OTP-only mode: no localhost callback server required.
   if (mode === "otp") {
-    await sendMagicLink({ supabaseUrl, anonKey, email });
-    console.log(`Sign-in code sent to ${email} — paste the code from your email below.`);
-    const code = await promptForRequiredOtpCode();
-    const tokens = await verifyOtpCode({ supabaseUrl, anonKey, email, code });
-    persistCredentials({ tokens, email, supabaseUrl });
+    try {
+      await sendMagicLink({ supabaseUrl, anonKey, email });
+      progress(`Sign-in code sent to ${email} — paste the code from your email below.`);
+      const code = await promptForRequiredOtpCode(json);
+      const tokens = await verifyOtpCode({ supabaseUrl, anonKey, email, code });
+      persistCredentials({ tokens, email, supabaseUrl, json });
+    } catch (err) {
+      if (json) {
+        process.stdout.write(JSON.stringify({ "logged_in": false, "error": err instanceof Error ? err.message : String(err) }) + "\n");
+        process.exit(1);
+      }
+      throw err;
+    }
     return;
   }
 
@@ -92,7 +113,7 @@ export async function login(args: string[] = []): Promise<void> {
     const redirectTo = `http://127.0.0.1:${port}/callback`;
     await sendMagicLink({ supabaseUrl, anonKey, email, redirectTo });
 
-    console.log(`Magic link sent to ${email} — click the link in your email to finish login.`);
+    progress(`Magic link sent to ${email} — click the link in your email to finish login.`);
     const timeoutPromise = loginTimeout(timeoutMs);
     let tokens: OAuthTokens;
 
@@ -105,10 +126,10 @@ export async function login(args: string[] = []): Promise<void> {
         value,
       }));
 
-      console.log("If your email shows a one-time code instead of a link, paste it and press Enter.");
-      console.log("Or press Enter to continue waiting for the link callback.\n");
+      progress("If your email shows a one-time code instead of a link, paste it and press Enter.");
+      progress("Or press Enter to continue waiting for the link callback.\n");
 
-      const otpPromptPromise = promptForOptionalOtpCode(otpPromptAbort.signal).then((value) => ({
+      const otpPromptPromise = promptForOptionalOtpCode(otpPromptAbort.signal, json).then((value) => ({
         kind: "otp" as const,
         value,
       }));
@@ -133,16 +154,22 @@ export async function login(args: string[] = []): Promise<void> {
             code: first.value,
           });
         } catch (err) {
-          console.error(
-            `Code verification failed: ${err instanceof Error ? err.message : String(err)}`
+          process.stderr.write(
+            `Code verification failed: ${err instanceof Error ? err.message : String(err)}\n`
           );
-          console.error("Continuing to wait for the magic link callback...");
+          process.stderr.write("Continuing to wait for the magic link callback...\n");
           tokens = await Promise.race([callbackPromise, timeoutPromise]);
         }
       }
     }
 
-    persistCredentials({ tokens, email, supabaseUrl });
+    persistCredentials({ tokens, email, supabaseUrl, json });
+  } catch (err) {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "logged_in": false, "error": err instanceof Error ? err.message : String(err) }) + "\n");
+      process.exit(1);
+    }
+    throw err;
   } finally {
     otpPromptAbort?.abort();
     server.close();
@@ -153,12 +180,14 @@ interface LoginFlags {
   mode: LoginMode;
   email?: string;
   nonInteractive: boolean;
+  json: boolean;
 }
 
 function parseLoginFlags(args: string[]): LoginFlags {
   let mode: LoginMode = "auto";
   let email: string | undefined;
   let nonInteractive = false;
+  let json = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -185,12 +214,15 @@ function parseLoginFlags(args: string[]): LoginFlags {
       case "--non-interactive":
         nonInteractive = true;
         break;
+      case "--json":
+        json = true;
+        break;
       default:
         throw new Error(`Unknown login option: ${arg}`);
     }
   }
 
-  return { mode, email, nonInteractive };
+  return { mode, email, nonInteractive, json };
 }
 
 async function startCallbackServer(port: number): Promise<{
@@ -426,10 +458,12 @@ function persistCredentials({
   tokens,
   email,
   supabaseUrl,
+  json = false,
 }: {
   tokens: OAuthTokens;
   email: string;
   supabaseUrl: string;
+  json?: boolean;
 }): void {
   saveCredentials({
     accessToken: tokens.access_token,
@@ -438,7 +472,11 @@ function persistCredentials({
     supabaseUrl,
   });
 
-  console.log(`Logged in as ${email}`);
+  if (json) {
+    process.stdout.write(JSON.stringify({ "logged_in": true, "email": email, "supabase_url": supabaseUrl }) + "\n");
+  } else {
+    console.log(`Logged in as ${email}`);
+  }
 }
 
 function loginTimeout(timeoutMs: number): Promise<never> {
@@ -448,8 +486,9 @@ function loginTimeout(timeoutMs: number): Promise<never> {
   });
 }
 
-async function promptForOptionalOtpCode(signal: AbortSignal): Promise<string | null> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+async function promptForOptionalOtpCode(signal: AbortSignal, json = false): Promise<string | null> {
+  const out = json ? process.stderr : process.stdout;
+  const rl = createInterface({ input: process.stdin, output: out });
   try {
     const value = (
       await rl.question("One-time code (optional): ", { signal })
@@ -465,15 +504,16 @@ async function promptForOptionalOtpCode(signal: AbortSignal): Promise<string | n
   }
 }
 
-async function promptForRequiredOtpCode(): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+async function promptForRequiredOtpCode(json = false): Promise<string> {
+  const out = json ? process.stderr : process.stdout;
+  const rl = createInterface({ input: process.stdin, output: out });
   try {
     while (true) {
       const value = (await rl.question("One-time code: ")).trim();
       if (value.length > 0) {
         return value;
       }
-      console.error("A one-time code is required. Paste the code from your email.");
+      process.stderr.write("A one-time code is required. Paste the code from your email.\n");
     }
   } finally {
     rl.close();

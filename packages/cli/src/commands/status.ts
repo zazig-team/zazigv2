@@ -49,22 +49,34 @@ function findRunningDaemon(): { pid: number; companyId: string | null } | null {
   return null;
 }
 
-export async function status(): Promise<void> {
+export async function status(args: string[] = []): Promise<void> {
+  const json = args.includes("--json");
   const daemon = findRunningDaemon();
 
   if (!daemon) {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "running": false }) + "\n");
+      process.exit(0);
+    }
     console.log("Agent is not running.");
     return;
   }
 
   const { pid, companyId } = daemon;
-  console.log(`zazig ${getVersion()} — agent running (PID ${pid})`);
+
+  if (!json) {
+    console.log(`zazig ${getVersion()} — agent running (PID ${pid})`);
+  }
 
   // Best-effort live state from Supabase — never fatal if this fails
   let creds;
   try {
     creds = await getValidCredentials();
   } catch {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "running": true, "pid": pid, "version": getVersion(), "machine_name": null, "connection_status": "unknown", "slots": { "claude_code": null, "codex": null }, "active_jobs": [], "persistent_agents": [] }) + "\n");
+      process.exit(0);
+    }
     return; // No credentials — can't query Supabase
   }
 
@@ -72,6 +84,10 @@ export async function status(): Promise<void> {
   try {
     cfg = loadConfig();
   } catch {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "running": true, "pid": pid, "version": getVersion(), "machine_name": null, "connection_status": "unknown", "slots": { "claude_code": null, "codex": null }, "active_jobs": [], "persistent_agents": [] }) + "\n");
+      process.exit(0);
+    }
     return; // No machine config — can't query Supabase
   }
 
@@ -94,28 +110,41 @@ export async function status(): Promise<void> {
     );
 
     if (machines.length === 0) {
+      if (json) {
+        process.stdout.write(JSON.stringify({ "running": true, "pid": pid, "version": getVersion(), "machine_name": cfg.name, "connection_status": "unregistered", "slots": { "claude_code": cfg.slots.claude_code, "codex": cfg.slots.codex }, "active_jobs": [], "persistent_agents": [] }) + "\n");
+        process.exit(0);
+      }
       console.log("  (machine not registered yet — start the agent to register)");
       return;
     }
 
     const m = machines[0]!;
     const connStatus = String(m.status ?? "unknown");
-    const connIcon = connStatus === "online" ? "●" : "○";
+    const machineName = String(m.name ?? cfg.name);
 
-    console.log(`  Connection:     ${connIcon} ${connStatus}`);
-    console.log(`  Machine:        ${String(m.name ?? cfg.name)}`);
+    if (!json) {
+      const connIcon = connStatus === "online" ? "●" : "○";
+      console.log(`  Connection:     ${connIcon} ${connStatus}`);
+      console.log(`  Machine:        ${machineName}`);
 
-    if (typeof m.last_heartbeat === "string") {
-      const ageSec = Math.round(
-        (Date.now() - new Date(m.last_heartbeat).getTime()) / 1000
-      );
-      console.log(`  Last heartbeat: ${ageSec}s ago`);
+      if (typeof m.last_heartbeat === "string") {
+        const ageSec = Math.round(
+          (Date.now() - new Date(m.last_heartbeat).getTime()) / 1000
+        );
+        console.log(`  Last heartbeat: ${ageSec}s ago`);
+      }
     }
 
     // Active jobs — include slot_type for per-type usage counts
     const machineId = String(m.id ?? "");
+    let activeJobs: Row[] = [];
+    let claudeActive = 0;
+    let codexActive = 0;
+    const claudeSlots = Number(m.slots_claude_code ?? cfg.slots.claude_code);
+    const codexSlots = Number(m.slots_codex ?? cfg.slots.codex);
+
     if (machineId) {
-      const jobs = await apiFetch(
+      activeJobs = await apiFetch(
         `${creds.supabaseUrl}/rest/v1/jobs` +
           `?select=id,status,context,slot_type,job_type` +
           `&machine_id=eq.${encodeURIComponent(machineId)}` +
@@ -123,21 +152,21 @@ export async function status(): Promise<void> {
         headers
       );
 
-      const claudeActive = jobs.filter((j) => j.slot_type === "claude_code").length;
-      const codexActive = jobs.filter((j) => j.slot_type === "codex").length;
-      const claudeSlots = Number(m.slots_claude_code ?? cfg.slots.claude_code);
-      const codexSlots = Number(m.slots_codex ?? cfg.slots.codex);
+      claudeActive = activeJobs.filter((j) => j.slot_type === "claude_code").length;
+      codexActive = activeJobs.filter((j) => j.slot_type === "codex").length;
 
-      console.log(`  Claude slots:   ${claudeActive}/${claudeSlots}`);
-      console.log(`  Codex slots:    ${codexActive}/${codexSlots}`);
-      console.log(`  Active jobs:    ${jobs.length}`);
+      if (!json) {
+        console.log(`  Claude slots:   ${claudeActive}/${claudeSlots}`);
+        console.log(`  Codex slots:    ${codexActive}/${codexSlots}`);
+        console.log(`  Active jobs:    ${activeJobs.length}`);
 
-      for (const job of jobs) {
-        const ctx =
-          typeof job.context === "string"
-            ? job.context.replace(/\s+/g, " ").trim().slice(0, 55)
-            : String(job.id ?? "").slice(0, 8);
-        console.log(`    • [${job.status}] ${ctx}`);
+        for (const job of activeJobs) {
+          const ctx =
+            typeof job.context === "string"
+              ? job.context.replace(/\s+/g, " ").trim().slice(0, 55)
+              : String(job.id ?? "").slice(0, 8);
+          console.log(`    • [${job.status}] ${ctx}`);
+        }
       }
     }
 
@@ -146,8 +175,9 @@ export async function status(): Promise<void> {
       .map((row) => String(row.company_id ?? ""))
       .filter((id) => id.length > 0);
 
-    if (companyIds.length > 0) {
-      const persistentAgents = await apiFetch(
+    let persistentAgents: Row[] = [];
+    if (companyIds.length > 0 && machineId) {
+      persistentAgents = await apiFetch(
         `${creds.supabaseUrl}/rest/v1/persistent_agents` +
           `?select=id,role,status,machine_id,last_heartbeat` +
           `&company_id=in.(${companyIds.join(",")})` +
@@ -155,7 +185,7 @@ export async function status(): Promise<void> {
         headers
       );
 
-      if (Array.isArray(persistentAgents) && persistentAgents.length > 0) {
+      if (!json && Array.isArray(persistentAgents) && persistentAgents.length > 0) {
         console.log(`  Persistent agents:`);
         for (const agent of persistentAgents) {
           const role = String(agent.role ?? "unknown").toUpperCase();
@@ -165,7 +195,29 @@ export async function status(): Promise<void> {
         }
       }
     }
+
+    if (json) {
+      process.stdout.write(JSON.stringify({
+        "running": true,
+        "pid": pid,
+        "version": getVersion(),
+        "machine_name": machineName,
+        "connection_status": connStatus,
+        "slots": {
+          "claude_code": { "active": claudeActive, "total": claudeSlots },
+          "codex": { "active": codexActive, "total": codexSlots },
+        },
+        "active_jobs": activeJobs,
+        "persistent_agents": persistentAgents,
+      }) + "\n");
+      process.exit(0);
+    }
   } catch (err) {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "running": true, "pid": pid, "version": getVersion(), "machine_name": cfg.name, "connection_status": "error", "slots": { "claude_code": null, "codex": null }, "active_jobs": [], "persistent_agents": [] }) + "\n");
+      process.exit(0);
+      return;
+    }
     console.log(`  (could not fetch live status: ${String(err)})`);
   }
 }

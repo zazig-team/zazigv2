@@ -26,11 +26,19 @@ function isRunning(pid: number): boolean {
   }
 }
 
-export async function stop(): Promise<void> {
+export async function stop(args: string[] = []): Promise<void> {
+  const json = args.includes("--json");
+  const companyFlagIdx = args.indexOf("--company");
+  const companyFlagValue = companyFlagIdx !== -1 ? args[companyFlagIdx + 1] : undefined;
+
   let creds;
   try {
     creds = await getValidCredentials();
   } catch {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "stopped": false, "error": "Not logged in. Run 'zazig login' first." }) + "\n");
+      process.exit(1);
+    }
     console.error("Not logged in. Run 'zazig login' first.");
     process.exitCode = 1;
     return;
@@ -38,15 +46,35 @@ export async function stop(): Promise<void> {
 
   const anonKey = process.env["SUPABASE_ANON_KEY"] ?? DEFAULT_SUPABASE_ANON_KEY;
   const companies = await fetchUserCompanies(creds.supabaseUrl, anonKey, creds.accessToken);
-  const company = await pickCompany(companies);
+
+  let company;
+  if (companyFlagValue) {
+    const found = companies.find((c) => c.id === companyFlagValue || c.name === companyFlagValue);
+    if (!found) {
+      if (json) {
+        process.stdout.write(JSON.stringify({ "stopped": false, "error": `Company not found: ${companyFlagValue}` }) + "\n");
+        process.exit(1);
+      }
+      console.error(`Company not found: ${companyFlagValue}`);
+      process.exitCode = 1;
+      return;
+    }
+    company = found;
+  } else {
+    company = await pickCompany(companies);
+  }
 
   const pid = readPidForCompany(company.id);
   if (!pid || !isRunning(pid)) {
+    if (json) {
+      process.stdout.write(JSON.stringify({ "stopped": false, "error": `Agent is not running for ${company.name}.`, "company_id": company.id }) + "\n");
+      process.exit(1);
+    }
     console.log(`Agent is not running for ${company.name}.`);
     return;
   }
 
-  process.stdout.write(`Stopping zazig for ${company.name} (PID ${pid})...`);
+  process.stderr.write(`Stopping zazig for ${company.name} (PID ${pid})...\n`);
 
   try {
     process.kill(pid, "SIGTERM");
@@ -65,5 +93,10 @@ export async function stop(): Promise<void> {
   }
 
   removePidFileForCompany(company.id);
-  console.log(" stopped.");
+
+  if (json) {
+    process.stdout.write(JSON.stringify({ "stopped": true, "pid": pid, "company_id": company.id }) + "\n");
+    process.exit(0);
+  }
+  console.log("stopped.");
 }

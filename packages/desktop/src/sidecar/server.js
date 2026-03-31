@@ -8,6 +8,26 @@ const pty = require('node-pty');
 const { WebSocketServer } = require('ws');
 const { createServer } = require('http');
 const { execSync } = require('child_process');
+const { chmodSync, statSync } = require('fs');
+const path = require('path');
+
+// Fix node-pty prebuild permissions — spawn-helper ships without +x
+(() => {
+  try {
+    const platform = process.platform === 'darwin' ? `darwin-${process.arch}` : `${process.platform}-${process.arch}`;
+    const helperPath = path.join(
+      path.dirname(require.resolve('node-pty')),
+      '..', 'prebuilds', platform, 'spawn-helper',
+    );
+    const stat = statSync(helperPath);
+    if (!(stat.mode & 0o111)) {
+      chmodSync(helperPath, stat.mode | 0o755);
+      console.error('[sidecar] fixed spawn-helper permissions');
+    }
+  } catch {
+    // ignore — might not be using prebuilds
+  }
+})();
 
 const TMUX_BIN = (() => {
   try {

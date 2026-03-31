@@ -187,6 +187,7 @@ switch (cmd) {
     console.log("Commands:");
     console.log("  login              Log in to zazig (link or code)");
     console.log("  login --otp        Force one-time code flow (no localhost callback)");
+    console.log("  login --json       Emit final login result as JSON (progress still interactive)");
     console.log("  logout             Log out and remove stored credentials");
     console.log("  setup              Create a company, onboard a project, invite teammates");
     console.log("  start              Start the local agent daemon in the background");

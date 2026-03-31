@@ -22,130 +22,166 @@ interface OAuthTokens {
 type LoginMode = "auto" | "link" | "otp";
 
 export async function login(args: string[] = []): Promise<void> {
+  const jsonRequested = args.includes("--json");
   let flags: LoginFlags;
   try {
     flags = parseLoginFlags(args);
   } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err));
-    console.error("Usage: zazig login [--otp|--code|--link] [--email <email>] [--non-interactive]");
+    const message = err instanceof Error ? err.message : String(err);
+    if (jsonRequested) {
+      process.stdout.write(`${JSON.stringify({ "logged_in": false, "error": message })}\n`);
+    } else {
+      console.error(message);
+      console.error("Usage: zazig login [--otp|--code|--link] [--email <email>] [--non-interactive] [--json]");
+    }
     process.exit(1);
   }
 
-  const { mode, nonInteractive } = flags;
-
-  // Only respect SUPABASE_URL/ANON_KEY env overrides when ZAZIG_ENV is explicitly
-  // set (e.g. staging). Otherwise always use the hardcoded production defaults.
-  // This prevents a stray SUPABASE_URL in the shell from poisoning credentials.json.
-  const envOverride = Boolean(process.env["ZAZIG_ENV"]);
-  const supabaseUrl = (envOverride && process.env["SUPABASE_URL"]) || DEFAULT_SUPABASE_URL;
-  const anonKey = (envOverride && process.env["SUPABASE_ANON_KEY"]) || DEFAULT_SUPABASE_ANON_KEY;
-
-  // 1. Get email — from flag or interactive prompt
-  let email: string;
-  if (flags.email) {
-    email = flags.email;
-  } else {
-    if (nonInteractive) {
-      console.error("--non-interactive requires --email <email>.");
-      process.exit(1);
-    }
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    try {
-      email = (await rl.question("Email address: ")).trim();
-    } finally {
-      rl.close();
-    }
-  }
-
-  if (!email) {
-    console.error("Email is required.");
-    process.exit(1);
-  }
-
-  // Non-interactive mode: send the magic link and exit immediately.
-  // The magic link callback will still work when the user clicks it —
-  // zazig's auth handler stores the token independently of this process.
-  if (nonInteractive) {
-    await sendMagicLink({ supabaseUrl, anonKey, email });
-    console.log(`Magic link sent to ${email}. Click the link in your email to complete login.`);
-    return;
-  }
-
-  // OTP-only mode: no localhost callback server required.
-  if (mode === "otp") {
-    await sendMagicLink({ supabaseUrl, anonKey, email });
-    console.log(`Sign-in code sent to ${email} — paste the code from your email below.`);
-    const code = await promptForRequiredOtpCode();
-    const tokens = await verifyOtpCode({ supabaseUrl, anonKey, email, code });
-    persistCredentials({ tokens, email, supabaseUrl });
-    return;
-  }
-
-  // Link/auto mode: start localhost callback server and send link with redirect.
-  // Prefer 3000 because Supabase site_url often points to localhost:3000.
-  const port = await findAvailablePort(3000);
-  const { server, callbackPromise } = await startCallbackServer(port);
-  const timeoutMs = 5 * 60 * 1000;
-  let otpPromptAbort: AbortController | null = null;
+  const { mode, nonInteractive, json } = flags;
+  const promptOutput = json ? process.stderr : process.stdout;
+  const printInfo = (message: string): void => {
+    promptOutput.write(`${message}\n`);
+  };
 
   try {
-    const redirectTo = `http://127.0.0.1:${port}/callback`;
-    await sendMagicLink({ supabaseUrl, anonKey, email, redirectTo });
+    if (json && nonInteractive) {
+      throw new Error("--json requires interactive authentication. Remove --non-interactive.");
+    }
 
-    console.log(`Magic link sent to ${email} — click the link in your email to finish login.`);
-    const timeoutPromise = loginTimeout(timeoutMs);
-    let tokens: OAuthTokens;
+    // Only respect SUPABASE_URL/ANON_KEY env overrides when ZAZIG_ENV is explicitly
+    // set (e.g. staging). Otherwise always use the hardcoded production defaults.
+    // This prevents a stray SUPABASE_URL in the shell from poisoning credentials.json.
+    const envOverride = Boolean(process.env["ZAZIG_ENV"]);
+    const supabaseUrl = (envOverride && process.env["SUPABASE_URL"]) || DEFAULT_SUPABASE_URL;
+    const anonKey = (envOverride && process.env["SUPABASE_ANON_KEY"]) || DEFAULT_SUPABASE_ANON_KEY;
 
-    if (mode === "link") {
-      tokens = await Promise.race([callbackPromise, timeoutPromise]);
+    // 1. Get email — from flag or interactive prompt
+    let email: string;
+    if (flags.email) {
+      email = flags.email;
     } else {
-      otpPromptAbort = new AbortController();
-      const callbackResultPromise = callbackPromise.then((value) => ({
-        kind: "callback" as const,
-        value,
-      }));
-
-      console.log("If your email shows a one-time code instead of a link, paste it and press Enter.");
-      console.log("Or press Enter to continue waiting for the link callback.\n");
-
-      const otpPromptPromise = promptForOptionalOtpCode(otpPromptAbort.signal).then((value) => ({
-        kind: "otp" as const,
-        value,
-      }));
-
-      const first = await Promise.race([
-        callbackResultPromise,
-        otpPromptPromise,
-        timeoutPromise,
-      ]);
-
-      if (first.kind === "callback") {
-        otpPromptAbort.abort();
-        tokens = first.value;
-      } else if (!first.value) {
-        tokens = await Promise.race([callbackPromise, timeoutPromise]);
-      } else {
-        try {
-          tokens = await verifyOtpCode({
-            supabaseUrl,
-            anonKey,
-            email,
-            code: first.value,
-          });
-        } catch (err) {
-          console.error(
-            `Code verification failed: ${err instanceof Error ? err.message : String(err)}`
-          );
-          console.error("Continuing to wait for the magic link callback...");
-          tokens = await Promise.race([callbackPromise, timeoutPromise]);
-        }
+      if (nonInteractive) {
+        throw new Error("--non-interactive requires --email <email>.");
+      }
+      const rl = createInterface({ input: process.stdin, output: promptOutput });
+      try {
+        email = (await rl.question("Email address: ")).trim();
+      } finally {
+        rl.close();
       }
     }
 
-    persistCredentials({ tokens, email, supabaseUrl });
-  } finally {
-    otpPromptAbort?.abort();
-    server.close();
+    if (!email) {
+      throw new Error("Email is required.");
+    }
+
+    // Non-interactive mode: send the magic link and exit immediately.
+    // The magic link callback will still work when the user clicks it —
+    // zazig's auth handler stores the token independently of this process.
+    if (nonInteractive) {
+      await sendMagicLink({ supabaseUrl, anonKey, email });
+      printInfo(`Magic link sent to ${email}. Click the link in your email to complete login.`);
+      return;
+    }
+
+    // OTP-only mode: no localhost callback server required.
+    if (mode === "otp") {
+      await sendMagicLink({ supabaseUrl, anonKey, email });
+      printInfo(`Sign-in code sent to ${email} — paste the code from your email below.`);
+      const code = await promptForRequiredOtpCode(promptOutput);
+      const tokens = await verifyOtpCode({ supabaseUrl, anonKey, email, code });
+      persistCredentials({ tokens, email, supabaseUrl });
+      if (json) {
+        process.stdout.write(
+          `${JSON.stringify({ "logged_in": true, "email": email, "supabase_url": supabaseUrl })}\n`
+        );
+      } else {
+        printInfo(`Logged in as ${email}`);
+      }
+      return;
+    }
+
+    // Link/auto mode: start localhost callback server and send link with redirect.
+    // Prefer 3000 because Supabase site_url often points to localhost:3000.
+    const port = await findAvailablePort(3000);
+    const { server, callbackPromise } = await startCallbackServer(port);
+    const timeoutMs = 5 * 60 * 1000;
+    let otpPromptAbort: AbortController | null = null;
+
+    try {
+      const redirectTo = `http://127.0.0.1:${port}/callback`;
+      await sendMagicLink({ supabaseUrl, anonKey, email, redirectTo });
+
+      printInfo(`Magic link sent to ${email} — click the link in your email to finish login.`);
+      const timeoutPromise = loginTimeout(timeoutMs);
+      let tokens: OAuthTokens;
+
+      if (mode === "link") {
+        tokens = await Promise.race([callbackPromise, timeoutPromise]);
+      } else {
+        otpPromptAbort = new AbortController();
+        const callbackResultPromise = callbackPromise.then((value) => ({
+          kind: "callback" as const,
+          value,
+        }));
+
+        printInfo("If your email shows a one-time code instead of a link, paste it and press Enter.");
+        printInfo("Or press Enter to continue waiting for the link callback.\n");
+
+        const otpPromptPromise = promptForOptionalOtpCode(otpPromptAbort.signal, promptOutput).then((value) => ({
+          kind: "otp" as const,
+          value,
+        }));
+
+        const first = await Promise.race([
+          callbackResultPromise,
+          otpPromptPromise,
+          timeoutPromise,
+        ]);
+
+        if (first.kind === "callback") {
+          otpPromptAbort.abort();
+          tokens = first.value;
+        } else if (!first.value) {
+          tokens = await Promise.race([callbackPromise, timeoutPromise]);
+        } else {
+          try {
+            tokens = await verifyOtpCode({
+              supabaseUrl,
+              anonKey,
+              email,
+              code: first.value,
+            });
+          } catch (err) {
+            console.error(
+              `Code verification failed: ${err instanceof Error ? err.message : String(err)}`
+            );
+            console.error("Continuing to wait for the magic link callback...");
+            tokens = await Promise.race([callbackPromise, timeoutPromise]);
+          }
+        }
+      }
+
+      persistCredentials({ tokens, email, supabaseUrl });
+      if (json) {
+        process.stdout.write(
+          `${JSON.stringify({ "logged_in": true, "email": email, "supabase_url": supabaseUrl })}\n`
+        );
+      } else {
+        printInfo(`Logged in as ${email}`);
+      }
+    } finally {
+      otpPromptAbort?.abort();
+      server.close();
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (json) {
+      process.stdout.write(`${JSON.stringify({ "logged_in": false, "error": message })}\n`);
+    } else {
+      console.error(message);
+    }
+    process.exit(1);
   }
 }
 
@@ -153,12 +189,14 @@ interface LoginFlags {
   mode: LoginMode;
   email?: string;
   nonInteractive: boolean;
+  json: boolean;
 }
 
 function parseLoginFlags(args: string[]): LoginFlags {
   let mode: LoginMode = "auto";
   let email: string | undefined;
   let nonInteractive = false;
+  let json = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -185,12 +223,15 @@ function parseLoginFlags(args: string[]): LoginFlags {
       case "--non-interactive":
         nonInteractive = true;
         break;
+      case "--json":
+        json = true;
+        break;
       default:
         throw new Error(`Unknown login option: ${arg}`);
     }
   }
 
-  return { mode, email, nonInteractive };
+  return { mode, email, nonInteractive, json };
 }
 
 async function startCallbackServer(port: number): Promise<{
@@ -348,13 +389,11 @@ async function sendMagicLink({
     if (resp.status === 429 || errorCode === "over_email_send_rate_limit") {
       const wait = msg.match(/after (\d+) seconds/)?.[1];
       const hint = wait ? `Try again in ${wait} seconds.` : "Wait a moment and try again.";
-      console.error(`Rate limited — too many sign-in requests. ${hint}`);
-      process.exit(1);
+      throw new Error(`Rate limited — too many sign-in requests. ${hint}`);
     }
 
     const detail = msg || raw || `HTTP ${resp.status}`;
-    console.error(`Failed to send sign-in email: ${detail}`);
-    process.exit(1);
+    throw new Error(`Failed to send sign-in email: ${detail}`);
   }
 }
 
@@ -437,8 +476,6 @@ function persistCredentials({
     email,
     supabaseUrl,
   });
-
-  console.log(`Logged in as ${email}`);
 }
 
 function loginTimeout(timeoutMs: number): Promise<never> {
@@ -448,8 +485,11 @@ function loginTimeout(timeoutMs: number): Promise<never> {
   });
 }
 
-async function promptForOptionalOtpCode(signal: AbortSignal): Promise<string | null> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+async function promptForOptionalOtpCode(
+  signal: AbortSignal,
+  output: NodeJS.WriteStream
+): Promise<string | null> {
+  const rl = createInterface({ input: process.stdin, output });
   try {
     const value = (
       await rl.question("One-time code (optional): ", { signal })
@@ -465,8 +505,8 @@ async function promptForOptionalOtpCode(signal: AbortSignal): Promise<string | n
   }
 }
 
-async function promptForRequiredOtpCode(): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+async function promptForRequiredOtpCode(output: NodeJS.WriteStream): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output });
   try {
     while (true) {
       const value = (await rl.question("One-time code: ")).trim();

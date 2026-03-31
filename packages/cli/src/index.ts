@@ -68,7 +68,7 @@ switch (cmd) {
     break;
 
   case "start":
-    await start();
+    await start(args);
     break;
 
   case "stop":
@@ -189,7 +189,7 @@ switch (cmd) {
     console.log("  login --otp        Force one-time code flow (no localhost callback)");
     console.log("  logout             Log out and remove stored credentials");
     console.log("  setup              Create a company, onboard a project, invite teammates");
-    console.log("  start              Start the local agent daemon in the background");
+    console.log("  start [--company <id>] [--json] [--defaults]  Start the local agent daemon in the background");
     console.log("  stop               Stop the running daemon");
     console.log("  chat               Reconnect TUI to a running daemon");
 

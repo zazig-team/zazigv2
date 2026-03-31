@@ -1,7 +1,5 @@
 import { BrowserWindow } from 'electron';
-import { execFileSync } from 'child_process';
-import * as pty from 'node-pty';
-import { type IPty } from 'node-pty';
+import { spawn, execFileSync, type ChildProcess } from 'child_process';
 
 import { TERMINAL_OUTPUT } from './ipc-channels';
 
@@ -14,7 +12,7 @@ const TMUX_BIN = (() => {
   }
 })();
 
-let activePty: IPty | null = null;
+let activeChild: ChildProcess | null = null;
 let activeSession: string | null = null;
 
 function broadcastTerminalOutput(data: string): void {
@@ -28,16 +26,16 @@ function normalizeSessionName(session: string): string {
   return session.trim();
 }
 
-function killActivePty(): void {
-  if (!activePty) return;
+function killActiveChild(): void {
+  if (!activeChild) return;
 
   try {
-    activePty.kill();
+    activeChild.kill();
   } catch (error) {
-    console.error('[desktop] Failed to kill active PTY', error);
+    console.error('[desktop] Failed to kill active child', error);
   }
 
-  activePty = null;
+  activeChild = null;
   activeSession = null;
 }
 
@@ -47,28 +45,30 @@ export function attach(session: string): string {
     throw new Error('Session name is required');
   }
 
-  killActivePty();
+  killActiveChild();
 
-  const nextPty = pty.spawn(TMUX_BIN, ['attach', '-t', normalizedSession], {
-    name: 'xterm-256color',
-    cols: 120,
-    rows: 30,
-    cwd: process.cwd(),
-    env: process.env,
+  // Use script(1) to get a real PTY for tmux without needing node-pty.
+  // script -q /dev/null runs the command in a PTY, discarding the typescript file.
+  const child = spawn('/usr/bin/script', ['-q', '/dev/null', TMUX_BIN, 'attach', '-t', normalizedSession], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, TERM: 'xterm-256color' },
   });
 
-  activePty = nextPty;
+  activeChild = child;
   activeSession = normalizedSession;
 
-  nextPty.onData((data) => {
-    broadcastTerminalOutput(data);
+  child.stdout?.on('data', (data: Buffer) => {
+    broadcastTerminalOutput(data.toString());
   });
 
-  nextPty.onExit(() => {
-    if (activePty !== nextPty) return;
-    activePty = null;
+  child.stderr?.on('data', (data: Buffer) => {
+    broadcastTerminalOutput(data.toString());
+  });
+
+  child.on('exit', () => {
+    if (activeChild !== child) return;
+    activeChild = null;
     activeSession = null;
-    // Empty payload signals renderer that the PTY disconnected.
     broadcastTerminalOutput('');
   });
 
@@ -76,25 +76,18 @@ export function attach(session: string): string {
 }
 
 export function detach(): void {
-  killActivePty();
+  killActiveChild();
 }
 
-export function resize(cols: number, rows: number): void {
-  if (!activePty) return;
-  if (cols <= 0 || rows <= 0) return;
-
-  try {
-    activePty.resize(cols, rows);
-  } catch (error) {
-    console.error('[desktop] Failed to resize PTY', error);
-  }
+export function resize(_cols: number, _rows: number): void {
+  // resize not supported without node-pty — no-op for now
 }
 
 export function write(data: string): void {
-  if (!activePty) return;
+  if (!activeChild) return;
   if (!data) return;
 
-  activePty.write(data);
+  activeChild.stdin?.write(data);
 }
 
 export function getActiveSession(): string | null {

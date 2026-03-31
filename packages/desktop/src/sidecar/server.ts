@@ -22,7 +22,7 @@ const server = Bun.serve<WsData>({
   },
   websocket: {
     open(_ws) {
-      // Wait for first message which must be the tmux session name
+      console.error('[sidecar] WebSocket client connected');
     },
 
     message(ws, message) {
@@ -34,6 +34,8 @@ const server = Bun.serve<WsData>({
             ? message.trim()
             : Buffer.from(message as ArrayBuffer).toString().trim();
 
+        console.error(`[sidecar] session name received: ${sessionName}`);
+
         // Spawn: tmux attach -t <session> via node-pty
         const ptyProcess = pty.spawn('tmux', ['attach', '-t', sessionName], {
           name: 'xterm-256color',
@@ -44,13 +46,15 @@ const server = Bun.serve<WsData>({
         });
 
         ws.data.ptyProcess = ptyProcess;
+        console.error(`[sidecar] PTY spawned for session: ${sessionName} (pid=${ptyProcess.pid})`);
 
         // Bridge PTY output → WebSocket (binary frames)
         ptyProcess.onData((data) => {
           ws.sendBinary(Buffer.from(data));
         });
 
-        ptyProcess.onExit(() => {
+        ptyProcess.onExit(({ exitCode }) => {
+          console.error(`[sidecar] PTY exited with code ${exitCode}`);
           ws.close();
         });
         return;
@@ -82,6 +86,7 @@ const server = Bun.serve<WsData>({
     },
 
     close(ws) {
+      console.error('[sidecar] WebSocket client disconnected');
       ws.data.ptyProcess?.kill();
       ws.data.ptyProcess = null;
     },
@@ -90,3 +95,4 @@ const server = Bun.serve<WsData>({
 
 // Print the port number to stdout so the parent process can read it
 console.log(server.port);
+console.error(`[sidecar] listening on port ${server.port}`);

@@ -198,6 +198,7 @@ app.whenReady().then(() => {
   win.webContents.once('did-finish-load', async () => {
     try {
       const port = await spawnSidecar();
+      console.error(`[desktop] sidecar started on port ${port}`);
       pty.setSidecarPort(port);
     } catch (err) {
       console.error('[desktop] Failed to start sidecar:', err);

@@ -39,18 +39,21 @@ export function attach(session: string): string {
   const socket = new WebSocket(`ws://127.0.0.1:${sidecarPort}`);
   ws = socket;
 
+  console.error(`[pty] connecting to sidecar ws://127.0.0.1:${sidecarPort} for session ${normalizedSession}`);
+
   socket.on('open', () => {
-    // Send session name as the first message
+    console.error(`[pty] WebSocket connected, sending session name: ${normalizedSession}`);
     socket.send(normalizedSession);
   });
 
   socket.on('message', (data) => {
-    // Relay terminal data from sidecar to renderer
     const text = Buffer.isBuffer(data) ? data.toString() : String(data);
+    console.error(`[pty] received ${text.length} bytes from sidecar`);
     broadcastTerminalOutput(text);
   });
 
-  socket.on('close', () => {
+  socket.on('close', (code, reason) => {
+    console.error(`[pty] WebSocket closed: code=${code}, reason=${reason?.toString()}`);
     if (ws === socket) {
       ws = null;
       activeSession = null;

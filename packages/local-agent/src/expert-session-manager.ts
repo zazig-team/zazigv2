@@ -299,10 +299,11 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
 2. You are on branch \`${expertBranch}\` — all your work goes here
 3. Work through the brief methodically
 4. Show diffs before applying changes
-5. When done: push your branch and merge to ${defaultBranchForInstructions}, then delete the remote expert branch
+5. When done: push your branch and merge to ${defaultBranchForInstructions} from your current worktree context, then delete the remote expert branch
    - \`git push origin ${expertBranch}\`
-   - \`git checkout ${defaultBranchForInstructions} && git merge ${expertBranch} && git push origin ${defaultBranchForInstructions}\`
+   - \`git push origin ${expertBranch}:${defaultBranchForInstructions}\`
    - \`git push origin --delete ${expertBranch}\`
+   - If \`git push origin ${expertBranch}:${defaultBranchForInstructions}\` is rejected (for example, conflicts), create a PR instead: \`gh pr create --base ${defaultBranchForInstructions} --head ${expertBranch}\`
 
 `);
       } else {
@@ -778,18 +779,31 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
 
         try {
           const defaultBranch = session.defaultBranch ?? "master";
-          await execFileAsync("git", ["-C", session.repoDir, "checkout", defaultBranch]);
-          await execFileAsync("git", ["-C", session.repoDir, "merge", expertBranch]);
-          await execFileAsync("git", ["-C", session.repoDir, "push", "origin", defaultBranch]);
+          await execFileAsync("git", [
+            "-C", session.repoDir, "push", "origin", `${expertBranch}:${defaultBranch}`,
+          ]);
           await execFileAsync("git", ["-C", session.repoDir, "push", "origin", "--delete", expertBranch]);
           console.log(
-            `[expert] Merged ${expertBranch} to ${defaultBranch}, pushed ${defaultBranch}, and deleted origin/${expertBranch}`,
+            `[expert] Pushed ${expertBranch} to ${defaultBranch} and deleted origin/${expertBranch}`,
           );
         } catch (mergeErr) {
-          console.warn(
-            `[expert] Merge/push to master failed after pushing ${expertBranch}; leaving origin/${expertBranch} for manual resolution`,
-            mergeErr,
-          );
+          console.warn(`[expert] Push-to-merge failed for ${expertBranch} -> ${defaultBranch}; attempting PR fallback`, mergeErr);
+          try {
+            await execFileAsync("gh", [
+              "-C", session.repoDir,
+              "pr", "create",
+              "--base", defaultBranch,
+              "--head", expertBranch,
+              "--title", `[expert] Merge ${expertBranch} into ${defaultBranch}`,
+              "--body", "Automated fallback: push-to-merge was rejected, opening PR for manual resolution.",
+            ]);
+            console.log(`[expert] Created PR fallback for ${expertBranch} -> ${defaultBranch}`);
+          } catch (prErr) {
+            console.warn(
+              `[expert] PR fallback also failed for ${expertBranch} -> ${defaultBranch}; leaving origin/${expertBranch} for manual resolution`,
+              prErr,
+            );
+          }
         }
       } catch (pushErr) {
         // Push to the expert branch failed (maybe it advanced).

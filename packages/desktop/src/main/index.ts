@@ -47,38 +47,39 @@ function savePrefs(prefs: DesktopPrefs): void {
   }
 }
 
-function findCpoSessionName(statusPayload: unknown): string | null {
-  if (!statusPayload || typeof statusPayload !== 'object') return null;
+function hasCpoRunning(statusPayload: unknown): boolean {
+  if (!statusPayload || typeof statusPayload !== 'object') return false;
+  const status = statusPayload as { persistent_agents?: unknown[] };
+  if (!Array.isArray(status.persistent_agents)) return false;
+  return status.persistent_agents.some((agent) => {
+    if (!agent || typeof agent !== 'object') return false;
+    const a = agent as { role?: string; status?: string };
+    return a.role === 'cpo' && a.status === 'running';
+  });
+}
 
-  const status = statusPayload as { local_sessions?: unknown };
-  const sessions = status.local_sessions;
-  if (!Array.isArray(sessions)) return null;
-
-  for (const entry of sessions) {
-    if (typeof entry === 'string' && entry.toLowerCase().includes('cpo')) {
-      return entry;
-    }
-
-    if (!entry || typeof entry !== 'object') continue;
-
-    const maybeSession = entry as { session?: string; name?: string; id?: string };
-    for (const value of [maybeSession.session, maybeSession.name, maybeSession.id]) {
-      if (typeof value === 'string' && value.toLowerCase().includes('cpo')) {
-        return value;
-      }
-    }
+async function findCpoTmuxSession(): Promise<string | null> {
+  const { execFile } = await import('child_process');
+  const { promisify } = await import('util');
+  const execFileAsync = promisify(execFile);
+  try {
+    const { stdout } = await execFileAsync('tmux', ['list-sessions', '-F', '#{session_name}']);
+    const sessions = stdout.trim().split('\n');
+    return sessions.find((s) => s.endsWith('-cpo')) ?? null;
+  } catch {
+    return null;
   }
-
-  return null;
 }
 
 async function attachDefaultSession(): Promise<void> {
-  const status = await runCLI(['status', '--json']);
+  const status = await runCLI(['status']);
 
-  const cpoSession = findCpoSessionName(status);
-  if (cpoSession) {
-    pty.attach(cpoSession);
-    return;
+  if (hasCpoRunning(status)) {
+    const tmuxSession = await findCpoTmuxSession();
+    if (tmuxSession) {
+      pty.attach(tmuxSession);
+      return;
+    }
   }
 
   const cliBin = process.env.ZAZIG_CLI_BIN || 'zazig';

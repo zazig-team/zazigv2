@@ -72,7 +72,7 @@ switch (cmd) {
     break;
 
   case "stop":
-    await stop();
+    await stop(args);
     break;
 
   case "chat":

@@ -44,6 +44,7 @@ async function pollCapture(): Promise<void> {
   if (!activeSession) return;
 
   const content = await capturePane(activeSession);
+  console.error(`[pty] capture-pane for ${activeSession}: ${content.length} bytes, changed=${content !== lastSnapshot}`);
   if (content !== lastSnapshot) {
     lastSnapshot = content;
     // Send full pane content — renderer's xterm should handle it as a refresh

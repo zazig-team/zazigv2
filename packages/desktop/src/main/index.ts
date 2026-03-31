@@ -74,8 +74,12 @@ async function findCpoTmuxSession(): Promise<string | null> {
 async function attachDefaultSession(): Promise<void> {
   const status = await runCLI(['status']);
 
+  console.error(`[desktop] status result:`, JSON.stringify(status));
+  console.error(`[desktop] hasCpoRunning:`, hasCpoRunning(status));
+
   if (hasCpoRunning(status)) {
     const tmuxSession = await findCpoTmuxSession();
+    console.error(`[desktop] found tmux session:`, tmuxSession);
     if (tmuxSession) {
       pty.attach(tmuxSession);
       return;
@@ -83,6 +87,7 @@ async function attachDefaultSession(): Promise<void> {
   }
 
   const cliBin = process.env.ZAZIG_CLI_BIN || 'zazig';
+  console.error(`[desktop] no CPO session found, showing fallback message`);
   pty.sendSyntheticTerminalMessage(`No active agents — run \`${cliBin} start\` to begin\r\n`);
 }
 

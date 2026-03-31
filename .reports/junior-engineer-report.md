@@ -1,12 +1,6 @@
 status: pass
-summary: Created packages/desktop Electron package with main process, preload, renderer, HTML shell, and esbuild config; verified bun run build produces dist/main.js and dist/renderer.js without errors.
+summary: Implemented a new `zazig desktop` CLI subcommand that builds `packages/desktop` on demand, resolves and launches Electron, and is registered in CLI help/dispatch.
 files_changed:
-  - packages/desktop/package.json
-  - packages/desktop/tsconfig.json
-  - packages/desktop/esbuild.config.mjs
-  - packages/desktop/src/main/index.ts
-  - packages/desktop/src/main/preload.ts
-  - packages/desktop/src/renderer/index.tsx
-  - packages/desktop/dist/index.html
-  - package.json
-failure_reason:
+  - packages/cli/src/commands/desktop.ts
+  - packages/cli/src/index.ts
+failure_reason: ""

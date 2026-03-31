@@ -46,6 +46,7 @@ import { autoTriage } from "./commands/auto-triage.js";
 import { autoSpec } from "./commands/auto-spec.js";
 import { companies } from "./commands/companies.js";
 import { agents } from "./commands/agents.js";
+import { desktop } from "./commands/desktop.js";
 
 import { getVersion } from "./lib/version.js";
 
@@ -188,6 +189,10 @@ switch (cmd) {
     await agents(args);
     break;
 
+  case "desktop":
+    await desktop(args);
+    break;
+
   case undefined:
   case "--help":
   case "-h":
@@ -229,6 +234,7 @@ switch (cmd) {
     console.log("  verify-staging --company <id> --id <feature-id>      Set or clear staging verification");
     console.log("  auto-triage --company <id> [--status] [--enable type,...] [--disable type,...]");
     console.log("  auto-spec   --company <id> [--status] [--enable type,...] [--disable type,...]");
+    console.log("  desktop           Launch the Electron desktop dashboard");
     break;
 
   default:

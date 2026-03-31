@@ -29,6 +29,7 @@ import { snapshot } from "./commands/snapshot.js";
 import { ideas } from "./commands/ideas.js";
 import { features } from "./commands/features.js";
 import { jobs } from "./commands/jobs.js";
+import { agents } from "./commands/agents.js";
 import { projects } from "./commands/projects.js";
 import { standup } from "./commands/standup.js";
 import { createFeature } from "./commands/create-feature.js";
@@ -123,6 +124,10 @@ switch (cmd) {
     await jobs(args);
     break;
 
+  case "agents":
+    await agents(args);
+    break;
+
   case "projects":
     await projects(args);
     break;
@@ -205,6 +210,7 @@ switch (cmd) {
     console.log("  ideas --company <company-id>     Query ideas (supports filter flags)");
     console.log("  features --company <company-id>  Query features (project/status/id filters)");
     console.log("  jobs --company <company-id>      Query jobs (id/feature-id/status filters)");
+    console.log("  agents --company <company-id>    List local agent sessions (optional --type)");
     console.log("  projects --company <company-id>  List projects (optional --include-features)");
     console.log("  create-feature --company <company-id>  Create a feature");
     console.log("  update-feature --company <company-id>  Update a feature");

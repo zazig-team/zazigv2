@@ -14,6 +14,7 @@
     "clean": "rm -rf dist tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
     "@zazigv2/local-agent": "*"
   },
   "devDependencies": {

@@ -47,34 +47,37 @@ function savePrefs(prefs: DesktopPrefs): void {
   }
 }
 
-function hasCpoSession(statusPayload: unknown): boolean {
-  if (!statusPayload || typeof statusPayload !== 'object') return false;
+function findCpoSessionName(statusPayload: unknown): string | null {
+  if (!statusPayload || typeof statusPayload !== 'object') return null;
 
   const status = statusPayload as { local_sessions?: unknown };
   const sessions = status.local_sessions;
-  if (!Array.isArray(sessions)) return false;
+  if (!Array.isArray(sessions)) return null;
 
-  return sessions.some((entry) => {
-    if (typeof entry === 'string') {
-      return entry.toLowerCase().includes('cpo');
+  for (const entry of sessions) {
+    if (typeof entry === 'string' && entry.toLowerCase().includes('cpo')) {
+      return entry;
     }
 
-    if (!entry || typeof entry !== 'object') {
-      return false;
-    }
+    if (!entry || typeof entry !== 'object') continue;
 
-    const maybeSession = entry as { session?: unknown; name?: unknown; id?: unknown };
-    return [maybeSession.session, maybeSession.name, maybeSession.id].some((value) =>
-      typeof value === 'string' ? value.toLowerCase().includes('cpo') : false,
-    );
-  });
+    const maybeSession = entry as { session?: string; name?: string; id?: string };
+    for (const value of [maybeSession.session, maybeSession.name, maybeSession.id]) {
+      if (typeof value === 'string' && value.toLowerCase().includes('cpo')) {
+        return value;
+      }
+    }
+  }
+
+  return null;
 }
 
 async function attachDefaultSession(): Promise<void> {
   const status = await runCLI(['status', '--json']);
 
-  if (hasCpoSession(status)) {
-    pty.attach('cpo');
+  const cpoSession = findCpoSessionName(status);
+  if (cpoSession) {
+    pty.attach(cpoSession);
     return;
   }
 

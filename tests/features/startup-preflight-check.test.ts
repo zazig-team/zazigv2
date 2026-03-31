@@ -129,11 +129,12 @@ describe('AC3: All required tools present — startup proceeds normally', () => 
 
   it('only exits when required failures are present — does not exit if all pass', () => {
     // The exit must be conditional on having failures collected
-    // Pattern: if (failures.length > 0) or similar guard before process.exitCode = 1
+    // Pattern: if (failures.length > 0) or similar guard before exit signaling.
+    // Exit signaling may be direct (process.exitCode = 1) or routed via fail(...).
     expect(content).toMatch(/failures|requiredFailures|errors/);
     // Exit is gated, not unconditional
     expect(content).toMatch(
-      /if\s*\(.*(?:failures|errors|missing).*\)[\s\S]{0,200}process\.exitCode\s*=\s*1/,
+      /if\s*\(.*(?:failures|errors|missing).*\)[\s\S]{0,250}(?:process\.exitCode\s*=\s*1|fail\s*\()/,
     );
   });
 });

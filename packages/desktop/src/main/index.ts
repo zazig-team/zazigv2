@@ -20,9 +20,18 @@ let sidecarProcess: ChildProcess | null = null;
 
 function spawnSidecar(): Promise<number> {
   return new Promise((resolve, reject) => {
-    const sidecarScript = path.join(__dirname, '..', 'src', 'sidecar', 'server.ts');
-    const proc = spawnChild('bun', [sidecarScript], {
+    const sidecarScript = path.join(__dirname, '..', 'src', 'sidecar', 'server.js');
+    const desktopDir = path.join(__dirname, '..');
+    const repoRoot = path.resolve(desktopDir, '..', '..');
+    // Node needs to find ws and node-pty — they live in bun's module cache
+    // or in the desktop package's node_modules
+    const nodePath = [
+      path.join(desktopDir, 'node_modules'),
+      path.join(repoRoot, 'node_modules'),
+    ].join(path.delimiter);
+    const proc = spawnChild('node', [sidecarScript], {
       stdio: ['ignore', 'pipe', 'inherit'],
+      env: { ...process.env, NODE_PATH: nodePath },
     });
     sidecarProcess = proc;
 

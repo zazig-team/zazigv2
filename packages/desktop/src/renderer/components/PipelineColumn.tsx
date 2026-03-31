@@ -8,6 +8,7 @@ export interface PipelineJob {
   featureName: string;
   status: string;
   hasLocalSession: boolean;
+  sessionName: string | null;
 }
 
 interface PipelineViewData {
@@ -20,6 +21,7 @@ interface PipelineViewData {
 }
 
 interface PipelineColumnProps {
+  activeSession: string | null;
   onJobClick: (job: PipelineJob) => void;
   onWatchClick: (job: PipelineJob) => void;
 }
@@ -46,6 +48,7 @@ const PLACEHOLDER_PIPELINE: PipelineViewData = {
       featureName: 'Electron desktop app v1.0',
       status: 'executing',
       hasLocalSession: true,
+      sessionName: 'zazig-job-d43f65e6',
     },
     {
       id: 'c05562e2-2084-4126-a712-8e0e559f708d',
@@ -53,6 +56,7 @@ const PLACEHOLDER_PIPELINE: PipelineViewData = {
       featureName: 'Desktop data flow',
       status: 'dispatched',
       hasLocalSession: false,
+      sessionName: null,
     },
   ],
   failedFeatures: ['Fix stale tmux cleanup on shutdown'],
@@ -106,7 +110,7 @@ function getTitlesFromItems(items: AnyRecord[], field = 'title'): string[] {
     .filter((title) => title.length > 0);
 }
 
-function getLocalSessionRecords(status: AnyRecord): AnyRecord[] {
+function getLocalSessionEntries(status: AnyRecord): unknown[] {
   const localSessions =
     status.local_sessions ??
     status.localSessions ??
@@ -114,32 +118,82 @@ function getLocalSessionRecords(status: AnyRecord): AnyRecord[] {
     status.tmuxSessions ??
     status.sessions;
 
-  return asRecordArray(localSessions);
+  return Array.isArray(localSessions) ? localSessions : [];
 }
 
-function getLocalSessionJobIds(status: AnyRecord): Set<string> {
-  const ids = new Set<string>();
+function getSessionName(session: AnyRecord): string {
+  return (
+    getString(session.session_name) ||
+    getString(session.sessionName) ||
+    getString(session.session) ||
+    getString(session.name)
+  );
+}
 
-  for (const session of getLocalSessionRecords(status)) {
+function findMatchingSessionName(jobId: string, sessionNames: string[]): string | null {
+  if (!jobId) return null;
+
+  const exact = sessionNames.find((name) => name.includes(jobId));
+  if (exact) return exact;
+
+  const shortId = jobId.slice(0, 8);
+  if (!shortId) return null;
+
+  const shortMatch = sessionNames.find((name) => name.includes(shortId));
+  return shortMatch ?? null;
+}
+
+interface LocalSessionLookup {
+  jobIds: Set<string>;
+  sessionNames: string[];
+  sessionByJobId: Map<string, string>;
+}
+
+function getLocalSessionLookup(status: AnyRecord): LocalSessionLookup {
+  const jobIds = new Set<string>();
+  const sessionNames: string[] = [];
+  const sessionByJobId = new Map<string, string>();
+
+  for (const rawEntry of getLocalSessionEntries(status)) {
+    if (typeof rawEntry === 'string') {
+      const name = rawEntry.trim();
+      if (name.length > 0) {
+        sessionNames.push(name);
+      }
+      continue;
+    }
+
+    if (!isRecord(rawEntry)) {
+      continue;
+    }
+
+    const session = rawEntry;
+    const sessionName = getSessionName(session);
+    if (sessionName.length > 0) {
+      sessionNames.push(sessionName);
+    }
+
     const directFields = [session.job_id, session.jobId, session.id, session.job];
     for (const value of directFields) {
       const id = getString(value);
-      if (id.length > 0) ids.add(id);
+      if (!id) continue;
+      jobIds.add(id);
+      if (sessionName.length > 0 && !sessionByJobId.has(id)) {
+        sessionByJobId.set(id, sessionName);
+      }
     }
 
     for (const job of asRecordArray(session.jobs)) {
       const id = getString(job.id) || getString(job.job_id) || getString(job.jobId);
-      if (id.length > 0) ids.add(id);
+      if (!id) continue;
+      jobIds.add(id);
+      if (sessionName.length > 0 && !sessionByJobId.has(id)) {
+        sessionByJobId.set(id, sessionName);
+      }
     }
   }
 
-  return ids;
-}
-
-function getLocalSessionNames(status: AnyRecord): string[] {
-  return getLocalSessionRecords(status)
-    .map((session) => getString(session.session_name) || getString(session.name))
-    .filter((name) => name.length > 0);
+  return { jobIds, sessionNames, sessionByJobId };
 }
 
 function getFailedFeatures(standup: AnyRecord): string[] {
@@ -181,8 +235,7 @@ function getRecentlyCompleted(standup: AnyRecord): string[] {
 function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
   const statusJobs = asRecordArray(status.active_jobs);
   const fallbackFeatureNames = getTitlesFromItems(asRecordArray(standup.active));
-  const localSessionJobIds = getLocalSessionJobIds(status);
-  const localSessionNames = getLocalSessionNames(status);
+  const localSessionLookup = getLocalSessionLookup(status);
 
   const jobs = statusJobs.map((job, index) => {
     const context = parseContext(job.context);
@@ -199,14 +252,14 @@ function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
       getString(asRecord(context.feature).title) ||
       fallbackFeatureNames[index] ||
       'Unknown feature';
+    const directSessionName = getString(job.session_name) || getString(job.sessionName);
+    const inferredSessionName =
+      localSessionLookup.sessionByJobId.get(id) || findMatchingSessionName(id, localSessionLookup.sessionNames);
+    const sessionName =
+      directSessionName || inferredSessionName || (localSessionLookup.jobIds.has(id) ? id : null);
 
     // tmux local session indicator (green when active locally, grey when absent)
-    const hasTmuxSession =
-      localSessionJobIds.has(id) ||
-      localSessionNames.some((name) => {
-        if (name.includes(id)) return true;
-        return id.length >= 8 && name.includes(id.slice(0, 8));
-      });
+    const hasTmuxSession = Boolean(sessionName);
 
     return {
       id,
@@ -214,6 +267,7 @@ function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
       featureName,
       status: getString(job.status, 'unknown'),
       hasLocalSession: hasTmuxSession,
+      sessionName,
     };
   });
 
@@ -222,12 +276,17 @@ function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
   return asRecordArray(standup.active).map((item, index) => {
     const title = getString(item.title, `Active item ${index + 1}`);
     const id = getString(item.id, `standup-active-${index + 1}`);
+    const sessionName =
+      localSessionLookup.sessionByJobId.get(id) ||
+      findMatchingSessionName(id, localSessionLookup.sessionNames) ||
+      (localSessionLookup.jobIds.has(id) ? id : null);
     return {
       id,
       title,
       featureName: title,
       status: getString(item.status, 'active'),
-      hasLocalSession: localSessionJobIds.has(id),
+      hasLocalSession: Boolean(sessionName),
+      sessionName: sessionName ?? null,
     };
   });
 }
@@ -305,10 +364,13 @@ function Section(props: { title: string; children: React.ReactNode; red?: boolea
   );
 }
 
-export default function PipelineColumn({ onJobClick, onWatchClick }: PipelineColumnProps): React.JSX.Element {
+export default function PipelineColumn({
+  activeSession,
+  onJobClick,
+  onWatchClick,
+}: PipelineColumnProps): React.JSX.Element {
   const [pipeline, setPipeline] = useState<PipelineViewData>(PLACEHOLDER_PIPELINE);
   const [hasLiveUpdate, setHasLiveUpdate] = useState(false);
-  const [watchMessage, setWatchMessage] = useState<string | null>(null);
   const [isCompletedOpen, setIsCompletedOpen] = useState(false); // collapsed by default
 
   useEffect(() => {
@@ -352,102 +414,91 @@ export default function PipelineColumn({ onJobClick, onWatchClick }: PipelineCol
             <EmptyState text="No active jobs." />
           ) : (
             <div style={{ display: 'grid', gap: 8 }}>
-              {pipeline.activeJobs.map((job) => (
-                <div
-                  key={job.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onJobClick(job)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      onJobClick(job);
-                    }
-                  }}
-                  style={{
-                    border: '1px solid #2a3852',
-                    borderRadius: 8,
-                    padding: 8,
-                    background: '#0d1728',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span
-                      title={job.hasLocalSession ? 'tmux session running locally' : 'no local tmux session'}
-                      style={{
-                        width: 8,
-                        height: 8,
-                        minWidth: 8,
-                        borderRadius: '50%',
-                        background: job.hasLocalSession ? GREEN_DOT : GREY_DOT,
-                      }}
-                    />
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {job.title}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: '#94a2bc',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {job.featureName}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (!job.hasLocalSession) {
-                          setWatchMessage(`${job.title} is not running locally.`);
-                          return;
-                        }
+              {pipeline.activeJobs.map((job) => {
+                const isActive = Boolean(activeSession && job.sessionName && activeSession === job.sessionName);
 
-                        setWatchMessage(null);
-                        onWatchClick(job);
-                      }}
-                      style={{
-                        border: '1px solid #35507a',
-                        borderRadius: 6,
-                        background: '#132746',
-                        color: '#d9e8ff',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        padding: '4px 8px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Watch
-                    </button>
+                return (
+                  <div
+                    key={job.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={isActive}
+                    onClick={() => onJobClick(job)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        onJobClick(job);
+                      }
+                    }}
+                    style={{
+                      border: isActive ? '1px solid #60a5fa' : '1px solid #2a3852',
+                      borderRadius: 8,
+                      padding: 8,
+                      background: isActive ? '#132847' : '#0d1728',
+                      boxShadow: isActive ? 'inset 0 0 0 1px rgba(96, 165, 250, 0.45)' : 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span
+                        title={job.hasLocalSession ? 'tmux session running locally' : 'no local tmux session'}
+                        style={{
+                          width: 8,
+                          height: 8,
+                          minWidth: 8,
+                          borderRadius: '50%',
+                          background: job.hasLocalSession ? GREEN_DOT : GREY_DOT,
+                        }}
+                      />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 600,
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {job.title}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: '#94a2bc',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {job.featureName}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onWatchClick(job);
+                        }}
+                        style={{
+                          border: '1px solid #35507a',
+                          borderRadius: 6,
+                          background: '#132746',
+                          color: '#d9e8ff',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Watch
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
-          {watchMessage ? (
-            <div
-              style={{
-                marginTop: 8,
-                color: '#fca5a5',
-                fontSize: 11,
-              }}
-            >
-              {watchMessage}
-            </div>
-          ) : null}
         </Section>
 
         <Section title="Failed Features" red>

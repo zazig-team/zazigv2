@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 
 import PipelineColumn, { type PipelineJob } from './components/PipelineColumn';
 import { TerminalPane } from './components/TerminalPane';
@@ -19,20 +19,73 @@ const terminalPaneStyle: React.CSSProperties = {
 };
 
 export function App(): JSX.Element {
-  const [selectedJob, setSelectedJob] = useState<PipelineJob | null>(null);
-  const [watchedJob, setWatchedJob] = useState<PipelineJob | null>(null);
+  const [activeSession, setActiveSession] = useState<string | null>(null);
+  const [terminalMessage, setTerminalMessage] = useState<string | undefined>(undefined);
+  const activeSessionRef = useRef<string | null>(null);
+  const transitionQueueRef = useRef(Promise.resolve());
+
+  const queueTerminalTransition = useCallback((transition: () => Promise<void>) => {
+    transitionQueueRef.current = transitionQueueRef.current
+      .then(transition)
+      .catch((error) => {
+        console.error('[desktop] Failed to switch terminal session', error);
+      });
+  }, []);
+
+  const onJobClick = useCallback(
+    (job: PipelineJob) => {
+      queueTerminalTransition(async () => {
+        if (!job.hasLocalSession || !job.sessionName) {
+          await window.zazig.terminalDetach();
+          setTerminalMessage(`Job "${job.title}" is not running locally`);
+
+          activeSessionRef.current = null;
+          setActiveSession(null);
+          return;
+        }
+
+        setTerminalMessage(undefined);
+
+        const previousSession = activeSessionRef.current;
+        if (previousSession !== job.sessionName) {
+          await window.zazig.terminalDetach();
+          await window.zazig.terminalAttach(job.sessionName);
+        }
+
+        activeSessionRef.current = job.sessionName;
+        setActiveSession(job.sessionName);
+      });
+    },
+    [queueTerminalTransition],
+  );
+
+  const onWatchClick = useCallback(
+    (job: PipelineJob) => {
+      if (job.hasLocalSession && job.sessionName) {
+        onJobClick(job);
+        return;
+      }
+
+      queueTerminalTransition(async () => {
+        await window.zazig.terminalDetach();
+        setTerminalMessage(`Job "${job.title}" is not running locally`);
+
+        activeSessionRef.current = null;
+        setActiveSession(null);
+      });
+    },
+    [onJobClick, queueTerminalTransition],
+  );
 
   return (
     <div style={rootStyle}>
       <PipelineColumn
-        onJobClick={(job) => setSelectedJob(job)}
-        onWatchClick={(job) => {
-          setSelectedJob(job);
-          setWatchedJob(job);
-        }}
+        activeSession={activeSession}
+        onJobClick={onJobClick}
+        onWatchClick={onWatchClick}
       />
       <main style={terminalPaneStyle}>
-        <TerminalPane />
+        <TerminalPane message={terminalMessage} />
       </main>
     </div>
   );

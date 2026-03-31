@@ -25,8 +25,13 @@ const disconnectedStyle: React.CSSProperties = {
   pointerEvents: 'none',
 };
 
-export function TerminalPane(): JSX.Element {
+interface TerminalPaneProps {
+  message?: string;
+}
+
+export function TerminalPane({ message }: TerminalPaneProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const terminalRef = useRef<Terminal | null>(null);
   const [disconnected, setDisconnected] = useState(false);
 
   useEffect(() => {
@@ -47,6 +52,7 @@ export function TerminalPane(): JSX.Element {
     terminal.loadAddon(fitAddon);
     terminal.open(container);
     fitAddon.fit();
+    terminalRef.current = terminal;
 
     const mouseModeEnabled = true;
     (terminal.options as unknown as { mouseEvents?: boolean }).mouseEvents = mouseModeEnabled;
@@ -54,6 +60,7 @@ export function TerminalPane(): JSX.Element {
     const onOutputUnsubscribe = window.zazig.onTerminalOutput((data) => {
       if (data === '') {
         setDisconnected(true);
+        terminal.clear();
         return;
       }
 
@@ -82,9 +89,19 @@ export function TerminalPane(): JSX.Element {
       onTerminalDataDispose.dispose();
       resizeObserver.disconnect();
       window.removeEventListener('resize', sendResize);
+      terminalRef.current = null;
       terminal.dispose();
     };
   }, []);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal || !message) return;
+
+    terminal.reset();
+    terminal.writeln(message);
+    setDisconnected(false);
+  }, [message]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>

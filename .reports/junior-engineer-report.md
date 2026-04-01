@@ -1,8 +1,5 @@
 status: pass
-summary: Extended `zazig status --json` with job titles/feature joins plus queued and feature summary arrays, then updated desktop polling/rendering to use status-only data with a new queued jobs section.
+summary: Removed dead mouseEvents hack and added attachCustomWheelEventHandler to convert wheel scroll events to arrow-key escape sequences sent via terminalInput
 files_changed:
-  - packages/cli/src/commands/status.ts
-  - packages/desktop/src/main/poller.ts
-  - packages/desktop/src/renderer/components/PipelineColumn.tsx
-  - .reports/junior-engineer-report.md
+  - packages/desktop/src/renderer/components/TerminalPane.tsx
 failure_reason: ""

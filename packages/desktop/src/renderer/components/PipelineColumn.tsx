@@ -596,7 +596,7 @@ export default function PipelineColumn({
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', overflow: 'hidden' }}>
                       <span
                         title={job.hasLocalSession ? 'tmux session running locally' : 'no local tmux session'}
                         style={{
@@ -646,6 +646,7 @@ export default function PipelineColumn({
                           fontWeight: 600,
                           padding: '4px 8px',
                           cursor: 'pointer',
+                          flexShrink: 0,
                         }}
                       >
                         Watch

@@ -1,5 +1,33 @@
 status: pass
 
+## Test files created (desktop-expert-sessions-still-missing feature fd0d6fff)
+
+### 1. `tests/features/desktop-expert-sessions-sidebar.test.ts` — 12 test cases
+- `PipelineViewData` interface declares `expertSessions` field typed as array
+- Expert session type includes `id`, `roleName`/`role_name`, `sessionId`/`session_id`, `status`
+- `parsePipelinePayload` returns object with `expertSessions` key
+- `getExpertSessions` or equivalent reads from `status.expert_sessions`
+- Sidebar JSX includes an "Expert Sessions" section title
+- Sidebar maps over `expertSessions` to render session cards
+- Sidebar shows role name for each expert session card
+
+**11 failing** (feature not yet built), 1 passing (file existence check).
+
+### 2. `tests/features/desktop-expert-sessions-auto-switch.test.ts` — 10 test cases
+- `linkToViewerTui` defined and called in non-headless code path
+- `linkToViewerTui` awaited and not gated behind a headless-only guard
+- `switchViewerToCpo` defined and called in `handleSessionExit`
+- `getActiveSessions` exposes sidebar-friendly session data (displayName, tmuxSession)
+- Desktop poller references `expert_sessions` when building the pipeline payload
+
+**2 failing** (poller doesn't inject expert_sessions; getActiveSessions returns raw Map), 8 passing.
+
+**Total: 22 new test cases, 13 failing against current codebase.**
+
+No `package.json` changes needed — `vitest run` discovers recursively.
+
+---
+
 ## Test files created (desktop-drag-and-drop-image-support feature)
 
 - `tests/features/desktop-drag-and-drop-image-support.test.ts` — 26 test cases

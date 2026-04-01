@@ -4,8 +4,9 @@ status: pass
 
 - `tests/features/electron-desktop-app-launch-and-structure.test.ts` — 22 test cases
 - `tests/features/electron-desktop-app-terminal-and-sessions.test.ts` — 27 test cases
+- `tests/features/desktop-terminal-scroll-wheel-fix.test.ts` — 15 test cases
 
-## Total test cases: 49
+## Total test cases: 64
 
 ### electron-desktop-app-launch-and-structure.test.ts
 Covers AC1, AC2, AC9, AC10.
@@ -35,3 +36,13 @@ Covers AC3, AC4, AC5, AC6, AC7, AC8.
 
 - No changes to `package.json` needed — test script delegates to workspace runners which use vitest recursively.
 - All tests written to FAIL against current codebase: `packages/desktop` does not exist yet.
+
+---
+
+### desktop-terminal-scroll-wheel-fix.test.ts (feature e24d7bde)
+Covers AC1–AC5 for the terminal scroll escape-characters fix.
+- AC5: Dead `mouseEvents` hack removed from TerminalPane.tsx
+- AC1/AC2: `attachCustomWheelEventHandler` sends `\x1b[A`/`\x1b[B` via `terminalInput()`
+- AC3: Wheel handler unconditionally attached (no tmux guard)
+- AC4: `terminal.onData` keyboard handler still present and wired
+- AC5 (ext): Wheel handler does not call `terminal.write()` directly

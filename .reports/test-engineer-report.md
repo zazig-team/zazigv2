@@ -1,6 +1,44 @@
 status: pass
 
-## Test files created (desktop-drag-and-drop-image-support feature)
+## Test files created (desktop-scroll-up-persistent-agent-terminal-buffer feature)
+
+- `tests/features/desktop-scroll-up-persistent-agent-terminal-buffer.test.ts` — 15 test cases
+
+### AC3: App.tsx signals persistent agent mode to TerminalPane (3 tests)
+- App.tsx exists
+- App.tsx passes a persistent-agent or scroll-mode prop to TerminalPane
+- App.tsx sets the persistent-agent prop to true when CPO session is active
+
+### AC4: TerminalPane accepts a persistent-agent prop (3 tests)
+- TerminalPane.tsx exists
+- TerminalPaneProps interface includes a persistent-agent or scroll-mode field
+- TerminalPane component destructures the new prop
+
+### AC1: Persistent agent scroll uses xterm native scrollback — scrollLines (3 tests)
+- TerminalPane.tsx calls terminal.scrollLines for buffer scrolling
+- scrollLines is called with a negative value (scroll up)
+- scrollLines is called with a positive value (scroll down)
+
+### AC5: Wheel handler branches on persistent-agent mode (2 tests)
+- TerminalPane.tsx branches wheel behavior based on persistent-agent prop
+- Both code paths (scrollLines + terminalInput) coexist
+
+### AC2: Regular job session scroll still forwards escape sequences (1 test)
+- terminalInput + arrow sequences (\x1b[A / \x1b[B) still present for job sessions
+
+### AC6: Cleanup — wheel handler disposed on unmount in both modes (2 tests)
+- attachCustomWheelEventHandler result is disposed in the cleanup function
+- cleanup function disposes ≥2 handlers
+
+## Notes
+
+- No changes to `package.json` required; the `tests` workspace uses vitest which discovers all files recursively.
+- All tests use static source analysis consistent with this codebase's feature test conventions.
+- Tests written to FAIL against current codebase: `TerminalPane.tsx` has no `isPersistentAgent` prop or `scrollLines` call; `App.tsx` passes no scroll-mode prop to `TerminalPane`.
+
+---
+
+## Previous report (desktop-drag-and-drop-image-support feature)
 
 - `tests/features/desktop-drag-and-drop-image-support.test.ts` — 26 test cases
 

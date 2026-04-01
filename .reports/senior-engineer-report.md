@@ -1,6 +1,7 @@
 status: pass
-summary: Implemented drag-and-drop file handling in TerminalPane so dropped files are saved as attachments and their absolute paths are injected into the terminal cursor with overlay feedback and safe error handling.
+summary: Explicit daemon env construction now forwards the resolved ZAZIG_ENV and computes ZAZIG_HOME by environment, with a unit test proving production sessions override inherited staging vars.
 files_changed:
-  - packages/desktop/src/renderer/components/TerminalPane.tsx
-  - .reports/senior-engineer-report.md
+  - packages/cli/src/commands/start.ts
+  - packages/cli/src/commands/start-env.ts
+  - packages/cli/src/commands/__tests__/start.test.ts
 failure_reason:

@@ -106,7 +106,8 @@ describe('start.ts — legacy pinned build path uses ZAZIG_HOME', () => {
 // ---------------------------------------------------------------------------
 
 describe('start.ts — daemon env explicitly forwards ZAZIG_ENV', () => {
-  const FILE = 'packages/cli/src/commands/start.ts';
+  // The env is constructed in start-env.ts via buildDaemonEnv, which is called from start.ts
+  const FILE = 'packages/cli/src/commands/start-env.ts';
   let content: string | null;
 
   beforeAll(() => {
@@ -125,7 +126,7 @@ describe('start.ts — daemon env explicitly forwards ZAZIG_ENV', () => {
     const envBlockMatch = /const env[^=]*=\s*\{([\s\S]{0,800})\}/.exec(content ?? '');
     if (!envBlockMatch) {
       // If pattern doesn't match, the assertion below will fail with a clear message
-      expect(envBlockMatch, 'Could not locate env block in start.ts').not.toBeNull();
+      expect(envBlockMatch, 'Could not locate env block in start-env.ts').not.toBeNull();
       return;
     }
     const envBlock = envBlockMatch[1];

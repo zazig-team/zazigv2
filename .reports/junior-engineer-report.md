@@ -1,11 +1,8 @@
-status: pass
-summary: Implemented three desktop UX bug fixes: WebSocket auto-reconnect with exponential backoff in pty.ts, robust session name matching with persistent_agents support in PipelineColumn.tsx, and CPO back-navigation button with terminal:attachDefault IPC in App.tsx/PipelineColumn.tsx/index.ts/preload.ts.
+status: fail
+summary: Updated query-jobs to return top-level feature_title from a features join and switched desktop pipeline polling/rendering to use real jobs/features data with active and queued job sections.
 files_changed:
-  - packages/desktop/src/main/pty.ts
+  - supabase/functions/query-jobs/index.ts
+  - packages/desktop/src/main/poller.ts
   - packages/desktop/src/renderer/components/PipelineColumn.tsx
-  - packages/desktop/src/renderer/App.tsx
-  - packages/desktop/src/main/index.ts
-  - packages/desktop/src/main/preload.ts
-  - packages/desktop/src/main/ipc-channels.ts
-  - packages/desktop/src/renderer/global.d.ts
   - .reports/junior-engineer-report.md
+failure_reason: Unable to stage/commit due sandbox filesystem restrictions on git object database writes ("unable to create temporary file: Operation not permitted").

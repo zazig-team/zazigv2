@@ -5,7 +5,7 @@ type AnyRecord = Record<string, unknown>;
 export interface PipelineJob {
   id: string;
   title: string;
-  featureName: string;
+  featureTitle: string;
   status: string;
   hasLocalSession: boolean;
   sessionName: string | null;
@@ -15,6 +15,7 @@ interface PipelineViewData {
   companyName: string;
   daemonRunning: boolean;
   activeJobs: PipelineJob[];
+  queuedJobs: PipelineJob[];
   failedFeatures: string[];
   backlogFeatures: string[];
   recentlyCompleted: string[];
@@ -56,7 +57,7 @@ const PLACEHOLDER_PIPELINE: PipelineViewData = {
     {
       id: 'd43f65e6-0dce-4f65-a98a-eef5f5d75cb1',
       title: 'Implement desktop split layout',
-      featureName: 'Electron desktop app v1.0',
+      featureTitle: 'Electron desktop app v1.0',
       status: 'executing',
       hasLocalSession: true,
       sessionName: 'zazig-job-d43f65e6',
@@ -64,8 +65,18 @@ const PLACEHOLDER_PIPELINE: PipelineViewData = {
     {
       id: 'c05562e2-2084-4126-a712-8e0e559f708d',
       title: 'Wire pipeline polling renderer bridge',
-      featureName: 'Desktop data flow',
+      featureTitle: 'Desktop data flow',
       status: 'dispatched',
+      hasLocalSession: false,
+      sessionName: null,
+    },
+  ],
+  queuedJobs: [
+    {
+      id: '19c92888-bba6-4f2f-a508-0d833b6f8f2d',
+      title: 'Add desktop queue cards',
+      featureTitle: 'Desktop data flow',
+      status: 'queued',
       hasLocalSession: false,
       sessionName: null,
     },
@@ -119,6 +130,18 @@ function getTitlesFromItems(items: AnyRecord[], field = 'title'): string[] {
   return items
     .map((item) => getString(item[field], ''))
     .filter((title) => title.length > 0);
+}
+
+function extractJobs(value: unknown): AnyRecord[] {
+  if (Array.isArray(value)) return asRecordArray(value);
+  const root = asRecord(value);
+  return asRecordArray(root.jobs);
+}
+
+function extractFeatures(value: unknown): AnyRecord[] {
+  if (Array.isArray(value)) return asRecordArray(value);
+  const root = asRecord(value);
+  return asRecordArray(root.features);
 }
 
 function getLocalSessionEntries(status: AnyRecord): unknown[] {
@@ -221,13 +244,19 @@ function getLocalSessionLookup(status: AnyRecord): LocalSessionLookup {
   return { jobIds, sessionNames, sessionByJobId };
 }
 
-function getFailedFeatures(standup: AnyRecord): string[] {
+function getFailedFeatures(root: AnyRecord, standup: AnyRecord): string[] {
+  const fromFeatures = getTitlesFromItems(extractFeatures(root.failedFeatures));
+  if (fromFeatures.length > 0) return fromFeatures;
+
   const directFailed = getTitlesFromItems(asRecordArray(standup.failed));
   if (directFailed.length > 0) return directFailed;
   return [];
 }
 
-function getBacklogFeatures(standup: AnyRecord): string[] {
+function getBacklogFeatures(root: AnyRecord, standup: AnyRecord): string[] {
+  const fromFeatures = getTitlesFromItems(extractFeatures(root.backlogFeatures));
+  if (fromFeatures.length > 0) return fromFeatures;
+
   const directBacklog = getTitlesFromItems(asRecordArray(standup.backlog));
   if (directBacklog.length > 0) return directBacklog;
 
@@ -247,7 +276,10 @@ function getBacklogFeatures(standup: AnyRecord): string[] {
   return [];
 }
 
-function getRecentlyCompleted(standup: AnyRecord): string[] {
+function getRecentlyCompleted(root: AnyRecord, standup: AnyRecord): string[] {
+  const fromFeatures = getTitlesFromItems(extractFeatures(root.recentlyCompleted));
+  if (fromFeatures.length > 0) return fromFeatures.slice(0, 5);
+
   const completed = getTitlesFromItems(asRecordArray(standup.completed));
   if (completed.length > 0) return completed.slice(0, 5);
 
@@ -284,48 +316,57 @@ function getPersistentAgentSession(
   return null;
 }
 
-function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
-  const statusJobs = asRecordArray(status.active_jobs);
+function buildPipelineJob(
+  job: AnyRecord,
+  index: number,
+  localSessionLookup: LocalSessionLookup,
+  persistentAgents: AnyRecord[],
+  fallbackFeatureName = 'Unknown feature',
+): PipelineJob {
+  const context = parseContext(job.context);
+  const id = getString(job.id, `job-${index + 1}`);
+  const role = getString(job.role) || getString(context.role);
+  const title =
+    getString(job.title) ||
+    getString(job.job_title) ||
+    getString(context.job_title) ||
+    getString(context.title) ||
+    getString(job.job_type, `Job ${index + 1}`);
+  const featureTitle =
+    getString(job.feature_title) ||
+    getString(job.featureTitle) ||
+    getString(context.feature_title) ||
+    getString(context.featureName) ||
+    getString(asRecord(context.feature).title) ||
+    fallbackFeatureName;
+  const directSessionName = getString(job.session_name) || getString(job.sessionName);
+  const inferredSessionName =
+    localSessionLookup.sessionByJobId.get(id) ||
+    findMatchingSessionName(id, localSessionLookup.sessionNames, role || undefined) ||
+    getPersistentAgentSession(persistentAgents, id, localSessionLookup.sessionNames);
+  const sessionName =
+    directSessionName || inferredSessionName || (localSessionLookup.jobIds.has(id) ? id : null);
+
+  return {
+    id,
+    title,
+    featureTitle,
+    status: getString(job.status, 'unknown'),
+    hasLocalSession: Boolean(sessionName),
+    sessionName,
+  };
+}
+
+function getActiveJobs(root: AnyRecord, status: AnyRecord, standup: AnyRecord): PipelineJob[] {
+  const directJobs = extractJobs(root.activeJobs);
+  const statusJobs = directJobs.length > 0 ? directJobs : asRecordArray(status.active_jobs);
   const fallbackFeatureNames = getTitlesFromItems(asRecordArray(standup.active));
   const localSessionLookup = getLocalSessionLookup(status);
   const persistentAgents = asRecordArray(status.persistent_agents);
 
-  const jobs = statusJobs.map((job, index) => {
-    const context = parseContext(job.context);
-    const id = getString(job.id, `job-${index + 1}`);
-    const role = getString(job.role) || getString(context.role);
-    const title =
-      getString(job.title) ||
-      getString(job.job_title) ||
-      getString(context.job_title) ||
-      getString(context.title) ||
-      getString(job.job_type, `Job ${index + 1}`);
-    const featureName =
-      getString(context.feature_title) ||
-      getString(context.featureName) ||
-      getString(asRecord(context.feature).title) ||
-      fallbackFeatureNames[index] ||
-      'Unknown feature';
-    const directSessionName = getString(job.session_name) || getString(job.sessionName);
-    const inferredSessionName =
-      localSessionLookup.sessionByJobId.get(id) ||
-      findMatchingSessionName(id, localSessionLookup.sessionNames, role || undefined) ||
-      getPersistentAgentSession(persistentAgents, id, localSessionLookup.sessionNames);
-    const sessionName =
-      directSessionName || inferredSessionName || (localSessionLookup.jobIds.has(id) ? id : null);
-
-    // tmux local session indicator (green when active locally, grey when absent)
-    const hasTmuxSession = Boolean(sessionName);
-
-    return {
-      id,
-      title,
-      featureName,
-      status: getString(job.status, 'unknown'),
-      hasLocalSession: hasTmuxSession,
-      sessionName,
-    };
-  });
+  const jobs = statusJobs.map((job, index) =>
+    buildPipelineJob(job, index, localSessionLookup, persistentAgents, fallbackFeatureNames[index] || 'Unknown feature'),
+  );
 
   if (jobs.length > 0) return jobs;
 
@@ -339,10 +380,39 @@ function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
     return {
       id,
       title,
-      featureName: title,
+      featureTitle: title,
       status: getString(item.status, 'active'),
       hasLocalSession: Boolean(sessionName),
       sessionName: sessionName ?? null,
+    };
+  });
+}
+
+function getQueuedJobs(root: AnyRecord): PipelineJob[] {
+  return extractJobs(root.queuedJobs).map((job, index) => {
+    const context = parseContext(job.context);
+    const id = getString(job.id, `queued-job-${index + 1}`);
+    const title =
+      getString(job.title) ||
+      getString(job.job_title) ||
+      getString(context.job_title) ||
+      getString(context.title) ||
+      getString(job.job_type, `Queued job ${index + 1}`);
+    const featureTitle =
+      getString(job.feature_title) ||
+      getString(job.featureTitle) ||
+      getString(context.feature_title) ||
+      getString(context.featureName) ||
+      getString(asRecord(context.feature).title) ||
+      'Unknown feature';
+
+    return {
+      id,
+      title,
+      featureTitle,
+      status: getString(job.status, 'queued'),
+      hasLocalSession: false,
+      sessionName: null,
     };
   });
 }
@@ -360,10 +430,11 @@ function parsePipelinePayload(payload: unknown): PipelineViewData {
   return {
     companyName,
     daemonRunning: Boolean(status.running),
-    activeJobs: getActiveJobs(status, standup),
-    failedFeatures: getFailedFeatures(standup),
-    backlogFeatures: getBacklogFeatures(standup),
-    recentlyCompleted: getRecentlyCompleted(standup),
+    activeJobs: getActiveJobs(root, status, standup),
+    queuedJobs: getQueuedJobs(root),
+    failedFeatures: getFailedFeatures(root, standup),
+    backlogFeatures: getBacklogFeatures(root, standup),
+    recentlyCompleted: getRecentlyCompleted(root, standup),
   };
 }
 
@@ -596,7 +667,7 @@ export default function PipelineColumn({
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <span
                         title={job.hasLocalSession ? 'tmux session running locally' : 'no local tmux session'}
                         style={{
@@ -612,9 +683,8 @@ export default function PipelineColumn({
                           style={{
                             fontSize: 13,
                             fontWeight: 600,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
+                            lineHeight: 1.3,
+                            wordBreak: 'break-word',
                           }}
                         >
                           {job.title}
@@ -623,38 +693,97 @@ export default function PipelineColumn({
                           style={{
                             fontSize: 11,
                             color: '#94a2bc',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
+                            marginTop: 2,
+                            lineHeight: 1.3,
+                            wordBreak: 'break-word',
                           }}
                         >
-                          {job.featureName}
+                          {job.featureTitle}
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onWatchClick(job);
+                            }}
+                            style={{
+                              border: '1px solid #35507a',
+                              borderRadius: 6,
+                              background: '#132746',
+                              color: '#d9e8ff',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: '4px 8px',
+                              cursor: 'pointer',
+                              flexShrink: 0,
+                            }}
+                          >
+                            Watch
+                          </button>
+                          {job.hasLocalSession ? (
+                            <span
+                              style={{
+                                border: '1px solid #35507a',
+                                borderRadius: 6,
+                                background: '#102136',
+                                color: '#9ac3ff',
+                                fontSize: 10,
+                                fontWeight: 600,
+                                padding: '3px 6px',
+                              }}
+                            >
+                              Local
+                            </span>
+                          ) : null}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onWatchClick(job);
-                        }}
-                        style={{
-                          border: '1px solid #35507a',
-                          borderRadius: 6,
-                          background: '#132746',
-                          color: '#d9e8ff',
-                          fontSize: 11,
-                          fontWeight: 600,
-                          padding: '4px 8px',
-                          cursor: 'pointer',
-                          flexShrink: 0,
-                        }}
-                      >
-                        Watch
-                      </button>
                     </div>
                   </div>
                 );
               })}
+            </div>
+          )}
+        </Section>
+
+        <Section title="Queued Jobs">
+          {pipeline.queuedJobs.length === 0 ? (
+            <EmptyState text="No queued jobs." />
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {pipeline.queuedJobs.map((job) => (
+                <div
+                  key={job.id}
+                  style={{
+                    border: '1px solid #2a3852',
+                    borderRadius: 8,
+                    padding: 8,
+                    background: '#0d1728',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      lineHeight: 1.3,
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {job.title}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: '#94a2bc',
+                      marginTop: 2,
+                      lineHeight: 1.3,
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {job.featureTitle}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </Section>

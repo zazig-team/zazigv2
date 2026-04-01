@@ -10,7 +10,11 @@ const POLL_INTERVAL_MS = 5_000;
 
 type PipelinePayload = {
   status: unknown;
-  standup: unknown;
+  activeJobs: unknown;
+  queuedJobs: unknown;
+  failedFeatures: unknown;
+  backlogFeatures: unknown;
+  recentlyCompleted: unknown;
 };
 
 let pollTimer: NodeJS.Timeout | null = null;
@@ -29,15 +33,34 @@ async function pollOnce(): Promise<void> {
 
   pollInFlight = true;
   try {
-    const [status, standup, tmuxSessions] = await Promise.all([
+    const [
+      status,
+      activeJobs,
+      queuedJobs,
+      failedFeatures,
+      backlogFeatures,
+      recentlyCompleted,
+      tmuxSessions,
+    ] = await Promise.all([
       runCLI(['status']),
-      runCLI(['standup']),
+      runCLI(['jobs', '--status', 'executing']),
+      runCLI(['jobs', '--status', 'created,queued']),
+      runCLI(['features', '--status', 'failed']),
+      runCLI(['features', '--status', 'created,breaking_down']),
+      runCLI(['features', '--status', 'complete', '--limit', '5']),
       execFileAsync('tmux', ['list-sessions', '-F', '#{session_name}'])
         .then(({ stdout }) => stdout.trim().split('\n').filter(Boolean))
         .catch(() => [] as string[]),
     ]);
 
-    if (status === null && standup === null) {
+    if (
+      status === null &&
+      activeJobs === null &&
+      queuedJobs === null &&
+      failedFeatures === null &&
+      backlogFeatures === null &&
+      recentlyCompleted === null
+    ) {
       return;
     }
 
@@ -46,7 +69,14 @@ async function pollOnce(): Promise<void> {
       (status as Record<string, unknown>).tmux_sessions = tmuxSessions;
     }
 
-    const payload: PipelinePayload = { status, standup };
+    const payload: PipelinePayload = {
+      status,
+      activeJobs,
+      queuedJobs,
+      failedFeatures,
+      backlogFeatures,
+      recentlyCompleted,
+    };
     const snapshot = JSON.stringify(payload);
 
     if (snapshot === previousSnapshot) {

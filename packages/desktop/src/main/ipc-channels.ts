@@ -7,3 +7,4 @@ export const TERMINAL_DETACH = 'terminal:detach';
 export const TERMINAL_ATTACH_DEFAULT = 'terminal:attachDefault';
 export const COMPANIES_LOADED = 'companies:loaded';
 export const SELECT_COMPANY = 'companies:select';
+export const SAVE_ATTACHMENT = 'attachments:save';

@@ -10,6 +10,7 @@ declare global {
       onTerminalOutput(callback: (payload: string) => void): () => void;
       terminalInput(data: string): void;
       terminalResize(cols: number, rows: number): void;
+      saveAttachment(fileName: string, data: Uint8Array): Promise<string>;
     };
   }
 }

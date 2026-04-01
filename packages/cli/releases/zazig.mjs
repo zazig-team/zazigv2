@@ -15075,6 +15075,12 @@ function toContextString(context, id) {
   }
   return String(id ?? "");
 }
+function toExpertTmuxSessionName(sessionId) {
+  const id = String(sessionId ?? "").trim();
+  if (!id)
+    return "";
+  return `expert-${id.slice(0, 8)}`;
+}
 function findRunningDaemon() {
   const zazigDir2 = join11(homedir10(), ".zazigv2");
   try {
@@ -15118,7 +15124,8 @@ async function statusJson() {
     "queued_jobs": [],
     "failed_features": [],
     "completed_features": [],
-    "persistent_agents": []
+    "persistent_agents": [],
+    expert_sessions: []
   };
   let creds;
   try {
@@ -15185,8 +15192,12 @@ async function statusJson() {
       }
       const statusCompanyId = String(m.company_id ?? companyId ?? "");
       if (statusCompanyId) {
-        const queuedJobs = await apiFetch(`${creds.supabaseUrl}/rest/v1/jobs?select=id,title,status,job_type,role,features(title)&status=in.(created,queued)&company_id=eq.${encodeURIComponent(statusCompanyId)}&limit=20`, headers);
-        output.queued_jobs = queuedJobs.map((job) => ({
+        const queuedJobs = await apiFetch(`${creds.supabaseUrl}/rest/v1/jobs?select=id,title,status,job_type,role,features(title,status)&status=in.(created,queued)&company_id=eq.${encodeURIComponent(statusCompanyId)}&limit=20`, headers);
+        const finishedStatuses = /* @__PURE__ */ new Set(["complete", "cancelled", "failed"]);
+        output.queued_jobs = queuedJobs.filter((job) => {
+          const featureStatus = job.features?.status;
+          return !featureStatus || !finishedStatuses.has(String(featureStatus));
+        }).map((job) => ({
           "id": String(job.id ?? ""),
           "title": String(job.title ?? ""),
           "status": String(job.status ?? ""),
@@ -15213,6 +15224,14 @@ async function statusJson() {
         output.persistent_agents = persistentAgents.map((agent) => ({
           "role": String(agent.role ?? "unknown"),
           "status": String(agent.status ?? "unknown")
+        }));
+        const expertSessions = await apiFetch(`${creds.supabaseUrl}/rest/v1/expert_sessions?select=id,status,created_at,expert_roles(name)&company_id=in.(${companyIds.join(",")})&machine_id=eq.${encodeURIComponent(machineId)}&status=in.(requested,claimed,starting,running,active)`, headers);
+        output.expert_sessions = expertSessions.map((session) => ({
+          "id": String(session.id ?? ""),
+          "role_name": String(session.expert_roles?.name ?? "unknown"),
+          "session_id": toExpertTmuxSessionName(session.id),
+          "status": String(session.status ?? "unknown"),
+          "created_at": String(session.created_at ?? "")
         }));
       }
     }

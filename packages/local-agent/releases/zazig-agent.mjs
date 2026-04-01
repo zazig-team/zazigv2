@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "fd99599";
+const AGENT_BUILD_HASH = "6024828";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -14722,48 +14722,42 @@ ${msg.text}`;
         console.warn(`[CI Monitor] Skipping fix feature for run ${runId}: could not resolve project_id for ${repoUrl}`);
         return;
       }
-      const { data: createdFeature, error: featureInsertError } = await this.supabase.from("features").insert({
-        company_id: this.companyId,
-        project_id: projectId,
-        title: `Fix master CI failure \u2014 ${stepName}`,
-        description: `Automated fix for master CI failure on commit ${normalizedHeadSha}. Failed step: ${stepName}.`,
-        spec: [
-          `Master CI run: ${runId}`,
-          `Commit SHA: ${normalizedHeadSha}`,
-          `Failed step: ${stepName}`,
-          "",
-          "Failure log output:",
-          logOutput,
-          "",
-          "Investigate and fix the root cause of this CI failure so master goes green."
-        ].join("\n"),
-        tags: ["master-ci-fix", `fix-generation:${generation}`],
-        priority: "high",
-        fast_track: true
-      }).select("id").single();
-      if (featureInsertError) {
-        console.warn(`[CI Monitor] Failed to insert fix feature for run ${runId}: ${featureInsertError.message}`);
-        return;
-      }
-      const featureId = createdFeature?.id;
-      if (!featureId) {
-        console.warn(`[CI Monitor] Failed to insert fix feature for run ${runId}: insert returned no feature id`);
-        return;
-      }
-      const { error: featureEventInsertError } = await this.supabase.from("feature_events").insert({
-        company_id: this.companyId,
-        feature_id: featureId,
-        event_type: "created",
-        detail: {
-          source: "master_ci_monitor",
-          runId,
-          generation,
-          headSha: normalizedHeadSha,
-          stepName
-        }
-      });
-      if (featureEventInsertError) {
-        console.warn(`[CI Monitor] Failed to insert feature_events row for feature ${featureId}: ${featureEventInsertError.message}`);
+      const featureTitle = `Fix master CI failure \u2014 ${stepName}`;
+      const featureDescription = `Automated fix for master CI failure on commit ${normalizedHeadSha}. Failed step: ${stepName}.`;
+      const featureSpec = [
+        `Master CI run: ${runId}`,
+        `Commit SHA: ${normalizedHeadSha}`,
+        `Failed step: ${stepName}`,
+        "",
+        "Failure log output:",
+        logOutput,
+        "",
+        "Investigate and fix the root cause of this CI failure so master goes green."
+      ].join("\n");
+      const cliArgs = [
+        "create-feature",
+        "--company",
+        this.companyId,
+        "--project-id",
+        projectId,
+        "--title",
+        featureTitle,
+        "--description",
+        featureDescription,
+        "--spec",
+        featureSpec,
+        "--acceptance-tests",
+        `Given master CI run ${runId} fails on step "${stepName}", when the fix is applied, then master CI passes.`,
+        "--priority",
+        "high",
+        "--fast-track",
+        "true"
+      ];
+      try {
+        await execFileAsync3("zazig", cliArgs, { encoding: "utf8" });
+      } catch (cliErr) {
+        const msg = cliErr instanceof Error ? cliErr.message : String(cliErr);
+        console.warn(`[CI Monitor] zazig create-feature failed for run ${runId}: ${msg}`);
         return;
       }
       this.consecutiveFailedGenerations += 1;

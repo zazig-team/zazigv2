@@ -967,16 +967,17 @@ describe("JobExecutor — master CI monitor", () => {
 
     await monitor.handleMasterCIFailure(1006, "deadbeef");
 
-    const featureInsert = supabase.insertCalls.find((call) => call.table === "features");
-    expect(featureInsert).toBeDefined();
-    expect(featureInsert!.data).toMatchObject({
-      company_id: "company-test",
-      project_id: "project-123",
-      title: "Fix master CI failure — lint",
-      tags: ["master-ci-fix", "fix-generation:1"],
-      fast_track: true,
-    });
-    expect(supabase.insertCalls.some((call) => call.table === "feature_events")).toBe(true);
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      "zazig",
+      expect.arrayContaining([
+        "create-feature",
+        "--company", "company-test",
+        "--project-id", "project-123",
+        "--title", "Fix master CI failure — lint",
+        "--fast-track", "true",
+      ]),
+      expect.objectContaining({ encoding: "utf8" }),
+    );
   });
 
   it("handles GitHub API errors without throwing", async () => {

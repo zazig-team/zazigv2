@@ -1,6 +1,6 @@
 status: pass
-summary: Implemented drag-and-drop file handling in TerminalPane so dropped files are saved as attachments and their absolute paths are injected into the terminal cursor with overlay feedback and safe error handling.
+summary: Updated the desktop poller to forward normalized expert session data and auto-attach only newly discovered expert tmux sessions after a first-poll baseline.
 files_changed:
-  - packages/desktop/src/renderer/components/TerminalPane.tsx
+  - packages/desktop/src/main/poller.ts
   - .reports/senior-engineer-report.md
-failure_reason:
+failure_reason: ""

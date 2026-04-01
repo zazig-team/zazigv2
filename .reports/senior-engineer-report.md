@@ -1,5 +1,6 @@
 status: pass
-summary: Added `expert_sessions` to `zazig status --json` by querying Supabase expert sessions for the current machine and returning normalized session metadata with a guaranteed empty-array default.
+summary: Implemented drag-and-drop file handling in TerminalPane so dropped files are saved as attachments and their absolute paths are injected into the terminal cursor with overlay feedback and safe error handling.
 files_changed:
-  - packages/cli/src/commands/status.ts
+  - packages/desktop/src/renderer/components/TerminalPane.tsx
+  - .reports/senior-engineer-report.md
 failure_reason:

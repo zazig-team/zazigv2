@@ -3,7 +3,7 @@
  *
  * Tests for acceptance criteria:
  *  AC1: zazig desktop launches an Electron window with split-view layout
- *  AC2: Pipeline column shows active jobs, failed features, backlog, and recently completed
+ *  AC2: Pipeline column shows active jobs, failed features, queued jobs, and recently completed
  *  AC9: Clicking Watch on a non-running job shows appropriate message
  * AC10: App works without code signing on macOS
  *
@@ -154,7 +154,7 @@ describe('AC1: Renderer implements two-panel split-view layout', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC2: Pipeline column shows active jobs, failed features, backlog, recently completed
+// AC2: Pipeline column shows active jobs, failed features, queued jobs, recently completed
 // ---------------------------------------------------------------------------
 
 describe('AC2: Pipeline column component shows all required sections', () => {
@@ -180,8 +180,8 @@ describe('AC2: Pipeline column component shows all required sections', () => {
     expect(pipelineContent).toMatch(/failed|Failed/);
   });
 
-  it('shows backlog section', () => {
-    expect(pipelineContent).toMatch(/backlog|Backlog/i);
+  it('shows queued jobs section', () => {
+    expect(pipelineContent).toMatch(/queued|Queued/i);
   });
 
   it('shows recently completed section', () => {

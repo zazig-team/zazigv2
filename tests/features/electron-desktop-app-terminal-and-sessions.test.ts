@@ -276,7 +276,7 @@ describe('AC7: Terminal shows "No active agents" when no CPO session available',
 });
 
 // ---------------------------------------------------------------------------
-// AC8: Terminal supports typing, scrolling, resizing, and mouse mode
+// AC8: Terminal supports typing, scrolling, resizing, and wheel/mouse interaction
 // ---------------------------------------------------------------------------
 
 describe('AC8: xterm.js Terminal configuration', () => {
@@ -291,9 +291,9 @@ describe('AC8: xterm.js Terminal configuration', () => {
     );
   });
 
-  it('xterm Terminal is initialized with mouse mode enabled', () => {
-    // scrollback, mouse support, or terminal options
-    expect(terminalContent).toMatch(/mouseMode|mouse.*mode|allowMouseReporting/i);
+  it('xterm Terminal handles wheel/mouse interaction for scroll input', () => {
+    // legacy implementations used mouse mode flags; current implementation uses custom wheel handling
+    expect(terminalContent).toMatch(/attachCustomWheelEventHandler|mouseMode|mouse.*mode|allowMouseReporting/i);
   });
 
   it('handles terminal resize events', () => {

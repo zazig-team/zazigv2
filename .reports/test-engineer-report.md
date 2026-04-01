@@ -1,6 +1,52 @@
 status: pass
 
-## Test files created (desktop-expert-sessions feature)
+## Test files created (desktop-drag-and-drop-image-support feature)
+
+- `tests/features/desktop-drag-and-drop-image-support.test.ts` — 26 test cases
+
+### AC1 — Drop saves file and injects absolute path into terminal (7 tests)
+- TerminalPane.tsx has an onDrop handler
+- TerminalPane.tsx calls saveAttachment on drop
+- TerminalPane.tsx injects the returned file path via window.zazig.terminalInput()
+- preload.ts exposes saveAttachment on the zazig bridge
+- main/index.ts handles the saveAttachment IPC channel
+- main/index.ts writes the file under ~/.zazigv2/attachments/
+- main/index.ts uses a timestamp prefix in the saved filename
+
+### AC2 — Drop zone overlay appears on dragover, disappears on dragleave/drop (8 tests)
+- TerminalPane.tsx has an onDragOver handler
+- TerminalPane.tsx has an onDragLeave handler
+- Tracks a drop-zone-active boolean state
+- Renders drop zone overlay element conditionally
+- dragover sets state to true; dragleave and drop reset to false
+- dragover handler calls event.preventDefault()
+
+### AC3 — Multiple files are injected as space-separated paths (2 tests)
+- drop handler iterates over dataTransfer.files or dataTransfer.items
+- multiple paths joined with a space separator
+
+### AC4 — Non-image files handled identically (2 tests)
+- no MIME type or extension filter applied
+- all dropped files processed regardless of type
+
+### AC5 — IPC channel wiring complete (5 tests)
+- ipc-channels.ts exports a SAVE_ATTACHMENT constant
+- preload.ts imports and exposes saveAttachment via ipcRenderer.invoke
+- main/index.ts uses ipcMain.handle and returns the absolute saved path
+
+### AC6 — No errors when no active session (2 tests)
+- drop handler guards against null window.zazig
+- async error handling for saveAttachment
+
+## Notes
+
+- `tests/package.json` uses `vitest run` which auto-discovers recursively — no changes needed.
+- All tests use static source analysis consistent with this codebase's feature test conventions.
+- All tests written to FAIL against current codebase (feature not yet implemented).
+
+---
+
+## Previous report (desktop-expert-sessions feature)
 
 - `tests/features/desktop-expert-sessions-cli-status.test.ts` — 10 test cases
 - `tests/features/desktop-expert-sessions-sidebar.test.ts` — 12 test cases

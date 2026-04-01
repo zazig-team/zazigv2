@@ -1,12 +1,14 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { spawn as spawnChild, type ChildProcess } from 'child_process';
 import fs from 'fs';
+import fsPromises from 'node:fs/promises';
 import os from 'os';
 import path from 'path';
 
 import { runCLI, setActiveCompanyId } from './cli';
 import {
   COMPANIES_LOADED,
+  SAVE_ATTACHMENT,
   SELECT_COMPANY,
   TERMINAL_ATTACH,
   TERMINAL_ATTACH_DEFAULT,
@@ -169,6 +171,18 @@ async function initCompanies(): Promise<void> {
   broadcastCompaniesLoaded({ companies, selectedId });
 }
 
+function registerAttachmentIpcHandlers(): void {
+  // saveAttachment: writes dropped files to ~/.zazigv2/attachments and returns the absolute path
+  ipcMain.handle(SAVE_ATTACHMENT, async (_event, fileName: string, data: number[]) => {
+    const dir = path.join(os.homedir(), '.zazigv2', 'attachments');
+    await fsPromises.mkdir(dir, { recursive: true });
+    const ts = Date.now();
+    const dest = path.join(dir, `${ts}-${fileName}`);
+    await fsPromises.writeFile(dest, Buffer.from(data));
+    return dest;
+  });
+}
+
 function registerTerminalIpcHandlers(): void {
   ipcMain.handle(TERMINAL_ATTACH, (_event, session: string) => pty.attach(session));
   ipcMain.handle(TERMINAL_DETACH, () => pty.detach());
@@ -200,6 +214,7 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  registerAttachmentIpcHandlers();
   registerTerminalIpcHandlers();
   const win = createWindow();
   win.webContents.once('did-finish-load', async () => {

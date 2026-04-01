@@ -1,11 +1,50 @@
 status: pass
 
-## Test files created
+## Test files created (desktop-expert-sessions feature)
 
-- `tests/features/electron-desktop-app-launch-and-structure.test.ts` — 22 test cases
-- `tests/features/electron-desktop-app-terminal-and-sessions.test.ts` — 27 test cases
+- `tests/features/desktop-expert-sessions-cli-status.test.ts` — 10 test cases
+- `tests/features/desktop-expert-sessions-sidebar.test.ts` — 12 test cases
+- `tests/features/desktop-expert-sessions-auto-attach.test.ts` — 10 test cases
 
-## Total test cases: 49
+## Total test cases: 32
+
+### desktop-expert-sessions-cli-status.test.ts
+Covers: CLI `zazig status --json` adds `expert_sessions` key (AC1, AC4, AC5)
+- `expert_sessions` field present in `JsonStatusOutput` type
+- Field typed as an array
+- `ExpertSession` shape: id, role_name, session_id, status, created_at
+- Data source (expert_sessions table / tmux expert-* pattern) queried
+- Results populated in output JSON object
+
+### desktop-expert-sessions-sidebar.test.ts
+Covers: PipelineColumn sidebar Expert Sessions section (AC2, AC3, AC4, AC5)
+- "Expert Sessions" section heading rendered
+- Section positioned below Active Jobs
+- Expert session cards mapped from `expert_sessions` array
+- Each card displays `role_name`
+- onClick calls `window.zazig.terminalAttach(session_id)` (same flow as job clicks)
+- Rendering is data-driven (cards disappear when session no longer in payload)
+- `parsePipelinePayload` extracts `expert_sessions` from status JSON
+
+### desktop-expert-sessions-auto-attach.test.ts
+Covers: Poller auto-attaches on new expert session (AC1, AC6)
+- Poller reads `expert_sessions` from CLI status output
+- Poller calls `terminalAttach` when new session detected
+- Poller tracks known session IDs between poll cycles
+- Comparison against previous IDs prevents re-triggering
+- Known IDs updated after each cycle
+- Renderer notified via IPC `webContents.send` with expert session context
+- Main process wires `terminalAttach` IPC handler
+
+## Notes
+
+- `tests/package.json` uses `vitest run` which discovers files recursively — no `package.json` changes needed.
+- All tests use static source analysis consistent with this codebase's feature test conventions.
+- All tests written to FAIL against current codebase (features not yet implemented).
+
+---
+
+## Previous report (electron-desktop-app feature)
 
 ### electron-desktop-app-launch-and-structure.test.ts
 Covers AC1, AC2, AC9, AC10.

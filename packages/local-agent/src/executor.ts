@@ -1545,7 +1545,7 @@ export class JobExecutor {
       ];
 
       try {
-        await this.exec("zazig", cliArgs, { encoding: "utf8" });
+        await execFileAsync("zazig", cliArgs, { encoding: "utf8" });
       } catch (cliErr: unknown) {
         const msg = cliErr instanceof Error ? cliErr.message : String(cliErr);
         console.warn(`[CI Monitor] zazig create-feature failed for run ${runId}: ${msg}`);

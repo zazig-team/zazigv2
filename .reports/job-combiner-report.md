@@ -1,20 +1,18 @@
 status: success
-branch: feature/enrich-status-cli-for-desktop-sidebar-da-56115e41
+branch: feature/desktop-terminal-scroll-prints-escape-ch-e24d7bde
 merged:
-  - job/c7382e86-3650-4bf8-a4b9-5ae4c4f88290
+  - job/6ea6fe88-cc4e-4e5e-9fb4-ad4b648a938b
 conflicts_resolved: []
 failure_reason:
 
-PR: https://github.com/zazig-team/zazigv2/pull/384
+PR: https://github.com/zazig-team/zazigv2/pull/385
 
 ## Notes
-- Feature branch created from master (did not exist on remote)
-- Job branch merged successfully with no conflicts
-- CI workflow already exists on master — skipped CI injection
-- Feature branch pushed and PR created at zazig-team/zazigv2#384
+- CI workflow already exists on master branch — skipped CI injection
+- Job branch merged successfully with no conflicts using --no-ff strategy
+- Feature branch pushed and PR created at zazig-team/zazigv2#385
 
-## Job (c7382e86): Enrich status CLI for desktop sidebar
-- Updated `packages/cli/src/commands/status.ts` — enriched status CLI output with additional fields for sidebar
-- Updated `packages/desktop/src/main/poller.ts` — updated poller to use richer status data
-- Updated `packages/desktop/src/renderer/components/PipelineColumn.tsx` — sidebar component updated to consume enriched data
-- Updated `.reports/junior-engineer-report.md`
+## Job (6ea6fe88): Fix desktop terminal scroll printing escape characters
+- Updated `packages/desktop/src/renderer/components/TerminalPane.tsx` — fixed scroll wheel event handling to prevent escape character output
+- Added `tests/features/desktop-terminal-scroll-wheel-fix.test.ts` — new test coverage for the scroll wheel fix
+- Updated `.reports/junior-engineer-report.md` and `.reports/test-engineer-report.md`

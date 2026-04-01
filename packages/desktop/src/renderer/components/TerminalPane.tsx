@@ -54,8 +54,15 @@ export function TerminalPane({ message }: TerminalPaneProps): JSX.Element {
     fitAddon.fit();
     terminalRef.current = terminal;
 
-    const mouseModeEnabled = true;
-    (terminal.options as unknown as { mouseEvents?: boolean }).mouseEvents = mouseModeEnabled;
+    const wheelHandler = terminal.attachCustomWheelEventHandler((event: WheelEvent) => {
+      if (event.deltaY === 0) return true;
+      const escapeSequence = event.deltaY < 0 ? '\x1b[A' : '\x1b[B';
+      const repetitions = Math.max(1, Math.abs(Math.round(event.deltaY / 40)));
+      for (let i = 0; i < repetitions; i++) {
+        window.zazig.terminalInput(escapeSequence);
+      }
+      return true;
+    });
 
     const onOutputUnsubscribe = window.zazig.onTerminalOutput((data) => {
       if (data === '') {
@@ -85,6 +92,7 @@ export function TerminalPane({ message }: TerminalPaneProps): JSX.Element {
     sendResize();
 
     return () => {
+      wheelHandler.dispose();
       onOutputUnsubscribe();
       onTerminalDataDispose.dispose();
       resizeObserver.disconnect();

@@ -1,6 +1,29 @@
 status: pass
 
-## Test files created (desktop-drag-and-drop-image-support feature)
+## Test files created (desktop-sidebar-permanent-agents feature)
+
+- `tests/features/desktop-sidebar-permanent-agents-listing-and-switching.test.ts` — 36 test cases across 10 describe blocks
+
+### AC7 — PipelineViewData includes permanentAgents (3 tests)
+### AC1/AC2 — PermanentAgent entry interface shape: id, role, status, sessionName (5 tests)
+### AC7 — parsePipelinePayload populates permanentAgents from status.persistent_agents (2 tests)
+### AC8 — Session name resolution per agent by role or direct session field (3 tests)
+### AC1/AC6 — Sidebar renders agents section, maps over all agents (5 tests)
+### AC2 — Running status shown with visual indicator (2 tests)
+### AC3/AC4 — Click switches terminal; active agent highlighted with aria-pressed (5 tests)
+### AC5 — Agents without session show grey indicator (2 tests)
+### CLI agents command — persistent agent entries include tmux_session (3 tests)
+### CLI status command — persistent_agents entries include tmux_session (3 tests)
+
+## Notes
+
+- `tests/vitest.config.ts` already includes `features/**/*.test.ts` — no package.json changes needed.
+- All tests use static source analysis consistent with this codebase's feature test conventions.
+- All tests written to FAIL against current codebase (feature not yet implemented).
+
+---
+
+## Previous report (desktop-drag-and-drop-image-support feature)
 
 - `tests/features/desktop-drag-and-drop-image-support.test.ts` — 26 test cases
 

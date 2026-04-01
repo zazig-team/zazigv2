@@ -20,6 +20,7 @@ const terminalPaneStyle: React.CSSProperties = {
 
 export function App(): JSX.Element {
   const [activeSession, setActiveSession] = useState<string | null>(null);
+  const [isCpoActive, setIsCpoActive] = useState(false);
   const [terminalMessage, setTerminalMessage] = useState<string | undefined>(undefined);
   const activeSessionRef = useRef<string | null>(null);
   const transitionQueueRef = useRef(Promise.resolve());
@@ -32,6 +33,17 @@ export function App(): JSX.Element {
       });
   }, []);
 
+  const onCpoClick = useCallback(() => {
+    queueTerminalTransition(async () => {
+      setTerminalMessage(undefined);
+      await window.zazig.terminalDetach();
+      await window.zazig.terminalAttachDefault();
+      activeSessionRef.current = null;
+      setActiveSession(null);
+      setIsCpoActive(true);
+    });
+  }, [queueTerminalTransition]);
+
   const onJobClick = useCallback(
     (job: PipelineJob) => {
       queueTerminalTransition(async () => {
@@ -41,6 +53,7 @@ export function App(): JSX.Element {
 
           activeSessionRef.current = null;
           setActiveSession(null);
+          setIsCpoActive(false);
           return;
         }
 
@@ -54,6 +67,7 @@ export function App(): JSX.Element {
 
         activeSessionRef.current = job.sessionName;
         setActiveSession(job.sessionName);
+        setIsCpoActive(false);
       });
     },
     [queueTerminalTransition],
@@ -72,6 +86,7 @@ export function App(): JSX.Element {
 
         activeSessionRef.current = null;
         setActiveSession(null);
+        setIsCpoActive(false);
       });
     },
     [onJobClick, queueTerminalTransition],
@@ -81,6 +96,8 @@ export function App(): JSX.Element {
     <div style={rootStyle}>
       <PipelineColumn
         activeSession={activeSession}
+        isCpoActive={isCpoActive}
+        onCpoClick={onCpoClick}
         onJobClick={onJobClick}
         onWatchClick={onWatchClick}
       />

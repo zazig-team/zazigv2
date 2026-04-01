@@ -1,20 +1,23 @@
 status: success
-branch: feature/desktop-terminal-sidecar-websocket-bridg-a5f0f782
+branch: feature/desktop-fix-three-terminal-ux-bugs-recon-842c4fc6
 merged:
-  - job/01541ea2-9c18-42a0-b967-a19fca39d7aa
+  - job/6d4c9e68-165a-4a1c-aef2-98783783787f
 conflicts_resolved: []
 failure_reason:
 
-PR: https://github.com/zazig-team/zazigv2/pull/382
+PR: https://github.com/zazig-team/zazigv2/pull/383
 
 ## Notes
 - Job branch merged successfully with no conflicts
 - CI workflow already exists on master — skipped CI injection
-- Feature branch pushed and PR created at zazig-team/zazigv2#382
+- Feature branch pushed and PR created at zazig-team/zazigv2#383
 
-## Job (01541ea2): Desktop terminal sidecar WebSocket bridge
-- Added `packages/desktop/src/sidecar/server.ts` — new WebSocket sidecar server
-- Updated `packages/desktop/src/main/index.ts` to integrate sidecar
-- Refactored `packages/desktop/src/main/pty.ts` for cleaner PTY management
-- Updated `packages/desktop/esbuild.config.mjs` and `package.json`
+## Job (6d4c9e68): Desktop terminal UX fixes — WS reconnect, session matching, CPO nav
+- Updated `packages/desktop/src/main/pty.ts` — PTY management additions
+- Updated `packages/desktop/src/main/index.ts` — IPC channel wiring
+- Updated `packages/desktop/src/main/ipc-channels.ts` — new IPC channel
+- Updated `packages/desktop/src/main/preload.ts` — preload bridge
+- Updated `packages/desktop/src/renderer/App.tsx` — app-level terminal state
+- Updated `packages/desktop/src/renderer/components/PipelineColumn.tsx` — terminal UX fixes
+- Updated `packages/desktop/src/renderer/global.d.ts` — type declarations
 - Updated `.reports/junior-engineer-report.md`

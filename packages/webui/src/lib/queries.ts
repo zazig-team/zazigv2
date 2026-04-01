@@ -506,15 +506,16 @@ export interface CompletedFeature {
   status: string;
   promoted_version: string | null;
   updated_at: string | null;
+  completed_at: string | null;
 }
 
 export async function fetchCompletedFeatures(companyId: string): Promise<CompletedFeature[]> {
   const { data, error } = await supabase
     .from("features")
-    .select("id, title, status, promoted_version, updated_at")
+    .select("id, title, status, promoted_version, updated_at, completed_at")
     .eq("company_id", companyId)
     .eq("status", "complete")
-    .order("updated_at", { ascending: false })
+    .order("completed_at", { ascending: false, nullsFirst: false })
     .limit(50);
 
   if (error) {

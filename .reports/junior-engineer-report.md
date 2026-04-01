@@ -1,8 +1,7 @@
 status: pass
-summary: Added IPC plumbing for drag-and-drop file saving — SAVE_ATTACHMENT channel in ipc-channels.ts, saveAttachment on the preload bridge, ipcMain handler in index.ts that writes to ~/.zazigv2/attachments/, and drag-and-drop handlers in TerminalPane.tsx that inject saved paths into the terminal.
+summary: Fixed completed features ordering to sort by completed_at DESC instead of updated_at so recently completed features (v0.58.0, v0.59.0) appear first.
 files_changed:
-  - packages/desktop/src/main/ipc-channels.ts
-  - packages/desktop/src/main/preload.ts
-  - packages/desktop/src/main/index.ts
-  - packages/desktop/src/renderer/components/TerminalPane.tsx
-  - packages/desktop/src/renderer/global.d.ts
+  - packages/webui/src/lib/queries.ts
+  - supabase/migrations/230_completed_features_recent_order.sql
+  - .reports/junior-engineer-report.md
+failure_reason:

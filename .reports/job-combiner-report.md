@@ -1,25 +1,14 @@
 status: success
-branch: feature/desktop-drag-and-drop-image-support-in-c-83946e93
+branch: feature/fix-webui-completed-features-showing-sta-3c42c07c
 merged:
-  - job/455d584c-bc54-4683-8909-55f628535c8c
+  - job/f9de7fb9-74ae-4465-a7c0-eb4cff0317de
 conflicts_resolved: []
 failure_reason:
 
-PR: https://github.com/zazig-team/zazigv2/pull/387
-
 ## Notes
-- Feature branch created from master (did not exist remotely)
-- Job branch merged successfully with no conflicts using `git merge --no-ff`
-- CI workflow already exists on master branch — skipped CI injection
-- Feature branch pushed and PR created at zazig-team/zazigv2#387
 
-## Job (455d584c): Desktop drag and drop image support
-- packages/desktop/src/main/index.ts — IPC handler for image drag and drop
-- packages/desktop/src/main/ipc-channels.ts — new IPC channel constant
-- packages/desktop/src/main/preload.ts — preload API surface for drag-drop images
-- packages/desktop/src/renderer/components/TerminalPane.tsx — drag and drop UI handling
-- packages/desktop/src/renderer/global.d.ts — TypeScript type for new preload API
-- tests/features/desktop-drag-and-drop-image-support.test.ts — feature test suite
-- .reports/junior-engineer-report.md — updated
-- .reports/senior-engineer-report.md — updated
-- .reports/test-engineer-report.md — updated
+- Feature branch created from origin/master (did not exist on remote)
+- Job branch `job/f9de7fb9-74ae-4465-a7c0-eb4cff0317de` merged cleanly with no conflicts
+- CI workflow already exists on master — skipped injection
+- Branch pushed and PR created: https://github.com/zazig-team/zazigv2/pull/388
+- Changes: sort completed features by `completed_at` + migration `230_completed_features_recent_order.sql`

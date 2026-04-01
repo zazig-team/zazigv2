@@ -17,10 +17,27 @@ import { getVersion } from "../lib/version.js";
 type Row = Record<string, unknown>;
 type JsonStatusJob = {
   "id": string;
+  "title": string;
   "status": string;
   "slot_type": string;
   "job_type": string;
+  "role": string;
   "context": string;
+  "features": { "title": string };
+};
+
+type JsonQueuedJob = {
+  "id": string;
+  "title": string;
+  "status": string;
+  "job_type": string;
+  "role": string;
+  "features": { "title": string };
+};
+
+type JsonFeatureSummary = {
+  "id": string;
+  "title": string;
 };
 
 type JsonStatusAgent = {
@@ -40,6 +57,9 @@ type JsonStatusOutput = {
     "codex": { "active": number; "total": number };
   };
   "active_jobs"?: JsonStatusJob[];
+  "queued_jobs"?: JsonQueuedJob[];
+  "failed_features"?: JsonFeatureSummary[];
+  "completed_features"?: JsonFeatureSummary[];
   "persistent_agents"?: JsonStatusAgent[];
 };
 
@@ -122,6 +142,9 @@ async function statusJson(): Promise<void> {
       "codex": { "active": 0, "total": 0 },
     },
     "active_jobs": [],
+    "queued_jobs": [],
+    "failed_features": [],
+    "completed_features": [],
     "persistent_agents": [],
   };
 
@@ -185,7 +208,7 @@ async function statusJson(): Promise<void> {
       if (machineId) {
         const jobs = await apiFetch(
           `${creds.supabaseUrl}/rest/v1/jobs` +
-            `?select=id,status,context,slot_type,job_type` +
+            `?select=id,title,status,context,slot_type,job_type,role,features(title)` +
             `&machine_id=eq.${encodeURIComponent(machineId)}` +
             `&status=in.(queued,dispatched,executing,reviewing)`,
           headers
@@ -201,10 +224,64 @@ async function statusJson(): Promise<void> {
         };
         output.active_jobs = jobs.map((job) => ({
           "id": String(job.id ?? ""),
+          "title": String(job.title ?? ""),
           "status": String(job.status ?? ""),
           "slot_type": String(job.slot_type ?? ""),
           "job_type": String(job.job_type ?? ""),
+          "role": String(job.role ?? ""),
           "context": toContextString(job.context, job.id),
+          "features": {
+            "title": String((job.features as Row | null)?.title ?? ""),
+          },
+        }));
+      }
+
+      const statusCompanyId = String(m.company_id ?? companyId ?? "");
+      if (statusCompanyId) {
+        const queuedJobs = await apiFetch(
+          `${creds.supabaseUrl}/rest/v1/jobs` +
+            `?select=id,title,status,job_type,role,features(title)` +
+            `&status=in.(created,queued)` +
+            `&company_id=eq.${encodeURIComponent(statusCompanyId)}` +
+            `&limit=20`,
+          headers
+        );
+        output.queued_jobs = queuedJobs.map((job) => ({
+          "id": String(job.id ?? ""),
+          "title": String(job.title ?? ""),
+          "status": String(job.status ?? ""),
+          "job_type": String(job.job_type ?? ""),
+          "role": String(job.role ?? ""),
+          "features": {
+            "title": String((job.features as Row | null)?.title ?? ""),
+          },
+        }));
+
+        const failedFeatures = await apiFetch(
+          `${creds.supabaseUrl}/rest/v1/features` +
+            `?select=id,title` +
+            `&status=eq.failed` +
+            `&company_id=eq.${encodeURIComponent(statusCompanyId)}` +
+            `&limit=10`,
+          headers
+        );
+        output.failed_features = failedFeatures.map((feature) => ({
+          "id": String(feature.id ?? ""),
+          "title": String(feature.title ?? ""),
+        }));
+
+        const completedFeatures = await apiFetch(
+          `${creds.supabaseUrl}/rest/v1/features` +
+            `?select=id,title` +
+            `&status=eq.complete` +
+            `&company_id=eq.${encodeURIComponent(statusCompanyId)}` +
+            `&order=completed_at.desc` +
+            `&limit=5`,
+          headers
+        );
+        output.completed_features = completedFeatures.map((feature) => ({
+          "id": String(feature.id ?? ""),
+          "title": String(feature.title ?? ""),
         }));
       }
 

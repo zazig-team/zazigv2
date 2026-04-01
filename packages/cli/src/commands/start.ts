@@ -32,6 +32,7 @@ import { syncSkillsForCompany } from "./skills.js";
 import { getVersion } from "../lib/version.js";
 import { hasPinnedBuild, getCurrentBuildSha } from "../lib/builds.js";
 import { checkForUpdate, downloadAndInstall, getLocalVersion } from "../lib/auto-update.js";
+import { buildDaemonEnv } from "./start-env.js";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -438,31 +439,21 @@ export async function start(args: string[] = process.argv.slice(3)): Promise<voi
   // Note: ANTHROPIC_API_KEY is intentionally NOT set here. Claude Code uses its
   // own OAuth flow (Keychain-based) which auto-refreshes tokens. Setting the env
   // var overrides that flow with a static token that expires during long sessions.
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    SUPABASE_ACCESS_TOKEN: creds.accessToken,
-    SUPABASE_REFRESH_TOKEN: creds.refreshToken ?? "",
-    SUPABASE_URL: creds.supabaseUrl,
-    ZAZIG_MACHINE_NAME: config.name,
-    ZAZIG_COMPANY_ID: company.id,
-    ZAZIG_COMPANY_NAME: company.name,
-    ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
-    ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
-    ...(process.env["ZAZIG_HOME"] ? { ZAZIG_HOME: process.env["ZAZIG_HOME"] } : {}),
-  };
+  const env = buildDaemonEnv({ creds, config, company, zazigEnv });
 
   // Resolve agent entry point: use standalone binary, pinned build, or repo
   let agentEntryOverride: string | undefined;
 
   if (zazigEnv === "production") {
-    const binAgent = join(homedir(), ".zazigv2", "bin", "zazig-agent");
+    const zazigHome = process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
+    const binAgent = join(zazigHome, "bin", "zazig-agent");
     if (existsSync(binAgent)) {
       agentEntryOverride = binAgent;
       const ver = getLocalVersion();
       log(`Using zazig-agent binary${ver ? ` (v${ver})` : ""}`);
     } else if (hasPinnedBuild()) {
       // Legacy fallback — old pinned .mjs build
-      const buildDir = join(homedir(), ".zazigv2", "builds", "current");
+      const buildDir = join(zazigHome, "builds", "current");
       agentEntryOverride = join(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
       const sha = getCurrentBuildSha();
       log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);

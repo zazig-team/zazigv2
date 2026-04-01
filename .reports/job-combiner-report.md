@@ -1,14 +1,14 @@
 status: success
-branch: feature/fix-webui-completed-features-showing-sta-3c42c07c
+branch: feature/fix-staging-cli-binary-rewrite-misses-co-553bda37
 merged:
-  - job/f9de7fb9-74ae-4465-a7c0-eb4cff0317de
+  - job/8bfc518e-2f60-4bb7-860c-f15fa55093e6
 conflicts_resolved: []
 failure_reason:
 
 ## Notes
 
 - Feature branch created from origin/master (did not exist on remote)
-- Job branch `job/f9de7fb9-74ae-4465-a7c0-eb4cff0317de` merged cleanly with no conflicts
+- Job branch `job/8bfc518e-2f60-4bb7-860c-f15fa55093e6` merged cleanly with no conflicts
 - CI workflow already exists on master — skipped injection
-- Branch pushed and PR created: https://github.com/zazig-team/zazigv2/pull/388
-- Changes: sort completed features by `completed_at` + migration `230_completed_features_recent_order.sql`
+- Branch pushed and PR created: https://github.com/zazig-team/zazigv2/pull/389
+- Changes: fix staging CLI binary rewrite missing company context (executor.ts + zazig-agent.mjs)

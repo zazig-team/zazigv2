@@ -1,13 +1,15 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { spawn as spawnChild, type ChildProcess } from 'child_process';
 import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import fsPromises from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import { runCLI, setActiveCompanyId } from './cli';
 import {
   COMPANIES_LOADED,
   SELECT_COMPANY,
+  SAVE_ATTACHMENT,
   TERMINAL_ATTACH,
   TERMINAL_ATTACH_DEFAULT,
   TERMINAL_DETACH,
@@ -181,6 +183,14 @@ function registerTerminalIpcHandlers(): void {
     setActiveCompanyId(id);
     savePrefs({ selectedCompanyId: id });
     resetPollerSnapshot();
+  });
+  ipcMain.handle(SAVE_ATTACHMENT, async (_event, fileName: string, data: number[]) => {
+    const dir = path.join(os.homedir(), '.zazigv2', 'attachments');
+    await fsPromises.mkdir(dir, { recursive: true });
+    const ts = Date.now();
+    const dest = path.join(dir, `${ts}-${fileName}`);
+    await fsPromises.writeFile(dest, Buffer.from(data));
+    return dest;
   });
 }
 

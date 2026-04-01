@@ -4,6 +4,7 @@ import {
   COMPANIES_LOADED,
   PIPELINE_UPDATE,
   SELECT_COMPANY,
+  SAVE_ATTACHMENT,
   TERMINAL_ATTACH,
   TERMINAL_ATTACH_DEFAULT,
   TERMINAL_DETACH,
@@ -55,6 +56,9 @@ const zazigBridge = {
   },
   selectCompany(id: string): void {
     ipcRenderer.send(SELECT_COMPANY, id);
+  },
+  saveAttachment(fileName: string, data: Uint8Array): Promise<string> {
+    return ipcRenderer.invoke(SAVE_ATTACHMENT, fileName, Array.from(data));
   },
 };
 

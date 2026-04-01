@@ -1,20 +1,21 @@
 status: success
-branch: feature/enrich-status-cli-for-desktop-sidebar-da-56115e41
+branch: feature/desktop-auto-attach-and-sidebar-listing--ec75e316
 merged:
-  - job/c7382e86-3650-4bf8-a4b9-5ae4c4f88290
+  - job/b454f08c-e1a1-43f8-a184-231f156b8563
 conflicts_resolved: []
 failure_reason:
 
-PR: https://github.com/zazig-team/zazigv2/pull/384
+PR: https://github.com/zazig-team/zazigv2/pull/386
 
 ## Notes
-- Feature branch created from master (did not exist on remote)
-- Job branch merged successfully with no conflicts
-- CI workflow already exists on master — skipped CI injection
-- Feature branch pushed and PR created at zazig-team/zazigv2#384
+- Job branch merged successfully with no conflicts using `git merge --no-ff`
+- CI workflow already exists on master branch — skipped CI injection
+- Feature branch pushed and PR created at zazig-team/zazigv2#386
 
-## Job (c7382e86): Enrich status CLI for desktop sidebar
-- Updated `packages/cli/src/commands/status.ts` — enriched status CLI output with additional fields for sidebar
-- Updated `packages/desktop/src/main/poller.ts` — updated poller to use richer status data
-- Updated `packages/desktop/src/renderer/components/PipelineColumn.tsx` — sidebar component updated to consume enriched data
-- Updated `.reports/junior-engineer-report.md`
+## Job (b454f08c): Desktop auto-attach and sidebar listing
+- Updated `packages/cli/src/commands/status.ts` — CLI status updates for expert sessions
+- New `tests/features/desktop-expert-sessions-auto-attach.test.ts` — feature tests for auto-attach
+- New `tests/features/desktop-expert-sessions-cli-status.test.ts` — feature tests for CLI status
+- New `tests/features/desktop-expert-sessions-sidebar.test.ts` — feature tests for sidebar listing
+- Updated `.reports/senior-engineer-report.md`
+- Updated `.reports/test-engineer-report.md`

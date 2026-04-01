@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "1d1fdbf";
+const AGENT_BUILD_HASH = "fd99599";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -17247,10 +17247,12 @@ You are working as an interactive expert. Your task brief is in \`.claude/expert
 2. You are on branch \`${expertBranch}\` \u2014 all your work goes here
 3. Work through the brief methodically
 4. Show diffs before applying changes
-5. When done: push your branch and merge to ${defaultBranchForInstructions}, then delete the remote expert branch
-   - \`git push origin ${expertBranch}\`
-   - \`git checkout ${defaultBranchForInstructions} && git merge ${expertBranch} && git push origin ${defaultBranchForInstructions}\`
-   - \`git push origin --delete ${expertBranch}\`
+5. When done: push your branch directly to ${defaultBranchForInstructions} (no local checkout needed \u2014 you are already in the worktree):
+   - \`git push origin ${expertBranch}:${defaultBranchForInstructions}\`
+   - If the push is rejected (merge conflict / non-fast-forward), create a PR instead:
+     \`gh pr create --base ${defaultBranchForInstructions} --head ${expertBranch} --title "Expert session: <brief title>" --body "Expert session work"\`
+   - After a successful direct push, delete the remote expert branch:
+     \`git push origin --delete ${expertBranch}\`
 
 `);
       } else {
@@ -17402,6 +17404,16 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
       return;
     }
     await this.updateSessionStatus(sessionId, "running");
+    const EXPERT_STARTUP_DELAY_MS = 15e3;
+    setTimeout(async () => {
+      try {
+        await execFileAsync5("tmux", ["send-keys", "-t", tmuxSessionName, "-l", "Do Task"]);
+        await execFileAsync5("tmux", ["send-keys", "-t", tmuxSessionName, "Enter"]);
+        console.log(`[expert] Injected boot prompt into session ${tmuxSessionName}`);
+      } catch (err) {
+        console.error(`[expert] Failed to inject boot prompt into ${tmuxSessionName}:`, err);
+      }
+    }, EXPERT_STARTUP_DELAY_MS);
     const viewerLink = await this.linkToViewerTui(msg, tmuxSessionName, displayName);
     const sessionState = {
       sessionId,
@@ -17659,13 +17671,35 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
         console.log(`[expert] Pushed unpushed commits to origin/${expertBranch}`);
         try {
           const defaultBranch = session.defaultBranch ?? "master";
-          await execFileAsync5("git", ["-C", session.repoDir, "checkout", defaultBranch]);
-          await execFileAsync5("git", ["-C", session.repoDir, "merge", expertBranch]);
-          await execFileAsync5("git", ["-C", session.repoDir, "push", "origin", defaultBranch]);
+          await execFileAsync5("git", [
+            "-C",
+            session.repoDir,
+            "push",
+            "origin",
+            `${expertBranch}:${defaultBranch}`
+          ]);
           await execFileAsync5("git", ["-C", session.repoDir, "push", "origin", "--delete", expertBranch]);
-          console.log(`[expert] Merged ${expertBranch} to ${defaultBranch}, pushed ${defaultBranch}, and deleted origin/${expertBranch}`);
+          console.log(`[expert] Pushed ${expertBranch} directly to ${defaultBranch} and deleted origin/${expertBranch}`);
         } catch (mergeErr) {
-          console.warn(`[expert] Merge/push to master failed after pushing ${expertBranch}; leaving origin/${expertBranch} for manual resolution`, mergeErr);
+          console.warn(`[expert] Direct push of ${expertBranch} to master rejected; creating PR instead`, mergeErr);
+          const defaultBranch = session.defaultBranch ?? "master";
+          try {
+            await execFileAsync5("gh", [
+              "pr",
+              "create",
+              "--base",
+              defaultBranch,
+              "--head",
+              expertBranch,
+              "--title",
+              `Expert session: ${session.displayName}`,
+              "--body",
+              `Expert session work from session ${session.sessionId}. Automatic merge was rejected \u2014 please review and merge manually.`
+            ]);
+            console.log(`[expert] Created PR for ${expertBranch} \u2192 ${defaultBranch}`);
+          } catch (prErr) {
+            console.warn(`[expert] PR creation failed for ${expertBranch}; leaving origin/${expertBranch} for manual resolution`, prErr);
+          }
         }
       } catch (pushErr) {
         const rescueBranch = `rescue/expert-${session.sessionId.slice(0, 8)}`;

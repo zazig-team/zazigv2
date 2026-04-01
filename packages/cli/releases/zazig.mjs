@@ -153,11 +153,11 @@ function __metadata(metadataKey, metadataValue) {
 }
 function __awaiter(thisArg, _arguments, P, generator) {
   function adopt(value) {
-    return value instanceof P ? value : new P(function(resolve4) {
-      resolve4(value);
+    return value instanceof P ? value : new P(function(resolve5) {
+      resolve5(value);
     });
   }
-  return new (P || (P = Promise))(function(resolve4, reject) {
+  return new (P || (P = Promise))(function(resolve5, reject) {
     function fulfilled(value) {
       try {
         step(generator.next(value));
@@ -173,7 +173,7 @@ function __awaiter(thisArg, _arguments, P, generator) {
       }
     }
     function step(result) {
-      result.done ? resolve4(result.value) : adopt(result.value).then(fulfilled, rejected);
+      result.done ? resolve5(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
     step((generator = generator.apply(thisArg, _arguments || [])).next());
   });
@@ -364,14 +364,14 @@ function __asyncValues(o) {
   }, i);
   function verb(n) {
     i[n] = o[n] && function(v) {
-      return new Promise(function(resolve4, reject) {
-        v = o[n](v), settle(resolve4, reject, v.done, v.value);
+      return new Promise(function(resolve5, reject) {
+        v = o[n](v), settle(resolve5, reject, v.done, v.value);
       });
     };
   }
-  function settle(resolve4, reject, d, v) {
+  function settle(resolve5, reject, d, v) {
     Promise.resolve(v).then(function(v2) {
-      resolve4({ value: v2, done: d });
+      resolve5({ value: v2, done: d });
     }, reject);
   }
 }
@@ -2013,15 +2013,15 @@ var require_RealtimeChannel = __commonJS({
             }
           }
         } else {
-          return new Promise((resolve4) => {
+          return new Promise((resolve5) => {
             var _a2, _b2, _c;
             const push = this._push(args2.type, args2, opts.timeout || this.timeout);
             if (args2.type === "broadcast" && !((_c = (_b2 = (_a2 = this.params) === null || _a2 === void 0 ? void 0 : _a2.config) === null || _b2 === void 0 ? void 0 : _b2.broadcast) === null || _c === void 0 ? void 0 : _c.ack)) {
-              resolve4("ok");
+              resolve5("ok");
             }
-            push.receive("ok", () => resolve4("ok"));
-            push.receive("error", () => resolve4("error"));
-            push.receive("timeout", () => resolve4("timed out"));
+            push.receive("ok", () => resolve5("ok"));
+            push.receive("error", () => resolve5("error"));
+            push.receive("timeout", () => resolve5("timed out"));
           });
         }
       }
@@ -2049,16 +2049,16 @@ var require_RealtimeChannel = __commonJS({
         };
         this.joinPush.destroy();
         let leavePush = null;
-        return new Promise((resolve4) => {
+        return new Promise((resolve5) => {
           leavePush = new push_1.default(this, constants_1.CHANNEL_EVENTS.leave, {}, timeout);
           leavePush.receive("ok", () => {
             onClose();
-            resolve4("ok");
+            resolve5("ok");
           }).receive("timeout", () => {
             onClose();
-            resolve4("timed out");
+            resolve5("timed out");
           }).receive("error", () => {
-            resolve4("error");
+            resolve5("error");
           });
           leavePush.send();
           if (!this._canPush()) {
@@ -2137,8 +2137,8 @@ var require_RealtimeChannel = __commonJS({
       _trigger(type, payload, ref) {
         var _a, _b;
         const typeLower = type.toLocaleLowerCase();
-        const { close, error, leave, join: join13 } = constants_1.CHANNEL_EVENTS;
-        const events = [close, error, leave, join13];
+        const { close, error, leave, join: join14 } = constants_1.CHANNEL_EVENTS;
+        const events = [close, error, leave, join14];
         if (ref && events.indexOf(typeLower) >= 0 && ref !== this._joinRef()) {
           return;
         }
@@ -8135,7 +8135,7 @@ async function getValidCredentials() {
   let lastStatus = 0;
   for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
     if (attempt > 0) {
-      await new Promise((resolve4) => setTimeout(resolve4, retryDelaysMs[attempt]));
+      await new Promise((resolve5) => setTimeout(resolve5, retryDelaysMs[attempt]));
     }
     let resp;
     try {
@@ -8335,8 +8335,8 @@ function parseLoginFlags(args2) {
 }
 async function startCallbackServer(port) {
   let resolveCallback;
-  const callbackPromise = new Promise((resolve4) => {
-    resolveCallback = resolve4;
+  const callbackPromise = new Promise((resolve5) => {
+    resolveCallback = resolve5;
   });
   const callbackHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -8438,7 +8438,7 @@ if (at && rt) {
       res.end();
     }
   });
-  await new Promise((resolve4) => server.listen(port, "127.0.0.1", resolve4));
+  await new Promise((resolve5) => server.listen(port, "127.0.0.1", resolve5));
   return { server, callbackPromise };
 }
 async function sendMagicLink({ supabaseUrl, anonKey, email, redirectTo }) {
@@ -8564,17 +8564,17 @@ function isAbortError(err) {
   return err instanceof Error && (err.name === "AbortError" || /aborted/i.test(err.message));
 }
 function findAvailablePort(preferredPort) {
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     const server = http.createServer();
     server.listen(preferredPort, "127.0.0.1", () => {
       const addr = server.address();
-      server.close(() => resolve4(addr.port));
+      server.close(() => resolve5(addr.port));
     });
     server.on("error", () => {
       const s = http.createServer();
       s.listen(0, "127.0.0.1", () => {
         const addr = s.address();
-        s.close(() => resolve4(addr.port));
+        s.close(() => resolve5(addr.port));
       });
     });
   });
@@ -10622,7 +10622,7 @@ var _getRequestParams = (method, options, parameters, body) => {
   return _objectSpread22(_objectSpread22({}, params), parameters);
 };
 async function _handleRequest(fetcher, method, url, options, parameters, body, namespace) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
       if (!result.ok) throw result;
       if (options === null || options === void 0 ? void 0 : options.noResolveJson) return result;
@@ -10632,7 +10632,7 @@ async function _handleRequest(fetcher, method, url, options, parameters, body, n
         if (!contentType || !contentType.includes("application/json")) return {};
       }
       return result.json();
-    }).then((data) => resolve4(data)).catch((error) => handleError(error, reject, options, namespace));
+    }).then((data) => resolve5(data)).catch((error) => handleError(error, reject, options, namespace));
   });
 }
 function createFetchApi(namespace = "storage") {
@@ -14491,7 +14491,7 @@ async function checkForUpdate(supabaseUrl, anonKey, env) {
 
 // dist/commands/start.js
 function sleep(ms) {
-  return new Promise((resolve4) => setTimeout(resolve4, ms));
+  return new Promise((resolve5) => setTimeout(resolve5, ms));
 }
 function generateMachineName() {
   const raw = hostname().toLowerCase();
@@ -14935,7 +14935,7 @@ ${message}`);
 
 // dist/commands/stop.js
 function sleep2(ms) {
-  return new Promise((resolve4) => setTimeout(resolve4, ms));
+  return new Promise((resolve5) => setTimeout(resolve5, ms));
 }
 function isRunning2(pid) {
   try {
@@ -15115,6 +15115,9 @@ async function statusJson() {
       "codex": { "active": 0, "total": 0 }
     },
     "active_jobs": [],
+    "queued_jobs": [],
+    "failed_features": [],
+    "completed_features": [],
     "persistent_agents": []
   };
   let creds;
@@ -15158,7 +15161,7 @@ async function statusJson() {
       }
       const machineId = String(m.id ?? "");
       if (machineId) {
-        const jobs2 = await apiFetch(`${creds.supabaseUrl}/rest/v1/jobs?select=id,status,context,slot_type,job_type&machine_id=eq.${encodeURIComponent(machineId)}&status=in.(queued,dispatched,executing,reviewing)`, headers);
+        const jobs2 = await apiFetch(`${creds.supabaseUrl}/rest/v1/jobs?select=id,title,status,context,slot_type,job_type,role,features(title)&machine_id=eq.${encodeURIComponent(machineId)}&status=in.(queued,dispatched,executing,reviewing)`, headers);
         const claudeActive = jobs2.filter((j) => j.slot_type === "claude_code").length;
         const codexActive = jobs2.filter((j) => j.slot_type === "codex").length;
         const claudeSlots = Number(m.slots_claude_code ?? cfg.slots.claude_code);
@@ -15169,10 +15172,39 @@ async function statusJson() {
         };
         output.active_jobs = jobs2.map((job) => ({
           "id": String(job.id ?? ""),
+          "title": String(job.title ?? ""),
           "status": String(job.status ?? ""),
           "slot_type": String(job.slot_type ?? ""),
           "job_type": String(job.job_type ?? ""),
-          "context": toContextString(job.context, job.id)
+          "role": String(job.role ?? ""),
+          "context": toContextString(job.context, job.id),
+          "features": {
+            "title": String(job.features?.title ?? "")
+          }
+        }));
+      }
+      const statusCompanyId = String(m.company_id ?? companyId ?? "");
+      if (statusCompanyId) {
+        const queuedJobs = await apiFetch(`${creds.supabaseUrl}/rest/v1/jobs?select=id,title,status,job_type,role,features(title)&status=in.(created,queued)&company_id=eq.${encodeURIComponent(statusCompanyId)}&limit=20`, headers);
+        output.queued_jobs = queuedJobs.map((job) => ({
+          "id": String(job.id ?? ""),
+          "title": String(job.title ?? ""),
+          "status": String(job.status ?? ""),
+          "job_type": String(job.job_type ?? ""),
+          "role": String(job.role ?? ""),
+          "features": {
+            "title": String(job.features?.title ?? "")
+          }
+        }));
+        const failedFeatures = await apiFetch(`${creds.supabaseUrl}/rest/v1/features?select=id,title&status=eq.failed&company_id=eq.${encodeURIComponent(statusCompanyId)}&limit=10`, headers);
+        output.failed_features = failedFeatures.map((feature) => ({
+          "id": String(feature.id ?? ""),
+          "title": String(feature.title ?? "")
+        }));
+        const completedFeatures = await apiFetch(`${creds.supabaseUrl}/rest/v1/features?select=id,title&status=eq.complete&company_id=eq.${encodeURIComponent(statusCompanyId)}&order=completed_at.desc&limit=5`, headers);
+        output.completed_features = completedFeatures.map((feature) => ({
+          "id": String(feature.id ?? ""),
+          "title": String(feature.title ?? "")
         }));
       }
       const companyIds = machines.map((row) => String(row.company_id ?? "")).filter((id) => id.length > 0);
@@ -16650,7 +16682,13 @@ function formatTextOutput(report) {
 `;
 }
 async function standup(args2) {
-  const companyId = parseCompanyFlag6(args2);
+  const companyId = parseCompanyFlag6(args2) ?? (() => {
+    try {
+      return loadConfig().company_id;
+    } catch {
+      return void 0;
+    }
+  })();
   if (!companyId) {
     process.stderr.write("Usage: zazig standup --company <company-id> [--json]\n");
     process.exit(1);
@@ -18269,6 +18307,117 @@ async function agents(args2 = []) {
   process.exit(0);
 }
 
+// dist/commands/desktop.js
+import { existsSync as existsSync12 } from "node:fs";
+import { spawn as spawn2 } from "node:child_process";
+import { dirname as dirname4, join as join13, resolve as resolve4 } from "node:path";
+import { fileURLToPath as fileURLToPath4 } from "node:url";
+import { createRequire } from "node:module";
+function findRepoRoot(startDir) {
+  let current = startDir;
+  for (let i = 0; i < 12; i++) {
+    const desktopPkg = join13(current, "packages", "desktop", "package.json");
+    const cliPkg = join13(current, "packages", "cli", "package.json");
+    if (existsSync12(desktopPkg) && existsSync12(cliPkg)) {
+      return current;
+    }
+    const parent = dirname4(current);
+    if (parent === current)
+      break;
+    current = parent;
+  }
+  const fromCwd = resolve4(process.cwd());
+  let cwdCurrent = fromCwd;
+  for (let i = 0; i < 12; i++) {
+    const desktopPkg = join13(cwdCurrent, "packages", "desktop", "package.json");
+    const cliPkg = join13(cwdCurrent, "packages", "cli", "package.json");
+    if (existsSync12(desktopPkg) && existsSync12(cliPkg)) {
+      return cwdCurrent;
+    }
+    const parent = dirname4(cwdCurrent);
+    if (parent === cwdCurrent)
+      break;
+    cwdCurrent = parent;
+  }
+  return fromCwd;
+}
+function resolveElectronBinary(desktopDir) {
+  try {
+    const desktopRequire = createRequire(join13(desktopDir, "package.json"));
+    return desktopRequire("electron");
+  } catch {
+    const fallback = join13(desktopDir, "node_modules", ".bin", "electron");
+    return existsSync12(fallback) ? fallback : null;
+  }
+}
+function runBuild(desktopDir) {
+  return new Promise((resolveBuild, rejectBuild) => {
+    const build = spawn2("bun", ["run", "build"], {
+      cwd: desktopDir,
+      stdio: "inherit"
+    });
+    build.on("error", rejectBuild);
+    build.on("exit", (code, signal) => {
+      if (signal) {
+        rejectBuild(new Error(`Desktop build terminated by signal ${signal}`));
+        return;
+      }
+      if (code !== 0) {
+        rejectBuild(new Error(`Desktop build failed with exit code ${code ?? 1}`));
+        return;
+      }
+      resolveBuild();
+    });
+  });
+}
+async function desktop(args2 = process.argv.slice(3)) {
+  if (args2.includes("--help") || args2.includes("-h")) {
+    console.log("Launch the Electron desktop dashboard");
+    console.log("Usage: zazig desktop");
+    return;
+  }
+  const thisDir2 = dirname4(fileURLToPath4(import.meta.url));
+  const repoRoot = findRepoRoot(thisDir2);
+  const desktopDir = join13(repoRoot, "packages", "desktop");
+  const desktopEntry = join13(desktopDir, "dist", "main.js");
+  const isStaging = !!process.env["ZAZIG_REPO_PATH"];
+  if (isStaging || !existsSync12(desktopEntry)) {
+    try {
+      await runBuild(desktopDir);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+      return;
+    }
+  }
+  const electronBinary = resolveElectronBinary(desktopDir);
+  if (!electronBinary) {
+    console.error("Electron is not installed. Run `bun install` in packages/desktop first");
+    process.exitCode = 1;
+    return;
+  }
+  const cliBin = process.env["ZAZIG_REPO_PATH"] ? "zazig-staging" : "zazig";
+  await new Promise((resolveLaunch) => {
+    const child = spawn2(electronBinary, [desktopEntry], {
+      cwd: desktopDir,
+      stdio: "inherit",
+      env: { ...process.env, ZAZIG_CLI_BIN: cliBin }
+    });
+    child.on("error", (err) => {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+      resolveLaunch();
+    });
+    child.on("exit", (code, signal) => {
+      if (signal) {
+        process.kill(process.pid, signal);
+        return;
+      }
+      process.exit(code ?? 0);
+    });
+  });
+}
+
 // dist/index.js
 var [, , cmd, ...args] = process.argv;
 switch (cmd) {
@@ -18374,6 +18523,9 @@ switch (cmd) {
   case "agents":
     await agents(args);
     break;
+  case "desktop":
+    await desktop(args);
+    break;
   case void 0:
   case "--help":
   case "-h":
@@ -18414,6 +18566,7 @@ switch (cmd) {
     console.log("  verify-staging --company <id> --id <feature-id>      Set or clear staging verification");
     console.log("  auto-triage --company <id> [--status] [--enable type,...] [--disable type,...]");
     console.log("  auto-spec   --company <id> [--status] [--enable type,...] [--disable type,...]");
+    console.log("  desktop           Launch the Electron desktop dashboard");
     break;
   default:
     console.error(`Unknown command: ${cmd}`);

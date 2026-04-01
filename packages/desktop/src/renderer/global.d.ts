@@ -5,6 +5,7 @@ declare global {
     zazig: {
       onPipelineUpdate(callback: (payload: unknown) => void): () => void;
       terminalAttach(session: string): Promise<unknown>;
+      terminalAttachDefault(): Promise<unknown>;
       terminalDetach(): Promise<unknown>;
       onTerminalOutput(callback: (payload: string) => void): () => void;
       terminalInput(data: string): void;

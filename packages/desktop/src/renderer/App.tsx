@@ -77,10 +77,27 @@ export function App(): JSX.Element {
     [onJobClick, queueTerminalTransition],
   );
 
+  const onBackToCpoClick = useCallback(() => {
+    queueTerminalTransition(async () => {
+      setTerminalMessage(undefined);
+      const attachedSession = await window.zazig.terminalAttachDefault();
+      const sessionName = typeof attachedSession === 'string' && attachedSession.length > 0
+        ? attachedSession
+        : null;
+
+      activeSessionRef.current = sessionName;
+      setActiveSession(sessionName);
+    });
+  }, [queueTerminalTransition]);
+
+  const isCpoActive = Boolean(activeSession && activeSession.toLowerCase().endsWith('-cpo'));
+
   return (
     <div style={rootStyle}>
       <PipelineColumn
         activeSession={activeSession}
+        isCpoActive={isCpoActive}
+        onBackToCpoClick={onBackToCpoClick}
         onJobClick={onJobClick}
         onWatchClick={onWatchClick}
       />

@@ -22,6 +22,8 @@ interface PipelineViewData {
 
 interface PipelineColumnProps {
   activeSession: string | null;
+  isCpoActive: boolean;
+  onBackToCpoClick: () => void;
   onJobClick: (job: PipelineJob) => void;
   onWatchClick: (job: PipelineJob) => void;
 }
@@ -38,6 +40,7 @@ type ZazigBridge = {
     callback: (payload: { companies: Company[]; selectedId: string | null }) => void,
   ) => Unsubscribe | void;
   selectCompany?: (id: string) => void;
+  terminalAttachDefault?: () => Promise<unknown>;
 };
 type WindowWithZazig = Window & {
   zazig?: ZazigBridge;
@@ -126,12 +129,17 @@ function getLocalSessionEntries(status: AnyRecord): unknown[] {
     status.tmux_sessions ??
     status.tmuxSessions ??
     status.sessions;
+  const persistentAgents = status.persistent_agents ?? status.persistentAgents;
+  const persistentEntries = Array.isArray(persistentAgents) ? persistentAgents : [];
 
-  return Array.isArray(localSessions) ? localSessions : [];
+  const sessionEntries = Array.isArray(localSessions) ? localSessions : [];
+  return [...sessionEntries, ...persistentEntries];
 }
 
 function getSessionName(session: AnyRecord): string {
   return (
+    getString(session.tmux_session) ||
+    getString(session.tmuxSession) ||
     getString(session.session_name) ||
     getString(session.sessionName) ||
     getString(session.session) ||
@@ -139,29 +147,61 @@ function getSessionName(session: AnyRecord): string {
   );
 }
 
-function findMatchingSessionName(jobId: string, sessionNames: string[]): string | null {
+function getRoleHints(job: AnyRecord, context: AnyRecord): string[] {
+  const rawHints = [
+    job.role,
+    job.role_name,
+    job.agent_role,
+    job.job_type,
+    context.role,
+    context.role_name,
+    context.agent_role,
+    context.job_type,
+    context.card_type,
+  ];
+
+  const hints = rawHints
+    .map((value) => getString(value).trim().toLowerCase())
+    .filter((value) => value.length > 0);
+
+  return Array.from(new Set(hints));
+}
+
+function findMatchingSessionName(jobId: string, sessionNames: string[], roleHints: string[]): string | null {
   if (!jobId) return null;
 
-  const exact = sessionNames.find((name) => name.includes(jobId));
+  const loweredJobId = jobId.toLowerCase();
+  const exact = sessionNames.find((name) => name.toLowerCase().includes(loweredJobId));
   if (exact) return exact;
 
   const shortId = jobId.slice(0, 8);
-  if (!shortId) return null;
+  if (shortId) {
+    const loweredShortId = shortId.toLowerCase();
+    const shortMatch = sessionNames.find((name) => name.toLowerCase().includes(loweredShortId));
+    if (shortMatch) return shortMatch;
+  }
 
-  const shortMatch = sessionNames.find((name) => name.includes(shortId));
-  return shortMatch ?? null;
+  for (const roleHint of roleHints) {
+    const loweredRole = roleHint.toLowerCase();
+    const suffixMatch = sessionNames.find((name) => name.toLowerCase().endsWith(`-${loweredRole}`));
+    if (suffixMatch) return suffixMatch;
+  }
+
+  return null;
 }
 
 interface LocalSessionLookup {
   jobIds: Set<string>;
   sessionNames: string[];
   sessionByJobId: Map<string, string>;
+  sessionByRole: Map<string, string>;
 }
 
 function getLocalSessionLookup(status: AnyRecord): LocalSessionLookup {
   const jobIds = new Set<string>();
   const sessionNames: string[] = [];
   const sessionByJobId = new Map<string, string>();
+  const sessionByRole = new Map<string, string>();
 
   for (const rawEntry of getLocalSessionEntries(status)) {
     if (typeof rawEntry === 'string') {
@@ -180,6 +220,15 @@ function getLocalSessionLookup(status: AnyRecord): LocalSessionLookup {
     const sessionName = getSessionName(session);
     if (sessionName.length > 0) {
       sessionNames.push(sessionName);
+    }
+
+    const role = (
+      getString(session.role_name) ||
+      getString(session.role) ||
+      getString(session.agent_role)
+    ).trim().toLowerCase();
+    if (role && sessionName.length > 0 && !sessionByRole.has(role)) {
+      sessionByRole.set(role, sessionName);
     }
 
     const directFields = [session.job_id, session.jobId, session.id, session.job];
@@ -202,7 +251,7 @@ function getLocalSessionLookup(status: AnyRecord): LocalSessionLookup {
     }
   }
 
-  return { jobIds, sessionNames, sessionByJobId };
+  return { jobIds, sessionNames, sessionByJobId, sessionByRole };
 }
 
 function getFailedFeatures(standup: AnyRecord): string[] {
@@ -248,6 +297,7 @@ function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
 
   const jobs = statusJobs.map((job, index) => {
     const context = parseContext(job.context);
+    const roleHints = getRoleHints(job, context);
     const id = getString(job.id, `job-${index + 1}`);
     const title =
       getString(job.title) ||
@@ -262,8 +312,13 @@ function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
       fallbackFeatureNames[index] ||
       'Unknown feature';
     const directSessionName = getString(job.session_name) || getString(job.sessionName);
+    const roleSessionName = roleHints
+      .map((role) => localSessionLookup.sessionByRole.get(role))
+      .find((sessionName): sessionName is string => Boolean(sessionName));
     const inferredSessionName =
-      localSessionLookup.sessionByJobId.get(id) || findMatchingSessionName(id, localSessionLookup.sessionNames);
+      localSessionLookup.sessionByJobId.get(id) ||
+      findMatchingSessionName(id, localSessionLookup.sessionNames, roleHints) ||
+      roleSessionName;
     const sessionName =
       directSessionName || inferredSessionName || (localSessionLookup.jobIds.has(id) ? id : null);
 
@@ -287,7 +342,7 @@ function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
     const id = getString(item.id, `standup-active-${index + 1}`);
     const sessionName =
       localSessionLookup.sessionByJobId.get(id) ||
-      findMatchingSessionName(id, localSessionLookup.sessionNames) ||
+      findMatchingSessionName(id, localSessionLookup.sessionNames, getRoleHints(item, asRecord(item.context))) ||
       (localSessionLookup.jobIds.has(id) ? id : null);
     return {
       id,
@@ -323,11 +378,13 @@ function parsePipelinePayload(payload: unknown): PipelineViewData {
 function StatusBar(props: {
   companyName: string;
   daemonRunning: boolean;
+  isCpoActive: boolean;
+  onBackToCpoClick: () => void;
   companies: Company[];
   selectedCompanyId: string | null;
   onSelectCompany: (id: string) => void;
 }): React.JSX.Element {
-  const { companyName, daemonRunning, companies, selectedCompanyId, onSelectCompany } = props;
+  const { companyName, daemonRunning, isCpoActive, onBackToCpoClick, companies, selectedCompanyId, onSelectCompany } = props;
   const showDropdown = companies.length > 1;
 
   return (
@@ -338,7 +395,7 @@ function StatusBar(props: {
         background: '#0c1322',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <span
           aria-label={daemonRunning ? 'daemon running' : 'daemon stopped'}
           style={{
@@ -353,6 +410,24 @@ function StatusBar(props: {
           {daemonRunning ? 'Daemon running' : 'Daemon stopped'}
         </span>
       </div>
+      <button
+        type="button"
+        onClick={onBackToCpoClick}
+        style={{
+          width: '100%',
+          marginBottom: 8,
+          border: isCpoActive ? '1px solid #60a5fa' : '1px solid #2a3852',
+          borderRadius: 6,
+          background: isCpoActive ? '#132847' : '#101e33',
+          color: '#e4ebff',
+          fontSize: 12,
+          fontWeight: 700,
+          padding: '5px 8px',
+          cursor: 'pointer',
+        }}
+      >
+        Back to CPO
+      </button>
       {showDropdown ? (
         <select
           aria-label="Select company"
@@ -415,6 +490,8 @@ function Section(props: { title: string; children: React.ReactNode; red?: boolea
 
 export default function PipelineColumn({
   activeSession,
+  isCpoActive,
+  onBackToCpoClick,
   onJobClick,
   onWatchClick,
 }: PipelineColumnProps): React.JSX.Element {
@@ -486,6 +563,8 @@ export default function PipelineColumn({
       <StatusBar
         companyName={pipeline.companyName}
         daemonRunning={pipeline.daemonRunning}
+        isCpoActive={isCpoActive}
+        onBackToCpoClick={onBackToCpoClick}
         companies={companies}
         selectedCompanyId={selectedCompanyId}
         onSelectCompany={handleSelectCompany}

@@ -10,7 +10,6 @@ const POLL_INTERVAL_MS = 5_000;
 
 type PipelinePayload = {
   status: unknown;
-  standup: unknown;
 };
 
 let pollTimer: NodeJS.Timeout | null = null;
@@ -29,15 +28,14 @@ async function pollOnce(): Promise<void> {
 
   pollInFlight = true;
   try {
-    const [status, standup, tmuxSessions] = await Promise.all([
+    const [status, tmuxSessions] = await Promise.all([
       runCLI(['status']),
-      runCLI(['standup']),
       execFileAsync('tmux', ['list-sessions', '-F', '#{session_name}'])
         .then(({ stdout }) => stdout.trim().split('\n').filter(Boolean))
         .catch(() => [] as string[]),
     ]);
 
-    if (status === null && standup === null) {
+    if (status === null) {
       return;
     }
 
@@ -46,7 +44,7 @@ async function pollOnce(): Promise<void> {
       (status as Record<string, unknown>).tmux_sessions = tmuxSessions;
     }
 
-    const payload: PipelinePayload = { status, standup };
+    const payload: PipelinePayload = { status };
     const snapshot = JSON.stringify(payload);
 
     if (snapshot === previousSnapshot) {

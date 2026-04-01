@@ -1,23 +1,20 @@
 status: success
-branch: feature/desktop-fix-three-terminal-ux-bugs-recon-842c4fc6
+branch: feature/enrich-status-cli-for-desktop-sidebar-da-56115e41
 merged:
-  - job/6d4c9e68-165a-4a1c-aef2-98783783787f
+  - job/c7382e86-3650-4bf8-a4b9-5ae4c4f88290
 conflicts_resolved: []
 failure_reason:
 
-PR: https://github.com/zazig-team/zazigv2/pull/383
+PR: https://github.com/zazig-team/zazigv2/pull/384
 
 ## Notes
+- Feature branch created from master (did not exist on remote)
 - Job branch merged successfully with no conflicts
 - CI workflow already exists on master — skipped CI injection
-- Feature branch pushed and PR created at zazig-team/zazigv2#383
+- Feature branch pushed and PR created at zazig-team/zazigv2#384
 
-## Job (6d4c9e68): Desktop terminal UX fixes — WS reconnect, session matching, CPO nav
-- Updated `packages/desktop/src/main/pty.ts` — PTY management additions
-- Updated `packages/desktop/src/main/index.ts` — IPC channel wiring
-- Updated `packages/desktop/src/main/ipc-channels.ts` — new IPC channel
-- Updated `packages/desktop/src/main/preload.ts` — preload bridge
-- Updated `packages/desktop/src/renderer/App.tsx` — app-level terminal state
-- Updated `packages/desktop/src/renderer/components/PipelineColumn.tsx` — terminal UX fixes
-- Updated `packages/desktop/src/renderer/global.d.ts` — type declarations
+## Job (c7382e86): Enrich status CLI for desktop sidebar
+- Updated `packages/cli/src/commands/status.ts` — enriched status CLI output with additional fields for sidebar
+- Updated `packages/desktop/src/main/poller.ts` — updated poller to use richer status data
+- Updated `packages/desktop/src/renderer/components/PipelineColumn.tsx` — sidebar component updated to consume enriched data
 - Updated `.reports/junior-engineer-report.md`

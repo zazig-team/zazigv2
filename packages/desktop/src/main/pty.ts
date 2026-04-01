@@ -10,6 +10,8 @@ import { TERMINAL_OUTPUT } from './ipc-channels';
 let activeSession: string | null = null;
 let ws: WebSocket | null = null;
 let sidecarPort: number | null = null;
+let lastCols = 80;
+let lastRows = 24;
 
 function broadcastTerminalOutput(data: string): void {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -46,6 +48,7 @@ function scheduleReconnect(session: string, attempt: number): void {
 
     socket.on('open', () => {
       socket.send(session);
+      socket.send(JSON.stringify({ type: 'resize', cols: lastCols, rows: lastRows }));
     });
 
     socket.on('message', (data) => {
@@ -97,6 +100,8 @@ export function attach(session: string): string {
 
   socket.on('open', () => {
     socket.send(normalizedSession);
+    // Send current terminal size so tmux doesn't stay at default 80x24
+    socket.send(JSON.stringify({ type: 'resize', cols: lastCols, rows: lastRows }));
   });
 
   socket.on('message', (data) => {
@@ -140,6 +145,8 @@ export function detach(): void {
 }
 
 export function resize(cols: number, rows: number): void {
+  lastCols = cols;
+  lastRows = rows;
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: 'resize', cols, rows }));
 }

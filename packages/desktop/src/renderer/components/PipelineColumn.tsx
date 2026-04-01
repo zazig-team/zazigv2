@@ -22,6 +22,8 @@ interface PipelineViewData {
 
 interface PipelineColumnProps {
   activeSession: string | null;
+  isCpoActive?: boolean;
+  onCpoClick?: () => void;
   onJobClick: (job: PipelineJob) => void;
   onWatchClick: (job: PipelineJob) => void;
 }
@@ -139,17 +141,31 @@ function getSessionName(session: AnyRecord): string {
   );
 }
 
-function findMatchingSessionName(jobId: string, sessionNames: string[]): string | null {
+function findMatchingSessionName(
+  jobId: string,
+  sessionNames: string[],
+  role?: string,
+): string | null {
   if (!jobId) return null;
 
+  // Full UUID match
   const exact = sessionNames.find((name) => name.includes(jobId));
   if (exact) return exact;
 
+  // Short prefix match (first 8 chars)
   const shortId = jobId.slice(0, 8);
-  if (!shortId) return null;
+  if (shortId) {
+    const shortMatch = sessionNames.find((name) => name.includes(shortId));
+    if (shortMatch) return shortMatch;
+  }
 
-  const shortMatch = sessionNames.find((name) => name.includes(shortId));
-  return shortMatch ?? null;
+  // Role-based suffix match: sessions named like hostname-local-shortid-role
+  if (role) {
+    const roleMatch = sessionNames.find((name) => name.endsWith(`-${role}`));
+    if (roleMatch) return roleMatch;
+  }
+
+  return null;
 }
 
 interface LocalSessionLookup {
@@ -241,14 +257,43 @@ function getRecentlyCompleted(standup: AnyRecord): string[] {
   return [];
 }
 
+function getPersistentAgentSession(
+  persistentAgents: AnyRecord[],
+  jobId: string,
+  sessionNames: string[],
+): string | null {
+  // Find persistent agent entry matching this job by job_id
+  for (const agent of persistentAgents) {
+    const agentJobId =
+      getString(agent.job_id) || getString(agent.jobId) || getString(agent.id);
+    if (agentJobId && agentJobId !== jobId) continue;
+
+    const directSession =
+      getString(agent.session_name) ||
+      getString(agent.sessionName) ||
+      getString(agent.tmux_session) ||
+      getString(agent.tmuxSession);
+    if (directSession) return directSession;
+
+    const role = getString(agent.role);
+    if (role) {
+      const roleMatch = findMatchingSessionName(jobId, sessionNames, role);
+      if (roleMatch) return roleMatch;
+    }
+  }
+  return null;
+}
+
 function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
   const statusJobs = asRecordArray(status.active_jobs);
   const fallbackFeatureNames = getTitlesFromItems(asRecordArray(standup.active));
   const localSessionLookup = getLocalSessionLookup(status);
+  const persistentAgents = asRecordArray(status.persistent_agents);
 
   const jobs = statusJobs.map((job, index) => {
     const context = parseContext(job.context);
     const id = getString(job.id, `job-${index + 1}`);
+    const role = getString(job.role) || getString(context.role);
     const title =
       getString(job.title) ||
       getString(job.job_title) ||
@@ -263,7 +308,9 @@ function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
       'Unknown feature';
     const directSessionName = getString(job.session_name) || getString(job.sessionName);
     const inferredSessionName =
-      localSessionLookup.sessionByJobId.get(id) || findMatchingSessionName(id, localSessionLookup.sessionNames);
+      localSessionLookup.sessionByJobId.get(id) ||
+      findMatchingSessionName(id, localSessionLookup.sessionNames, role || undefined) ||
+      getPersistentAgentSession(persistentAgents, id, localSessionLookup.sessionNames);
     const sessionName =
       directSessionName || inferredSessionName || (localSessionLookup.jobIds.has(id) ? id : null);
 
@@ -415,6 +462,8 @@ function Section(props: { title: string; children: React.ReactNode; red?: boolea
 
 export default function PipelineColumn({
   activeSession,
+  isCpoActive = false,
+  onCpoClick,
   onJobClick,
   onWatchClick,
 }: PipelineColumnProps): React.JSX.Element {
@@ -490,6 +539,31 @@ export default function PipelineColumn({
         selectedCompanyId={selectedCompanyId}
         onSelectCompany={handleSelectCompany}
       />
+
+      {onCpoClick && (
+        <div style={{ padding: '8px 10px', borderBottom: '1px solid #22314b' }}>
+          <button
+            type="button"
+            aria-label="Back to CPO session"
+            aria-pressed={isCpoActive}
+            onClick={onCpoClick}
+            style={{
+              width: '100%',
+              border: isCpoActive ? '1px solid #60a5fa' : '1px solid #2a3852',
+              borderRadius: 6,
+              background: isCpoActive ? '#132847' : '#0d1728',
+              color: isCpoActive ? '#93c5fd' : '#d9e8ff',
+              fontSize: 12,
+              fontWeight: 600,
+              padding: '5px 10px',
+              cursor: 'pointer',
+              boxShadow: isCpoActive ? 'inset 0 0 0 1px rgba(96, 165, 250, 0.45)' : 'none',
+            }}
+          >
+            ← CPO
+          </button>
+        </div>
+      )}
 
       <div style={{ padding: 10, overflowY: 'auto', flex: 1 }}>
         <Section title="Active Jobs">

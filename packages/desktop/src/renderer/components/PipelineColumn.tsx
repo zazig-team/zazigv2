@@ -643,7 +643,7 @@ export default function PipelineColumn({
           )}
         </Section>
 
-        <Section title="Queued Jobs">
+        <Section title="Backlog">
           {pipeline.queuedJobs.length === 0 ? (
             <EmptyState text="No queued jobs." />
           ) : (

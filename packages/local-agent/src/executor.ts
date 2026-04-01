@@ -1519,58 +1519,36 @@ export class JobExecutor {
         return;
       }
 
-      const { data: createdFeature, error: featureInsertError } = await this.supabase
-        .from("features")
-        .insert({
-          company_id: this.companyId,
-          project_id: projectId,
-          title: `Fix master CI failure — ${stepName}`,
-          description: `Automated fix for master CI failure on commit ${normalizedHeadSha}. Failed step: ${stepName}.`,
-          spec: [
-            `Master CI run: ${runId}`,
-            `Commit SHA: ${normalizedHeadSha}`,
-            `Failed step: ${stepName}`,
-            "",
-            "Failure log output:",
-            logOutput,
-            "",
-            "Investigate and fix the root cause of this CI failure so master goes green.",
-          ].join("\n"),
-          tags: ["master-ci-fix", `fix-generation:${generation}`],
-          priority: "high",
-          fast_track: true,
-        })
-        .select("id")
-        .single();
+      const featureTitle = `Fix master CI failure — ${stepName}`;
+      const featureDescription = `Automated fix for master CI failure on commit ${normalizedHeadSha}. Failed step: ${stepName}.`;
+      const featureSpec = [
+        `Master CI run: ${runId}`,
+        `Commit SHA: ${normalizedHeadSha}`,
+        `Failed step: ${stepName}`,
+        "",
+        "Failure log output:",
+        logOutput,
+        "",
+        "Investigate and fix the root cause of this CI failure so master goes green.",
+      ].join("\n");
 
-      if (featureInsertError) {
-        console.warn(`[CI Monitor] Failed to insert fix feature for run ${runId}: ${featureInsertError.message}`);
-        return;
-      }
+      const cliArgs = [
+        "create-feature",
+        "--company", this.companyId,
+        "--project-id", projectId,
+        "--title", featureTitle,
+        "--description", featureDescription,
+        "--spec", featureSpec,
+        "--acceptance-tests", `Given master CI run ${runId} fails on step "${stepName}", when the fix is applied, then master CI passes.`,
+        "--priority", "high",
+        "--fast-track", "true",
+      ];
 
-      const featureId = (createdFeature as { id?: string } | null)?.id;
-      if (!featureId) {
-        console.warn(`[CI Monitor] Failed to insert fix feature for run ${runId}: insert returned no feature id`);
-        return;
-      }
-
-      const { error: featureEventInsertError } = await this.supabase
-        .from("feature_events")
-        .insert({
-          company_id: this.companyId,
-          feature_id: featureId,
-          event_type: "created",
-          detail: {
-            source: "master_ci_monitor",
-            runId,
-            generation,
-            headSha: normalizedHeadSha,
-            stepName,
-          },
-        });
-
-      if (featureEventInsertError) {
-        console.warn(`[CI Monitor] Failed to insert feature_events row for feature ${featureId}: ${featureEventInsertError.message}`);
+      try {
+        await this.exec("zazig", cliArgs, { encoding: "utf8" });
+      } catch (cliErr: unknown) {
+        const msg = cliErr instanceof Error ? cliErr.message : String(cliErr);
+        console.warn(`[CI Monitor] zazig create-feature failed for run ${runId}: ${msg}`);
         return;
       }
 

@@ -445,14 +445,15 @@ export async function start(args: string[] = process.argv.slice(3)): Promise<voi
   let agentEntryOverride: string | undefined;
 
   if (zazigEnv === "production") {
-    const binAgent = join(homedir(), ".zazigv2", "bin", "zazig-agent");
+    const zazigHome = process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
+    const binAgent = join(zazigHome, "bin", "zazig-agent");
     if (existsSync(binAgent)) {
       agentEntryOverride = binAgent;
       const ver = getLocalVersion();
       log(`Using zazig-agent binary${ver ? ` (v${ver})` : ""}`);
     } else if (hasPinnedBuild()) {
       // Legacy fallback — old pinned .mjs build
-      const buildDir = join(homedir(), ".zazigv2", "builds", "current");
+      const buildDir = join(zazigHome, "builds", "current");
       agentEntryOverride = join(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
       const sha = getCurrentBuildSha();
       log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);

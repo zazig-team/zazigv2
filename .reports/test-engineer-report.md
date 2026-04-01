@@ -1,6 +1,47 @@
 status: pass
 
-## Test files created (desktop-drag-and-drop-image-support feature)
+## Test files created (desktop-production-agents-inherit-staging-env feature)
+
+- `tests/features/desktop-production-agents-inherit-staging-env.test.ts` — 16 test cases
+
+### AC1 — start.ts production agent binary resolved via ZAZIG_HOME (4 tests)
+- File exists
+- Does NOT hardcode `join(homedir(), ".zazigv2", "bin", "zazig-agent")` without ZAZIG_HOME
+- Reads ZAZIG_HOME when resolving the production agent binary path
+- Falls back to `~/.zazigv2` when ZAZIG_HOME is not set
+
+### AC2 — start.ts legacy pinned build path uses ZAZIG_HOME (1 test)
+- Does NOT hardcode `join(homedir(), ".zazigv2", "builds", ...)` without ZAZIG_HOME
+
+### AC3 — start.ts daemon env explicitly forwards ZAZIG_ENV (2 tests)
+- Env block passed to `startDaemonForCompany` explicitly includes `ZAZIG_ENV`
+- `ZAZIG_ENV` appears in the env block alongside other `ZAZIG_*` vars
+
+### AC4 — executor.ts resolveMcpServerPath uses ZAZIG_HOME (3 tests)
+- File exists
+- Does NOT hardcode `join(homedir(), ".zazigv2", "bin", "agent-mcp-server")` without ZAZIG_HOME
+- Reads ZAZIG_HOME when resolving the MCP server binary path
+
+### AC5 — desktop/cli.ts runCLI explicitly passes staging env vars (4 tests)
+- File exists
+- `spawn` call includes an explicit `env` option
+- Passes `ZAZIG_HOME` from parent process
+- Passes `ZAZIG_ENV` from parent process
+
+### AC6 — No hardcoded ~/.zazigv2/bin paths without ZAZIG_HOME awareness (2 tests)
+- `start.ts` — no bare `join(homedir(), ".zazigv2", "bin", ...)` without ZAZIG_HOME
+- `executor.ts` — no bare `join(homedir(), ".zazigv2", "bin", ...)` without ZAZIG_HOME
+
+## Verification
+
+12/16 tests fail against the current codebase — confirming the feature is not yet implemented.
+4 tests pass (file existence checks and one partial match).
+
+`package.json` test script delegates to `vitest run` via workspace — discovers tests recursively, no changes needed.
+
+---
+
+## Previous report (desktop-drag-and-drop-image-support feature)
 
 - `tests/features/desktop-drag-and-drop-image-support.test.ts` — 26 test cases
 

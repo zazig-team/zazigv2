@@ -11,12 +11,19 @@ export interface PipelineJob {
   sessionName: string | null;
 }
 
+interface PipelineQueuedJob {
+  id: string;
+  title: string;
+  featureName: string;
+  status: string;
+}
+
 interface PipelineViewData {
   companyName: string;
   daemonRunning: boolean;
   activeJobs: PipelineJob[];
+  queuedJobs: PipelineQueuedJob[];
   failedFeatures: string[];
-  backlogFeatures: string[];
   recentlyCompleted: string[];
 }
 
@@ -70,8 +77,15 @@ const PLACEHOLDER_PIPELINE: PipelineViewData = {
       sessionName: null,
     },
   ],
+  queuedJobs: [
+    {
+      id: '6c8f8b87-5187-4ea1-bf80-2d0f417f3ca3',
+      title: 'Review desktop polling payload',
+      featureName: 'Desktop status sidebar',
+      status: 'queued',
+    },
+  ],
   failedFeatures: ['Fix stale tmux cleanup on shutdown'],
-  backlogFeatures: ['Add keyboard shortcuts for terminal pane', 'Add compact queue cards'],
   recentlyCompleted: [
     'Bootstrap Electron package scaffolding',
     'Add preload bridge for pipeline and terminal IPC',
@@ -96,11 +110,6 @@ function asRecordArray(value: unknown): AnyRecord[] {
 
 function getString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
-}
-
-function getNumber(value: unknown, fallback = 0): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  return fallback;
 }
 
 function parseContext(context: unknown): AnyRecord {
@@ -221,42 +230,6 @@ function getLocalSessionLookup(status: AnyRecord): LocalSessionLookup {
   return { jobIds, sessionNames, sessionByJobId };
 }
 
-function getFailedFeatures(standup: AnyRecord): string[] {
-  const directFailed = getTitlesFromItems(asRecordArray(standup.failed));
-  if (directFailed.length > 0) return directFailed;
-  return [];
-}
-
-function getBacklogFeatures(standup: AnyRecord): string[] {
-  const directBacklog = getTitlesFromItems(asRecordArray(standup.backlog));
-  if (directBacklog.length > 0) return directBacklog;
-
-  const queued = getTitlesFromItems(asRecordArray(standup.queued));
-  if (queued.length > 0) return queued;
-
-  const createdFromSnapshot = getTitlesFromItems(
-    asRecordArray(asRecord(asRecord(standup.snapshot).features_by_status).created),
-  );
-  if (createdFromSnapshot.length > 0) return createdFromSnapshot;
-
-  const backlogCount = getNumber(asRecord(standup.pipeline).backlog);
-  if (backlogCount > 0) {
-    return Array.from({ length: Math.min(backlogCount, 5) }, (_, index) => `Queued feature ${index + 1}`);
-  }
-
-  return [];
-}
-
-function getRecentlyCompleted(standup: AnyRecord): string[] {
-  const completed = getTitlesFromItems(asRecordArray(standup.completed));
-  if (completed.length > 0) return completed.slice(0, 5);
-
-  const completedFromSnapshot = getTitlesFromItems(asRecordArray(asRecord(standup.snapshot).completed_features));
-  if (completedFromSnapshot.length > 0) return completedFromSnapshot.slice(0, 5);
-
-  return [];
-}
-
 function getPersistentAgentSession(
   persistentAgents: AnyRecord[],
   jobId: string,
@@ -284,9 +257,8 @@ function getPersistentAgentSession(
   return null;
 }
 
-function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
+function getActiveJobs(status: AnyRecord): PipelineJob[] {
   const statusJobs = asRecordArray(status.active_jobs);
-  const fallbackFeatureNames = getTitlesFromItems(asRecordArray(standup.active));
   const localSessionLookup = getLocalSessionLookup(status);
   const persistentAgents = asRecordArray(status.persistent_agents);
 
@@ -301,10 +273,10 @@ function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
       getString(context.title) ||
       getString(job.job_type, `Job ${index + 1}`);
     const featureName =
+      getString(asRecord(job.features).title) ||
       getString(context.feature_title) ||
       getString(context.featureName) ||
       getString(asRecord(context.feature).title) ||
-      fallbackFeatureNames[index] ||
       'Unknown feature';
     const directSessionName = getString(job.session_name) || getString(job.sessionName);
     const inferredSessionName =
@@ -327,30 +299,31 @@ function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
     };
   });
 
-  if (jobs.length > 0) return jobs;
+  return jobs;
+}
 
-  return asRecordArray(standup.active).map((item, index) => {
-    const title = getString(item.title, `Active item ${index + 1}`);
-    const id = getString(item.id, `standup-active-${index + 1}`);
-    const sessionName =
-      localSessionLookup.sessionByJobId.get(id) ||
-      findMatchingSessionName(id, localSessionLookup.sessionNames) ||
-      (localSessionLookup.jobIds.has(id) ? id : null);
-    return {
-      id,
-      title,
-      featureName: title,
-      status: getString(item.status, 'active'),
-      hasLocalSession: Boolean(sessionName),
-      sessionName: sessionName ?? null,
-    };
-  });
+function getQueuedJobs(status: AnyRecord): PipelineQueuedJob[] {
+  return asRecordArray(status.queued_jobs).map((job, index) => ({
+    id: getString(job.id, `queued-job-${index + 1}`),
+    title: getString(job.title) || getString(job.job_type, `Queued job ${index + 1}`),
+    featureName: getString(asRecord(job.features).title, 'Unknown feature'),
+    status: getString(job.status, 'queued'),
+  }));
+}
+
+function getFailedFeatures(status: AnyRecord): string[] {
+  return getTitlesFromItems(asRecordArray(status.failed_features));
+}
+
+function getRecentlyCompleted(status: AnyRecord): string[] {
+  const completed = getTitlesFromItems(asRecordArray(status.completed_features));
+  if (completed.length > 0) return completed.slice(0, 5);
+  return [];
 }
 
 function parsePipelinePayload(payload: unknown): PipelineViewData {
   const root = asRecord(payload);
-  const status = asRecord(root.status);
-  const standup = asRecord(root.standup);
+  const status = asRecord(root.status ?? payload);
   const companyName =
     getString(status.company_name) ||
     getString(status.companyName) ||
@@ -360,10 +333,10 @@ function parsePipelinePayload(payload: unknown): PipelineViewData {
   return {
     companyName,
     daemonRunning: Boolean(status.running),
-    activeJobs: getActiveJobs(status, standup),
-    failedFeatures: getFailedFeatures(standup),
-    backlogFeatures: getBacklogFeatures(standup),
-    recentlyCompleted: getRecentlyCompleted(standup),
+    activeJobs: getActiveJobs(status),
+    queuedJobs: getQueuedJobs(status),
+    failedFeatures: getFailedFeatures(status),
+    recentlyCompleted: getRecentlyCompleted(status),
   };
 }
 
@@ -596,7 +569,7 @@ export default function PipelineColumn({
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <span
                         title={job.hasLocalSession ? 'tmux session running locally' : 'no local tmux session'}
                         style={{
@@ -659,26 +632,57 @@ export default function PipelineColumn({
           )}
         </Section>
 
+        <Section title="Queued Jobs">
+          {pipeline.queuedJobs.length === 0 ? (
+            <EmptyState text="No queued jobs." />
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {pipeline.queuedJobs.map((job) => (
+                <div
+                  key={job.id}
+                  style={{
+                    border: '1px solid #2a3852',
+                    borderRadius: 8,
+                    padding: 8,
+                    background: '#0d1728',
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {job.title}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: '#94a2bc',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {job.featureName}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Section>
+
         <Section title="Failed Features" red>
           {pipeline.failedFeatures.length === 0 ? (
             <EmptyState text="No failed features." />
           ) : (
             <ul style={{ margin: 0, paddingLeft: 16, color: '#fecaca', fontSize: 12 }}>
               {pipeline.failedFeatures.map((feature) => (
-                <li key={feature} style={{ marginBottom: 4 }}>
-                  {feature}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
-
-        <Section title="Backlog">
-          {pipeline.backlogFeatures.length === 0 ? (
-            <EmptyState text="No queued features." />
-          ) : (
-            <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
-              {pipeline.backlogFeatures.map((feature) => (
                 <li key={feature} style={{ marginBottom: 4 }}>
                   {feature}
                 </li>

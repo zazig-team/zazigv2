@@ -1,11 +1,7 @@
 status: pass
-summary: Implemented three desktop UX bug fixes: WebSocket auto-reconnect with exponential backoff in pty.ts, robust session name matching with persistent_agents support in PipelineColumn.tsx, and CPO back-navigation button with terminal:attachDefault IPC in App.tsx/PipelineColumn.tsx/index.ts/preload.ts.
+summary: Extended the status CLI payload with job/feature metadata and updated the desktop sidebar and poller to render active, queued, failed, and completed sections from status-only polling.
 files_changed:
-  - packages/desktop/src/main/pty.ts
+  - packages/cli/src/commands/status.ts
+  - packages/desktop/src/main/poller.ts
   - packages/desktop/src/renderer/components/PipelineColumn.tsx
-  - packages/desktop/src/renderer/App.tsx
-  - packages/desktop/src/main/index.ts
-  - packages/desktop/src/main/preload.ts
-  - packages/desktop/src/main/ipc-channels.ts
-  - packages/desktop/src/renderer/global.d.ts
-  - .reports/junior-engineer-report.md
+failure_reason: 

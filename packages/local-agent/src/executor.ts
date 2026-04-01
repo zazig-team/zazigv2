@@ -3689,6 +3689,7 @@ function assembleContext(msg: StartJob, repoRoot?: string): string {
   // On staging, replace backtick-wrapped `zazig ` with `zazig-staging `
   if (process.env["ZAZIG_ENV"] === "staging") {
     assembled = assembled.replace(/`zazig /g, "`zazig-staging ");
+    assembled = assembled.replace(/^zazig /gm, "zazig-staging ");
   }
 
   // Sub-agent personality (writes to local disk — must stay local)

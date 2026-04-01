@@ -16425,6 +16425,7 @@ ${SKILLS_MARKER}
   assembled = assembled.replace(SKILLS_MARKER, "");
   if (process.env["ZAZIG_ENV"] === "staging") {
     assembled = assembled.replace(/`zazig /g, "`zazig-staging ");
+    assembled = assembled.replace(/^zazig /gm, "zazig-staging ");
   }
   if (msg.subAgentPrompt) {
     const workspaceDir = join4(homedir2(), ".zazigv2", `job-${msg.jobId}`);

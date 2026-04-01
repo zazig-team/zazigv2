@@ -4,6 +4,7 @@ import { promisify } from 'util';
 
 import { runCLI } from './cli';
 import { PIPELINE_UPDATE } from './ipc-channels';
+import * as pty from './pty';
 
 const execFileAsync = promisify(execFile);
 const POLL_INTERVAL_MS = 5_000;
@@ -12,9 +13,85 @@ type PipelinePayload = {
   status: unknown;
 };
 
+type AnyRecord = Record<string, unknown>;
+type ExpertSession = AnyRecord & {
+  session_id: string;
+};
+
 let pollTimer: NodeJS.Timeout | null = null;
 let previousSnapshot: string | null = null;
 let pollInFlight = false;
+let expertSessionsInitialized = false;
+const knownExpertSessionIds = new Set<string>();
+
+function isRecord(value: unknown): value is AnyRecord {
+  return typeof value === 'object' && value !== null;
+}
+
+function getExpertSessions(status: AnyRecord): ExpertSession[] {
+  const rawExpertSessions = status.expert_sessions ?? status.expertSessions;
+  if (!Array.isArray(rawExpertSessions)) {
+    return [];
+  }
+
+  const sessions: ExpertSession[] = [];
+  for (const rawSession of rawExpertSessions) {
+    if (!isRecord(rawSession)) continue;
+
+    const sessionId =
+      typeof rawSession.session_id === 'string'
+        ? rawSession.session_id
+        : typeof rawSession.sessionId === 'string'
+          ? rawSession.sessionId
+          : '';
+    if (!sessionId) continue;
+
+    sessions.push({
+      ...rawSession,
+      session_id: sessionId,
+    });
+  }
+
+  return sessions;
+}
+
+function terminalAttach(session: string): void {
+  try {
+    pty.attach(session);
+  } catch (error) {
+    console.error(`[desktop] Failed to auto-attach expert session ${session}`, error);
+  }
+}
+
+function syncExpertSessions(expertSessions: ExpertSession[]): void {
+  const currentIds = new Set<string>(expertSessions.map((session) => session.session_id));
+
+  if (!expertSessionsInitialized) {
+    for (const sessionId of currentIds) {
+      knownExpertSessionIds.add(sessionId);
+    }
+    expertSessionsInitialized = true;
+    return;
+  }
+
+  for (const session of expertSessions) {
+    if (!knownExpertSessionIds.has(session.session_id)) {
+      terminalAttach(session.session_id);
+      knownExpertSessionIds.add(session.session_id);
+    }
+  }
+
+  for (const knownSessionId of Array.from(knownExpertSessionIds)) {
+    if (!currentIds.has(knownSessionId)) {
+      knownExpertSessionIds.delete(knownSessionId);
+    }
+  }
+}
+
+function resetExpertSessionTracking(): void {
+  knownExpertSessionIds.clear();
+  expertSessionsInitialized = false;
+}
 
 function broadcastPipelineUpdate(payload: PipelinePayload): void {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -39,12 +116,22 @@ async function pollOnce(): Promise<void> {
       return;
     }
 
-    // Inject tmux session names into status so the renderer can match jobs to local sessions
-    if (status && typeof status === 'object' && tmuxSessions.length > 0) {
-      (status as Record<string, unknown>).tmux_sessions = tmuxSessions;
+    if (!isRecord(status)) {
+      return;
     }
 
-    const payload: PipelinePayload = { status };
+    const pipelineStatus: AnyRecord = { ...status };
+
+    // Inject tmux session names into status so the renderer can match jobs to local sessions
+    if (tmuxSessions.length > 0) {
+      pipelineStatus.tmux_sessions = tmuxSessions;
+    }
+
+    const expertSessions = getExpertSessions(pipelineStatus);
+    pipelineStatus.expert_sessions = expertSessions;
+    syncExpertSessions(expertSessions);
+
+    const payload: PipelinePayload = { status: pipelineStatus };
     const snapshot = JSON.stringify(payload);
 
     if (snapshot === previousSnapshot) {
@@ -75,6 +162,7 @@ export function stopPipelinePoller(): void {
   clearInterval(pollTimer);
   pollTimer = null;
   previousSnapshot = null;
+  resetExpertSessionTracking();
 }
 
 export function resetPollerSnapshot(): void {

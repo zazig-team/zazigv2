@@ -1,7 +1,7 @@
 status: pass
-summary: Explicit daemon env construction now forwards the resolved ZAZIG_ENV and computes ZAZIG_HOME by environment, with a unit test proving production sessions override inherited staging vars.
+summary: Updated the desktop poller to forward normalized expert session data and auto-attach only newly discovered expert tmux sessions after a first-poll baseline. Implemented expert session parsing and rendering in the desktop Pipeline sidebar, including click-to-attach cards and conditional section visibility.
 files_changed:
-  - packages/cli/src/commands/start.ts
-  - packages/cli/src/commands/start-env.ts
-  - packages/cli/src/commands/__tests__/start.test.ts
-failure_reason:
+  - packages/desktop/src/main/poller.ts
+  - packages/desktop/src/renderer/components/PipelineColumn.tsx
+  - .reports/senior-engineer-report.md
+failure_reason: ""

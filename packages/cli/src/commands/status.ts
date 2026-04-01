@@ -45,6 +45,14 @@ type JsonStatusAgent = {
   "status": string;
 };
 
+type JsonExpertSession = {
+  "id": string;
+  "role_name": string;
+  "session_id": string;
+  "status": string;
+  "created_at": string;
+};
+
 type JsonStatusOutput = {
   "running": boolean;
   "pid"?: number;
@@ -61,6 +69,7 @@ type JsonStatusOutput = {
   "failed_features"?: JsonFeatureSummary[];
   "completed_features"?: JsonFeatureSummary[];
   "persistent_agents"?: JsonStatusAgent[];
+  expert_sessions?: JsonExpertSession[];
 };
 
 function apiFetch(url: string, headers: Record<string, string>): Promise<Row[]> {
@@ -92,6 +101,12 @@ function toContextString(context: unknown, id: unknown): string {
   }
 
   return String(id ?? "");
+}
+
+function toExpertTmuxSessionName(sessionId: unknown): string {
+  const id = String(sessionId ?? "").trim();
+  if (!id) return "";
+  return `expert-${id.slice(0, 8)}`;
 }
 
 /**
@@ -146,6 +161,7 @@ async function statusJson(): Promise<void> {
     "failed_features": [],
     "completed_features": [],
     "persistent_agents": [],
+    expert_sessions: [],
   };
 
   // Best-effort live state from Supabase — never fatal if this fails
@@ -307,6 +323,22 @@ async function statusJson(): Promise<void> {
         output.persistent_agents = persistentAgents.map((agent) => ({
           "role": String(agent.role ?? "unknown"),
           "status": String(agent.status ?? "unknown"),
+        }));
+
+        const expertSessions = await apiFetch(
+          `${creds.supabaseUrl}/rest/v1/expert_sessions` +
+            `?select=id,status,created_at,expert_roles(name)` +
+            `&company_id=in.(${companyIds.join(",")})` +
+            `&machine_id=eq.${encodeURIComponent(machineId)}` +
+            `&status=in.(requested,claimed,starting,running,active)`,
+          headers
+        );
+        output.expert_sessions = expertSessions.map((session) => ({
+          "id": String(session.id ?? ""),
+          "role_name": String((session.expert_roles as Row | null)?.name ?? "unknown"),
+          "session_id": toExpertTmuxSessionName(session.id),
+          "status": String(session.status ?? "unknown"),
+          "created_at": String(session.created_at ?? ""),
         }));
       }
     }

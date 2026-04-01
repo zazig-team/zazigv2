@@ -669,9 +669,7 @@ export default function PipelineColumn({
                         style={{
                           fontSize: 13,
                           fontWeight: 600,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
+                          wordBreak: 'break-word',
                         }}
                       >
                         {job.title}
@@ -680,9 +678,7 @@ export default function PipelineColumn({
                         style={{
                           fontSize: 11,
                           color: '#94a2bc',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
+                          wordBreak: 'break-word',
                         }}
                       >
                         {job.featureName}

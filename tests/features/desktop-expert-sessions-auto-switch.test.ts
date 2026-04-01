@@ -114,18 +114,12 @@ describe('ExpertSessionManager: exposes active sessions list', () => {
     expect(content).toMatch(/getActiveSessions\s*\(/);
   });
 
-  it('getActiveSessions returns session data including displayName and tmuxSession', () => {
-    // Method must return enough data for the sidebar to render role + session name
-    const methodMatch = content!.match(/getActiveSessions[^{]*\{([\s\S]*?)\n\s{2}\}/);
-    if (methodMatch) {
-      const body = methodMatch[1];
-      // The return value must surface display names and session IDs
-      expect(body).toMatch(/displayName|tmuxSession|sessionId/);
-    } else {
-      // If the method body is not easily extractable, just check name and session appear
-      expect(content).toMatch(/getActiveSessions/);
-      expect(content).toMatch(/displayName|tmuxSession/);
-    }
+  it('getActiveSessions returns ExpertSessionState map and session state exposes display/session fields', () => {
+    // Ensure API shape is explicit and includes fields needed by desktop/session consumers.
+    expect(content).toMatch(/interface\s+ExpertSessionState[\s\S]*displayName:\s*string/);
+    expect(content).toMatch(/interface\s+ExpertSessionState[\s\S]*tmuxSession:\s*string/);
+    expect(content).toMatch(/interface\s+ExpertSessionState[\s\S]*sessionId:\s*string/);
+    expect(content).toMatch(/getActiveSessions\(\):\s*Map<string,\s*ExpertSessionState>/);
   });
 });
 

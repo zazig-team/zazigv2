@@ -39,7 +39,14 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-const JOB_SELECT = "id, title, status, role, job_type, complexity, depends_on, started_at, completed_at, result, feature_id, project_id";
+const JOB_SELECT = "id, title, status, role, job_type, complexity, depends_on, started_at, completed_at, result, feature_id, project_id, features!jobs_feature_id_fkey(title)";
+
+function flattenFeatureTitle(job: Record<string, unknown>): Record<string, unknown> {
+  const features = job.features as { title?: string } | null | undefined;
+  const feature_title = features?.title ?? null;
+  const { features: _dropped, ...rest } = job;
+  return { ...rest, feature_title };
+}
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -92,7 +99,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return jsonResponse({ error: error.message }, 404);
       }
 
-      return jsonResponse({ jobs: [data] });
+      return jsonResponse({ jobs: [flattenFeatureTitle(data as Record<string, unknown>)] });
     }
 
     // Jobs for a feature, optionally filtered by status
@@ -111,7 +118,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    return jsonResponse({ jobs: data ?? [] });
+    return jsonResponse({ jobs: (data ?? []).map((job) => flattenFeatureTitle(job as Record<string, unknown>)) });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

@@ -15,6 +15,7 @@ interface PipelineViewData {
   companyName: string;
   daemonRunning: boolean;
   activeJobs: PipelineJob[];
+  queuedJobs: PipelineJob[];
   failedFeatures: string[];
   backlogFeatures: string[];
   recentlyCompleted: string[];
@@ -66,6 +67,16 @@ const PLACEHOLDER_PIPELINE: PipelineViewData = {
       title: 'Wire pipeline polling renderer bridge',
       featureName: 'Desktop data flow',
       status: 'dispatched',
+      hasLocalSession: false,
+      sessionName: null,
+    },
+  ],
+  queuedJobs: [
+    {
+      id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      title: 'Add compact queue cards',
+      featureName: 'Desktop sidebar improvements',
+      status: 'queued',
       hasLocalSession: false,
       sessionName: null,
     },
@@ -284,13 +295,12 @@ function getPersistentAgentSession(
   return null;
 }
 
-function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
-  const statusJobs = asRecordArray(status.active_jobs);
-  const fallbackFeatureNames = getTitlesFromItems(asRecordArray(standup.active));
-  const localSessionLookup = getLocalSessionLookup(status);
-  const persistentAgents = asRecordArray(status.persistent_agents);
-
-  const jobs = statusJobs.map((job, index) => {
+function jobRecordsToPipelineJobs(
+  rawJobs: AnyRecord[],
+  localSessionLookup: LocalSessionLookup,
+  persistentAgents: AnyRecord[],
+): PipelineJob[] {
+  return rawJobs.map((job, index) => {
     const context = parseContext(job.context);
     const id = getString(job.id, `job-${index + 1}`);
     const role = getString(job.role) || getString(context.role);
@@ -301,10 +311,10 @@ function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
       getString(context.title) ||
       getString(job.job_type, `Job ${index + 1}`);
     const featureName =
+      getString(job.feature_title) ||
       getString(context.feature_title) ||
       getString(context.featureName) ||
       getString(asRecord(context.feature).title) ||
-      fallbackFeatureNames[index] ||
       'Unknown feature';
     const directSessionName = getString(job.session_name) || getString(job.sessionName);
     const inferredSessionName =
@@ -314,37 +324,62 @@ function getActiveJobs(status: AnyRecord, standup: AnyRecord): PipelineJob[] {
     const sessionName =
       directSessionName || inferredSessionName || (localSessionLookup.jobIds.has(id) ? id : null);
 
-    // tmux local session indicator (green when active locally, grey when absent)
-    const hasTmuxSession = Boolean(sessionName);
-
     return {
       id,
       title,
       featureName,
       status: getString(job.status, 'unknown'),
-      hasLocalSession: hasTmuxSession,
+      hasLocalSession: Boolean(sessionName),
       sessionName,
     };
   });
+}
 
-  if (jobs.length > 0) return jobs;
+function getActiveJobs(status: AnyRecord, activeJobsData: unknown): PipelineJob[] {
+  const localSessionLookup = getLocalSessionLookup(status);
+  const persistentAgents = asRecordArray(status.persistent_agents);
 
-  return asRecordArray(standup.active).map((item, index) => {
-    const title = getString(item.title, `Active item ${index + 1}`);
-    const id = getString(item.id, `standup-active-${index + 1}`);
-    const sessionName =
-      localSessionLookup.sessionByJobId.get(id) ||
-      findMatchingSessionName(id, localSessionLookup.sessionNames) ||
-      (localSessionLookup.jobIds.has(id) ? id : null);
+  // Prefer direct jobs data from CLI
+  const rawJobs = asRecordArray(asRecord(activeJobsData).jobs ?? activeJobsData);
+  if (rawJobs.length > 0) {
+    return jobRecordsToPipelineJobs(rawJobs, localSessionLookup, persistentAgents);
+  }
+
+  // Fallback: jobs embedded in status.active_jobs
+  const statusJobs = asRecordArray(status.active_jobs);
+  return jobRecordsToPipelineJobs(statusJobs, localSessionLookup, persistentAgents);
+}
+
+function getQueuedJobs(queuedJobsData: unknown): PipelineJob[] {
+  const rawJobs = asRecordArray(asRecord(queuedJobsData).jobs ?? queuedJobsData);
+  return rawJobs.map((job, index) => {
+    const context = parseContext(job.context);
+    const id = getString(job.id, `queued-${index + 1}`);
+    const title =
+      getString(job.title) ||
+      getString(job.job_title) ||
+      getString(context.job_title) ||
+      getString(context.title) ||
+      getString(job.job_type, `Job ${index + 1}`);
+    const featureName =
+      getString(job.feature_title) ||
+      getString(context.feature_title) ||
+      getString(context.featureName) ||
+      getString(asRecord(context.feature).title) ||
+      'Unknown feature';
     return {
       id,
       title,
-      featureName: title,
-      status: getString(item.status, 'active'),
-      hasLocalSession: Boolean(sessionName),
-      sessionName: sessionName ?? null,
+      featureName,
+      status: getString(job.status, 'queued'),
+      hasLocalSession: false,
+      sessionName: null,
     };
   });
+}
+
+function getFeaturesFromData(data: unknown): AnyRecord[] {
+  return asRecordArray(asRecord(data).features ?? data);
 }
 
 function parsePipelinePayload(payload: unknown): PipelineViewData {
@@ -357,13 +392,28 @@ function parsePipelinePayload(payload: unknown): PipelineViewData {
     getString(asRecord(status.company).name) ||
     'Select a company';
 
+  // Failed features: prefer direct CLI data, fall back to standup
+  const failedFeaturesRaw = getFeaturesFromData(root.failedFeatures);
+  const failedFeatures =
+    failedFeaturesRaw.length > 0
+      ? getTitlesFromItems(failedFeaturesRaw)
+      : getFailedFeatures(standup);
+
+  // Recently completed: prefer direct CLI data, fall back to standup
+  const recentlyCompletedRaw = getFeaturesFromData(root.recentlyCompleted);
+  const recentlyCompleted =
+    recentlyCompletedRaw.length > 0
+      ? getTitlesFromItems(recentlyCompletedRaw).slice(0, 5)
+      : getRecentlyCompleted(standup);
+
   return {
     companyName,
     daemonRunning: Boolean(status.running),
-    activeJobs: getActiveJobs(status, standup),
-    failedFeatures: getFailedFeatures(standup),
+    activeJobs: getActiveJobs(status, root.activeJobs),
+    queuedJobs: getQueuedJobs(root.queuedJobs),
+    failedFeatures,
     backlogFeatures: getBacklogFeatures(standup),
-    recentlyCompleted: getRecentlyCompleted(standup),
+    recentlyCompleted,
   };
 }
 
@@ -596,7 +646,7 @@ export default function PipelineColumn({
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                       <span
                         title={job.hasLocalSession ? 'tmux session running locally' : 'no local tmux session'}
                         style={{
@@ -605,16 +655,15 @@ export default function PipelineColumn({
                           minWidth: 8,
                           borderRadius: '50%',
                           background: job.hasLocalSession ? GREEN_DOT : GREY_DOT,
+                          marginTop: 4,
                         }}
                       />
-                      <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ flex: 1 }}>
                         <div
                           style={{
                             fontSize: 13,
                             fontWeight: 600,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
+                            wordBreak: 'break-word',
                           }}
                         >
                           {job.title}
@@ -623,38 +672,80 @@ export default function PipelineColumn({
                           style={{
                             fontSize: 11,
                             color: '#94a2bc',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
+                            wordBreak: 'break-word',
+                            marginBottom: 6,
                           }}
                         >
                           {job.featureName}
                         </div>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onWatchClick(job);
+                            }}
+                            style={{
+                              border: '1px solid #35507a',
+                              borderRadius: 6,
+                              background: '#132746',
+                              color: '#d9e8ff',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: '4px 8px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Watch
+                          </button>
+                          {job.hasLocalSession && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                color: '#22c55e',
+                                background: 'rgba(34,197,94,0.12)',
+                                border: '1px solid rgba(34,197,94,0.3)',
+                                borderRadius: 4,
+                                padding: '2px 6px',
+                              }}
+                            >
+                              Local
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onWatchClick(job);
-                        }}
-                        style={{
-                          border: '1px solid #35507a',
-                          borderRadius: 6,
-                          background: '#132746',
-                          color: '#d9e8ff',
-                          fontSize: 11,
-                          fontWeight: 600,
-                          padding: '4px 8px',
-                          cursor: 'pointer',
-                          flexShrink: 0,
-                        }}
-                      >
-                        Watch
-                      </button>
                     </div>
                   </div>
                 );
               })}
+            </div>
+          )}
+        </Section>
+
+        <Section title="Queued Jobs">
+          {pipeline.queuedJobs.length === 0 ? (
+            <EmptyState text="No queued jobs." />
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {pipeline.queuedJobs.map((job) => (
+                <div
+                  key={job.id}
+                  style={{
+                    border: '1px solid #2a3852',
+                    borderRadius: 8,
+                    padding: 8,
+                    background: '#0d1728',
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 600, wordBreak: 'break-word' }}>
+                    {job.title}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a2bc', wordBreak: 'break-word' }}>
+                    {job.featureName}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </Section>

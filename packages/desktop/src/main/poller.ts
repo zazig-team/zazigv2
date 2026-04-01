@@ -1,8 +1,11 @@
 import { BrowserWindow } from 'electron';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 
 import { runCLI } from './cli';
 import { PIPELINE_UPDATE } from './ipc-channels';
 
+const execFileAsync = promisify(execFile);
 const POLL_INTERVAL_MS = 5_000;
 
 type PipelinePayload = {
@@ -26,10 +29,21 @@ async function pollOnce(): Promise<void> {
 
   pollInFlight = true;
   try {
-    const [status, standup] = await Promise.all([runCLI(['status']), runCLI(['standup'])]);
+    const [status, standup, tmuxSessions] = await Promise.all([
+      runCLI(['status']),
+      runCLI(['standup']),
+      execFileAsync('tmux', ['list-sessions', '-F', '#{session_name}'])
+        .then(({ stdout }) => stdout.trim().split('\n').filter(Boolean))
+        .catch(() => [] as string[]),
+    ]);
 
     if (status === null && standup === null) {
       return;
+    }
+
+    // Inject tmux session names into status so the renderer can match jobs to local sessions
+    if (status && typeof status === 'object' && tmuxSessions.length > 0) {
+      (status as Record<string, unknown>).tmux_sessions = tmuxSessions;
     }
 
     const payload: PipelinePayload = { status, standup };

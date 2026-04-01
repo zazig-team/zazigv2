@@ -35,7 +35,8 @@ import { generateExecSkill, publishSharedExecSkill, setupJobWorkspace, writeSuba
  */
 function resolveMcpServerPath(): string {
   // Check for compiled binary first
-  const binPath = join(homedir(), ".zazigv2", "bin", "agent-mcp-server");
+  const zazigHome = process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
+  const binPath = join(zazigHome, "bin", "agent-mcp-server");
   if (existsSync(binPath)) return binPath;
 
   const thisDir = dirname(fileURLToPath(import.meta.url));

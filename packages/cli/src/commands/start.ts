@@ -448,6 +448,7 @@ export async function start(args: string[] = process.argv.slice(3)): Promise<voi
     ZAZIG_COMPANY_NAME: company.name,
     ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
     ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
+    ZAZIG_ENV: zazigEnv,
     ...(process.env["ZAZIG_HOME"] ? { ZAZIG_HOME: process.env["ZAZIG_HOME"] } : {}),
   };
 
@@ -455,14 +456,15 @@ export async function start(args: string[] = process.argv.slice(3)): Promise<voi
   let agentEntryOverride: string | undefined;
 
   if (zazigEnv === "production") {
-    const binAgent = join(homedir(), ".zazigv2", "bin", "zazig-agent");
+    const zazigHome = process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
+    const binAgent = join(zazigHome, "bin", "zazig-agent");
     if (existsSync(binAgent)) {
       agentEntryOverride = binAgent;
       const ver = getLocalVersion();
       log(`Using zazig-agent binary${ver ? ` (v${ver})` : ""}`);
     } else if (hasPinnedBuild()) {
       // Legacy fallback — old pinned .mjs build
-      const buildDir = join(homedir(), ".zazigv2", "builds", "current");
+      const buildDir = join(zazigHome, "builds", "current");
       agentEntryOverride = join(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
       const sha = getCurrentBuildSha();
       log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);

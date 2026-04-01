@@ -1,4 +1,6 @@
 import { spawn } from 'child_process';
+import os from 'os';
+import path from 'path';
 
 const CLI_BIN = process.env.ZAZIG_CLI_BIN || 'zazig';
 const JSON_FLAG = '--json';
@@ -34,8 +36,14 @@ function buildCommandArgs(args: string[]): string[] {
 export async function runCLI(args: string[]): Promise<unknown> {
   return new Promise((resolve) => {
     const commandArgs = buildCommandArgs(args);
+    const spawnEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      ZAZIG_ENV: 'production',
+      ZAZIG_HOME: path.join(os.homedir(), '.zazigv2'),
+    };
     const child = spawn(CLI_BIN, commandArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: spawnEnv,
     });
 
     let stdout = '';

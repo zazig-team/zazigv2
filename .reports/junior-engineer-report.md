@@ -1,8 +1,11 @@
 status: pass
-summary: Implemented desktop terminal sidecar WebSocket bridge — Bun sidecar uses node-pty to attach to tmux sessions and bridges PTY data bidirectionally over WebSocket; Electron main process spawns the sidecar and pty.ts connects via ws instead of capture-pane polling.
+summary: Implemented three desktop UX bug fixes: WebSocket auto-reconnect with exponential backoff in pty.ts, robust session name matching with persistent_agents support in PipelineColumn.tsx, and CPO back-navigation button with terminal:attachDefault IPC in App.tsx/PipelineColumn.tsx/index.ts/preload.ts.
 files_changed:
-  - packages/desktop/src/sidecar/server.ts (created)
-  - packages/desktop/src/main/pty.ts (rewritten to use WebSocket)
-  - packages/desktop/src/main/index.ts (spawn sidecar on startup, kill on quit)
-  - packages/desktop/package.json (added ws + @types/ws)
-  - packages/desktop/esbuild.config.mjs (added ws to externals)
+  - packages/desktop/src/main/pty.ts
+  - packages/desktop/src/renderer/components/PipelineColumn.tsx
+  - packages/desktop/src/renderer/App.tsx
+  - packages/desktop/src/main/index.ts
+  - packages/desktop/src/main/preload.ts
+  - packages/desktop/src/main/ipc-channels.ts
+  - packages/desktop/src/renderer/global.d.ts
+  - .reports/junior-engineer-report.md

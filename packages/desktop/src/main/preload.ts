@@ -5,6 +5,7 @@ import {
   PIPELINE_UPDATE,
   SELECT_COMPANY,
   TERMINAL_ATTACH,
+  TERMINAL_ATTACH_DEFAULT,
   TERMINAL_DETACH,
   TERMINAL_INPUT,
   TERMINAL_OUTPUT,
@@ -36,6 +37,9 @@ const zazigBridge = {
   },
   terminalDetach(): Promise<unknown> {
     return ipcRenderer.invoke(TERMINAL_DETACH);
+  },
+  terminalAttachDefault(): Promise<unknown> {
+    return ipcRenderer.invoke(TERMINAL_ATTACH_DEFAULT);
   },
   onTerminalOutput(callback: TerminalOutputCallback): Unsubscribe {
     return subscribe(TERMINAL_OUTPUT, callback);

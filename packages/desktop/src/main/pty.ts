@@ -22,6 +22,62 @@ export function setSidecarPort(port: number): void {
   sidecarPort = port;
 }
 
+const MAX_RECONNECT_RETRIES = 3;
+const RECONNECT_BASE_DELAY_MS = 1000;
+
+function scheduleReconnect(session: string, attempt: number): void {
+  if (attempt >= MAX_RECONNECT_RETRIES) {
+    broadcastTerminalOutput('');
+    return;
+  }
+  const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, attempt);
+  setTimeout(() => {
+    if (activeSession !== null) {
+      // Another session was attached in the meantime; abort reconnect
+      return;
+    }
+    if (!sidecarPort) {
+      broadcastTerminalOutput('');
+      return;
+    }
+    activeSession = session;
+    const socket = new WebSocket(`ws://127.0.0.1:${sidecarPort}`);
+    ws = socket;
+
+    socket.on('open', () => {
+      socket.send(session);
+    });
+
+    socket.on('message', (data) => {
+      const text = Buffer.isBuffer(data) ? data.toString() : String(data);
+      broadcastTerminalOutput(text);
+    });
+
+    socket.on('close', () => {
+      if (ws === socket) {
+        ws = null;
+        const sessionToReconnect = activeSession;
+        activeSession = null;
+        if (sessionToReconnect) {
+          scheduleReconnect(sessionToReconnect, attempt + 1);
+        }
+      }
+    });
+
+    socket.on('error', (err) => {
+      console.error('[pty] WebSocket reconnect error:', err);
+      if (ws === socket) {
+        ws = null;
+        const sessionToReconnect = activeSession;
+        activeSession = null;
+        if (sessionToReconnect) {
+          scheduleReconnect(sessionToReconnect, attempt + 1);
+        }
+      }
+    });
+  }, delay);
+}
+
 export function attach(session: string): string {
   const normalizedSession = session.trim();
   if (!normalizedSession) {
@@ -51,7 +107,11 @@ export function attach(session: string): string {
   socket.on('close', () => {
     if (ws === socket) {
       ws = null;
+      const sessionToReconnect = activeSession;
       activeSession = null;
+      if (sessionToReconnect) {
+        scheduleReconnect(sessionToReconnect, 0);
+      }
     }
   });
 
@@ -59,7 +119,11 @@ export function attach(session: string): string {
     console.error('[pty] WebSocket error:', err);
     if (ws === socket) {
       ws = null;
+      const sessionToReconnect = activeSession;
       activeSession = null;
+      if (sessionToReconnect) {
+        scheduleReconnect(sessionToReconnect, 0);
+      }
     }
   });
 

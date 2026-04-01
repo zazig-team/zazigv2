@@ -9,6 +9,7 @@ import {
   COMPANIES_LOADED,
   SELECT_COMPANY,
   TERMINAL_ATTACH,
+  TERMINAL_ATTACH_DEFAULT,
   TERMINAL_DETACH,
   TERMINAL_INPUT,
   TERMINAL_RESIZE,
@@ -171,6 +172,7 @@ async function initCompanies(): Promise<void> {
 function registerTerminalIpcHandlers(): void {
   ipcMain.handle(TERMINAL_ATTACH, (_event, session: string) => pty.attach(session));
   ipcMain.handle(TERMINAL_DETACH, () => pty.detach());
+  ipcMain.handle(TERMINAL_ATTACH_DEFAULT, () => attachDefaultSession());
   ipcMain.on(TERMINAL_INPUT, (_event, data: string) => pty.write(data));
   ipcMain.on(TERMINAL_RESIZE, (_event, { cols, rows }: { cols: number; rows: number }) => {
     pty.resize(cols, rows);

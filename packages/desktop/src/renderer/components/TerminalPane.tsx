@@ -3,6 +3,22 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
+const dropOverlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  background: 'rgba(56, 139, 253, 0.15)',
+  border: '2px dashed #388bfd',
+  borderRadius: 4,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: '#388bfd',
+  fontSize: 14,
+  fontWeight: 600,
+  pointerEvents: 'none',
+  zIndex: 10,
+};
+
 const terminalHostStyle: React.CSSProperties = {
   width: '100%',
   height: '100%',
@@ -33,6 +49,42 @@ export function TerminalPane({ message }: TerminalPaneProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const [disconnected, setDisconnected] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>): void => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const onDragLeave = (): void => {
+    setIsDragOver(false);
+  };
+
+  const onDrop = async (e: React.DragEvent<HTMLDivElement>): Promise<void> => {
+    e.preventDefault();
+    setIsDragOver(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    const paths: string[] = [];
+    for (const file of files) {
+      try {
+        const buffer = await file.arrayBuffer();
+        const data = new Uint8Array(buffer);
+        const savedPath = await window.zazig?.saveAttachment(file.name, data);
+        if (savedPath) {
+          paths.push(savedPath);
+        }
+      } catch (err) {
+        console.error('[TerminalPane] Failed to save attachment:', err);
+      }
+    }
+
+    if (paths.length > 0) {
+      window.zazig?.terminalInput(paths.join(' '));
+    }
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -112,9 +164,15 @@ export function TerminalPane({ message }: TerminalPaneProps): JSX.Element {
   }, [message]);
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <div
+      style={{ position: 'relative', width: '100%', height: '100%' }}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <div ref={containerRef} style={terminalHostStyle} />
       {disconnected ? <div style={disconnectedStyle}>Disconnected</div> : null}
+      {isDragOver ? <div style={dropOverlayStyle}>Drop files to attach</div> : null}
     </div>
   );
 }

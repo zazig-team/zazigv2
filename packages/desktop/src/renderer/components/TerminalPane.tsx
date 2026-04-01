@@ -53,6 +53,7 @@ export function TerminalPane({ message }: TerminalPaneProps): JSX.Element {
 
   const onDragOver = (e: React.DragEvent<HTMLDivElement>): void => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragOver(true);
   };
 
@@ -62,27 +63,28 @@ export function TerminalPane({ message }: TerminalPaneProps): JSX.Element {
 
   const onDrop = async (e: React.DragEvent<HTMLDivElement>): Promise<void> => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragOver(false);
 
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
 
-    const paths: string[] = [];
-    for (const file of files) {
-      try {
-        const buffer = await file.arrayBuffer();
-        const data = new Uint8Array(buffer);
-        const savedPath = await window.zazig?.saveAttachment(file.name, data);
-        if (savedPath) {
-          paths.push(savedPath);
-        }
-      } catch (err) {
-        console.error('[TerminalPane] Failed to save attachment:', err);
-      }
-    }
+    const zazig = window.zazig;
+    if (!zazig) return;
 
-    if (paths.length > 0) {
-      window.zazig?.terminalInput(paths.join(' '));
+    try {
+      const paths: string[] = [];
+      for (const file of files) {
+        const data = new Uint8Array(await file.arrayBuffer());
+        const savedPath = await zazig.saveAttachment(file.name, data);
+        paths.push(savedPath);
+      }
+
+      if (paths.length > 0) {
+        zazig?.terminalInput(`${paths.join(' ')} `);
+      }
+    } catch (err) {
+      console.error('[TerminalPane] Failed to save dropped attachments:', err);
     }
   };
 

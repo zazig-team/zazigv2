@@ -240,22 +240,28 @@ async function statusJson(): Promise<void> {
       if (statusCompanyId) {
         const queuedJobs = await apiFetch(
           `${creds.supabaseUrl}/rest/v1/jobs` +
-            `?select=id,title,status,job_type,role,features(title)` +
+            `?select=id,title,status,job_type,role,features(title,status)` +
             `&status=in.(created,queued)` +
             `&company_id=eq.${encodeURIComponent(statusCompanyId)}` +
             `&limit=20`,
           headers
         );
-        output.queued_jobs = queuedJobs.map((job) => ({
-          "id": String(job.id ?? ""),
-          "title": String(job.title ?? ""),
-          "status": String(job.status ?? ""),
-          "job_type": String(job.job_type ?? ""),
-          "role": String(job.role ?? ""),
-          "features": {
-            "title": String((job.features as Row | null)?.title ?? ""),
-          },
-        }));
+        const finishedStatuses = new Set(["complete", "cancelled", "failed"]);
+        output.queued_jobs = queuedJobs
+          .filter((job) => {
+            const featureStatus = (job.features as Row | null)?.status;
+            return !featureStatus || !finishedStatuses.has(String(featureStatus));
+          })
+          .map((job) => ({
+            "id": String(job.id ?? ""),
+            "title": String(job.title ?? ""),
+            "status": String(job.status ?? ""),
+            "job_type": String(job.job_type ?? ""),
+            "role": String(job.role ?? ""),
+            "features": {
+              "title": String((job.features as Row | null)?.title ?? ""),
+            },
+          }));
 
         const failedFeatures = await apiFetch(
           `${creds.supabaseUrl}/rest/v1/features` +

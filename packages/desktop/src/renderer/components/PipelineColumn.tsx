@@ -19,10 +19,18 @@ interface QueuedJob {
   status: string;
 }
 
+interface SidebarExpertSession {
+  id: string;
+  roleName: string;
+  sessionId: string;
+  status: string;
+}
+
 interface PipelineViewData {
   companyName: string;
   daemonRunning: boolean;
   activeJobs: PipelineJob[];
+  expertSessions: SidebarExpertSession[];
   queuedJobs: QueuedJob[];
   failedFeatures: string[];
   recentlyCompleted: string[];
@@ -47,6 +55,7 @@ type ZazigBridge = {
   onCompaniesLoaded?: (
     callback: (payload: { companies: Company[]; selectedId: string | null }) => void,
   ) => Unsubscribe | void;
+  terminalAttach?: (session: string) => Promise<unknown>;
   selectCompany?: (id: string) => void;
 };
 type WindowWithZazig = Window & {
@@ -80,6 +89,7 @@ const PLACEHOLDER_PIPELINE: PipelineViewData = {
       sessionName: null,
     },
   ],
+  expertSessions: [],
   queuedJobs: [
     {
       id: 'f25572e2-2084-4126-a712-8e0e559f7092',
@@ -332,9 +342,44 @@ function getQueuedJobs(status: AnyRecord): QueuedJob[] {
   });
 }
 
+function getExpertSessions(status: AnyRecord): SidebarExpertSession[] {
+  const expertSessions = asRecordArray(
+    status.expert_sessions ?? status.expertSessions,
+  );
+
+  return expertSessions
+    .map((session, index) => {
+      const roleName =
+        getString(session.role_name) ||
+        getString(session.roleName) ||
+        getString(session.display_name) ||
+        getString(session.displayName);
+      const sessionId =
+        getString(session.session_id) ||
+        getString(session.sessionId) ||
+        getString(session.tmux_session) ||
+        getString(session.tmuxSession) ||
+        getString(session.session_name);
+      const statusValue = getString(session.status, 'unknown');
+      const id = getString(session.id, `expert-session-${index + 1}`);
+
+      return {
+        id,
+        roleName: roleName || `Expert ${index + 1}`,
+        sessionId,
+        status: statusValue,
+      };
+    })
+    .filter((session) => session.sessionId.length > 0);
+}
+
 function parsePipelinePayload(payload: unknown): PipelineViewData {
   const root = asRecord(payload);
   const status = asRecord(root.status);
+  const statusWithFallback: AnyRecord = {
+    ...root,
+    ...status,
+  };
   const companyName =
     getString(status.company_name) ||
     getString(status.companyName) ||
@@ -345,6 +390,7 @@ function parsePipelinePayload(payload: unknown): PipelineViewData {
     companyName,
     daemonRunning: Boolean(status.running),
     activeJobs: getActiveJobs(status),
+    expertSessions: getExpertSessions(statusWithFallback),
     queuedJobs: getQueuedJobs(status),
     failedFeatures: getFailedFeatures(status),
     recentlyCompleted: getRecentlyCompleted(status),
@@ -638,6 +684,75 @@ export default function PipelineColumn({
             </div>
           )}
         </Section>
+
+        {pipeline.expertSessions.length > 0 ? (
+          <Section title="Expert Sessions">
+            <div style={{ display: 'grid', gap: 8 }}>
+              {pipeline.expertSessions.map((session) => (
+                <div
+                  key={session.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    const bridge = (window as WindowWithZazig).zazig;
+                    if (!bridge?.terminalAttach) return;
+                    void bridge.terminalAttach(session.sessionId).catch((error) => {
+                      console.error('[desktop] Failed to attach expert session', error);
+                    });
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    const bridge = (window as WindowWithZazig).zazig;
+                    if (!bridge?.terminalAttach) return;
+                    void bridge.terminalAttach(session.sessionId).catch((error) => {
+                      console.error('[desktop] Failed to attach expert session', error);
+                    });
+                  }}
+                  style={{
+                    border: '1px solid #2a3852',
+                    borderRadius: 8,
+                    padding: 8,
+                    background: '#0d1728',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        minWidth: 8,
+                        borderRadius: '50%',
+                        background: session.status === 'active' ? GREEN_DOT : GREY_DOT,
+                      }}
+                    />
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        {session.roleName}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: '#94a2bc',
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        {session.sessionId}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+        ) : null}
 
         <Section title="Queued Jobs">
           {pipeline.queuedJobs.length === 0 ? (

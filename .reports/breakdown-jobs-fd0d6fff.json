@@ -1,0 +1,29 @@
+[
+  {
+    "title": "Desktop state: register and normalize expert sessions for UI consumption",
+    "spec": "Implement a single source of truth in the desktop renderer state for expert sessions created from start-expert-session flow. Ensure requested/starting/running expert sessions are captured from existing event channels, normalized with stable session IDs, and exposed through selectors that both sidebar and terminal views can consume without duplicating logic. Keep existing persistent-agent session behavior intact.",
+    "acceptance_tests": "AC1:\nGiven a new expert session is started and the backend reports it as requested or starting\nWhen the desktop app receives the session event\nThen the session appears in renderer state with a stable ID, role label, and lifecycle status.\n\nAC2:\nGiven multiple session events for the same expert session arrive out of order\nWhen the reducer/store applies updates\nThen the final state keeps one canonical session record and the latest lifecycle status.\n\nAC3:\nGiven only persistent agents (CPO/CTO) are present\nWhen state initialization and updates run\nThen existing persistent session visibility and selection behavior remain unchanged.",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "medium",
+    "depends_on": []
+  },
+  {
+    "title": "Desktop sidebar: show active expert sessions alongside persistent agents",
+    "spec": "Update sidebar rendering to include expert sessions from shared session state. Add/restore an active sessions section that lists currently active expert sessions with readable role/session labels, and keep persistent agents visible and selectable. Ensure list updates reactively as session state changes and stale/ended sessions are removed according to lifecycle status.",
+    "acceptance_tests": "AC4:\nGiven an expert session exists in active lifecycle state\nWhen the sidebar renders\nThen the sidebar includes an active sessions section containing that expert session entry.\n\nAC5:\nGiven a user starts an expert session from CPO context\nWhen the session becomes visible in app state\nThen the left sidebar no longer shows only CPO; it also shows the new expert session entry.\n\nAC6:\nGiven an expert session transitions to a terminal/ended lifecycle state\nWhen session state updates\nThen the session is removed from active sidebar listings without removing persistent agents.",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "medium",
+    "depends_on": ["temp:0"]
+  },
+  {
+    "title": "Desktop terminal routing: auto-switch to newly started expert session",
+    "spec": "Implement auto-switch behavior so starting a new expert session moves terminal focus to that session once it is available, while preserving manual user selection and preventing unwanted focus steals. Add guard rails so auto-switch only triggers for newly created sessions in the current interaction flow, and does not trigger for historical/session replay updates.",
+    "acceptance_tests": "AC7:\nGiven a user starts a new expert session from the desktop app\nWhen that session becomes available for interaction\nThen terminal focus automatically switches to the new expert session.\n\nAC8:\nGiven the user has manually switched to another session after expert start\nWhen non-creation updates arrive for the expert session\nThen the app does not repeatedly force focus back to the expert session.\n\nAC9:\nGiven historical session hydration occurs during app load\nWhen old expert sessions are loaded\nThen auto-switch is not triggered for those historical sessions.",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "medium",
+    "depends_on": ["temp:0"]
+  }
+]

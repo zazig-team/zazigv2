@@ -1,7 +1,7 @@
 status: pass
-summary: Updated the desktop poller to forward normalized expert session data and auto-attach only newly discovered expert tmux sessions after a first-poll baseline. Implemented expert session parsing and rendering in the desktop Pipeline sidebar, including click-to-attach cards and conditional section visibility.
+summary: Added behavior-focused regression coverage for persistent-agent sidebar rendering/semantics and queue-driven agent switching, including detach-before-attach sequencing and non-running no-op assertions.
 files_changed:
-  - packages/desktop/src/main/poller.ts
-  - packages/desktop/src/renderer/components/PipelineColumn.tsx
-  - .reports/senior-engineer-report.md
-failure_reason: ""
+  - packages/desktop/src/renderer/persistent-agents.ts
+  - packages/desktop/src/renderer/App.tsx
+  - tests/features/desktop-sidebar-persistent-agents-switching.test.ts
+failure_reason:

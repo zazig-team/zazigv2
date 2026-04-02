@@ -1,5 +1,25 @@
 status: pass
 
+## Test files created (desktop-sidebar-persistent-agents-switching feature 434544fa)
+
+### `tests/features/desktop-sidebar-persistent-agents-switching.test.ts` — 32 test cases
+
+9 describe blocks covering all 7 acceptance criteria and 3 failure cases:
+
+1. **PipelineColumn: hardcoded CPO button is removed** (3 tests) — AC7
+2. **App.tsx: onCpoClick and isCpoActive are removed** (4 tests) — AC7
+3. **PipelineColumn: persistent agents rendered from status payload** (5 tests) — AC1, FC1
+4. **PipelineColumn: agent card liveness dot (green/grey)** (4 tests) — AC2
+5. **PipelineColumn: active agent card has blue highlight** (2 tests) — AC3
+6. **PipelineColumn: agent card click behavior** (3 tests) — AC4, AC5
+7. **App.tsx: agent switching goes through the transition queue** (6 tests) — AC4, AC6, FC2
+8. **PipelineColumn: non-running persistent agents shown greyed out** (2 tests) — AC5, FC3
+9. (All tests written to FAIL against current codebase — feature not yet implemented)
+
+No `package.json` changes needed — `vitest run` discovers recursively.
+
+---
+
 ## Test files created (desktop-expert-sessions-still-missing feature fd0d6fff)
 
 ### 1. `tests/features/desktop-expert-sessions-sidebar.test.ts` — 12 test cases

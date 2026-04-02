@@ -1,5 +1,55 @@
 status: pass
 
+## Test files created (desktop-expert-session-auto-switch-state-sync feature 5b40e4e1)
+
+### `tests/features/desktop-expert-session-auto-switch-state-sync.test.ts` — 26 test cases
+
+**poller.ts: syncExpertSessions routes through IPC (5 tests)**
+- poller.ts file exists
+- syncExpertSessions function is defined in poller.ts
+- poller.ts broadcasts expert-session:auto-switch IPC event on new session (AC1/FC1)
+- poller.ts does NOT call pty.attach() directly inside syncExpertSessions (FC1)
+- poller.ts sends session ID with the IPC auto-switch event
+
+**poller.ts: resetExpertSessionTracking called on SELECT_COMPANY (3 tests)**
+- resetExpertSessionTracking function is defined in poller.ts
+- resetExpertSessionTracking is called when SELECT_COMPANY IPC is received (AC5/FC3)
+- poller.ts does NOT rely solely on poller stop to reset expert tracking (AC5)
+
+**App.tsx: handles expert-session:auto-switch IPC and updates activeSession (5 tests)**
+- App.tsx file exists
+- App.tsx listens for expert-session:auto-switch IPC event
+- App.tsx routes expert auto-switch through transitionQueueRef (AC4)
+- App.tsx updates activeSession state when expert auto-switch fires (FC2)
+- App.tsx updates activeSessionRef.current on expert auto-switch (AC6)
+
+**App.tsx: provides onExpertClick prop that routes through transition queue (3 tests)**
+- App.tsx defines an onExpertClick handler
+- onExpertClick handler routes through transitionQueueRef (AC4)
+- onExpertClick updates activeSession state (AC3)
+
+**PipelineColumn.tsx: expert session card shows active highlight (4 tests)**
+- PipelineColumn.tsx file exists
+- PipelineColumn accepts activeSession prop
+- expert session card compares activeSession against session ID for highlight (AC2)
+- expert session card applies active styling class when session is active (AC2)
+
+**PipelineColumn.tsx: expert session click uses onExpertClick callback prop (3 tests)**
+- PipelineColumn accepts onExpertClick callback prop (AC3)
+- expert session card onClick calls onExpertClick, not inline terminalAttach (FC1)
+- PipelineColumn does not call window.electron.terminalAttach inline for expert sessions
+
+**App.tsx: transition queue prevents races (3 tests)**
+- App.tsx defines transitionQueueRef for serializing transitions
+- all session switches enqueue through transitionQueueRef (AC4)
+- activeSessionRef.current is updated before completing each transition (AC6)
+
+**Total: 26 new test cases, all written to FAIL against current codebase.**
+
+No `package.json` changes needed — `vitest run` discovers recursively.
+
+---
+
 ## Test files created (desktop-expert-sessions-still-missing feature fd0d6fff)
 
 ### 1. `tests/features/desktop-expert-sessions-sidebar.test.ts` — 12 test cases

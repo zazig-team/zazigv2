@@ -40,6 +40,7 @@ interface PipelineColumnProps {
   activeSession: string | null;
   isCpoActive?: boolean;
   onCpoClick?: () => void;
+  onExpertClick?: (sessionId: string) => void;
   onJobClick: (job: PipelineJob) => void;
   onWatchClick: (job: PipelineJob) => void;
 }
@@ -494,6 +495,7 @@ export default function PipelineColumn({
   activeSession,
   isCpoActive = false,
   onCpoClick,
+  onExpertClick,
   onJobClick,
   onWatchClick,
 }: PipelineColumnProps): React.JSX.Element {
@@ -688,68 +690,64 @@ export default function PipelineColumn({
         {pipeline.expertSessions.length > 0 ? (
           <Section title="Expert Sessions">
             <div style={{ display: 'grid', gap: 8 }}>
-              {pipeline.expertSessions.map((session) => (
-                <div
-                  key={session.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    const bridge = (window as WindowWithZazig).zazig;
-                    if (!bridge?.terminalAttach) return;
-                    void bridge.terminalAttach(session.sessionId).catch((error) => {
-                      console.error('[desktop] Failed to attach expert session', error);
-                    });
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter' && event.key !== ' ') return;
-                    event.preventDefault();
-                    const bridge = (window as WindowWithZazig).zazig;
-                    if (!bridge?.terminalAttach) return;
-                    void bridge.terminalAttach(session.sessionId).catch((error) => {
-                      console.error('[desktop] Failed to attach expert session', error);
-                    });
-                  }}
-                  style={{
-                    border: '1px solid #2a3852',
-                    borderRadius: 8,
-                    padding: 8,
-                    background: '#0d1728',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span
-                      style={{
-                        width: 8,
-                        height: 8,
-                        minWidth: 8,
-                        borderRadius: '50%',
-                        background: session.status === 'active' ? GREEN_DOT : GREY_DOT,
-                      }}
-                    />
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div
+              {pipeline.expertSessions.map((session) => {
+                const isActive = Boolean(activeSession && session.sessionId && activeSession === session.sessionId);
+
+                return (
+                  <div
+                    key={session.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={isActive}
+                    onClick={() => onExpertClick?.(session.sessionId)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      onExpertClick?.(session.sessionId);
+                    }}
+                    style={{
+                      border: isActive ? '1px solid #60a5fa' : '1px solid #2a3852',
+                      borderRadius: 8,
+                      padding: 8,
+                      background: isActive ? '#132847' : '#0d1728',
+                      boxShadow: isActive ? 'inset 0 0 0 1px rgba(96, 165, 250, 0.45)' : 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span
                         style={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          wordBreak: 'break-word',
+                          width: 8,
+                          height: 8,
+                          minWidth: 8,
+                          borderRadius: '50%',
+                          background: session.status === 'active' ? GREEN_DOT : GREY_DOT,
                         }}
-                      >
-                        {session.roleName}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: '#94a2bc',
-                          wordBreak: 'break-word',
-                        }}
-                      >
-                        {session.sessionId}
+                      />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 600,
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          {session.roleName}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: '#94a2bc',
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          {session.sessionId}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Section>
         ) : null}

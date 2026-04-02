@@ -1,6 +1,4 @@
 status: pass
-summary: Fixed production desktop app CLI subprocess to explicitly set ZAZIG_ENV=production and ZAZIG_HOME to production path, and updated start.ts and executor.ts to resolve agent binary paths via ZAZIG_HOME instead of hardcoded ~/.zazigv2.
+summary: Updated PipelineColumn.tsx expert session cards to use onExpertClick callback prop with proper isActive guard, blue active highlight styling, and onKeyDown handler.
 files_changed:
-  - packages/desktop/src/main/cli.ts
-  - packages/cli/src/commands/start.ts
-  - packages/local-agent/src/executor.ts
+  - packages/desktop/src/renderer/components/PipelineColumn.tsx

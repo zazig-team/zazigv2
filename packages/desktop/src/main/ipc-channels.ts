@@ -8,3 +8,4 @@ export const TERMINAL_ATTACH_DEFAULT = 'terminal:attachDefault';
 export const COMPANIES_LOADED = 'companies:loaded';
 export const SELECT_COMPANY = 'companies:select';
 export const SAVE_ATTACHMENT = 'attachments:save';
+export const EXPERT_SESSION_AUTO_SWITCH = 'expert-session:auto-switch';

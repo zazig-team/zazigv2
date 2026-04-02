@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { extractFailureSummary, extractWorkspaceName } from "./ci-log-extractor.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -10,6 +11,30 @@ const ACTIVE_STATUSES = [
   "ci_checking",
   "merging",
 ];
+
+function buildMasterCIFailureSpec({ runId, headSha, stepName, rawLogOutput, ownerRepo }) {
+  // Shared extractor removes ANSI escape codes and enforces an 8KB (8192-byte) summary cap.
+  const failureSummary = extractFailureSummary(rawLogOutput, runId);
+  const workspaceName = extractWorkspaceName(rawLogOutput);
+  const workspaceLine = workspaceName
+    ? `Failing workspace: ${workspaceName}`
+    : "Failing workspace: unknown";
+
+  return [
+    `Master CI run: ${runId}`,
+    `Commit SHA: ${headSha}`,
+    `Failed step: ${stepName}`,
+    workspaceLine,
+    "",
+    "FAILURE SUMMARY",
+    failureSummary,
+    "",
+    "HOW TO REPRODUCE",
+    `gh run view ${runId} --repo ${ownerRepo} --log-failed`,
+    "",
+    "Investigate and fix the root cause of this CI failure so master goes green.",
+  ].join("\n");
+}
 
 export class MasterCiMonitor {
   constructor(deps) {
@@ -91,16 +116,13 @@ export class MasterCiMonitor {
       await this.createFeature({
         title: `Fix master CI failure — ${stepName}`,
         description: `Automated fix for master CI failure on commit ${headSha}. Failed step: ${stepName}.`,
-        spec: [
-          `Master CI run: ${runId}`,
-          `Commit SHA: ${headSha}`,
-          `Failed step: ${stepName}`,
-          "",
-          "Failure log output:",
-          failureDetails.logOutput,
-          "",
-          "Investigate and fix the root cause of this CI failure so master goes green.",
-        ].join("\n"),
+        spec: buildMasterCIFailureSpec({
+          runId,
+          headSha,
+          stepName,
+          rawLogOutput: failureDetails.logOutput,
+          ownerRepo: `${this.owner}/${this.repo}`,
+        }),
         // Test-suite compatibility: one assertion expects a string for run 42,
         // while another expects an array in all other scenarios.
         tags: runId === 42 ? tags.join(" ") : tags,
@@ -158,3 +180,4 @@ export class MasterCiMonitor {
 
 export const createMasterCiMonitor = (deps) => new MasterCiMonitor(deps);
 export const checkMasterCi = MasterCiMonitor;
+export { extractFailureSummary, extractWorkspaceName };

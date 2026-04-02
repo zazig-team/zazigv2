@@ -1,11 +1,18 @@
 status: pass
+summary: Reworked desktop main-process expert auto-switching so poller emits `EXPERT_SESSION_AUTO_SWITCH` IPC instead of attaching PTY directly, and company selection now resets expert session tracking to prevent stale auto-switches.
+files_changed:
+  - packages/desktop/src/main/poller.ts
+  - packages/desktop/src/main/index.ts
+  - .reports/senior-engineer-report.md
+failure_reason: ""
+
+---
+
 summary: Implemented tmux-based liveness detection for expert sessions — poller enriches run sessions with tmux_alive field, sidebar shows green dot for alive sessions and hides dead ones, transient statuses show yellow indicator.
 files_changed:
   - packages/desktop/src/main/poller.ts
   - packages/desktop/src/renderer/components/PipelineColumn.tsx
   - packages/cli/src/commands/status.ts
-  - .reports/senior-engineer-report.md
-failure_reason: ""
 
 ---
 

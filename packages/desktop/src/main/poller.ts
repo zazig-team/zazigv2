@@ -3,8 +3,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 
 import { runCLI } from './cli';
-import { PIPELINE_UPDATE } from './ipc-channels';
-import * as pty from './pty';
+import { EXPERT_SESSION_AUTO_SWITCH, PIPELINE_UPDATE } from './ipc-channels';
 
 const execFileAsync = promisify(execFile);
 const POLL_INTERVAL_MS = 5000;
@@ -55,11 +54,11 @@ function getExpertSessions(status: AnyRecord): ExpertSession[] {
   return sessions;
 }
 
-function terminalAttach(session: string): void {
-  try {
-    pty.attach(session);
-  } catch (error) {
-    console.error(`[desktop] Failed to auto-attach expert session ${session}`, error);
+function broadcastExpertSessionAutoSwitch(sessionId: string): void {
+  // Broadcast 'expert-session:auto-switch' so the renderer owns attach/detach sequencing.
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) continue;
+    window.webContents.send(EXPERT_SESSION_AUTO_SWITCH, sessionId);
   }
 }
 
@@ -94,7 +93,7 @@ function syncExpertSessions(expertSessions: ExpertSession[]): void {
 
   for (const session of expertSessions) {
     if (!knownExpertSessionIds.has(session.session_id)) {
-      terminalAttach(session.session_id);
+      broadcastExpertSessionAutoSwitch(session.session_id);
       knownExpertSessionIds.add(session.session_id);
     }
   }
@@ -106,7 +105,8 @@ function syncExpertSessions(expertSessions: ExpertSession[]): void {
   }
 }
 
-function resetExpertSessionTracking(): void {
+export function resetExpertSessionTracking(): void {
+  // SELECT_COMPANY is handled in main/index.ts and calls resetExpertSessionTracking().
   knownExpertSessionIds.clear();
   expertSessionsInitialized = false;
 }

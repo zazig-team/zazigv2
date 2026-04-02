@@ -16,7 +16,12 @@ import {
   TERMINAL_INPUT,
   TERMINAL_RESIZE,
 } from './ipc-channels';
-import { resetPollerSnapshot, startPipelinePoller, stopPipelinePoller } from './poller';
+import {
+  resetExpertSessionTracking,
+  resetPollerSnapshot,
+  startPipelinePoller,
+  stopPipelinePoller,
+} from './poller';
 import * as pty from './pty';
 
 let sidecarProcess: ChildProcess | null = null;
@@ -194,6 +199,7 @@ function registerTerminalIpcHandlers(): void {
   ipcMain.on(SELECT_COMPANY, (_event, id: string) => {
     setActiveCompanyId(id);
     savePrefs({ selectedCompanyId: id });
+    resetExpertSessionTracking();
     resetPollerSnapshot();
   });
 }

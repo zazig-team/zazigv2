@@ -1,8 +1,4 @@
 status: pass
-summary: Implemented shared CI failure-log extraction utilities and wired both executor and standalone master CI monitor to use actionable, ANSI-free, 8KB-capped failure summaries with reproduction guidance.
+summary: Updated executor.ts to apply extractFailureSummary/extractWorkspaceName in fetchCIFailureLogs and assemble the feature spec with the new FAILURE SUMMARY/HOW TO REPRODUCE template, Failed workspace (omit-if-null), and section colons.
 files_changed:
-  - packages/local-agent/src/ci-log-extractor.ts
   - packages/local-agent/src/executor.ts
-  - packages/local-agent/src/master-ci-monitor.js
-  - .reports/senior-engineer-report.md
-failure_reason:

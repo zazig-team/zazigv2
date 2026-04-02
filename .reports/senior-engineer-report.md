@@ -1,7 +1,7 @@
 status: pass
-summary: Reworked desktop main-process expert auto-switching so poller emits `EXPERT_SESSION_AUTO_SWITCH` IPC instead of attaching PTY directly, and company selection now resets expert session tracking to prevent stale auto-switches.
+summary: Added queued expert-session switching in the desktop renderer so IPC auto-switch and manual expert clicks both detach/attach safely and keep sidebar active-session state in sync.
 files_changed:
-  - packages/desktop/src/main/poller.ts
-  - packages/desktop/src/main/index.ts
-  - .reports/senior-engineer-report.md
+  - packages/desktop/src/renderer/App.tsx
+  - packages/desktop/src/renderer/components/PipelineColumn.tsx
+  - packages/desktop/src/renderer/global.d.ts
 failure_reason: ""

@@ -6,6 +6,12 @@ failure_reason:
 
 ---
 
+summary: Updated orchestrator to use 'run' status instead of 'running'/'completed', removed stale 'executing' from ACTIVE_SPEC_SESSION_STATUSES, and fixed conditional guards to use the new status model without inverting business logic.
+files_changed:
+  - supabase/functions/orchestrator/index.ts
+
+---
+
 summary: Removed attachCustomWheelEventHandler from TerminalPane so xterm.js handles mouse-wheel scrolling natively, and added terminal.reset() after terminal.clear() on session disconnect to fully clear scrollback buffer.
 files_changed:
   - packages/desktop/src/renderer/components/TerminalPane.tsx

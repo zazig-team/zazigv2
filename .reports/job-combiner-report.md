@@ -1,4 +1,20 @@
 status: success
+branch: feature/fix-master-ci-failure-run-npm-run-test-0b5326cc
+merged:
+  - job/45e04304-392a-4849-bf39-9a3d2137a025
+conflicts_resolved: []
+failure_reason:
+
+PR: https://github.com/zazig-team/zazigv2/pull/401
+
+Notes:
+- ci.yml already exists on master — CI workflow injection skipped
+- Merged job branch cleanly with no conflicts
+- Job fixed desktop sidecar to issue `tmux set -t <session> mouse on` command (with binary-path fallback) to resolve CI npm run test failure
+
+---
+
+status: success
 branch: feature/ci-monitor-extract-actionable-failure-co-aa483d49
 merged:
   - job/01b49f63-c391-4ad6-bf5d-ca74b8f88976

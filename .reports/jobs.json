@@ -1,0 +1,38 @@
+[
+  {
+    "title": "Add expert-session:auto-switch IPC channel and preload bridge",
+    "spec": "Add the IPC channel constant for expert session auto-switch and expose it through the preload bridge so the renderer can receive the event.\n\n## Files to change\n- `packages/desktop/src/main/ipc-channels.ts` — add `export const EXPERT_SESSION_AUTO_SWITCH = 'expert-session:auto-switch';`\n- `packages/desktop/src/main/preload.ts` — expose a listener (e.g. `onExpertSessionAutoSwitch`) on the zazig bridge so App.tsx can subscribe to this event\n\n## What NOT to do\n- Do not change poller.ts, App.tsx, or PipelineColumn.tsx in this job\n- Do not wire up any logic — just the channel constant and preload exposure",
+    "acceptance_tests": "Given the IPC channels file\nWhen I look for expert-session:auto-switch\nThen an exported constant EXPERT_SESSION_AUTO_SWITCH with value 'expert-session:auto-switch' exists\n\nGiven the preload bridge\nWhen the renderer calls window.zazig.onExpertSessionAutoSwitch(callback)\nThen the callback is registered to receive expert-session:auto-switch events from the main process",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "simple",
+    "depends_on": []
+  },
+  {
+    "title": "Route expert auto-switch through IPC in poller.ts and reset on company switch",
+    "spec": "Two changes to the main process:\n\n1. In `packages/desktop/src/main/poller.ts` — in `syncExpertSessions`, replace the direct `pty.attach(session)` call with broadcasting the `EXPERT_SESSION_AUTO_SWITCH` IPC event (e.g. `win.webContents.send(EXPERT_SESSION_AUTO_SWITCH, sessionId)`) so the renderer handles the attach via the transition queue. Import `EXPERT_SESSION_AUTO_SWITCH` from ipc-channels.ts.\n\n2. In `packages/desktop/src/main/index.ts` (or wherever `SELECT_COMPANY` IPC is handled) — call `resetExpertSessionTracking()` when the `SELECT_COMPANY` event is received, in addition to on poller stop. This prevents stale session IDs from a previous company triggering false auto-switches.\n\n## Constraint\n- Must NOT call pty.attach() directly from poller.ts anymore — the renderer owns the attach lifecycle",
+    "acceptance_tests": "Given syncExpertSessions in poller.ts\nWhen a new expert session is detected\nThen win.webContents.send is called with EXPERT_SESSION_AUTO_SWITCH and the session ID\nAnd pty.attach() is NOT called directly\n\nGiven the SELECT_COMPANY IPC handler in main\nWhen a company switch event is received\nThen resetExpertSessionTracking() is called\nAnd subsequent expert session detection starts fresh without stale IDs",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "medium",
+    "depends_on": ["temp:0"]
+  },
+  {
+    "title": "Handle expert auto-switch IPC in App.tsx and add onExpertClick prop",
+    "spec": "In `packages/desktop/src/renderer/App.tsx`:\n\n1. **IPC listener** — Subscribe to `window.zazig.onExpertSessionAutoSwitch` (added in Job 1). When the event fires, enqueue a transition via `transitionQueueRef.current = transitionQueueRef.current.then(async () => { ... })` that detaches the previous session and attaches the new expert session, then calls `setActiveSession(sessionId)` and sets `activeSessionRef.current = sessionId`.\n\n2. **onExpertClick handler** — Create a handler (e.g. `handleExpertClick`) that routes through the same `transitionQueueRef` promise chain, calling `terminalAttach(sessionId)` and updating `activeSession`/`activeSessionRef.current`. Pass this as `onExpertClick` prop to `<PipelineColumn>`.\n\n## Constraints\n- Must mirror the existing job card transition pattern exactly\n- Must not break existing job switching (activeSessionRef must be correctly set before any new transition starts)\n- Clean up the IPC listener on component unmount",
+    "acceptance_tests": "Given App.tsx is mounted\nWhen an expert-session:auto-switch IPC event fires with a session ID\nThen the transition is enqueued via transitionQueueRef\nAnd activeSession state is updated to the expert session ID\nAnd activeSessionRef.current equals the expert session ID after the transition\n\nGiven App.tsx provides onExpertClick to PipelineColumn\nWhen onExpertClick is called with a session ID\nThen the transition is enqueued via transitionQueueRef\nAnd activeSession and activeSessionRef.current are updated\n\nGiven an active expert session\nWhen a job card is subsequently clicked\nThen the expert session is correctly detached (activeSessionRef had the right value)",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "medium",
+    "depends_on": ["temp:1"]
+  },
+  {
+    "title": "Replace inline terminalAttach and add active highlight for expert cards in PipelineColumn.tsx",
+    "spec": "In `packages/desktop/src/renderer/components/PipelineColumn.tsx`:\n\n1. **onExpertClick prop** — Add `onExpertClick?: (sessionId: string) => void` to the component's props interface. Replace the two inline `bridge?.terminalAttach(session.sessionId)` calls in the expert session card's onClick/onKeyDown handlers with `onExpertClick?.(session.sessionId)`.\n\n2. **Active highlight** — Add an `isActive` check for expert session cards: `const isActive = Boolean(activeSession && session.sessionId && activeSession === session.sessionId)`. Apply the same blue highlight class/style as job cards when `isActive` is true.\n\n## Constraint\n- Do not remove the `bridge` prop or break anything related to job cards\n- The `terminalAttach` bridge prop may still be needed for other uses — only remove the expert session inline calls",
+    "acceptance_tests": "Given PipelineColumn receives onExpertClick and activeSession props\nWhen an expert session card is clicked\nThen onExpertClick is called with that session's ID\nAnd bridge.terminalAttach is NOT called directly for expert sessions\n\nGiven activeSession equals an expert session's sessionId\nWhen PipelineColumn renders\nThen that expert session card shows the blue active highlight\nAnd no other expert session card is highlighted\n\nGiven activeSession is a job's sessionName\nWhen PipelineColumn renders\nThen expert session cards show no highlight and job card shows highlight\nAnd existing job card switching behavior is unchanged",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "simple",
+    "depends_on": ["temp:2"]
+  }
+]

@@ -7,7 +7,7 @@ import { PIPELINE_UPDATE } from './ipc-channels';
 import * as pty from './pty';
 
 const execFileAsync = promisify(execFile);
-const POLL_INTERVAL_MS = 5_000;
+const POLL_INTERVAL_MS = 5000;
 
 type PipelinePayload = {
   status: unknown;
@@ -61,6 +61,24 @@ function terminalAttach(session: string): void {
   } catch (error) {
     console.error(`[desktop] Failed to auto-attach expert session ${session}`, error);
   }
+}
+
+function enrichExpertSessionsWithLiveness(
+  expertSessions: ExpertSession[],
+  tmuxSessions: string[],
+): ExpertSession[] {
+  return expertSessions.map((session) => {
+    const status = typeof session.status === 'string' ? session.status : '';
+    if (status !== 'run') {
+      return session;
+    }
+    const rawId = session.session_id;
+    const tmuxName = rawId.startsWith('expert-')
+      ? rawId
+      : `expert-${rawId.slice(0, 8)}`;
+    const tmuxAlive = tmuxSessions.includes(tmuxName);
+    return { ...session, tmux_alive: tmuxAlive };
+  });
 }
 
 function syncExpertSessions(expertSessions: ExpertSession[]): void {
@@ -128,7 +146,8 @@ async function pollOnce(): Promise<void> {
     }
 
     const expertSessions = getExpertSessions(pipelineStatus);
-    pipelineStatus.expert_sessions = expertSessions;
+    const enrichedExpertSessions = enrichExpertSessionsWithLiveness(expertSessions, tmuxSessions);
+    pipelineStatus.expert_sessions = enrichedExpertSessions;
     syncExpertSessions(expertSessions);
 
     const payload: PipelinePayload = { status: pipelineStatus };

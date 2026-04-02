@@ -15238,7 +15238,8 @@ async function statusJson() {
           "role": String(agent.role ?? "unknown"),
           "status": String(agent.status ?? "unknown")
         }));
-        const expertSessions = await apiFetch(`${creds.supabaseUrl}/rest/v1/expert_sessions?select=id,status,created_at,expert_roles(name)&company_id=in.(${companyIds.join(",")})&machine_id=eq.${encodeURIComponent(machineId)}&status=in.(requested,claimed,starting,running,active)`, headers);
+        const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1e3).toISOString();
+        const expertSessions = await apiFetch(`${creds.supabaseUrl}/rest/v1/expert_sessions?select=id,status,created_at,expert_roles(name)&company_id=in.(${companyIds.join(",")})&machine_id=eq.${encodeURIComponent(machineId)}&status=in.("requested","claimed","starting","run")&created_at=gt.${twoDaysAgo}`, headers);
         output.expert_sessions = expertSessions.map((session) => ({
           "id": String(session.id ?? ""),
           "role_name": String(session.expert_roles?.name ?? "unknown"),
@@ -16112,7 +16113,7 @@ async function ideas(args2) {
   const ideaId = parseStringFlag(args2, "id");
   const source = parseStringFlag(args2, "source");
   const domain = parseStringFlag(args2, "domain");
-  const search = parseStringFlag(args2, "search");
+  const search2 = parseStringFlag(args2, "search");
   const limit = parseNumericFlag(args2, "limit") ?? 20;
   const offset = parseNumericFlag(args2, "offset") ?? 0;
   let creds;
@@ -16136,7 +16137,7 @@ async function ideas(args2) {
     ...ideaId !== void 0 ? { idea_id: ideaId } : {},
     ...source !== void 0 ? { source } : {},
     ...domain !== void 0 ? { domain } : {},
-    ...search !== void 0 ? { search } : {},
+    ...search2 !== void 0 ? { search: search2 } : {},
     limit,
     offset
   };
@@ -16279,6 +16280,122 @@ async function features(args2) {
   process.exit(0);
 }
 
+// dist/commands/search.js
+function parseCompanyFlag5(args2) {
+  const idx = args2.indexOf("--company");
+  if (idx === -1)
+    return { rest: args2 };
+  const before = args2.slice(0, idx);
+  const after = args2.slice(idx + 2);
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return { rest: [...before, ...after] };
+  return { companyId: value, rest: [...before, ...after] };
+}
+function parseNumericFlag3(args2, name) {
+  const eqValue = args2.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
+  if (eqValue !== void 0) {
+    const parsed2 = Number.parseInt(eqValue, 10);
+    return Number.isFinite(parsed2) ? parsed2 : void 0;
+  }
+  const idx = args2.indexOf(`--${name}`);
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : void 0;
+}
+function parseStringFlag3(args2, name) {
+  const eqValue = args2.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
+  if (eqValue !== void 0)
+    return eqValue;
+  const idx = args2.indexOf(`--${name}`);
+  if (idx === -1)
+    return void 0;
+  const value = args2[idx + 1];
+  if (!value || value.startsWith("--"))
+    return void 0;
+  return value;
+}
+function parsePositionalQuery(args2) {
+  const valueFlags = /* @__PURE__ */ new Set(["--limit", "--offset", "--company", "--status", "--type"]);
+  for (let i = 0; i < args2.length; i += 1) {
+    const current = args2[i];
+    if (current.startsWith("--"))
+      continue;
+    const previous = i > 0 ? args2[i - 1] : void 0;
+    if (previous && valueFlags.has(previous))
+      continue;
+    return current;
+  }
+  return void 0;
+}
+async function search(args2) {
+  const { companyId: company_id, rest } = parseCompanyFlag5(args2);
+  if (!company_id) {
+    process.stderr.write("Usage: zazig search <query> --company <company-id> [--type idea|feature|job] [--status <status>] [--limit N] [--offset N]\n");
+    process.exit(1);
+  }
+  const query = parsePositionalQuery(rest);
+  if (!query || query.trim().length === 0) {
+    process.stderr.write("Usage: zazig search <query> --company <company-id> [--type idea|feature|job] [--status <status>] [--limit N] [--offset N]\n");
+    process.exit(1);
+  }
+  const type = parseStringFlag3(rest, "type");
+  const status2 = parseStringFlag3(rest, "status");
+  const limit = parseNumericFlag3(rest, "limit") ?? 20;
+  const offset = parseNumericFlag3(rest, "offset") ?? 0;
+  let creds;
+  try {
+    creds = await getValidCredentials();
+  } catch {
+    process.stderr.write(JSON.stringify({ "error": "Not logged in. Run zazig login" }));
+    process.exit(1);
+  }
+  const config = (() => {
+    try {
+      return loadConfig();
+    } catch {
+      return void 0;
+    }
+  })();
+  const supabaseUrl = config?.supabaseUrl ?? config?.supabase_url ?? creds.supabaseUrl;
+  const body = {
+    company_id,
+    query,
+    limit,
+    offset
+  };
+  if (type)
+    body.type = type;
+  if (status2)
+    body.status = status2;
+  const response = await fetch(`${supabaseUrl}/functions/v1/query-search`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${creds.accessToken}`,
+      apikey: DEFAULT_SUPABASE_ANON_KEY,
+      "Content-Type": "application/json",
+      "x-company-id": company_id
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "unknown error");
+    process.stderr.write(JSON.stringify({ "error": `HTTP ${response.status}: ${errorBody}` }));
+    process.exit(1);
+  }
+  const data = await response.json();
+  process.stdout.write(JSON.stringify(data, null, 2));
+  const count = (Array.isArray(data.ideas?.items) ? data.ideas.items.length : 0) + (Array.isArray(data.features?.items) ? data.features.items.length : 0) + (Array.isArray(data.jobs?.items) ? data.jobs.items.length : 0);
+  const total = typeof data.total === "number" ? data.total : count;
+  process.stderr.write(`Showing ${offset + 1}-${offset + count} of ${total} (--limit ${limit} --offset ${offset})
+`);
+  process.exit(0);
+}
+
 // dist/commands/jobs.js
 var UUID_V4ISH_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function parseFlag2(args2, name) {
@@ -16300,7 +16417,7 @@ function parseFlag2(args2, name) {
   }
   return { provided: true, value };
 }
-function parseNumericFlag3(args2, name) {
+function parseNumericFlag4(args2, name) {
   const parsed = parseFlag2(args2, name);
   if (!parsed.provided)
     return { provided: false };
@@ -16339,8 +16456,8 @@ async function jobs(args2) {
   const id = parseFlag2(args2, "id");
   const featureId = parseFlag2(args2, "feature-id");
   const status2 = parseFlag2(args2, "status");
-  const limitFlag = parseNumericFlag3(args2, "limit");
-  const offsetFlag = parseNumericFlag3(args2, "offset");
+  const limitFlag = parseNumericFlag4(args2, "limit");
+  const offsetFlag = parseNumericFlag4(args2, "offset");
   if (!company.value) {
     fail("Missing required flag: --company <uuid>");
   }
@@ -16423,7 +16540,7 @@ async function jobs(args2) {
 }
 
 // dist/commands/projects.js
-function parseCompanyFlag5(args2) {
+function parseCompanyFlag6(args2) {
   const idx = args2.indexOf("--company");
   if (idx === -1)
     return void 0;
@@ -16432,7 +16549,7 @@ function parseCompanyFlag5(args2) {
     return void 0;
   return value;
 }
-function parseNumericFlag4(args2, name) {
+function parseNumericFlag5(args2, name) {
   const eqValue = args2.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
   if (eqValue !== void 0) {
     const parsed2 = Number.parseInt(eqValue, 10);
@@ -16448,14 +16565,14 @@ function parseNumericFlag4(args2, name) {
   return Number.isFinite(parsed) ? parsed : void 0;
 }
 async function projects(args2) {
-  const company_id = parseCompanyFlag5(args2);
+  const company_id = parseCompanyFlag6(args2);
   if (!company_id) {
     process.stderr.write("Usage: zazig projects --company <company-id>\n");
     process.exit(1);
   }
   const includeFeatures = args2.includes("--include-features");
-  const limit = parseNumericFlag4(args2, "limit") ?? 20;
-  const offset = parseNumericFlag4(args2, "offset") ?? 0;
+  const limit = parseNumericFlag5(args2, "limit") ?? 20;
+  const offset = parseNumericFlag5(args2, "offset") ?? 0;
   let creds;
   try {
     creds = await getValidCredentials();
@@ -16503,7 +16620,7 @@ async function projects(args2) {
 
 // dist/commands/standup.js
 var TWO_HOURS_MS = 2 * 60 * 60 * 1e3;
-function parseCompanyFlag6(args2) {
+function parseCompanyFlag7(args2) {
   const idx = args2.indexOf("--company");
   if (idx === -1)
     return void 0;
@@ -16714,7 +16831,7 @@ function formatTextOutput(report) {
 `;
 }
 async function standup(args2) {
-  const companyId = parseCompanyFlag6(args2) ?? (() => {
+  const companyId = parseCompanyFlag7(args2) ?? (() => {
     try {
       return loadConfig().company_id;
     } catch {
@@ -16777,7 +16894,7 @@ async function standup(args2) {
 // dist/commands/create-feature.js
 var VALID_PRIORITY = /* @__PURE__ */ new Set(["low", "medium", "high"]);
 var UUID_V4ISH_REGEX2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-function parseStringFlag3(args2, name) {
+function parseStringFlag4(args2, name) {
   const eq = args2.find((a) => a.startsWith(`--${name}=`));
   if (eq) {
     const value2 = eq.slice(`--${name}=`.length);
@@ -16845,17 +16962,17 @@ async function createFeature(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
     printHelp2();
   }
-  const company_id = parseStringFlag3(args2, "company");
+  const company_id = parseStringFlag4(args2, "company");
   if (!company_id)
     fail2("Missing required flag: --company <uuid>");
-  const title = parseStringFlag3(args2, "title");
-  const description = parseStringFlag3(args2, "description");
-  const spec = parseStringFlag3(args2, "spec");
-  const acceptance_tests = parseStringFlag3(args2, "acceptance-tests");
-  const priority = parseStringFlag3(args2, "priority");
-  const project_id = parseStringFlag3(args2, "project-id");
-  const depends_on = parseStringFlag3(args2, "depends-on");
-  const human_checklist = parseStringFlag3(args2, "human-checklist");
+  const title = parseStringFlag4(args2, "title");
+  const description = parseStringFlag4(args2, "description");
+  const spec = parseStringFlag4(args2, "spec");
+  const acceptance_tests = parseStringFlag4(args2, "acceptance-tests");
+  const priority = parseStringFlag4(args2, "priority");
+  const project_id = parseStringFlag4(args2, "project-id");
+  const depends_on = parseStringFlag4(args2, "depends-on");
+  const human_checklist = parseStringFlag4(args2, "human-checklist");
   const fast_track = parseBooleanFlag(args2, "fast-track");
   if (!title)
     fail2("Missing required flag: --title");
@@ -16923,7 +17040,7 @@ async function createFeature(args2) {
 // dist/commands/update-feature.js
 var VALID_PRIORITY2 = /* @__PURE__ */ new Set(["low", "medium", "high"]);
 var VALID_STATUS = /* @__PURE__ */ new Set(["breaking_down", "complete", "cancelled"]);
-function parseStringFlag4(args2, name) {
+function parseStringFlag5(args2, name) {
   const eq = args2.find((a) => a.startsWith(`--${name}=`));
   if (eq) {
     const value2 = eq.slice(`--${name}=`.length);
@@ -16990,19 +17107,19 @@ async function updateFeature(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
     printHelp3();
   }
-  const company_id = parseStringFlag4(args2, "company");
+  const company_id = parseStringFlag5(args2, "company");
   if (!company_id)
     fail3("Missing required flag: --company <uuid>");
-  const feature_id = parseStringFlag4(args2, "id");
+  const feature_id = parseStringFlag5(args2, "id");
   if (!feature_id)
     fail3("Missing required flag: --id");
-  const title = parseStringFlag4(args2, "title");
-  const description = parseStringFlag4(args2, "description");
-  const spec = parseStringFlag4(args2, "spec");
-  const acceptance_tests = parseStringFlag4(args2, "acceptance-tests");
-  const human_checklist = parseStringFlag4(args2, "human-checklist");
-  const priority = parseStringFlag4(args2, "priority");
-  const status2 = parseStringFlag4(args2, "status");
+  const title = parseStringFlag5(args2, "title");
+  const description = parseStringFlag5(args2, "description");
+  const spec = parseStringFlag5(args2, "spec");
+  const acceptance_tests = parseStringFlag5(args2, "acceptance-tests");
+  const human_checklist = parseStringFlag5(args2, "human-checklist");
+  const priority = parseStringFlag5(args2, "priority");
+  const status2 = parseStringFlag5(args2, "status");
   const fast_track = parseBooleanFlag2(args2, "fast-track");
   if (priority !== void 0 && !VALID_PRIORITY2.has(priority)) {
     fail3("Invalid --priority. Expected one of: low, medium, high");
@@ -17068,7 +17185,7 @@ async function updateFeature(args2) {
 var VALID_SOURCE = /* @__PURE__ */ new Set(["terminal", "slack", "telegram", "agent", "web", "api", "monitoring"]);
 var VALID_DOMAIN = /* @__PURE__ */ new Set(["product", "engineering", "marketing", "cross-cutting", "unknown"]);
 var VALID_PRIORITY3 = /* @__PURE__ */ new Set(["low", "medium", "high", "urgent"]);
-function parseStringFlag5(args2, name) {
+function parseStringFlag6(args2, name) {
   const eq = args2.find((a) => a.startsWith(`--${name}=`));
   if (eq) {
     const value2 = eq.slice(`--${name}=`.length);
@@ -17083,7 +17200,7 @@ function parseStringFlag5(args2, name) {
   return value;
 }
 function parseCommaSeparatedFlag(args2, name) {
-  const value = parseStringFlag5(args2, name);
+  const value = parseStringFlag6(args2, name);
   if (value === void 0)
     return void 0;
   return value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
@@ -17118,20 +17235,20 @@ async function createIdea(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
     printHelp4();
   }
-  const company_id = parseStringFlag5(args2, "company");
+  const company_id = parseStringFlag6(args2, "company");
   if (!company_id)
     fail4("Missing required flag: --company <uuid>");
-  const raw_text = parseStringFlag5(args2, "raw-text");
-  const originator = parseStringFlag5(args2, "originator");
-  const title = parseStringFlag5(args2, "title");
-  const description = parseStringFlag5(args2, "description");
-  const source = parseStringFlag5(args2, "source");
-  const domain = parseStringFlag5(args2, "domain");
-  const priority = parseStringFlag5(args2, "priority");
-  const scope = parseStringFlag5(args2, "scope");
-  const complexity = parseStringFlag5(args2, "complexity");
+  const raw_text = parseStringFlag6(args2, "raw-text");
+  const originator = parseStringFlag6(args2, "originator");
+  const title = parseStringFlag6(args2, "title");
+  const description = parseStringFlag6(args2, "description");
+  const source = parseStringFlag6(args2, "source");
+  const domain = parseStringFlag6(args2, "domain");
+  const priority = parseStringFlag6(args2, "priority");
+  const scope = parseStringFlag6(args2, "scope");
+  const complexity = parseStringFlag6(args2, "complexity");
   const tags = parseCommaSeparatedFlag(args2, "tags");
-  const project_id = parseStringFlag5(args2, "project-id");
+  const project_id = parseStringFlag6(args2, "project-id");
   if (!raw_text)
     fail4("Missing required flag: --raw-text");
   if (!originator)
@@ -17208,7 +17325,7 @@ var VALID_STATUS2 = /* @__PURE__ */ new Set([
 var VALID_PRIORITY4 = /* @__PURE__ */ new Set(["low", "medium", "high", "urgent"]);
 var VALID_TRIAGE_ROUTE = /* @__PURE__ */ new Set(["promote", "develop", "workshop", "harden", "park", "reject", "founder-review"]);
 var VALID_COMPLEXITY = /* @__PURE__ */ new Set(["simple", "medium", "complex"]);
-function parseStringFlag6(args2, name) {
+function parseStringFlag7(args2, name) {
   const eq = args2.find((a) => a.startsWith(`--${name}=`));
   if (eq) {
     const value2 = eq.slice(`--${name}=`.length);
@@ -17223,7 +17340,7 @@ function parseStringFlag6(args2, name) {
   return value;
 }
 function parseCommaSeparatedFlag2(args2, name) {
-  const value = parseStringFlag6(args2, name);
+  const value = parseStringFlag7(args2, name);
   if (value === void 0)
     return void 0;
   return value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
@@ -17261,23 +17378,23 @@ async function updateIdea(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
     printHelp5();
   }
-  const company_id = parseStringFlag6(args2, "company");
+  const company_id = parseStringFlag7(args2, "company");
   if (!company_id)
     fail5("Missing required flag: --company <uuid>");
-  const idea_id = parseStringFlag6(args2, "id");
+  const idea_id = parseStringFlag7(args2, "id");
   if (!idea_id)
     fail5("Missing required flag: --id");
-  const title = parseStringFlag6(args2, "title");
-  const description = parseStringFlag6(args2, "description");
-  const status2 = parseStringFlag6(args2, "status");
-  const priority = parseStringFlag6(args2, "priority");
-  const triage_notes = parseStringFlag6(args2, "triage-notes");
-  const triage_route = parseStringFlag6(args2, "triage-route");
-  const spec = parseStringFlag6(args2, "spec");
+  const title = parseStringFlag7(args2, "title");
+  const description = parseStringFlag7(args2, "description");
+  const status2 = parseStringFlag7(args2, "status");
+  const priority = parseStringFlag7(args2, "priority");
+  const triage_notes = parseStringFlag7(args2, "triage-notes");
+  const triage_route = parseStringFlag7(args2, "triage-route");
+  const spec = parseStringFlag7(args2, "spec");
   const tags = parseCommaSeparatedFlag2(args2, "tags");
-  const complexity = parseStringFlag6(args2, "complexity");
-  const project_id = parseStringFlag6(args2, "project-id");
-  const raw_text = parseStringFlag6(args2, "raw-text");
+  const complexity = parseStringFlag7(args2, "complexity");
+  const project_id = parseStringFlag7(args2, "project-id");
+  const raw_text = parseStringFlag7(args2, "raw-text");
   if (status2 !== void 0 && !VALID_STATUS2.has(status2)) {
     fail5("Invalid --status. Expected one of: new, triaging, triaged, developing, specced, workshop, hardening, parked, rejected, done");
   }
@@ -17346,7 +17463,7 @@ async function updateIdea(args2) {
 
 // dist/commands/promote-idea.js
 var VALID_TO = /* @__PURE__ */ new Set(["feature", "job", "research", "capability"]);
-function parseStringFlag7(args2, name) {
+function parseStringFlag8(args2, name) {
   const eq = args2.find((a) => a.startsWith(`--${name}=`));
   if (eq) {
     const value2 = eq.slice(`--${name}=`.length);
@@ -17383,23 +17500,23 @@ async function promoteIdea(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
     printHelp6();
   }
-  const company_id = parseStringFlag7(args2, "company");
+  const company_id = parseStringFlag8(args2, "company");
   if (!company_id)
     fail6("Missing required flag: --company <uuid>");
-  const idea_id = parseStringFlag7(args2, "id");
+  const idea_id = parseStringFlag8(args2, "id");
   if (!idea_id)
     fail6("Missing required flag: --id");
-  const promote_to = parseStringFlag7(args2, "to");
+  const promote_to = parseStringFlag8(args2, "to");
   if (!promote_to)
     fail6("Missing required flag: --to (feature|job|research|capability)");
   if (!VALID_TO.has(promote_to)) {
     fail6("Invalid --to. Expected one of: feature, job, research, capability");
   }
-  const project_id = parseStringFlag7(args2, "project-id");
+  const project_id = parseStringFlag8(args2, "project-id");
   if ((promote_to === "feature" || promote_to === "job") && !project_id) {
     fail6("--project-id is required when --to is feature or job");
   }
-  const title = parseStringFlag7(args2, "title");
+  const title = parseStringFlag8(args2, "title");
   let creds;
   try {
     creds = await getValidCredentials();
@@ -17441,7 +17558,7 @@ async function promoteIdea(args2) {
 }
 
 // dist/commands/create-rule.js
-function parseStringFlag8(args2, name) {
+function parseStringFlag9(args2, name) {
   const eq = args2.find((a) => a.startsWith(`--${name}=`));
   if (eq) {
     const value2 = eq.slice(`--${name}=`.length);
@@ -17456,7 +17573,7 @@ function parseStringFlag8(args2, name) {
   return value;
 }
 function parseCommaSeparatedFlag3(args2, name) {
-  const value = parseStringFlag8(args2, name);
+  const value = parseStringFlag9(args2, name);
   if (value === void 0)
     return void 0;
   return value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
@@ -17466,11 +17583,11 @@ function fail7(error) {
   process.exit(1);
 }
 async function createRule(args2) {
-  const company_id = parseStringFlag8(args2, "company");
+  const company_id = parseStringFlag9(args2, "company");
   if (!company_id)
     fail7("Missing required flag: --company <uuid>");
-  const project_id = parseStringFlag8(args2, "project-id");
-  const rule_text = parseStringFlag8(args2, "rule");
+  const project_id = parseStringFlag9(args2, "project-id");
+  const rule_text = parseStringFlag9(args2, "rule");
   const applies_to = parseCommaSeparatedFlag3(args2, "applies-to");
   if (!project_id)
     fail7("Missing required flag: --project-id");
@@ -17519,7 +17636,7 @@ async function createRule(args2) {
 }
 
 // dist/commands/create-project-rule.js
-function parseStringFlag9(args2, name) {
+function parseStringFlag10(args2, name) {
   const eq = args2.find((a) => a.startsWith(`--${name}=`));
   if (eq) {
     const value2 = eq.slice(`--${name}=`.length);
@@ -17534,7 +17651,7 @@ function parseStringFlag9(args2, name) {
   return value;
 }
 function parseCommaSeparatedFlag4(args2, name) {
-  const value = parseStringFlag9(args2, name);
+  const value = parseStringFlag10(args2, name);
   if (value === void 0)
     return void 0;
   return value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
@@ -17566,11 +17683,11 @@ async function createProjectRule(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
     printHelp7();
   }
-  const company_id = parseStringFlag9(args2, "company");
+  const company_id = parseStringFlag10(args2, "company");
   if (!company_id)
     fail8("Missing required flag: --company <uuid>");
-  const project_id = parseStringFlag9(args2, "project-id");
-  const rule_text = parseStringFlag9(args2, "rule-text");
+  const project_id = parseStringFlag10(args2, "project-id");
+  const rule_text = parseStringFlag10(args2, "rule-text");
   const applies_to = parseCommaSeparatedFlag4(args2, "applies-to");
   if (!project_id)
     fail8("Missing required flag: --project-id <uuid>");
@@ -17629,7 +17746,7 @@ async function createProjectRule(args2) {
 
 // dist/commands/batch-create-jobs.js
 import { readFileSync as readFileSync11 } from "node:fs";
-function parseStringFlag10(args2, name) {
+function parseStringFlag11(args2, name) {
   const eq = args2.find((a) => a.startsWith(`--${name}=`));
   if (eq) {
     const value2 = eq.slice(`--${name}=`.length);
@@ -17710,14 +17827,14 @@ async function batchCreateJobs(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
     printHelp8();
   }
-  const company_id = parseStringFlag10(args2, "company");
+  const company_id = parseStringFlag11(args2, "company");
   if (!company_id)
     fail9("Missing required flag: --company <uuid>");
-  const feature_id = parseStringFlag10(args2, "feature-id");
+  const feature_id = parseStringFlag11(args2, "feature-id");
   if (!feature_id)
     fail9("Missing required flag: --feature-id <uuid>");
-  const jobsArg = parseStringFlag10(args2, "jobs");
-  const jobsFile = parseStringFlag10(args2, "jobs-file");
+  const jobsArg = parseStringFlag11(args2, "jobs");
+  const jobsFile = parseStringFlag11(args2, "jobs-file");
   const jobs2 = parseJobsPayload(jobsArg, jobsFile);
   let creds;
   try {
@@ -17756,7 +17873,7 @@ async function batchCreateJobs(args2) {
 }
 
 // dist/commands/send-message-to-human.js
-function parseStringFlag11(args2, name) {
+function parseStringFlag12(args2, name) {
   const eq = args2.find((a) => a.startsWith(`--${name}=`));
   if (eq) {
     const value2 = eq.slice(`--${name}=`.length);
@@ -17794,10 +17911,10 @@ async function sendMessageToHuman(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
     printHelp9();
   }
-  const companyId = parseStringFlag11(args2, "company");
-  const text = parseStringFlag11(args2, "text");
-  const conversationId = parseStringFlag11(args2, "conversation-id");
-  const jobId = parseStringFlag11(args2, "job-id") ?? process.env["ZAZIG_JOB_ID"];
+  const companyId = parseStringFlag12(args2, "company");
+  const text = parseStringFlag12(args2, "text");
+  const conversationId = parseStringFlag12(args2, "conversation-id");
+  const jobId = parseStringFlag12(args2, "job-id") ?? process.env["ZAZIG_JOB_ID"];
   if (!companyId)
     fail10("Usage: zazig send-message-to-human --company <company-id> --text <message>");
   if (!text)
@@ -17845,7 +17962,7 @@ async function sendMessageToHuman(args2) {
 }
 
 // dist/commands/start-expert-session.js
-function parseStringFlag12(args2, name) {
+function parseStringFlag13(args2, name) {
   const eq = args2.find((a) => a.startsWith(`--${name}=`));
   if (eq) {
     const value2 = eq.slice(`--${name}=`.length);
@@ -17907,15 +18024,15 @@ async function startExpertSession(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
     printHelp10();
   }
-  const company_id = parseStringFlag12(args2, "company");
+  const company_id = parseStringFlag13(args2, "company");
   if (!company_id)
     fail11("Missing required flag: --company <uuid>");
-  const role_name = parseStringFlag12(args2, "role-name");
-  const brief = parseStringFlag12(args2, "brief");
-  const machine_name = parseStringFlag12(args2, "machine-name") ?? "auto";
-  const project_id = parseStringFlag12(args2, "project-id");
+  const role_name = parseStringFlag13(args2, "role-name");
+  const brief = parseStringFlag13(args2, "brief");
+  const machine_name = parseStringFlag13(args2, "machine-name") ?? "auto";
+  const project_id = parseStringFlag13(args2, "project-id");
   const headless = parseBooleanFlag3(args2, "headless");
-  const batch_id = parseStringFlag12(args2, "batch-id");
+  const batch_id = parseStringFlag13(args2, "batch-id");
   if (!role_name)
     fail11("Missing required flag: --role-name");
   if (!brief)
@@ -17968,7 +18085,7 @@ async function startExpertSession(args2) {
 }
 
 // dist/commands/verify-staging.js
-function parseStringFlag13(args2, name) {
+function parseStringFlag14(args2, name) {
   const eq = args2.find((a) => a.startsWith(`--${name}=`));
   if (eq) {
     const value2 = eq.slice(`--${name}=`.length);
@@ -18010,14 +18127,14 @@ async function verifyStaging(args2) {
   if (args2.includes("--help") || args2.includes("-h")) {
     printHelp11();
   }
-  const company_id = parseStringFlag13(args2, "company");
+  const company_id = parseStringFlag14(args2, "company");
   if (!company_id)
     fail12("Missing required flag: --company <uuid>");
-  const feature_id = parseStringFlag13(args2, "id");
+  const feature_id = parseStringFlag14(args2, "id");
   if (!feature_id)
     fail12("Missing required flag: --id <feature-uuid>");
   const clear = hasFlag3(args2, "clear");
-  const by = parseStringFlag13(args2, "by")?.trim();
+  const by = parseStringFlag14(args2, "by")?.trim();
   if (clear && by) {
     fail12("Invalid flags: --clear cannot be used with --by");
   }
@@ -18056,7 +18173,7 @@ async function verifyStaging(args2) {
 
 // dist/lib/automation-config.js
 var VALID_TYPES = ["idea", "brief", "bug", "test"];
-function parseCompanyFlag7(args2) {
+function parseCompanyFlag8(args2) {
   const idx = args2.indexOf("--company");
   if (idx === -1)
     return void 0;
@@ -18085,7 +18202,7 @@ function validateTypes(types) {
 }
 async function automationConfig(opts) {
   const { args: args2, columnName, label } = opts;
-  const companyId = parseCompanyFlag7(args2);
+  const companyId = parseCompanyFlag8(args2);
   if (!companyId) {
     console.error(`Usage: zazig ${label} --company <company-id> [--status] [--enable type,...] [--disable type,...]`);
     process.exit(1);
@@ -18505,6 +18622,9 @@ switch (cmd) {
   case "features":
     await features(args);
     break;
+  case "search":
+    await search(args);
+    break;
   case "jobs":
     await jobs(args);
     break;
@@ -18583,6 +18703,7 @@ switch (cmd) {
     console.log("  standup --company <company-id>   Print standup summary (or JSON with --json)");
     console.log("  ideas --company <company-id>     Query ideas (supports filter flags)");
     console.log("  features --company <company-id>  Query features (project/status/id filters)");
+    console.log("  search <query> --company <id>    Search across ideas, features, and jobs");
     console.log("  jobs --company <company-id>      Query jobs (id/feature-id/status filters)");
     console.log("  projects --company <company-id>  List projects (optional --include-features)");
     console.log("  create-feature --company <company-id>  Create a feature");

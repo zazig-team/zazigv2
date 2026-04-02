@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "2756128";
+const AGENT_BUILD_HASH = "8c1a7eb";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -13300,6 +13300,137 @@ function resolveGitWorktreeMetadataDir(workspaceDir) {
   }
 }
 
+// ../local-agent/dist/ci-log-extractor.js
+var ANSI_ESCAPE_SEQUENCE_REGEX = /\x1b\[[0-9;]*m/g;
+var FAIL_MARKER_REGEX = /\bFAIL\b/;
+var SUMMARY_LINE_REGEX = /^\s*(Test Files\b|Tests\b|Test Suites:|Tests:)/i;
+var EXTENDED_SUMMARY_LINE_REGEX = /^\s*(Tests\b|Test Suites:|Test Files\b|Start at\b|Duration\b)/i;
+var NPM_ERROR_LINE_REGEX = /^\s*npm (?:error|ERR!)/i;
+var MAX_SUMMARY_BYTES = 8 * 1024;
+function stripAnsi(rawLog) {
+  return rawLog.replace(ANSI_ESCAPE_SEQUENCE_REGEX, "");
+}
+function trimTrailingBlankLines(lines) {
+  let end = lines.length;
+  while (end > 0 && lines[end - 1].trim().length === 0)
+    end -= 1;
+  return lines.slice(0, end);
+}
+function extractFailureBlock(lines) {
+  let failStart = -1;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (FAIL_MARKER_REGEX.test(lines[index])) {
+      failStart = index;
+      break;
+    }
+  }
+  if (failStart < 0)
+    return [];
+  const block = [];
+  let summaryFound = false;
+  for (let index = failStart; index < lines.length; index += 1) {
+    const line = lines[index];
+    block.push(line);
+    if (SUMMARY_LINE_REGEX.test(line)) {
+      summaryFound = true;
+      for (let next = index + 1; next < lines.length; next += 1) {
+        if (!EXTENDED_SUMMARY_LINE_REGEX.test(lines[next]))
+          break;
+        block.push(lines[next]);
+      }
+      break;
+    }
+  }
+  if (!summaryFound) {
+    return trimTrailingBlankLines(block);
+  }
+  return trimTrailingBlankLines(block);
+}
+function extractNpmErrorLines(lines) {
+  const collected = [];
+  let index = lines.length - 1;
+  while (index >= 0 && lines[index].trim().length === 0) {
+    index -= 1;
+  }
+  while (index >= 0) {
+    const line = lines[index];
+    if (NPM_ERROR_LINE_REGEX.test(line)) {
+      collected.push(line.trimEnd());
+      index -= 1;
+      continue;
+    }
+    if (collected.length > 0 && line.trim().length === 0) {
+      index -= 1;
+      continue;
+    }
+    if (collected.length > 0)
+      break;
+    index -= 1;
+  }
+  return collected.reverse();
+}
+function truncateToByteLimit(summary, runId) {
+  const summaryBytes = Buffer.byteLength(summary, "utf8");
+  if (summaryBytes <= MAX_SUMMARY_BYTES)
+    return summary;
+  const pointerRunId = runId === void 0 ? "<runId>" : String(runId);
+  const marker = `[truncated \u2014 full log: gh run view ${pointerRunId} --log-failed]`;
+  const markerBytes = Buffer.byteLength(marker, "utf8");
+  if (markerBytes >= MAX_SUMMARY_BYTES) {
+    return marker.slice(0, MAX_SUMMARY_BYTES);
+  }
+  const availableBytes = MAX_SUMMARY_BYTES - markerBytes;
+  let prefix = Buffer.from(summary, "utf8").subarray(0, availableBytes).toString("utf8");
+  while (Buffer.byteLength(prefix, "utf8") > availableBytes) {
+    prefix = prefix.slice(0, -1);
+  }
+  return `${prefix}${marker}`;
+}
+function extractFailureSummary(rawLog, runId) {
+  const strippedLog = stripAnsi(rawLog ?? "");
+  const lines = strippedLog.split(/\r?\n/);
+  const failureBlock = extractFailureBlock(lines);
+  const npmErrorLines = extractNpmErrorLines(lines);
+  const sections = [];
+  if (failureBlock.length > 0)
+    sections.push(failureBlock.join("\n"));
+  if (npmErrorLines.length > 0)
+    sections.push(npmErrorLines.join("\n"));
+  let summary = sections.join("\n\n").trim();
+  if (!summary) {
+    summary = trimTrailingBlankLines(lines.slice(-200)).join("\n").trim();
+  }
+  if (!summary) {
+    summary = "No failure summary could be extracted from the CI log.";
+  }
+  return truncateToByteLimit(summary, runId);
+}
+function extractWorkspaceName(rawLog) {
+  const strippedLog = stripAnsi(rawLog ?? "");
+  const lines = strippedLog.split(/\r?\n/);
+  for (const line of lines) {
+    const match = line.match(/^\s*npm error\s+(?:path|in)\s+(.+)$/i);
+    if (!match)
+      continue;
+    const normalizedPath = match[1].trim().replace(/^['"]|['"]$/g, "").replace(/\\/g, "/");
+    const segments = normalizedPath.split("/").filter((segment) => segment.length > 0);
+    if (segments.length === 0)
+      continue;
+    const packagesIndex = segments.lastIndexOf("packages");
+    if (packagesIndex >= 0 && packagesIndex < segments.length - 1) {
+      const nextSegment = segments[packagesIndex + 1];
+      if (nextSegment.startsWith("@") && packagesIndex + 2 < segments.length) {
+        return segments[packagesIndex + 2];
+      }
+      return nextSegment;
+    }
+    const lastSegment = segments[segments.length - 1];
+    if (lastSegment)
+      return lastSegment;
+  }
+  return null;
+}
+
 // ../local-agent/dist/branches.js
 import { execFile } from "node:child_process";
 import { existsSync as existsSync3, rmSync as rmSync2 } from "node:fs";
@@ -13906,6 +14037,18 @@ function loadProjectsFromCLI(companyId) {
     console.warn("[daemon] Failed to load projects from CLI \u2014 continuing with empty list:", err);
     return [];
   }
+}
+function buildMasterCIFailureSpec(params) {
+  const lines = [
+    `Master CI run: ${params.runId}`,
+    `Commit SHA: ${params.headSha}`,
+    `Failed step: ${params.stepName}`
+  ];
+  if (params.workspaceName) {
+    lines.push(`Failed workspace: ${params.workspaceName}`);
+  }
+  lines.push("", "FAILURE SUMMARY:", params.logOutput, "", "HOW TO REPRODUCE:", `gh run view ${params.runId} --repo ${params.ownerRepo} --log-failed`, "", "Investigate and fix the root cause of this CI failure so master goes green.");
+  return lines.join("\n");
 }
 var POLL_INTERVAL_MS = 3e4;
 var SLOT_RECONCILE_INTERVAL_MS = 6e4;
@@ -14708,6 +14851,7 @@ ${msg.text}`;
       const failureLogs = await this.fetchCIFailureLogs(runId);
       const stepName = failureLogs?.stepName?.trim() || "unknown step";
       const logOutput = failureLogs?.logOutput?.trim() || `No failure log output available for run ${runId}.`;
+      const workspaceName = failureLogs?.workspaceName ?? null;
       const normalizedHeadSha = headSha.trim().length > 0 ? headSha : "unknown";
       if (!this.companyId) {
         console.warn(`[CI Monitor] Skipping fix feature for run ${runId}: missing companyId`);
@@ -14725,16 +14869,16 @@ ${msg.text}`;
       }
       const featureTitle = `Fix master CI failure \u2014 ${stepName}`;
       const featureDescription = `Automated fix for master CI failure on commit ${normalizedHeadSha}. Failed step: ${stepName}.`;
-      const featureSpec = [
-        `Master CI run: ${runId}`,
-        `Commit SHA: ${normalizedHeadSha}`,
-        `Failed step: ${stepName}`,
-        "",
-        "Failure log output:",
+      const repoMatch = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+      const ownerRepo = failureLogs?.ownerRepo ?? repoMatch?.[1] ?? "owner/repo";
+      const featureSpec = buildMasterCIFailureSpec({
+        runId,
+        headSha: normalizedHeadSha,
+        stepName,
         logOutput,
-        "",
-        "Investigate and fix the root cause of this CI failure so master goes green."
-      ].join("\n");
+        ownerRepo,
+        workspaceName
+      });
       const cliArgs = [
         "create-feature",
         "--company",
@@ -14794,16 +14938,21 @@ ${msg.text}`;
         }
       }
       let logOutput = "";
+      let workspaceName = null;
       try {
         const { stdout: failedLogStdout } = await execFileAsync3("gh", ["run", "view", String(runId), "--repo", ownerRepo, "--log-failed"], { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
-        logOutput = failedLogStdout.trim();
+        const rawLogOutput = failedLogStdout.trim();
+        if (rawLogOutput.length > 0) {
+          logOutput = extractFailureSummary(rawLogOutput, runId);
+          workspaceName = extractWorkspaceName(rawLogOutput);
+        }
       } catch (err) {
         console.warn(`[CI Monitor] Failed to fetch failed log output for run ${runId}: ${String(err)}`);
       }
       if (!logOutput) {
         logOutput = `No failure log output available for run ${runId}.`;
       }
-      return { stepName, logOutput };
+      return { stepName, logOutput, workspaceName, ownerRepo };
     } catch (err) {
       console.warn(`[CI Monitor] Failed to fetch CI failure context for run ${runId}: ${String(err)}`);
       return null;
@@ -17353,7 +17502,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
         await this.updateSessionStatus(sessionId, "failed");
         return;
       }
-      await this.updateSessionStatus(sessionId, "running");
+      await this.updateSessionStatus(sessionId, "run");
       const sessionState2 = {
         sessionId,
         workspaceDir,
@@ -17399,7 +17548,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
       await this.updateSessionStatus(sessionId, "failed");
       return;
     }
-    await this.updateSessionStatus(sessionId, "running");
+    await this.updateSessionStatus(sessionId, "run");
     const EXPERT_STARTUP_DELAY_MS = 15e3;
     setTimeout(async () => {
       try {
@@ -17437,11 +17586,8 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
   async updateSessionStatus(sessionId, status) {
     try {
       const update = { status };
-      if (status === "running") {
+      if (status === "run") {
         update.started_at = (/* @__PURE__ */ new Date()).toISOString();
-      }
-      if (status === "completed") {
-        update.completed_at = (/* @__PURE__ */ new Date()).toISOString();
       }
       const { error, data } = await this.supabase.from("expert_sessions").update(update).eq("id", sessionId).select("id");
       if (error) {
@@ -17554,7 +17700,6 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
       clearInterval(poller);
       this.activePollers.delete(session.sessionId);
     }
-    await this.updateSessionStatus(session.sessionId, "completed");
     await this.injectSummaryIntoCpo(session);
     await this.switchViewerToCpo(session);
     await this.pushUnpushedCommits(session);

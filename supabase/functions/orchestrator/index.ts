@@ -1181,10 +1181,11 @@ async function handleJobUnblocked(
     ctx = JSON.parse(job?.context ?? "{}");
   } catch { /**/ }
   const updatedCtx = JSON.stringify({ ...ctx, unblocked_answer: answer });
+  const statusExecuting = "executing" as const;
 
   await supabase.from("jobs")
     .update({
-      status: "executing",
+      status: statusExecuting,
       blocked_reason: null,
       blocked_slack_thread_ts: null,
       context: updatedCtx,
@@ -3314,7 +3315,7 @@ async function recoverStaleTriagingIdeas(
     const hasActiveItem = activeSessionItems?.some(
       (item: Record<string, unknown>) => {
         const session = item.session as Record<string, unknown> | null;
-        return session?.status === "running";
+        return session?.status === "run";
       },
     );
     if (hasActiveItem) continue;
@@ -3324,7 +3325,7 @@ async function recoverStaleTriagingIdeas(
       .from("expert_sessions")
       .select("id, brief")
       .eq("headless", true)
-      .eq("status", "running");
+      .eq("status", "run");
 
     const briefMentionsIdea = runningSessions?.some(
       (s: { brief: string | null }) => s.brief && s.brief.includes(idea.id),
@@ -3457,10 +3458,9 @@ async function setDevelopingIdeaStatus(
 
 const ACTIVE_SPEC_SESSION_STATUSES = [
   "requested",
-  "executing",
   "claimed",
   "starting",
-  "running",
+  "run",
 ];
 
 interface CompanySpecConfig {
@@ -3881,15 +3881,6 @@ async function recoverStaleDevelopingIdeas(supabase: SupabaseClient): Promise<vo
     }
 
     const latestSession = batchSessions[0];
-    if (latestSession.status === "completed") {
-      await continueAutoSpecChain(
-        supabase,
-        idea,
-        latestSession,
-        batchSessions.length,
-      );
-      continue;
-    }
 
     const createdAtMs = new Date(latestSession.createdAt).getTime();
     if (
@@ -3965,7 +3956,7 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
       })
       .eq("company_id", companyId)
       .eq("headless", true)
-      .in("status", ["requested", "running"])
+      .in("status", ["requested", "run"])
       .eq("expert_role.name", "triage-analyst");
 
     const maxConcurrent = company.triage_max_concurrent ?? 3;
@@ -4183,7 +4174,7 @@ export async function autoEnrichIncompleteTriagedIdeas(
         .select("id, expert_role:expert_role_id!inner(name)")
         .eq("company_id", companyId)
         .eq("headless", true)
-        .in("status", ["requested", "running"])
+        .in("status", ["requested", "run"])
         .eq("expert_role.name", "triage-analyst")
         .ilike("brief", `%${idea.id}%`)
         .limit(1);
@@ -4376,7 +4367,7 @@ async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
         head: true,
       })
       .eq("company_id", companyId)
-      .in("status", ["requested", "running"])
+      .in("status", ["requested", "run"])
       .in("expert_role.name", ["spec-writer", "spec-reviewer"]);
 
     if (activeErr) {
@@ -4527,7 +4518,7 @@ async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
       }
 
       const latestStatus = (latestSession as { status: string }).status;
-      if (latestStatus !== "completed") continue;
+      if (ACTIVE_SPEC_SESSION_STATUSES.includes(latestStatus)) continue;
 
       const latestRole = (latestSession as {
         expert_role: { name: string } | null;

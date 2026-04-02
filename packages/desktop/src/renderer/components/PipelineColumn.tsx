@@ -12,6 +12,13 @@ export interface PipelineJob {
   sessionName: string | null;
 }
 
+export interface PersistentAgent {
+  role: string;
+  sessionName: string | null;
+  isRunning: boolean;
+  isActive: boolean;
+}
+
 interface QueuedJob {
   id: string;
   title: string;
@@ -29,6 +36,7 @@ interface SidebarExpertSession {
 interface PipelineViewData {
   companyName: string;
   daemonRunning: boolean;
+  persistentAgents: PersistentAgent[];
   activeJobs: PipelineJob[];
   expertSessions: SidebarExpertSession[];
   queuedJobs: QueuedJob[];
@@ -38,8 +46,8 @@ interface PipelineViewData {
 
 interface PipelineColumnProps {
   activeSession: string | null;
-  isCpoActive?: boolean;
-  onCpoClick?: () => void;
+  persistentAgents: PersistentAgent[];
+  onAgentClick: (agent: PersistentAgent) => void;
   onJobClick: (job: PipelineJob) => void;
   onWatchClick: (job: PipelineJob) => void;
 }
@@ -69,6 +77,20 @@ const GREY_DOT = '#737d92';
 const PLACEHOLDER_PIPELINE: PipelineViewData = {
   companyName: 'Acme Labs',
   daemonRunning: true,
+  persistentAgents: [
+    {
+      role: 'cpo',
+      sessionName: 'sample-cpo',
+      isRunning: true,
+      isActive: false,
+    },
+    {
+      role: 'cto',
+      sessionName: null,
+      isRunning: false,
+      isActive: false,
+    },
+  ],
   activeJobs: [
     {
       id: 'd43f65e6-0dce-4f65-a98a-eef5f5d75cb1',
@@ -163,6 +185,56 @@ function getSessionName(session: AnyRecord): string {
   );
 }
 
+function getTmuxSessionNames(status: AnyRecord): string[] {
+  const sessionNames: string[] = [];
+
+  for (const rawEntry of getLocalSessionEntries(status)) {
+    if (typeof rawEntry === 'string') {
+      const name = rawEntry.trim();
+      if (name.length > 0) {
+        sessionNames.push(name);
+      }
+      continue;
+    }
+
+    if (!isRecord(rawEntry)) {
+      continue;
+    }
+
+    const sessionName = getSessionName(rawEntry);
+    if (sessionName.length > 0) {
+      sessionNames.push(sessionName);
+    }
+  }
+
+  return sessionNames;
+}
+
+function getPersistentAgents(status: AnyRecord): PersistentAgent[] {
+  const persistentAgents = asRecordArray(status.persistent_agents ?? status.persistentAgents);
+  const tmuxSessionNames = getTmuxSessionNames(status);
+
+  return persistentAgents
+    .map((agent, index) => {
+      const role =
+        getString(agent.role) ||
+        getString(agent.role_name) ||
+        getString(agent.roleName) ||
+        `agent-${index + 1}`;
+      const roleSuffix = `-${role.toLowerCase()}`;
+      const sessionName = tmuxSessionNames.find((name) => name.endsWith(roleSuffix)) ?? null;
+      const isRunning = sessionName !== null;
+
+      return {
+        role,
+        sessionName,
+        isRunning,
+        isActive: false,
+      };
+    })
+    .filter((agent) => agent.role.length > 0);
+}
+
 function findMatchingSessionName(
   jobId: string,
   sessionNames: string[],
@@ -183,7 +255,8 @@ function findMatchingSessionName(
 
   // Role-based suffix match: sessions named like hostname-local-shortid-role
   if (role) {
-    const roleMatch = sessionNames.find((name) => name.endsWith(`-${role}`));
+    const roleSuffix = `-${role.toLowerCase()}`;
+    const roleMatch = sessionNames.find((name) => name.endsWith(roleSuffix));
     if (roleMatch) return roleMatch;
   }
 
@@ -281,7 +354,7 @@ function getPersistentAgentSession(
 function getActiveJobs(status: AnyRecord): PipelineJob[] {
   const statusJobs = asRecordArray(status.active_jobs);
   const localSessionLookup = getLocalSessionLookup(status);
-  const persistentAgents = asRecordArray(status.persistent_agents);
+  const persistentAgents = asRecordArray(status.persistent_agents ?? status.persistentAgents);
 
   const jobs = statusJobs.map((job, index) => {
     const context = parseContext(job.context);
@@ -389,6 +462,7 @@ function parsePipelinePayload(payload: unknown): PipelineViewData {
   return {
     companyName,
     daemonRunning: Boolean(status.running),
+    persistentAgents: getPersistentAgents(statusWithFallback),
     activeJobs: getActiveJobs(status),
     expertSessions: getExpertSessions(statusWithFallback),
     queuedJobs: getQueuedJobs(status),
@@ -492,8 +566,8 @@ function Section(props: { title: string; children: React.ReactNode; red?: boolea
 
 export default function PipelineColumn({
   activeSession,
-  isCpoActive = false,
-  onCpoClick,
+  persistentAgents: appPersistentAgents,
+  onAgentClick,
   onJobClick,
   onWatchClick,
 }: PipelineColumnProps): React.JSX.Element {
@@ -547,6 +621,13 @@ export default function PipelineColumn({
     bridge?.selectCompany?.(id);
   };
 
+  const persistentAgents = useMemo(() => {
+    if (appPersistentAgents.length > 0) {
+      return appPersistentAgents;
+    }
+    return pipeline.persistentAgents;
+  }, [appPersistentAgents, pipeline.persistentAgents]);
+
   const completedItems = useMemo(() => pipeline.recentlyCompleted.slice(0, 5), [pipeline.recentlyCompleted]);
 
   return (
@@ -570,32 +651,85 @@ export default function PipelineColumn({
         onSelectCompany={handleSelectCompany}
       />
 
-      {onCpoClick && (
-        <div style={{ padding: '8px 10px', borderBottom: '1px solid #22314b' }}>
-          <button
-            type="button"
-            aria-label="Back to CPO session"
-            aria-pressed={isCpoActive}
-            onClick={onCpoClick}
-            style={{
-              width: '100%',
-              border: isCpoActive ? '1px solid #60a5fa' : '1px solid #2a3852',
-              borderRadius: 6,
-              background: isCpoActive ? '#132847' : '#0d1728',
-              color: isCpoActive ? '#93c5fd' : '#d9e8ff',
-              fontSize: 12,
-              fontWeight: 600,
-              padding: '5px 10px',
-              cursor: 'pointer',
-              boxShadow: isCpoActive ? 'inset 0 0 0 1px rgba(96, 165, 250, 0.45)' : 'none',
-            }}
-          >
-            ← CPO
-          </button>
-        </div>
-      )}
-
       <div style={{ padding: 10, overflowY: 'auto', flex: 1 }}>
+        <Section title="Agents">
+          {persistentAgents.length === 0 ? (
+            <EmptyState text="No persistent agents." />
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {persistentAgents.map((agent) => {
+                const isActive =
+                  agent.isActive ||
+                  Boolean(activeSession && agent.sessionName && activeSession === agent.sessionName);
+                const canAttach = agent.isRunning && Boolean(agent.sessionName);
+
+                return (
+                  <div
+                    key={agent.role}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={isActive}
+                    onClick={canAttach ? () => onAgentClick(agent) : undefined}
+                    onKeyDown={
+                      canAttach
+                        ? (event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              onAgentClick(agent);
+                            }
+                          }
+                        : undefined
+                    }
+                    style={{
+                      border: isActive ? '1px solid #2563eb' : '1px solid #2a3852',
+                      borderRadius: 8,
+                      padding: 8,
+                      background: isActive ? '#132847' : '#0d1728',
+                      boxShadow: isActive ? 'inset 0 0 0 1px rgba(37, 99, 235, 0.45)' : 'none',
+                      cursor: canAttach ? 'pointer' : 'default',
+                      opacity: canAttach ? 1 : 0.7,
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span
+                        title={agent.isRunning ? 'tmux session running locally' : 'no local tmux session'}
+                        style={{
+                          width: 8,
+                          height: 8,
+                          minWidth: 8,
+                          borderRadius: '50%',
+                          background: agent.isRunning ? GREEN_DOT : GREY_DOT,
+                        }}
+                      />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 600,
+                            wordBreak: 'break-word',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          {agent.role}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: '#94a2bc',
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          {agent.sessionName ?? 'Not running locally'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Section>
+
         <Section title="Active Jobs">
           {pipeline.activeJobs.length === 0 ? (
             <EmptyState text="No active jobs." />

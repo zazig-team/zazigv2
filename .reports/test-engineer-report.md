@@ -1,46 +1,26 @@
 status: pass
 
-## Test files created (CLI unified search feature f9e28f8a)
+## Test files created (desktop-sidebar-persistent-agents-switching feature 434544fa)
 
-### 1. `tests/features/cli-unified-search-edge-function.test.ts` — 30 test cases
-- Edge function file existence at `supabase/functions/query-search/index.ts`
-- Auth: SUPABASE_SERVICE_ROLE_KEY, Authorization header presence check
-- CORS/OPTIONS handler
-- 400 response on missing/empty query (AC7)
-- Grouped response shape: ideas/features/jobs/total/items/count (AC1)
-- Type filter reads `type` param, accepts comma-separated values, skips untargeted tables (AC2/AC3)
-- Status filter applied to each queried table (AC4)
-- Pagination: limit default 20, cap 100, offset default 0, applied per entity type (AC5/AC6)
-- Ordering by `updated_at` descending (AC8)
-- Description truncated to 200 characters (AC9)
-- ilike injection safety: `%` and `_` escaped in query string; ilike on title+description (FC2)
-- Company isolation: `company_id` required and used in all table queries (FC1)
-- Zero-results: returns `items: []` with count 0 (FC3)
+### `tests/features/desktop-sidebar-persistent-agents-switching.test.ts` — 32 test cases
 
-### 2. `tests/features/cli-unified-search-command.test.ts` — 27 test cases
-- CLI command file existence at `packages/cli/src/commands/search.ts`
-- Auth pattern: getValidCredentials, loadConfig, DEFAULT_SUPABASE_ANON_KEY
-- Hits `query-search` endpoint via POST
-- Headers: Authorization Bearer, apikey, x-company-id
-- Positional query argument accepted (AC1)
-- --type, --status, --limit, --offset flags (AC2/AC3/AC4/AC5/AC6)
-- JSON stdout output with grouped shape, exits 0 on success
-- Error to stderr, exits 1 on error
-- Query validation guard (AC7)
-- Pagination footer: "Showing {range} of {total} (--limit N --offset N)" (AC10)
-- limit/offset forwarded to edge function POST body (AC5/AC6)
-- `search` command registered in `packages/cli/src/index.ts`
-- Regression guard: existing `--search` on ideas.ts not broken
+9 describe blocks covering all 7 acceptance criteria and 3 failure cases:
 
-## Total: 57 new test cases across 2 files
+1. **PipelineColumn: hardcoded CPO button is removed** (3 tests) — AC7
+2. **App.tsx: onCpoClick and isCpoActive are removed** (4 tests) — AC7
+3. **PipelineColumn: persistent agents rendered from status payload** (5 tests) — AC1, FC1
+4. **PipelineColumn: agent card liveness dot (green/grey)** (4 tests) — AC2
+5. **PipelineColumn: active agent card has blue highlight** (2 tests) — AC3
+6. **PipelineColumn: agent card click behavior** (3 tests) — AC4, AC5
+7. **App.tsx: agent switching goes through the transition queue** (6 tests) — AC4, AC6, FC2
+8. **PipelineColumn: non-running persistent agents shown greyed out** (2 tests) — AC5, FC3
+9. (All tests written to FAIL against current codebase — feature not yet implemented)
 
-## Notes
-- `tests/package.json` uses `vitest run` which auto-discovers recursively — no `package.json` changes needed.
-- All tests fail against the current codebase (neither file exists yet).
+No `package.json` changes needed — `vitest run` discovers recursively.
 
 ---
 
-## Previous report (desktop-expert-sessions-still-missing feature fd0d6fff)
+## Test files created (desktop-expert-sessions-still-missing feature fd0d6fff)
 
 ### 1. `tests/features/desktop-expert-sessions-sidebar.test.ts` — 12 test cases
 - `PipelineViewData` interface declares `expertSessions` field typed as array

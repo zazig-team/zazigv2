@@ -1,7 +1,11 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import PipelineColumn, { type PipelineJob } from './components/PipelineColumn';
+import PipelineColumn, {
+  type PersistentAgent,
+  type PipelineJob,
+} from './components/PipelineColumn';
 import { TerminalPane } from './components/TerminalPane';
+import { derivePersistentAgents, queuePersistentAgentSwitch } from './persistent-agents';
 
 const rootStyle: React.CSSProperties = {
   display: 'grid',
@@ -18,9 +22,19 @@ const terminalPaneStyle: React.CSSProperties = {
   minHeight: 0,
 };
 
+type AnyRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is AnyRecord {
+  return typeof value === 'object' && value !== null;
+}
+
+function asRecord(value: unknown): AnyRecord {
+  return isRecord(value) ? value : {};
+}
+
 export function App(): JSX.Element {
   const [activeSession, setActiveSession] = useState<string | null>(null);
-  const [isCpoActive, setIsCpoActive] = useState(false);
+  const [latestStatus, setLatestStatus] = useState<AnyRecord>({});
   const [terminalMessage, setTerminalMessage] = useState<string | undefined>(undefined);
   const activeSessionRef = useRef<string | null>(null);
   const transitionQueueRef = useRef(Promise.resolve());
@@ -33,16 +47,21 @@ export function App(): JSX.Element {
       });
   }, []);
 
-  const onCpoClick = useCallback(() => {
-    queueTerminalTransition(async () => {
-      setTerminalMessage(undefined);
-      await window.zazig.terminalDetach();
-      await window.zazig.terminalAttachDefault();
-      activeSessionRef.current = null;
-      setActiveSession(null);
-      setIsCpoActive(true);
+  useEffect(() => {
+    const unsubscribe = window.zazig.onPipelineUpdate((payload: unknown) => {
+      const root = asRecord(payload);
+      setLatestStatus(asRecord(root.status));
     });
-  }, [queueTerminalTransition]);
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  const persistentAgents = useMemo(
+    () => derivePersistentAgents(latestStatus, activeSession),
+    [latestStatus, activeSession],
+  );
 
   const onJobClick = useCallback(
     (job: PipelineJob) => {
@@ -53,7 +72,6 @@ export function App(): JSX.Element {
 
           activeSessionRef.current = null;
           setActiveSession(null);
-          setIsCpoActive(false);
           return;
         }
 
@@ -67,7 +85,20 @@ export function App(): JSX.Element {
 
         activeSessionRef.current = job.sessionName;
         setActiveSession(job.sessionName);
-        setIsCpoActive(false);
+      });
+    },
+    [queueTerminalTransition],
+  );
+
+  const onAgentClick = useCallback(
+    (agent: PersistentAgent) => {
+      queuePersistentAgentSwitch(agent, {
+        queueTerminalTransition,
+        terminalDetach: window.zazig.terminalDetach,
+        terminalAttach: window.zazig.terminalAttach,
+        setTerminalMessage,
+        setActiveSession,
+        activeSessionRef,
       });
     },
     [queueTerminalTransition],
@@ -86,7 +117,6 @@ export function App(): JSX.Element {
 
         activeSessionRef.current = null;
         setActiveSession(null);
-        setIsCpoActive(false);
       });
     },
     [onJobClick, queueTerminalTransition],
@@ -96,8 +126,8 @@ export function App(): JSX.Element {
     <div style={rootStyle}>
       <PipelineColumn
         activeSession={activeSession}
-        isCpoActive={isCpoActive}
-        onCpoClick={onCpoClick}
+        persistentAgents={persistentAgents}
+        onAgentClick={onAgentClick}
         onJobClick={onJobClick}
         onWatchClick={onWatchClick}
       />

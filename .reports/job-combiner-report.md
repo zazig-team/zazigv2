@@ -1,22 +1,22 @@
 status: success
-branch: feature/cli-unified-zazig-search-across-ideas-fe-f9e28f8a
+branch: feature/desktop-sidebar-lists-all-permanent-agen-434544fa
 merged:
-  - job/ac15f7de-1a59-410a-88a1-d029ce8cd23e
+  - job/62913dea-9c9c-41d0-be00-b15034a2c057
 conflicts_resolved: []
 failure_reason:
 
 ## Notes
 
-- Merged job/ac15f7de-1a59-410a-88a1-d029ce8cd23e cleanly with no conflicts.
-- CI workflow already exists on master — skipped injection.
-- Feature branch pushed to origin.
-- PR created: https://github.com/zazig-team/zazigv2/pull/395
+- Feature branch created from origin/master
+- Job branch merged with --no-ff strategy, no conflicts
+- CI workflow already exists on master branch — skipped injection
+- PR created: https://github.com/zazig-team/zazigv2/pull/397
 
 ## Changes merged
 
-- `packages/cli/src/commands/search.ts` — new unified search CLI command
-- `packages/cli/src/index.ts` — registers search command
-- `supabase/functions/query-search/index.ts` — edge function for search backend
-- `supabase/functions/query-search/deno.json` — Deno config for edge function
-- `tests/features/cli-unified-search-command.test.ts` — feature tests for CLI command
-- `tests/features/cli-unified-search-edge-function.test.ts` — feature tests for edge function
+- `.reports/senior-engineer-report.md` — updated
+- `.reports/test-engineer-report.md` — added
+- `packages/desktop/src/renderer/App.tsx` — updated with persistent agents integration
+- `packages/desktop/src/renderer/components/PipelineColumn.tsx` — updated to list all permanent agents
+- `packages/desktop/src/renderer/persistent-agents.ts` — new module for tracking persistent agents
+- `tests/features/desktop-sidebar-persistent-agents-switching.test.ts` — new feature tests

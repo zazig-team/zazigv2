@@ -1,6 +1,6 @@
 status: pass
-summary: Added migration 231 to normalize expert_sessions statuses to run, enforce the new status CHECK constraint, and drop completed_at safely.
+summary: Updated local-agent expert session lifecycle to write `run` at launch and never write any post-run completion status to the database.
 files_changed:
-  - supabase/migrations/231_expert_sessions_run_status_model.sql
-  - .reports/senior-engineer-report.md
-failure_reason: ""
+  - packages/local-agent/src/expert-session-manager.ts
+  - packages/local-agent/src/expert-session-manager.test.ts
+failure_reason:

@@ -1,16 +1,22 @@
 status: success
-branch: feature/desktop-expert-sessions-still-missing-fr-fd0d6fff
+branch: feature/desktop-sidebar-lists-all-permanent-agen-434544fa
 merged:
-  - job/7b18c39f-005e-48c1-8aa0-5e3f48a4f40d
-  - job/ca6ff165-c616-4720-a1ac-79ddc49f40af
-conflicts_resolved:
-  - file: .reports/senior-engineer-report.md, resolution: merged both job summaries and file lists, keeping all changed files from both branches
-failure_reason: ""
+  - job/62913dea-9c9c-41d0-be00-b15034a2c057
+conflicts_resolved: []
+failure_reason:
 
 ## Notes
 
-- Feature branch created locally from master (did not exist on remote)
-- Both job branches fetched and merged with --no-ff
-- Conflict in .reports/senior-engineer-report.md resolved by combining both summaries
-- CI workflow already exists on master — skipped injection
-- Branch pushed and PR created: https://github.com/zazig-team/zazigv2/pull/393
+- Feature branch created from origin/master
+- Job branch merged with --no-ff strategy, no conflicts
+- CI workflow already exists on master branch — skipped injection
+- PR created: https://github.com/zazig-team/zazigv2/pull/397
+
+## Changes merged
+
+- `.reports/senior-engineer-report.md` — updated
+- `.reports/test-engineer-report.md` — added
+- `packages/desktop/src/renderer/App.tsx` — updated with persistent agents integration
+- `packages/desktop/src/renderer/components/PipelineColumn.tsx` — updated to list all permanent agents
+- `packages/desktop/src/renderer/persistent-agents.ts` — new module for tracking persistent agents
+- `tests/features/desktop-sidebar-persistent-agents-switching.test.ts` — new feature tests

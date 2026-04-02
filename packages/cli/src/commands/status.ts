@@ -325,12 +325,14 @@ async function statusJson(): Promise<void> {
           "status": String(agent.status ?? "unknown"),
         }));
 
+        const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
         const expertSessions = await apiFetch(
           `${creds.supabaseUrl}/rest/v1/expert_sessions` +
             `?select=id,status,created_at,expert_roles(name)` +
             `&company_id=in.(${companyIds.join(",")})` +
             `&machine_id=eq.${encodeURIComponent(machineId)}` +
-            `&status=in.(requested,claimed,starting,running,active)`,
+            `&status=in.(requested,claimed,starting,run)` +
+            `&created_at=gt.${twoDaysAgo}`,
           headers
         );
         output.expert_sessions = expertSessions.map((session) => ({

@@ -1,4 +1,19 @@
 status: pass
+summary: Updated PipelineColumn.tsx expert session cards to use onExpertClick callback prop with proper isActive guard, blue active highlight styling, and onKeyDown handler.
+files_changed:
+  - packages/desktop/src/renderer/components/PipelineColumn.tsx
+failure_reason:
+
+---
+
+summary: Added the desktop IPC channel constant for expert session auto-switch and exposed an `onExpertSessionAutoSwitch` listener on the preload `zazig` bridge.
+files_changed:
+  - packages/desktop/src/main/ipc-channels.ts
+  - packages/desktop/src/main/preload.ts
+failure_reason:
+
+---
+
 summary: Added status whitelist (requested, claimed, starting, run) and 2-day recency filter to expert_sessions query in status.ts
 files_changed:
   - packages/cli/src/commands/status.ts

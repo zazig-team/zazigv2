@@ -1,6 +1,4 @@
 status: pass
-summary: Added the desktop IPC channel constant for expert session auto-switch and exposed an `onExpertSessionAutoSwitch` listener on the preload `zazig` bridge.
+summary: Updated PipelineColumn.tsx expert session cards to use onExpertClick callback prop with proper isActive guard, blue active highlight styling, and onKeyDown handler.
 files_changed:
-  - packages/desktop/src/main/ipc-channels.ts
-  - packages/desktop/src/main/preload.ts
-failure_reason: 
+  - packages/desktop/src/renderer/components/PipelineColumn.tsx

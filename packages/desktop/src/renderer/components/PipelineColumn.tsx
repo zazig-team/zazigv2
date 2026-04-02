@@ -691,7 +691,7 @@ export default function PipelineColumn({
           <Section title="Expert Sessions">
             <div style={{ display: 'grid', gap: 8 }}>
               {pipeline.expertSessions.map((session) => {
-                const isActive = activeSession === session.sessionId;
+                const isActive = Boolean(activeSession && session.sessionId && activeSession === session.sessionId);
 
                 return (
                   <div

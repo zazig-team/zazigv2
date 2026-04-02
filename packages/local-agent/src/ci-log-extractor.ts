@@ -115,6 +115,10 @@ export function extractFailureSummary(rawLog: string, runId?: string | number): 
     summary = trimTrailingBlankLines(lines.slice(-200)).join("\n").trim();
   }
 
+  if (!summary) {
+    summary = "No failure summary could be extracted from the CI log.";
+  }
+
   return truncateToByteLimit(summary, runId);
 }
 

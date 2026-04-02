@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
 import {
   COMPANIES_LOADED,
+  EXPERT_SESSION_AUTO_SWITCH,
   PIPELINE_UPDATE,
   SAVE_ATTACHMENT,
   SELECT_COMPANY,
@@ -16,6 +17,7 @@ import {
 type PipelineUpdateCallback = (payload: unknown) => void;
 type TerminalOutputCallback = (payload: string) => void;
 type CompaniesLoadedCallback = (payload: unknown) => void;
+type ExpertSessionAutoSwitchCallback = (payload: unknown) => void;
 type Unsubscribe = () => void;
 
 function subscribe<T>(channel: string, callback: (payload: T) => void): Unsubscribe {
@@ -53,6 +55,9 @@ const zazigBridge = {
   },
   onCompaniesLoaded(callback: CompaniesLoadedCallback): Unsubscribe {
     return subscribe(COMPANIES_LOADED, callback);
+  },
+  onExpertSessionAutoSwitch(callback: ExpertSessionAutoSwitchCallback): Unsubscribe {
+    return subscribe(EXPERT_SESSION_AUTO_SWITCH, callback);
   },
   selectCompany(id: string): void {
     ipcRenderer.send(SELECT_COMPANY, id);

@@ -1,4 +1,12 @@
 status: pass
+summary: Added the desktop IPC channel constant for expert session auto-switch and exposed an `onExpertSessionAutoSwitch` listener on the preload `zazig` bridge.
+files_changed:
+  - packages/desktop/src/main/ipc-channels.ts
+  - packages/desktop/src/main/preload.ts
+failure_reason:
+
+---
+
 summary: Added status whitelist (requested, claimed, starting, run) and 2-day recency filter to expert_sessions query in status.ts
 files_changed:
   - packages/cli/src/commands/status.ts

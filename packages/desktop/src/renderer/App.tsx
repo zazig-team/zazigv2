@@ -143,9 +143,7 @@ export function App(): JSX.Element {
     [onJobClick, queueTerminalTransition],
   );
 
-  const onExpertClick = useCallback((sessionId: string) => {
-    if (!sessionId) return;
-
+  const transitionQueue = useCallback((sessionId: string, errorContext: string) => {
     transitionQueueRef.current = transitionQueueRef.current
       .then(async () => {
         setTerminalMessage(undefined);
@@ -160,9 +158,14 @@ export function App(): JSX.Element {
         setActiveSession(sessionId);
       })
       .catch((error) => {
-        console.error('[desktop] Failed to switch terminal session', error);
+        console.error(`[desktop] Failed to switch terminal session (${errorContext})`, error);
       });
   }, []);
+
+  const onExpertClick = useCallback((sessionId: string) => {
+    if (!sessionId) return;
+    transitionQueue(sessionId, 'manual expert session click');
+  }, [transitionQueue]);
 
   useEffect(() => {
     const EXPERT_SESSION_AUTO_SWITCH_EVENT = 'expert-session:auto-switch';
@@ -172,28 +175,13 @@ export function App(): JSX.Element {
         return;
       }
 
-      transitionQueueRef.current = transitionQueueRef.current
-        .then(async () => {
-          setTerminalMessage(undefined);
-
-          const previousSession = activeSessionRef.current;
-          if (previousSession !== sessionId) {
-            await window.zazig.terminalDetach();
-            await window.zazig.terminalAttach(sessionId);
-          }
-
-          activeSessionRef.current = sessionId;
-          setActiveSession(sessionId);
-        })
-        .catch((error) => {
-          console.error(`[desktop] Failed to handle ${EXPERT_SESSION_AUTO_SWITCH_EVENT}`, error);
-        });
+      transitionQueue(sessionId, EXPERT_SESSION_AUTO_SWITCH_EVENT);
     });
 
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [transitionQueue]);
 
   return (
     <div style={rootStyle}>

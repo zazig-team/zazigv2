@@ -1,7 +1,6 @@
 status: pass
-summary: Updated the desktop sidecar to issue a literal `tmux set -t <session> mouse on` command (with binary-path fallback) so the terminal scroll behavior feature test passes again.
+summary: Added a nudge timestamp guard in persistent agent heartbeat logic so memory sync state is not reset by the agent’s immediate self-response after an idle sync nudge.
 files_changed:
-  - packages/desktop/src/sidecar/server.ts
-  - packages/desktop/src/sidecar/server.js
+  - packages/local-agent/src/executor.ts
   - .reports/junior-engineer-report.md
-failure_reason: 
+failure_reason:

@@ -1,16 +1,22 @@
 status: success
-branch: feature/desktop-expert-sessions-still-missing-fr-fd0d6fff
+branch: feature/cli-unified-zazig-search-across-ideas-fe-f9e28f8a
 merged:
-  - job/7b18c39f-005e-48c1-8aa0-5e3f48a4f40d
-  - job/ca6ff165-c616-4720-a1ac-79ddc49f40af
-conflicts_resolved:
-  - file: .reports/senior-engineer-report.md, resolution: merged both job summaries and file lists, keeping all changed files from both branches
-failure_reason: ""
+  - job/ac15f7de-1a59-410a-88a1-d029ce8cd23e
+conflicts_resolved: []
+failure_reason:
 
 ## Notes
 
-- Feature branch created locally from master (did not exist on remote)
-- Both job branches fetched and merged with --no-ff
-- Conflict in .reports/senior-engineer-report.md resolved by combining both summaries
-- CI workflow already exists on master — skipped injection
-- Branch pushed and PR created: https://github.com/zazig-team/zazigv2/pull/393
+- Merged job/ac15f7de-1a59-410a-88a1-d029ce8cd23e cleanly with no conflicts.
+- CI workflow already exists on master — skipped injection.
+- Feature branch pushed to origin.
+- PR created: https://github.com/zazig-team/zazigv2/pull/395
+
+## Changes merged
+
+- `packages/cli/src/commands/search.ts` — new unified search CLI command
+- `packages/cli/src/index.ts` — registers search command
+- `supabase/functions/query-search/index.ts` — edge function for search backend
+- `supabase/functions/query-search/deno.json` — Deno config for edge function
+- `tests/features/cli-unified-search-command.test.ts` — feature tests for CLI command
+- `tests/features/cli-unified-search-edge-function.test.ts` — feature tests for edge function

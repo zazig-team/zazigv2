@@ -1,7 +1,7 @@
 status: pass
-summary: Updated the desktop poller to forward normalized expert session data and auto-attach only newly discovered expert tmux sessions after a first-poll baseline. Implemented expert session parsing and rendering in the desktop Pipeline sidebar, including click-to-attach cards and conditional section visibility.
+summary: Implemented a new Supabase Edge Function at `supabase/functions/query-search/index.ts` to perform company-scoped, safe, paginated unified search across ideas, features, and jobs with grouped counts and totals.
 files_changed:
-  - packages/desktop/src/main/poller.ts
-  - packages/desktop/src/renderer/components/PipelineColumn.tsx
+  - supabase/functions/query-search/index.ts
+  - supabase/functions/query-search/deno.json
   - .reports/senior-engineer-report.md
-failure_reason: ""
+failure_reason: 

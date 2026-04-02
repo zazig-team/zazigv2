@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -25,6 +25,7 @@ const terminalHostStyle: React.CSSProperties = {
   padding: '12px',
   boxSizing: 'border-box',
   background: '#0d1117',
+  overflow: 'hidden',
 };
 
 const disconnectedStyle: React.CSSProperties = {
@@ -155,12 +156,17 @@ export function TerminalPane({ message }: TerminalPaneProps): JSX.Element {
     setDisconnected(false);
   }, [message]);
 
+  const handleMouseEnter = useCallback(() => {
+    terminalRef.current?.focus();
+  }, []);
+
   return (
     <div
-      style={{ position: 'relative', width: '100%', height: '100%' }}
+      style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
+      onMouseEnter={handleMouseEnter}
     >
       <div ref={containerRef} style={terminalHostStyle} />
       {disconnected ? <div style={disconnectedStyle}>Disconnected</div> : null}

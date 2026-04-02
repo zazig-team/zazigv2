@@ -20,6 +20,7 @@ const rootStyle: React.CSSProperties = {
 const terminalPaneStyle: React.CSSProperties = {
   minWidth: 0,
   minHeight: 0,
+  overflow: 'hidden',
 };
 
 type AnyRecord = Record<string, unknown>;

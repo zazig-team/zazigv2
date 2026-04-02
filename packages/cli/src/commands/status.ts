@@ -331,7 +331,7 @@ async function statusJson(): Promise<void> {
             `?select=id,status,created_at,expert_roles(name)` +
             `&company_id=in.(${companyIds.join(",")})` +
             `&machine_id=eq.${encodeURIComponent(machineId)}` +
-            `&status=in.(requested,claimed,starting,run)` +
+            `&status=in.("requested","claimed","starting","run")` +
             `&created_at=gt.${twoDaysAgo}`,
           headers
         );

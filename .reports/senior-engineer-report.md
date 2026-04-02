@@ -1,6 +1,8 @@
 status: pass
-summary: Added migration 231 to normalize expert_sessions statuses to run, enforce the new status CHECK constraint, and drop completed_at safely.
+summary: Implemented tmux-based liveness detection for expert sessions — poller enriches run sessions with tmux_alive field, sidebar shows green dot for alive sessions and hides dead ones, transient statuses show yellow indicator.
 files_changed:
-  - supabase/migrations/231_expert_sessions_run_status_model.sql
+  - packages/desktop/src/main/poller.ts
+  - packages/desktop/src/renderer/components/PipelineColumn.tsx
+  - packages/cli/src/commands/status.ts
   - .reports/senior-engineer-report.md
 failure_reason: ""

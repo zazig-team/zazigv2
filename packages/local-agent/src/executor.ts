@@ -557,6 +557,8 @@ interface ActivePersistentAgent {
   resetInProgress: boolean;
   /** Timestamp of last memory sync nudge, or null if not yet nudged this idle period. */
   lastMemorySyncAt: number | null;
+  /** Timestamp of most recent nudge injection, used to ignore immediate self-response output changes. */
+  lastMemorySyncNudgedAt: number | null;
   /** Whether agent was active since last memory sync (used to reset sync state). */
   wasActiveAfterSync: boolean;
 }
@@ -2074,6 +2076,7 @@ export class JobExecutor {
       originalJob: { ...msg, companyProjects: msg.companyProjects ? [...msg.companyProjects] : undefined },
       resetInProgress: false,
       lastMemorySyncAt: null,
+      lastMemorySyncNudgedAt: null,
       wasActiveAfterSync: false,
     };
     this.persistentAgents.set(role, persistentAgent);
@@ -2090,10 +2093,16 @@ export class JobExecutor {
           const outputHash = createHash("sha256").update(captureOutput).digest("hex");
           const changed = outputHash !== persistentAgent.lastOutputHash;
           if (changed) {
+            const now = Date.now();
             persistentAgent.lastOutputHash = outputHash;
-            persistentAgent.lastActivityAt = Date.now();
-            // Agent became active — reset sync state so next idle period gets a fresh nudge
-            persistentAgent.lastMemorySyncAt = null;
+            persistentAgent.lastActivityAt = now;
+            // Ignore output changes immediately after our sync nudge to avoid re-nudging loops.
+            const recentlyNudged = persistentAgent.lastMemorySyncNudgedAt !== null &&
+              (now - persistentAgent.lastMemorySyncNudgedAt) < 60_000;
+            if (!recentlyNudged) {
+              // Agent became active — reset sync state so next idle period gets a fresh nudge
+              persistentAgent.lastMemorySyncAt = null;
+            }
             persistentAgent.wasActiveAfterSync = true;
           }
           console.log(
@@ -2108,7 +2117,9 @@ export class JobExecutor {
             !persistentAgent.resetInProgress;
 
           if (shouldNudge) {
-            persistentAgent.lastMemorySyncAt = Date.now();
+            const now = Date.now();
+            persistentAgent.lastMemorySyncAt = now;
+            persistentAgent.lastMemorySyncNudgedAt = now;
             const syncPrompt =
               "Review this session. If anything worth remembering happened — decisions, preferences, corrections, context — update your .memory/ files. Remove or update any stale memories. If nothing notable, do nothing.";
             try {

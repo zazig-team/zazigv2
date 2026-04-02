@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -109,6 +109,16 @@ export function TerminalPane({ message }: TerminalPaneProps): JSX.Element {
     fitAddon.fit();
     terminalRef.current = terminal;
 
+    // When the application inside the terminal enables mouse tracking (e.g.
+    // Claude Code's TUI), xterm.js forwards wheel events to the app as mouse
+    // escape sequences instead of scrolling the terminal viewport.  Override
+    // this so wheel always scrolls the terminal's scrollback buffer.
+    terminal.attachCustomWheelEventHandler((event: WheelEvent) => {
+      const lines = Math.ceil(Math.abs(event.deltaY) / 25);
+      terminal.scrollLines(event.deltaY > 0 ? lines : -lines);
+      return false; // prevent xterm from forwarding to the app
+    });
+
     const onOutputUnsubscribe = window.zazig.onTerminalOutput((data) => {
       if (data === '') {
         setDisconnected(true);
@@ -156,17 +166,12 @@ export function TerminalPane({ message }: TerminalPaneProps): JSX.Element {
     setDisconnected(false);
   }, [message]);
 
-  const handleMouseEnter = useCallback(() => {
-    terminalRef.current?.focus();
-  }, []);
-
   return (
     <div
       style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      onMouseEnter={handleMouseEnter}
     >
       <div ref={containerRef} style={terminalHostStyle} />
       {disconnected ? <div style={disconnectedStyle}>Disconnected</div> : null}

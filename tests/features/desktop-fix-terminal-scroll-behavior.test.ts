@@ -42,7 +42,7 @@ function readRepoFile(relPath: string): string | null {
 // AC1 / AC2 / AC3: Custom wheel handler removed — native xterm.js scroll
 // ---------------------------------------------------------------------------
 
-describe('AC1/AC2/AC3: attachCustomWheelEventHandler is removed', () => {
+describe('AC1/AC2/AC3: wheel events scroll the terminal viewport', () => {
   let content: string | null;
 
   beforeAll(() => {
@@ -53,25 +53,24 @@ describe('AC1/AC2/AC3: attachCustomWheelEventHandler is removed', () => {
     expect(content, `File not found: ${TERMINAL_PANE}`).not.toBeNull();
   });
 
-  it('does not call terminal.attachCustomWheelEventHandler', () => {
-    // The wheel handler must be removed so scroll events are handled natively by xterm.js
-    expect(content).not.toMatch(/attachCustomWheelEventHandler/);
+  it('uses attachCustomWheelEventHandler to intercept wheel events', () => {
+    // The wheel handler overrides xterm's default behavior of forwarding
+    // wheel events to the running app as mouse escape sequences, and instead
+    // scrolls the terminal viewport via terminal.scrollLines()
+    expect(content).toMatch(/attachCustomWheelEventHandler/);
   });
 
-  it('does not send arrow-up escape sequence to PTY on wheel scroll', () => {
-    // Arrow-up escape (\x1b[A) must not appear inside a wheel event handler
-    // Since the handler is removed, this checks it is not referenced at all
-    // in the context of wheel/scroll handling
-    expect(content).not.toMatch(/wheelHandler|customWheelEvent/);
+  it('calls terminal.scrollLines() inside the wheel handler', () => {
+    // Wheel events must scroll the terminal viewport, not be forwarded to the app
+    expect(content).toMatch(/scrollLines/);
   });
 
-  it('does not send arrow-down escape sequence to PTY on wheel scroll', () => {
-    // Arrow-down escape (\x1b[B) must not appear inside a wheel event handler
+  it('does not send arrow key escape sequences to PTY on wheel scroll', () => {
+    // Arrow-up/down escapes (\x1b[A / \x1b[B) must not appear in wheel handling
     expect(content).not.toMatch(/wheelHandler|customWheelEvent/);
   });
 
   it('wheel handler dispose is not in the cleanup function', () => {
-    // If wheelHandler was removed, wheelHandler.dispose() should also be gone
     expect(content).not.toMatch(/wheelHandler\.dispose\s*\(\)/);
   });
 });

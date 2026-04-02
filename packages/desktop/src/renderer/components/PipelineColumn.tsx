@@ -49,8 +49,6 @@ interface PipelineColumnProps {
   activeSession: string | null;
   persistentAgents: PersistentAgent[];
   onAgentClick: (agent: PersistentAgent) => void;
-  isCpoActive?: boolean;
-  onCpoClick?: () => void;
   onExpertClick?: (sessionId: string) => void;
   onJobClick: (job: PipelineJob) => void;
   onWatchClick: (job: PipelineJob) => void;
@@ -585,8 +583,6 @@ export default function PipelineColumn({
   activeSession,
   persistentAgents: appPersistentAgents,
   onAgentClick,
-  isCpoActive = false,
-  onCpoClick,
   onExpertClick,
   onJobClick,
   onWatchClick,

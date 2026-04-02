@@ -67,6 +67,14 @@ interface ExpertSessionManagerOpts {
   repoManager: RepoManager;
 }
 
+type ExpertSessionStatus =
+  | "requested"
+  | "claimed"
+  | "starting"
+  | 'run'
+  | "failed"
+  | "cancelled";
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -428,7 +436,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
         return;
       }
 
-      await this.updateSessionStatus(sessionId, "running");
+      await this.updateSessionStatus(sessionId, 'run');
 
       const sessionState: ExpertSessionState = {
         sessionId,
@@ -480,8 +488,8 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
       return;
     }
 
-    // 11. Update DB: expert_sessions → running
-    await this.updateSessionStatus(sessionId, "running");
+    // 11. Update DB: expert_sessions → run
+    await this.updateSessionStatus(sessionId, 'run');
 
     // 11b. Inject "Do Task" prompt after startup delay so the expert begins work
     const EXPERT_STARTUP_DELAY_MS = 15_000;
@@ -527,14 +535,11 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
   // Helpers
   // ---------------------------------------------------------------------------
 
-  private async updateSessionStatus(sessionId: string, status: string): Promise<void> {
+  private async updateSessionStatus(sessionId: string, status: ExpertSessionStatus): Promise<void> {
     try {
       const update: Record<string, unknown> = { status };
-      if (status === "running") {
+      if (status === 'run') {
         update.started_at = new Date().toISOString();
-      }
-      if (status === "completed") {
-        update.completed_at = new Date().toISOString();
       }
       const { error, data } = await this.supabase
         .from("expert_sessions")
@@ -669,7 +674,6 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
       this.activePollers.delete(session.sessionId);
     }
 
-    await this.updateSessionStatus(session.sessionId, "completed");
     await this.injectSummaryIntoCpo(session);
     await this.switchViewerToCpo(session);
     await this.pushUnpushedCommits(session);

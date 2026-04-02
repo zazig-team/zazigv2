@@ -31,6 +31,7 @@ interface SidebarExpertSession {
   roleName: string;
   sessionId: string;
   status: string;
+  tmuxAlive: boolean;
 }
 
 interface PipelineViewData {
@@ -73,6 +74,7 @@ type WindowWithZazig = Window & {
 const SIDEBAR_WIDTH = 280;
 const GREEN_DOT = '#22c55e';
 const GREY_DOT = '#737d92';
+const YELLOW_DOT = '#eab308';
 
 const PLACEHOLDER_PIPELINE: PipelineViewData = {
   companyName: 'Acme Labs',
@@ -415,6 +417,8 @@ function getQueuedJobs(status: AnyRecord): QueuedJob[] {
   });
 }
 
+const TRANSIENT_EXPERT_STATUSES = new Set(['requested', 'claimed', 'starting']);
+
 function getExpertSessions(status: AnyRecord): SidebarExpertSession[] {
   const expertSessions = asRecordArray(
     status.expert_sessions ?? status.expertSessions,
@@ -435,15 +439,25 @@ function getExpertSessions(status: AnyRecord): SidebarExpertSession[] {
         getString(session.session_name);
       const statusValue = getString(session.status, 'unknown');
       const id = getString(session.id, `expert-session-${index + 1}`);
+      // For 'run' sessions, tmux_alive from the poller determines visibility.
+      // Transient sessions (requested, claimed, starting) are always shown.
+      const tmuxAlive = statusValue === 'run' ? Boolean(session.tmux_alive) : true;
 
       return {
         id,
         roleName: roleName || `Expert ${index + 1}`,
         sessionId,
         status: statusValue,
+        tmuxAlive,
       };
     })
-    .filter((session) => session.sessionId.length > 0);
+    .filter((session) => session.sessionId.length > 0)
+    .filter((session) => {
+      // Hide run sessions whose tmux window is not alive
+      if (session.status === 'run') return session.tmuxAlive;
+      // Only show transient pending statuses
+      return TRANSIENT_EXPERT_STATUSES.has(session.status);
+    });
 }
 
 function parsePipelinePayload(payload: unknown): PipelineViewData {
@@ -853,12 +867,15 @@ export default function PipelineColumn({
                 >
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <span
+                      title={session.status === 'run' && session.tmuxAlive ? 'tmux session alive' : 'starting'}
                       style={{
                         width: 8,
                         height: 8,
                         minWidth: 8,
                         borderRadius: '50%',
-                        background: session.status === 'active' ? GREEN_DOT : GREY_DOT,
+                        background: session.status === 'run' && session.tmuxAlive
+                          ? GREEN_DOT
+                          : YELLOW_DOT,
                       }}
                     />
                     <div style={{ minWidth: 0, flex: 1 }}>

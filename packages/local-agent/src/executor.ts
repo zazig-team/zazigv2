@@ -28,6 +28,7 @@ import type { StartJob, StopJob, AgentMessage, FailureReason, SlotType, MessageI
 import { PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
 import { generateExecSkill, publishSharedExecSkill, setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
+import { extractFailureSummary, extractWorkspaceName } from "./ci-log-extractor.js";
 
 /**
  * Resolve the MCP server path — prefers compiled binary in ~/.zazigv2/bin/,
@@ -107,6 +108,39 @@ interface MasterCiMonitorDeps {
     tag: string;
     status: "complete";
   }) => Promise<{ data?: MasterCiFeature[] | null }>;
+}
+
+function buildMasterCIFailureSpec(params: {
+  runId: number;
+  headSha: string;
+  stepName: string;
+  logOutput: string;
+  ownerRepo: string;
+  workspaceName: string | null;
+}): string {
+  // logOutput is pre-extracted: ANSI stripped, 8KB (8192-byte) cap enforced by extractFailureSummary.
+  const lines = [
+    `Master CI run: ${params.runId}`,
+    `Commit SHA: ${params.headSha}`,
+    `Failed step: ${params.stepName}`,
+  ];
+
+  if (params.workspaceName) {
+    lines.push(`Failed workspace: ${params.workspaceName}`);
+  }
+
+  lines.push(
+    "",
+    "FAILURE SUMMARY:",
+    params.logOutput,
+    "",
+    "HOW TO REPRODUCE:",
+    `gh run view ${params.runId} --repo ${params.ownerRepo} --log-failed`,
+    "",
+    "Investigate and fix the root cause of this CI failure so master goes green.",
+  );
+
+  return lines.join("\n");
 }
 
 export class MasterCiMonitor {
@@ -212,16 +246,14 @@ export class MasterCiMonitor {
       await this.createFeature({
         title: `Fix master CI failure — ${stepName}`,
         description: `Automated fix for master CI failure on commit ${headSha}. Failed step: ${stepName}.`,
-        spec: [
-          `Master CI run: ${runId}`,
-          `Commit SHA: ${headSha}`,
-          `Failed step: ${stepName}`,
-          "",
-          "Failure log output:",
-          failureDetails.logOutput,
-          "",
-          "Investigate and fix the root cause of this CI failure so master goes green.",
-        ].join("\n"),
+        spec: buildMasterCIFailureSpec({
+          runId,
+          headSha,
+          stepName,
+          logOutput: failureDetails.logOutput,
+          ownerRepo: `${this.owner}/${this.repo}`,
+          workspaceName: null,
+        }),
         tags: ["master-ci-fix", `fix-generation:${generation}`],
         priority: "high",
         fast_track: true,
@@ -1501,6 +1533,7 @@ export class JobExecutor {
       const failureLogs = await this.fetchCIFailureLogs(runId);
       const stepName = failureLogs?.stepName?.trim() || "unknown step";
       const logOutput = failureLogs?.logOutput?.trim() || `No failure log output available for run ${runId}.`;
+      const workspaceName = failureLogs?.workspaceName ?? null;
       const normalizedHeadSha = headSha.trim().length > 0 ? headSha : "unknown";
 
       if (!this.companyId) {
@@ -1522,16 +1555,16 @@ export class JobExecutor {
 
       const featureTitle = `Fix master CI failure — ${stepName}`;
       const featureDescription = `Automated fix for master CI failure on commit ${normalizedHeadSha}. Failed step: ${stepName}.`;
-      const featureSpec = [
-        `Master CI run: ${runId}`,
-        `Commit SHA: ${normalizedHeadSha}`,
-        `Failed step: ${stepName}`,
-        "",
-        "Failure log output:",
+      const repoMatch = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+      const ownerRepo = failureLogs?.ownerRepo ?? repoMatch?.[1] ?? "owner/repo";
+      const featureSpec = buildMasterCIFailureSpec({
+        runId,
+        headSha: normalizedHeadSha,
+        stepName,
         logOutput,
-        "",
-        "Investigate and fix the root cause of this CI failure so master goes green.",
-      ].join("\n");
+        ownerRepo,
+        workspaceName,
+      });
 
       const cliArgs = [
         "create-feature",
@@ -1561,7 +1594,12 @@ export class JobExecutor {
     }
   }
 
-  private async fetchCIFailureLogs(runId: number): Promise<{ stepName: string; logOutput: string } | null> {
+  private async fetchCIFailureLogs(runId: number): Promise<{
+    stepName: string;
+    logOutput: string;
+    workspaceName: string | null;
+    ownerRepo: string;
+  } | null> {
     const repoUrl = this.companyProjects[0]?.repo_url;
     if (!repoUrl) return null;
 
@@ -1602,13 +1640,18 @@ export class JobExecutor {
       }
 
       let logOutput = "";
+      let workspaceName: string | null = null;
       try {
         const { stdout: failedLogStdout } = await execFileAsync(
           "gh",
           ["run", "view", String(runId), "--repo", ownerRepo, "--log-failed"],
           { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 },
         );
-        logOutput = failedLogStdout.trim();
+        const rawLogOutput = failedLogStdout.trim();
+        if (rawLogOutput.length > 0) {
+          logOutput = extractFailureSummary(rawLogOutput, runId);
+          workspaceName = extractWorkspaceName(rawLogOutput);
+        }
       } catch (err) {
         console.warn(`[CI Monitor] Failed to fetch failed log output for run ${runId}: ${String(err)}`);
       }
@@ -1617,7 +1660,7 @@ export class JobExecutor {
         logOutput = `No failure log output available for run ${runId}.`;
       }
 
-      return { stepName, logOutput };
+      return { stepName, logOutput, workspaceName, ownerRepo };
     } catch (err) {
       console.warn(`[CI Monitor] Failed to fetch CI failure context for run ${runId}: ${String(err)}`);
       return null;

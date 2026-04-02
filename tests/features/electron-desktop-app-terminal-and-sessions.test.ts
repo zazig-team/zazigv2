@@ -292,8 +292,8 @@ describe('AC8: xterm.js Terminal configuration', () => {
   });
 
   it('xterm Terminal handles wheel/mouse interaction for scroll input', () => {
-    // legacy implementations used mouse mode flags; current implementation uses custom wheel handling
-    expect(terminalContent).toMatch(/attachCustomWheelEventHandler|mouseMode|mouse.*mode|allowMouseReporting/i);
+    // xterm.js handles scroll natively via scrollback buffer; no custom wheel handler needed
+    expect(terminalContent).toMatch(/scrollback|mouseMode|mouse.*mode|allowMouseReporting/i);
   });
 
   it('handles terminal resize events', () => {

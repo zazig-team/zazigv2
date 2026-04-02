@@ -28,6 +28,7 @@ import { stagingFix } from "./commands/staging-fix.js";
 import { snapshot } from "./commands/snapshot.js";
 import { ideas } from "./commands/ideas.js";
 import { features } from "./commands/features.js";
+import { search } from "./commands/search.js";
 import { jobs } from "./commands/jobs.js";
 import { projects } from "./commands/projects.js";
 import { standup } from "./commands/standup.js";
@@ -120,6 +121,10 @@ switch (cmd) {
 
   case "features":
     await features(args);
+    break;
+
+  case "search":
+    await search(args);
     break;
 
   case "jobs":
@@ -219,6 +224,7 @@ switch (cmd) {
     console.log("  standup --company <company-id>   Print standup summary (or JSON with --json)");
     console.log("  ideas --company <company-id>     Query ideas (supports filter flags)");
     console.log("  features --company <company-id>  Query features (project/status/id filters)");
+    console.log("  search <query> --company <id>    Search across ideas, features, and jobs");
     console.log("  jobs --company <company-id>      Query jobs (id/feature-id/status filters)");
     console.log("  projects --company <company-id>  List projects (optional --include-features)");
     console.log("  create-feature --company <company-id>  Create a feature");

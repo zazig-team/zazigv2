@@ -1,16 +1,17 @@
 status: success
-branch: feature/desktop-expert-sessions-still-missing-fr-fd0d6fff
+branch: feature/expert-session-liveness-tmux-as-source-o-3b53251b
 merged:
-  - job/7b18c39f-005e-48c1-8aa0-5e3f48a4f40d
-  - job/ca6ff165-c616-4720-a1ac-79ddc49f40af
+  - job/fc3a00f7-ece2-4bfa-813e-b29e41aa1e93
+  - job/f6892343-093c-4049-ade9-d2dd63ae4e49
+  - job/a48076ca-ad09-4058-8755-d64accde03fa
 conflicts_resolved:
-  - file: .reports/senior-engineer-report.md, resolution: merged both job summaries and file lists, keeping all changed files from both branches
-failure_reason: ""
+  - {file: .reports/senior-engineer-report.md, resolution: merged both summaries — tmux liveness detection from job/fc3a00f7 and local-agent run status lifecycle from job/f6892343}
+  - {file: .reports/junior-engineer-report.md, resolution: merged both summaries — CLI status whitelist/recency filter from job/fc3a00f7 and orchestrator run status update from job/a48076ca}
+failure_reason:
 
 ## Notes
 
-- Feature branch created locally from master (did not exist on remote)
-- Both job branches fetched and merged with --no-ff
-- Conflict in .reports/senior-engineer-report.md resolved by combining both summaries
+- All three job branches fetched and merged with --no-ff
+- Conflicts were only in report files (.reports/senior-engineer-report.md and .reports/junior-engineer-report.md), resolved by combining both summaries
 - CI workflow already exists on master — skipped injection
-- Branch pushed and PR created: https://github.com/zazig-team/zazigv2/pull/393
+- Branch pushed and PR created: https://github.com/zazig-team/zazigv2/pull/398

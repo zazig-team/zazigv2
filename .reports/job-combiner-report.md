@@ -1,16 +1,21 @@
 status: success
-branch: feature/desktop-expert-sessions-still-missing-fr-fd0d6fff
+branch: feature/desktop-fix-terminal-scroll-behavior-330b7293
 merged:
-  - job/7b18c39f-005e-48c1-8aa0-5e3f48a4f40d
-  - job/ca6ff165-c616-4720-a1ac-79ddc49f40af
-conflicts_resolved:
-  - file: .reports/senior-engineer-report.md, resolution: merged both job summaries and file lists, keeping all changed files from both branches
+  - job/90de5867-5c49-461c-a102-2e39626c01e4
+conflicts_resolved: []
 failure_reason: ""
 
 ## Notes
 
-- Feature branch created locally from master (did not exist on remote)
-- Both job branches fetched and merged with --no-ff
-- Conflict in .reports/senior-engineer-report.md resolved by combining both summaries
+- Feature branch created from origin/master (did not exist remotely)
+- Job branch merged with --no-ff, no conflicts
 - CI workflow already exists on master — skipped injection
-- Branch pushed and PR created: https://github.com/zazig-team/zazigv2/pull/393
+- Feature branch pushed and PR created: https://github.com/zazig-team/zazigv2/pull/394
+
+## Changes merged
+
+- `packages/desktop/src/renderer/components/TerminalPane.tsx` — terminal scroll behavior fix
+- `tests/features/desktop-fix-terminal-scroll-behavior.test.ts` — new test file (renamed from old)
+- `tests/features/desktop-terminal-scroll-wheel-fix.test.ts` — deleted (replaced by above)
+- `.reports/junior-engineer-report.md` — updated report
+- `.reports/test-engineer-report.md` — new test report

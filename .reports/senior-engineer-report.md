@@ -1,7 +1,6 @@
 status: pass
-summary: Updated the desktop poller to forward normalized expert session data and auto-attach only newly discovered expert tmux sessions after a first-poll baseline. Implemented expert session parsing and rendering in the desktop Pipeline sidebar, including click-to-attach cards and conditional section visibility.
+summary: Implemented zazig search CLI command that POSTs to query-search edge function with support for --type, --status, --limit, --offset flags and pagination footer output.
 files_changed:
-  - packages/desktop/src/main/poller.ts
-  - packages/desktop/src/renderer/components/PipelineColumn.tsx
-  - .reports/senior-engineer-report.md
-failure_reason: ""
+  - packages/cli/src/commands/search.ts
+  - packages/cli/src/index.ts
+failure_reason:

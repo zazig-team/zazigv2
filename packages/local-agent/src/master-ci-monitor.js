@@ -12,13 +12,10 @@ const ACTIVE_STATUSES = [
   "merging",
 ];
 
-function buildMasterCIFailureSpec({ runId, headSha, stepName, rawLogOutput, ownerRepo }) {
-  // Shared extractor removes ANSI escape codes and enforces an 8KB (8192-byte) summary cap.
-  const failureSummary = extractFailureSummary(rawLogOutput, runId);
-  const workspaceName = extractWorkspaceName(rawLogOutput);
+function buildMasterCIFailureSpec({ runId, headSha, stepName, logOutput, workspaceName, ownerRepo }) {
   const workspaceLine = workspaceName
-    ? `Failing workspace: ${workspaceName}`
-    : "Failing workspace: unknown";
+    ? `Failed workspace: ${workspaceName}`
+    : null;
 
   return [
     `Master CI run: ${runId}`,
@@ -26,14 +23,14 @@ function buildMasterCIFailureSpec({ runId, headSha, stepName, rawLogOutput, owne
     `Failed step: ${stepName}`,
     workspaceLine,
     "",
-    "FAILURE SUMMARY",
-    failureSummary,
+    "FAILURE SUMMARY:",
+    logOutput,
     "",
-    "HOW TO REPRODUCE",
+    "HOW TO REPRODUCE:",
     `gh run view ${runId} --repo ${ownerRepo} --log-failed`,
     "",
     "Investigate and fix the root cause of this CI failure so master goes green.",
-  ].join("\n");
+  ].filter((line) => line !== null).join("\n");
 }
 
 export class MasterCiMonitor {
@@ -120,7 +117,8 @@ export class MasterCiMonitor {
           runId,
           headSha,
           stepName,
-          rawLogOutput: failureDetails.logOutput,
+          logOutput: failureDetails.logOutput,
+          workspaceName: failureDetails.workspaceName,
           ownerRepo: `${this.owner}/${this.repo}`,
         }),
         // Test-suite compatibility: one assertion expects a string for run 42,
@@ -140,6 +138,7 @@ export class MasterCiMonitor {
   async fetchFailureDetails(runId) {
     let stepName = "unknown step";
     let logOutput = `No failure log output available for run ${runId}.`;
+    let workspaceName = null;
 
     try {
       const { stdout } = await this.execFileAsync(
@@ -169,12 +168,17 @@ export class MasterCiMonitor {
         ["run", "view", String(runId), "--repo", `${this.owner}/${this.repo}`, "--log-failed"],
         { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 },
       );
-      if (stdout.trim().length > 0) logOutput = stdout.trim();
+      if (stdout.trim().length > 0) {
+        const rawOutput = stdout.trim();
+        // Shared extractor removes ANSI escape codes and enforces an 8KB (8192-byte) summary cap.
+        logOutput = extractFailureSummary(rawOutput, runId);
+        workspaceName = extractWorkspaceName(rawOutput);
+      }
     } catch {
       // Best effort only.
     }
 
-    return { stepName, logOutput };
+    return { stepName, logOutput, workspaceName };
   }
 }
 

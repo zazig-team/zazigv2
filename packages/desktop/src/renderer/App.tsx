@@ -22,6 +22,8 @@ const terminalPaneStyle: React.CSSProperties = {
   minHeight: 0,
 };
 
+const EXPERT_SESSION_AUTO_SWITCH_EVENT = 'expert-session:auto-switch';
+
 type AnyRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is AnyRecord {
@@ -32,8 +34,30 @@ function asRecord(value: unknown): AnyRecord {
   return isRecord(value) ? value : {};
 }
 
+function parseExpertSessionId(payload: unknown): string | null {
+  if (typeof payload === 'string' && payload.length > 0) {
+    return payload;
+  }
+
+  if (payload && typeof payload === 'object') {
+    const sessionId =
+      'sessionId' in payload && typeof payload.sessionId === 'string'
+        ? payload.sessionId
+        : 'session_id' in payload && typeof payload.session_id === 'string'
+          ? payload.session_id
+          : null;
+
+    if (sessionId && sessionId.length > 0) {
+      return sessionId;
+    }
+  }
+
+  return null;
+}
+
 export function App(): JSX.Element {
   const [activeSession, setActiveSession] = useState<string | null>(null);
+  const [isCpoActive, setIsCpoActive] = useState(false);
   const [latestStatus, setLatestStatus] = useState<AnyRecord>({});
   const [terminalMessage, setTerminalMessage] = useState<string | undefined>(undefined);
   const activeSessionRef = useRef<string | null>(null);
@@ -63,6 +87,17 @@ export function App(): JSX.Element {
     [latestStatus, activeSession],
   );
 
+  const onCpoClick = useCallback(() => {
+    queueTerminalTransition(async () => {
+      setTerminalMessage(undefined);
+      await window.zazig.terminalDetach();
+      await window.zazig.terminalAttachDefault();
+      activeSessionRef.current = null;
+      setActiveSession(null);
+      setIsCpoActive(true);
+    });
+  }, [queueTerminalTransition]);
+
   const onJobClick = useCallback(
     (job: PipelineJob) => {
       queueTerminalTransition(async () => {
@@ -72,6 +107,7 @@ export function App(): JSX.Element {
 
           activeSessionRef.current = null;
           setActiveSession(null);
+          setIsCpoActive(false);
           return;
         }
 
@@ -85,6 +121,7 @@ export function App(): JSX.Element {
 
         activeSessionRef.current = job.sessionName;
         setActiveSession(job.sessionName);
+        setIsCpoActive(false);
       });
     },
     [queueTerminalTransition],
@@ -117,17 +154,74 @@ export function App(): JSX.Element {
 
         activeSessionRef.current = null;
         setActiveSession(null);
+        setIsCpoActive(false);
       });
     },
     [onJobClick, queueTerminalTransition],
   );
 
+  const onExpertClick = useCallback((sessionId: string) => {
+    if (!sessionId) return;
+
+    transitionQueueRef.current = transitionQueueRef.current
+      .then(async () => {
+        setTerminalMessage(undefined);
+
+        const previousSession = activeSessionRef.current;
+        if (previousSession !== sessionId) {
+          await window.zazig.terminalDetach();
+          await window.zazig.terminalAttach(sessionId);
+        }
+
+        activeSessionRef.current = sessionId;
+        setActiveSession(sessionId);
+        setIsCpoActive(false);
+      })
+      .catch((error) => {
+        console.error('[desktop] Failed to switch terminal session', error);
+      });
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = window.zazig.onExpertSessionAutoSwitch((payload: unknown) => {
+      const sessionId = parseExpertSessionId(payload);
+      if (!sessionId) {
+        return;
+      }
+
+      transitionQueueRef.current = transitionQueueRef.current
+        .then(async () => {
+          setTerminalMessage(undefined);
+
+          const previousSession = activeSessionRef.current;
+          if (previousSession !== sessionId) {
+            await window.zazig.terminalDetach();
+            await window.zazig.terminalAttach(sessionId);
+          }
+
+          activeSessionRef.current = sessionId;
+          setActiveSession(sessionId);
+          setIsCpoActive(false);
+        })
+        .catch((error) => {
+          console.error(`[desktop] Failed to handle ${EXPERT_SESSION_AUTO_SWITCH_EVENT}`, error);
+        });
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   return (
     <div style={rootStyle}>
       <PipelineColumn
         activeSession={activeSession}
+        isCpoActive={isCpoActive}
         persistentAgents={persistentAgents}
         onAgentClick={onAgentClick}
+        onCpoClick={onCpoClick}
+        onExpertClick={onExpertClick}
         onJobClick={onJobClick}
         onWatchClick={onWatchClick}
       />

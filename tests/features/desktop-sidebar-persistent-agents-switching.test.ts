@@ -2,30 +2,26 @@
  * Feature: Desktop Sidebar Lists All Permanent Agents With Switching
  * Feature ID: 434544fa-bf57-4b11-91d8-ba45b054f9e4
  *
- * Tests for:
- *   - packages/desktop/src/renderer/components/PipelineColumn.tsx
- *   - packages/desktop/src/renderer/App.tsx
- *
- * AC1: Sidebar shows all persistent agents from the status payload, not just CPO
- * AC2: Each agent card shows a green dot when tmux session exists, grey when not
- * AC3: The currently-attached agent has a blue highlight
- * AC4: Clicking an agent switches the terminal to that agent's tmux session
- * AC5: Clicking an agent that is not running does nothing (card is greyed out)
- * AC6: Switching between agents uses the transition queue (no race conditions)
- * AC7: The old hardcoded CPO button is removed
- *
- * Failure Cases:
- * - Must NOT hardcode agent names (list comes from status payload)
- * - Must NOT bypass the transition queue when switching agents
- * - Must NOT hide agents that are not running -- show them greyed out
- *
- * Written to FAIL against current codebase; passes once the feature is built.
+ * Regression coverage for:
+ * - Dynamic rendering of all persistent agents (no CPO-only control)
+ * - Liveness dots + active highlight + disabled non-running cards
+ * - Queue-driven switch behavior (detach before attach) and non-running no-op
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+
+import PipelineColumn, {
+  type PersistentAgent,
+} from '../../packages/desktop/src/renderer/components/PipelineColumn';
+import {
+  derivePersistentAgents,
+  queuePersistentAgentSwitch,
+} from '../../packages/desktop/src/renderer/persistent-agents';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
@@ -41,235 +37,165 @@ function readRepoFile(relPath: string): string | null {
   }
 }
 
-// ---------------------------------------------------------------------------
-// AC7: Old hardcoded CPO button must be removed
-// ---------------------------------------------------------------------------
+function renderSidebar(persistentAgents: PersistentAgent[], activeSession: string | null): string {
+  return renderToStaticMarkup(
+    React.createElement(PipelineColumn, {
+      activeSession,
+      persistentAgents,
+      onAgentClick: () => undefined,
+      onJobClick: () => undefined,
+      onWatchClick: () => undefined,
+    }),
+  );
+}
 
-describe('PipelineColumn: hardcoded CPO button is removed', () => {
-  let content: string | null;
+function contextAround(html: string, text: string, radius = 900): string {
+  const idx = html.indexOf(text);
+  if (idx < 0) return '';
+  const start = Math.max(0, idx - radius);
+  const end = Math.min(html.length, idx + text.length + radius);
+  return html.slice(start, end);
+}
 
-  beforeAll(() => {
-    content = readRepoFile(PIPELINE_COLUMN);
+describe('AC-3-001: dynamic persistent-agent rendering and no hardcoded CPO control', () => {
+  it('renders all roles from payload-derived persistent agents', () => {
+    const statusPayload = {
+      persistent_agents: [
+        { role: 'strategy' },
+        { role: 'ops-chief' },
+        { role: 'qa-lead' },
+      ],
+      tmux_sessions: ['macbook-strategy', 'macbook-qa-lead'],
+    } satisfies Record<string, unknown>;
+
+    const persistentAgents = derivePersistentAgents(statusPayload, null);
+    const html = renderSidebar(persistentAgents, null);
+
+    expect(persistentAgents.map((agent) => agent.role)).toEqual(['strategy', 'ops-chief', 'qa-lead']);
+    expect(html).toContain('strategy');
+    expect(html).toContain('ops-chief');
+    expect(html).toContain('qa-lead');
   });
 
-  it('PipelineColumn.tsx file exists', () => {
-    expect(content, `File not found: ${PIPELINE_COLUMN}`).not.toBeNull();
+  it('does not contain the legacy onCpoClick CPO-only control path', () => {
+    const pipelineColumnContent = readRepoFile(PIPELINE_COLUMN);
+    const appContent = readRepoFile(APP_TSX);
+
+    expect(pipelineColumnContent, `File not found: ${PIPELINE_COLUMN}`).not.toBeNull();
+    expect(appContent, `File not found: ${APP_TSX}`).not.toBeNull();
+
+    expect(pipelineColumnContent).not.toMatch(/onCpoClick/);
+    expect(appContent).not.toMatch(/onCpoClick/);
   });
 
-  it('onCpoClick prop is removed from PipelineColumnProps', () => {
-    // The old interface should no longer declare onCpoClick
-    expect(content).not.toMatch(/onCpoClick/);
-  });
+  it('renders only payload role names (no hardcoded CPO button text)', () => {
+    const statusPayload = {
+      persistent_agents: [
+        { role: 'architect' },
+        { role: 'delivery-manager' },
+      ],
+      tmux_sessions: ['host-architect'],
+    } satisfies Record<string, unknown>;
 
-  it('CPO-specific button JSX is removed', () => {
-    // No hardcoded CPO button should be rendered
-    expect(content).not.toMatch(/onCpoClick\s*&&/);
-  });
-});
+    const html = renderSidebar(derivePersistentAgents(statusPayload, null), null);
 
-describe('App.tsx: onCpoClick and isCpoActive are removed', () => {
-  let content: string | null;
-
-  beforeAll(() => {
-    content = readRepoFile(APP_TSX);
-  });
-
-  it('App.tsx file exists', () => {
-    expect(content, `File not found: ${APP_TSX}`).not.toBeNull();
-  });
-
-  it('onCpoClick callback is removed from App.tsx', () => {
-    expect(content).not.toMatch(/onCpoClick/);
-  });
-
-  it('isCpoActive state is removed from App.tsx', () => {
-    expect(content).not.toMatch(/isCpoActive/);
-  });
-
-  it('onCpoClick prop is not passed to PipelineColumn', () => {
-    expect(content).not.toMatch(/onCpoClick\s*=/);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC1: Sidebar renders all persistent agents from the status payload
-// ---------------------------------------------------------------------------
-
-describe('PipelineColumn: persistent agents rendered from status payload', () => {
-  let content: string | null;
-
-  beforeAll(() => {
-    content = readRepoFile(PIPELINE_COLUMN);
-  });
-
-  it('PipelineViewData or equivalent interface includes a persistent agents field', () => {
-    expect(content).toMatch(/persistentAgents|persistent_agents/);
-  });
-
-  it('parsePipelinePayload (or equivalent) reads persistent_agents from status', () => {
-    // The parser must extract persistent_agents from the status object
-    expect(content).toMatch(/persistent_agents|persistentAgents/);
-  });
-
-  it('sidebar section maps over persistent agents array (not hardcoded)', () => {
-    // Must iterate dynamically -- no hardcoded "CPO" or "CTO" strings in the agents section
-    expect(content).toMatch(/persistentAgents\s*\.\s*map\s*\(|persistent_agents\s*\.\s*map\s*\(/);
-  });
-
-  it('sidebar renders an "Agents" section header', () => {
-    expect(content).toMatch(/Agents/);
-  });
-
-  it('does not hardcode CPO as the only agent in the agents section render loop', () => {
-    // The agents list must not be a hardcoded single-entry array containing only 'cpo'
-    // (a single hardcoded string 'CPO' in a render section for agents is a failure)
-    expect(content).not.toMatch(/\[\s*['"]cpo['"]\s*\]|\[\s*['"]CPO['"]\s*\]/);
+    expect(html).toContain('architect');
+    expect(html).toContain('delivery-manager');
+    expect(html).not.toContain('CPO');
   });
 });
 
-// ---------------------------------------------------------------------------
-// AC2: Per-agent card shows green dot when tmux session exists, grey otherwise
-// ---------------------------------------------------------------------------
+describe('AC-3-002: running/non-running and active visual semantics', () => {
+  const statusPayload = {
+    persistent_agents: [{ role: 'cto' }, { role: 'cso' }],
+    tmux_sessions: [{ session_name: 'machine-cto' }],
+  } satisfies Record<string, unknown>;
 
-describe('PipelineColumn: agent card liveness dot (green/grey)', () => {
-  let content: string | null;
+  let html: string;
 
   beforeAll(() => {
-    content = readRepoFile(PIPELINE_COLUMN);
+    html = renderSidebar(derivePersistentAgents(statusPayload, 'machine-cto'), 'machine-cto');
   });
 
-  it('uses session suffix convention (e.g. -cpo, -cto) to match tmux sessions', () => {
-    // The matching logic must use a suffix from the role name
-    expect(content).toMatch(/-\$\{|\.endsWith\(|\.includes\(`-|suffix|role\.toLowerCase|role_suffix/i);
+  it('marks running agent with green liveness dot and active blue highlight', () => {
+    const ctoContext = contextAround(html, '>cto<');
+    expect(ctoContext).toContain('background:#22c55e');
+    expect(ctoContext).toContain('aria-pressed="true"');
+    expect(ctoContext).toContain('border:1px solid #2563eb');
+    expect(ctoContext).toContain('cursor:pointer');
   });
 
-  it('green dot color is applied when a matching tmux session is found', () => {
-    // GREEN_DOT constant or equivalent must be used for live agents
-    expect(content).toMatch(/GREEN_DOT|#22c55e|green/i);
-  });
-
-  it('grey dot color is applied when no tmux session matches', () => {
-    expect(content).toMatch(/GREY_DOT|#737d92|grey|gray/i);
-  });
-
-  it('tmux_sessions data is used for session matching', () => {
-    expect(content).toMatch(/tmux_sessions|tmuxSessions|getLocalSession/i);
+  it('marks non-running agent with grey liveness dot and disabled visual state', () => {
+    const csoContext = contextAround(html, '>cso<');
+    expect(csoContext).toContain('background:#737d92');
+    expect(csoContext).toContain('aria-pressed="false"');
+    expect(csoContext).toContain('cursor:default');
+    expect(csoContext).toContain('opacity:0.7');
+    expect(csoContext).toContain('Not running locally');
   });
 });
 
-// ---------------------------------------------------------------------------
-// AC3: Currently-attached agent has blue highlight
-// ---------------------------------------------------------------------------
+describe('AC-3-003: switch and no-op behavior through transition queue path', () => {
+  it('queues running-agent switch with detach-then-attach and no-ops for non-running', async () => {
+    const callOrder: string[] = [];
+    const queuedTransitions: Array<() => Promise<void>> = [];
 
-describe('PipelineColumn: active agent card has blue highlight', () => {
-  let content: string | null;
+    const queueTerminalTransition = vi.fn((transition: () => Promise<void>) => {
+      queuedTransitions.push(transition);
+    });
+    const terminalDetach = vi.fn(async () => {
+      callOrder.push('detach');
+    });
+    const terminalAttach = vi.fn(async (sessionName: string) => {
+      callOrder.push(`attach:${sessionName}`);
+    });
+    const setTerminalMessage = vi.fn();
+    const setActiveSession = vi.fn();
+    const activeSessionRef = { current: null as string | null };
 
-  beforeAll(() => {
-    content = readRepoFile(PIPELINE_COLUMN);
-  });
+    const runningAgent: PersistentAgent = {
+      role: 'cto',
+      sessionName: 'machine-cto',
+      isRunning: true,
+      isActive: false,
+    };
+    const nonRunningAgent: PersistentAgent = {
+      role: 'cso',
+      sessionName: null,
+      isRunning: false,
+      isActive: false,
+    };
 
-  it('activeSession prop is compared against agent session names', () => {
-    // activeSession must be used in the agent card rendering to determine highlight
-    expect(content).toMatch(/activeSession/);
-  });
+    queuePersistentAgentSwitch(runningAgent, {
+      queueTerminalTransition,
+      terminalDetach,
+      terminalAttach,
+      setTerminalMessage,
+      setActiveSession,
+      activeSessionRef,
+    });
 
-  it('blue highlight style is conditionally applied based on activeSession match', () => {
-    // Same blue highlight used for active job cards -- typically #2563eb or similar
-    expect(content).toMatch(/#2563eb|#1d4ed8|blue|isActive|activeSession\s*===|activeSession\s*==/);
-  });
-});
+    expect(queueTerminalTransition).toHaveBeenCalledTimes(1);
+    expect(terminalDetach).not.toHaveBeenCalled();
+    expect(terminalAttach).not.toHaveBeenCalled();
 
-// ---------------------------------------------------------------------------
-// AC4 & AC5: Clicking an agent switches terminal; non-running agents do nothing
-// ---------------------------------------------------------------------------
+    await queuedTransitions[0]();
 
-describe('PipelineColumn: agent card click behavior', () => {
-  let content: string | null;
+    expect(callOrder).toEqual(['detach', 'attach:machine-cto']);
+    expect(setActiveSession).toHaveBeenCalledWith('machine-cto');
+    expect(activeSessionRef.current).toBe('machine-cto');
 
-  beforeAll(() => {
-    content = readRepoFile(PIPELINE_COLUMN);
-  });
+    queuePersistentAgentSwitch(nonRunningAgent, {
+      queueTerminalTransition,
+      terminalDetach,
+      terminalAttach,
+      setTerminalMessage,
+      setActiveSession,
+      activeSessionRef,
+    });
 
-  it('agent cards expose an onAgentClick or equivalent callback prop', () => {
-    // PipelineColumn must accept a callback for agent switching
-    expect(content).toMatch(/onAgentClick|onPersistentAgentClick|onAgentSwitch/);
-  });
-
-  it('onClick is only set on agent cards that have a running tmux session', () => {
-    // Cards without a matching session must not have a click handler
-    // (conditional onClick: only when session exists)
-    expect(content).toMatch(/onClick\s*=\s*\{[^}]*session|hasSession\s*\?|isRunning\s*\?/);
-  });
-
-  it('greyed-out agent cards have no onClick handler', () => {
-    // When session is absent, cursor should be default (not pointer) or onClick undefined
-    expect(content).toMatch(/cursor.*default|onClick\s*=\s*\{undefined\}|onClick\s*=\s*\{null\}|!.*session.*onClick|hasSession.*&&.*onClick/);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC6: Switching agents uses the transition queue (no race conditions)
-// ---------------------------------------------------------------------------
-
-describe('App.tsx: agent switching goes through the transition queue', () => {
-  let content: string | null;
-
-  beforeAll(() => {
-    content = readRepoFile(APP_TSX);
-  });
-
-  it('App.tsx defines a handler for agent card clicks', () => {
-    expect(content).toMatch(/onAgentClick|onPersistentAgentClick|onAgentSwitch/);
-  });
-
-  it('agent click handler uses queueTerminalTransition (not a direct await)', () => {
-    // Must wrap the detach/attach in queueTerminalTransition
-    expect(content).toMatch(/queueTerminalTransition/);
-  });
-
-  it('agent click handler calls terminalDetach before terminalAttach', () => {
-    // Both must appear; detach first is enforced by the transition queue pattern
-    expect(content).toMatch(/terminalDetach/);
-    expect(content).toMatch(/terminalAttach/);
-  });
-
-  it('agent switching does not call terminalAttachDefault (CPO-only path)', () => {
-    // Persistent agent switching must use terminalAttach(sessionName), not the default
-    // This check is relaxed -- if terminalAttachDefault is still present it might be for other flows
-    // but agent cards must use terminalAttach with a session name argument
-    const agentSwitchBlock = content?.match(/onAgentClick[\s\S]{0,600}/)?.[0] ?? '';
-    expect(agentSwitchBlock).toMatch(/terminalAttach\s*\(/);
-  });
-
-  it('agent click handler updates activeSession state', () => {
-    expect(content).toMatch(/setActiveSession/);
-  });
-
-  it('onAgentClick prop is passed from App.tsx to PipelineColumn', () => {
-    expect(content).toMatch(/onAgentClick\s*=\s*\{|onPersistentAgentClick\s*=\s*\{|onAgentSwitch\s*=\s*\{/);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Failure Case: Non-running agents must be shown (not hidden)
-// ---------------------------------------------------------------------------
-
-describe('PipelineColumn: non-running persistent agents are shown greyed out', () => {
-  let content: string | null;
-
-  beforeAll(() => {
-    content = readRepoFile(PIPELINE_COLUMN);
-  });
-
-  it('persistent agents are NOT filtered by session existence (all are rendered)', () => {
-    // The render loop must NOT filter out agents without a session
-    // i.e., there should be no .filter call that removes sessionless agents before mapping
-    const agentSection = content?.match(/persistentAgents[\s\S]{0,800}/)?.[0] ?? '';
-    expect(agentSection).not.toMatch(/\.filter\s*\(\s*[^)]*session/i);
-  });
-
-  it('render path for an agent card exists even when session is absent (fallback card)', () => {
-    // Greyed-out state: opacity or color change when no session
-    expect(content).toMatch(/opacity|color.*grey|color.*gray|GREY_DOT|cursor.*default/i);
+    expect(queueTerminalTransition).toHaveBeenCalledTimes(1);
+    expect(terminalDetach).toHaveBeenCalledTimes(1);
+    expect(terminalAttach).toHaveBeenCalledTimes(1);
   });
 });

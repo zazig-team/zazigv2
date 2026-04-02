@@ -5,6 +5,7 @@ import PipelineColumn, {
   type PipelineJob,
 } from './components/PipelineColumn';
 import { TerminalPane } from './components/TerminalPane';
+import { derivePersistentAgents, queuePersistentAgentSwitch } from './persistent-agents';
 
 const rootStyle: React.CSSProperties = {
   display: 'grid',
@@ -29,71 +30,6 @@ function isRecord(value: unknown): value is AnyRecord {
 
 function asRecord(value: unknown): AnyRecord {
   return isRecord(value) ? value : {};
-}
-
-function asRecordArray(value: unknown): AnyRecord[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter(isRecord);
-}
-
-function getString(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
-
-function getTmuxSessionNames(status: AnyRecord): string[] {
-  const rawTmuxSessions = status.tmux_sessions ?? status.tmuxSessions ?? [];
-  if (!Array.isArray(rawTmuxSessions)) return [];
-
-  const sessionNames: string[] = [];
-  for (const session of rawTmuxSessions) {
-    if (typeof session === 'string') {
-      const name = session.trim();
-      if (name.length > 0) {
-        sessionNames.push(name);
-      }
-      continue;
-    }
-
-    if (!isRecord(session)) {
-      continue;
-    }
-
-    const name =
-      getString(session.session_name) ||
-      getString(session.sessionName) ||
-      getString(session.session) ||
-      getString(session.name);
-    if (name.length > 0) {
-      sessionNames.push(name);
-    }
-  }
-
-  return sessionNames;
-}
-
-function derivePersistentAgents(status: AnyRecord, activeSession: string | null): PersistentAgent[] {
-  const persistentAgents = asRecordArray(status.persistent_agents ?? status.persistentAgents);
-  const tmuxSessionNames = getTmuxSessionNames(status);
-
-  return persistentAgents
-    .map((agent, index) => {
-      const role =
-        getString(agent.role) ||
-        getString(agent.role_name) ||
-        getString(agent.roleName) ||
-        `agent-${index + 1}`;
-      const roleSuffix = `-${role.toLowerCase()}`;
-      const sessionName = tmuxSessionNames.find((name) => name.endsWith(roleSuffix)) ?? null;
-      const isRunning = sessionName !== null;
-
-      return {
-        role,
-        sessionName,
-        isRunning,
-        isActive: Boolean(sessionName && activeSession === sessionName),
-      };
-    })
-    .filter((agent) => agent.role.length > 0);
 }
 
 export function App(): JSX.Element {
@@ -156,16 +92,13 @@ export function App(): JSX.Element {
 
   const onAgentClick = useCallback(
     (agent: PersistentAgent) => {
-      if (!agent.sessionName) {
-        return;
-      }
-
-      queueTerminalTransition(async () => {
-        setTerminalMessage(undefined);
-        await window.zazig.terminalDetach();
-        await window.zazig.terminalAttach(agent.sessionName);
-        activeSessionRef.current = agent.sessionName;
-        setActiveSession(agent.sessionName);
+      queuePersistentAgentSwitch(agent, {
+        queueTerminalTransition,
+        terminalDetach: window.zazig.terminalDetach,
+        terminalAttach: window.zazig.terminalAttach,
+        setTerminalMessage,
+        setActiveSession,
+        activeSessionRef,
       });
     },
     [queueTerminalTransition],

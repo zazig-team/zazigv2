@@ -1,4 +1,18 @@
 status: success
+branch: feature/fix-master-ci-failure-run-npm-run-test-53f5830b
+merged: []
+conflicts_resolved: []
+failure_reason:
+
+## Notes
+
+- jobBranches was empty — no branches to merge
+- ci.yml already exists on master (skipped CI injection)
+- Feature branch pushed to origin successfully
+- PR not created: feature branch is identical to master (no commits to merge)
+
+---
+
 branch: feature/desktop-expert-session-auto-switch-and-s-5b40e4e1
 merged:
   - job/bdc3c60a-42cf-45fa-94df-3b72be24a247

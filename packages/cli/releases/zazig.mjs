@@ -2137,8 +2137,8 @@ var require_RealtimeChannel = __commonJS({
       _trigger(type, payload, ref) {
         var _a, _b;
         const typeLower = type.toLocaleLowerCase();
-        const { close, error, leave, join: join14 } = constants_1.CHANNEL_EVENTS;
-        const events = [close, error, leave, join14];
+        const { close, error, leave, join: join15 } = constants_1.CHANNEL_EVENTS;
+        const events = [close, error, leave, join15];
         if (ref && events.indexOf(typeLower) >= 0 && ref !== this._joinRef()) {
           return;
         }
@@ -13606,8 +13606,8 @@ Slack channel for CPO conversations [${defaultChannel}]: `)).trim() || defaultCh
 
 // dist/commands/start.js
 import { existsSync as existsSync9, readFileSync as readFileSync8 } from "node:fs";
-import { hostname, homedir as homedir9 } from "node:os";
-import { join as join10 } from "node:path";
+import { hostname, homedir as homedir10 } from "node:os";
+import { join as join11 } from "node:path";
 import { execSync as execSync5 } from "node:child_process";
 import { createInterface as createInterface4 } from "node:readline/promises";
 
@@ -14489,6 +14489,29 @@ async function checkForUpdate(supabaseUrl, anonKey, env) {
   return { status: "update-available", remoteVersion: remote.version };
 }
 
+// dist/commands/start-env.js
+import { homedir as homedir9 } from "node:os";
+import { join as join10 } from "node:path";
+function resolveZazigHome(zazigEnv) {
+  return zazigEnv === "staging" ? join10(homedir9(), ".zazigv2-staging") : join10(homedir9(), ".zazigv2");
+}
+function buildDaemonEnv({ baseEnv = process.env, creds, config, company, zazigEnv }) {
+  const env = {
+    ...baseEnv,
+    SUPABASE_ACCESS_TOKEN: creds.accessToken,
+    SUPABASE_REFRESH_TOKEN: creds.refreshToken ?? "",
+    SUPABASE_URL: creds.supabaseUrl,
+    ZAZIG_MACHINE_NAME: config.name,
+    ZAZIG_COMPANY_ID: company.id,
+    ZAZIG_COMPANY_NAME: company.name,
+    ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
+    ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
+    ZAZIG_ENV: zazigEnv,
+    ZAZIG_HOME: resolveZazigHome(zazigEnv)
+  };
+  return env;
+}
+
 // dist/commands/start.js
 function sleep(ms) {
   return new Promise((resolve5) => setTimeout(resolve5, ms));
@@ -14832,28 +14855,18 @@ ${message}`);
     }
     removePidFileForCompany(company.id);
   }
-  const env = {
-    ...process.env,
-    SUPABASE_ACCESS_TOKEN: creds.accessToken,
-    SUPABASE_REFRESH_TOKEN: creds.refreshToken ?? "",
-    SUPABASE_URL: creds.supabaseUrl,
-    ZAZIG_MACHINE_NAME: config.name,
-    ZAZIG_COMPANY_ID: company.id,
-    ZAZIG_COMPANY_NAME: company.name,
-    ZAZIG_SLOTS_CLAUDE_CODE: String(config.slots?.claude_code ?? 3),
-    ZAZIG_SLOTS_CODEX: String(config.slots?.codex ?? 2),
-    ...process.env["ZAZIG_HOME"] ? { ZAZIG_HOME: process.env["ZAZIG_HOME"] } : {}
-  };
+  const env = buildDaemonEnv({ creds, config, company, zazigEnv });
   let agentEntryOverride;
   if (zazigEnv === "production") {
-    const binAgent = join10(homedir9(), ".zazigv2", "bin", "zazig-agent");
+    const zazigHome = process.env["ZAZIG_HOME"] ?? join11(homedir10(), ".zazigv2");
+    const binAgent = join11(zazigHome, "bin", "zazig-agent");
     if (existsSync9(binAgent)) {
       agentEntryOverride = binAgent;
       const ver = getLocalVersion();
       log(`Using zazig-agent binary${ver ? ` (v${ver})` : ""}`);
     } else if (hasPinnedBuild()) {
-      const buildDir = join10(homedir9(), ".zazigv2", "builds", "current");
-      agentEntryOverride = join10(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
+      const buildDir = join11(zazigHome, "builds", "current");
+      agentEntryOverride = join11(buildDir, "packages", "local-agent", "releases", "zazig-agent.mjs");
       const sha = getCurrentBuildSha();
       log(`Using pinned build${sha ? ` (${sha.slice(0, 7)})` : ""}`);
     }
@@ -15046,8 +15059,8 @@ async function stop(args2 = []) {
 
 // dist/commands/status.js
 import { readdirSync as readdirSync2 } from "node:fs";
-import { homedir as homedir10 } from "node:os";
-import { join as join11 } from "node:path";
+import { homedir as homedir11 } from "node:os";
+import { join as join12 } from "node:path";
 function apiFetch(url, headers) {
   return fetch(url, { headers }).then(async (r) => {
     if (!r.ok)
@@ -15082,7 +15095,7 @@ function toExpertTmuxSessionName(sessionId) {
   return `expert-${id.slice(0, 8)}`;
 }
 function findRunningDaemon() {
-  const zazigDir2 = join11(homedir10(), ".zazigv2");
+  const zazigDir2 = join12(homedir11(), ".zazigv2");
   try {
     const uuidPattern = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.pid$/;
     for (const entry of readdirSync2(zazigDir2)) {
@@ -15484,10 +15497,10 @@ async function switchArchetype(supabaseUrl, companyId, headers, roleName, roleId
 // dist/commands/promote.js
 import { execSync as execSync6 } from "node:child_process";
 import { existsSync as existsSync10, readFileSync as readFileSync9, rmSync as rmSync4, writeFileSync as writeFileSync7 } from "node:fs";
-import { join as join12 } from "node:path";
-import { homedir as homedir11 } from "node:os";
+import { join as join13 } from "node:path";
+import { homedir as homedir12 } from "node:os";
 import { createInterface as createInterface5 } from "node:readline/promises";
-var REPOS_BASE = join12(homedir11(), ".zazigv2", "repos");
+var REPOS_BASE = join13(homedir12(), ".zazigv2", "repos");
 async function fetchProjects(supabaseUrl, anonKey, accessToken, companyId) {
   const res = await fetch(`${supabaseUrl}/rest/v1/projects?select=id,name,repo_url&company_id=eq.${companyId}`, {
     headers: {
@@ -15560,8 +15573,8 @@ function bumpMinorVersion(version3) {
   return `${major}.${minor + 1}.0`;
 }
 function bumpAgentPackageVersions(repoRoot) {
-  const cliPackagePath = join12(repoRoot, "packages", "cli", "package.json");
-  const localAgentPackagePath = join12(repoRoot, "packages", "local-agent", "package.json");
+  const cliPackagePath = join13(repoRoot, "packages", "cli", "package.json");
+  const localAgentPackagePath = join13(repoRoot, "packages", "local-agent", "package.json");
   const cliPackage = readJsonFile(cliPackagePath);
   if (typeof cliPackage.version !== "string") {
     throw new Error("packages/cli/package.json is missing a valid version field.");
@@ -15598,7 +15611,7 @@ function resolveAgentBuildHash(repoRoot) {
   return headHash;
 }
 function injectAgentBuildHash(repoRoot, agentBuildHash) {
-  const bundlePath = join12(repoRoot, "packages", "local-agent", "releases", "zazig-agent.mjs");
+  const bundlePath = join13(repoRoot, "packages", "local-agent", "releases", "zazig-agent.mjs");
   const bundleContent = readFileSync9(bundlePath, "utf-8");
   const injected = `const AGENT_BUILD_HASH = "${agentBuildHash}";
 ${bundleContent}`;
@@ -15618,7 +15631,7 @@ async function promote(args2) {
   delete process.env["ZAZIG_ENV"];
   delete process.env["SUPABASE_URL"];
   delete process.env["SUPABASE_ANON_KEY"];
-  process.env["ZAZIG_HOME"] = join12(homedir11(), ".zazigv2");
+  process.env["ZAZIG_HOME"] = join13(homedir12(), ".zazigv2");
   if (args2.includes("--rollback")) {
     const ok = rollbackBinaries();
     process.exitCode = ok ? 0 : 1;
@@ -15658,7 +15671,7 @@ Company: ${company.name}`);
   const projects2 = await fetchProjects(creds.supabaseUrl, anonKey, creds.accessToken, company.id);
   const project = await pickProject(projects2);
   console.log(`Project: ${project.name}`);
-  const cloneDir = join12(REPOS_BASE, project.name);
+  const cloneDir = join13(REPOS_BASE, project.name);
   if (!existsSync10(cloneDir)) {
     console.error(`No local repo clone found at ${cloneDir}.`);
     console.error("Run 'zazig start' first to clone the project repo.");
@@ -15700,7 +15713,7 @@ Company: ${company.name}`);
     console.warn(`Fetch warning (non-fatal): ${String(err)}`);
   }
   const defaultBranch = resolveDefaultBranch(cloneDir);
-  const worktreePath = join12(homedir11(), ".zazigv2", "worktrees", "promote-tmp");
+  const worktreePath = join13(homedir12(), ".zazigv2", "worktrees", "promote-tmp");
   const promoteBranch = "zazig-promote";
   try {
     execSync6(`git worktree remove --force "${worktreePath}"`, { cwd: cloneDir, stdio: "pipe" });
@@ -15795,7 +15808,7 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey, supabase) {
   }
   console.log("\nBundling CLI...");
   try {
-    execSync6("node scripts/bundle.js", { cwd: join12(repoRoot, "packages", "cli"), stdio: "inherit" });
+    execSync6("node scripts/bundle.js", { cwd: join13(repoRoot, "packages", "cli"), stdio: "inherit" });
   } catch {
     console.error("Bundle failed.");
     process.exitCode = 1;
@@ -15809,9 +15822,9 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey, supabase) {
     return;
   }
   console.log("\nCompiling native binaries...");
-  const compileOutDir = join12(homedir11(), ".zazigv2", "compile-tmp");
+  const compileOutDir = join13(homedir12(), ".zazigv2", "compile-tmp");
   try {
-    execSync6(`bash "${join12(repoRoot, "packages", "cli", "scripts", "compile.sh")}" "${compileOutDir}" "${repoRoot}"`, { stdio: "inherit" });
+    execSync6(`bash "${join13(repoRoot, "packages", "cli", "scripts", "compile.sh")}" "${compileOutDir}" "${repoRoot}"`, { stdio: "inherit" });
   } catch {
     console.error("Bun compile failed. Is bun installed? (brew install oven-sh/bun/bun)");
     process.exitCode = 1;
@@ -15880,7 +15893,7 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey, supabase) {
   console.log("\nCreating GitHub Release...");
   const tag = `v${newVersion}`;
   try {
-    execSync6(`gh release create "${tag}" --repo zazig-team/zazigv2 --title "v${newVersion}" --notes "Production release ${newVersion} (${commitSha.slice(0, 7)})" --target "${commitSha}" "${join12(compileOutDir, "zazig-cli-darwin-arm64")}" "${join12(compileOutDir, "zazig-agent-darwin-arm64")}" "${join12(compileOutDir, "agent-mcp-server-darwin-arm64")}"`, { stdio: "inherit" });
+    execSync6(`gh release create "${tag}" --repo zazig-team/zazigv2 --title "v${newVersion}" --notes "Production release ${newVersion} (${commitSha.slice(0, 7)})" --target "${commitSha}" "${join13(compileOutDir, "zazig-cli-darwin-arm64")}" "${join13(compileOutDir, "zazig-agent-darwin-arm64")}" "${join13(compileOutDir, "agent-mcp-server-darwin-arm64")}"`, { stdio: "inherit" });
     console.log(`GitHub Release ${tag} created with 3 binary assets.`);
   } catch (err) {
     console.error(`GitHub Release creation failed: ${String(err)}`);
@@ -18329,14 +18342,14 @@ async function agents(args2 = []) {
 // dist/commands/desktop.js
 import { existsSync as existsSync12 } from "node:fs";
 import { spawn as spawn2 } from "node:child_process";
-import { dirname as dirname4, join as join13, resolve as resolve4 } from "node:path";
+import { dirname as dirname4, join as join14, resolve as resolve4 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 import { createRequire } from "node:module";
 function findRepoRoot(startDir) {
   let current = startDir;
   for (let i = 0; i < 12; i++) {
-    const desktopPkg = join13(current, "packages", "desktop", "package.json");
-    const cliPkg = join13(current, "packages", "cli", "package.json");
+    const desktopPkg = join14(current, "packages", "desktop", "package.json");
+    const cliPkg = join14(current, "packages", "cli", "package.json");
     if (existsSync12(desktopPkg) && existsSync12(cliPkg)) {
       return current;
     }
@@ -18348,8 +18361,8 @@ function findRepoRoot(startDir) {
   const fromCwd = resolve4(process.cwd());
   let cwdCurrent = fromCwd;
   for (let i = 0; i < 12; i++) {
-    const desktopPkg = join13(cwdCurrent, "packages", "desktop", "package.json");
-    const cliPkg = join13(cwdCurrent, "packages", "cli", "package.json");
+    const desktopPkg = join14(cwdCurrent, "packages", "desktop", "package.json");
+    const cliPkg = join14(cwdCurrent, "packages", "cli", "package.json");
     if (existsSync12(desktopPkg) && existsSync12(cliPkg)) {
       return cwdCurrent;
     }
@@ -18362,10 +18375,10 @@ function findRepoRoot(startDir) {
 }
 function resolveElectronBinary(desktopDir) {
   try {
-    const desktopRequire = createRequire(join13(desktopDir, "package.json"));
+    const desktopRequire = createRequire(join14(desktopDir, "package.json"));
     return desktopRequire("electron");
   } catch {
-    const fallback = join13(desktopDir, "node_modules", ".bin", "electron");
+    const fallback = join14(desktopDir, "node_modules", ".bin", "electron");
     return existsSync12(fallback) ? fallback : null;
   }
 }
@@ -18397,8 +18410,8 @@ async function desktop(args2 = process.argv.slice(3)) {
   }
   const thisDir2 = dirname4(fileURLToPath4(import.meta.url));
   const repoRoot = findRepoRoot(thisDir2);
-  const desktopDir = join13(repoRoot, "packages", "desktop");
-  const desktopEntry = join13(desktopDir, "dist", "main.js");
+  const desktopDir = join14(repoRoot, "packages", "desktop");
+  const desktopEntry = join14(desktopDir, "dist", "main.js");
   const isStaging = !!process.env["ZAZIG_REPO_PATH"];
   if (isStaging || !existsSync12(desktopEntry)) {
     try {

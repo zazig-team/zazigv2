@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "6024828";
+const AGENT_BUILD_HASH = "2756128";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -13882,7 +13882,8 @@ var MasterChangePoller = class {
 
 // ../local-agent/dist/executor.js
 function resolveMcpServerPath() {
-  const binPath = join4(homedir2(), ".zazigv2", "bin", "agent-mcp-server");
+  const zazigHome = process.env["ZAZIG_HOME"] ?? join4(homedir2(), ".zazigv2");
+  const binPath = join4(zazigHome, "bin", "agent-mcp-server");
   if (existsSync4(binPath))
     return binPath;
   const thisDir = dirname2(fileURLToPath(import.meta.url));

@@ -1,5 +1,43 @@
 status: pass
 
+## Test files created (expert-session-liveness-tmux-as-source-of-truth feature 3b53251b)
+
+### 1. `tests/features/expert-session-liveness-migration.test.ts` — 8 test cases
+- DB migration renames `running` rows to `run`
+- DB migration renames `completed` rows to `run`
+- CHECK constraint updated: includes `run`, excludes `running` and `completed`
+- CHECK constraint includes all valid statuses: requested, claimed, starting, failed, cancelled
+- `expert_sessions` table exists with status column
+
+### 2. `tests/features/expert-session-liveness-manager.test.ts` — 9 test cases
+- ExpertSessionManager sets `run` (not `running`) on session launch
+- Does NOT write `completed` status or `completed_at`
+- Exit handler does NOT update DB status after session ends
+- Tmux polling loop does NOT write status back to DB
+- `run` is the terminal status (no further transitions written)
+
+### 3. `tests/features/expert-session-liveness-desktop.test.ts` — 12 test cases
+- CLI status.ts filters expert sessions to last 2 days
+- CLI status.ts filters by allowed statuses (requested, claimed, starting, run)
+- Desktop poller checks tmux liveness using `expert-{first8chars}` naming
+- Poller polls within 5-second window for liveness detection
+- Poller hides run sessions whose tmux window does not exist
+- PipelineColumn shows green dot for alive run sessions
+- PipelineColumn hides dead run sessions (no tmux)
+- Transient state sessions show spinner/yellow indicator
+- Failed and cancelled sessions not rendered in sidebar
+
+### 4. `tests/features/expert-session-liveness-orchestrator.test.ts` — 7 test cases
+- `ACTIVE_SPEC_SESSION_STATUSES` includes `run`, excludes `running`
+- Stale `executing` and `active` status references removed
+- Expert session queries use `run`-based status set
+
+**Total: 36 new test cases. All written to FAIL against current codebase.**
+
+No `package.json` changes needed — `vitest run` discovers recursively.
+
+---
+
 ## Test files created (desktop-expert-sessions-still-missing feature fd0d6fff)
 
 ### 1. `tests/features/desktop-expert-sessions-sidebar.test.ts` — 12 test cases

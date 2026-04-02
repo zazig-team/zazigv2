@@ -1,7 +1,8 @@
 status: pass
-summary: Updated the desktop poller to forward normalized expert session data and auto-attach only newly discovered expert tmux sessions after a first-poll baseline. Implemented expert session parsing and rendering in the desktop Pipeline sidebar, including click-to-attach cards and conditional section visibility.
+summary: Implemented tmux-based liveness detection for expert sessions — poller enriches run sessions with tmux_alive field, sidebar shows green dot for alive sessions and hides dead ones, transient statuses show yellow indicator.
 files_changed:
   - packages/desktop/src/main/poller.ts
   - packages/desktop/src/renderer/components/PipelineColumn.tsx
+  - packages/cli/src/commands/status.ts
   - .reports/senior-engineer-report.md
 failure_reason: ""

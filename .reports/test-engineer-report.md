@@ -1,5 +1,42 @@
 status: pass
 
+---
+
+## Test files created (desktop-fix-terminal-scroll-behavior feature 330b7293)
+
+### `tests/features/desktop-fix-terminal-scroll-behavior.test.ts` — 16 test cases
+
+**AC1/AC2/AC3 — attachCustomWheelEventHandler removed (5 tests)**
+- TerminalPane.tsx exists
+- does not call terminal.attachCustomWheelEventHandler
+- does not reference wheelHandler (arrow-up escape routing removed)
+- does not reference wheelHandler (arrow-down escape routing removed)
+- wheelHandler.dispose() not in cleanup
+
+**AC4/AC5 — scrollback fully cleared on session switch (3 tests)**
+- calls terminal.reset() in the disconnect/detach handler
+- calls terminal.clear() followed by terminal.reset() in the disconnect path
+- terminal.reset() appears after terminal.clear()
+
+**AC6 — Keyboard input onData handler still wired (3 tests)**
+- terminal.onData() handler still present
+- onData forwards keystrokes via window.zazig.terminalInput()
+- onData dispose included in cleanup
+
+**AC7 — Terminal resize handling intact (4 tests)**
+- ResizeObserver still used to observe container
+- fitAddon.fit() still called on resize
+- window.zazig.terminalResize() called with cols and rows
+- ResizeObserver disconnected in cleanup
+
+**Failure case — scrollback must not bleed (1 test)**
+- disconnect handler calls reset() not just clear()
+
+All 16 tests written to FAIL against current codebase.
+No `package.json` changes needed — `vitest run` discovers recursively.
+
+---
+
 ## Test files created (desktop-expert-sessions-still-missing feature fd0d6fff)
 
 ### 1. `tests/features/desktop-expert-sessions-sidebar.test.ts` — 12 test cases

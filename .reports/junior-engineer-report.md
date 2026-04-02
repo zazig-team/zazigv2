@@ -1,6 +1,6 @@
 status: pass
-summary: Fixed production desktop app CLI subprocess to explicitly set ZAZIG_ENV=production and ZAZIG_HOME to production path, and updated start.ts and executor.ts to resolve agent binary paths via ZAZIG_HOME instead of hardcoded ~/.zazigv2.
+summary: Added the desktop IPC channel constant for expert session auto-switch and exposed an `onExpertSessionAutoSwitch` listener on the preload `zazig` bridge.
 files_changed:
-  - packages/desktop/src/main/cli.ts
-  - packages/cli/src/commands/start.ts
-  - packages/local-agent/src/executor.ts
+  - packages/desktop/src/main/ipc-channels.ts
+  - packages/desktop/src/main/preload.ts
+failure_reason: 

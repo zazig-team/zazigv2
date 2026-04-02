@@ -24,6 +24,8 @@ interface SidebarExpertSession {
   roleName: string;
   sessionId: string;
   status: string;
+  tmuxAlive: boolean | null;
+  transient: boolean;
 }
 
 interface PipelineViewData {
@@ -64,6 +66,7 @@ type WindowWithZazig = Window & {
 
 const SIDEBAR_WIDTH = 280;
 const GREEN_DOT = '#22c55e';
+const YELLOW_DOT = '#f59e0b';
 const GREY_DOT = '#737d92';
 
 const PLACEHOLDER_PIPELINE: PipelineViewData = {
@@ -123,6 +126,13 @@ function asRecordArray(value: unknown): AnyRecord[] {
 
 function getString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
+}
+
+function getBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return null;
 }
 
 function parseContext(context: unknown): AnyRecord {
@@ -349,6 +359,7 @@ function getExpertSessions(status: AnyRecord): SidebarExpertSession[] {
 
   return expertSessions
     .map((session, index) => {
+      const statusValue = getString(session.status, 'unknown').toLowerCase();
       const roleName =
         getString(session.role_name) ||
         getString(session.roleName) ||
@@ -360,7 +371,8 @@ function getExpertSessions(status: AnyRecord): SidebarExpertSession[] {
         getString(session.tmux_session) ||
         getString(session.tmuxSession) ||
         getString(session.session_name);
-      const statusValue = getString(session.status, 'unknown');
+      const tmuxAlive = getBoolean(session.tmux_alive) ?? getBoolean(session.tmuxAlive);
+      const transient = statusValue === 'requested' || statusValue === 'claimed' || statusValue === 'starting';
       const id = getString(session.id, `expert-session-${index + 1}`);
 
       return {
@@ -368,9 +380,21 @@ function getExpertSessions(status: AnyRecord): SidebarExpertSession[] {
         roleName: roleName || `Expert ${index + 1}`,
         sessionId,
         status: statusValue,
+        tmuxAlive,
+        transient,
       };
     })
-    .filter((session) => session.sessionId.length > 0);
+    .filter((session) => {
+      if (session.status === 'run') {
+        return session.tmuxAlive === true;
+      }
+
+      if (session.transient) {
+        return true;
+      }
+
+      return false;
+    });
 }
 
 function parsePipelinePayload(payload: unknown): PipelineViewData {
@@ -694,6 +718,7 @@ export default function PipelineColumn({
                   role="button"
                   tabIndex={0}
                   onClick={() => {
+                    if (!session.sessionId) return;
                     const bridge = (window as WindowWithZazig).zazig;
                     if (!bridge?.terminalAttach) return;
                     void bridge.terminalAttach(session.sessionId).catch((error) => {
@@ -703,6 +728,7 @@ export default function PipelineColumn({
                   onKeyDown={(event) => {
                     if (event.key !== 'Enter' && event.key !== ' ') return;
                     event.preventDefault();
+                    if (!session.sessionId) return;
                     const bridge = (window as WindowWithZazig).zazig;
                     if (!bridge?.terminalAttach) return;
                     void bridge.terminalAttach(session.sessionId).catch((error) => {
@@ -724,7 +750,7 @@ export default function PipelineColumn({
                         height: 8,
                         minWidth: 8,
                         borderRadius: '50%',
-                        background: session.status === 'active' ? GREEN_DOT : GREY_DOT,
+                        background: session.status === 'run' ? GREEN_DOT : session.transient ? YELLOW_DOT : GREY_DOT,
                       }}
                     />
                     <div style={{ minWidth: 0, flex: 1 }}>
@@ -744,7 +770,7 @@ export default function PipelineColumn({
                           wordBreak: 'break-word',
                         }}
                       >
-                        {session.sessionId}
+                        {session.sessionId || 'Pending tmux session'}
                       </div>
                     </div>
                   </div>

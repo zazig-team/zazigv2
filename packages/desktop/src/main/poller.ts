@@ -7,7 +7,7 @@ import { PIPELINE_UPDATE } from './ipc-channels';
 import * as pty from './pty';
 
 const execFileAsync = promisify(execFile);
-const POLL_INTERVAL_MS = 5_000;
+const POLL_INTERVAL_MS = 5000;
 
 type PipelinePayload = {
   status: unknown;
@@ -15,7 +15,11 @@ type PipelinePayload = {
 
 type AnyRecord = Record<string, unknown>;
 type ExpertSession = AnyRecord & {
+  id: string;
   session_id: string;
+  status: string;
+  tmux_alive?: boolean;
+  transient?: boolean;
 };
 
 let pollTimer: NodeJS.Timeout | null = null;
@@ -28,7 +32,69 @@ function isRecord(value: unknown): value is AnyRecord {
   return typeof value === 'object' && value !== null;
 }
 
-function getExpertSessions(status: AnyRecord): ExpertSession[] {
+function getString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function getTmuxSessionNameFromExpertSession(session: AnyRecord): string {
+  const explicitTmuxSession =
+    getString(session.session_id) ||
+    getString(session.sessionId) ||
+    getString(session.tmux_session) ||
+    getString(session.tmuxSession) ||
+    getString(session.session_name) ||
+    getString(session.sessionName);
+  if (explicitTmuxSession.startsWith('expert-')) {
+    return explicitTmuxSession;
+  }
+
+  const expertId =
+    getString(session.id) ||
+    getString(session.expert_session_id) ||
+    getString(session.expertSessionId) ||
+    getString(session.session_uuid) ||
+    getString(session.sessionUuid) ||
+    explicitTmuxSession;
+  if (!expertId) {
+    return '';
+  }
+
+  return `expert-${expertId.slice(0, 8)}`;
+}
+
+function getTmuxSessionNamesFromStatus(status: AnyRecord): string[] {
+  const rawTmuxSessions =
+    status.tmux_sessions ??
+    status.tmuxSessions ??
+    status.local_sessions ??
+    status.localSessions;
+
+  if (!Array.isArray(rawTmuxSessions)) {
+    return [];
+  }
+
+  const tmuxSessions: string[] = [];
+  for (const rawSession of rawTmuxSessions) {
+    if (typeof rawSession === 'string') {
+      const name = rawSession.trim();
+      if (name.length > 0) tmuxSessions.push(name);
+      continue;
+    }
+
+    if (!isRecord(rawSession)) continue;
+    const sessionName =
+      getString(rawSession.session_name) ||
+      getString(rawSession.sessionName) ||
+      getString(rawSession.name);
+    if (sessionName.length > 0) {
+      tmuxSessions.push(sessionName);
+    }
+  }
+
+  return tmuxSessions;
+}
+
+function getExpertSessions(status: AnyRecord, tmuxSessionNames: Set<string>): ExpertSession[] {
   const rawExpertSessions = status.expert_sessions ?? status.expertSessions;
   if (!Array.isArray(rawExpertSessions)) {
     return [];
@@ -38,18 +104,39 @@ function getExpertSessions(status: AnyRecord): ExpertSession[] {
   for (const rawSession of rawExpertSessions) {
     if (!isRecord(rawSession)) continue;
 
+    const id =
+      getString(rawSession.id) ||
+      getString(rawSession.expert_session_id) ||
+      getString(rawSession.expertSessionId) ||
+      getString(rawSession.session_uuid) ||
+      getString(rawSession.sessionUuid) ||
+      getString(rawSession.session_id) ||
+      getString(rawSession.sessionId);
     const sessionId =
-      typeof rawSession.session_id === 'string'
-        ? rawSession.session_id
-        : typeof rawSession.sessionId === 'string'
-          ? rawSession.sessionId
-          : '';
-    if (!sessionId) continue;
+      getString(rawSession.session_id) ||
+      getString(rawSession.sessionId) ||
+      getString(rawSession.tmux_session) ||
+      getString(rawSession.tmuxSession) ||
+      getString(rawSession.session_name) ||
+      getString(rawSession.sessionName);
+    const statusValue = getString(rawSession.status).toLowerCase();
+    if (!id) continue;
 
-    sessions.push({
+    const nextSession: ExpertSession = {
       ...rawSession,
+      id,
       session_id: sessionId,
-    });
+      status: statusValue || getString(rawSession.status),
+    };
+
+    if (statusValue === 'run') {
+      const expectedTmuxSession = getTmuxSessionNameFromExpertSession(rawSession);
+      nextSession.tmux_alive = expectedTmuxSession.length > 0 && tmuxSessionNames.has(expectedTmuxSession);
+    } else if (statusValue === 'requested' || statusValue === 'claimed' || statusValue === 'starting') {
+      nextSession.transient = true;
+    }
+
+    sessions.push(nextSession);
   }
 
   return sessions;
@@ -123,13 +210,15 @@ async function pollOnce(): Promise<void> {
     const pipelineStatus: AnyRecord = { ...status };
 
     // Inject tmux session names into status so the renderer can match jobs to local sessions
-    if (tmuxSessions.length > 0) {
-      pipelineStatus.tmux_sessions = tmuxSessions;
-    }
+    const statusTmuxSessions = getTmuxSessionNamesFromStatus(pipelineStatus);
+    const mergedTmuxSessions = new Set<string>([...statusTmuxSessions, ...tmuxSessions]);
+    pipelineStatus.tmux_sessions = Array.from(mergedTmuxSessions);
 
-    const expertSessions = getExpertSessions(pipelineStatus);
+    const expertSessions = getExpertSessions(pipelineStatus, mergedTmuxSessions);
     pipelineStatus.expert_sessions = expertSessions;
-    syncExpertSessions(expertSessions);
+    syncExpertSessions(
+      expertSessions.filter((session) => session.status === 'run' && session.tmux_alive === true),
+    );
 
     const payload: PipelinePayload = { status: pipelineStatus };
     const snapshot = JSON.stringify(payload);

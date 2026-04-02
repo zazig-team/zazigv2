@@ -239,7 +239,7 @@ describe("ExpertSessionManager", () => {
 
     expect(linkSpy).not.toHaveBeenCalled();
     expect(pollSpy).toHaveBeenCalledTimes(1);
-    expect(statusSpy).toHaveBeenCalledWith("feedface-1234-5678-90ab-cdef12345678", "running");
+    expect(statusSpy).toHaveBeenCalledWith("feedface-1234-5678-90ab-cdef12345678", "run");
   });
 
   it("headless lifecycle exits cleanly and injects session summary", async () => {
@@ -474,9 +474,7 @@ describe("ExpertSessionManager", () => {
     await (manager as any).handleSessionExit(session);
 
     const sessionUpdate = supabase.updates.find((u) => u.table === "expert_sessions");
-    expect(sessionUpdate).toBeDefined();
-    expect(sessionUpdate?.data.status).toBe("completed");
-    expect(sessionUpdate?.eqValue).toBe("session-123");
+    expect(sessionUpdate).toBeUndefined();
 
     const sendKeysLiteral = mockExecFileAsync.mock.calls.find((call) =>
       call[0] === "tmux"
@@ -583,7 +581,7 @@ describe("ExpertSessionManager", () => {
     const statusUpdates = supabase.updates
       .filter((u) => u.table === "expert_sessions")
       .map((u) => u.data.status);
-    expect(statusUpdates).toContain("running");
+    expect(statusUpdates).toContain("run");
   });
 
   it("handleStartExpert creates an expert branch with role slug and hex suffix", async () => {

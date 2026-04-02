@@ -58,6 +58,14 @@ const server = Bun.serve<WsData>({
         ws.data.ptyProcess = ptyProcess;
         console.error(`[sidecar] PTY spawned for session: ${sessionName} (pid=${ptyProcess.pid})`);
 
+        // Enable tmux mouse mode so wheel events scroll the pane history
+        // instead of being forwarded to the application inside the pane.
+        try {
+          execSync(`${TMUX_BIN} set -t ${sessionName} mouse on`, { stdio: 'pipe' });
+        } catch {
+          // Best-effort — session may not support it
+        }
+
         // Bridge PTY output → WebSocket (binary frames)
         ptyProcess.onData((data) => {
           ws.sendBinary(Buffer.from(data));

@@ -42,36 +42,37 @@ function readRepoFile(relPath: string): string | null {
 // AC1 / AC2 / AC3: Custom wheel handler removed — native xterm.js scroll
 // ---------------------------------------------------------------------------
 
-describe('AC1/AC2/AC3: wheel events scroll the terminal viewport', () => {
-  let content: string | null;
+describe('AC1/AC2/AC3: wheel events handled by tmux mouse mode', () => {
+  let terminalContent: string | null;
+  let sidecarContent: string | null;
+
+  const SIDECAR_SERVER = 'packages/desktop/src/sidecar/server.ts';
 
   beforeAll(() => {
-    content = readRepoFile(TERMINAL_PANE);
+    terminalContent = readRepoFile(TERMINAL_PANE);
+    sidecarContent = readRepoFile(SIDECAR_SERVER);
   });
 
   it('TerminalPane.tsx exists', () => {
-    expect(content, `File not found: ${TERMINAL_PANE}`).not.toBeNull();
+    expect(terminalContent, `File not found: ${TERMINAL_PANE}`).not.toBeNull();
   });
 
-  it('uses attachCustomWheelEventHandler to intercept wheel events', () => {
-    // The wheel handler overrides xterm's default behavior of forwarding
-    // wheel events to the running app as mouse escape sequences, and instead
-    // scrolls the terminal viewport via terminal.scrollLines()
-    expect(content).toMatch(/attachCustomWheelEventHandler/);
+  it('sidecar server.ts exists', () => {
+    expect(sidecarContent, `File not found: ${SIDECAR_SERVER}`).not.toBeNull();
   });
 
-  it('calls terminal.scrollLines() inside the wheel handler', () => {
-    // Wheel events must scroll the terminal viewport, not be forwarded to the app
-    expect(content).toMatch(/scrollLines/);
+  it('does not use attachCustomWheelEventHandler in the renderer', () => {
+    // Wheel events should pass through xterm to tmux, not be intercepted
+    expect(terminalContent).not.toMatch(/attachCustomWheelEventHandler/);
+  });
+
+  it('sidecar enables tmux mouse mode on attach', () => {
+    // tmux mouse mode must be enabled so wheel events scroll the pane history
+    expect(sidecarContent).toMatch(/tmux.*set.*mouse\s+on/);
   });
 
   it('does not send arrow key escape sequences to PTY on wheel scroll', () => {
-    // Arrow-up/down escapes (\x1b[A / \x1b[B) must not appear in wheel handling
-    expect(content).not.toMatch(/wheelHandler|customWheelEvent/);
-  });
-
-  it('wheel handler dispose is not in the cleanup function', () => {
-    expect(content).not.toMatch(/wheelHandler\.dispose\s*\(\)/);
+    expect(terminalContent).not.toMatch(/wheelHandler|customWheelEvent/);
   });
 });
 

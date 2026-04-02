@@ -63,6 +63,14 @@ wss.on('connection', (ws) => {
         return;
       }
 
+      // Enable tmux mouse mode so wheel events scroll the pane history
+      // instead of being forwarded to the application inside the pane.
+      try {
+        execSync(`${TMUX_BIN} set -t ${sessionName} mouse on`, { stdio: 'pipe' });
+      } catch {
+        // Best-effort — session may not support it
+      }
+
       ptyProcess.onData((data) => {
         if (ws.readyState === 1) {
           ws.send(data);

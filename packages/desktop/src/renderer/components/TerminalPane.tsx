@@ -109,16 +109,6 @@ export function TerminalPane({ message }: TerminalPaneProps): JSX.Element {
     fitAddon.fit();
     terminalRef.current = terminal;
 
-    // When the application inside the terminal enables mouse tracking (e.g.
-    // Claude Code's TUI), xterm.js forwards wheel events to the app as mouse
-    // escape sequences instead of scrolling the terminal viewport.  Override
-    // this so wheel always scrolls the terminal's scrollback buffer.
-    terminal.attachCustomWheelEventHandler((event: WheelEvent) => {
-      const lines = Math.ceil(Math.abs(event.deltaY) / 25);
-      terminal.scrollLines(event.deltaY > 0 ? lines : -lines);
-      return false; // prevent xterm from forwarding to the app
-    });
-
     const onOutputUnsubscribe = window.zazig.onTerminalOutput((data) => {
       if (data === '') {
         setDisconnected(true);

@@ -1,4 +1,17 @@
 status: success
+branch: feature/ci-monitor-extract-actionable-failure-co-aa483d49
+merged:
+  - job/01b49f63-c391-4ad6-bf5d-ca74b8f88976
+  - job/ac2ce23d-3687-470e-88a5-fabaed429deb
+  - job/dab983d5-7ce7-46b2-b328-189134329d9b
+conflicts_resolved:
+  - {file: .reports/senior-engineer-report.md, resolution: Combined summaries from both conflicting branches — unit test coverage additions and executor.ts template changes were independent contributions from different jobs}
+failure_reason:
+
+PR: https://github.com/zazig-team/zazigv2/pull/400
+
+---
+
 branch: feature/fix-master-ci-failure-run-npm-run-test-53f5830b
 merged: []
 conflicts_resolved: []

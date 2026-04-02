@@ -1,5 +1,53 @@
 status: pass
 
+## Test files created (ci-monitor-extract-actionable-failure-context feature aa483d49)
+
+### `tests/features/ci-monitor-extract-actionable-failure-context.test.ts` — 28 test cases
+
+**AC2: ANSI escape code stripping (3 tests)**
+- `extractFailureSummary` exported from local-agent
+- Result contains no ANSI escape sequences
+- Strips all common ANSI color codes
+
+**AC1: Vitest failure summary extraction — only failing content (7 tests)**
+- Summary contains the failing test name
+- Summary contains the assertion error
+- Summary does NOT contain passing test lines
+- Summary contains the Test Files / Tests line
+- Falls back to last 200 lines when no structured summary found
+- Handles empty log without throwing
+
+**AC3: 8KB hard cap with truncation marker (3 tests)**
+- Summary is at most 8192 bytes
+- Truncated summary includes `gh run view` pointer with run ID
+- Truncated summary ends with truncation marker
+
+**AC4: Workspace identification from npm error lines (3 tests)**
+- Identifies `packages/orchestrator` from npm error path
+- Identifies `packages/local-agent` from npm error path
+- Includes npm error lines from the bottom of the log
+
+**AC1/AC2 (behavioral): Feature spec uses extraction template (2 tests)**
+- Feature spec contains FAILURE SUMMARY section, not raw log dump
+- Feature spec contains no ANSI codes
+
+**AC5: Structural — master-ci-monitor.js uses same extraction logic (9 tests)**
+- executor.ts and master-ci-monitor.js both reference `extractFailureSummary`
+- Both files reference FAILURE SUMMARY and HOW TO REPRODUCE template sections
+- Both files contain ANSI stripping logic
+- Both files enforce 8KB cap
+- `extractFailureSummary` importable from master-ci-monitor.js
+
+**Unit tests for extractFailureSummary edge cases (4 tests)**
+- Extracts vitest FAIL block between FAIL marker and Test Files summary
+- Extracts jest failure format
+- Handles build error logs by returning last 200 lines
+- Empty log handled gracefully
+
+No `package.json` changes needed — `vitest run` discovers recursively.
+
+---
+
 ## Test files created (desktop-expert-session-auto-switch-state-sync feature 5b40e4e1)
 
 ### `tests/features/desktop-expert-session-auto-switch-state-sync.test.ts` — 26 test cases

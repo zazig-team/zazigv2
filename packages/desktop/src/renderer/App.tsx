@@ -1,6 +1,9 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import PipelineColumn, { type PipelineJob } from './components/PipelineColumn';
+import PipelineColumn, {
+  type PersistentAgent,
+  type PipelineJob,
+} from './components/PipelineColumn';
 import { TerminalPane } from './components/TerminalPane';
 
 const rootStyle: React.CSSProperties = {
@@ -18,9 +21,84 @@ const terminalPaneStyle: React.CSSProperties = {
   minHeight: 0,
 };
 
+type AnyRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is AnyRecord {
+  return typeof value === 'object' && value !== null;
+}
+
+function asRecord(value: unknown): AnyRecord {
+  return isRecord(value) ? value : {};
+}
+
+function asRecordArray(value: unknown): AnyRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord);
+}
+
+function getString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function getTmuxSessionNames(status: AnyRecord): string[] {
+  const rawTmuxSessions = status.tmux_sessions ?? status.tmuxSessions ?? [];
+  if (!Array.isArray(rawTmuxSessions)) return [];
+
+  const sessionNames: string[] = [];
+  for (const session of rawTmuxSessions) {
+    if (typeof session === 'string') {
+      const name = session.trim();
+      if (name.length > 0) {
+        sessionNames.push(name);
+      }
+      continue;
+    }
+
+    if (!isRecord(session)) {
+      continue;
+    }
+
+    const name =
+      getString(session.session_name) ||
+      getString(session.sessionName) ||
+      getString(session.session) ||
+      getString(session.name);
+    if (name.length > 0) {
+      sessionNames.push(name);
+    }
+  }
+
+  return sessionNames;
+}
+
+function derivePersistentAgents(status: AnyRecord, activeSession: string | null): PersistentAgent[] {
+  const persistentAgents = asRecordArray(status.persistent_agents ?? status.persistentAgents);
+  const tmuxSessionNames = getTmuxSessionNames(status);
+
+  return persistentAgents
+    .map((agent, index) => {
+      const role =
+        getString(agent.role) ||
+        getString(agent.role_name) ||
+        getString(agent.roleName) ||
+        `agent-${index + 1}`;
+      const roleSuffix = `-${role.toLowerCase()}`;
+      const sessionName = tmuxSessionNames.find((name) => name.endsWith(roleSuffix)) ?? null;
+      const isRunning = sessionName !== null;
+
+      return {
+        role,
+        sessionName,
+        isRunning,
+        isActive: Boolean(sessionName && activeSession === sessionName),
+      };
+    })
+    .filter((agent) => agent.role.length > 0);
+}
+
 export function App(): JSX.Element {
   const [activeSession, setActiveSession] = useState<string | null>(null);
-  const [isCpoActive, setIsCpoActive] = useState(false);
+  const [latestStatus, setLatestStatus] = useState<AnyRecord>({});
   const [terminalMessage, setTerminalMessage] = useState<string | undefined>(undefined);
   const activeSessionRef = useRef<string | null>(null);
   const transitionQueueRef = useRef(Promise.resolve());
@@ -33,16 +111,21 @@ export function App(): JSX.Element {
       });
   }, []);
 
-  const onCpoClick = useCallback(() => {
-    queueTerminalTransition(async () => {
-      setTerminalMessage(undefined);
-      await window.zazig.terminalDetach();
-      await window.zazig.terminalAttachDefault();
-      activeSessionRef.current = null;
-      setActiveSession(null);
-      setIsCpoActive(true);
+  useEffect(() => {
+    const unsubscribe = window.zazig.onPipelineUpdate((payload: unknown) => {
+      const root = asRecord(payload);
+      setLatestStatus(asRecord(root.status));
     });
-  }, [queueTerminalTransition]);
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  const persistentAgents = useMemo(
+    () => derivePersistentAgents(latestStatus, activeSession),
+    [latestStatus, activeSession],
+  );
 
   const onJobClick = useCallback(
     (job: PipelineJob) => {
@@ -53,7 +136,6 @@ export function App(): JSX.Element {
 
           activeSessionRef.current = null;
           setActiveSession(null);
-          setIsCpoActive(false);
           return;
         }
 
@@ -67,7 +149,23 @@ export function App(): JSX.Element {
 
         activeSessionRef.current = job.sessionName;
         setActiveSession(job.sessionName);
-        setIsCpoActive(false);
+      });
+    },
+    [queueTerminalTransition],
+  );
+
+  const onAgentClick = useCallback(
+    (agent: PersistentAgent) => {
+      if (!agent.sessionName) {
+        return;
+      }
+
+      queueTerminalTransition(async () => {
+        setTerminalMessage(undefined);
+        await window.zazig.terminalDetach();
+        await window.zazig.terminalAttach(agent.sessionName);
+        activeSessionRef.current = agent.sessionName;
+        setActiveSession(agent.sessionName);
       });
     },
     [queueTerminalTransition],
@@ -86,7 +184,6 @@ export function App(): JSX.Element {
 
         activeSessionRef.current = null;
         setActiveSession(null);
-        setIsCpoActive(false);
       });
     },
     [onJobClick, queueTerminalTransition],
@@ -96,8 +193,8 @@ export function App(): JSX.Element {
     <div style={rootStyle}>
       <PipelineColumn
         activeSession={activeSession}
-        isCpoActive={isCpoActive}
-        onCpoClick={onCpoClick}
+        persistentAgents={persistentAgents}
+        onAgentClick={onAgentClick}
         onJobClick={onJobClick}
         onWatchClick={onWatchClick}
       />

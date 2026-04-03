@@ -73,7 +73,13 @@ interface DesktopPrefs {
   selectedCompanyId?: string;
 }
 
-const PREFS_PATH = path.join(os.homedir(), '.zazigv2', 'desktop-prefs.json');
+const isStaging =
+  process.env.ZAZIG_ENV === 'staging' || (process.env.ZAZIG_CLI_BIN || '').includes('staging');
+const PREFS_PATH = path.join(
+  os.homedir(),
+  '.zazigv2',
+  isStaging ? 'desktop-prefs-staging.json' : 'desktop-prefs.json',
+);
 
 function loadPrefs(): DesktopPrefs {
   try {

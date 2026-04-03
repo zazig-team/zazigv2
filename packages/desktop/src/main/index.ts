@@ -76,6 +76,10 @@ interface DesktopPrefs {
 const isStaging = process.env.ZAZIG_ENV === 'staging' || (process.env.ZAZIG_CLI_BIN || '').includes('staging');
 const PREFS_PATH = path.join(os.homedir(), '.zazigv2', isStaging ? 'desktop-prefs-staging.json' : 'desktop-prefs.json');
 
+if (isStaging) {
+  app.setPath('userData', path.join(os.homedir(), '.zazigv2', 'desktop-userdata-staging'));
+}
+
 function loadPrefs(): DesktopPrefs {
   try {
     const raw = fs.readFileSync(PREFS_PATH, 'utf8');
@@ -114,8 +118,21 @@ async function findCpoTmuxSession(): Promise<string | null> {
   const execFileAsync = promisify(execFile);
   try {
     const { stdout } = await execFileAsync('tmux', ['list-sessions', '-F', '#{session_name}']);
-    const sessions = stdout.trim().split('\n');
-    return sessions.find((s) => s.endsWith('-cpo')) ?? null;
+    const sessions = stdout
+      .trim()
+      .split('\n')
+      .map((session) => session.trim())
+      .filter(Boolean);
+
+    if (isStaging) {
+      return (
+        sessions.find((session) => session.endsWith('-staging-cpo')) ??
+        sessions.find((session) => session.includes('staging') && session.endsWith('-cpo')) ??
+        null
+      );
+    }
+
+    return sessions.find((session) => session.endsWith('-cpo') && !session.includes('staging')) ?? null;
   } catch {
     return null;
   }

@@ -1877,6 +1877,10 @@ export class JobExecutor {
     const role = msg.role ?? "agent";
     const roleSkills = ensureRoleSkills(role, msg.roleSkills);
     const resolvedCompanyId = companyId ?? process.env["ZAZIG_COMPANY_ID"] ?? "";
+    const isStaging = process.env["ZAZIG_ENV"] === "staging";
+    const stagingSegment = isStaging ? "staging-" : "";
+    const sessionCompanyPrefix = this.companyId ? this.companyId.slice(0, 8) + "-" : "";
+    const persistentSessionName = `${this.machineId}-${sessionCompanyPrefix}${stagingSegment}${role}`;
     const workspaceDir = resolvedCompanyId
       ? join(homedir(), ".zazigv2", `${resolvedCompanyId}-${role}-workspace`)
       : join(homedir(), ".zazigv2", `${role}-workspace`);
@@ -1907,7 +1911,7 @@ export class JobExecutor {
         repoInteractiveSkillsDir: join(repoRoot, ".claude", "skills"),
         useSymlinks: true,
         mcpTools: msg.roleMcpTools,
-        tmuxSession: `${this.machineId}-${this.companyId ? this.companyId.slice(0, 8) + "-" : ""}${role}`,
+        tmuxSession: persistentSessionName,
         machineId: this.machineId,
       });
 
@@ -2021,8 +2025,7 @@ export class JobExecutor {
     }
 
     // --- Spawn the persistent tmux session in the workspace directory ---
-    const companyPrefix = this.companyId ? this.companyId.slice(0, 8) + "-" : "";
-    const sessionName = `${this.machineId}-${companyPrefix}${role}`;
+    const sessionName = persistentSessionName;
     try {
       // Kill any stale session from a previous run
       await killTmuxSession(sessionName);

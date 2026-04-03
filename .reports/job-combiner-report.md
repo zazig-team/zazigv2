@@ -1,13 +1,14 @@
 status: success
-branch: feature/fix-memory-sync-nudge-loop-v2-reset-on-h-3a41b3ca
+branch: feature/desktop-full-electron-isolation-between--c0b1c78f
 merged:
-  - job/60baebc6-c00a-4e12-b904-5d4524bec76c (already merged — skipped)
+  - job/814f9252-9a6c-4f7a-9041-98078734cc55
 conflicts_resolved: []
 failure_reason:
 
 ## Notes
 
-- Job branch job/60baebc6-c00a-4e12-b904-5d4524bec76c was already merged (confirmed via git branch --merged); no merge action needed
-- Feature branch has no commits beyond master; PR creation skipped (no diff to open)
-- Feature branch pushed to origin successfully
-- CI workflow already exists on master — skipped CI injection
+- Feature branch created from master (did not exist on remote)
+- Job branch merged cleanly with no conflicts
+- CI workflow already exists on master — skipped injection
+- PR created: https://github.com/zazig-team/zazigv2/pull/405
+- Changes: staging-only Electron Chromium profile isolation, environment-scoped CPO tmux session discovery, and daemon persistent session naming with staging segment

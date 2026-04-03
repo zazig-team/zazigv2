@@ -8,6 +8,7 @@ The following commands are available via the zazig CLI. Use these instead of MCP
 - \`zazig ideas --company <company_id>\` — list ideas from inbox
 - \`zazig features --company <company_id>\` — list features for the company's project
 - \`zazig projects --company <company_id>\` — list projects
+- \`zazig search <query> --company <company_id>\` — full-text search across ideas, features, and jobs
 - \`zazig create-project-rule --company <company_id> --rule-text "<text>" --applies-to "<scope>"\` — create a project rule
 
 ### Common flags
@@ -16,6 +17,7 @@ The following commands are available via the zazig CLI. Use these instead of MCP
 - \`--offset <n>\` — skip first N results (default: 0)
 - \`--status <value>\` — filter by status (ideas, features)
 - \`--id <uuid>\` — fetch a single record by ID (ideas, features)
+- \`--type <idea|feature|job>\` — filter search results by entity type (search only)
 - \`--search <term>\` — full-text search (ideas only)
 
 Results are sorted newest-first by default. Output is JSON on stdout.

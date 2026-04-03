@@ -1,6 +1,6 @@
 status: pass
-summary: Added a nudge timestamp guard in persistent agent heartbeat logic so memory sync state is not reset by the agent’s immediate self-response after an idle sync nudge.
+summary: Updated PREFS_PATH in desktop main process to use separate staging and production prefs files based on ZAZIG_ENV and ZAZIG_CLI_BIN environment variables.
 files_changed:
-  - packages/local-agent/src/executor.ts
+  - packages/desktop/src/main/index.ts
   - .reports/junior-engineer-report.md
 failure_reason:

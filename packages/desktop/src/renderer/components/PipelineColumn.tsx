@@ -955,7 +955,7 @@ export default function PipelineColumn({
           )}
         </Section>
 
-        <Section title="Failed Features" red>
+        <Section title="Failed Features" red={pipeline.failedFeatures.length > 0}>
           {pipeline.failedFeatures.length === 0 ? (
             <EmptyState text="No failed features." />
           ) : (

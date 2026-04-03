@@ -1,6 +1,6 @@
 {
   "name": "@zazig/cli",
-  "version": "0.64.0",
+  "version": "0.65.0",
   "description": "Installable CLI for the zazigv2 local agent — login, join, start/stop/status",
   "type": "module",
   "bin": {

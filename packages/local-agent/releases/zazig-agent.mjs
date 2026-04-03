@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "b6320f7";
+const AGENT_BUILD_HASH = "8b9ad3b";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -14660,6 +14660,8 @@ ${cpoContext}`);
     const formatted = `[Message from ${msg.from}, conversation:${msg.conversationId}]
 ${msg.text}`;
     console.log(`[executor] Queuing inbound message from ${msg.from} for role=${targetRole} session=${agent.tmuxSession}`);
+    agent.lastMemorySyncAt = null;
+    console.log(`[memory-sync] ${targetRole}: state reset on human input from ${msg.from}`);
     void this.enqueueMessage(formatted, agent.tmuxSession, agent.startedAt);
   }
   // ---------------------------------------------------------------------------
@@ -15276,7 +15278,6 @@ ${msg.text}`;
       originalJob: { ...msg, companyProjects: msg.companyProjects ? [...msg.companyProjects] : void 0 },
       resetInProgress: false,
       lastMemorySyncAt: null,
-      lastMemorySyncNudgedAt: null,
       wasActiveAfterSync: false
     };
     this.persistentAgents.set(role, persistentAgent);
@@ -15294,10 +15295,7 @@ ${msg.text}`;
             const now = Date.now();
             persistentAgent.lastOutputHash = outputHash;
             persistentAgent.lastActivityAt = now;
-            const recentlyNudged = persistentAgent.lastMemorySyncNudgedAt !== null && now - persistentAgent.lastMemorySyncNudgedAt < 6e4;
-            if (!recentlyNudged) {
-              persistentAgent.lastMemorySyncAt = null;
-            }
+            console.log(`[memory-sync] ${persistentAgent.role}: output changed, state preserved (lastMemorySyncAt=${persistentAgent.lastMemorySyncAt})`);
             persistentAgent.wasActiveAfterSync = true;
           }
           console.log(`[executor] Persistent heartbeat ${persistentAgent.role}: changed=${changed} idle=${Math.floor((Date.now() - persistentAgent.lastActivityAt) / 1e3)}s`);
@@ -15307,7 +15305,6 @@ ${msg.text}`;
           if (shouldNudge) {
             const now = Date.now();
             persistentAgent.lastMemorySyncAt = now;
-            persistentAgent.lastMemorySyncNudgedAt = now;
             const syncPrompt = "Review this session. If anything worth remembering happened \u2014 decisions, preferences, corrections, context \u2014 update your .memory/ files. Remove or update any stale memories. If nothing notable, do nothing.";
             try {
               await execFileAsync3("tmux", [
@@ -15317,10 +15314,12 @@ ${msg.text}`;
                 syncPrompt,
                 "Enter"
               ]);
-              console.log(`[executor] Injected memory sync nudge for ${persistentAgent.role} (idle=${Math.floor(idleSinceActivity / 1e3)}s)`);
+              console.log(`[memory-sync] ${persistentAgent.role}: nudge fired (idle=${Math.floor(idleSinceActivity / 1e3)}s)`);
             } catch (err) {
-              console.warn(`[executor] Memory sync nudge failed for ${persistentAgent.role}: ${String(err)}`);
+              console.warn(`[memory-sync] ${persistentAgent.role}: nudge failed: ${String(err)}`);
             }
+          } else if (idleSinceActivity >= IDLE_SYNC_THRESHOLD_MS && persistentAgent.lastMemorySyncAt !== null) {
+            console.log(`[memory-sync] ${persistentAgent.role}: nudge skipped, already synced at ${new Date(persistentAgent.lastMemorySyncAt).toISOString()}`);
           }
         } catch (err) {
           console.warn(`[executor] Failed to capture pane for ${persistentAgent.role}: ${String(err)}`);

@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "649b8ae";
+const AGENT_BUILD_HASH = "a8240b6";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -15276,6 +15276,7 @@ ${msg.text}`;
       originalJob: { ...msg, companyProjects: msg.companyProjects ? [...msg.companyProjects] : void 0 },
       resetInProgress: false,
       lastMemorySyncAt: null,
+      lastMemorySyncNudgedAt: null,
       wasActiveAfterSync: false
     };
     this.persistentAgents.set(role, persistentAgent);
@@ -15290,9 +15291,13 @@ ${msg.text}`;
           const outputHash = createHash("sha256").update(captureOutput).digest("hex");
           const changed = outputHash !== persistentAgent.lastOutputHash;
           if (changed) {
+            const now = Date.now();
             persistentAgent.lastOutputHash = outputHash;
-            persistentAgent.lastActivityAt = Date.now();
-            persistentAgent.lastMemorySyncAt = null;
+            persistentAgent.lastActivityAt = now;
+            const recentlyNudged = persistentAgent.lastMemorySyncNudgedAt !== null && now - persistentAgent.lastMemorySyncNudgedAt < 6e4;
+            if (!recentlyNudged) {
+              persistentAgent.lastMemorySyncAt = null;
+            }
             persistentAgent.wasActiveAfterSync = true;
           }
           console.log(`[executor] Persistent heartbeat ${persistentAgent.role}: changed=${changed} idle=${Math.floor((Date.now() - persistentAgent.lastActivityAt) / 1e3)}s`);
@@ -15300,7 +15305,9 @@ ${msg.text}`;
           const idleSinceActivity = Date.now() - persistentAgent.lastActivityAt;
           const shouldNudge = idleSinceActivity >= IDLE_SYNC_THRESHOLD_MS && persistentAgent.lastMemorySyncAt === null && !persistentAgent.resetInProgress;
           if (shouldNudge) {
-            persistentAgent.lastMemorySyncAt = Date.now();
+            const now = Date.now();
+            persistentAgent.lastMemorySyncAt = now;
+            persistentAgent.lastMemorySyncNudgedAt = now;
             const syncPrompt = "Review this session. If anything worth remembering happened \u2014 decisions, preferences, corrections, context \u2014 update your .memory/ files. Remove or update any stale memories. If nothing notable, do nothing.";
             try {
               await execFileAsync3("tmux", [

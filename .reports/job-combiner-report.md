@@ -1,14 +1,13 @@
 status: success
-branch: feature/desktop-separate-prefs-storage-for-stagi-9c65b761
+branch: feature/fix-memory-sync-nudge-loop-v2-reset-on-h-3a41b3ca
 merged:
-  - job/2506e8ad-eee3-4620-b2c7-84748f24c77b
+  - job/60baebc6-c00a-4e12-b904-5d4524bec76c (already merged — skipped)
 conflicts_resolved: []
 failure_reason:
 
-PR: https://github.com/zazig-team/zazigv2/pull/403
-
 ## Notes
 
-- Merged job/2506e8ad-eee3-4620-b2c7-84748f24c77b into feature/desktop-separate-prefs-storage-for-stagi-9c65b761 with no conflicts
+- Job branch job/60baebc6-c00a-4e12-b904-5d4524bec76c was already merged (confirmed via git branch --merged); no merge action needed
+- Feature branch has no commits beyond master; PR creation skipped (no diff to open)
+- Feature branch pushed to origin successfully
 - CI workflow already exists on master — skipped CI injection
-- Changes: Use separate prefs file for staging vs production in packages/desktop/src/main/index.ts to prevent cross-environment preference or credential bleed

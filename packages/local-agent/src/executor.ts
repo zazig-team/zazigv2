@@ -557,8 +557,6 @@ interface ActivePersistentAgent {
   resetInProgress: boolean;
   /** Timestamp of last memory sync nudge, or null if not yet nudged this idle period. */
   lastMemorySyncAt: number | null;
-  /** Timestamp of most recent nudge injection, used to ignore immediate self-response output changes. */
-  lastMemorySyncNudgedAt: number | null;
   /** Whether agent was active since last memory sync (used to reset sync state). */
   wasActiveAfterSync: boolean;
 }
@@ -1305,6 +1303,9 @@ export class JobExecutor {
 
     const formatted = `[Message from ${msg.from}, conversation:${msg.conversationId}]\n${msg.text}`;
     console.log(`[executor] Queuing inbound message from ${msg.from} for role=${targetRole} session=${agent.tmuxSession}`);
+    // Human input resets memory sync state so the next idle period gets a fresh nudge
+    agent.lastMemorySyncAt = null;
+    console.log(`[memory-sync] ${targetRole}: state reset on human input from ${msg.from}`);
     void this.enqueueMessage(formatted, agent.tmuxSession, agent.startedAt);
   }
 
@@ -2076,7 +2077,6 @@ export class JobExecutor {
       originalJob: { ...msg, companyProjects: msg.companyProjects ? [...msg.companyProjects] : undefined },
       resetInProgress: false,
       lastMemorySyncAt: null,
-      lastMemorySyncNudgedAt: null,
       wasActiveAfterSync: false,
     };
     this.persistentAgents.set(role, persistentAgent);
@@ -2096,13 +2096,8 @@ export class JobExecutor {
             const now = Date.now();
             persistentAgent.lastOutputHash = outputHash;
             persistentAgent.lastActivityAt = now;
-            // Ignore output changes immediately after our sync nudge to avoid re-nudging loops.
-            const recentlyNudged = persistentAgent.lastMemorySyncNudgedAt !== null &&
-              (now - persistentAgent.lastMemorySyncNudgedAt) < 60_000;
-            if (!recentlyNudged) {
-              // Agent became active — reset sync state so next idle period gets a fresh nudge
-              persistentAgent.lastMemorySyncAt = null;
-            }
+            // Output changes should NOT re-arm the sync nudge — only human input resets lastMemorySyncAt.
+            console.log(`[memory-sync] ${persistentAgent.role}: output changed, state preserved (lastMemorySyncAt=${persistentAgent.lastMemorySyncAt})`);
             persistentAgent.wasActiveAfterSync = true;
           }
           console.log(
@@ -2119,7 +2114,6 @@ export class JobExecutor {
           if (shouldNudge) {
             const now = Date.now();
             persistentAgent.lastMemorySyncAt = now;
-            persistentAgent.lastMemorySyncNudgedAt = now;
             const syncPrompt =
               "Review this session. If anything worth remembering happened — decisions, preferences, corrections, context — update your .memory/ files. Remove or update any stale memories. If nothing notable, do nothing.";
             try {
@@ -2130,10 +2124,12 @@ export class JobExecutor {
                 syncPrompt,
                 "Enter",
               ]);
-              console.log(`[executor] Injected memory sync nudge for ${persistentAgent.role} (idle=${Math.floor(idleSinceActivity / 1000)}s)`);
+              console.log(`[memory-sync] ${persistentAgent.role}: nudge fired (idle=${Math.floor(idleSinceActivity / 1000)}s)`);
             } catch (err) {
-              console.warn(`[executor] Memory sync nudge failed for ${persistentAgent.role}: ${String(err)}`);
+              console.warn(`[memory-sync] ${persistentAgent.role}: nudge failed: ${String(err)}`);
             }
+          } else if (idleSinceActivity >= IDLE_SYNC_THRESHOLD_MS && persistentAgent.lastMemorySyncAt !== null) {
+            console.log(`[memory-sync] ${persistentAgent.role}: nudge skipped, already synced at ${new Date(persistentAgent.lastMemorySyncAt).toISOString()}`);
           }
         } catch (err) {
           console.warn(`[executor] Failed to capture pane for ${persistentAgent.role}: ${String(err)}`);

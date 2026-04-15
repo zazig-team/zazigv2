@@ -78,6 +78,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       company_id: explicit_company_id,
       job_id,
       item_type,
+      auto_triage,
+      auto_spec,
     } = body;
 
     if (!raw_text) {
@@ -122,6 +124,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
         priority: priority ?? "medium",
         suggested_exec: suggested_exec ?? null,
         item_type: item_type ?? "idea",
+        // NULL means "defer to company default"; true/false forces on/off for this idea.
+        auto_triage: typeof auto_triage === "boolean" ? auto_triage : null,
+        auto_spec: typeof auto_spec === "boolean" ? auto_spec : null,
       })
       .select("id")
       .single();

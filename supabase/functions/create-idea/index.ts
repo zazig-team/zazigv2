@@ -130,11 +130,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    // Emit idea_created event
+    // Emit idea_created event.
+    // Note: events table has no idea_id column — the idea reference lives in detail jsonb.
     await supabase.from("events").insert({
       company_id: company_id ?? null,
-      idea_id: idea.id,
       event_type: "idea_created",
+      detail: { idea_id: idea.id, originator, source: source ?? null },
     });
 
     return jsonResponse({ idea_id: idea.id });

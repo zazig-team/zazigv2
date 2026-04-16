@@ -12,3 +12,4 @@ failure_reason:
 - Feature branch pushed to origin successfully
 - PR creation skipped: GitHub rejected PR creation because there are no commits between master and the feature branch (both at 6ef2d948)
 - The job branch contained no unique implementation commits — its tip matched master HEAD exactly
+- PR created after adding report commit: https://github.com/zazig-team/zazigv2/pull/406

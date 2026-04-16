@@ -1,7 +1,7 @@
 status: success
-branch: feature/fix-master-ci-failure-push-migrations-to-439c1ffa
+branch: feature/fix-master-ci-failure-push-migrations-to-f2e189c5
 merged:
-  - job/55119e70-5726-40a2-bbce-df829ea696ba (skipped — already merged to master via PR #417)
+  - job/44abf0e7-db00-40a4-8660-e45aaa638c18
 conflicts_resolved:
 failure_reason:
 
@@ -9,8 +9,7 @@ failure_reason:
 
 ## Notes
 
-- Job branch `job/55119e70-5726-40a2-bbce-df829ea696ba` was already fully merged to master (PR #417: "fix: master CI failure — push migrations").
-- Feature branch created from master and is identical to master HEAD (f190c407).
+- Job branch `job/44abf0e7-db00-40a4-8660-e45aaa638c18` was already fully merged to master (via PR #417: "fix: master CI failure — push migrations"). Confirmed via `git branch --merged`.
+- Feature branch `feature/fix-master-ci-failure-push-migrations-to-f2e189c5` created from master and pushed to origin.
 - CI workflow exists on master — injection skipped.
-- No new commits between feature branch and master; PR could not be created (no diff).
-- Feature branch pushed to origin: `feature/fix-master-ci-failure-push-migrations-to-439c1ffa`.
+- No new commits between feature branch and master; PR could not be created (no diff — changes already shipped).

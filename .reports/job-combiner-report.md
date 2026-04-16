@@ -1,21 +1,21 @@
 status: success
-branch: feature/fix-master-ci-failure-run-npm-run-test-aa9308b7
+branch: feature/fix-master-ci-failure-run-npm-run-test-0b229904
 merged:
-  - job/99f1ccd0-607d-4baa-9810-763565c7f179 (already merged — skipped)
+  - job/d9087929-ae6e-4120-8631-010796a1b814 (already merged — skipped)
 conflicts_resolved:
-  - file: .reports/job-combiner-report.md, resolution: kept current feature branch report over stale master report from prior combine job
 failure_reason:
 
 ## Notes
 
-The job branch `job/99f1ccd0-607d-4baa-9810-763565c7f179` had already been fully merged into master
-(as commit `4102b92f fix: deploy all edge functions to resolve master CI failures (#406)`).
+The job branch `job/d9087929-ae6e-4120-8631-010796a1b814` was already merged into master
+(both point to commit `0901f903 fix: master CI failure - run npm run test (#409)`).
 
 `git branch --merged` confirmed the branch was already merged relative to HEAD.
-`git log job/... ^master` returned no unique commits.
 
-The feature branch `feature/fix-master-ci-failure-run-npm-run-test-aa9308b7` was pushed to origin
-with this report commit to allow PR creation.
+The feature branch `feature/fix-master-ci-failure-run-npm-run-test-0b229904` was pushed
+to origin but contains no new commits beyond master, so no PR was created
+(GitHub: "No commits between master and feature branch").
 
 CI workflow: `ci.yml` already exists on master — no injection needed.
-- PR created: https://github.com/zazig-team/zazigv2/pull/409
+
+The fix (running `npm run test` in CI) is already live on master via PR #409.

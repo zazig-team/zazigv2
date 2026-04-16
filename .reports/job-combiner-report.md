@@ -1,21 +1,20 @@
 status: success
-branch: feature/fix-master-ci-failure-run-npm-run-test-aa9308b7
+branch: feature/fix-master-ci-failure-run-npm-run-test-686857a3
 merged:
-  - job/99f1ccd0-607d-4baa-9810-763565c7f179 (already merged — skipped)
-conflicts_resolved:
-  - file: .reports/job-combiner-report.md, resolution: kept current feature branch report over stale master report from prior combine job
+  - job/55d2fad7-380f-4cd8-9720-4ee86e93babf (already merged — skipped)
+conflicts_resolved: []
 failure_reason:
 
 ## Notes
 
-The job branch `job/99f1ccd0-607d-4baa-9810-763565c7f179` had already been fully merged into master
-(as commit `4102b92f fix: deploy all edge functions to resolve master CI failures (#406)`).
+The job branch `job/55d2fad7-380f-4cd8-9720-4ee86e93babf` was already merged into master
+via PR #409 ("fix: master CI failure - run npm run test"). Both the job branch and the
+feature branch point to the same commit as master (0901f903).
 
-`git branch --merged` confirmed the branch was already merged relative to HEAD.
-`git log job/... ^master` returned no unique commits.
+`git branch --merged` confirmed the job branch is already an ancestor of the feature branch.
+No new merge commit was needed.
 
-The feature branch `feature/fix-master-ci-failure-run-npm-run-test-aa9308b7` was pushed to origin
-with this report commit to allow PR creation.
+CI workflow: `ci.yml` already exists on master (HTTP 200 from GitHub API) — injection skipped.
 
-CI workflow: `ci.yml` already exists on master — no injection needed.
-- PR created: https://github.com/zazig-team/zazigv2/pull/409
+The feature branch was pushed to origin successfully. A PR could not be created because
+there are no commits between master and the feature branch (the work is already in master).

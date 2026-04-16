@@ -27,12 +27,16 @@ jobs:
           master_migrations=$(echo "$master_files" | grep -oE '^[0-9]+' | LC_ALL=C sort | uniq)
           branch_migrations=$(echo "$branch_files" | grep -oE '^[0-9]+' | LC_ALL=C sort | uniq)
 
-          # Find duplicates where the same prefix maps to different filenames
-          duplicates=$(LC_ALL=C comm -12 <(echo "$master_migrations") <(echo "$branch_migrations") | while read -r prefix; do
-            master_file=$(echo "$master_files" | grep "^${prefix}_")
-            branch_file=$(echo "$branch_files" | grep "^${prefix}_")
-            if [ "$master_file" != "$branch_file" ]; then
-              echo "CONFLICT: prefix $prefix - master has '$master_file', branch has '$branch_file'"
+          # Find conflicts: branch files that share a prefix with a master file but have a different name
+          duplicates=$(echo "$branch_files" | while read -r branch_file; do
+            prefix=$(echo "$branch_file" | grep -oE '^[0-9]+')
+            [ -z "$prefix" ] && continue
+            # If master has any file with this prefix but NOT this exact filename, it's a conflict
+            if echo "$master_files" | grep -q "^${prefix}_"; then
+              if ! echo "$master_files" | grep -qxF "$branch_file"; then
+                master_matches=$(echo "$master_files" | grep "^${prefix}_" | tr '\n' ' ' | sed 's/ $//')
+                echo "CONFLICT: prefix $prefix - master has '$master_matches', branch has '$branch_file'"
+              fi
             fi
           done)
 

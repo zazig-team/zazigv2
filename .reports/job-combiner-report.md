@@ -1,15 +1,25 @@
 status: success
-branch: feature/fix-master-ci-failure-push-migrations-to-9b5bbe2b
+branch: feature/fix-master-ci-failure-push-migrations-to-f484646f
 merged:
-  - job/755cb967-0963-4b34-b608-a4eac66f49f8
-conflicts_resolved:
+  - job/00ec8c00-2e51-4adf-ba77-e487da177d81
+conflicts_resolved: []
 failure_reason:
 
 ---
 
-## Notes
+## Details
 
-- Job branch `job/755cb967-0963-4b34-b608-a4eac66f49f8` was already fully merged to master (confirmed via `git branch --merged`). No unique commits vs master HEAD (`1567a223`).
-- Feature branch `feature/fix-master-ci-failure-push-migrations-to-9b5bbe2b` created from master and pushed to origin.
-- CI workflow exists on master — injection skipped.
-- No new commits between feature branch and master; PR could not be created (no diff — the CI fix for "Push migrations to STAGING" was already shipped via PR #417).
+### Feature
+fix-master-ci-failure-push-migrations-to-f484646f (f484646f-fc8a-4572-9a96-2fa4355b89cc)
+
+### Job Branch Status
+- Branch: `job/00ec8c00-2e51-4adf-ba77-e487da177d81`
+- Status: already merged into feature branch (shown by `git branch --merged`)
+- Unique commits vs master: 0 (code job produced no net-new commits)
+
+### Actions Taken
+1. Checked out feature branch `feature/fix-master-ci-failure-push-migrations-to-f484646f`
+2. Confirmed job branch already merged — skipped re-merge
+3. Confirmed `ci.yml` exists on master — CI injection skipped
+4. PR #423 already open: "feat: Fix master CI failure — Push migrations to STAGING"
+5. Feature branch is up to date with origin — no push needed

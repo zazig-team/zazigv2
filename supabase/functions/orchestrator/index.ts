@@ -4758,6 +4758,166 @@ async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-promote: triaged(promote) and specced ideas -> feature
+// ---------------------------------------------------------------------------
+//
+// Completes the auto-pipeline (triage -> spec -> promote). Handles two inputs:
+//
+//   1. status='triaged' AND triage_route='promote'
+//      — expert decided the idea is clear enough to go straight to a feature
+//        (no spec pass needed).
+//
+//   2. status='specced'
+//      — auto-spec wrote a full spec; this is the natural next step.
+//
+// Calls promote-idea directly (synchronous edge function). No expert session
+// involved, so we don't share the triage-analyst or spec-writer concurrency
+// pools. Simple cooldown per company to avoid flooding.
+// ---------------------------------------------------------------------------
+
+const AUTO_PROMOTE_COOLDOWN_MS = 60 * 1000; // 1 min between passes per company
+const AUTO_PROMOTE_BATCH_LIMIT = 5;          // max ideas promoted per pass per company
+const autoPromoteLastRun = new Map<string, number>();
+
+interface AutoPromoteIdeaRow {
+  id: string;
+  status: string;
+  triage_route: string | null;
+  project_id: string | null;
+}
+
+async function autoPromoteTriagedIdeas(
+  supabase: SupabaseClient,
+): Promise<void> {
+  const { data: companies, error: companiesErr } = await supabase
+    .from("companies")
+    .select("id, auto_promote_types")
+    .eq("status", "active");
+
+  if (companiesErr) {
+    console.error(
+      `[orchestrator] auto-promote: failed to load companies: ${companiesErr.message}`,
+    );
+    return;
+  }
+  if (!companies?.length) return;
+
+  for (
+    const company of companies as {
+      id: string;
+      auto_promote_types: string[] | null;
+    }[]
+  ) {
+    const companyId = company.id;
+    const enabledTypes: string[] = company.auto_promote_types ?? [];
+
+    const lastRun = autoPromoteLastRun.get(companyId) ?? 0;
+    if (Date.now() - lastRun < AUTO_PROMOTE_COOLDOWN_MS) continue;
+
+    // Resolve per-company active project once, lazily — used as a fallback
+    // when an individual idea still has null project_id (belt-and-braces;
+    // auto-triage normally backfills this but older rows may predate it).
+    let cachedProjectId: string | null | undefined = undefined;
+    const resolveProjectId = async (): Promise<string | null> => {
+      if (cachedProjectId !== undefined) return cachedProjectId;
+      const { data: projects } = await supabase
+        .from("projects")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("status", "active")
+        .limit(1);
+      cachedProjectId = (projects as { id: string }[] | null)?.[0]?.id ?? null;
+      return cachedProjectId;
+    };
+
+    // Per-idea auto_promote overrides: true=force on, false=force off,
+    // null=company default (item_type in auto_promote_types).
+    const promoteFilter = enabledTypes.length > 0
+      ? `auto_promote.eq.true,and(auto_promote.is.null,item_type.in.(${enabledTypes.join(",")}))`
+      : `auto_promote.eq.true`;
+
+    // The two eligible paths:
+    //   (a) triaged + route=promote
+    //   (b) specced (route is always 'develop' here, but not enforced — a
+    //       workshop-routed idea that later gets specced should also promote)
+    const eligibilityFilter =
+      `and(status.eq.triaged,triage_route.eq.promote),status.eq.specced`;
+
+    const { data: pending, error: pendingErr } = await supabase
+      .from("ideas")
+      .select("id, status, triage_route, project_id")
+      .eq("company_id", companyId)
+      .or(eligibilityFilter)
+      .or(promoteFilter)
+      .is("promoted_to_id", null)
+      .order("updated_at", { ascending: true })
+      .limit(AUTO_PROMOTE_BATCH_LIMIT);
+
+    if (pendingErr) {
+      console.error(
+        `[orchestrator] auto-promote: failed to fetch pending ideas for company ${companyId}: ${pendingErr.message}`,
+      );
+      continue;
+    }
+
+    const pendingIdeas = (pending as AutoPromoteIdeaRow[] | null) ?? [];
+    if (pendingIdeas.length === 0) {
+      autoPromoteLastRun.set(companyId, Date.now());
+      continue;
+    }
+
+    for (const idea of pendingIdeas) {
+      const projectId = idea.project_id ?? await resolveProjectId();
+      if (!projectId) {
+        console.log(
+          `[orchestrator] auto-promote: skipping idea ${idea.id} in company ${companyId} — no project_id on idea and no active project for company`,
+        );
+        continue;
+      }
+
+      try {
+        const response = await fetch(
+          `${Deno.env.get("SUPABASE_URL")}/functions/v1/promote-idea`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${
+                Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
+              }`,
+            },
+            body: JSON.stringify({
+              idea_id: idea.id,
+              promote_to: "feature",
+              project_id: projectId,
+            }),
+          },
+        );
+
+        if (!response.ok) {
+          const text = await response.text();
+          console.error(
+            `[orchestrator] auto-promote: promote-idea failed for idea ${idea.id} in company ${companyId}: ${response.status} ${text}`,
+          );
+          continue;
+        }
+
+        console.log(
+          `[orchestrator] auto-promote: promoted idea ${idea.id} (was status=${idea.status}, route=${idea.triage_route}) -> feature in company ${companyId}`,
+        );
+      } catch (err) {
+        console.error(
+          `[orchestrator] auto-promote: exception promoting idea ${idea.id} in company ${companyId}:`,
+          err,
+        );
+      }
+    }
+
+    autoPromoteLastRun.set(companyId, Date.now());
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
 
@@ -4805,6 +4965,9 @@ Deno.serve(async (_req: Request): Promise<Response> => {
 
     // 5f. Auto-spec: dispatch/continue spec session chains for develop-routed ideas.
     await autoSpecTriagedIdeas(supabase);
+
+    // 5g. Auto-promote: create features from triaged(promote) and specced ideas.
+    await autoPromoteTriagedIdeas(supabase);
 
     // 6. Refresh pipeline snapshot cache after all state mutations.
     await refreshPipelineSnapshotCache(supabase);

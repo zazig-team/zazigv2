@@ -1,25 +1,14 @@
 status: success
-branch: feature/fix-master-ci-failure-push-migrations-to-f484646f
+branch: feature/fix-master-ci-failure-push-migrations-to-9f1471a2
 merged:
-  - job/00ec8c00-2e51-4adf-ba77-e487da177d81
+  - job/2d20d73e-1cc0-4368-b914-c66e664ac093
 conflicts_resolved: []
 failure_reason:
 
----
+## Notes
 
-## Details
-
-### Feature
-fix-master-ci-failure-push-migrations-to-f484646f (f484646f-fc8a-4572-9a96-2fa4355b89cc)
-
-### Job Branch Status
-- Branch: `job/00ec8c00-2e51-4adf-ba77-e487da177d81`
-- Status: already merged into feature branch (shown by `git branch --merged`)
-- Unique commits vs master: 0 (code job produced no net-new commits)
-
-### Actions Taken
-1. Checked out feature branch `feature/fix-master-ci-failure-push-migrations-to-f484646f`
-2. Confirmed job branch already merged — skipped re-merge
-3. Confirmed `ci.yml` exists on master — CI injection skipped
-4. PR #423 already open: "feat: Fix master CI failure — Push migrations to STAGING"
-5. Feature branch is up to date with origin — no push needed
+- Feature branch was behind master by 1 commit; synced with master before merging job branch.
+- Job branch `job/2d20d73e-1cc0-4368-b914-c66e664ac093` merged cleanly (no conflicts).
+- Changes: renamed migration `235_replica_identity_full.sql` → `240_replica_identity_full.sql` to fix migration numbering collision causing CI failures.
+- CI workflow already exists on master — injection skipped.
+- PR created: https://github.com/zazig-team/zazigv2/pull/424

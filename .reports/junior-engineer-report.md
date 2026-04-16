@@ -1,7 +1,7 @@
 status: pass
-summary: Implemented credentials file locking with shared credentials.lock semantics, timeout handling, stale-lock cleanup, and lock-guarded reads/writes in both CLI and local-agent paths to satisfy the failing CI feature tests.
+summary: Resolved the staging migration push CI failure by removing a duplicate Supabase migration version number and renumbering the replica identity migration to 240.
 files_changed:
-  - packages/cli/src/lib/credentials.ts
-  - packages/local-agent/src/connection.ts
+  - supabase/migrations/240_replica_identity_full.sql
+  - supabase/migrations/235_replica_identity_full.sql
   - .reports/junior-engineer-report.md
-failure_reason: 
+failure_reason: n/a

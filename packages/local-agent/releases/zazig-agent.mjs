@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "8b9ad3b";
+const AGENT_BUILD_HASH = "74cef9b";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -12902,7 +12902,7 @@ if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 18 and b
 
 // ../local-agent/dist/connection.js
 import { execFile as execFile4 } from "node:child_process";
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync3, mkdirSync as mkdirSync3, appendFileSync as appendFileSync3 } from "node:fs";
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync3, mkdirSync as mkdirSync3, appendFileSync as appendFileSync3, openSync, closeSync, unlinkSync as unlinkSync2, statSync as statSync2 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join5 } from "node:path";
 import { promisify as promisify4 } from "node:util";
@@ -15121,6 +15121,10 @@ ${msg.text}`;
     const role = msg.role ?? "agent";
     const roleSkills = ensureRoleSkills(role, msg.roleSkills);
     const resolvedCompanyId = companyId ?? process.env["ZAZIG_COMPANY_ID"] ?? "";
+    const isStaging = process.env["ZAZIG_ENV"] === "staging";
+    const stagingSegment = isStaging ? "staging-" : "";
+    const sessionCompanyPrefix = this.companyId ? this.companyId.slice(0, 8) + "-" : "";
+    const persistentSessionName = `${this.machineId}-${sessionCompanyPrefix}${stagingSegment}${role}`;
     const workspaceDir = resolvedCompanyId ? join4(homedir2(), ".zazigv2", `${resolvedCompanyId}-${role}-workspace`) : join4(homedir2(), ".zazigv2", `${role}-workspace`);
     let roleConfig;
     try {
@@ -15144,7 +15148,7 @@ ${msg.text}`;
         repoInteractiveSkillsDir: join4(repoRoot, ".claude", "skills"),
         useSymlinks: true,
         mcpTools: msg.roleMcpTools,
-        tmuxSession: `${this.machineId}-${this.companyId ? this.companyId.slice(0, 8) + "-" : ""}${role}`,
+        tmuxSession: persistentSessionName,
         machineId: this.machineId
       });
       if (role === "cpo") {
@@ -15228,8 +15232,7 @@ ${msg.text}`;
       await this.sendJobFailed(jobId, `Failed to create agent workspace: ${String(err)}`, "agent_crash");
       return;
     }
-    const companyPrefix = this.companyId ? this.companyId.slice(0, 8) + "-" : "";
-    const sessionName = `${this.machineId}-${companyPrefix}${role}`;
+    const sessionName = persistentSessionName;
     try {
       await killTmuxSession(sessionName);
       const shellCmd = `unset CLAUDECODE; claude --model claude-opus-4-6`;
@@ -16730,8 +16733,14 @@ function shellEscape(parts) {
 // ../local-agent/dist/connection.js
 var ZAZIG_HOME_DIR = process.env["ZAZIG_HOME"] ?? join5(homedir3(), ".zazigv2");
 var CREDENTIALS_PATH = join5(ZAZIG_HOME_DIR, "credentials.json");
+var CREDENTIALS_LOCK_PATH = join5(ZAZIG_HOME_DIR, "credentials.lock");
+var CREDENTIALS_LOCK_TIMEOUT_MS = 5e3;
+var CREDENTIALS_LOCK_STALE_MS = 3e4;
+var CREDENTIALS_LOCK_RETRY_MS = 50;
 var execFileAsync4 = promisify4(execFile4);
 var sleep2 = (ms) => new Promise((resolve4) => setTimeout(resolve4, ms));
+var isErrnoError = (error) => typeof error === "object" && error !== null && "code" in error;
+var isLockTimeoutError = (error) => isErrnoError(error) && (error.code === "ELOCKED" || error.code === "ETIMEDOUT");
 var AgentConnection = class {
   /** Anon-key client used as DB fallback when no JWT/service role key is configured. */
   supabase;
@@ -16796,6 +16805,43 @@ var AgentConnection = class {
    * due to transient network errors). Guards against infinite loops via a cooldown.
    */
   sessionRecoveryCooldownUntil = 0;
+  async acquireLock(context) {
+    mkdirSync3(ZAZIG_HOME_DIR, { recursive: true });
+    const deadline = Date.now() + CREDENTIALS_LOCK_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      try {
+        const fd = openSync(CREDENTIALS_LOCK_PATH, "wx");
+        closeSync(fd);
+        let released = false;
+        return () => {
+          if (released)
+            return;
+          released = true;
+          try {
+            unlinkSync2(CREDENTIALS_LOCK_PATH);
+          } catch {
+          }
+        };
+      } catch (err) {
+        if (isErrnoError(err) && err.code === "EEXIST") {
+          try {
+            const lockStat = statSync2(CREDENTIALS_LOCK_PATH);
+            if (Date.now() - lockStat.mtimeMs > CREDENTIALS_LOCK_STALE_MS) {
+              unlinkSync2(CREDENTIALS_LOCK_PATH);
+            }
+          } catch {
+          }
+          await sleep2(CREDENTIALS_LOCK_RETRY_MS);
+          continue;
+        }
+        throw err;
+      }
+    }
+    console.warn(`[local-agent] ${context}: lock timeout after ${CREDENTIALS_LOCK_TIMEOUT_MS}ms acquiring credentials.lock`);
+    const timeoutError = new Error("ELOCKED: lock timeout acquiring credentials.lock");
+    timeoutError.code = "ELOCKED";
+    throw timeoutError;
+  }
   async recoverSessionFromDisk() {
     const now = Date.now();
     if (now < this.sessionRecoveryCooldownUntil) {
@@ -16804,12 +16850,16 @@ var AgentConnection = class {
     }
     this.sessionRecoveryCooldownUntil = now + 5 * 60 * 1e3;
     try {
+      let releaseLock = null;
       let existing = {};
       try {
+        releaseLock = await this.acquireLock("recoverSessionFromDisk");
         existing = JSON.parse(readFileSync4(CREDENTIALS_PATH, "utf-8"));
       } catch {
         console.warn("[local-agent] Session recovery: could not read credentials.json");
         return;
+      } finally {
+        releaseLock?.();
       }
       const accessToken = typeof existing.accessToken === "string" ? existing.accessToken : "";
       const refreshToken = typeof existing.refreshToken === "string" ? existing.refreshToken : "";
@@ -16824,6 +16874,9 @@ var AgentConnection = class {
         console.log("[local-agent] Auth session recovered successfully");
       }
     } catch (err) {
+      if (isLockTimeoutError(err)) {
+        console.warn("[local-agent] Session recovery skipped due to lock timeout (ELOCKED)");
+      }
       console.warn(`[local-agent] Session recovery error: ${String(err)}`);
     }
   }
@@ -16920,14 +16973,16 @@ var AgentConnection = class {
       } else {
         console.log("[local-agent] Auth session initialized \u2014 auto-refresh enabled");
       }
-      this.dbClient.auth.onAuthStateChange((event, session) => {
+      this.dbClient.auth.onAuthStateChange(async (event, session) => {
         if (event === "SIGNED_OUT" && !this.stopped) {
           console.warn("[local-agent] Auth session signed out (supabase-js lost session) \u2014 attempting recovery from disk");
           void this.recoverSessionFromDisk();
           return;
         }
         if (session?.access_token && session?.refresh_token) {
+          let releaseLock = null;
           try {
+            releaseLock = await this.acquireLock("onAuthStateChange");
             let existing = {};
             try {
               existing = JSON.parse(readFileSync4(CREDENTIALS_PATH, "utf-8"));
@@ -16944,7 +16999,12 @@ var AgentConnection = class {
             writeFileSync3(CREDENTIALS_PATH, JSON.stringify(creds, null, 2) + "\n", { mode: 384 });
             console.log(`[local-agent] Credentials refreshed and saved to disk (event=${event})`);
           } catch (err) {
+            if (isLockTimeoutError(err)) {
+              console.warn("[local-agent] Credentials refresh write skipped due to lock timeout (ELOCKED)");
+            }
             console.warn(`[local-agent] Failed to save refreshed credentials: ${String(err)}`);
+          } finally {
+            releaseLock?.();
           }
         }
       });

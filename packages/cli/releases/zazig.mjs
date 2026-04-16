@@ -8078,7 +8078,7 @@ import { URL as URL2 } from "node:url";
 import { createInterface } from "node:readline/promises";
 
 // dist/lib/credentials.js
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, openSync, closeSync, unlinkSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -8094,6 +8094,73 @@ function zazigDir() {
 function credentialsPath() {
   return join(zazigDir(), "credentials.json");
 }
+function credentialsLockPath() {
+  return join(zazigDir(), "credentials.lock");
+}
+var LOCK_TIMEOUT_MS = 5e3;
+var LOCK_STALE_MS = 3e4;
+var LOCK_RETRY_SLEEP_MS = 50;
+function isErrnoError(error) {
+  return typeof error === "object" && error !== null && "code" in error;
+}
+function isLockTimeoutError(error) {
+  if (!isErrnoError(error))
+    return false;
+  return error.code === "ELOCKED" || error.code === "ETIMEDOUT";
+}
+function sleepSync(ms) {
+  const waitBuffer = new SharedArrayBuffer(4);
+  const waitArray = new Int32Array(waitBuffer);
+  Atomics.wait(waitArray, 0, 0, ms);
+}
+function clearStaleCredentialsLockIfPresent(lockPath) {
+  try {
+    const lockStat = statSync(lockPath);
+    const lockAgeMs = Date.now() - lockStat.mtimeMs;
+    if (lockAgeMs > LOCK_STALE_MS) {
+      unlinkSync(lockPath);
+    }
+  } catch {
+  }
+}
+function acquireLock() {
+  mkdirSync(zazigDir(), { recursive: true });
+  const lockPath = credentialsLockPath();
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      const fd = openSync(lockPath, "wx");
+      closeSync(fd);
+      let released = false;
+      return () => {
+        if (released)
+          return;
+        released = true;
+        try {
+          unlinkSync(lockPath);
+        } catch {
+        }
+      };
+    } catch (err) {
+      if (isErrnoError(err) && err.code === "EEXIST") {
+        clearStaleCredentialsLockIfPresent(lockPath);
+        sleepSync(LOCK_RETRY_SLEEP_MS);
+        continue;
+      }
+      throw err;
+    }
+  }
+  console.warn(`[credentials] lock timeout after ${LOCK_TIMEOUT_MS}ms while acquiring credentials.lock`);
+  const timeoutError = new Error("ELOCKED: lock timeout acquiring credentials.lock");
+  timeoutError.code = "ELOCKED";
+  throw timeoutError;
+}
+function writeCredentialsUnlocked(creds) {
+  mkdirSync(zazigDir(), { recursive: true });
+  writeFileSync(credentialsPath(), JSON.stringify(creds, null, 2) + "\n", {
+    mode: 384
+  });
+}
 function loadCredentials() {
   try {
     const raw = readFileSync(credentialsPath(), "utf-8");
@@ -8103,10 +8170,18 @@ function loadCredentials() {
   }
 }
 function saveCredentials(creds) {
-  mkdirSync(zazigDir(), { recursive: true });
-  writeFileSync(credentialsPath(), JSON.stringify(creds, null, 2) + "\n", {
-    mode: 384
-  });
+  let releaseLock = null;
+  try {
+    releaseLock = acquireLock();
+    writeCredentialsUnlocked(creds);
+  } catch (err) {
+    if (isLockTimeoutError(err)) {
+      console.warn("[credentials] lock timeout while saving credentials.json");
+    }
+    throw err;
+  } finally {
+    releaseLock?.();
+  }
 }
 function decodeJwtPayload(token) {
   try {
@@ -8125,46 +8200,57 @@ function isTokenExpired(token) {
   return Date.now() >= payload.exp * 1e3 - 6e4;
 }
 async function getValidCredentials() {
-  const creds = loadCredentials();
-  if (!isTokenExpired(creds.accessToken)) {
-    return creds;
+  let releaseLock = null;
+  try {
+    releaseLock = acquireLock();
+    const creds = loadCredentials();
+    if (!isTokenExpired(creds.accessToken)) {
+      return creds;
+    }
+    const envOverride = Boolean(process.env["ZAZIG_ENV"]);
+    const anonKey = envOverride && process.env["SUPABASE_ANON_KEY"] || DEFAULT_SUPABASE_ANON_KEY;
+    const retryDelaysMs = [0, 2e3, 5e3];
+    let lastStatus = 0;
+    for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve5) => setTimeout(resolve5, retryDelaysMs[attempt]));
+      }
+      let resp;
+      try {
+        resp = await fetch(`${creds.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: anonKey
+          },
+          body: JSON.stringify({ refresh_token: creds.refreshToken })
+        });
+      } catch {
+        continue;
+      }
+      if (resp.ok) {
+        const data = await resp.json();
+        const updated = {
+          ...creds,
+          accessToken: data.access_token,
+          refreshToken: data.refresh_token
+        };
+        writeCredentialsUnlocked(updated);
+        return updated;
+      }
+      lastStatus = resp.status;
+      if (resp.status >= 400 && resp.status < 500)
+        break;
+    }
+    throw new Error(`Token refresh failed (HTTP ${lastStatus || "network error"}). Run 'zazig login' again.`);
+  } catch (err) {
+    if (isLockTimeoutError(err)) {
+      console.warn("[credentials] lock timeout while reading/updating credentials.json");
+    }
+    throw err;
+  } finally {
+    releaseLock?.();
   }
-  const envOverride = Boolean(process.env["ZAZIG_ENV"]);
-  const anonKey = envOverride && process.env["SUPABASE_ANON_KEY"] || DEFAULT_SUPABASE_ANON_KEY;
-  const retryDelaysMs = [0, 2e3, 5e3];
-  let lastStatus = 0;
-  for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
-    if (attempt > 0) {
-      await new Promise((resolve5) => setTimeout(resolve5, retryDelaysMs[attempt]));
-    }
-    let resp;
-    try {
-      resp = await fetch(`${creds.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: anonKey
-        },
-        body: JSON.stringify({ refresh_token: creds.refreshToken })
-      });
-    } catch {
-      continue;
-    }
-    if (resp.ok) {
-      const data = await resp.json();
-      const updated = {
-        ...creds,
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token
-      };
-      saveCredentials(updated);
-      return updated;
-    }
-    lastStatus = resp.status;
-    if (resp.status >= 400 && resp.status < 500)
-      break;
-  }
-  throw new Error(`Token refresh failed (HTTP ${lastStatus || "network error"}). Run 'zazig login' again.`);
 }
 
 // dist/commands/login.js
@@ -8581,7 +8667,7 @@ function findAvailablePort(preferredPort) {
 }
 
 // dist/commands/logout.js
-import { existsSync as existsSync2, unlinkSync } from "node:fs";
+import { existsSync as existsSync2, unlinkSync as unlinkSync2 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
 import { join as join2 } from "node:path";
 function credentialsPath2() {
@@ -8595,7 +8681,7 @@ function logout() {
     console.log("Not logged in.");
     return;
   }
-  unlinkSync(p);
+  unlinkSync2(p);
   console.log("Logged out.");
 }
 
@@ -13690,7 +13776,7 @@ Choice [1]: `);
 
 // dist/lib/daemon.js
 import { spawn } from "node:child_process";
-import { openSync, readFileSync as readFileSync4, writeFileSync as writeFileSync3, unlinkSync as unlinkSync2, mkdirSync as mkdirSync3 } from "node:fs";
+import { openSync as openSync2, readFileSync as readFileSync4, writeFileSync as writeFileSync3, unlinkSync as unlinkSync3, mkdirSync as mkdirSync3 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
 import { join as join5, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13764,7 +13850,7 @@ function isDaemonRunningForCompany(companyId) {
 }
 function removePidFileForCompany(companyId) {
   try {
-    unlinkSync2(pidPathForCompany(companyId));
+    unlinkSync3(pidPathForCompany(companyId));
   } catch {
   }
 }
@@ -13774,7 +13860,7 @@ function startDaemonForCompany(env, companyId, agentEntryOverride) {
   mkdirSync3(PIDS_DIR, { recursive: true });
   const agentEntry = agentEntryOverride ?? resolveAgentEntry();
   const logPath = logPathForCompany(companyId);
-  const logFd = openSync(logPath, "a");
+  const logFd = openSync2(logPath, "a");
   const isScript = agentEntry.endsWith(".mjs") || agentEntry.endsWith(".js") || agentEntry.endsWith(".ts");
   const command = IS_STAGING ? "bun" : isScript ? process.execPath : agentEntry;
   const args2 = isScript ? [agentEntry] : [];

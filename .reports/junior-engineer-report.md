@@ -1,7 +1,6 @@
-status: pass
-summary: Implemented credentials file locking with shared credentials.lock semantics, timeout handling, stale-lock cleanup, and lock-guarded reads/writes in both CLI and local-agent paths to satisfy the failing CI feature tests.
+status: fail
+summary: Added migration 235 to add nullable features.ci_failure_signature and a partial index for non-null signatures.
 files_changed:
-  - packages/cli/src/lib/credentials.ts
-  - packages/local-agent/src/connection.ts
+  - supabase/migrations/235_ci_failure_signature.sql
   - .reports/junior-engineer-report.md
-failure_reason: 
+failure_reason: Could not commit because sandbox denied writes to the shared git common directory (/Users/chrisevans/.zazigv2/repos/zazigv2/.git), which git needs to write objects/refs.

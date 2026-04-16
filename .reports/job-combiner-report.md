@@ -1,22 +1,23 @@
 status: success
-branch: feature/fix-master-ci-failure-run-npm-run-test-686857a3
+branch: feature/fix-master-ci-failure-run-npm-run-test-0b229904
 merged:
-  - job/55d2fad7-380f-4cd8-9720-4ee86e93babf (already merged — skipped)
-conflicts_resolved: []
+  - job/d9087929-ae6e-4120-8631-010796a1b814 (already merged — skipped)
+conflicts_resolved:
 failure_reason:
 
 ---
 
 ## Notes
 
-The job branch `job/55d2fad7-380f-4cd8-9720-4ee86e93babf` was already merged into master
-via PR #409 ("fix: master CI failure - run npm run test"). Both the job branch and the
-feature branch point to the same commit as master (0901f903).
+The job branch `job/d9087929-ae6e-4120-8631-010796a1b814` was already merged into master
+(both point to commit `0901f903 fix: master CI failure - run npm run test (#409)`).
 
-`git branch --merged` confirmed the job branch is already an ancestor of the feature branch.
-No new merge commit was needed.
+`git branch --merged` confirmed the branch was already merged relative to HEAD.
 
-CI workflow: `ci.yml` already exists on master (HTTP 200 from GitHub API) — injection skipped.
+The feature branch `feature/fix-master-ci-failure-run-npm-run-test-0b229904` was pushed
+to origin but contains no new commits beyond master, so no PR was created
+(GitHub: "No commits between master and feature branch").
 
-The feature branch was pushed to origin successfully. A PR could not be created because
-there are no commits between master and the feature branch (the work is already in master).
+CI workflow: `ci.yml` already exists on master — no injection needed.
+
+The fix (running `npm run test` in CI) is already live on master via PR #409.

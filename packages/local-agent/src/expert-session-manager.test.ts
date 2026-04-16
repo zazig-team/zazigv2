@@ -474,7 +474,12 @@ describe("ExpertSessionManager", () => {
     await (manager as any).handleSessionExit(session);
 
     const sessionUpdate = supabase.updates.find((u) => u.table === "expert_sessions");
-    expect(sessionUpdate).toBeUndefined();
+    expect(sessionUpdate).toEqual({
+      table: "expert_sessions",
+      data: { status: "cancelled" },
+      eqColumn: "id",
+      eqValue: "session-123",
+    });
 
     const sendKeysLiteral = mockExecFileAsync.mock.calls.find((call) =>
       call[0] === "tmux"

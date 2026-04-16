@@ -1,7 +1,5 @@
 status: pass
-summary: Implemented credentials file locking with shared credentials.lock semantics, timeout handling, stale-lock cleanup, and lock-guarded reads/writes in both CLI and local-agent paths to satisfy the failing CI feature tests.
+summary: Added migration 235 to add nullable features.ci_failure_signature TEXT column and a partial index for non-null signatures.
 files_changed:
-  - packages/cli/src/lib/credentials.ts
-  - packages/local-agent/src/connection.ts
-  - .reports/junior-engineer-report.md
-failure_reason: 
+  - supabase/migrations/235_ci_failure_signature.sql
+failure_reason:

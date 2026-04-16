@@ -3931,12 +3931,13 @@ async function recoverStaleDevelopingIdeas(supabase: SupabaseClient): Promise<vo
 }
 
 async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
+  // Include ALL active companies — per-idea auto_triage=true overrides can
+  // exist even when the company's auto_triage_types is empty.
   const { data: companies } = await supabase
     .from("companies")
     .select(
       "id, auto_triage_types, triage_batch_size, triage_max_concurrent, triage_delay_minutes",
     )
-    .not("auto_triage_types", "eq", "{}")
     .eq("status", "active");
 
   if (!companies?.length) return;
@@ -3973,12 +3974,18 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
     const slotsAvailable = maxConcurrent - activeCount;
     const maxIdeas = slotsAvailable * batchSize;
 
+    // Per-idea auto_triage overrides: true=force on, false=force off, null=company default.
+    // Build an OR filter: explicit opt-in OR (no override AND item_type in company list).
+    const triageTypeFilter = enabledTypes.length > 0
+      ? `auto_triage.eq.true,and(auto_triage.is.null,item_type.in.(${enabledTypes.join(",")}))`
+      : `auto_triage.eq.true`;
+
     const { data: newIdeas } = await supabase
       .from("ideas")
       .select("id")
       .eq("company_id", companyId)
       .eq("status", "new")
-      .in("item_type", enabledTypes)
+      .or(triageTypeFilter)
       .lt("created_at", cutoff)
       .order("created_at", { ascending: true })
       .limit(maxIdeas);
@@ -4334,10 +4341,11 @@ async function dispatchAutoSpecSession(
 }
 
 async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
+  // Include ALL active companies — per-idea auto_spec=true overrides can
+  // exist even when the company's auto_spec_types is empty.
   const { data: companies, error: companiesErr } = await supabase
     .from("companies")
     .select("id, auto_spec_types, spec_max_concurrent")
-    .not("auto_spec_types", "eq", "{}")
     .eq("status", "active");
 
   if (companiesErr) {
@@ -4383,13 +4391,18 @@ async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
       AUTO_SPEC_COOLDOWN_MS;
 
     if (slotsAvailable > 0 && !inCooldown) {
+      // Per-idea auto_spec overrides: true=force on, false=force off, null=company default.
+      const specTypeFilter = enabledTypes.length > 0
+        ? `auto_spec.eq.true,and(auto_spec.is.null,item_type.in.(${enabledTypes.join(",")}))`
+        : `auto_spec.eq.true`;
+
       const { data: triagedIdeas, error: triagedErr } = await supabase
         .from("ideas")
         .select("id, company_id, project_id, complexity")
         .eq("company_id", companyId)
         .eq("status", "triaged")
         .eq("triage_route", "develop")
-        .in("item_type", enabledTypes)
+        .or(specTypeFilter)
         .not("project_id", "is", null)
         .order("created_at", { ascending: true })
         .limit(slotsAvailable);

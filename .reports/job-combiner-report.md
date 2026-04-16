@@ -1,16 +1,21 @@
 status: success
-branch: feature/cross-tenant-job-failure-bug-idea-in-zaz-1f627dc8
+branch: feature/ci-monitor-deduplicate-fix-features-by-c-173e4e92
 merged:
-  - job/5950282a-f55c-4d4d-b7fb-b9c17d7e6be4
-conflicts_resolved:
+  - job/51a05ad7-1c07-4a9d-a06d-b84999a03f36
+conflicts_resolved: []
 failure_reason:
-
----
 
 ## Notes
 
-- Job branch `job/5950282a-f55c-4d4d-b7fb-b9c17d7e6be4` merged cleanly with no conflicts
-- Files added: supabase/migrations/235_cross_tenant_job_failure_to_idea.sql, tests/features/cross-tenant-job-failure-to-idea.test.ts
-- CI workflow already exists on master — injection skipped
-- Feature branch pushed to remote: `feature/cross-tenant-job-failure-bug-idea-in-zaz-1f627dc8`
-- PR created: https://github.com/zazig-team/zazigv2/pull/415
+- Feature branch created from master (did not exist on remote)
+- Job branch merged with no conflicts using `git merge --no-ff`
+- CI workflow already exists on master branch — skipped injection
+- Feature branch pushed to remote
+- PR created: https://github.com/zazig-team/zazigv2/pull/416
+
+## Commits merged
+
+- adccae2 feat: add ci_failure_signature column to features table (migration 235)
+- f317112 codex: ebf2c1c3-0217-4e28-9012-51f96e8f75d8
+- 4e23b55 feat: add Gate 2 to CI monitor — skip fix when newer commit already shows green for same step
+- a15498e test: add feature tests for CI monitor dedup by commit+step (173e4e92)

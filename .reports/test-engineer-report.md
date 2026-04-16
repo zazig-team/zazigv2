@@ -1,41 +1,46 @@
 status: pass
 
-## Test files created (cross-tenant-job-failure-to-idea feature 1f627dc8)
+## Test files created (ci-monitor-deduplicate-fix-features feature 173e4e92)
 
-### `tests/features/cross-tenant-job-failure-to-idea.test.ts` — 27 test cases
+### `tests/features/ci-monitor-deduplicate-fix-features.test.ts` — 24 test cases
 
-**Migration: trigger function (14 tests)**
-- Trigger created AFTER UPDATE OF status on public.jobs FOR EACH ROW
-- Calls `notify_job_failure_to_zazig` as the trigger function
-- Guards: `NEW.status <> 'failed'` AND `OLD.status IS NOT DISTINCT FROM 'failed'`
-- Inserts into `public.ideas` with `company_id = 00000000-0000-0000-0000-000000000001` and `project_id = 3c405cbc-dbb0-44c5-a27d-de48fb573b13`
-- Sets `item_type='bug'`, `source='monitoring'`, `originator='job-failure-monitor'`, `source_ref=NEW.id`, `status='new'`
-- Builds `raw_text` via `format()` including company name/id, role, model, feature title, commit SHA, error_analysis
-- Truncates `error_analysis` to 2000 chars
-- Uses `COALESCE` with `'<unknown>'` for nullable fields
-- Uses `ON CONFLICT DO NOTHING`
-- Wraps insert in `BEGIN...EXCEPTION WHEN OTHERS` with `RAISE WARNING`
-- Returns `NEW` so job status update is never blocked
+**Structural: ci_failure_signature DB migration (3 tests)**
+- Migration adds ci_failure_signature column to features table
+- Column has an index for fast dedup lookups
+- Column is nullable (not set on non-CI features)
 
-**Migration: partial unique index (3 tests)**
-- Unique index on `ideas(source_ref)` WHERE `source='monitoring' AND originator='job-failure-monitor'`
-- Uses `IF NOT EXISTS`
+**Structural: executor implements Gate 1 and Gate 2 (5 tests)**
+- executor.ts references ci_failure_signature
+- Builds signature from commit SHA and step name (slugified)
+- Queries features by ci_failure_signature before creating a fix
+- Has a Gate 2 resolution check method
+- Passes ci_failure_signature to create-feature CLI call
 
-**Only 'failed' status creates an idea (2 tests)**
-- Early return when `NEW.status <> 'failed'`
-- Combined guard prevents re-firing within 'failed' (idempotency)
+**Unit: ci_failure_signature format (2 tests)**
+- Slugifies step name (lowercase + hyphens)
+- Uses first 7 chars of commit SHA
 
-**Self-observation: zazig-dev not excluded (2 tests)**
-- No company_id exclusion guard in trigger body
-- `NEW.company_id` included in `raw_text`
+**Gate 1: Deduplication by ci_failure_signature (5 tests)**
+- Skips creation when signature exists in active feature
+- Proceeds when no active feature has same signature
+- Dedup considers only active statuses (breaking_down, building, ci_checking, merging, visual_verifying)
+- Does NOT deduplicate across different commit SHAs
+- Passes signature to create-feature CLI call
 
-**Triage flow: bug at status='new' (3 tests + 1 negative)**
-- `status='new'` for normal triage flow
-- `item_type='bug'` for per-type automation
-- Does NOT insert into `features` (no auto-promotion)
+**Gate 2: Resolution check (5 tests)**
+- executor.ts implements a resolution check method
+- Gate 2 evaluated before Gate 1 in handleMasterCIFailure
+- Uses gh api to query most recent run on master for same step
+- Skips fix creation when latest master run has the step green
+- Proceeds with Gate 1 when step is still failing
 
-All 27 tests written to FAIL until the migration for `notify_job_failure_to_zazig` is added to `supabase/migrations/`.
-No `package.json` changes needed — `tests/vitest.config.ts` already includes `features/**/*.test.ts`.
+**Integration: both gates applied in sequence (4 tests)**
+- Does not create two fix features for same (commit_sha, step_name) pair
+- Creates separate fix features for same step on different commits
+- Logs when skipping due to Gate 1 (signature dedup)
+- Logs when skipping due to Gate 2 (already resolved)
+
+No `package.json` changes needed — `vitest run` discovers tests/features/ recursively.
 
 ---
 

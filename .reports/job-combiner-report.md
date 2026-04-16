@@ -12,4 +12,4 @@ failure_reason:
 - Job branch `job/2f1a8505-d250-4872-8bce-387a0a1379aa` had no unique commits beyond master (`a0cb75f2`) — skipped per "already merged" rule
 - CI workflow already exists on master (includes `npm run test` and `npm run build`) — injection skipped
 - Feature branch pushed to remote: `feature/fix-master-ci-failure-run-npm-run-test-53915729`
-- No PR created: feature branch has no commits beyond master; job changes already incorporated into master history
+- PR created: https://github.com/zazig-team/zazigv2/pull/410

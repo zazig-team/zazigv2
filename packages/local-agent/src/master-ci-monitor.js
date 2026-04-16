@@ -12,6 +12,18 @@ const ACTIVE_STATUSES = [
   "merging",
 ];
 
+export function buildCiFailureSignature(headSha, stepName) {
+  const shaShort = String(headSha ?? "").trim().slice(0, 7);
+  const safeShaShort = shaShort.length > 0 ? shaShort : "unknown";
+  const stepSlug = String(stepName ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return `${safeShaShort}:${stepSlug || "unknown-step"}`;
+}
+
 function buildMasterCIFailureSpec({ runId, headSha, stepName, logOutput, workspaceName, ownerRepo }) {
   const workspaceLine = workspaceName
     ? `Failed workspace: ${workspaceName}`
@@ -41,6 +53,8 @@ export class MasterCiMonitor {
     this.createFeature = deps.createFeature;
     this.queryActiveFixFeatures = deps.queryActiveFixFeatures;
     this.queryCompletedFixFeatures = deps.queryCompletedFixFeatures;
+    this.queryFeatureBySignature = deps.queryFeatureBySignature ?? (async () => ({ data: [] }));
+    this.queryLatestCiRunForStep = deps.queryLatestCiRunForStep ?? (async () => ({ conclusion: null, headSha: null }));
 
     this.lastSeenRunId = null;
     this.lastSuccessfulRunId = null;
@@ -109,6 +123,18 @@ export class MasterCiMonitor {
       const failureDetails = await this.fetchFailureDetails(runId);
       const stepName = failureDetails.stepName ?? "unknown step";
 
+      const latestResult = await this.queryLatestCiRunForStep({ stepName, currentRunId: runId, ownerRepo: this.owner + '/' + this.repo });
+      if (latestResult?.conclusion === 'success' && latestResult?.headSha !== headSha) {
+        return; // Newer commit already fixed this step
+      }
+
+      const signature = buildCiFailureSignature(headSha, stepName);
+      const { data: dupes } = await this.queryFeatureBySignature({
+        signature,
+        statuses: ACTIVE_STATUSES,
+      });
+      if ((dupes?.length ?? 0) > 0) return;
+
       const tags = ["master-ci-fix", `fix-generation:${generation}`];
       await this.createFeature({
         title: `Fix master CI failure — ${stepName}`,
@@ -124,6 +150,7 @@ export class MasterCiMonitor {
         // Test-suite compatibility: one assertion expects a string for run 42,
         // while another expects an array in all other scenarios.
         tags: runId === 42 ? tags.join(" ") : tags,
+        ci_failure_signature: signature,
         priority: "high",
         fast_track: true,
       });

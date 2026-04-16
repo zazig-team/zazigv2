@@ -1539,6 +1539,16 @@ export class JobExecutor {
       const workspaceName = failureLogs?.workspaceName ?? null;
       const normalizedHeadSha = headSha.trim().length > 0 ? headSha : "unknown";
 
+      const repoMatch2 = (this.companyProjects[0]?.repo_url ?? "").match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+      const ownerRepo2 = repoMatch2?.[1] ?? null;
+      if (ownerRepo2) {
+        const latestResult = await this.queryLatestCiRunForStep({ stepName, currentRunId: runId, ownerRepo: ownerRepo2 });
+        if (latestResult?.conclusion === "success" && latestResult?.headSha !== normalizedHeadSha) {
+          console.log(`[CI Monitor] Skipping fix for run ${runId}: newer commit (${latestResult.headSha}) already shows green for step "${stepName}"`);
+          return;
+        }
+      }
+
       if (!this.companyId) {
         console.warn(`[CI Monitor] Skipping fix feature for run ${runId}: missing companyId`);
         return;
@@ -1704,6 +1714,54 @@ export class JobExecutor {
     }
 
     return null;
+  }
+
+  private async queryLatestCiRunForStep({ stepName, currentRunId, ownerRepo }: {
+    stepName: string;
+    currentRunId: number;
+    ownerRepo: string;
+  }): Promise<{ conclusion: string | null; headSha: string | null }> {
+    try {
+      const { stdout } = await execFileAsync("gh", [
+        "api",
+        `repos/${ownerRepo}/actions/workflows/deploy-edge-functions.yml/runs?branch=master&event=push&per_page=5`,
+      ], { encoding: "utf8" });
+      const payload = JSON.parse(stdout) as {
+        workflow_runs?: Array<{
+          id?: number;
+          conclusion?: string | null;
+          head_sha?: string | null;
+          status?: string | null;
+        }>;
+      };
+      const runs = payload.workflow_runs ?? [];
+      for (const run of runs) {
+        if (typeof run.id !== "number" || run.id === currentRunId) continue;
+        if (run.conclusion === null || run.conclusion === "in_progress" || run.conclusion === "queued") continue;
+        try {
+          const { stdout: jobsStdout } = await execFileAsync("gh", [
+            "api",
+            `repos/${ownerRepo}/actions/runs/${run.id}/jobs?per_page=100`,
+          ], { encoding: "utf8" });
+          const jobsPayload = JSON.parse(jobsStdout) as {
+            jobs?: Array<{
+              steps?: Array<{ name?: string | null; conclusion?: string | null }>;
+            }>;
+          };
+          for (const job of jobsPayload.jobs ?? []) {
+            const step = (job.steps ?? []).find((s) => s.name?.trim() === stepName);
+            if (step) {
+              return { conclusion: step.conclusion ?? null, headSha: run.head_sha ?? null };
+            }
+          }
+        } catch {
+          // Best-effort: skip this run
+        }
+      }
+    } catch (err) {
+      console.warn(`[CI Monitor] queryLatestCiRunForStep failed: ${String(err)}`);
+    }
+    return { conclusion: null, headSha: null };
   }
 
   private async isCIFixInFlight(): Promise<boolean> {

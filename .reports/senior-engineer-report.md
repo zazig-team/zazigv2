@@ -1,8 +1,6 @@
 status: pass
-summary: Added dedicated vitest unit coverage for `extractFailureSummary` across vitest/jest parsing, fallback behavior, truncation, ANSI stripping, and empty-log handling, with a small fallback-message tweak to satisfy the empty-log expectation. Updated executor.ts to apply extractFailureSummary/extractWorkspaceName in fetchCIFailureLogs and assemble the feature spec with the new FAILURE SUMMARY/HOW TO REPRODUCE template, Failed workspace (omit-if-null), and section colons.
+summary: Implemented Gate 2 in CI monitor — skips feature creation when a newer commit already shows green CI for the same step
 files_changed:
-  - packages/local-agent/src/ci-log-extractor.test.ts
-  - packages/local-agent/src/ci-log-extractor.ts
+  - packages/local-agent/src/master-ci-monitor.js
+  - packages/local-agent/src/master-ci-monitor.test.ts
   - packages/local-agent/src/executor.ts
-  - .reports/senior-engineer-report.md
-failure_reason: none

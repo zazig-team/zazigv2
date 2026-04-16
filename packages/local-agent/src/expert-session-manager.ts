@@ -685,6 +685,15 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
       console.warn(`[expert] Failed to remove workspace ${session.workspaceDir}:`, err);
     }
 
+    // Write terminal DB status. Without this, expert_sessions rows stay at
+    // 'run' forever even after the tmux session exits and local cleanup
+    // runs, which silently consumes concurrency slots (max_concurrent gates
+    // in the orchestrator count `status IN ('requested','run')`). The
+    // current constraint (migration 231) has no 'completed' state, so a
+    // clean exit maps to 'cancelled' — the only non-error terminal value
+    // available.
+    await this.updateSessionStatus(session.sessionId, "cancelled");
+
     this.activeSessions.delete(session.sessionId);
     this.exitingSessions.delete(session.sessionId);
     console.log(`[expert] Session ${session.sessionId} exited and cleaned up`);

@@ -3948,7 +3948,20 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
     const lastRun = autoTriageLastRun.get(companyId) ?? 0;
     if (Date.now() - lastRun < AUTO_TRIAGE_COOLDOWN_MS) continue;
 
-    // Check active headless triage expert sessions (not all headless — only triage)
+    // Check active headless triage expert sessions.
+    //
+    // The triage-analyst role is reused for two distinct workflows:
+    //   (a) auto-triage of `new` ideas — this function
+    //   (b) auto-enrich of `triaged` ideas missing title/description
+    //       (see autoEnrichIncompleteTriagedIdeas)
+    //
+    // Both dispatch the same role. Without the brief filter below a burst
+    // of enrich sessions (e.g. after a migration finally unblocks a long
+    // backlog) can saturate this company's triage_max_concurrent and
+    // starve auto-triage for new ideas. Enrich briefs are JSON and always
+    // contain `"action":"enrich"`; auto-triage briefs are prose that start
+    // with "Auto-triage batch…". Excluding enrich briefs here keeps the
+    // two workflows on independent concurrency budgets.
     const { count: activeSessions } = await supabase
       .from("expert_sessions")
       .select("id, expert_role:expert_role_id!inner(name)", {
@@ -3958,7 +3971,8 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
       .eq("company_id", companyId)
       .eq("headless", true)
       .in("status", ["requested", "run"])
-      .eq("expert_role.name", "triage-analyst");
+      .eq("expert_role.name", "triage-analyst")
+      .not("brief", "ilike", '%"action":"enrich"%');
 
     const maxConcurrent = company.triage_max_concurrent ?? 3;
     const activeCount = activeSessions ?? 0;
@@ -4024,12 +4038,33 @@ async function autoTriageNewIdeas(supabase: SupabaseClient): Promise<void> {
         .update({ status: "triaging" })
         .in("id", ideaIds)
         .eq("status", "new")
-        .select("id");
+        .select("id, project_id");
 
-      const claimedIds = (claimed as { id: string }[] | null)?.map((r) =>
-        r.id
-      ) ?? [];
+      const claimedRows = (claimed as { id: string; project_id: string | null }[] | null) ?? [];
+      const claimedIds = claimedRows.map((r) => r.id);
       if (claimedIds.length === 0) continue;
+
+      // Belt-and-braces: backfill project_id on claimed ideas that arrived
+      // without one (e.g. mobile/v3 intake via create-idea that didn't pass
+      // project_id). Without this, triage-analyst sometimes forgets to set
+      // project_id in its update_idea call (see migration 238), which
+      // strands the idea in auto-spec's `.not("project_id","is",null)`
+      // filter. Only backfill when null so we don't overwrite caller-chosen
+      // values.
+      const idsMissingProject = claimedRows
+        .filter((r) => !r.project_id)
+        .map((r) => r.id);
+      if (idsMissingProject.length > 0) {
+        const { error: backfillErr } = await supabase
+          .from("ideas")
+          .update({ project_id: projectId })
+          .in("id", idsMissingProject);
+        if (backfillErr) {
+          console.error(
+            `[orchestrator] auto-triage: failed to backfill project_id for ${idsMissingProject.length} ideas in company ${companyId}: ${backfillErr.message}`,
+          );
+        }
+      }
 
       // Dispatch via headless expert session
       const response = await fetch(
@@ -4436,10 +4471,30 @@ async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
           }
 
           for (const idea of claimedIdeas) {
+            const revertClaim = async (reason: string): Promise<void> => {
+              const { error: revertErr } = await supabase
+                .from("ideas")
+                .update({ status: "triaged" })
+                .eq("id", idea.id)
+                .eq("status", "developing");
+
+              if (revertErr) {
+                console.error(
+                  `[orchestrator] auto-spec: failed to revert idea ${idea.id} to triaged after ${reason}: ${revertErr.message}`,
+                );
+              } else {
+                console.warn(
+                  `[orchestrator] auto-spec: reverted idea ${idea.id} to triaged after ${reason}`,
+                );
+              }
+            };
+
             if (!idea.project_id) {
-              console.warn(
-                `[orchestrator] auto-spec: skipping claimed idea ${idea.id} in company ${companyId} due to missing project_id`,
-              );
+              // Claim succeeded (status → developing) but we cannot dispatch
+              // spec-writer without a project_id. Revert so a future tick (or
+              // a manual fix that backfills project_id) can retry instead of
+              // leaving the idea stranded at 'developing' forever.
+              await revertClaim("missing project_id");
               continue;
             }
 
@@ -4453,21 +4508,7 @@ async function autoSpecTriagedIdeas(supabase: SupabaseClient): Promise<void> {
             });
 
             if (!ok) {
-              const { error: revertErr } = await supabase
-                .from("ideas")
-                .update({ status: "triaged" })
-                .eq("id", idea.id)
-                .eq("status", "developing");
-
-              if (revertErr) {
-                console.error(
-                  `[orchestrator] auto-spec: failed to revert idea ${idea.id} to triaged after dispatch failure: ${revertErr.message}`,
-                );
-              } else {
-                console.warn(
-                  `[orchestrator] auto-spec: reverted idea ${idea.id} to triaged after failed spec-writer dispatch`,
-                );
-              }
+              await revertClaim("failed spec-writer dispatch");
             }
           }
         }

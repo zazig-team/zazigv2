@@ -1,13 +1,14 @@
 status: success
-branch: feature/add-file-locking-on-credentials-json-to--b4b8f152
+branch: feature/fix-master-ci-failure-deploy-all-edge-fu-697eb58d
 merged:
-  - job/61a680fd-9d77-4261-b7c4-abefcbe6d8cd
-  - job/9a143836-926d-47c6-8e45-5804e46a7527
+  - job/186350cf-8523-45ea-a11a-55b230de9814 (already at master HEAD — skipped, no unique commits)
 conflicts_resolved: []
 failure_reason:
 
 ## Notes
 
-- Both job branches pointed to the same commit (f4997bb), so merging the first automatically included the second
-- CI workflow already exists on master — skipped injection
-- PR created: https://github.com/zazig-team/zazigv2/pull/408
+- Job branch `job/186350cf-8523-45ea-a11a-55b230de9814` had no commits ahead of master (`6ef2d94843127b5ad707c570bbf26658a5ea130d`) — skipped per "already merged" rule
+- CI failure root cause: transient `esm.sh` CDN 522 error during `agent-inbound-poll` function bundling; no code changes required
+- CI workflow already exists on master — injection skipped
+- This report commit gives the feature branch a unique commit so the PR and verify job can be created
+- PR created: https://github.com/zazig-team/zazigv2/pull/407

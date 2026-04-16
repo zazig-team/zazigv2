@@ -1,14 +1,13 @@
 status: success
-branch: feature/fix-master-ci-failure-deploy-all-edge-fu-697eb58d
+branch: feature/fix-master-ci-failure-run-npm-run-test-53915729
 merged:
-  - job/186350cf-8523-45ea-a11a-55b230de9814 (already at master HEAD — skipped, no unique commits)
-conflicts_resolved: []
+  - job/2f1a8505-d250-4872-8bce-387a0a1379aa (already merged — no unique commits beyond master, skipped)
+conflicts_resolved:
 failure_reason:
 
 ## Notes
 
-- Job branch `job/186350cf-8523-45ea-a11a-55b230de9814` had no commits ahead of master (`6ef2d94843127b5ad707c570bbf26658a5ea130d`) — skipped per "already merged" rule
-- CI failure root cause: transient `esm.sh` CDN 522 error during `agent-inbound-poll` function bundling; no code changes required
-- CI workflow already exists on master — injection skipped
-- This report commit gives the feature branch a unique commit so the PR and verify job can be created
-- PR created: https://github.com/zazig-team/zazigv2/pull/407
+- Job branch `job/2f1a8505-d250-4872-8bce-387a0a1379aa` had no unique commits beyond master (`a0cb75f2`) — skipped per "already merged" rule
+- CI workflow already exists on master (includes `npm run test` and `npm run build`) — injection skipped
+- Feature branch pushed to remote: `feature/fix-master-ci-failure-run-npm-run-test-53915729`
+- No PR created: feature branch has no commits beyond master; job changes already incorporated into master history

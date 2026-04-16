@@ -94,6 +94,130 @@ describe("MasterCiMonitor — Gate 1 signature dedup", () => {
   });
 });
 
+describe("MasterCiMonitor — Gate 2 (newer green commit skips feature creation)", () => {
+  const runId = 9000;
+  const headSha = "aabbccddee";
+  const stepName = "npm run test";
+
+  const createExecMock = () =>
+    vi.fn(async (_command: string, args: string[]) => {
+      const joined = args.join(" ");
+
+      if (joined.includes("actions/workflows/deploy-edge-functions.yml/runs?branch=master")) {
+        return {
+          stdout: JSON.stringify({
+            workflow_runs: [{ id: runId, conclusion: "failure", head_sha: headSha }],
+          }),
+          stderr: "",
+        };
+      }
+
+      if (joined.includes(`actions/runs/${runId}/jobs`)) {
+        return {
+          stdout: JSON.stringify({
+            jobs: [{ id: 1, name: "test", steps: [{ name: stepName, conclusion: "failure" }] }],
+          }),
+          stderr: "",
+        };
+      }
+
+      if (args[0] === "run" && args[1] === "view") {
+        return { stdout: "FAIL test output", stderr: "" };
+      }
+
+      return { stdout: "{}", stderr: "" };
+    });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("does NOT call createFeature when queryLatestCiRunForStep returns success for a different commit", async () => {
+    const mockCreateFeature = vi.fn().mockResolvedValue({ data: { id: "fix-1" } });
+    const mockQueryLatestCiRunForStep = vi.fn().mockResolvedValue({ conclusion: "success", headSha: "abc1234" });
+
+    const monitor = new MasterCiMonitor({
+      owner: "zazig-team",
+      repo: "zazigv2",
+      execFileAsync: createExecMock(),
+      createFeature: mockCreateFeature,
+      queryActiveFixFeatures: vi.fn().mockResolvedValue({ data: [] }),
+      queryCompletedFixFeatures: vi.fn().mockResolvedValue({ data: [] }),
+      queryFeatureBySignature: vi.fn().mockResolvedValue({ data: [] }),
+      queryLatestCiRunForStep: mockQueryLatestCiRunForStep,
+    });
+
+    await monitor.poll();
+
+    expect(mockCreateFeature).not.toHaveBeenCalled();
+    expect(mockQueryLatestCiRunForStep).toHaveBeenCalledWith({
+      stepName,
+      currentRunId: runId,
+      ownerRepo: "zazig-team/zazigv2",
+    });
+  });
+
+  it("continues to Gate 1 when queryLatestCiRunForStep returns failure for a different commit", async () => {
+    const mockCreateFeature = vi.fn().mockResolvedValue({ data: { id: "fix-1" } });
+    const mockQueryLatestCiRunForStep = vi.fn().mockResolvedValue({ conclusion: "failure", headSha: "abc1234" });
+
+    const monitor = new MasterCiMonitor({
+      owner: "zazig-team",
+      repo: "zazigv2",
+      execFileAsync: createExecMock(),
+      createFeature: mockCreateFeature,
+      queryActiveFixFeatures: vi.fn().mockResolvedValue({ data: [] }),
+      queryCompletedFixFeatures: vi.fn().mockResolvedValue({ data: [] }),
+      queryFeatureBySignature: vi.fn().mockResolvedValue({ data: [] }),
+      queryLatestCiRunForStep: mockQueryLatestCiRunForStep,
+    });
+
+    await monitor.poll();
+
+    expect(mockCreateFeature).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues to Gate 1 when queryLatestCiRunForStep returns success for the SAME commit (same-commit contradiction)", async () => {
+    const mockCreateFeature = vi.fn().mockResolvedValue({ data: { id: "fix-1" } });
+    const mockQueryLatestCiRunForStep = vi.fn().mockResolvedValue({ conclusion: "success", headSha: headSha });
+
+    const monitor = new MasterCiMonitor({
+      owner: "zazig-team",
+      repo: "zazigv2",
+      execFileAsync: createExecMock(),
+      createFeature: mockCreateFeature,
+      queryActiveFixFeatures: vi.fn().mockResolvedValue({ data: [] }),
+      queryCompletedFixFeatures: vi.fn().mockResolvedValue({ data: [] }),
+      queryFeatureBySignature: vi.fn().mockResolvedValue({ data: [] }),
+      queryLatestCiRunForStep: mockQueryLatestCiRunForStep,
+    });
+
+    await monitor.poll();
+
+    expect(mockCreateFeature).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues to Gate 1 when queryLatestCiRunForStep returns null conclusion", async () => {
+    const mockCreateFeature = vi.fn().mockResolvedValue({ data: { id: "fix-1" } });
+    const mockQueryLatestCiRunForStep = vi.fn().mockResolvedValue({ conclusion: null, headSha: null });
+
+    const monitor = new MasterCiMonitor({
+      owner: "zazig-team",
+      repo: "zazigv2",
+      execFileAsync: createExecMock(),
+      createFeature: mockCreateFeature,
+      queryActiveFixFeatures: vi.fn().mockResolvedValue({ data: [] }),
+      queryCompletedFixFeatures: vi.fn().mockResolvedValue({ data: [] }),
+      queryFeatureBySignature: vi.fn().mockResolvedValue({ data: [] }),
+      queryLatestCiRunForStep: mockQueryLatestCiRunForStep,
+    });
+
+    await monitor.poll();
+
+    expect(mockCreateFeature).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("buildCiFailureSignature", () => {
   it("slugifies step names and uses the first 7 chars of the sha", () => {
     const cases = [

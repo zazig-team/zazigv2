@@ -54,6 +54,7 @@ export class MasterCiMonitor {
     this.queryActiveFixFeatures = deps.queryActiveFixFeatures;
     this.queryCompletedFixFeatures = deps.queryCompletedFixFeatures;
     this.queryFeatureBySignature = deps.queryFeatureBySignature ?? (async () => ({ data: [] }));
+    this.queryLatestCiRunForStep = deps.queryLatestCiRunForStep ?? (async () => ({ conclusion: null, headSha: null }));
 
     this.lastSeenRunId = null;
     this.lastSuccessfulRunId = null;
@@ -121,6 +122,12 @@ export class MasterCiMonitor {
       const generation = Math.max(1, highestCompletedGeneration + 1);
       const failureDetails = await this.fetchFailureDetails(runId);
       const stepName = failureDetails.stepName ?? "unknown step";
+
+      const latestResult = await this.queryLatestCiRunForStep({ stepName, currentRunId: runId, ownerRepo: this.owner + '/' + this.repo });
+      if (latestResult?.conclusion === 'success' && latestResult?.headSha !== headSha) {
+        return; // Newer commit already fixed this step
+      }
+
       const signature = buildCiFailureSignature(headSha, stepName);
       const { data: dupes } = await this.queryFeatureBySignature({
         signature,

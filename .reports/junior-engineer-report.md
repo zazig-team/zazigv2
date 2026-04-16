@@ -1,7 +1,4 @@
 status: pass
-summary: Implemented credentials file locking with shared credentials.lock semantics, timeout handling, stale-lock cleanup, and lock-guarded reads/writes in both CLI and local-agent paths to satisfy the failing CI feature tests.
+summary: Renumbered duplicate migration 235_replica_identity_full.sql to 240_replica_identity_full.sql to resolve STAGING push failure caused by version 235 already existing in schema_migrations.
 files_changed:
-  - packages/cli/src/lib/credentials.ts
-  - packages/local-agent/src/connection.ts
-  - .reports/junior-engineer-report.md
-failure_reason: 
+  - supabase/migrations/240_replica_identity_full.sql (renamed from 235_replica_identity_full.sql)

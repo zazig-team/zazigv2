@@ -1,15 +1,13 @@
 status: success
-branch: feature/fix-master-ci-failure-deploy-all-edge-fu-98fc8b51
-merged: []
+branch: feature/add-file-locking-on-credentials-json-to--b4b8f152
+merged:
+  - job/61a680fd-9d77-4261-b7c4-abefcbe6d8cd
+  - job/9a143836-926d-47c6-8e45-5804e46a7527
 conflicts_resolved: []
 failure_reason:
 
 ## Notes
 
-- Job branch job/0f172f0b-09b3-4065-9760-cc9100bdad05 was already at the same commit as master (6ef2d948) — skipped per "already merged" rule
-- Feature branch feature/fix-master-ci-failure-deploy-all-edge-fu-98fc8b51 was created locally from master with no additional commits
+- Both job branches pointed to the same commit (f4997bb), so merging the first automatically included the second
 - CI workflow already exists on master — skipped injection
-- Feature branch pushed to origin successfully
-- PR creation skipped: GitHub rejected PR creation because there are no commits between master and the feature branch (both at 6ef2d948)
-- The job branch contained no unique implementation commits — its tip matched master HEAD exactly
-- PR created after adding report commit: https://github.com/zazig-team/zazigv2/pull/406
+- PR created: https://github.com/zazig-team/zazigv2/pull/408

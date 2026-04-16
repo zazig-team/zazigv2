@@ -1,14 +1,13 @@
 status: success
-branch: feature/desktop-full-electron-isolation-between--c0b1c78f
+branch: feature/fix-master-ci-failure-deploy-all-edge-fu-697eb58d
 merged:
-  - job/814f9252-9a6c-4f7a-9041-98078734cc55
+  - job/186350cf-8523-45ea-a11a-55b230de9814 (already at master HEAD — skipped, no unique commits)
 conflicts_resolved: []
 failure_reason:
 
 ## Notes
 
-- Feature branch created from master (did not exist on remote)
-- Job branch merged cleanly with no conflicts
-- CI workflow already exists on master — skipped injection
-- PR created: https://github.com/zazig-team/zazigv2/pull/405
-- Changes: staging-only Electron Chromium profile isolation, environment-scoped CPO tmux session discovery, and daemon persistent session naming with staging segment
+- Job branch `job/186350cf-8523-45ea-a11a-55b230de9814` had no commits ahead of master (`6ef2d94843127b5ad707c570bbf26658a5ea130d`) — skipped per "already merged" rule
+- CI failure root cause: transient `esm.sh` CDN 522 error during `agent-inbound-poll` function bundling; no code changes required
+- CI workflow already exists on master — injection skipped
+- This report commit gives the feature branch a unique commit so the PR and verify job can be created

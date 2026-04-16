@@ -1,5 +1,49 @@
 status: pass
 
+## Test files created (ci-monitor-deduplicate-fix-features feature 173e4e92)
+
+### `tests/features/ci-monitor-deduplicate-fix-features.test.ts` — 24 test cases
+
+**Structural: ci_failure_signature DB migration (3 tests)**
+- Migration adds ci_failure_signature column to features table
+- Column has an index for fast dedup lookups
+- Column is nullable (not set on non-CI features)
+
+**Structural: executor implements Gate 1 and Gate 2 (5 tests)**
+- executor.ts references ci_failure_signature
+- Builds signature from commit SHA and step name (slugified)
+- Queries features by ci_failure_signature before creating a fix
+- Has a Gate 2 resolution check method
+- Passes ci_failure_signature to create-feature CLI call
+
+**Unit: ci_failure_signature format (2 tests)**
+- Slugifies step name (lowercase + hyphens)
+- Uses first 7 chars of commit SHA
+
+**Gate 1: Deduplication by ci_failure_signature (5 tests)**
+- Skips creation when signature exists in active feature
+- Proceeds when no active feature has same signature
+- Dedup considers only active statuses (breaking_down, building, ci_checking, merging, visual_verifying)
+- Does NOT deduplicate across different commit SHAs
+- Passes signature to create-feature CLI call
+
+**Gate 2: Resolution check (5 tests)**
+- executor.ts implements a resolution check method
+- Gate 2 evaluated before Gate 1 in handleMasterCIFailure
+- Uses gh api to query most recent run on master for same step
+- Skips fix creation when latest master run has the step green
+- Proceeds with Gate 1 when step is still failing
+
+**Integration: both gates applied in sequence (4 tests)**
+- Does not create two fix features for same (commit_sha, step_name) pair
+- Creates separate fix features for same step on different commits
+- Logs when skipping due to Gate 1 (signature dedup)
+- Logs when skipping due to Gate 2 (already resolved)
+
+No `package.json` changes needed — `vitest run` discovers tests/features/ recursively.
+
+---
+
 ## Test files created (file-locking-credentials-json feature b4b8f152)
 
 ### `tests/features/file-locking-credentials-json.test.ts` — 18 test cases

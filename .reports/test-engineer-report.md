@@ -1,5 +1,53 @@
 status: pass
 
+## Test files created (file-locking-credentials-json feature b4b8f152)
+
+### `tests/features/file-locking-credentials-json.test.ts` — 18 test cases
+
+**credentials.ts — getValidCredentials() acquires a file lock (5 tests)**
+- File exists
+- Imports a lock mechanism (proper-lockfile, flock, or similar)
+- getValidCredentials() calls lock acquire before reading credentials
+- getValidCredentials() releases the lock after write (finally block)
+- saveCredentials() acquires a file lock before writing
+
+**credentials.ts — uses credentials.lock as the lock file (2 tests)**
+- References credentials.lock as the lock file path
+- Lock file path is under the zazigDir() / ZAZIG_HOME directory
+
+**credentials.ts — lock timeout is 5 seconds with graceful failure (3 tests)**
+- Configures a timeout value of 5000ms for lock acquisition
+- Logs a warning when lock acquisition times out
+- Does not re-throw lock timeout as an unhandled error that hangs the process
+
+**connection.ts — recoverSessionFromDisk() acquires a file lock (4 tests)**
+- File exists
+- Imports a lock mechanism
+- recoverSessionFromDisk() acquires a lock before reading credentials.json
+- recoverSessionFromDisk() releases the lock in a finally block
+
+**connection.ts — onAuthStateChange write-back acquires a file lock (2 tests)**
+- The onAuthStateChange handler acquires a lock before writeFileSync
+- The lock is released after writeFileSync in the auth state change handler
+
+**connection.ts — lock timeout is 5 seconds with graceful failure (3 tests)**
+- Configures a timeout value of 5000ms for lock acquisition
+- Logs a warning when lock acquisition times out
+- Handles ELOCKED or lock timeout without crashing the daemon
+
+**Stale lock detection — CLI can acquire lock after daemon killed mid-refresh (2 tests)**
+- credentials.ts uses proper-lockfile or equivalent with stale detection
+- connection.ts uses proper-lockfile or equivalent with stale detection
+
+**Lock implementation — consistent lock file path across CLI and daemon (2 tests)**
+- credentials.ts references credentials.lock
+- connection.ts references credentials.lock (same lock file as CLI)
+
+All 18 tests currently FAIL against the codebase (no locking logic present in either file).
+No `package.json` changes needed — `vitest run` discovers tests/features/ recursively.
+
+---
+
 ## Test files created (ci-monitor-extract-actionable-failure-context feature aa483d49)
 
 ### `tests/features/ci-monitor-extract-actionable-failure-context.test.ts` — 28 test cases

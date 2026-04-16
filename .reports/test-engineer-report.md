@@ -1,5 +1,44 @@
 status: pass
 
+## Test files created (cross-tenant-job-failure-to-idea feature 1f627dc8)
+
+### `tests/features/cross-tenant-job-failure-to-idea.test.ts` — 27 test cases
+
+**Migration: trigger function (14 tests)**
+- Trigger created AFTER UPDATE OF status on public.jobs FOR EACH ROW
+- Calls `notify_job_failure_to_zazig` as the trigger function
+- Guards: `NEW.status <> 'failed'` AND `OLD.status IS NOT DISTINCT FROM 'failed'`
+- Inserts into `public.ideas` with `company_id = 00000000-0000-0000-0000-000000000001` and `project_id = 3c405cbc-dbb0-44c5-a27d-de48fb573b13`
+- Sets `item_type='bug'`, `source='monitoring'`, `originator='job-failure-monitor'`, `source_ref=NEW.id`, `status='new'`
+- Builds `raw_text` via `format()` including company name/id, role, model, feature title, commit SHA, error_analysis
+- Truncates `error_analysis` to 2000 chars
+- Uses `COALESCE` with `'<unknown>'` for nullable fields
+- Uses `ON CONFLICT DO NOTHING`
+- Wraps insert in `BEGIN...EXCEPTION WHEN OTHERS` with `RAISE WARNING`
+- Returns `NEW` so job status update is never blocked
+
+**Migration: partial unique index (3 tests)**
+- Unique index on `ideas(source_ref)` WHERE `source='monitoring' AND originator='job-failure-monitor'`
+- Uses `IF NOT EXISTS`
+
+**Only 'failed' status creates an idea (2 tests)**
+- Early return when `NEW.status <> 'failed'`
+- Combined guard prevents re-firing within 'failed' (idempotency)
+
+**Self-observation: zazig-dev not excluded (2 tests)**
+- No company_id exclusion guard in trigger body
+- `NEW.company_id` included in `raw_text`
+
+**Triage flow: bug at status='new' (3 tests + 1 negative)**
+- `status='new'` for normal triage flow
+- `item_type='bug'` for per-type automation
+- Does NOT insert into `features` (no auto-promotion)
+
+All 27 tests written to FAIL until the migration for `notify_job_failure_to_zazig` is added to `supabase/migrations/`.
+No `package.json` changes needed — `tests/vitest.config.ts` already includes `features/**/*.test.ts`.
+
+---
+
 ## Test files created (file-locking-credentials-json feature b4b8f152)
 
 ### `tests/features/file-locking-credentials-json.test.ts` — 18 test cases

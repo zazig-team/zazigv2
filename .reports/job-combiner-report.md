@@ -1,7 +1,7 @@
 status: success
-branch: feature/fix-master-ci-failure-run-npm-run-test-53915729
+branch: feature/cross-tenant-job-failure-bug-idea-in-zaz-1f627dc8
 merged:
-  - job/2f1a8505-d250-4872-8bce-387a0a1379aa (already merged — no unique commits beyond master, skipped)
+  - job/5950282a-f55c-4d4d-b7fb-b9c17d7e6be4
 conflicts_resolved:
 failure_reason:
 
@@ -9,7 +9,8 @@ failure_reason:
 
 ## Notes
 
-- Job branch `job/2f1a8505-d250-4872-8bce-387a0a1379aa` had no unique commits beyond master (`a0cb75f2`) — skipped per "already merged" rule
-- CI workflow already exists on master (includes `npm run test` and `npm run build`) — injection skipped
-- Feature branch pushed to remote: `feature/fix-master-ci-failure-run-npm-run-test-53915729`
-- PR created: https://github.com/zazig-team/zazigv2/pull/410
+- Job branch `job/5950282a-f55c-4d4d-b7fb-b9c17d7e6be4` merged cleanly with no conflicts
+- Files added: supabase/migrations/235_cross_tenant_job_failure_to_idea.sql, tests/features/cross-tenant-job-failure-to-idea.test.ts
+- CI workflow already exists on master — injection skipped
+- Feature branch pushed to remote: `feature/cross-tenant-job-failure-bug-idea-in-zaz-1f627dc8`
+- PR created: https://github.com/zazig-team/zazigv2/pull/415

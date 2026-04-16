@@ -2,7 +2,8 @@ status: success
 branch: feature/fix-master-ci-failure-run-npm-run-test-aa9308b7
 merged:
   - job/99f1ccd0-607d-4baa-9810-763565c7f179 (already merged — skipped)
-conflicts_resolved: []
+conflicts_resolved:
+  - file: .reports/job-combiner-report.md, resolution: kept current feature branch report over stale master report from prior combine job
 failure_reason:
 
 ## Notes
@@ -14,7 +15,6 @@ The job branch `job/99f1ccd0-607d-4baa-9810-763565c7f179` had already been fully
 `git log job/... ^master` returned no unique commits.
 
 The feature branch `feature/fix-master-ci-failure-run-npm-run-test-aa9308b7` was pushed to origin
-but has no diverging commits from master, so no PR could be created (GitHub requires at least one
-commit ahead of base to open a pull request).
+with this report commit to allow PR creation.
 
 CI workflow: `ci.yml` already exists on master — no injection needed.

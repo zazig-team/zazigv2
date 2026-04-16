@@ -8,7 +8,7 @@
 
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
 import { execFile } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, appendFileSync, openSync, closeSync, unlinkSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -20,10 +20,20 @@ import type { SlotTracker } from "./slots.js";
 
 const ZAZIG_HOME_DIR = process.env["ZAZIG_HOME"] ?? join(homedir(), ".zazigv2");
 const CREDENTIALS_PATH = join(ZAZIG_HOME_DIR, "credentials.json");
+const CREDENTIALS_LOCK_PATH = join(ZAZIG_HOME_DIR, "credentials.lock");
+const CREDENTIALS_LOCK_TIMEOUT_MS = 5_000;
+const CREDENTIALS_LOCK_STALE_MS = 30_000;
+const CREDENTIALS_LOCK_RETRY_MS = 50;
 const execFileAsync = promisify(execFile);
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+const isErrnoError = (error: unknown): error is NodeJS.ErrnoException =>
+  typeof error === "object" && error !== null && "code" in error;
+
+const isLockTimeoutError = (error: unknown): boolean =>
+  isErrnoError(error) && (error.code === "ELOCKED" || error.code === "ETIMEDOUT");
 
 export type MessageHandler = (msg: OrchestratorMessage) => void;
 
@@ -103,6 +113,47 @@ export class AgentConnection {
    */
   private sessionRecoveryCooldownUntil = 0;
 
+  private async acquireLock(context: string): Promise<() => void> {
+    mkdirSync(ZAZIG_HOME_DIR, { recursive: true });
+    const deadline = Date.now() + CREDENTIALS_LOCK_TIMEOUT_MS;
+
+    while (Date.now() < deadline) {
+      try {
+        const fd = openSync(CREDENTIALS_LOCK_PATH, "wx");
+        closeSync(fd);
+        let released = false;
+        return () => {
+          if (released) return;
+          released = true;
+          try {
+            unlinkSync(CREDENTIALS_LOCK_PATH);
+          } catch {
+            // lock file may already be removed by cleanup.
+          }
+        };
+      } catch (err) {
+        if (isErrnoError(err) && err.code === "EEXIST") {
+          try {
+            const lockStat = statSync(CREDENTIALS_LOCK_PATH);
+            if (Date.now() - lockStat.mtimeMs > CREDENTIALS_LOCK_STALE_MS) {
+              unlinkSync(CREDENTIALS_LOCK_PATH);
+            }
+          } catch {
+            // lock may have been released already; retry below.
+          }
+          await sleep(CREDENTIALS_LOCK_RETRY_MS);
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    console.warn(`[local-agent] ${context}: lock timeout after ${CREDENTIALS_LOCK_TIMEOUT_MS}ms acquiring credentials.lock`);
+    const timeoutError = new Error("ELOCKED: lock timeout acquiring credentials.lock") as NodeJS.ErrnoException;
+    timeoutError.code = "ELOCKED";
+    throw timeoutError;
+  }
+
   private async recoverSessionFromDisk(): Promise<void> {
     const now = Date.now();
     if (now < this.sessionRecoveryCooldownUntil) {
@@ -113,12 +164,16 @@ export class AgentConnection {
     this.sessionRecoveryCooldownUntil = now + 5 * 60 * 1000;
 
     try {
+      let releaseLock: (() => void) | null = null;
       let existing: Record<string, unknown> = {};
       try {
+        releaseLock = await this.acquireLock("recoverSessionFromDisk");
         existing = JSON.parse(readFileSync(CREDENTIALS_PATH, "utf-8"));
       } catch {
         console.warn("[local-agent] Session recovery: could not read credentials.json");
         return;
+      } finally {
+        releaseLock?.();
       }
       const accessToken = typeof existing.accessToken === "string" ? existing.accessToken : "";
       const refreshToken = typeof existing.refreshToken === "string" ? existing.refreshToken : "";
@@ -133,6 +188,9 @@ export class AgentConnection {
         console.log("[local-agent] Auth session recovered successfully");
       }
     } catch (err) {
+      if (isLockTimeoutError(err)) {
+        console.warn("[local-agent] Session recovery skipped due to lock timeout (ELOCKED)");
+      }
       console.warn(`[local-agent] Session recovery error: ${String(err)}`);
     }
   }
@@ -252,7 +310,7 @@ export class AgentConnection {
       // Also recover from SIGNED_OUT — supabase-js clears the session when auto-refresh
       // fails (e.g. during transient network errors). Re-initialize from disk so the daemon
       // regains an authenticated session and resumes writing fresh tokens.
-      this.dbClient.auth.onAuthStateChange((event, session) => {
+      this.dbClient.auth.onAuthStateChange(async (event, session) => {
         if (event === "SIGNED_OUT" && !this.stopped) {
           console.warn("[local-agent] Auth session signed out (supabase-js lost session) — attempting recovery from disk");
           void this.recoverSessionFromDisk();
@@ -260,7 +318,9 @@ export class AgentConnection {
         }
 
         if (session?.access_token && session?.refresh_token) {
+          let releaseLock: (() => void) | null = null;
           try {
+            releaseLock = await this.acquireLock("onAuthStateChange");
             // Read existing credentials to preserve email and other fields
             let existing: Record<string, unknown> = {};
             try {
@@ -278,7 +338,12 @@ export class AgentConnection {
             writeFileSync(CREDENTIALS_PATH, JSON.stringify(creds, null, 2) + "\n", { mode: 0o600 });
             console.log(`[local-agent] Credentials refreshed and saved to disk (event=${event})`);
           } catch (err) {
+            if (isLockTimeoutError(err)) {
+              console.warn("[local-agent] Credentials refresh write skipped due to lock timeout (ELOCKED)");
+            }
             console.warn(`[local-agent] Failed to save refreshed credentials: ${String(err)}`);
+          } finally {
+            releaseLock?.();
           }
         }
       });

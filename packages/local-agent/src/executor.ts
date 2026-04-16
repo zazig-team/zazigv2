@@ -3819,13 +3819,11 @@ function buildCommand(
     if (repoDir) {
       console.log(`[buildCommand] codex: adding --add-dir repoDir=${repoDir} for worktreePath=${worktreePath}`);
       args.push("--add-dir", repoDir);
-      // Worktree git metadata (index.lock, HEAD, etc.) lives at
-      // <repoDir>/.git/worktrees/<name>/ which is under repoDir, but the
-      // worktree's .git file resolves via gitdir which the sandbox may follow
-      // outside the --add-dir tree. Explicitly grant the .git/worktrees dir
-      // to ensure the sandbox can write index.lock regardless of resolution.
-      const gitWorktreesDir = join(repoDir, ".git", "worktrees");
-      args.push("--add-dir", gitWorktreesDir);
+      // Git operations (commit, add, etc.) need write access to the full
+      // .git directory — objects, refs, packed-refs, COMMIT_EDITMSG, and
+      // worktrees/<name>/index.lock all live under <repoDir>/.git/.
+      const gitDir = join(repoDir, ".git");
+      args.push("--add-dir", gitDir);
     } else {
       console.warn(`[buildCommand] codex: repoDir is undefined — sandbox may block git commit in worktree`);
     }

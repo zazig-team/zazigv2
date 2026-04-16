@@ -1,7 +1,7 @@
 status: pass
-summary: Implemented staging-only Electron Chromium profile isolation and environment-scoped CPO tmux session discovery, and updated daemon persistent session naming to include a staging segment.
+summary: Implemented credentials file locking with shared credentials.lock semantics, timeout handling, stale-lock cleanup, and lock-guarded reads/writes in both CLI and local-agent paths to satisfy the failing CI feature tests.
 files_changed:
-  - packages/desktop/src/main/index.ts
-  - packages/local-agent/src/executor.ts
+  - packages/cli/src/lib/credentials.ts
+  - packages/local-agent/src/connection.ts
   - .reports/junior-engineer-report.md
 failure_reason: 

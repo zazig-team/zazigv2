@@ -11,3 +11,4 @@ failure_reason:
 - CI failure root cause: transient `esm.sh` CDN 522 error during `agent-inbound-poll` function bundling; no code changes required
 - CI workflow already exists on master — injection skipped
 - This report commit gives the feature branch a unique commit so the PR and verify job can be created
+- PR created: https://github.com/zazig-team/zazigv2/pull/407

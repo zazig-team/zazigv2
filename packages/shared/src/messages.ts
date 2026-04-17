@@ -74,6 +74,20 @@ export type FailureReason =
   | "daemon_heartbeat_gap"
   | "stuck_no_output";
 
+/**
+ * Supabase Realtime typing indicator broadcast payload shared by agent/webui/desktop.
+ *
+ * Channel naming: `typing:{company_id}:{session_id}`
+ * Broadcast event: `typing_status`
+ * Payload shape: TypingIndicatorEvent
+ */
+export type TypingIndicatorEvent = {
+  company_id: string;
+  /** Expert session id. */
+  session_id: string;
+  status: "typing" | "idle";
+};
+
 // ---------------------------------------------------------------------------
 // Orchestrator → Local Agent messages
 // ---------------------------------------------------------------------------

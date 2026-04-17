@@ -1,5 +1,6 @@
 status: pass
-summary: Wired QuietHoursSettingsView into the existing iOS SettingsView by adding a top-level NavigationLink row labelled "Quiet Hours" within a dedicated Section in the Form.
+summary: Added a shared TypingIndicatorEvent contract and documented the Supabase Realtime typing channel/event protocol, then re-exported the type from the shared package index.
 files_changed:
-  - zazigv3/Views/SettingsView.swift
+  - packages/shared/src/messages.ts
+  - packages/shared/src/index.ts
 failure_reason:

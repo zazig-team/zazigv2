@@ -559,6 +559,8 @@ interface ActivePersistentAgent {
   lastMemorySyncAt: number | null;
   /** Whether agent was active since last memory sync (used to reset sync state). */
   wasActiveAfterSync: boolean;
+  respawnFailureCount: number;
+  lastRespawnFailureAt: number | null;
 }
 
 export interface CompanyProject {
@@ -2081,6 +2083,8 @@ export class JobExecutor {
       resetInProgress: false,
       lastMemorySyncAt: null,
       wasActiveAfterSync: false,
+      respawnFailureCount: 0,
+      lastRespawnFailureAt: null,
     };
     this.persistentAgents.set(role, persistentAgent);
 

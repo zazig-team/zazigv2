@@ -1,4 +1,6 @@
 status: pass
-summary: Renumbered duplicate migration 235_replica_identity_full.sql to 240_replica_identity_full.sql to resolve STAGING push failure caused by version 235 already existing in schema_migrations.
+summary: Added a shared TypingIndicatorEvent contract and documented the Supabase Realtime typing channel/event protocol, then re-exported the type from the shared package index.
 files_changed:
-  - supabase/migrations/240_replica_identity_full.sql (renamed from 235_replica_identity_full.sql)
+  - packages/shared/src/messages.ts
+  - packages/shared/src/index.ts
+failure_reason:

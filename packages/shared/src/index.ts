@@ -11,6 +11,7 @@ export type {
   JobStatusValue,
   AgentJobStatus,
   FailureReason,
+  TypingIndicatorEvent,
   FeatureStatus,
   PipelineJobStatus,
   // Orchestrator → Local Agent messages

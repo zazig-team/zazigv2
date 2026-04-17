@@ -1,5 +1,27 @@
 status: pass
 
+## Test files created (persistent-agent-resilience feature 94df71bc)
+
+### `tests/features/persistent-agent-resilience-liveness-monitoring.test.ts` — 14 test cases
+
+- **AC1 Structural (6 tests):** heartbeat liveness check wires `isTmuxSessionAlive` before `capturePane`; logs structured warning with `role=` and `session=` fields; skips capture when dead; delegates to respawn method; narrows catch block error level.
+- **AC3 Structural (5 tests):** post-spawn `isTmuxSessionAlive` check exists after `spawnTmuxSession`; 2-second delay before check; `pane_dead_status` exit code inspection; failure logged with pane context; throws/returns error on failure.
+- **AC5 Structural (3 tests):** liveness guard conditional only acts when dead; healthy ticks still update `last_heartbeat`; `isTmuxSessionAlive` is reused (one definition, ≥3 usages).
+
+### `tests/features/persistent-agent-resilience-respawn-circuit-breaker.test.ts` — 18 test cases
+
+- **AC2 Structural (6 tests):** `respawnPersistentAgentIfDead` method defined; calls `reloadPersistentAgent`; logs structured fields (role, reason, attempt, sessionName); updates `last_respawn_at`; uses reason `heartbeat_detected_dead`; uses reason `post_spawn_failed`.
+- **AC4 Structural (6 tests):** `respawnFailureCount` field on `ActivePersistentAgent`; `lastRespawnFailureAt` field; checks `RESET_FAILURE_WINDOW_MS` / `MAX_RESET_FAILURES`; sets `status = "crashed"` in DB; logs critical error; stops after threshold.
+- **AC6 Structural (3 tests):** `resetInProgress` guard in respawn method; bails if `resetInProgress` is true; heartbeat skips when `resetInProgress` is true.
+- **AC7 Structural (4 tests):** migration adds `last_respawn_at` column; update includes ISO timestamp; status transitions to `"crashed"`; agent init sets `respawnFailureCount: 0` and `lastRespawnFailureAt: null`.
+
+**Total test files: 2 | Total test cases: 32 | All 7 acceptance criteria covered**
+No `package.json` changes needed — `tests/vitest.config.ts` already includes `features/**/*.test.ts`.
+
+---
+
+## Previous test reports
+
 ## Test files created (quiet-hours-push-notification-suppression feature aa8b3f48)
 
 ### 1. `tests/features/quiet-hours-is-quiet-now-logic.test.ts` — 38 test cases

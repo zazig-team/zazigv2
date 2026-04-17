@@ -1,6 +1,6 @@
 status: pass
-summary: Implemented a new iOS QuietHoursService with Supabase-backed quiet_hours load/save and isQuietNow interval evaluation including midnight-spanning windows.
+summary: Added a Realtime pipeline event notification handler that keeps subscriptions active while suppressing local notification display during quiet hours using `QuietHoursService`.
 files_changed:
-  - zazigv3/Services/QuietHoursService.swift
+  - zazigv3/Services/RealtimePipelineEventHandler.swift
   - .reports/senior-engineer-report.md
-failure_reason: ""
+failure_reason:

@@ -1,14 +1,14 @@
 status: success
-branch: feature/fix-master-ci-failure-push-migrations-to-9f1471a2
+branch: feature/fix-master-ci-failure-push-migrations-to-f1fa3226
 merged:
-  - job/2d20d73e-1cc0-4368-b914-c66e664ac093
+  - job/2098f36b-4ab9-4d95-8627-5a6149c392fc
 conflicts_resolved: []
 failure_reason:
 
 ## Notes
 
-- Feature branch was behind master by 1 commit; synced with master before merging job branch.
-- Job branch `job/2d20d73e-1cc0-4368-b914-c66e664ac093` merged cleanly (no conflicts).
-- Changes: renamed migration `235_replica_identity_full.sql` → `240_replica_identity_full.sql` to fix migration numbering collision causing CI failures.
-- CI workflow already exists on master — injection skipped.
-- PR created: https://github.com/zazig-team/zazigv2/pull/424
+- Feature branch created from master (did not exist on remote)
+- Job branch fetched and merged with --no-ff
+- CI workflow already exists on master — skipped injection
+- PR created: https://github.com/zazig-team/zazigv2/pull/425
+- Job commit: fix: renumber duplicate migration 235_replica_identity_full to 240

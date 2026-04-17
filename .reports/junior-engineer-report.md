@@ -1,6 +1,5 @@
 status: pass
-summary: Added a new Supabase migration that creates `user_preferences` if missing, adds `quiet_hours` JSONB with default `'[]'::jsonb`, and enforces per-user RLS policy coverage.
+summary: Wired QuietHoursSettingsView into the existing iOS SettingsView by adding a top-level NavigationLink row labelled "Quiet Hours" within a dedicated Section in the Form.
 files_changed:
-  - supabase/migrations/241_user_preferences_quiet_hours.sql
-  - .reports/junior-engineer-report.md
+  - zazigv3/Views/SettingsView.swift
 failure_reason:

@@ -78,6 +78,26 @@ Tests `buildWeeknightsPreset()` and `buildWeekendsPreset()` from `packages/share
 
 ---
 
+## Test files created (chat-typing-indicator feature 92f81468)
+
+### `tests/features/chat-typing-indicator.test.ts` — 18 test cases
+
+| Describe block | # tests |
+|---|---|
+| AC1: Database schema | 5 |
+| AC2: Utility module | 5 |
+| AC3: Protocol message type | 5 |
+| AC4: Realtime policy | 1 |
+| AC5: Auto-expiry timeout | 2 |
+| AC6: Send message clears indicator | 2 |
+| **Total** | **18** |
+
+All 18 tests fail against the current codebase as expected — the feature does not exist yet.
+
+No `package.json` changes needed — `vitest run` in the `tests` workspace discovers `features/**/*.test.ts` recursively.
+
+---
+
 ## Previous test reports
 
 ## Test files created (retry-failed-uploads feature e2df6871)

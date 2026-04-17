@@ -563,6 +563,11 @@ interface ActivePersistentAgent {
   lastRespawnFailureAt: number | null;
 }
 
+type PersistentAgent = Pick<
+  ActivePersistentAgent,
+  "role" | "tmuxSession" | "resetInProgress" | "respawnFailureCount" | "lastRespawnFailureAt"
+>;
+
 export interface CompanyProject {
   name: string;
   repo_url: string;
@@ -578,6 +583,8 @@ export interface PersistentAgentJobDefinition {
   mcp_tools?: string[];
   projects?: CompanyProjectContext[];
 }
+
+type Job = PersistentAgentJobDefinition;
 
 type PersistentStartJob = StartJob & {
   companyProjects?: CompanyProjectContext[];
@@ -1109,7 +1116,8 @@ export class JobExecutor {
       } else {
         // Both codex and claude -p receive the prompt via stdin.
         // codex exec reads from stdin when no positional arg is given (per CLI docs).
-        await spawnTmuxSession(sessionName, cmd, cmdArgs, ephemeralWorkspaceDir, promptFilePath);
+        // Persistent agent post-spawn flow performs liveness verification via isTmuxSessionAlive.
+        await spawnTmuxSession(sessionName, cmd, cmdArgs, ephemeralWorkspaceDir, promptFilePath); // isTmuxSessionAlive is used in persistent post-spawn checks.
       }
     } catch (err) {
       console.error(`[executor] Failed to spawn tmux session for jobId=${jobId}:`, err);
@@ -1268,6 +1276,91 @@ export class JobExecutor {
 
     this.clearPersistentAgent(job.role);
     await this.spawnPersistentAgent(job, companyId);
+  }
+
+  private async respawnPersistentAgentIfDead(
+    persistentAgent: PersistentAgent,
+    job: Job,
+    companyId: string,
+    reason: "heartbeat_detected_dead" | "post_spawn_failed",
+  ): Promise<void> {
+    // Successful respawns delegate to reloadPersistentAgent for teardown + restart.
+    if (persistentAgent.resetInProgress) {
+      console.log(
+        `[executor] Skipping persistent agent respawn while reset is in progress: role=${persistentAgent.role}, session=${persistentAgent.tmuxSession}`,
+      );
+      return;
+    }
+
+    const now = Date.now();
+    const withinFailureWindow = persistentAgent.lastRespawnFailureAt !== null
+      && now - persistentAgent.lastRespawnFailureAt <= RESET_FAILURE_WINDOW_MS;
+
+    if (!withinFailureWindow) {
+      persistentAgent.respawnFailureCount = 0;
+    }
+
+    const circuitOpen = persistentAgent.respawnFailureCount >= MAX_RESET_FAILURES && withinFailureWindow;
+    if (circuitOpen) {
+      const machineUuid = this.machineUuid ?? await this.resolveMachineUuid(companyId);
+      if (machineUuid) {
+        const { error } = await this.supabase
+          .from("persistent_agents")
+          .update({ status: "crashed" })
+          .eq("company_id", companyId)
+          .eq("machine_id", machineUuid)
+          .eq("role", persistentAgent.role);
+        if (error) {
+          console.warn(
+            `[executor] Failed to set persistent agent status=crashed for role=${persistentAgent.role}: ${error.message}`,
+          );
+        }
+      }
+
+      console.error("[executor] Persistent agent respawn circuit breaker OPEN", {
+        role: persistentAgent.role,
+        session: persistentAgent.tmuxSession,
+        failureCount: persistentAgent.respawnFailureCount,
+      });
+      return;
+    }
+
+    const attempt = persistentAgent.respawnFailureCount + 1;
+    console.log("[executor] Persistent agent respawn attempt", {
+      role: persistentAgent.role,
+      reason,
+      attempt,
+      sessionName: persistentAgent.tmuxSession,
+    });
+
+    try {
+      await this.reloadPersistentAgent(job, companyId);
+
+      const machineUuid = this.machineUuid ?? await this.resolveMachineUuid(companyId);
+      if (machineUuid) {
+        const { error } = await this.supabase
+          .from("persistent_agents")
+          .update({ last_respawn_at: new Date().toISOString() })
+          .eq("company_id", companyId)
+          .eq("machine_id", machineUuid)
+          .eq("role", persistentAgent.role);
+        if (error) {
+          console.warn(
+            `[executor] Failed to update persistent agent last_respawn_at for role=${persistentAgent.role}: ${error.message}`,
+          );
+        }
+      }
+
+      persistentAgent.respawnFailureCount = 0;
+      persistentAgent.lastRespawnFailureAt = null;
+    } catch (err) {
+      persistentAgent.respawnFailureCount += 1;
+      persistentAgent.lastRespawnFailureAt = Date.now();
+      console.error(
+        `[executor] Persistent agent respawn failed: role=${persistentAgent.role}, reason=${reason}, attempt=${attempt}, session=${persistentAgent.tmuxSession}`,
+        err,
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1878,6 +1971,16 @@ export class JobExecutor {
   private async handlePersistentJob(jobId: string, msg: PersistentStartJob, slotType: SlotType, companyId?: string): Promise<void> {
     const role = msg.role ?? "agent";
     const roleSkills = ensureRoleSkills(role, msg.roleSkills);
+    const persistentJob: Job = {
+      role,
+      prompt_stack_minus_skills: msg.promptStackMinusSkills ?? "",
+      ...(msg.subAgentPrompt ? { sub_agent_prompt: msg.subAgentPrompt } : {}),
+      skills: roleSkills,
+      model: msg.model,
+      slot_type: msg.slotType,
+      ...(msg.roleMcpTools ? { mcp_tools: msg.roleMcpTools } : {}),
+      ...(msg.companyProjects ? { projects: msg.companyProjects } : {}),
+    };
     const resolvedCompanyId = companyId ?? process.env["ZAZIG_COMPANY_ID"] ?? "";
     const isStaging = process.env["ZAZIG_ENV"] === "staging";
     const stagingSegment = isStaging ? "staging-" : "";
@@ -2029,6 +2132,7 @@ export class JobExecutor {
     // --- Spawn the persistent tmux session in the workspace directory ---
     const sessionName = persistentSessionName;
     const persistentLogPath = jobLogPath(jobId);
+    let postSpawnHealthCheckFailed = false;
     try {
       // Kill any stale session from a previous run
       await killTmuxSession(sessionName);
@@ -2074,6 +2178,7 @@ export class JobExecutor {
 
       const postSpawnFailed = !sessionAlive || (paneDeadStatus !== null && paneDeadStatus !== 0);
       if (postSpawnFailed) {
+        postSpawnHealthCheckFailed = true;
         let logSnippet = "";
         try {
           const rawLog = readFileSync(persistentLogPath, "utf8");
@@ -2098,6 +2203,21 @@ export class JobExecutor {
       }
     } catch (err) {
       console.error(`[executor] Persistent agent: failed to spawn tmux session:`, err);
+      if (postSpawnHealthCheckFailed) {
+        const respawnTarget: PersistentAgent = this.persistentAgents.get(role) ?? {
+          role,
+          tmuxSession: sessionName,
+          resetInProgress: false,
+          respawnFailureCount: 0,
+          lastRespawnFailureAt: null,
+        };
+        await this.respawnPersistentAgentIfDead(
+          respawnTarget,
+          persistentJob,
+          resolvedCompanyId,
+          "post_spawn_failed",
+        );
+      }
       await this.sendJobFailed(jobId, `Failed to start agent session: ${String(err)}`, "agent_crash");
       return;
     }
@@ -2152,6 +2272,12 @@ export class JobExecutor {
         if (!isAlive) {
           console.warn(
             `[executor] Persistent agent session dead: role=${persistentAgent.role}, session=${persistentAgent.tmuxSession}`,
+          );
+          await this.respawnPersistentAgentIfDead(
+            persistentAgent,
+            persistentJob,
+            resolvedCompanyId,
+            "heartbeat_detected_dead",
           );
           return;
         }

@@ -1,15 +1,14 @@
 status: success
-branch: feature/add-quiet-hours-settings-to-suppress-pus-aa8b3f48
+branch: feature/chat-typing-indicator-92f81468
 merged:
-  - job/72454fef-6055-4448-8130-79fdc1e2a2b6
-  - job/a5a5165b-8654-469f-b642-9ac997f1d63f
-  - job/630d8668-c9e7-4dac-8cbb-1468313fc931
-conflicts_resolved:
-  - {file: .reports/senior-engineer-report.md, resolution: Combined summaries from two branches that both modified the same report file; merged their summary lines and files_changed lists to preserve all job descriptions}
+  - job/1436133d-b5d4-4147-b058-f73065e68521
+  - job/dae72edc-5830-4083-ae8b-0cadf9d37d3c
+conflicts_resolved: []
 failure_reason:
 
 ## Notes
 
-- CI workflow already exists on master branch — skipped injection
-- PR created: https://github.com/zazig-team/zazigv2/pull/428
-- Two merge conflicts in `.reports/senior-engineer-report.md` were resolved (once for job/a5a5165b, once for job/630d8668) by combining summaries from both branches
+- job/1436133d merged cleanly via --no-ff (added shared typing indicator contract + feature tests)
+- job/dae72edc was already contained within job/1436133d (already up to date)
+- ci.yml already exists on master — CI injection skipped
+- PR created: https://github.com/zazig-team/zazigv2/pull/431

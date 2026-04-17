@@ -18,6 +18,23 @@ status: pass
 **Total test files: 2 | Total test cases: 32 | All 7 acceptance criteria covered**
 No `package.json` changes needed — `tests/vitest.config.ts` already includes `features/**/*.test.ts`.
 
+## Test files created (weekly-digest-email feature 4140c138)
+
+### `tests/features/weekly-digest-email.test.ts` — 24 test cases
+
+1. **send-weekly-digest edge function — exists** (5 tests): function file, deno.json, imports, env vars, Deno.serve handler
+2. **queries recently completed features** (4 tests): features table query, status=complete filter, 7-day window, title selection
+3. **sends emails via an email provider** (4 tests): email provider, API key env var, From address, recipient
+4. **email body includes feature summaries** (3 tests): subject line, HTML/text body with titles, feature count
+5. **empty week handling** (2 tests): skip send when no features, structured zero-sent response
+6. **structured JSON response** (3 tests): application/json, emails_sent field, 200 status
+7. **scheduled cron trigger** (3 tests): migration exists, weekly cadence, calls digest function
+8. **company scoping** (2 tests): company_id parameter, scoped features query
+
+All 24 tests written to FAIL against current codebase — `supabase/functions/send-weekly-digest/` does not yet exist.
+
+No `package.json` changes needed — `vitest run` discovers tests/features/ recursively.
+
 ---
 
 ## Previous test reports

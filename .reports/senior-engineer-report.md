@@ -1,5 +1,5 @@
 status: pass
-summary: Added migration 235_cross_tenant_job_failure_to_idea.sql implementing the notify_job_failure_to_zazig Postgres trigger, partial dedup index, and all 31 feature tests now pass.
+summary: Added migration 241_weekly_digest_data_fn.sql with a SECURITY DEFINER get_weekly_digest_data(UUID) JSONB function that returns weekly shipped features, merged PR count, failed jobs, and founder email for a company.
 files_changed:
-  - supabase/migrations/235_cross_tenant_job_failure_to_idea.sql
+  - supabase/migrations/241_weekly_digest_data_fn.sql
 failure_reason:

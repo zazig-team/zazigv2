@@ -1,4 +1,4 @@
--- 243_weekly_digest_cron.sql
+-- 245_weekly_digest_cron.sql
 -- Schedule weekly digest emails via pg_cron + pg_net.
 -- Runs every Monday at 09:00 UTC and calls the send-weekly-digest edge function.
 

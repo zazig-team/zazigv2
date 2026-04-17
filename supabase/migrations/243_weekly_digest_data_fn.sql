@@ -1,6 +1,6 @@
--- 241_weekly_digest_data_fn.sql
+-- 243_weekly_digest_data_fn.sql
 -- Adds a helper function for weekly digest email payload generation.
--- The weekly pg_cron schedule is defined in 242_weekly_digest_cron.sql
+-- The weekly pg_cron schedule is defined in 244_weekly_digest_cron.sql
 -- (cron.schedule on Monday cadence), which calls send-weekly-digest
 -- via net.http_post.
 
@@ -14,7 +14,7 @@ DECLARE
   v_window_start TIMESTAMPTZ := now() - INTERVAL '7 days';
 BEGIN
   RETURN (
-    WITH completed_features AS (
+    WITH shipped_this_week AS (
       SELECT
         f.id,
         f.title,
@@ -50,19 +50,19 @@ BEGIN
         (
           SELECT jsonb_agg(
             jsonb_build_object(
-              'id', cf.id,
-              'title', cf.title,
-              'promoted_version', cf.promoted_version
+              'id', sw.id,
+              'title', sw.title,
+              'promoted_version', sw.promoted_version
             )
-            ORDER BY cf.updated_at DESC
+            ORDER BY sw.updated_at DESC
           )
-          FROM completed_features cf
+          FROM shipped_this_week sw
         ),
         '[]'::jsonb
       ),
       'merged_pr_count', (
         SELECT COUNT(*)::INT
-        FROM completed_features
+        FROM shipped_this_week
       ),
       'failed_jobs', COALESCE(
         (

@@ -1,14 +1,14 @@
 status: success
-branch: feature/fix-master-ci-failure-push-migrations-to-f1fa3226
+branch: feature/retry-failed-uploads-e2df6871
 merged:
-  - job/2098f36b-4ab9-4d95-8627-5a6149c392fc
+  - job/fb58683b-3d76-401e-a40e-3b34e4ad57a1
 conflicts_resolved: []
 failure_reason:
 
 ## Notes
 
-- Feature branch created from master (did not exist on remote)
-- Job branch fetched and merged with --no-ff
+- Feature branch already existed (tracking origin/master)
+- Job branch merged with --no-ff (no conflicts)
 - CI workflow already exists on master — skipped injection
-- PR created: https://github.com/zazig-team/zazigv2/pull/425
-- Job commit: fix: renumber duplicate migration 235_replica_identity_full to 240
+- PR created: https://github.com/zazig-team/zazigv2/pull/429
+- Changes: retry logic in executor.ts, new retry-failed-uploads test file, updated engineer reports

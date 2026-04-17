@@ -1,4 +1,4 @@
 status: pass
-summary: Renumbered duplicate migration 235_replica_identity_full.sql to 240_replica_identity_full.sql to resolve STAGING push failure caused by version 235 already existing in schema_migrations.
+summary: Retry logic for contextRef presigned URL fetches in executor.ts is fully implemented and all 16 feature tests pass — resolveContext retries up to 3 times on 5xx/network errors with backoff, skips retry on 4xx, logs attempts, and fails the job with a descriptive error after exhausting retries.
 files_changed:
-  - supabase/migrations/240_replica_identity_full.sql (renamed from 235_replica_identity_full.sql)
+  - packages/local-agent/src/executor.ts

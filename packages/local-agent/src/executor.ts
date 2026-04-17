@@ -3262,12 +3262,45 @@ export class JobExecutor {
   ): Promise<string> {
     // contextRef takes priority when present (large payloads stored remotely)
     if (contextRef) {
-      console.log(`[executor] Fetching context from contextRef: ${contextRef}`);
-      const response = await fetch(contextRef);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch contextRef (HTTP ${response.status}): ${contextRef}`);
+      const MAX_FETCH_RETRIES = 3;
+      const RETRY_DELAY = 1000; // ms base delay between retries
+
+      for (let attempt = 1; attempt <= MAX_FETCH_RETRIES; attempt++) {
+        let response: Response;
+        try {
+          console.log(`[executor] Fetching context from contextRef (attempt ${attempt}/${MAX_FETCH_RETRIES}): ${contextRef}`);
+          response = await fetch(contextRef);
+        } catch (networkErr) {
+          // Network-level failure (no HTTP response) — retriable
+          if (attempt < MAX_FETCH_RETRIES) {
+            const delay = attempt * RETRY_DELAY;
+            console.warn(`[executor] contextRef fetch network error on attempt ${attempt}, retrying in ${delay}ms: ${String(networkErr)}`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          throw new Error(`Failed to fetch contextRef after ${MAX_FETCH_RETRIES} retries (network error): ${String(networkErr)}`);
+        }
+
+        if (response.ok) {
+          return await response.text();
+        }
+
+        // 400-499: permanent error — do not retry
+        if (response.status < 500) {
+          throw new Error(`Failed to fetch contextRef (HTTP ${response.status}): ${contextRef}`);
+        }
+
+        // 5xx = transient error, retry if attempts remain
+        if (attempt < MAX_FETCH_RETRIES) {
+          const delay = attempt * RETRY_DELAY;
+          console.warn(`[executor] contextRef fetch failed with HTTP ${response.status} on attempt ${attempt}, retrying in ${delay}ms: ${contextRef}`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          throw new Error(`Failed to fetch contextRef after ${MAX_FETCH_RETRIES} retries exhausted (HTTP ${response.status}): ${contextRef}`);
+        }
       }
-      return await response.text();
+
+      throw new Error(`Failed to fetch contextRef after ${MAX_FETCH_RETRIES} retries exhausted: ${contextRef}`);
     }
     if (context) {
       return context;

@@ -1,5 +1,6 @@
 status: pass
-summary: Wired QuietHoursSettingsView into the existing iOS SettingsView by adding a top-level NavigationLink row labelled "Quiet Hours" within a dedicated Section in the Form.
+summary: Implemented a shared Deno digest template module that renders weekly digest subject, HTML, and plain text outputs from DigestData.
 files_changed:
-  - zazigv3/Views/SettingsView.swift
-failure_reason:
+  - supabase/functions/_shared/digest-template.ts
+  - .reports/junior-engineer-report.md
+failure_reason: ""

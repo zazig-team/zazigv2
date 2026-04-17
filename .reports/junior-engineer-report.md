@@ -1,4 +1,6 @@
 status: pass
-summary: Renumbered duplicate migration 235_replica_identity_full.sql to 240_replica_identity_full.sql to resolve STAGING push failure caused by version 235 already existing in schema_migrations.
+summary: Added a new Supabase migration that creates `user_preferences` if missing, adds `quiet_hours` JSONB with default `'[]'::jsonb`, and enforces per-user RLS policy coverage.
 files_changed:
-  - supabase/migrations/240_replica_identity_full.sql (renamed from 235_replica_identity_full.sql)
+  - supabase/migrations/241_user_preferences_quiet_hours.sql
+  - .reports/junior-engineer-report.md
+failure_reason:

@@ -1,4 +1,5 @@
 status: pass
-summary: Retry logic for contextRef presigned URL fetches in executor.ts is fully implemented and all 16 feature tests pass — resolveContext retries up to 3 times on 5xx/network errors with backoff, skips retry on 4xx, logs attempts, and fails the job with a descriptive error after exhausting retries.
+summary: Wired QuietHoursSettingsView into the existing iOS SettingsView by adding a top-level NavigationLink row labelled "Quiet Hours" within a dedicated Section in the Form.
 files_changed:
-  - packages/local-agent/src/executor.ts
+  - zazigv3/Views/SettingsView.swift
+failure_reason:

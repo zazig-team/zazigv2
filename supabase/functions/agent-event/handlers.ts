@@ -388,7 +388,7 @@ export async function handleJobFailed(
 
   const { data: job, error: jobFetchErr } = await supabase
     .from("jobs")
-    .select("source, feature_id, role, job_type, title")
+    .select("source, feature_id, company_id, role, job_type, title")
     .eq("id", jobId)
     .single();
 
@@ -443,6 +443,21 @@ export async function handleJobFailed(
     console.log(
       `[agent-event job=${jobId}] handleJobFailed: DB update OK — status=failed`,
     );
+
+    if (job?.job_type === "test" && job.feature_id) {
+      const { data: feature } = await supabase
+        .from("features")
+        .select("title")
+        .eq("id", job.feature_id)
+        .maybeSingle();
+      const featureTitle =
+        (feature as { title?: string } | null)?.title ?? job.feature_id;
+      await notifyCPO(
+        supabase,
+        job.company_id,
+        `Test job failed for feature ${featureTitle}. Feature is stuck in writing_tests - human review required to retry or skip.`,
+      );
+    }
   }
 
   await releaseSlot(supabase, jobId, machineId);

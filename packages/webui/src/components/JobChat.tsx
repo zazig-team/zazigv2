@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from "react";
-import { createTypingIndicator, type TypingIndicatorHandle } from "@zazigv2/shared/src/typing-indicator";
+import { createTypingIndicator, type TypingIndicatorHandle } from "@zazigv2/shared";
 
 interface JobChatProps {
   jobId: string;

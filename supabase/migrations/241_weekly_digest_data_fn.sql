@@ -1,5 +1,8 @@
 -- 241_weekly_digest_data_fn.sql
 -- Adds a helper function for weekly digest email payload generation.
+-- The weekly pg_cron schedule is defined in 242_weekly_digest_cron.sql
+-- (cron.schedule on Monday cadence), which calls send-weekly-digest
+-- via net.http_post.
 
 CREATE OR REPLACE FUNCTION public.get_weekly_digest_data(p_company_id UUID)
 RETURNS JSONB

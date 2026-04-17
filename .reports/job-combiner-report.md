@@ -1,15 +1,20 @@
 status: success
-branch: feature/add-quiet-hours-settings-to-suppress-pus-aa8b3f48
+branch: feature/weekly-digest-email-4140c138
 merged:
-  - job/72454fef-6055-4448-8130-79fdc1e2a2b6
-  - job/a5a5165b-8654-469f-b642-9ac997f1d63f
-  - job/630d8668-c9e7-4dac-8cbb-1468313fc931
-conflicts_resolved:
-  - {file: .reports/senior-engineer-report.md, resolution: Combined summaries from two branches that both modified the same report file; merged their summary lines and files_changed lists to preserve all job descriptions}
+  - job/874da901-f1fd-4f02-9bb3-fdfeacda3a2e
+conflicts_resolved: []
 failure_reason:
 
-## Notes
+PR: https://github.com/zazig-team/zazigv2/pull/430
 
-- CI workflow already exists on master branch — skipped injection
-- PR created: https://github.com/zazig-team/zazigv2/pull/428
-- Two merge conflicts in `.reports/senior-engineer-report.md` were resolved (once for job/a5a5165b, once for job/630d8668) by combining summaries from both branches
+CI workflow already exists on master — skipped injection.
+
+Merged files:
+- supabase/functions/_shared/digest-template.ts (new)
+- supabase/functions/_shared/resend.ts (new)
+- supabase/functions/send-weekly-digest/deno.json (new)
+- supabase/functions/send-weekly-digest/index.ts (new)
+- supabase/migrations/241_weekly_digest_data_fn.sql (new)
+- supabase/migrations/242_weekly_digest_cron.sql (new)
+- supabase/migrations/243_weekly_digest_cron.sql (new)
+- tests/features/weekly-digest-email.test.ts (new)

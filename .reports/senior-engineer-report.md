@@ -1,5 +1,6 @@
 status: pass
-summary: Added migration 235_cross_tenant_job_failure_to_idea.sql implementing the notify_job_failure_to_zazig Postgres trigger, partial dedup index, and all 31 feature tests now pass.
+summary: Added a persistent-heartbeat tmux liveness check that logs dead sessions and skips the tick, and upgraded capturePane catch logging to structured error-level output.
 files_changed:
-  - supabase/migrations/235_cross_tenant_job_failure_to_idea.sql
+  - packages/local-agent/src/executor.ts
+  - .reports/senior-engineer-report.md
 failure_reason:

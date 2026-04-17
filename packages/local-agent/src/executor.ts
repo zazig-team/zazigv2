@@ -2095,6 +2095,14 @@ export class JobExecutor {
           return;
         }
 
+        const isAlive = await isTmuxSessionAlive(persistentAgent.tmuxSession);
+        if (!isAlive) {
+          console.warn(
+            `[executor] Persistent agent session dead: role=${persistentAgent.role}, session=${persistentAgent.tmuxSession}`,
+          );
+          return;
+        }
+
         try {
           const captureOutput = await capturePane(persistentAgent.tmuxSession);
           const outputHash = createHash("sha256").update(captureOutput).digest("hex");
@@ -2139,7 +2147,10 @@ export class JobExecutor {
             console.log(`[memory-sync] ${persistentAgent.role}: nudge skipped, already synced at ${new Date(persistentAgent.lastMemorySyncAt).toISOString()}`);
           }
         } catch (err) {
-          console.warn(`[executor] Failed to capture pane for ${persistentAgent.role}: ${String(err)}`);
+          console.error(
+            `[executor] Unexpected capturePane error: role=${persistentAgent.role}, session=${persistentAgent.tmuxSession}`,
+            err,
+          );
         }
 
         if (Date.now() - persistentAgent.startedAt >= MIN_SESSION_AGE_MS && persistentAgent.consecutiveResetFailures > 0) {

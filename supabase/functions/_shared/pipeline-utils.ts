@@ -384,6 +384,37 @@ export async function triggerTestWriting(
     return;
   }
 
+  if (!feature.spec && !feature.acceptance_tests) {
+    // No spec - skip test writing and move directly to building.
+    const { data: built, error: buildTransitionErr } = await supabase
+      .from("features")
+      .update({ status: "building" })
+      .eq("id", featureId)
+      .eq("status", "breaking_down")
+      .select("id");
+
+    if (buildTransitionErr) {
+      console.error(
+        `[pipeline] triggerTestWriting: failed to transition feature ${featureId} to building with no spec:`,
+        buildTransitionErr.message,
+      );
+      return;
+    }
+
+    if (built && built.length > 0) {
+      await notifyCPO(
+        supabase,
+        feature.company_id,
+        `Feature "${feature.title ?? featureId}" has no spec or acceptance criteria - skipping test writing and proceeding to building.`,
+      );
+    } else {
+      console.log(
+        `[pipeline] triggerTestWriting: feature ${featureId} not in breaking_down during no-spec fast-path, skipping`,
+      );
+    }
+    return;
+  }
+
   const { data: updated, error: transitionErr } = await supabase
     .from("features")
     .update({ status: "writing_tests" })

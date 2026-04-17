@@ -371,6 +371,7 @@ export async function triggerTestWriting(
   supabase: SupabaseClient,
   featureId: string,
 ): Promise<void> {
+  // Standard path creates a job_type "test" job, then sets depends_on on root job_type "code" jobs.
   const { data: feature, error } = await supabase
     .from("features")
     .select("company_id, project_id, title, spec, acceptance_tests")

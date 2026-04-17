@@ -12,16 +12,12 @@ import type {
   JobComplete,
   JobFailed,
   JobStatusMessage,
-  VerifyResult,
 } from "@zazigv2/shared";
 
 import {
   checkUnblockedJobs,
   notifyCPO,
-  parseGitHubRepoUrl,
   releaseSlot,
-  triggerCICheck,
-  triggerMerging,
   triggerTestWriting,
 } from "../_shared/pipeline-utils.ts";
 
@@ -280,7 +276,8 @@ export async function handleJobComplete(
     }
   }
 
-  // Handle combine job completion: if PR was created, trigger CI checking.
+  // Handle combine job completion: merge scheduling is handled by lifecycle polling
+  // once PR gates are confirmed as passing.
   if (jobRow?.job_type === "combine" && jobRow?.feature_id) {
     const prUrl = msg.pr ?? null;
     if (!prUrl) {
@@ -288,60 +285,10 @@ export async function handleJobComplete(
         `[agent-event job=${jobId}] Combine complete for feature ${jobRow.feature_id} but no PR URL — leaving in combining_and_pr`,
       );
     } else {
-      // Look up project repo_url for owner/repo
-      const { data: feat } = await supabase
-        .from("features")
-        .select("project_id, branch")
-        .eq("id", jobRow.feature_id)
-        .single();
-
-      const projectId = feat?.project_id ?? null;
-      const branch = feat?.branch ?? jobRow.branch ?? null;
-
-      if (!projectId || !branch) {
-        console.warn(
-          `[agent-event job=${jobId}] Combine complete: feature ${jobRow.feature_id} missing project_id or branch — skipping CI check`,
-        );
-      } else {
-        const { data: project } = await supabase
-          .from("projects")
-          .select("repo_url")
-          .eq("id", projectId)
-          .maybeSingle();
-
-        const repoUrl = (project as { repo_url?: string | null } | null)?.repo_url ?? null;
-        if (!repoUrl) {
-          console.warn(
-            `[agent-event job=${jobId}] Combine complete: project ${projectId} has no repo_url — skipping CI check`,
-          );
-        } else {
-          let owner: string;
-          let repo: string;
-          try {
-            ({ owner, repo } = parseGitHubRepoUrl(repoUrl));
-          } catch {
-            console.warn(
-              `[agent-event job=${jobId}] Combine complete: invalid repo_url "${repoUrl}" for feature ${jobRow.feature_id}`,
-            );
-            return;
-          }
-
-          // Parse PR number from URL (e.g. https://github.com/owner/repo/pull/42)
-          const prNumberMatch = prUrl.match(/\/pull\/(\d+)/);
-          const prNumber = prNumberMatch ? parseInt(prNumberMatch[1], 10) : null;
-
-          await triggerCICheck(supabase, jobRow.feature_id, prUrl, prNumber, owner, repo, branch);
-        }
-      }
+      console.log(
+        `[agent-event job=${jobId}] Combine complete for feature ${jobRow.feature_id} with PR ${prUrl} — awaiting PR gates before merge`,
+      );
     }
-  }
-
-  // Handle ci_check job completion: job_complete means CI passed — trigger merge.
-  if (jobRow?.job_type === "ci_check" && jobRow?.feature_id) {
-    console.log(
-      `[agent-event job=${jobId}] CI check complete (passed) for feature ${jobRow.feature_id} — triggering merge`,
-    );
-    await triggerMerging(supabase, jobRow.feature_id);
   }
 
   // Handle merge job completion: job_complete means merge succeeded.
@@ -389,7 +336,7 @@ export async function handleJobFailed(
 
   const { data: job, error: jobFetchErr } = await supabase
     .from("jobs")
-    .select("source, feature_id, role, job_type, title")
+    .select("source, feature_id, company_id, role, job_type, title")
     .eq("id", jobId)
     .single();
 
@@ -444,6 +391,21 @@ export async function handleJobFailed(
     console.log(
       `[agent-event job=${jobId}] handleJobFailed: DB update OK — status=failed`,
     );
+
+    if (job?.job_type === "test" && job.feature_id) {
+      const { data: feature } = await supabase
+        .from("features")
+        .select("title")
+        .eq("id", job.feature_id)
+        .maybeSingle();
+      const featureTitle =
+        (feature as { title?: string } | null)?.title ?? job.feature_id;
+      await notifyCPO(
+        supabase,
+        job.company_id,
+        `Test job failed for feature ${featureTitle}. Feature is stuck in writing_tests - human review required to retry or skip.`,
+      );
+    }
   }
 
   await releaseSlot(supabase, jobId, machineId);
@@ -493,71 +455,4 @@ export async function handleJobFailed(
       `[agent-event job=${jobId}] request-feature-fix triggered for feature ${job.feature_id}`,
     );
   }
-}
-
-export async function handleVerifyResult(
-  supabase: SupabaseClient,
-  msg: VerifyResult,
-): Promise<void> {
-  const { jobId, passed, testOutput, reviewSummary } = msg;
-
-  const { data: job, error: fetchErr } = await supabase
-    .from("jobs")
-    .select("id, feature_id")
-    .eq("id", jobId)
-    .single();
-
-  if (fetchErr || !job) {
-    console.error(
-      `[agent-event job=${jobId}] handleVerifyResult: failed to fetch job:`,
-      fetchErr?.message,
-    );
-    return;
-  }
-
-  if (!passed) {
-    const { error: failErr } = await supabase
-      .from("jobs")
-      .update({
-        status: "verify_failed",
-        verify_context: [reviewSummary, testOutput].filter((part) => !!part)
-          .join("\n\n"),
-      })
-      .eq("id", jobId);
-
-    if (failErr) {
-      console.error(
-        `[agent-event job=${jobId}] handleVerifyResult: failed to set verify_failed:`,
-        failErr.message,
-      );
-    } else {
-      console.warn(
-        `[agent-event job=${jobId}] Verification failed — moved to verify_failed for retry`,
-      );
-    }
-    return;
-  }
-
-  const { error: passErr } = await supabase
-    .from("jobs")
-    .update({
-      status: "complete",
-      verify_context: null,
-      completed_at: new Date().toISOString(),
-    })
-    .eq("id", jobId);
-
-  if (passErr) {
-    console.error(
-      `[agent-event job=${jobId}] handleVerifyResult: failed to mark complete after verification:`,
-      passErr.message,
-    );
-    return;
-  }
-
-  if (!job.feature_id) return;
-
-  console.log(
-    `[agent-event job=${jobId}] Verification passed for feature ${job.feature_id}; no follow-up verification trigger required`,
-  );
 }

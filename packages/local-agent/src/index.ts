@@ -44,7 +44,6 @@ import { JobExecutor, type CompanyProject, type PersistentAgentJobDefinition } f
 import { ExpertSessionManager } from "./expert-session-manager.js";
 import { FixAgentManager } from "./fix-agent.js";
 import { MasterChangePoller } from "./master-change-poller.js";
-import { JobVerifier } from "./verifier.js";
 import { resolveAgentVersion } from "./version.js";
 import { PROTOCOL_VERSION } from "@zazigv2/shared";
 import type { OrchestratorMessage, MessageInbound, DaemonShutdownNotification, StartExpertMessage } from "@zazigv2/shared";
@@ -135,12 +134,6 @@ async function main(): Promise<void> {
     config.supabase.anon_key,
   );
 
-  const verifier = new JobVerifier({
-    repoDir: process.cwd(),
-    machineId: config.name,
-    send: (msg) => conn.sendMessage(msg),
-  });
-
   // Initialize expert session manager — handles interactive expert sessions
   const expertManager = new ExpertSessionManager({
     machineId: config.name,
@@ -196,10 +189,9 @@ async function main(): Promise<void> {
         break;
 
       case "verify_job":
-        console.log(
-          `[local-agent] Received verify_job — jobId=${msg.jobId}, featureBranch=${msg.featureBranch}, jobBranch=${msg.jobBranch}`,
+        console.warn(
+          `[local-agent] Received deprecated verify_job message — ignoring (verify step removed)`,
         );
-        void verifier.verify(msg);
         break;
 
       case "start_expert":

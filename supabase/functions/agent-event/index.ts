@@ -3,7 +3,7 @@
  *
  * Durable HTTP POST endpoint for daemon -> orchestrator agent messages.
  *
- * Auth: deployed with --no-verify-jwt, so JWT verification is handled here.
+ * Auth: deployed with --no-jwt-check, so JWT auth checks are handled here.
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -15,7 +15,6 @@ import {
   type JobComplete,
   type JobFailed,
   type JobStatusMessage,
-  type VerifyResult,
 } from "@zazigv2/shared";
 import {
   handleHeartbeat,
@@ -23,7 +22,6 @@ import {
   handleJobComplete,
   handleJobFailed,
   handleJobStatus,
-  handleVerifyResult,
 } from "./handlers.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -56,7 +54,6 @@ function parseBearerToken(authHeader: string | null): string | null {
 const KNOWN_TYPES = new Set<AgentMessage["type"]>([
   "job_complete",
   "job_failed",
-  "verify_result",
   "heartbeat",
   "job_ack",
   "job_status",
@@ -159,9 +156,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
           `[agent-event] job_failed received for job=${(body as JobFailed).jobId} reason=${(body as JobFailed).failureReason}`,
         );
         await callAsyncHandler(handleJobFailed, body as JobFailed, supabaseAdmin);
-        break;
-      case "verify_result":
-        await callAsyncHandler(handleVerifyResult, body as VerifyResult, supabaseAdmin);
         break;
       case "heartbeat":
         await callAsyncHandler(handleHeartbeat, body as Heartbeat, supabaseAdmin);

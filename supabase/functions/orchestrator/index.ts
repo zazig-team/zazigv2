@@ -25,8 +25,6 @@ import type {
   JobUnblocked,
   SlotType,
   TeardownTest,
-  VerifyJob,
-  VerifyResult,
 } from "@zazigv2/shared";
 
 import {
@@ -35,7 +33,7 @@ import {
   injectProjectRulesIntoContext,
   notifyCPO,
   TERMINAL_FEATURE_STATUSES_FOR_DEPLOY,
-  triggerCICheck,
+  checkPRGatePassed,
   triggerCombining,
   triggerMerging,
   triggerTestWriting,
@@ -87,7 +85,6 @@ interface JobRow {
   status: string;
   context: string | null;
   acceptance_tests: string | null;
-  verify_context: string | null;
   branch: string | null;
   result: string | null;
   created_at: string;
@@ -636,9 +633,9 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
   const { data: queuedJobs, error: jobsErr } = await supabase
     .from("jobs")
     .select(
-      "id, company_id, project_id, feature_id, role, job_type, complexity, slot_type, model, machine_id, status, context, acceptance_tests, verify_context, branch, result, created_at, depends_on, source",
+      "id, company_id, project_id, feature_id, role, job_type, complexity, slot_type, model, machine_id, status, context, acceptance_tests, branch, result, created_at, depends_on, source",
     )
-    .in("status", ["created", "verify_failed"])
+    .in("status", ["created"])
     .order("created_at", { ascending: true });
 
   if (jobsErr) {
@@ -759,7 +756,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
             completed_at: new Date().toISOString(),
           })
           .eq("id", job.id)
-          .in("status", ["created", "queued", "verify_failed", "executing"])
+          .in("status", ["created", "queued", "executing"])
           .select("id");
 
         if (failErr) {
@@ -934,24 +931,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       continue;
     }
 
-    // Verify-failed jobs are retried with failure context attached.
     let dispatchContext = job.context;
-    if (job.status === "verify_failed" && job.verify_context) {
-      try {
-        const parsed = JSON.parse(job.context ?? "{}") as Record<
-          string,
-          unknown
-        >;
-        dispatchContext = JSON.stringify({
-          ...parsed,
-          verify_failure: job.verify_context,
-        });
-      } catch {
-        dispatchContext = `${
-          job.context ?? ""
-        }\n\nVerification failure context:\n${job.verify_context}`;
-      }
-    }
 
     dispatchContext = await injectProjectRulesIntoContext(
       supabase,
@@ -1051,7 +1031,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
         prompt_stack: promptStackMinusSkills || null,
       })
       .eq("id", job.id)
-      .in("status", ["created", "verify_failed"]) // optimistic lock
+      .in("status", ["created"]) // optimistic lock
       .select("id");
 
     if (updateJobErr) {
@@ -1071,31 +1051,6 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       `[orchestrator] Enriched and queued job ${job.id} with role=${resolvedRole}, slot=${slotType}, model=${model}`,
     );
   }
-}
-
-async function dispatchVerifyJobToMachine(
-  supabase: SupabaseClient,
-  machineId: string,
-  companyId: string,
-  verifyMsg: VerifyJob,
-): Promise<boolean> {
-  const channel = supabase.channel(agentChannelName(machineId, companyId));
-
-  return await new Promise<boolean>((resolve) => {
-    channel.subscribe(async (status) => {
-      if (status !== "SUBSCRIBED") return;
-
-      const result = await channel.send({
-        type: "broadcast",
-        event: "verify_job",
-        payload: verifyMsg,
-      });
-
-      await new Promise((r) => setTimeout(r, 250));
-      await channel.unsubscribe();
-      resolve(result === "ok");
-    });
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1477,12 +1432,12 @@ export async function handleFeatureRejected(
     return;
   }
 
-  // 2. Reset feature to building (CAS: only if currently in combining_and_pr, ci_checking, merging, or complete)
+  // 2. Reset feature to building (CAS: only if currently in combining_and_pr, merging, or complete)
   const { data: updated, error: updateErr } = await supabase
     .from("features")
     .update({ status: "building" })
     .eq("id", featureId)
-    .in("status", ["combining_and_pr", "ci_checking", "merging", "complete"])
+    .in("status", ["combining_and_pr", "merging", "complete"])
     .select("id");
 
   if (updateErr) {
@@ -1494,7 +1449,7 @@ export async function handleFeatureRejected(
   }
   if (!updated || updated.length === 0) {
     console.log(
-      `[orchestrator] Feature ${featureId} not in combining_and_pr/ci_checking/merging/complete — skipping rejection`,
+      `[orchestrator] Feature ${featureId} not in combining_and_pr/merging/complete — skipping rejection`,
     );
     return;
   }
@@ -1707,7 +1662,7 @@ export async function triggerBreakdown(
     return;
   }
 
-  // 2b. Clean slate: cancel stale jobs from previous breakdown attempts.
+  // 2c. Clean slate: cancel stale jobs from previous breakdown attempts.
   // When a feature is reset to breaking_down after a failed first attempt,
   // old failed breakdown, combine, verify, and implementation jobs linger.
   // The combiner and all_feature_jobs_complete RPC will pick up these stale jobs,
@@ -2271,9 +2226,9 @@ async function checkExecutingJobsForHeartbeatTimeout(
  *   1. (removed — failed job retry handled inline by handleJobFailed via request-feature-fix)
  *   1b. deploy_to_test guard: fails queued/executing deploy jobs for terminal features
  *   2. breaking_down → writing_tests: all breakdown jobs for the feature are complete
- *   2b. writing_tests → building: the test job for the feature is complete
+ *   2b. writing_tests → building: only advances when a job_type="test" job is status="complete"
  *   3. building → combining_and_pr: all implementation jobs are complete
- *   4. ci_checking catch-up: re-create ci_check job if none is active (Realtime miss recovery)
+ *   3b. combining_and_pr → merging: PR gate checks have passed
  *   5. merging → complete: the latest merge job is complete and passed
  */
 async function processFeatureLifecycle(
@@ -2466,7 +2421,7 @@ async function processFeatureLifecycle(
   // Features in writing_tests where test job is complete
   const { data: writingTestsFeatures, error: writingTestsErr } = await supabase
     .from("features")
-    .select("id, company_id")
+    .select("id, company_id, title")
     .eq("status", "writing_tests")
     .limit(50);
 
@@ -2480,7 +2435,7 @@ async function processFeatureLifecycle(
   for (const feature of writingTestsFeatures ?? []) {
     const { data: testJob } = await supabase
       .from("jobs")
-      .select("id, status")
+      .select("id, status, completed_at")
       .eq("feature_id", feature.id)
       .eq("job_type", "test")
       .order("created_at", { ascending: false })
@@ -2490,9 +2445,44 @@ async function processFeatureLifecycle(
       continue;
     }
 
-    const latestTestJob = testJob[0] as { id: string; status: string };
+    const latestTestJob = testJob[0] as {
+      id: string;
+      status: string;
+      completed_at: string | null;
+    };
     if (latestTestJob.status === "failed") {
-      continue; // Retry/escalation is handled elsewhere
+      // Check fail duration. If test job has been failed for a long time, fail the feature.
+      const failedAt = latestTestJob.completed_at;
+      const hoursSinceFailure = failedAt
+        ? (Date.now() - new Date(failedAt).getTime()) / (1000 * 60 * 60)
+        : 0;
+
+      if (hoursSinceFailure > 24) {
+        // Auto-fail feature after 24 hours with no human intervention.
+        const { data: autoFailed, error: autoFailErr } = await supabase
+          .from("features")
+          .update({
+            status: "failed",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", feature.id)
+          .eq("status", "writing_tests")
+          .select("id");
+
+        if (autoFailErr) {
+          console.error(
+            `[orchestrator] processFeatureLifecycle: failed to auto-fail feature ${feature.id} after stale failed test job:`,
+            autoFailErr.message,
+          );
+        } else if (autoFailed && autoFailed.length > 0) {
+          await notifyCPO(
+            supabase,
+            feature.company_id,
+            `Feature "${feature.title ?? feature.id}" auto-failed: test job has been in failed state for >24h with no retry.`,
+          );
+        }
+      }
+      continue;
     }
     if (latestTestJob.status !== "complete") {
       continue; // Test job still running/in progress
@@ -2575,8 +2565,7 @@ async function processFeatureLifecycle(
     }
   }
 
-  // --- 3b. combining_and_pr catch-up: transition to ci_checking if combine is done and PR exists ---
-  // Catches features that missed the event-driven triggerCICheck (e.g. Realtime miss or race).
+  // --- 3b. combining_and_pr → merging catch-up gated by PR checks ---
   const { data: combiningFeatures, error: combiningErr } = await supabase
     .from("features")
     .select("id, branch, pr_url, project_id, company_id")
@@ -2649,160 +2638,15 @@ async function processFeatureLifecycle(
 
     const prNumberMatch = prUrl.match(/\/pull\/(\d+)/);
     const prNumber = prNumberMatch ? parseInt(prNumberMatch[1], 10) : null;
-
-    console.log(
-      `[orchestrator] combining_and_pr feature ${feature.id} has completed combine job and PR — triggering CI check (catch-up)`,
-    );
-
-    await triggerCICheck(supabase, feature.id, prUrl, prNumber, owner, repo, branch);
-  }
-
-  // --- 4. ci_checking catch-up: re-create ci_check job if none is active ---
-  // If a ci_check job was lost (e.g. Realtime miss), the orchestrator re-creates it.
-  const { data: ciCheckingFeatures, error: ciCheckErr } = await supabase
-    .from("features")
-    .select("id, branch, pr_url, project_id, company_id")
-    .eq("status", "ci_checking")
-    .limit(50);
-
-  if (ciCheckErr) {
-    console.error(
-      "[orchestrator] processFeatureLifecycle: error querying ci_checking features:",
-      ciCheckErr.message,
-    );
-  }
-
-  for (
-    const feature of (ciCheckingFeatures ?? []) as Array<{
-      id: string;
-      branch: string | null;
-      pr_url: string | null;
-      project_id: string | null;
-      company_id: string;
-    }>
-  ) {
-    // Check if a ci_check job already exists — include failed/failed_retrying so
-    // the catch-up doesn't re-create jobs that the retry path (request-feature-fix)
-    // should handle. Catch-up is only for genuinely lost jobs (Realtime miss).
-    const { data: existingCIJob } = await supabase
-      .from("jobs")
-      .select("id")
-      .eq("feature_id", feature.id)
-      .eq("job_type", "ci_check")
-      .in("status", ["created", "queued", "executing", "complete", "cancelled", "failed", "failed_retrying"])
-      .limit(1);
-
-    if (existingCIJob && existingCIJob.length > 0) {
-      continue; // Already has a ci_check job — retry path handles failures
-    }
-
-    // Also skip if a fix job is active (fix completes → ci_check will be created via depends_on)
-    const { data: activeFixJob } = await supabase
-      .from("jobs")
-      .select("id")
-      .eq("feature_id", feature.id)
-      .eq("source", "ci_failure")
-      .in("status", ["created", "queued", "executing"])
-      .limit(1);
-
-    if (activeFixJob && activeFixJob.length > 0) {
-      continue; // Fix job is active — ci_check will follow it
-    }
-
-    // No active ci_check or fix job — re-create a ci_check job (catch-up)
-    const prUrl = feature.pr_url ?? null;
-    const branch = feature.branch ?? null;
-    if (!prUrl || !branch || !feature.project_id) {
-      console.warn(
-        `[orchestrator] ci_checking feature ${feature.id} missing pr_url/branch/project_id — cannot re-create ci_check`,
-      );
+    if (!prNumber) {
       continue;
     }
 
-    const { data: project } = await supabase
-      .from("projects")
-      .select("repo_url")
-      .eq("id", feature.project_id)
-      .maybeSingle();
-
-    const repoUrl = (project as { repo_url?: string | null } | null)?.repo_url ?? null;
-    if (!repoUrl) {
-      console.warn(
-        `[orchestrator] ci_checking feature ${feature.id} project has no repo_url — cannot re-create ci_check`,
-      );
+    const isPRGatePassed = await checkPRGatePassed(owner, repo, prNumber);
+    if (!isPRGatePassed) {
       continue;
     }
 
-    let owner: string;
-    let repo: string;
-    try {
-      ({ owner, repo } = parseGitHubRepoUrl(repoUrl));
-    } catch {
-      console.warn(
-        `[orchestrator] ci_checking feature ${feature.id}: invalid repo_url "${repoUrl}"`,
-      );
-      continue;
-    }
-
-    const prNumberMatch = prUrl.match(/\/pull\/(\d+)/);
-    const prNumber = prNumberMatch ? parseInt(prNumberMatch[1], 10) : null;
-
-    console.log(
-      `[orchestrator] ci_checking feature ${feature.id} has no active ci_check job — re-creating (catch-up)`,
-    );
-
-    await supabase.from("jobs").insert({
-      company_id: feature.company_id,
-      project_id: feature.project_id,
-      feature_id: feature.id,
-      title: `CI check: ${branch} (catch-up)`,
-      role: "ci-checker",
-      job_type: "ci_check",
-      complexity: "simple",
-      slot_type: "claude_code",
-      status: "created",
-      context: JSON.stringify({
-        type: "ci_check",
-        featureId: feature.id,
-        prUrl,
-        prNumber,
-        owner,
-        repo,
-        branch,
-      }),
-      branch,
-    });
-  }
-
-  // --- 4b. ci_checking → merging catch-up: trigger merge if ci_check passed but no merge job exists ---
-  // Catches features where the agent-event triggerMerging call was lost (edge function timeout, race).
-  const { data: ciPassedFeatures, error: ciPassedErr } = await supabase
-    .from("features")
-    .select("id, company_id")
-    .eq("status", "ci_checking")
-    .limit(50);
-
-  if (ciPassedErr) {
-    console.error(
-      "[orchestrator] processFeatureLifecycle: error querying ci_checking features for merge catch-up:",
-      ciPassedErr.message,
-    );
-  }
-
-  for (const feature of (ciPassedFeatures ?? []) as Array<{ id: string; company_id: string }>) {
-    // Check if a ci_check job completed successfully
-    const { data: completedCIJobs } = await supabase
-      .from("jobs")
-      .select("id")
-      .eq("feature_id", feature.id)
-      .eq("job_type", "ci_check")
-      .eq("status", "complete")
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (!completedCIJobs || completedCIJobs.length === 0) continue;
-
-    // Check no active merge job exists (created, queued, executing)
     const { data: activeMergeJobs } = await supabase
       .from("jobs")
       .select("id")
@@ -2825,7 +2669,7 @@ async function processFeatureLifecycle(
     if (activeFixJobs && activeFixJobs.length > 0) continue;
 
     console.log(
-      `[orchestrator] ci_checking feature ${feature.id} has completed ci_check but no merge job — triggering merge (catch-up)`,
+      `[orchestrator] combining_and_pr feature ${feature.id} passed PR gate checks — triggering merge`,
     );
     await triggerMerging(supabase, feature.id);
   }

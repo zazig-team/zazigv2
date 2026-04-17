@@ -371,6 +371,8 @@ export async function triggerTestWriting(
   supabase: SupabaseClient,
   featureId: string,
 ): Promise<void> {
+  // Standard path creates a job_type "test" job, then sets depends_on on root job_type "code" jobs.
+  // After test job creation we update root code jobs with depends_on=[testJobId].
   const { data: feature, error } = await supabase
     .from("features")
     .select("company_id, project_id, title, spec, acceptance_tests")
@@ -381,6 +383,37 @@ export async function triggerTestWriting(
     console.error(
       `[pipeline] triggerTestWriting: feature ${featureId} not found`,
     );
+    return;
+  }
+
+  if (!feature.spec && !feature.acceptance_tests) {
+    // No spec - skip test writing and move directly to building.
+    const { data: built, error: buildTransitionErr } = await supabase
+      .from("features")
+      .update({ status: "building" })
+      .eq("id", featureId)
+      .eq("status", "breaking_down")
+      .select("id");
+
+    if (buildTransitionErr) {
+      console.error(
+        `[pipeline] triggerTestWriting: failed to transition feature ${featureId} to building with no spec:`,
+        buildTransitionErr.message,
+      );
+      return;
+    }
+
+    if (built && built.length > 0) {
+      await notifyCPO(
+        supabase,
+        feature.company_id,
+        `Feature "${feature.title ?? featureId}" has no spec or acceptance criteria - skipping test writing and proceeding to building.`,
+      );
+    } else {
+      console.log(
+        `[pipeline] triggerTestWriting: feature ${featureId} not in breaking_down during no-spec fast-path, skipping`,
+      );
+    }
     return;
   }
 
@@ -546,7 +579,6 @@ export async function triggerCombining(
     "test",
     "combine",
     "merge",
-    "verify",
     "review",
     "deploy_to_test",
     "deploy_to_prod",
@@ -684,121 +716,70 @@ export async function triggerCombining(
   }).catch(() => {});
 }
 
+type GitHubCheckRunsResponse = {
+  check_runs?: Array<{ status?: string | null; conclusion?: string | null }>;
+};
+
+type GitHubStatusesResponse = Array<{ state?: string | null }>;
+
+async function ghApiJson(
+  endpoint: string,
+): Promise<unknown> {
+  const command = new Deno.Command("gh", {
+    args: ["api", endpoint],
+    stdout: "piped",
+    stderr: "piped",
+  });
+  const { code, stdout, stderr } = await command.output();
+  if (code !== 0) {
+    throw new Error(new TextDecoder().decode(stderr).trim() || `gh api failed for ${endpoint}`);
+  }
+  const payload = new TextDecoder().decode(stdout);
+  return JSON.parse(payload);
+}
+
 /**
- * Triggers CI checking for a combined feature with a PR.
- * Inserts a ci-checker job and transitions the feature from 'combining_and_pr' → 'ci_checking'.
+ * Checks whether PR CI gates have passed using GitHub checks/status APIs.
+ * Returns true only when all observed checks are completed and successful.
  */
-export async function triggerCICheck(
-  supabase: SupabaseClient,
-  featureId: string,
-  prUrl: string,
-  prNumber: number | null,
+export async function checkPRGatePassed(
   owner: string,
   repo: string,
-  branch: string,
-): Promise<void> {
-  // Fetch feature details
-  const { data: feature, error: fetchErr } = await supabase
-    .from("features")
-    .select("company_id, project_id")
-    .eq("id", featureId)
-    .single();
+  prNumber: number,
+): Promise<boolean> {
+  const pull = await ghApiJson(`repos/${owner}/${repo}/pulls/${prNumber}`) as { head?: { sha?: string | null } };
+  const headSha = pull.head?.sha ?? null;
+  if (!headSha) return false;
 
-  if (fetchErr || !feature) {
-    console.error(
-      `[pipeline] triggerCICheck: feature ${featureId} not found`,
-    );
-    return;
+  const checkRuns = await ghApiJson(
+    `repos/${owner}/${repo}/commits/${headSha}/check-runs`,
+  ) as GitHubCheckRunsResponse;
+  const runs = checkRuns.check_runs ?? [];
+  const hasIncompleteCheckRun = runs.some((run) => run.status !== "completed");
+  const hasFailedCheckRun = runs.some((run) => run.conclusion !== "success");
+  if (runs.length > 0) {
+    return !hasIncompleteCheckRun && !hasFailedCheckRun;
   }
 
-  // CAS transition: combining_and_pr → ci_checking (must succeed before creating the job)
-  const { data: updated, error: updateErr } = await supabase
-    .from("features")
-    .update({ status: "ci_checking", updated_at: new Date().toISOString() })
-    .eq("id", featureId)
-    .eq("status", "combining_and_pr")
-    .select("id");
-
-  if (updateErr) {
-    console.error(
-      `[pipeline] triggerCICheck: failed to set feature ${featureId} to ci_checking:`,
-      updateErr.message,
-    );
-    return;
+  const statuses = await ghApiJson(
+    `repos/${owner}/${repo}/commits/${headSha}/statuses`,
+  ) as GitHubStatusesResponse;
+  if (!statuses || statuses.length === 0) {
+    return false;
   }
 
-  if (!updated || updated.length === 0) {
-    console.log(
-      `[pipeline] triggerCICheck: feature ${featureId} not in combining_and_pr — skipping`,
-    );
-    return;
-  }
-
-  // Idempotency: check no active ci_check job exists
-  const { data: existingCICheck } = await supabase
-    .from("jobs")
-    .select("id, status")
-    .eq("feature_id", featureId)
-    .eq("job_type", "ci_check")
-    .in("status", ["created", "queued", "executing"])
-    .limit(1);
-
-  if (existingCICheck && existingCICheck.length > 0) {
-    console.log(
-      `[pipeline] triggerCICheck: ci_check job already active for feature ${featureId} (${existingCICheck[0].id}) — skipping`,
-    );
-    return;
-  }
-
-  const ciContext = JSON.stringify({
-    type: "ci_check",
-    featureId,
-    prUrl,
-    prNumber,
-    owner,
-    repo,
-    branch,
-  });
-
-  const { data: ciJob, error: insertErr } = await supabase
-    .from("jobs")
-    .insert({
-      company_id: feature.company_id,
-      project_id: feature.project_id,
-      feature_id: featureId,
-      title: `CI check: ${branch}`,
-      role: "ci-checker",
-      job_type: "ci_check",
-      complexity: "simple",
-      slot_type: "claude_code",
-      status: "created",
-      context: ciContext,
-      branch,
-    })
-    .select("id")
-    .single();
-
-  if (insertErr || !ciJob) {
-    console.error(
-      `[pipeline] triggerCICheck: failed to insert ci_check job for feature ${featureId}:`,
-      insertErr?.message,
-    );
-    return;
-  }
-
-  console.log(
-    `[pipeline] Created ci_check job ${ciJob.id} for feature ${featureId} (${owner}/${repo}@${branch})`,
-  );
+  return statuses.every((s) => s.state === "success");
 }
 
 /**
  * Triggers the merge step for a combined feature.
- * Inserts a merge job and transitions the feature from ci_checking → merging.
+ * Inserts a merge job and transitions the feature from combining_and_pr → merging.
  */
 export async function triggerMerging(
   supabase: SupabaseClient,
   featureId: string,
 ): Promise<void> {
+  // Merge starts from feature status combining_and_pr after PR gate checks pass.
   // Fetch feature details
   const { data: feature, error: fetchErr } = await supabase
     .from("features")
@@ -872,12 +853,12 @@ export async function triggerMerging(
     return;
   }
 
-  // CAS transition: ci_checking → merging
+  // CAS transition: combining_and_pr → merging
   const { data: updated, error: updateErr } = await supabase
     .from("features")
     .update({ status: "merging", updated_at: new Date().toISOString() })
     .eq("id", featureId)
-    .eq("status", "ci_checking")
+    .eq("status", "combining_and_pr")
     .select("id");
 
   if (updateErr || !updated || updated.length === 0) {
@@ -888,7 +869,7 @@ export async function triggerMerging(
       );
     } else {
       console.log(
-        `[pipeline] triggerMerging: feature ${featureId} not in ci_checking — rolling back queued merge job`,
+        `[pipeline] triggerMerging: feature ${featureId} not in combining_and_pr — rolling back queued merge job`,
       );
     }
 
@@ -896,7 +877,7 @@ export async function triggerMerging(
       .from("jobs")
       .update({
         status: "cancelled",
-        result: "merge_not_started_feature_not_ci_checking",
+        result: "merge_not_started_feature_not_combining_and_pr",
       })
       .eq("id", mergeJob.id)
       .in("status", ["created", "queued"]);

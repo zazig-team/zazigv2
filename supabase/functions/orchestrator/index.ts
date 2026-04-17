@@ -25,8 +25,6 @@ import type {
   JobUnblocked,
   SlotType,
   TeardownTest,
-  VerifyJob,
-  VerifyResult,
 } from "@zazigv2/shared";
 
 import {
@@ -1071,31 +1069,6 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       `[orchestrator] Enriched and queued job ${job.id} with role=${resolvedRole}, slot=${slotType}, model=${model}`,
     );
   }
-}
-
-async function dispatchVerifyJobToMachine(
-  supabase: SupabaseClient,
-  machineId: string,
-  companyId: string,
-  verifyMsg: VerifyJob,
-): Promise<boolean> {
-  const channel = supabase.channel(agentChannelName(machineId, companyId));
-
-  return await new Promise<boolean>((resolve) => {
-    channel.subscribe(async (status) => {
-      if (status !== "SUBSCRIBED") return;
-
-      const result = await channel.send({
-        type: "broadcast",
-        event: "verify_job",
-        payload: verifyMsg,
-      });
-
-      await new Promise((r) => setTimeout(r, 250));
-      await channel.unsubscribe();
-      resolve(result === "ok");
-    });
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2466,7 +2439,7 @@ async function processFeatureLifecycle(
   // Features in writing_tests where test job is complete
   const { data: writingTestsFeatures, error: writingTestsErr } = await supabase
     .from("features")
-    .select("id, company_id")
+    .select("id, company_id, title")
     .eq("status", "writing_tests")
     .limit(50);
 
@@ -2480,7 +2453,7 @@ async function processFeatureLifecycle(
   for (const feature of writingTestsFeatures ?? []) {
     const { data: testJob } = await supabase
       .from("jobs")
-      .select("id, status")
+      .select("id, status, completed_at")
       .eq("feature_id", feature.id)
       .eq("job_type", "test")
       .order("created_at", { ascending: false })
@@ -2490,9 +2463,44 @@ async function processFeatureLifecycle(
       continue;
     }
 
-    const latestTestJob = testJob[0] as { id: string; status: string };
+    const latestTestJob = testJob[0] as {
+      id: string;
+      status: string;
+      completed_at: string | null;
+    };
     if (latestTestJob.status === "failed") {
-      continue; // Retry/escalation is handled elsewhere
+      // Check fail duration. If test job has been failed for a long time, fail the feature.
+      const failedAt = latestTestJob.completed_at;
+      const hoursSinceFailure = failedAt
+        ? (Date.now() - new Date(failedAt).getTime()) / (1000 * 60 * 60)
+        : 0;
+
+      if (hoursSinceFailure > 24) {
+        // Auto-fail feature after 24 hours with no human intervention.
+        const { data: autoFailed, error: autoFailErr } = await supabase
+          .from("features")
+          .update({
+            status: "failed",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", feature.id)
+          .eq("status", "writing_tests")
+          .select("id");
+
+        if (autoFailErr) {
+          console.error(
+            `[orchestrator] processFeatureLifecycle: failed to auto-fail feature ${feature.id} after stale failed test job:`,
+            autoFailErr.message,
+          );
+        } else if (autoFailed && autoFailed.length > 0) {
+          await notifyCPO(
+            supabase,
+            feature.company_id,
+            `Feature "${feature.title ?? feature.id}" auto-failed: test job has been in failed state for >24h with no retry.`,
+          );
+        }
+      }
+      continue;
     }
     if (latestTestJob.status !== "complete") {
       continue; // Test job still running/in progress

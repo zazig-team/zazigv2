@@ -371,6 +371,7 @@ export async function triggerTestWriting(
   supabase: SupabaseClient,
   featureId: string,
 ): Promise<void> {
+  // Standard path creates a job_type "test" job, then sets depends_on on root job_type "code" jobs.
   const { data: feature, error } = await supabase
     .from("features")
     .select("company_id, project_id, title, spec, acceptance_tests")
@@ -381,6 +382,37 @@ export async function triggerTestWriting(
     console.error(
       `[pipeline] triggerTestWriting: feature ${featureId} not found`,
     );
+    return;
+  }
+
+  if (!feature.spec && !feature.acceptance_tests) {
+    // No spec - skip test writing and move directly to building.
+    const { data: built, error: buildTransitionErr } = await supabase
+      .from("features")
+      .update({ status: "building" })
+      .eq("id", featureId)
+      .eq("status", "breaking_down")
+      .select("id");
+
+    if (buildTransitionErr) {
+      console.error(
+        `[pipeline] triggerTestWriting: failed to transition feature ${featureId} to building with no spec:`,
+        buildTransitionErr.message,
+      );
+      return;
+    }
+
+    if (built && built.length > 0) {
+      await notifyCPO(
+        supabase,
+        feature.company_id,
+        `Feature "${feature.title ?? featureId}" has no spec or acceptance criteria - skipping test writing and proceeding to building.`,
+      );
+    } else {
+      console.log(
+        `[pipeline] triggerTestWriting: feature ${featureId} not in breaking_down during no-spec fast-path, skipping`,
+      );
+    }
     return;
   }
 
@@ -546,7 +578,6 @@ export async function triggerCombining(
     "test",
     "combine",
     "merge",
-    "verify",
     "review",
     "deploy_to_test",
     "deploy_to_prod",

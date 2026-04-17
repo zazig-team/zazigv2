@@ -1,6 +1,47 @@
 status: pass
 
-## Test files created (cross-tenant-job-failure-to-idea feature 1f627dc8)
+## Test files created (quiet-hours-push-notification-suppression feature aa8b3f48)
+
+### 1. `tests/features/quiet-hours-is-quiet-now-logic.test.ts` — 38 test cases
+Tests the pure `isQuietNow(entries, day, time)` function from `packages/shared/src/quiet-hours.ts`.
+
+**Acceptance criteria covered:** AC3, AC4, AC5, AC7, AC8, AC10, AC11 (logic), AC12 (logic)
+
+- AC3 & AC4: Normal window suppression and passthrough (6 cases)
+- AC5: Midnight-spanning window (22:00–07:00) — suppresses at 23:30 and 06:00 (8 cases)
+- AC7: Empty entries array → no suppression (2 cases)
+- AC8: All-day suppression (00:00–23:59) (4 cases)
+- AC10: Multiple entries same day (lunch break + overnight) (5 cases)
+- AC11 logic: Weeknights preset entries work correctly via isQuietNow (8 cases)
+- AC12 logic: Weekends preset entries work correctly via isQuietNow (5 cases)
+
+### 2. `tests/features/quiet-hours-supabase-schema.test.ts` — 9 test cases
+Static analysis of `supabase/migrations/` to verify the quiet_hours schema migration.
+
+**Acceptance criteria covered:** AC1, AC2, AC9
+
+- AC1: Migration exists, defines `quiet_hours jsonb DEFAULT '[]'::jsonb`, targets `user_preferences` (5 cases)
+- AC2: Schema supports per-user row persistence (user_id FK, UNIQUE constraint) (2 cases)
+- AC9: RLS enabled, policy scoped to `auth.uid() = user_id` (2 cases)
+
+### 3. `tests/features/quiet-hours-presets.test.ts` — 18 test cases
+Tests `buildWeeknightsPreset()` and `buildWeekendsPreset()` from `packages/shared/src/quiet-hours.ts`, plus AC6 (synchronous effect).
+
+**Acceptance criteria covered:** AC6, AC11, AC12
+
+- AC11: `buildWeeknightsPreset()` returns 5 entries Mon–Fri 22:00–07:00 (7 cases)
+- AC12: `buildWeekendsPreset()` returns 2 entries Sat–Sun 00:00–23:59 (7 cases)
+- AC6: `isQuietNow` is synchronous, changes take effect immediately (3 cases)
+
+**Total: 65 new test cases. All written to FAIL against current codebase.**
+
+`package.json` NOT modified — `tests` workspace uses `vitest run` which discovers recursively.
+
+---
+
+## Previous test runs
+
+### Test files created (cross-tenant-job-failure-to-idea feature 1f627dc8)
 
 ### `tests/features/cross-tenant-job-failure-to-idea.test.ts` — 27 test cases
 

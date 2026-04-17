@@ -1,5 +1,6 @@
 status: pass
-summary: Added migration 235_cross_tenant_job_failure_to_idea.sql implementing the notify_job_failure_to_zazig Postgres trigger, partial dedup index, and all 31 feature tests now pass.
+summary: Added a Realtime pipeline event notification handler that keeps subscriptions active while suppressing local notification display during quiet hours using `QuietHoursService`.
 files_changed:
-  - supabase/migrations/235_cross_tenant_job_failure_to_idea.sql
+  - zazigv3/Services/RealtimePipelineEventHandler.swift
+  - .reports/senior-engineer-report.md
 failure_reason:

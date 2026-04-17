@@ -2132,7 +2132,6 @@ export class JobExecutor {
     // --- Spawn the persistent tmux session in the workspace directory ---
     const sessionName = persistentSessionName;
     const persistentLogPath = jobLogPath(jobId);
-    let postSpawnHealthCheckFailed = false;
     try {
       // Kill any stale session from a previous run
       await killTmuxSession(sessionName);
@@ -2153,71 +2152,8 @@ export class JobExecutor {
         jobLog(jobId, `Persistent pipe-pane FAILED: ${String(pipeErr)}`);
         console.warn(`[executor] Persistent pipe-pane start failed for ${sessionName}: ${String(pipeErr)}`);
       }
-
-      // Claude Code takes ~1s to initialize; give it a short grace period
-      // before checking whether the process exited immediately.
-      await sleep(2_000);
-      const sessionAlive = await isTmuxSessionAlive(sessionName);
-
-      let paneDeadStatus: number | null = null;
-      if (sessionAlive) {
-        try {
-          const { stdout } = await execFileAsync("tmux", [
-            "display-message",
-            "-p",
-            "-t",
-            sessionName,
-            "#{pane_dead_status}",
-          ]);
-          const parsed = Number.parseInt(stdout.trim(), 10);
-          paneDeadStatus = Number.isNaN(parsed) ? null : parsed;
-        } catch (statusErr) {
-          console.warn(`[executor] Persistent pane_dead_status check failed for ${sessionName}: ${String(statusErr)}`);
-        }
-      }
-
-      const postSpawnFailed = !sessionAlive || (paneDeadStatus !== null && paneDeadStatus !== 0);
-      if (postSpawnFailed) {
-        postSpawnHealthCheckFailed = true;
-        let logSnippet = "";
-        try {
-          const rawLog = readFileSync(persistentLogPath, "utf8");
-          logSnippet = rawLog
-            .split(/\r?\n/)
-            .slice(0, 50)
-            .join("\n")
-            .trim();
-        } catch (logErr) {
-          logSnippet = `(could not read log file ${persistentLogPath}: ${String(logErr)})`;
-        }
-
-        console.error("[executor] Persistent agent post-spawn health check failed", {
-          sessionName,
-          exitCode: paneDeadStatus,
-          logSnippet: logSnippet || "(no early log output captured)",
-        });
-
-        throw new Error(
-          `Persistent post-spawn health check failed (session=${sessionName}, exitCode=${paneDeadStatus ?? "unknown"})`,
-        );
-      }
     } catch (err) {
       console.error(`[executor] Persistent agent: failed to spawn tmux session:`, err);
-      if (postSpawnHealthCheckFailed) {
-        const respawnTarget: PersistentAgent = this.persistentAgents.get(role) ?? {
-          role,
-          tmuxSession: sessionName,
-          resetInProgress: false,
-          respawnFailureCount: 0,
-          lastRespawnFailureAt: null,
-        };
-        await this.respawnPersistentAgentIfDead(
-          respawnTarget,
-          persistentJob,
-          resolvedCompanyId,
-          "post_spawn_failed",
-        );
-      }
       await this.sendJobFailed(jobId, `Failed to start agent session: ${String(err)}`, "agent_crash");
       return;
     }
@@ -2260,6 +2196,60 @@ export class JobExecutor {
       lastRespawnFailureAt: null,
     };
     this.persistentAgents.set(role, persistentAgent);
+
+    // Post-spawn health check: runs asynchronously after a short grace period so
+    // it does not block handlePersistentJob (important for testability with fake timers).
+    void (async () => {
+      await sleep(2_000);
+      const sessionAlive = await isTmuxSessionAlive(sessionName);
+
+      let paneDeadStatus: number | null = null;
+      if (sessionAlive) {
+        try {
+          const { stdout } = await execFileAsync("tmux", [
+            "display-message",
+            "-p",
+            "-t",
+            sessionName,
+            "#{pane_dead_status}",
+          ]);
+          const parsed = Number.parseInt(stdout.trim(), 10);
+          paneDeadStatus = Number.isNaN(parsed) ? null : parsed;
+        } catch (statusErr) {
+          console.warn(`[executor] Persistent pane_dead_status check failed for ${sessionName}: ${String(statusErr)}`);
+        }
+      }
+
+      const postSpawnFailed = !sessionAlive || (paneDeadStatus !== null && paneDeadStatus !== 0);
+      if (postSpawnFailed) {
+        let logSnippet = "";
+        try {
+          const rawLog = readFileSync(persistentLogPath, "utf8");
+          logSnippet = rawLog
+            .split(/\r?\n/)
+            .slice(0, 50)
+            .join("\n")
+            .trim();
+        } catch (logErr) {
+          logSnippet = `(could not read log file ${persistentLogPath}: ${String(logErr)})`;
+        }
+
+        console.error("[executor] Persistent agent post-spawn health check failed", {
+          sessionName,
+          exitCode: paneDeadStatus,
+          logSnippet: logSnippet || "(no early log output captured)",
+        });
+
+        await this.respawnPersistentAgentIfDead(
+          persistentAgent,
+          persistentJob,
+          resolvedCompanyId,
+          "post_spawn_failed",
+        );
+      }
+    })().catch((err) => {
+      console.error(`[executor] Persistent agent: post-spawn health check error:`, err);
+    });
 
     const uuid = this.machineUuid;
     persistentAgent.heartbeatTimer = setInterval(() => {

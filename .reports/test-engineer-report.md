@@ -1,5 +1,25 @@
 status: pass
 
+## Test files created (ci-gated-pipeline feature 2e64e77e)
+
+### 1. `tests/features/ci-gated-pipeline-remove-verify-step.test.ts` — 22 test cases
+Tests that the verify step is fully removed from the pipeline: `dispatchVerifyJobToMachine`, `VerifyJob`, `verify_job` event, `verify_context`, `verify_failed` status, `handleVerifyResult`, and `"verify"` in `NON_IMPLEMENTATION_TYPES` are all gone.
+- Currently: **15 fail / 7 pass** (existence checks pass; removal checks fail)
+
+### 2. `tests/features/ci-gated-pipeline-pr-gates.test.ts` — 15 test cases
+Tests that the ci_check agent job is replaced by GitHub PR gate checks: `triggerCICheck`, `ci_check` job type, and `ci_checking` status are removed; a PR gate checker using the GitHub checks API exists.
+- Currently: **9 fail / 6 pass** (structural checks pass; new gate mechanism fails)
+
+### 3. `tests/features/ci-gated-pipeline-mandatory-test-jobs.test.ts` — 18 test cases
+Tests that all features must pass through `writing_tests` before `building`: no bypass path, `triggerTestWriting` called unconditionally, code jobs depend on test job via `depends_on`.
+- Currently: **5 fail / 13 pass** (existing writing_tests stage passes; strict enforcement fails)
+
+**Total: 3 files, 55 test cases, 29 failing against current codebase.**
+
+---
+
+## Previous test reports
+
 ## Test files created (persistent-agent-resilience feature 94df71bc)
 
 ### `tests/features/persistent-agent-resilience-liveness-monitoring.test.ts` — 14 test cases

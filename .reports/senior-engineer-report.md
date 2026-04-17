@@ -1,5 +1,8 @@
 status: pass
-summary: Added migration 235_cross_tenant_job_failure_to_idea.sql implementing the notify_job_failure_to_zazig Postgres trigger, partial dedup index, and all 31 feature tests now pass.
+summary: Implemented a new send-weekly-digest Supabase Edge Function with service-role auth, per-company digest orchestration via get_weekly_digest_data, email rendering/sending, per-company logging, and weekly cron scheduling support.
 files_changed:
-  - supabase/migrations/235_cross_tenant_job_failure_to_idea.sql
+  - supabase/functions/send-weekly-digest/index.ts
+  - supabase/functions/send-weekly-digest/deno.json
+  - supabase/migrations/241_weekly_digest_data_fn.sql
+  - supabase/migrations/242_weekly_digest_cron.sql
 failure_reason:

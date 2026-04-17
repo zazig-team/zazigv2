@@ -12,7 +12,6 @@ import type {
   JobComplete,
   JobFailed,
   JobStatusMessage,
-  VerifyResult,
 } from "@zazigv2/shared";
 
 import {
@@ -493,71 +492,4 @@ export async function handleJobFailed(
       `[agent-event job=${jobId}] request-feature-fix triggered for feature ${job.feature_id}`,
     );
   }
-}
-
-export async function handleVerifyResult(
-  supabase: SupabaseClient,
-  msg: VerifyResult,
-): Promise<void> {
-  const { jobId, passed, testOutput, reviewSummary } = msg;
-
-  const { data: job, error: fetchErr } = await supabase
-    .from("jobs")
-    .select("id, feature_id")
-    .eq("id", jobId)
-    .single();
-
-  if (fetchErr || !job) {
-    console.error(
-      `[agent-event job=${jobId}] handleVerifyResult: failed to fetch job:`,
-      fetchErr?.message,
-    );
-    return;
-  }
-
-  if (!passed) {
-    const { error: failErr } = await supabase
-      .from("jobs")
-      .update({
-        status: "verify_failed",
-        verify_context: [reviewSummary, testOutput].filter((part) => !!part)
-          .join("\n\n"),
-      })
-      .eq("id", jobId);
-
-    if (failErr) {
-      console.error(
-        `[agent-event job=${jobId}] handleVerifyResult: failed to set verify_failed:`,
-        failErr.message,
-      );
-    } else {
-      console.warn(
-        `[agent-event job=${jobId}] Verification failed — moved to verify_failed for retry`,
-      );
-    }
-    return;
-  }
-
-  const { error: passErr } = await supabase
-    .from("jobs")
-    .update({
-      status: "complete",
-      verify_context: null,
-      completed_at: new Date().toISOString(),
-    })
-    .eq("id", jobId);
-
-  if (passErr) {
-    console.error(
-      `[agent-event job=${jobId}] handleVerifyResult: failed to mark complete after verification:`,
-      passErr.message,
-    );
-    return;
-  }
-
-  if (!job.feature_id) return;
-
-  console.log(
-    `[agent-event job=${jobId}] Verification passed for feature ${job.feature_id}; no follow-up verification trigger required`,
-  );
 }

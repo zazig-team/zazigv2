@@ -25,8 +25,6 @@ import type {
   JobUnblocked,
   SlotType,
   TeardownTest,
-  VerifyJob,
-  VerifyResult,
 } from "@zazigv2/shared";
 
 import {
@@ -1071,31 +1069,6 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
       `[orchestrator] Enriched and queued job ${job.id} with role=${resolvedRole}, slot=${slotType}, model=${model}`,
     );
   }
-}
-
-async function dispatchVerifyJobToMachine(
-  supabase: SupabaseClient,
-  machineId: string,
-  companyId: string,
-  verifyMsg: VerifyJob,
-): Promise<boolean> {
-  const channel = supabase.channel(agentChannelName(machineId, companyId));
-
-  return await new Promise<boolean>((resolve) => {
-    channel.subscribe(async (status) => {
-      if (status !== "SUBSCRIBED") return;
-
-      const result = await channel.send({
-        type: "broadcast",
-        event: "verify_job",
-        payload: verifyMsg,
-      });
-
-      await new Promise((r) => setTimeout(r, 250));
-      await channel.unsubscribe();
-      resolve(result === "ok");
-    });
-  });
 }
 
 // ---------------------------------------------------------------------------

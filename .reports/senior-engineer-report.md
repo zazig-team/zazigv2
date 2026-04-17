@@ -1,6 +1,6 @@
 status: pass
-summary: Implemented a new iOS QuietHoursService with Supabase-backed quiet_hours load/save and isQuietNow interval evaluation including midnight-spanning windows.
+summary: Verified no UNNotificationServiceExtension target exists in this worktree and documented the intentional skip directly in QuietHoursService.swift per the task fallback requirement.
 files_changed:
   - zazigv3/Services/QuietHoursService.swift
   - .reports/senior-engineer-report.md
-failure_reason: ""
+failure_reason:

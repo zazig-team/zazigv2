@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "74cef9b";
+const AGENT_BUILD_HASH = "2fa190a";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -16638,8 +16638,8 @@ function buildCommand(slotType, complexity, model, worktreePath, promptFilePath,
     if (repoDir) {
       console.log(`[buildCommand] codex: adding --add-dir repoDir=${repoDir} for worktreePath=${worktreePath}`);
       args.push("--add-dir", repoDir);
-      const gitWorktreesDir = join4(repoDir, ".git", "worktrees");
-      args.push("--add-dir", gitWorktreesDir);
+      const gitDir = join4(repoDir, ".git");
+      args.push("--add-dir", gitDir);
     } else {
       console.warn(`[buildCommand] codex: repoDir is undefined \u2014 sandbox may block git commit in worktree`);
     }
@@ -17775,6 +17775,7 @@ You are working as an autonomous expert. Your task brief is in \`.claude/expert-
     } catch (err) {
       console.warn(`[expert] Failed to remove workspace ${session.workspaceDir}:`, err);
     }
+    await this.updateSessionStatus(session.sessionId, "cancelled");
     this.activeSessions.delete(session.sessionId);
     this.exitingSessions.delete(session.sessionId);
     console.log(`[expert] Session ${session.sessionId} exited and cleaned up`);

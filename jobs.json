@@ -1,0 +1,56 @@
+[
+  {
+    "title": "Supabase migration: add quiet_hours column to user_preferences",
+    "spec": "Create a Supabase migration that adds the quiet_hours JSONB column to the user_preferences table (creating the table if it does not exist).\n\nIf the table does not exist, create it:\n```sql\nCREATE TABLE user_preferences (\n  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL UNIQUE,\n  quiet_hours jsonb DEFAULT '[]'::jsonb,\n  created_at timestamptz DEFAULT now(),\n  updated_at timestamptz DEFAULT now()\n);\nALTER TABLE user_preferences ENABLE ROW LEVEL SECURITY;\nCREATE POLICY \"users manage own prefs\" ON user_preferences\n  FOR ALL USING (auth.uid() = user_id);\n```\n\nIf the table already exists:\n```sql\nALTER TABLE user_preferences\n  ADD COLUMN IF NOT EXISTS quiet_hours jsonb DEFAULT '[]'::jsonb;\n```\n\nPlace the migration in supabase/migrations/ with an appropriate timestamp prefix. Verify RLS is enabled and the per-user policy covers SELECT, INSERT, UPDATE, DELETE. The column default must be '[]'::jsonb (not null).",
+    "acceptance_tests": "Given a new user with no preferences row\nWhen their row is created\nThen user_preferences.quiet_hours defaults to '[]'::jsonb (AT-1)\n\nGiven two different users with separate user_preferences rows\nWhen user A attempts to SELECT or UPDATE user B's row\nThen the query returns no rows and no error (RLS enforced) (AT-9)",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "simple",
+    "depends_on": []
+  },
+  {
+    "title": "iOS: implement QuietHoursService (load/save/isQuietNow)",
+    "spec": "Create QuietHoursService.swift in the zazigv3 iOS app. The service must conform exactly to the spec:\n\n```swift\nstruct QuietHoursEntry: Codable, Identifiable {\n    var id = UUID()\n    var day: String   // \"mon\"..\"sun\"\n    var start: String // \"HH:MM\" 24h\n    var end: String   // \"HH:MM\" 24h\n}\n\nclass QuietHoursService: ObservableObject {\n    static let shared = QuietHoursService()\n    @Published var entries: [QuietHoursEntry] = []\n\n    func load() async  // fetch quiet_hours from user_preferences via Supabase client\n    func save() async  // upsert entries array to user_preferences.quiet_hours\n    func isQuietNow() -> Bool\n}\n```\n\nisQuietNow() algorithm:\n1. Get current weekday as lowercased 3-letter string (\"mon\"–\"sun\") using Calendar.current.\n2. Get current time as \"HH:MM\" string.\n3. Filter entries matching today's day code.\n4. For each matching entry:\n   - If start <= end: return true if start <= now <= end.\n   - If start > end (midnight-spanning): return true if now >= start OR now <= end.\n5. Return false if no interval matches.\n\nload() fetches the quiet_hours JSONB column from user_preferences for the authenticated user. save() upserts (or updates) the row. Both must handle the case where no row exists yet (insert on first save).",
+    "acceptance_tests": "Given QuietHoursService.shared.entries is []\nWhen isQuietNow() is called at any time\nThen it returns false (AT-1 default state)\n\nGiven an entry {day:\"mon\", start:\"22:00\", end:\"07:00\"} (midnight-spanning)\nWhen isQuietNow() is called at 23:30 on Monday\nThen it returns true (AT-5)\n\nGiven the same midnight-spanning entry\nWhen isQuietNow() is called at 06:00 on Monday\nThen it returns true (AT-5)\n\nGiven two entries for the same day {start:\"12:00\",end:\"13:00\"} and {start:\"22:00\",end:\"07:00\"}\nWhen isQuietNow() is checked against each interval\nThen both intervals are respected independently (AT-10)\n\nGiven an entry {start:\"00:00\", end:\"23:59\"} for a day\nWhen isQuietNow() is called at any time on that day\nThen it returns true (AT-8)\n\nGiven the user saves new entries via save()\nWhen the app checks isQuietNow() immediately after\nThen the new entries are used without app restart (AT-6)",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "medium",
+    "depends_on": ["temp:0"]
+  },
+  {
+    "title": "iOS: implement QuietHoursSettingsView (SwiftUI settings UI)",
+    "spec": "Create QuietHoursSettingsView.swift in the zazigv3 iOS app. It must:\n\n- Show a master toggle (Quiet Hours on/off). When toggled off, save an empty array [] to Supabase immediately.\n- When enabled, display 7 day rows (Mon–Sun), each row having:\n  - A per-day toggle (enabled/disabled)\n  - Start time picker (DatePicker in .hourAndMinute mode, 24h)\n  - End time picker (DatePicker in .hourAndMinute mode, 24h)\n- Preset buttons:\n  - \"Weeknights\": populates Mon, Tue, Wed, Thu, Fri with start=22:00, end=07:00 entries\n  - \"Weekends\": populates Sat, Sun with start=00:00, end=23:59 entries\n- Auto-save via Combine: debounce changes 500ms, then call QuietHoursService.shared.save().\n- Call QuietHoursService.shared.load() on .onAppear.\n- @ObservedObject / @StateObject from QuietHoursService.shared for reactive updates.",
+    "acceptance_tests": "Given the user opens QuietHoursSettingsView with no saved entries\nWhen the view appears\nThen the master toggle is off and no time pickers are visible (AT-1)\n\nGiven the user enables quiet hours and sets Monday 09:00–17:00\nWhen 500ms elapses after the last change\nThen the entry is persisted to Supabase (AT-2)\n\nGiven the user taps the master toggle off\nWhen the save debounce fires\nThen entries is cleared to [] and Supabase is updated with [] (AT-7)\n\nGiven the user taps the \"Weeknights\" preset button\nWhen the preset is applied\nThen Mon–Fri entries each have start=22:00 and end=07:00 (AT-11)\n\nGiven the user taps the \"Weekends\" preset button\nWhen the preset is applied\nThen Sat and Sun entries each have start=00:00 and end=23:59 (AT-12)",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "complex",
+    "depends_on": ["temp:1"]
+  },
+  {
+    "title": "iOS: add QuietHoursSettingsView to Settings navigation stack",
+    "spec": "Wire QuietHoursSettingsView into the existing iOS Settings navigation stack in zazigv3. Locate the existing Settings screen/coordinator that lists user-facing settings rows. Add a NavigationLink (or equivalent route entry) that navigates to QuietHoursSettingsView. The row label should read \"Quiet Hours\". Ensure the route is accessible at the top level of the Settings navigation stack — not nested inside an unrelated section.",
+    "acceptance_tests": "Given the user opens the app Settings screen\nWhen they scroll through settings rows\nThen they see a \"Quiet Hours\" row (AT-1 — accessible)\n\nGiven the user taps the \"Quiet Hours\" row\nWhen navigation occurs\nThen QuietHoursSettingsView is presented (AT-6 — reachable without restart)",
+    "role": "junior-engineer",
+    "job_type": "code",
+    "complexity": "simple",
+    "depends_on": ["temp:2"]
+  },
+  {
+    "title": "iOS: add isQuietNow() guard to Realtime pipeline notification dispatch",
+    "spec": "In the zazigv3 iOS codebase, locate the Realtime pipeline event handler that dispatches push notifications (wherever UNUserNotificationCenter.add() or equivalent notification scheduling is called for pipeline events). Add the following guard before the notification dispatch:\n\n```swift\nguard !QuietHoursService.shared.isQuietNow() else { return }\n```\n\nThis silently drops the notification surfacing if the current time falls within a quiet window. The Realtime subscription itself must remain active — do not disconnect or pause the subscription. Only the notification display is suppressed.",
+    "acceptance_tests": "Given the user has a quiet hours entry covering the current time and day\nWhen a pipeline Realtime event fires\nThen no push notification is shown to the user (AT-3)\n\nGiven the current time is outside all configured quiet windows\nWhen a pipeline Realtime event fires\nThen the push notification surfaces normally (AT-4)\n\nGiven quiet hours is disabled (entries = [])\nWhen a pipeline event fires at any time\nThen notifications always surface (AT-4, AT-7)\n\nGiven a midnight-spanning quiet window (22:00–07:00) on the current day\nWhen a pipeline event fires at 23:30\nThen no notification is shown (AT-5)\n\nGiven the same midnight-spanning window\nWhen a pipeline event fires at 06:00\nThen no notification is shown (AT-5)",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "medium",
+    "depends_on": ["temp:1"]
+  },
+  {
+    "title": "iOS: mirror quiet hours to App Group UserDefaults for Notification Service Extension",
+    "spec": "If a UNNotificationServiceExtension target exists in the zazigv3 project, add quiet hours suppression to it. Since extensions cannot access Supabase directly:\n\n1. In QuietHoursService.save(), after saving to Supabase, also write the serialized entries array to a shared App Group UserDefaults key (e.g., \"quiet_hours_entries\") using the App Group identifier already configured for the project.\n2. In QuietHoursService.load(), after loading from Supabase, also sync the App Group UserDefaults with the fetched entries.\n3. In the Notification Service Extension's didReceive(_:withContentHandler:), read the entries from App Group UserDefaults and apply the same isQuietNow() logic (duplicate or share the algorithm). If quiet now, call contentHandler with empty/nil content or suppress the notification per UNNotificationServiceExtension conventions.\n\nIf no UNNotificationServiceExtension target exists in the project, document this clearly in a code comment within QuietHoursService.swift and skip this job's implementation — mark the job done with a note.",
+    "acceptance_tests": "Given a UNNotificationServiceExtension exists and quiet hours covers the current time\nWhen a push arrives and the extension's didReceive fires\nThen the notification is suppressed (AT-3)\n\nGiven the user updates quiet hours in the app\nWhen save() completes\nThen App Group UserDefaults reflects the new entries so the extension uses them immediately (AT-6)\n\nGiven no UNNotificationServiceExtension exists in the project\nWhen this job is executed\nThen a comment is added to QuietHoursService.swift noting the extension integration is a no-op (graceful skip)",
+    "role": "senior-engineer",
+    "job_type": "code",
+    "complexity": "medium",
+    "depends_on": ["temp:1"]
+  }
+]

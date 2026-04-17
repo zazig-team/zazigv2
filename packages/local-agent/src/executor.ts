@@ -1975,7 +1975,7 @@ export class JobExecutor {
       role,
       prompt_stack_minus_skills: msg.promptStackMinusSkills ?? "",
       ...(msg.subAgentPrompt ? { sub_agent_prompt: msg.subAgentPrompt } : {}),
-      skills: roleSkills,
+      skills: roleSkills ?? [],
       model: msg.model,
       slot_type: msg.slotType,
       ...(msg.roleMcpTools ? { mcp_tools: msg.roleMcpTools } : {}),

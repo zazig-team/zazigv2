@@ -32,6 +32,11 @@ struct QuietHoursEntry: Codable, Identifiable {
 }
 
 class QuietHoursService: ObservableObject {
+    // NOTE: This repository snapshot does not contain a zazigv3 Xcode project
+    // with a UNNotificationServiceExtension target (no .xcodeproj/.xcworkspace
+    // or extension source files are present in-worktree). Quiet-hours
+    // suppression for a Notification Service Extension is therefore intentionally
+    // not implemented here until that target exists in this repo.
     static let shared = QuietHoursService()
     @Published var entries: [QuietHoursEntry] = []
 

@@ -546,7 +546,6 @@ export async function triggerCombining(
     "test",
     "combine",
     "merge",
-    "verify",
     "review",
     "deploy_to_test",
     "deploy_to_prod",

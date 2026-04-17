@@ -1,5 +1,45 @@
 status: pass
 
+## Test files created (retry-failed-uploads feature e2df6871)
+
+### `tests/features/retry-failed-uploads.test.ts` — 16 test cases
+
+**AC1: contextRef fetch retries on transient errors (5xx / network) — 6 tests**
+- executor.ts exists
+- resolveContext contains a retry loop or recursive retry call
+- declares a maximum number of retry attempts (constant or parameter)
+- implements exponential or fixed back-off between retries
+- retries specifically on 5xx HTTP status codes
+- retries on network/fetch errors (non-HTTP failures)
+
+**AC2: contextRef fetch does NOT retry on permanent errors (4xx) — 2 tests**
+- distinguishes retriable from permanent status codes
+- throws immediately on 4xx without retry
+
+**AC3: Job is failed with a clear error after max retries exhausted — 2 tests**
+- throws a descriptive error when retries are exhausted
+- sendJobFailed is reachable when resolveContext throws after exhausted retries
+
+**AC4: Retry parameters are bounded and reasonable — 2 tests**
+- maximum retry count is ≤ 5 (avoids infinite loops on persistent failures)
+- back-off delay is reasonable (≥ 500ms, ≤ 30000ms)
+
+**AC5: Successful retry returns the correct context string — 2 tests**
+- resolveContext still returns response.text() on success
+- retry loop exits and returns on a successful fetch (2xx)
+
+**AC6: Retry attempts are logged for observability — 2 tests**
+- logs a warning or info message when a retry is attempted
+- logs the attempt number and/or remaining retries
+
+All 16 tests written to FAIL against current codebase — `resolveContext` currently does
+a single-shot fetch with no retry logic. No `package.json` changes needed — `vitest run`
+in `tests/package.json` discovers test files recursively.
+
+---
+
+## Previous test reports
+
 ## Test files created (cross-tenant-job-failure-to-idea feature 1f627dc8)
 
 ### `tests/features/cross-tenant-job-failure-to-idea.test.ts` — 27 test cases

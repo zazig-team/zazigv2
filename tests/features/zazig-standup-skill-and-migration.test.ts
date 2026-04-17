@@ -114,7 +114,7 @@ describe('snapshot promoted_version migration', () => {
     // Find a migration that adds promoted_version to the snapshot function
     for (const file of migrations.sort().reverse()) {
       const content = readRepoFile(`supabase/migrations/${file}`);
-      if (content && content.includes('promoted_version') && content.includes('completed_features')) {
+      if (content && content.includes('promoted_version') && content.includes('completed_features') && content.includes('refresh_pipeline_snapshot')) {
         migrationContent = content;
         migrationFile = file;
         break;

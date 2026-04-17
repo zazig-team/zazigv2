@@ -2028,21 +2028,74 @@ export class JobExecutor {
 
     // --- Spawn the persistent tmux session in the workspace directory ---
     const sessionName = persistentSessionName;
+    const persistentLogPath = jobLogPath(jobId);
     try {
       // Kill any stale session from a previous run
       await killTmuxSession(sessionName);
 
-      const shellCmd = `unset CLAUDECODE; claude --model claude-opus-4-6`;
-      const tmuxArgs = [
-        "new-session",
-        "-d",
-        "-s", sessionName,
-        "-c", workspaceDir,
-        shellCmd,
-      ];
-      await execFileAsync("tmux", tmuxArgs);
-
+      await spawnTmuxSession(
+        sessionName,
+        "claude",
+        ["--model", "claude-opus-4-6"],
+        workspaceDir,
+      );
       console.log(`[executor] Spawned persistent ${role} session: ${sessionName} (cwd=${workspaceDir})`);
+
+      try {
+        mkdirSync(JOB_LOG_DIR, { recursive: true });
+        await startPipePane(sessionName, persistentLogPath);
+        jobLog(jobId, `Persistent pipe-pane started → ${persistentLogPath}`);
+      } catch (pipeErr) {
+        jobLog(jobId, `Persistent pipe-pane FAILED: ${String(pipeErr)}`);
+        console.warn(`[executor] Persistent pipe-pane start failed for ${sessionName}: ${String(pipeErr)}`);
+      }
+
+      // Claude Code takes ~1s to initialize; give it a short grace period
+      // before checking whether the process exited immediately.
+      await sleep(2_000);
+      const sessionAlive = await isTmuxSessionAlive(sessionName);
+
+      let paneDeadStatus: number | null = null;
+      if (sessionAlive) {
+        try {
+          const { stdout } = await execFileAsync("tmux", [
+            "display-message",
+            "-p",
+            "-t",
+            sessionName,
+            "#{pane_dead_status}",
+          ]);
+          const parsed = Number.parseInt(stdout.trim(), 10);
+          paneDeadStatus = Number.isNaN(parsed) ? null : parsed;
+        } catch (statusErr) {
+          console.warn(`[executor] Persistent pane_dead_status check failed for ${sessionName}: ${String(statusErr)}`);
+        }
+      }
+
+      const postSpawnFailed = !sessionAlive || (paneDeadStatus !== null && paneDeadStatus !== 0);
+      if (postSpawnFailed) {
+        let logSnippet = "";
+        try {
+          const rawLog = readFileSync(persistentLogPath, "utf8");
+          logSnippet = rawLog
+            .split(/\r?\n/)
+            .slice(0, 50)
+            .join("\n")
+            .trim();
+        } catch (logErr) {
+          logSnippet = `(could not read log file ${persistentLogPath}: ${String(logErr)})`;
+        }
+
+        console.error("[executor] Persistent agent post-spawn health check failed", {
+          sessionName,
+          exitCode: paneDeadStatus,
+          logSnippet: logSnippet || "(no early log output captured)",
+        });
+
+        throw new Error(
+          `Persistent post-spawn health check failed (session=${sessionName}, exitCode=${paneDeadStatus ?? "unknown"})`,
+        );
+      }
     } catch (err) {
       console.error(`[executor] Persistent agent: failed to spawn tmux session:`, err);
       await this.sendJobFailed(jobId, `Failed to start agent session: ${String(err)}`, "agent_crash");
@@ -2175,7 +2228,7 @@ export class JobExecutor {
       timeoutTimer: null,
       settled: false,
       startedAt: Date.now(),
-      logPath: "",
+      logPath: persistentLogPath,
       lastBytesSent: 0,
       lastLifecycleBytesSent: 0,
       role: msg.role,

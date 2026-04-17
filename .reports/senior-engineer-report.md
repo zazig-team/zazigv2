@@ -1,5 +1,6 @@
 status: pass
-summary: Added migration 235_cross_tenant_job_failure_to_idea.sql implementing the notify_job_failure_to_zazig Postgres trigger, partial dedup index, and all 31 feature tests now pass.
+summary: Added an inline post-spawn health check in `handlePersistentJob()` that waits 2s, validates tmux liveness and `pane_dead_status`, captures early log output on failure, and fails fast through the existing job-failure path.
 files_changed:
-  - supabase/migrations/235_cross_tenant_job_failure_to_idea.sql
+  - packages/local-agent/src/executor.ts
+  - .reports/senior-engineer-report.md
 failure_reason:

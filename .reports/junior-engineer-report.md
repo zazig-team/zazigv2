@@ -1,4 +1,6 @@
 status: pass
-summary: Renumbered duplicate migration 235_replica_identity_full.sql to 240_replica_identity_full.sql to resolve STAGING push failure caused by version 235 already existing in schema_migrations.
+summary: Added a new Supabase migration that adds nullable `last_respawn_at` to `persistent_agents` and includes a rollback drop statement.
 files_changed:
-  - supabase/migrations/240_replica_identity_full.sql (renamed from 235_replica_identity_full.sql)
+  - supabase/migrations/241_persistent_agents_last_respawn_at.sql
+  - .reports/junior-engineer-report.md
+failure_reason: n/a

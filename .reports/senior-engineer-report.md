@@ -1,6 +1,6 @@
 status: pass
-summary: Implemented a new SwiftUI Quiet Hours settings screen backed by QuietHoursService with master/day toggles, 24-hour start/end pickers, preset buttons, load-on-appear, immediate off-save, and 500ms debounced autosave.
+summary: Added an inline post-spawn health check in `handlePersistentJob()` that waits 2s, validates tmux liveness and `pane_dead_status`, captures early log output on failure, and fails fast through the existing job-failure path.
 files_changed:
-  - zazigv3/Views/QuietHoursSettingsView.swift
+  - packages/local-agent/src/executor.ts
   - .reports/senior-engineer-report.md
 failure_reason:

@@ -12,6 +12,7 @@ export type {
   AgentJobStatus,
   FailureReason,
   TypingIndicatorEvent,
+  TypingIndicatorMessage,
   FeatureStatus,
   PipelineJobStatus,
   // Orchestrator → Local Agent messages
@@ -46,6 +47,11 @@ export type {
   AgentMessage,
 } from "./messages.js";
 export { FEATURE_STATUSES, JOB_STATUSES } from "./messages.js";
+
+// ---- Typing indicator utility ----
+
+export type { TypingIndicatorHandle, TypingIndicatorOptions } from "./typing-indicator.js";
+export { createTypingIndicator } from "./typing-indicator.js";
 
 // ---- Environment configuration (zazig.environments.yaml) ----
 

@@ -88,6 +88,19 @@ export type TypingIndicatorEvent = {
   status: "typing" | "idle";
 };
 
+/**
+ * Typing indicator message for job chat — exchanged over Supabase Realtime.
+ * Signals that a participant (agent or user) is actively typing in a job conversation.
+ */
+export type TypingIndicatorMessage = {
+  type: "typing_indicator";
+  job_id: string;
+  /** Who is typing: "agent" | "user" */
+  role: "agent" | "user";
+  /** True when typing is in progress; false when stopped or sent. */
+  isTyping: boolean;
+};
+
 // ---------------------------------------------------------------------------
 // Orchestrator → Local Agent messages
 // ---------------------------------------------------------------------------

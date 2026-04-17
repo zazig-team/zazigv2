@@ -17,10 +17,7 @@ import type {
 import {
   checkUnblockedJobs,
   notifyCPO,
-  parseGitHubRepoUrl,
   releaseSlot,
-  triggerCICheck,
-  triggerMerging,
   triggerTestWriting,
 } from "../_shared/pipeline-utils.ts";
 
@@ -279,7 +276,8 @@ export async function handleJobComplete(
     }
   }
 
-  // Handle combine job completion: if PR was created, trigger CI checking.
+  // Handle combine job completion: merge scheduling is handled by lifecycle polling
+  // once PR gates are confirmed as passing.
   if (jobRow?.job_type === "combine" && jobRow?.feature_id) {
     const prUrl = msg.pr ?? null;
     if (!prUrl) {
@@ -287,60 +285,10 @@ export async function handleJobComplete(
         `[agent-event job=${jobId}] Combine complete for feature ${jobRow.feature_id} but no PR URL — leaving in combining_and_pr`,
       );
     } else {
-      // Look up project repo_url for owner/repo
-      const { data: feat } = await supabase
-        .from("features")
-        .select("project_id, branch")
-        .eq("id", jobRow.feature_id)
-        .single();
-
-      const projectId = feat?.project_id ?? null;
-      const branch = feat?.branch ?? jobRow.branch ?? null;
-
-      if (!projectId || !branch) {
-        console.warn(
-          `[agent-event job=${jobId}] Combine complete: feature ${jobRow.feature_id} missing project_id or branch — skipping CI check`,
-        );
-      } else {
-        const { data: project } = await supabase
-          .from("projects")
-          .select("repo_url")
-          .eq("id", projectId)
-          .maybeSingle();
-
-        const repoUrl = (project as { repo_url?: string | null } | null)?.repo_url ?? null;
-        if (!repoUrl) {
-          console.warn(
-            `[agent-event job=${jobId}] Combine complete: project ${projectId} has no repo_url — skipping CI check`,
-          );
-        } else {
-          let owner: string;
-          let repo: string;
-          try {
-            ({ owner, repo } = parseGitHubRepoUrl(repoUrl));
-          } catch {
-            console.warn(
-              `[agent-event job=${jobId}] Combine complete: invalid repo_url "${repoUrl}" for feature ${jobRow.feature_id}`,
-            );
-            return;
-          }
-
-          // Parse PR number from URL (e.g. https://github.com/owner/repo/pull/42)
-          const prNumberMatch = prUrl.match(/\/pull\/(\d+)/);
-          const prNumber = prNumberMatch ? parseInt(prNumberMatch[1], 10) : null;
-
-          await triggerCICheck(supabase, jobRow.feature_id, prUrl, prNumber, owner, repo, branch);
-        }
-      }
+      console.log(
+        `[agent-event job=${jobId}] Combine complete for feature ${jobRow.feature_id} with PR ${prUrl} — awaiting PR gates before merge`,
+      );
     }
-  }
-
-  // Handle ci_check job completion: job_complete means CI passed — trigger merge.
-  if (jobRow?.job_type === "ci_check" && jobRow?.feature_id) {
-    console.log(
-      `[agent-event job=${jobId}] CI check complete (passed) for feature ${jobRow.feature_id} — triggering merge`,
-    );
-    await triggerMerging(supabase, jobRow.feature_id);
   }
 
   // Handle merge job completion: job_complete means merge succeeded.

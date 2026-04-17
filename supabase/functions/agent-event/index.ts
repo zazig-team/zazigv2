@@ -3,7 +3,7 @@
  *
  * Durable HTTP POST endpoint for daemon -> orchestrator agent messages.
  *
- * Auth: deployed with --no-verify-jwt, so JWT verification is handled here.
+ * Auth: deployed with --no-jwt-check, so JWT auth checks are handled here.
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";

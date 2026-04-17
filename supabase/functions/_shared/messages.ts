@@ -25,7 +25,6 @@ export type {
   StartJob,
   StopJob,
   HealthCheck,
-  VerifyJob,
   DeployToTest,
   TeardownTest,
   MessageInbound,
@@ -123,7 +122,6 @@ import type {
   StartJob as _StartJob,
   StopJob as _StopJob,
   HealthCheck as _HealthCheck,
-  VerifyJob as _VerifyJob,
   DeployToTest as _DeployToTest,
   TeardownTest as _TeardownTest,
   MessageInbound as _MessageInbound,
@@ -180,7 +178,7 @@ export function isStartJob(v: unknown): v is _StartJob {
   if (!_hasValidVersion(v)) return false;
   if (!_isString(v.jobId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(v.jobId as string)) return false;
   if (!_isString(v.cardId) || v.cardId.length === 0) return false;
-  if (!["code", "infra", "design", "research", "docs", "persistent_agent", "verify", "breakdown", "combine", "merge", "deploy_to_test", "deploy_to_prod", "review", "bug", "feature_test", "ci_check", "test"].includes(v.cardType as string)) return false;
+  if (!["code", "infra", "design", "research", "docs", "persistent_agent", "breakdown", "combine", "merge", "deploy_to_test", "deploy_to_prod", "review", "bug", "feature_test", "test"].includes(v.cardType as string)) return false;
   if (!["simple", "medium", "complex"].includes(v.complexity as string)) return false;
   if (!["claude_code", "codex"].includes(v.slotType as string)) return false;
   if (!_isString(v.model) || !ALLOWED_MODELS.has(v.model)) return false;
@@ -206,17 +204,6 @@ export function isHealthCheck(v: unknown): v is _HealthCheck {
   if (!_isObject(v) || v.type !== "health_check") return false;
   if (!_hasValidVersion(v)) return false;
   if (v.correlationId !== undefined && !_isString(v.correlationId)) return false;
-  return true;
-}
-
-export function isVerifyJob(v: unknown): v is _VerifyJob {
-  if (!_isObject(v) || v.type !== "verify_job") return false;
-  if (!_hasValidVersion(v)) return false;
-  if (!_isString(v.jobId) || v.jobId.length === 0) return false;
-  if (!_isString(v.featureBranch) || v.featureBranch.length === 0) return false;
-  if (!_isString(v.jobBranch) || v.jobBranch.length === 0) return false;
-  if (!_isString(v.acceptanceTests)) return false;
-  if (v.repoPath !== undefined && (!_isString(v.repoPath) || v.repoPath.length === 0)) return false;
   return true;
 }
 
@@ -264,7 +251,6 @@ export function isOrchestratorMessage(v: unknown): v is OrchestratorMessage {
     case "start_job":       return isStartJob(v);
     case "stop_job":        return isStopJob(v);
     case "health_check":    return isHealthCheck(v);
-    case "verify_job":      return isVerifyJob(v);
     case "deploy_to_test":  return isDeployToTest(v);
     case "teardown_test":   return isTeardownTest(v);
     case "message_inbound": return isMessageInbound(v);

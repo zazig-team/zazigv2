@@ -194,9 +194,9 @@ describe('AC6: jobs.idea_id column exists, nullable, FK to ideas.id', () => {
   });
 
   it('jobs.idea_id is nullable (no NOT NULL constraint)', () => {
-    const combined = combinedMigrationsMatching(/idea_id/);
-    // The ADD COLUMN should not force NOT NULL
-    const addColumnMatch = combined.match(/ADD COLUMN.*idea_id[^;]*/is)?.[0] ?? '';
+    const combined = combinedMigrationsMatching(/ALTER TABLE\s+(?:public\.)?jobs[\s\S]*ADD COLUMN[\s\S]*idea_id/i);
+    // The jobs.idea_id ADD COLUMN should not force NOT NULL
+    const addColumnMatch = combined.match(/ALTER TABLE\s+(?:public\.)?jobs[\s\S]*?ADD COLUMN(?:\s+IF\s+NOT\s+EXISTS)?\s+idea_id\s+uuid[^;\n]*/i)?.[0] ?? '';
     expect(addColumnMatch).not.toMatch(/NOT NULL/i);
   });
 
@@ -306,13 +306,13 @@ describe('AC9: New idea statuses are valid in the ideas status constraint', () =
   let migration: { file: string; content: string } | null;
 
   beforeAll(() => {
-    // Find the migration that adds the new pipeline statuses
+    // Find the latest migration that defines ideas_status_check with pipeline statuses.
     const all = readAllMigrations();
-    // Look for a migration that adds at least one of the new statuses
-    migration = all.find(m =>
-      /enriched|routed|executing|breaking_down|spawned|awaiting_response/i.test(m.content) &&
-      /ideas_status_check|ideas.*status/i.test(m.content)
-    ) ?? null;
+    const matches = all.filter(m =>
+      /ADD CONSTRAINT\s+ideas_status_check/i.test(m.content) &&
+      /enriched|routed|spawned|awaiting_response/i.test(m.content)
+    );
+    migration = matches.length > 0 ? matches[matches.length - 1] : null;
   });
 
   it('a migration adds the new idea statuses to the ideas_status_check constraint', () => {
@@ -444,8 +444,8 @@ describe('AC12: Existing data is not affected by migrations', () => {
   });
 
   it('jobs.idea_id is nullable so existing jobs without idea_id remain valid', () => {
-    const combined = combinedMigrationsMatching(/idea_id/);
-    const addColMatch = combined.match(/ADD COLUMN.*idea_id[^;\n]*/is)?.[0] ?? '';
+    const combined = combinedMigrationsMatching(/ALTER TABLE\s+(?:public\.)?jobs[\s\S]*ADD COLUMN[\s\S]*idea_id/i);
+    const addColMatch = combined.match(/ALTER TABLE\s+(?:public\.)?jobs[\s\S]*?ADD COLUMN(?:\s+IF\s+NOT\s+EXISTS)?\s+idea_id\s+uuid[^;\n]*/i)?.[0] ?? '';
     // No NOT NULL = existing rows with null idea_id are fine
     expect(addColMatch).not.toMatch(/NOT NULL/i);
   });
@@ -465,7 +465,7 @@ describe('AC12: Existing data is not affected by migrations', () => {
       /bug|initiative/i.test(m.content)
     ) ?? null;
     const content = migration?.content ?? '';
-    const addColMatch = content.match(/ADD COLUMN.*\btype\b[^;\n]*/is)?.[0] ?? '';
+    const addColMatch = content.match(/ADD COLUMN(?:\s+IF\s+NOT\s+EXISTS)?\s+type\s+text[^;\n]*/i)?.[0] ?? '';
     expect(addColMatch).not.toMatch(/NOT NULL/i);
   });
 });

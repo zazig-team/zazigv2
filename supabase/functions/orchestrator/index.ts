@@ -62,6 +62,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 // ---------------------------------------------------------------------------
 
 const SKILLS_MARKER = "<!-- SKILLS -->";
+let _realtimeIdeaMessagesConnected = false;
 
 function completionInstructions(): string {
   return `## On Completion
@@ -3271,6 +3272,7 @@ interface AwaitingResponseIdeaRow {
   company_id: string;
   project_id: string | null;
   title: string | null;
+  status: string;
   updated_at: string;
   last_job_type: string | null;
   on_hold: boolean;
@@ -3341,130 +3343,221 @@ async function resumeAwaitingResponseIdeas(
     }
 
     if (!newUserReplies || newUserReplies.length === 0) continue;
-
-    const { data: activeIdeaJobs, error: activeJobsErr } = await supabase
-      .from("jobs")
-      .select("id")
-      .eq("idea_id", idea.id)
-      .in("status", ["created", "queued", "executing"])
-      .limit(1);
-
-    if (activeJobsErr) {
-      console.error(
-        `[orchestrator] resume-awaiting-response: failed checking active jobs for idea ${idea.id}: ${activeJobsErr.message}`,
-      );
-      continue;
-    }
-
-    if (activeIdeaJobs && activeIdeaJobs.length > 0) continue;
-
-    const { data: previousJobs, error: previousJobsErr } = await supabase
-      .from("jobs")
-      .select("feature_id, project_id, branch, role, model, slot_type")
-      .eq("idea_id", idea.id)
-      .order("created_at", { ascending: false })
-      .limit(25);
-
-    if (previousJobsErr) {
-      console.error(
-        `[orchestrator] resume-awaiting-response: failed loading previous jobs for idea ${idea.id}: ${previousJobsErr.message}`,
-      );
-      continue;
-    }
-
-    const resumeReferenceJobs =
-      (previousJobs as ResumeReferenceJobRow[] | null) ?? [];
-    const latestReferenceJob = resumeReferenceJobs[0] ?? null;
-
-    const resolvedProjectId = idea.project_id ??
-      resumeReferenceJobs.find((job) =>
-        typeof job.project_id === "string" && job.project_id.length > 0
-      )?.project_id ?? null;
-
-    if (!resolvedProjectId) {
-      console.warn(
-        `[orchestrator] resume-awaiting-response: skipping idea ${idea.id} because project_id is missing`,
-      );
-      continue;
-    }
-
-    const conversationHistory = await fetchIdeaConversationHistory(
-      supabase,
-      idea.id,
-      100,
-    );
-    const resumeContext = buildResumeJobContext(idea.id, conversationHistory);
-
-    const ideaExecutingStatus = "executing" as const;
-    const { data: resumedIdeas, error: resumeErr } = await supabase
-      .from("ideas")
-      .update({ status: ideaExecutingStatus })
-      .eq("id", idea.id)
-      .eq("status", "awaiting_response")
-      .eq("updated_at", idea.updated_at)
-      .select("id");
-
-    if (resumeErr) {
-      console.error(
-        `[orchestrator] resume-awaiting-response: failed transitioning idea ${idea.id} to executing: ${resumeErr.message}`,
-      );
-      continue;
-    }
-
-    if (!resumedIdeas || resumedIdeas.length === 0) {
-      continue;
-    }
-
-    const trimmedTitle = typeof idea.title === "string" ? idea.title.trim() : "";
-    const resumeTitle = trimmedTitle.length > 0
-      ? `Resume: ${trimmedTitle}`
-      : `Resume: ${idea.id}`;
-
-    const insertPayload: Record<string, unknown> = {
-      company_id: idea.company_id,
-      project_id: resolvedProjectId,
-      feature_id: latestReferenceJob?.feature_id ?? null,
-      idea_id: idea.id,
-      title: resumeTitle,
-      job_type: (idea.last_job_type ?? "code"),
-      complexity: "medium",
-      status: "created",
-      context: resumeContext,
-    };
-
-    const resumeBranch = resumeReferenceJobs.find((job) =>
-      typeof job.branch === "string" && job.branch.length > 0
-    )?.branch;
-    if (resumeBranch) insertPayload.branch = resumeBranch;
-    if (latestReferenceJob?.role) insertPayload.role = latestReferenceJob.role;
-    if (latestReferenceJob?.model) insertPayload.model = latestReferenceJob.model;
-    if (latestReferenceJob?.slot_type) {
-      insertPayload.slot_type = latestReferenceJob.slot_type;
-    }
-
-    const { data: resumeJob, error: insertErr } = await supabase
-      .from("jobs")
-      .insert(insertPayload)
-      .select("id")
-      .single();
-
-    if (insertErr || !resumeJob) {
-      console.error(
-        `[orchestrator] resume-awaiting-response: failed creating resume job for idea ${idea.id}: ${insertErr?.message ?? "unknown error"}`,
-      );
-
-      await supabase
-        .from("ideas")
-        .update({ status: "awaiting_response" })
-        .eq("id", idea.id)
-        .eq("status", "executing");
-      continue;
-    }
-
-    console.log(
-      `[orchestrator] resume-awaiting-response: created resume job ${resumeJob.id} for idea ${idea.id}`,
-    );
+    await resumeSingleIdea(supabase, idea.id);
   }
+}
+
+async function resumeSingleIdea(
+  supabase: SupabaseClient,
+  ideaId: string,
+): Promise<boolean> {
+  const { data: idea, error: ideaErr } = await supabase
+    .from("ideas")
+    .select(
+      "id, company_id, project_id, title, status, updated_at, last_job_type, on_hold",
+    )
+    .eq("id", ideaId)
+    .maybeSingle();
+
+  if (ideaErr) {
+    console.error(
+      `[orchestrator] resume-awaiting-response: failed to query idea ${ideaId}: ${ideaErr.message}`,
+    );
+    return false;
+  }
+
+  if (!idea) return false;
+
+  const typedIdea = idea as AwaitingResponseIdeaRow;
+  if (
+    typedIdea.status !== "awaiting_response" ||
+    typedIdea.on_hold !== false
+  ) {
+    return false;
+  }
+
+  const { data: activeIdeaJobs, error: activeJobsErr } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("idea_id", typedIdea.id)
+    .in("status", ["created", "queued", "executing"])
+    .limit(1);
+
+  if (activeJobsErr) {
+    console.error(
+      `[orchestrator] resume-awaiting-response: failed checking active jobs for idea ${typedIdea.id}: ${activeJobsErr.message}`,
+    );
+    return false;
+  }
+
+  if (activeIdeaJobs && activeIdeaJobs.length > 0) return false;
+
+  const { data: previousJobs, error: previousJobsErr } = await supabase
+    .from("jobs")
+    .select("feature_id, project_id, branch, role, model, slot_type")
+    .eq("idea_id", typedIdea.id)
+    .order("created_at", { ascending: false })
+    .limit(25);
+
+  if (previousJobsErr) {
+    console.error(
+      `[orchestrator] resume-awaiting-response: failed loading previous jobs for idea ${typedIdea.id}: ${previousJobsErr.message}`,
+    );
+    return false;
+  }
+
+  const resumeReferenceJobs =
+    (previousJobs as ResumeReferenceJobRow[] | null) ?? [];
+  const latestReferenceJob = resumeReferenceJobs[0] ?? null;
+
+  const resolvedProjectId = typedIdea.project_id ??
+    resumeReferenceJobs.find((job) =>
+      typeof job.project_id === "string" && job.project_id.length > 0
+    )?.project_id ?? null;
+
+  if (!resolvedProjectId) {
+    console.warn(
+      `[orchestrator] resume-awaiting-response: skipping idea ${typedIdea.id} because project_id is missing`,
+    );
+    return false;
+  }
+
+  const conversationHistory = await fetchIdeaConversationHistory(
+    supabase,
+    typedIdea.id,
+    100,
+  );
+  const resumeContext = buildResumeJobContext(typedIdea.id, conversationHistory);
+
+  const ideaExecutingStatus = "executing" as const;
+  const { data: resumedIdeas, error: resumeErr } = await supabase
+    .from("ideas")
+    .update({ status: ideaExecutingStatus })
+    .eq("id", typedIdea.id)
+    .eq("status", "awaiting_response")
+    .eq("updated_at", typedIdea.updated_at)
+    .select("id");
+
+  if (resumeErr) {
+    console.error(
+      `[orchestrator] resume-awaiting-response: failed transitioning idea ${typedIdea.id} to executing: ${resumeErr.message}`,
+    );
+    return false;
+  }
+
+  if (!resumedIdeas || resumedIdeas.length === 0) {
+    return false;
+  }
+
+  const trimmedTitle = typeof typedIdea.title === "string"
+    ? typedIdea.title.trim()
+    : "";
+  const resumeTitle = trimmedTitle.length > 0
+    ? `Resume: ${trimmedTitle}`
+    : `Resume: ${typedIdea.id}`;
+
+  const insertPayload: Record<string, unknown> = {
+    company_id: typedIdea.company_id,
+    project_id: resolvedProjectId,
+    feature_id: latestReferenceJob?.feature_id ?? null,
+    idea_id: typedIdea.id,
+    title: resumeTitle,
+    job_type: (typedIdea.last_job_type ?? "code"),
+    complexity: "medium",
+    status: "created",
+    context: resumeContext,
+  };
+
+  const resumeBranch = resumeReferenceJobs.find((job) =>
+    typeof job.branch === "string" && job.branch.length > 0
+  )?.branch;
+  if (resumeBranch) insertPayload.branch = resumeBranch;
+  if (latestReferenceJob?.role) insertPayload.role = latestReferenceJob.role;
+  if (latestReferenceJob?.model) insertPayload.model = latestReferenceJob.model;
+  if (latestReferenceJob?.slot_type) {
+    insertPayload.slot_type = latestReferenceJob.slot_type;
+  }
+
+  const { data: resumeJob, error: insertErr } = await supabase
+    .from("jobs")
+    .insert(insertPayload)
+    .select("id")
+    .single();
+
+  if (insertErr || !resumeJob) {
+    console.error(
+      `[orchestrator] resume-awaiting-response: failed creating resume job for idea ${typedIdea.id}: ${insertErr?.message ?? "unknown error"}`,
+    );
+
+    await supabase
+      .from("ideas")
+      .update({ status: "awaiting_response" })
+      .eq("id", typedIdea.id)
+      .eq("status", "executing");
+    return false;
+  }
+
+  console.log(
+    `[orchestrator] resume-awaiting-response: created resume job ${resumeJob.id} for idea ${typedIdea.id}`,
+  );
+  return true;
+}
+
+async function listenForIdeaMessageReplies(
+  supabase: SupabaseClient,
+  timeoutMs: number,
+): Promise<{ eventsProcessed: number; connected: boolean }> {
+  let eventsProcessed = 0;
+  let connected = false;
+  const channel = supabase.channel("orchestrator-idea-messages-resume");
+
+  channel.on(
+    "postgres_changes",
+    {
+      event: "INSERT",
+      schema: "public",
+      table: "idea_messages",
+      filter: "sender=eq.user",
+    },
+    async (payload) => {
+      const ideaId = (payload.new as { idea_id?: string } | null)?.idea_id;
+      if (!ideaId) return;
+      eventsProcessed += 1;
+      await resumeSingleIdea(supabase, ideaId);
+    },
+  );
+
+  channel.subscribe((status) => {
+    if (status === "SUBSCRIBED") {
+      connected = true;
+      _realtimeIdeaMessagesConnected = true;
+      return;
+    }
+
+    if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+      _realtimeIdeaMessagesConnected = false;
+      console.warn(
+        `[orchestrator] Realtime idea_messages subscription ${status.toLowerCase()}; polling fallback remains active`,
+      );
+      return;
+    }
+
+    if (status === "CLOSED") {
+      _realtimeIdeaMessagesConnected = false;
+      console.warn(
+        "[orchestrator] Realtime idea_messages subscription closed (connection drop)",
+      );
+    }
+  });
+
+  await new Promise<void>((resolve) => {
+    setTimeout(() => resolve(), timeoutMs);
+  });
+
+  await channel.unsubscribe();
+  _realtimeIdeaMessagesConnected = false;
+
+  return { eventsProcessed, connected };
 }
 
 // ---------------------------------------------------------------------------
@@ -5662,7 +5755,15 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 4b. Analyze newly completed/failed jobs and persist log-derived error analysis.
     await analyzeRecentlyCompletedJobs(supabase);
 
-    // 5. Resume awaiting_response ideas when a user replies in idea_messages.
+    // 5a. Realtime fast path — catch user replies immediately.
+    const realtimeResult = await listenForIdeaMessageReplies(supabase, 4000);
+    if (!realtimeResult.connected) {
+      console.warn(
+        "[orchestrator] Realtime idea_messages subscription unavailable — using polling fallback",
+      );
+    }
+
+    // 5b. Polling fallback — catches events missed during Realtime window or when Realtime was down.
     await resumeAwaitingResponseIdeas(supabase);
 
     // 6. Idea-pipeline state watchers (job dispatch + status routing).

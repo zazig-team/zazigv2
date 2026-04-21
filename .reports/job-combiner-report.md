@@ -1,12 +1,12 @@
 status: success
-branch: feature/orchestrator-idea-job-dispatch-and-routi-31f97497
+branch: feature/idea-triage-job-type-4a337b7a
 merged:
-  - job/8b8a71bd-b271-4291-860e-b54a05bd246c
+  - job/581d6916-0fd3-44fa-ae6b-c14d9617269a
 conflicts_resolved: []
 failure_reason:
 
-PR: https://github.com/zazig-team/zazigv2/pull/437
+PR: https://github.com/zazig-team/zazigv2/pull/439
 
 - Job branch merged via --no-ff, no conflicts
 - CI workflow already exists on master — injection skipped
-- PR created: https://github.com/zazig-team/zazigv2/pull/437
+- PR created: https://github.com/zazig-team/zazigv2/pull/439

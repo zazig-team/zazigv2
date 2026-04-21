@@ -100,6 +100,58 @@ export async function injectProjectRulesIntoContext(
   }
 }
 
+interface IdeaMessageHistoryRow {
+  sender: string | null;
+  content: string | null;
+  created_at: string | null;
+}
+
+/**
+ * Fetches and formats idea_messages conversation history for agent grounding.
+ * Returns oldest-first lines in the format: [timestamp] sender: content.
+ */
+export async function fetchIdeaConversationHistory(
+  supabase: SupabaseClient,
+  ideaId: string,
+  limit = 50,
+): Promise<string> {
+  if (!ideaId) return "";
+  const boundedLimit = Math.max(1, Math.min(limit, 200));
+
+  const { data: messages, error } = await supabase
+    .from("idea_messages")
+    .select("sender, content, created_at")
+    .eq("idea_id", ideaId)
+    .order("created_at", { ascending: true })
+    .limit(boundedLimit);
+
+  if (error) {
+    console.error(
+      `[pipeline] failed to fetch idea_messages conversation history for idea ${ideaId}:`,
+      error.message,
+    );
+    return "";
+  }
+
+  const lines = ((messages ?? []) as IdeaMessageHistoryRow[])
+    .map((message) => {
+      const sender = typeof message.sender === "string" && message.sender.length > 0
+        ? message.sender
+        : "unknown";
+      const content = typeof message.content === "string"
+        ? message.content.trim()
+        : "";
+      if (!content) return null;
+      const createdAt = typeof message.created_at === "string" && message.created_at.length > 0
+        ? message.created_at
+        : "unknown-time";
+      return `[${createdAt}] ${sender}: ${content}`;
+    })
+    .filter((line): line is string => Boolean(line));
+
+  return lines.join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // Title generation — short human-readable labels for jobs via Claude Haiku
 // ---------------------------------------------------------------------------

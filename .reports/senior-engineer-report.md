@@ -1,7 +1,6 @@
 status: pass
-summary: Implemented a new Supabase edge function at supabase/functions/idea-messages with authenticated GET/POST CRUD behavior, validation, and idea existence checks, and added a migration to set REPLICA IDENTITY FULL for idea_messages realtime payloads.
+summary: Implemented orchestrator resume detection for awaiting_response ideas by detecting post-awaiting user replies, transitioning ideas back to executing, and creating guarded resume code jobs with conversation-history context instructions.
 files_changed:
-  - supabase/functions/idea-messages/index.ts
-  - supabase/functions/idea-messages/deno.json
-  - supabase/migrations/252_idea_messages_replica_identity.sql
+  - supabase/functions/orchestrator/index.ts
+  - supabase/functions/_shared/pipeline-utils.ts
 failure_reason: ""

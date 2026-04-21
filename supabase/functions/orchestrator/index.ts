@@ -1631,9 +1631,7 @@ async function handleDecisionResolved(
         status === "CHANNEL_ERROR" || status === "TIMED_OUT" ||
         status === "CLOSED"
       ) {
-        console.error(
-          `[orchestrator] Realtime channel error while forwarding decision ${decisionId} to ${fromRole} on machine ${machineName}`,
-        );
+        console.error(`[orchestrator] realtime channel error while forwarding decision ${decisionId} to ${fromRole} on machine ${machineName}`);
         resolve();
       }
     });
@@ -3274,6 +3272,8 @@ interface AwaitingResponseIdeaRow {
   project_id: string | null;
   title: string | null;
   updated_at: string;
+  last_job_type: string | null;
+  on_hold: boolean;
 }
 
 interface ResumeReferenceJobRow {
@@ -3308,8 +3308,9 @@ async function resumeAwaitingResponseIdeas(
 ): Promise<void> {
   const { data: awaitingIdeas, error: awaitingErr } = await supabase
     .from("ideas")
-    .select("id, company_id, project_id, title, updated_at")
+    .select("id, company_id, project_id, title, updated_at, last_job_type, on_hold")
     .eq("status", "awaiting_response")
+    .eq("on_hold", false)
     .order("updated_at", { ascending: true })
     .limit(100);
 
@@ -3425,7 +3426,7 @@ async function resumeAwaitingResponseIdeas(
       feature_id: latestReferenceJob?.feature_id ?? null,
       idea_id: idea.id,
       title: resumeTitle,
-      job_type: "code",
+      job_type: (idea.last_job_type ?? "code"),
       complexity: "medium",
       status: "created",
       context: resumeContext,
@@ -3482,6 +3483,7 @@ interface IdeaPipelineDispatchCandidateRow {
   title: string | null;
   description: string | null;
   raw_text: string | null;
+  last_job_type: string | null;
 }
 
 interface EnrichedIdeaRoutingRow extends IdeaPipelineDispatchCandidateRow {
@@ -3611,10 +3613,16 @@ async function transitionIdeaStatusIfExpected(
   ideaId: string,
   expectedStatus: string,
   nextStatus: string,
+  extraUpdates?: Record<string, unknown>,
 ): Promise<boolean> {
+  const updatePayload: Record<string, unknown> = {
+    status: nextStatus,
+    ...(extraUpdates ?? {}),
+  };
+
   const { data, error } = await supabase
     .from("ideas")
-    .update({ status: nextStatus })
+    .update(updatePayload)
     .eq("id", ideaId)
     .eq("status", expectedStatus)
     .select("id")
@@ -3712,6 +3720,7 @@ async function dispatchIdeaStageJob(
     idea.id,
     expectedStatus,
     nextStatus,
+    { last_job_type: jobType },
   );
   if (!transitioned) return false;
 
@@ -3745,6 +3754,7 @@ async function dispatchIdeaStageJob(
       idea.id,
       nextStatus,
       expectedStatus,
+      { last_job_type: idea.last_job_type },
     );
     return false;
   }
@@ -3784,7 +3794,7 @@ async function resolveCompanyActiveProjectId(
 async function watchNewIdeasForDispatch(supabase: SupabaseClient): Promise<void> {
   const { data: newIdeas, error } = await supabase
     .from("ideas")
-    .select("id, company_id, project_id, title, description, raw_text")
+    .select("id, company_id, project_id, title, description, raw_text, last_job_type")
     .eq("status", "new")
     .eq("on_hold", false)
     .order("created_at", { ascending: true })
@@ -3821,7 +3831,7 @@ async function watchEnrichedIdeasForRouting(
 ): Promise<void> {
   const { data: enrichedIdeas, error } = await supabase
     .from("ideas")
-    .select("id, company_id, project_id, title, description, raw_text, type")
+    .select("id, company_id, project_id, title, description, raw_text, type, last_job_type")
     .eq("status", "enriched")
     .eq("on_hold", false)
     .order("updated_at", { ascending: true })

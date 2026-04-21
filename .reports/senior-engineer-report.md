@@ -1,6 +1,5 @@
 status: pass
-summary: Implemented orchestrator resume detection for awaiting_response ideas by detecting post-awaiting user replies, transitioning ideas back to executing, and creating guarded resume code jobs with conversation-history context instructions.
+summary: Added reusable idea-pipeline dispatch safety helpers and wired new idea watch loops to enforce per-company concurrency caps, one-active-job-per-idea checks, and atomic status transitions.
 files_changed:
   - supabase/functions/orchestrator/index.ts
-  - supabase/functions/_shared/pipeline-utils.ts
 failure_reason: ""

@@ -1,5 +1,4 @@
 status: pass
-summary: Added reusable idea-pipeline dispatch safety helpers and wired new idea watch loops to enforce per-company concurrency caps, one-active-job-per-idea checks, and atomic status transitions.
+summary: Added completion watch loop (watchCompletedIdeaStageJobs) in orchestrator that advances idea status when task-execute jobs complete (→ 'done') and initiative-breakdown jobs complete (→ 'spawned'), with on_hold=false guards on dispatch queries and idempotent atomic transitions via optimistic locking.
 files_changed:
   - supabase/functions/orchestrator/index.ts
-failure_reason: ""

@@ -1,5 +1,6 @@
 status: pass
-summary: Added reusable idea-pipeline dispatch safety helpers and wired new idea watch loops to enforce per-company concurrency caps, one-active-job-per-idea checks, and atomic status transitions.
+summary: Added enriched-idea routing hardening in orchestrator by normalizing idea type matching and enforcing one-active-job-per-idea before Bug/Feature promote-idea dispatch.
 files_changed:
   - supabase/functions/orchestrator/index.ts
+  - .reports/senior-engineer-report.md
 failure_reason: ""

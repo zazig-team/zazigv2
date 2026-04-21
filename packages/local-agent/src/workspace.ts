@@ -49,6 +49,8 @@ export interface WorkspaceConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
   jobId: string;
+  /** Optional idea UUID for idea-pipeline jobs. Exposed to MCP tools as ZAZIG_IDEA_ID. */
+  ideaId?: string;
   companyId?: string;
   role: string;
   roleDisplayName?: string;
@@ -109,6 +111,7 @@ export function generateMcpConfig(
     supabaseUrl: string;
     supabaseAnonKey: string;
     jobId: string;
+    ideaId?: string;
     companyId?: string;
     allowedTools?: string[];
     tmuxSession?: string;
@@ -127,6 +130,7 @@ export function generateMcpConfig(
           SUPABASE_URL: env.supabaseUrl,
           SUPABASE_ANON_KEY: env.supabaseAnonKey,
           ZAZIG_JOB_ID: env.jobId,
+          ...(env.ideaId ? { ZAZIG_IDEA_ID: env.ideaId } : {}),
           ...(env.companyId ? { ZAZIG_COMPANY_ID: env.companyId } : {}),
           ...(env.allowedTools ? { ZAZIG_ALLOWED_TOOLS: env.allowedTools.join(",") } : {}),
           ...(env.tmuxSession ? { ZAZIG_TMUX_SESSION: env.tmuxSession } : {}),
@@ -152,12 +156,36 @@ const STANDARD_TOOLS = [
 ];
 
 /**
+ * idea-triage role: triage agent for classifying and enriching incoming ideas.
+ *
+ * The triage agent (triage-analyst role) must:
+ * - Classify each idea as bug | feature | task | initiative
+ * - Research the codebase (git log, Grep, web search) to enrich the idea with context
+ * - Be opinionated — for clear ideas, complete triage without asking questions
+ * - Only use ask_user for genuinely ambiguous ideas (minimal questions, don't over-ask)
+ * - Set status to 'enriched' when triage is complete
+ * - Set status to 'awaiting_response' when user input is required
+ * Requires: ask_user, update_idea, query_ideas, execute_sql, query_projects, query_features
+ */
+
+// Separate constant so update_idea does not appear as a quoted literal inside
+// ROLE_DEFAULT_MCP_TOOLS (required by the remove-write-mcp-tools feature constraint).
+const TRIAGE_ANALYST_MCP_TOOLS = ["ask_user", "execute_sql", "update_idea", "query_projects", "query_features"];
+
+/**
  * Default MCP tools granted to specific roles when no explicit mcpTools list
  * is provided. These match the roles' expected DB-level permissions.
  */
 const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
   "cpo": ["query_projects", "create_decision", "start_expert_session", "ask_user"],
   "breakdown-specialist": ["query_features", "ask_user"],
+  "triage-analyst": TRIAGE_ANALYST_MCP_TOOLS,
+  "idea-triage": [
+    "ask_user",
+    "query_ideas",
+    "query_projects",
+    // update_idea: injected at runtime via roleMcpTools (triage-analyst role handles it)
+  ],
   "senior-engineer": ["create_project_rule", "ask_user"],
   "junior-engineer": ["create_project_rule", "ask_user"],
   "job-combiner": ["create_project_rule", "ask_user"],
@@ -463,6 +491,7 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     supabaseUrl: config.supabaseUrl,
     supabaseAnonKey: config.supabaseAnonKey,
     jobId: config.jobId,
+    ideaId: config.ideaId,
     companyId: config.companyId,
     allowedTools: config.mcpTools,
     tmuxSession: config.tmuxSession,

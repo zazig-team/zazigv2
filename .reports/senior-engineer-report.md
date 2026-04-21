@@ -1,6 +1,7 @@
 status: pass
-summary: Refactored awaiting-response resume flow to use a reusable single-idea resume helper, added a timed Supabase Realtime idea_messages subscription fast path, and integrated it with always-on polling fallback in the orchestrator cycle.
+summary: Implemented migration 254 to replace triage-analyst role prompt with the new 6-step idea enrichment pipeline and enforced slot_type=claude_code.
 files_changed:
-  - supabase/functions/orchestrator/index.ts
+  - supabase/migrations/254_triage_analyst_pipeline_prompt.sql
   - .reports/senior-engineer-report.md
-failure_reason:
+  - .claude/triage-analyst-report.md
+failure_reason: 

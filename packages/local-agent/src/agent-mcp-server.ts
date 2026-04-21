@@ -159,6 +159,15 @@ server.tool(
           | { timeout: true; message: string };
 
         if ("timeout" in data && data.timeout) {
+          // Update idea status to awaiting_response on timeout
+          await fetch(`${supabaseUrl}/functions/v1/update-idea`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${supabaseAnonKey}`,
+            },
+            body: JSON.stringify({ idea_id, status: "awaiting_response", job_id: jobId }),
+          });
           return {
             content: [{ type: "text" as const, text: JSON.stringify(data) }],
           };
@@ -183,7 +192,7 @@ server.tool(
     } finally {
       clearTimeout(timeoutHandle);
     }
-  }),
+  })
 );
 
 server.tool(
@@ -863,7 +872,8 @@ server.tool(
     idea_id: z.string().describe("ID of the idea to update"),
     title: z.string().optional().describe("New title"),
     description: z.string().optional().describe("New description"),
-    status: z.enum(["new", "triaging", "triaged", "developing", "specced", "workshop", "hardening", "parked", "rejected", "done"]).optional().describe("New status"),
+    status: z.enum(["new", "triaging", "triaged", "enriched", "awaiting_response", "developing", "specced", "workshop", "hardening", "parked", "rejected", "done"]).optional().describe("New status"),
+    type: z.enum(["bug", "feature", "task", "initiative"]).optional().describe("Idea type classification"),
     priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("New priority"),
     suggested_exec: z.string().optional().describe("Suggested executor"),
     tags: z.array(z.string()).optional().describe("Updated tags"),
@@ -878,7 +888,7 @@ server.tool(
     complexity: z.string().optional().describe("Estimated complexity: simple, medium, complex"),
     project_id: z.string().optional().describe("Associated project ID"),
   },
-  async ({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, triage_route, spec, spec_url, acceptance_tests, human_checklist, complexity, project_id }) => {
+  async ({ idea_id, title, description, status, type, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, triage_route, spec, spec_url, acceptance_tests, human_checklist, complexity, project_id }) => {
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const jobId = process.env.ZAZIG_JOB_ID ?? "";
@@ -897,7 +907,7 @@ server.tool(
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
-      body: JSON.stringify({ idea_id, title, description, status, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, triage_route, spec, spec_url, acceptance_tests, human_checklist, complexity, project_id, job_id: jobId, company_id: companyId }),
+      body: JSON.stringify({ idea_id, title, description, status, type, priority, suggested_exec, tags, flags, clarification_notes, triage_notes, triage_route, spec, spec_url, acceptance_tests, human_checklist, complexity, project_id, job_id: jobId, company_id: companyId }),
     });
 
     if (response.ok) {

@@ -1,7 +1,7 @@
 status: pass
-summary: Added initiative-breakdown support in the local agent executor by mirroring idea-triage behavior for default role selection, ideaId propagation, and on-hold polling shutdown. Added migration 256 to upsert the project-architect role for initiative-breakdown with the required slot type, MCP tools, and full execution prompt.
+summary: Added initiative-breakdown test coverage for local-agent executor routing, project-architect role prompt requirements, and orchestrator lifecycle guards/transitions.
 files_changed:
-  - packages/local-agent/src/executor.ts
-  - .reports/senior-engineer-report.md
-  - supabase/migrations/256_project_architect_initiative_breakdown_prompt.sql
+  - packages/local-agent/src/__tests__/initiative-breakdown-job-type-local-agent.test.ts
+  - packages/local-agent/src/__tests__/initiative-breakdown-job-type-agent-role.test.ts
+  - tests/features/orchestrator-idea-job-dispatch-and-routing.test.ts
 failure_reason:

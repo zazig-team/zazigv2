@@ -2676,7 +2676,7 @@ export class JobExecutor {
           jobLog(jobId, `idea on_hold=true — stopping triage job for ideaId=${job.ideaId}`);
           console.log(`[executor] idea-triage job ${jobId}: on_hold detected, killing session`);
           await killTmuxSession(job.sessionName);
-          await this.sendJobFailed(jobId, "Idea placed on hold — triage job stopped", "on_hold");
+          await this.sendJobFailed(jobId, "Idea placed on hold — triage job stopped", "unknown");
           await this.settleJob(jobId);
           return;
         }

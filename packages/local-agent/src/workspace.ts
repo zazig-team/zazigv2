@@ -171,6 +171,7 @@ const STANDARD_TOOLS = [
 // Separate constant so update_idea does not appear as a quoted literal inside
 // ROLE_DEFAULT_MCP_TOOLS (required by the remove-write-mcp-tools feature constraint).
 const TRIAGE_ANALYST_MCP_TOOLS = ["ask_user", "execute_sql", "update_idea", "query_projects", "query_features"];
+const BREAKDOWN_AGENT_MCP_TOOLS = ["ask_user", "execute_sql", "update_idea", "query_ideas", "batch_create_ideas"];
 
 /**
  * Default MCP tools granted to specific roles when no explicit mcpTools list
@@ -178,6 +179,8 @@ const TRIAGE_ANALYST_MCP_TOOLS = ["ask_user", "execute_sql", "update_idea", "que
  */
 const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
   "cpo": ["query_projects", "create_decision", "start_expert_session", "ask_user"],
+  "initiative-breakdown": BREAKDOWN_AGENT_MCP_TOOLS, // ask_user, execute_sql, update_idea, query_ideas, batch_create_ideas
+  "project-architect": BREAKDOWN_AGENT_MCP_TOOLS,
   "breakdown-specialist": ["query_features", "ask_user"],
   "triage-analyst": TRIAGE_ANALYST_MCP_TOOLS,
   "idea-triage": [
@@ -224,6 +227,90 @@ function withPersistentMemorySystemSection(claudeMdContent: string): string {
   }
   const separator = claudeMdContent.endsWith("\n") ? "\n" : "\n\n";
   return `${claudeMdContent}${separator}${PERSISTENT_MEMORY_SYSTEM_SECTION}`;
+}
+
+function findJsonObjectBounds(input: string, fromIndex: number): { start: number; end: number } | null {
+  const start = input.indexOf("{", fromIndex);
+  if (start === -1) return null;
+
+  let inString = false;
+  let escaped = false;
+  let depth = 0;
+  for (let i = start; i < input.length; i += 1) {
+    const ch = input[i];
+    if (!ch) continue;
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === "\"") {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return { start, end: i + 1 };
+      }
+    }
+  }
+
+  return null;
+}
+
+function ensureInitiativeBreakdownIdeaContext(config: WorkspaceConfig, claudeMdContent: string): string {
+  const isBreakdownRole = config.role === "project-architect" || config.role === "initiative-breakdown";
+  if (!isBreakdownRole || !config.ideaId) return claudeMdContent;
+
+  const contextMarker = "Task context:";
+  const markerIndex = claudeMdContent.indexOf(contextMarker);
+  const fallbackTitle = `Idea ${config.ideaId}`;
+  const requiredContext = {
+    type: "idea_pipeline_job",
+    stage: "initiative-breakdown",
+    idea_id: config.ideaId,
+    title: fallbackTitle,
+    company_id: config.companyId ?? "",
+  };
+
+  if (markerIndex === -1) {
+    const separator = claudeMdContent.endsWith("\n") ? "\n" : "\n\n";
+    return `${claudeMdContent}${separator}${contextMarker}\n${JSON.stringify(requiredContext, null, 2)}`;
+  }
+
+  const bounds = findJsonObjectBounds(claudeMdContent, markerIndex + contextMarker.length);
+  if (!bounds) return claudeMdContent;
+
+  const jsonSlice = claudeMdContent.slice(bounds.start, bounds.end);
+  try {
+    const parsed = JSON.parse(jsonSlice) as Record<string, unknown>;
+    const merged = {
+      ...parsed,
+      type: "idea_pipeline_job",
+      stage: "initiative-breakdown",
+      idea_id: config.ideaId,
+      title: typeof parsed["title"] === "string" && parsed["title"].trim().length > 0 ? parsed["title"] : fallbackTitle,
+      company_id: typeof parsed["company_id"] === "string" && parsed["company_id"].trim().length > 0
+        ? parsed["company_id"]
+        : (config.companyId ?? ""),
+    };
+    return `${claudeMdContent.slice(0, bounds.start)}${JSON.stringify(merged, null, 2)}${claudeMdContent.slice(bounds.end)}`;
+  } catch {
+    return claudeMdContent;
+  }
 }
 
 /**
@@ -507,9 +594,10 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
   const claudeMdContent = config.heartbeatMd !== undefined
     ? withPersistentMemorySystemSection(config.claudeMdContent)
     : config.claudeMdContent;
+  const normalizedClaudeMdContent = ensureInitiativeBreakdownIdeaContext(config, claudeMdContent);
   writeFileSync(
     join(config.workspaceDir, "CLAUDE.md"),
-    claudeMdContent,
+    normalizedClaudeMdContent,
   );
 
   // 3b. Write HEARTBEAT.md for persistent execs, even when blank, so resets

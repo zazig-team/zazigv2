@@ -1,6 +1,6 @@
 status: pass
-summary: Added Supabase migration 254 to idempotently add nullable `last_job_type TEXT` to `public.ideas` for resume job-type tracking.
+summary: Added initiative-breakdown/project-architect MCP default tool wiring in workspace setup, added a dedicated breakdown tool constant, and normalized initiative-breakdown Task context in CLAUDE.md to include type/stage/idea_id/title/company_id.
 files_changed:
-  - supabase/migrations/254_ideas_last_job_type.sql
+  - packages/local-agent/src/workspace.ts
   - .reports/junior-engineer-report.md
-failure_reason: 
+failure_reason: n/a

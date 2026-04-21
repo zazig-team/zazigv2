@@ -582,7 +582,7 @@ interface ActivePersistentAgent {
   jobId: string;
   companyId: string;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
-  /** Timestamp (ms) when the session was spawned — used to gate startup delay. */
+  /** Timestamp (ms) when the session was spawned for idea/triage handling — used to gate startup delay. */
   startedAt: number;
   lastActivityAt: number;
   lastOutputHash: string;
@@ -937,11 +937,18 @@ export class JobExecutor {
     const cardType = msg.cardType as string;
     // idea-triage role: uses the triage agent execution path (triage-analyst role)
     const isIdeaTriageJob = cardType === "idea-triage";
-    const roleName = msg.role ?? (isIdeaTriageJob ? "triage-analyst" : "senior-engineer");
-    const ideaId = isIdeaTriageJob ? resolveIdeaId(msg) : undefined;
+    // initiative-breakdown role: defaults to project-architect.
+    const isInitiativeBreakdownJob = cardType === "initiative-breakdown";
+    const roleName = msg.role
+      ?? (isIdeaTriageJob
+        ? "triage-analyst"
+        : isInitiativeBreakdownJob
+          ? "project-architect"
+          : "senior-engineer");
+    const ideaId = (isIdeaTriageJob || isInitiativeBreakdownJob) ? resolveIdeaId(msg) : undefined;
     // ZAZIG_IDEA_ID is forwarded to the workspace MCP env from ideaId
     if (ideaId) {
-      console.log(`[executor] idea-triage job: ZAZIG_IDEA_ID=${ideaId}`);
+      console.log(`[executor] ${cardType} job: ZAZIG_IDEA_ID=${ideaId}`);
     }
     const roleSkills = ensureRoleSkills(roleName, msg.roleSkills);
 
@@ -2662,9 +2669,12 @@ export class JobExecutor {
     const alive = await isTmuxSessionAlive(job.sessionName);
     jobLog(jobId, `pollJob — session=${job.sessionName}, alive=${alive}`);
 
-    // For idea-triage jobs: check on_hold status — if the idea is placed on hold,
-    // kill the triage agent and stop the job cleanly so capacity is released.
-    if (alive && job.ideaId && job.cardType === "idea-triage") {
+    // For idea-triage / initiative-breakdown jobs: check on_hold status.
+    // If the idea is placed on hold, kill the session and stop cleanly so
+    // capacity is released.
+    const isIdeaTriageJob = job.cardType === "idea-triage";
+    const isInitiativeBreakdownJob = job.cardType === "initiative-breakdown";
+    if (alive && job.ideaId && (isIdeaTriageJob || isInitiativeBreakdownJob)) {
       try {
         const { data: ideaRow } = await this.supabase
           .from("ideas")
@@ -2672,10 +2682,11 @@ export class JobExecutor {
           .eq("id", job.ideaId)
           .single();
         if (ideaRow?.on_hold) {
-          jobLog(jobId, `idea on_hold=true — stopping triage job for ideaId=${job.ideaId}`);
-          console.log(`[executor] idea-triage job ${jobId}: on_hold detected, killing session`);
+          const cardTypeLabel = isIdeaTriageJob ? "idea-triage" : "initiative-breakdown";
+          jobLog(jobId, `idea on_hold=true — stopping ${cardTypeLabel} job for ideaId=${job.ideaId}`);
+          console.log(`[executor] ${cardTypeLabel} job ${jobId}: on_hold detected, killing session`);
           await killTmuxSession(job.sessionName);
-          await this.sendJobFailed(jobId, "Idea placed on hold — triage job stopped", "unknown");
+          await this.sendJobFailed(jobId, `Idea placed on hold — ${cardTypeLabel} job stopped`, "unknown");
           await this.settleJob(jobId);
           return;
         }

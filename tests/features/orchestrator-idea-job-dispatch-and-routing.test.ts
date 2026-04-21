@@ -229,6 +229,16 @@ describe("AC7: Completed initiative-breakdown jobs move idea to 'spawned'", () =
       "Expected 'spawned' status assignment near 'initiative-breakdown' job type reference.",
     ).not.toBeNull();
   });
+
+  it("transitions parent idea from breaking_down to spawned on completed initiative-breakdown jobs", () => {
+    const transitionBlock = orchestratorSource.match(
+      /row\.job_type\s*===\s*["']initiative-breakdown["'][\s\S]{0,500}transitionIdeaStatusIfExpected\([\s\S]{0,300}["']breaking_down["'][\s\S]{0,160}["']spawned["']/is,
+    );
+    expect(
+      transitionBlock,
+      "Expected completion watcher to call transitionIdeaStatusIfExpected(..., 'breaking_down', 'spawned') for initiative-breakdown jobs.",
+    ).not.toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -286,6 +296,16 @@ describe('AC9: No double-dispatch — atomic status transitions prevent duplicat
   it('checks for an existing active job before creating a new one per idea', () => {
     // One active job per idea: the orchestrator must guard against creating a duplicate
     expect(orchestratorSource).toMatch(/active.*job.*idea|idea.*active.*job|already.*job|job.*idea_id/i);
+  });
+
+  it("initiative-breakdown route goes through dispatchIdeaStageJob, which applies hasActiveJobForIdea guard", () => {
+    const initiativeRouteBlock = orchestratorSource.match(
+      /if\s*\(ideaType\s*===\s*["']initiative["']\)[\s\S]{0,600}dispatchIdeaStageJob\([\s\S]{0,400}jobType:\s*["']initiative-breakdown["']/is,
+    );
+    expect(initiativeRouteBlock).not.toBeNull();
+    expect(orchestratorSource).toMatch(
+      /async function dispatchIdeaStageJob[\s\S]{0,1200}hasActiveJobForIdea\(/,
+    );
   });
 });
 

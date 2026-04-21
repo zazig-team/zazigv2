@@ -3581,6 +3581,7 @@ interface IdeaPipelineDispatchCandidateRow {
 
 interface EnrichedIdeaRoutingRow extends IdeaPipelineDispatchCandidateRow {
   type: string | null;
+  status: string;
 }
 
 interface CompletedIdeaStageJobRow {
@@ -3601,7 +3602,7 @@ const IDEA_PIPELINE_ACTIVE_JOB_STATUSES = [
 
 const DEFAULT_IDEA_PIPELINE_CONCURRENT_CAPS: Record<IdeaPipelineJobType, number> = {
   "idea-triage": 3,
-  "task-execute": 2,
+  "task-execute": 3,
   "initiative-breakdown": 2,
 };
 
@@ -3817,9 +3818,13 @@ async function dispatchIdeaStageJob(
   );
   if (!transitioned) return false;
 
+  const normalizedTitlePrefix = (() => {
+    const trimmedPrefix = titlePrefix.trimEnd();
+    return trimmedPrefix.endsWith(":") ? trimmedPrefix : `${trimmedPrefix}:`;
+  })();
   const title = idea.title?.trim().length
-    ? `${titlePrefix}: ${idea.title?.trim()}`
-    : `${titlePrefix}: ${idea.id}`;
+    ? `${normalizedTitlePrefix} ${idea.title?.trim()}`
+    : `${normalizedTitlePrefix} ${idea.id}`;
   const context = buildIdeaJobContext(jobType, idea);
 
   const { data: insertedJob, error: insertErr } = await supabase
@@ -3924,15 +3929,15 @@ async function watchEnrichedIdeasForRouting(
 ): Promise<void> {
   const { data: enrichedIdeas, error } = await supabase
     .from("ideas")
-    .select("id, company_id, project_id, title, description, raw_text, type, last_job_type")
-    .eq("status", "enriched")
+    .select("id, company_id, project_id, title, description, raw_text, type, status, last_job_type")
+    .in("status", ["triaged", "enriched"])
     .eq("on_hold", false)
     .order("updated_at", { ascending: true })
     .limit(100);
 
   if (error) {
     console.error(
-      `[orchestrator] idea-pipeline enriched-watch: failed to query enriched ideas: ${error.message}`,
+      `[orchestrator] idea-pipeline enriched-watch: failed to query triaged/enriched ideas: ${error.message}`,
     );
     return;
   }
@@ -3944,6 +3949,7 @@ async function watchEnrichedIdeasForRouting(
   const companyProjectCache = new Map<string, string | null>();
 
   for (const idea of enrichedIdeas as EnrichedIdeaRoutingRow[]) {
+    const routingStatus = idea.status === "triaged" ? "triaged" : "enriched";
     const ideaType = idea.type?.trim().toLowerCase();
     if (ideaType === "bug" || ideaType === "feature") {
       const alreadyHasActiveJob = await hasActiveJobForIdea(
@@ -3961,7 +3967,7 @@ async function watchEnrichedIdeasForRouting(
       const transitioned = await transitionIdeaStatusIfExpected(
         supabase,
         idea.id,
-        "enriched",
+        routingStatus,
         "routed",
       );
       if (!transitioned) continue;
@@ -3970,7 +3976,12 @@ async function watchEnrichedIdeasForRouting(
         await resolveCompanyActiveProjectId(supabase, idea.company_id, companyProjectCache);
 
       if (!projectId) {
-        await transitionIdeaStatusIfExpected(supabase, idea.id, "routed", "enriched");
+        await transitionIdeaStatusIfExpected(
+          supabase,
+          idea.id,
+          "routed",
+          routingStatus,
+        );
         continue;
       }
 
@@ -3995,22 +4006,40 @@ async function watchEnrichedIdeasForRouting(
         console.error(
           `[orchestrator] idea-pipeline enriched-watch: promote-idea failed for ${idea.id}: ${response.status} ${text}`,
         );
-        await transitionIdeaStatusIfExpected(supabase, idea.id, "routed", "enriched");
+        await transitionIdeaStatusIfExpected(
+          supabase,
+          idea.id,
+          "routed",
+          routingStatus,
+        );
       }
       continue;
     }
 
     if (ideaType === "task") {
-      await dispatchIdeaStageJob(supabase, {
-        idea,
-        jobType: "task-execute",
-        role: "senior-engineer",
-        expectedStatus: "enriched",
-        nextStatus: "executing",
-        titlePrefix: "Task execute",
-        capsCache,
-        activeCountsCache,
-      });
+      if (routingStatus === "triaged") {
+        await dispatchIdeaStageJob(supabase, {
+          idea,
+          jobType: "task-execute",
+          role: "task-executor",
+          expectedStatus: "triaged",
+          nextStatus: "executing",
+          titlePrefix: "Task: ",
+          capsCache,
+          activeCountsCache,
+        });
+      } else {
+        await dispatchIdeaStageJob(supabase, {
+          idea,
+          jobType: "task-execute",
+          role: "task-executor",
+          expectedStatus: "enriched",
+          nextStatus: "executing",
+          titlePrefix: "Task: ",
+          capsCache,
+          activeCountsCache,
+        });
+      }
       continue;
     }
 
@@ -4019,7 +4048,7 @@ async function watchEnrichedIdeasForRouting(
         idea,
         jobType: "initiative-breakdown",
         role: "project-architect",
-        expectedStatus: "enriched",
+        expectedStatus: routingStatus,
         nextStatus: "breaking_down",
         titlePrefix: "Initiative breakdown",
         capsCache,

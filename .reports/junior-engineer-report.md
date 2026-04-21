@@ -1,7 +1,6 @@
 status: pass
-summary: Added a minimal company-project lookup utility that resolves companies.company_project_id to projects.repo_url and wired executor CI-monitor flows to use it as the canonical/fallback repo URL source.
+summary: Implemented migration 251 to enable RLS on idea_messages with authenticated company-scoped SELECT and INSERT policies, relying on service_role bypass for job writes.
 files_changed:
-  - packages/local-agent/src/company-project.ts
-  - packages/local-agent/src/executor.ts
+  - supabase/migrations/253_idea_messages_rls.sql
   - .reports/junior-engineer-report.md
 failure_reason:

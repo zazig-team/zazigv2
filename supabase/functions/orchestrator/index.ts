@@ -31,6 +31,7 @@ import type {
 
 import {
   agentChannelName,
+  fetchIdeaConversationHistory,
   generateTitle,
   injectProjectRulesIntoContext,
   notifyCPO,
@@ -3264,6 +3265,208 @@ async function refreshPipelineSnapshotCache(
 }
 
 // ---------------------------------------------------------------------------
+// Awaiting-response resume: create a follow-up job when user replies in chat
+// ---------------------------------------------------------------------------
+
+interface AwaitingResponseIdeaRow {
+  id: string;
+  company_id: string;
+  project_id: string | null;
+  title: string | null;
+  updated_at: string;
+}
+
+interface ResumeReferenceJobRow {
+  feature_id: string | null;
+  project_id: string | null;
+  branch: string | null;
+  role: string | null;
+  model: string | null;
+  slot_type: SlotType | null;
+}
+
+function buildResumeJobContext(
+  ideaId: string,
+  conversationHistory: string,
+): string {
+  const lines = [
+    `Resume work on this idea. The user has replied. Read the full conversation history from idea_messages (GET /idea-messages?idea_id=${ideaId}) to reconstruct context, then continue from where the previous job left off.`,
+    `First step: fetch GET /idea-messages?idea_id=${ideaId} before making any code changes.`,
+  ];
+
+  if (conversationHistory.trim().length > 0) {
+    lines.push(`Recent idea_messages conversation history:\n${conversationHistory}`);
+  } else {
+    lines.push("Recent idea_messages conversation history: (no messages found)");
+  }
+
+  return lines.join("\n\n");
+}
+
+async function resumeAwaitingResponseIdeas(
+  supabase: SupabaseClient,
+): Promise<void> {
+  const { data: awaitingIdeas, error: awaitingErr } = await supabase
+    .from("ideas")
+    .select("id, company_id, project_id, title, updated_at")
+    .eq("status", "awaiting_response")
+    .order("updated_at", { ascending: true })
+    .limit(100);
+
+  if (awaitingErr) {
+    console.error(
+      `[orchestrator] resume-awaiting-response: failed to query awaiting_response ideas: ${awaitingErr.message}`,
+    );
+    return;
+  }
+
+  if (!awaitingIdeas?.length) return;
+
+  for (const idea of awaitingIdeas as AwaitingResponseIdeaRow[]) {
+    const { data: newUserReplies, error: replyErr } = await supabase
+      .from("idea_messages")
+      .select("id")
+      .eq("idea_id", idea.id)
+      .eq("sender", "user")
+      .gt("created_at", idea.updated_at)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (replyErr) {
+      console.error(
+        `[orchestrator] resume-awaiting-response: failed checking user replies for idea ${idea.id}: ${replyErr.message}`,
+      );
+      continue;
+    }
+
+    if (!newUserReplies || newUserReplies.length === 0) continue;
+
+    const { data: activeIdeaJobs, error: activeJobsErr } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("idea_id", idea.id)
+      .in("status", ["created", "queued", "executing"])
+      .limit(1);
+
+    if (activeJobsErr) {
+      console.error(
+        `[orchestrator] resume-awaiting-response: failed checking active jobs for idea ${idea.id}: ${activeJobsErr.message}`,
+      );
+      continue;
+    }
+
+    if (activeIdeaJobs && activeIdeaJobs.length > 0) continue;
+
+    const { data: previousJobs, error: previousJobsErr } = await supabase
+      .from("jobs")
+      .select("feature_id, project_id, branch, role, model, slot_type")
+      .eq("idea_id", idea.id)
+      .order("created_at", { ascending: false })
+      .limit(25);
+
+    if (previousJobsErr) {
+      console.error(
+        `[orchestrator] resume-awaiting-response: failed loading previous jobs for idea ${idea.id}: ${previousJobsErr.message}`,
+      );
+      continue;
+    }
+
+    const resumeReferenceJobs =
+      (previousJobs as ResumeReferenceJobRow[] | null) ?? [];
+    const latestReferenceJob = resumeReferenceJobs[0] ?? null;
+
+    const resolvedProjectId = idea.project_id ??
+      resumeReferenceJobs.find((job) =>
+        typeof job.project_id === "string" && job.project_id.length > 0
+      )?.project_id ?? null;
+
+    if (!resolvedProjectId) {
+      console.warn(
+        `[orchestrator] resume-awaiting-response: skipping idea ${idea.id} because project_id is missing`,
+      );
+      continue;
+    }
+
+    const conversationHistory = await fetchIdeaConversationHistory(
+      supabase,
+      idea.id,
+      100,
+    );
+    const resumeContext = buildResumeJobContext(idea.id, conversationHistory);
+
+    const ideaExecutingStatus = "executing" as const;
+    const { data: resumedIdeas, error: resumeErr } = await supabase
+      .from("ideas")
+      .update({ status: ideaExecutingStatus })
+      .eq("id", idea.id)
+      .eq("status", "awaiting_response")
+      .eq("updated_at", idea.updated_at)
+      .select("id");
+
+    if (resumeErr) {
+      console.error(
+        `[orchestrator] resume-awaiting-response: failed transitioning idea ${idea.id} to executing: ${resumeErr.message}`,
+      );
+      continue;
+    }
+
+    if (!resumedIdeas || resumedIdeas.length === 0) {
+      continue;
+    }
+
+    const trimmedTitle = typeof idea.title === "string" ? idea.title.trim() : "";
+    const resumeTitle = trimmedTitle.length > 0
+      ? `Resume: ${trimmedTitle}`
+      : `Resume: ${idea.id}`;
+
+    const insertPayload: Record<string, unknown> = {
+      company_id: idea.company_id,
+      project_id: resolvedProjectId,
+      feature_id: latestReferenceJob?.feature_id ?? null,
+      idea_id: idea.id,
+      title: resumeTitle,
+      job_type: "code",
+      complexity: "medium",
+      status: "created",
+      context: resumeContext,
+    };
+
+    const resumeBranch = resumeReferenceJobs.find((job) =>
+      typeof job.branch === "string" && job.branch.length > 0
+    )?.branch;
+    if (resumeBranch) insertPayload.branch = resumeBranch;
+    if (latestReferenceJob?.role) insertPayload.role = latestReferenceJob.role;
+    if (latestReferenceJob?.model) insertPayload.model = latestReferenceJob.model;
+    if (latestReferenceJob?.slot_type) {
+      insertPayload.slot_type = latestReferenceJob.slot_type;
+    }
+
+    const { data: resumeJob, error: insertErr } = await supabase
+      .from("jobs")
+      .insert(insertPayload)
+      .select("id")
+      .single();
+
+    if (insertErr || !resumeJob) {
+      console.error(
+        `[orchestrator] resume-awaiting-response: failed creating resume job for idea ${idea.id}: ${insertErr?.message ?? "unknown error"}`,
+      );
+
+      await supabase
+        .from("ideas")
+        .update({ status: "awaiting_response" })
+        .eq("id", idea.id)
+        .eq("status", "executing");
+      continue;
+    }
+
+    console.log(
+      `[orchestrator] resume-awaiting-response: created resume job ${resumeJob.id} for idea ${idea.id}`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Auto-triage: dispatch triage jobs for new ideas in auto_triage companies
 // ---------------------------------------------------------------------------
 
@@ -4948,28 +5151,31 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 4b. Analyze newly completed/failed jobs and persist log-derived error analysis.
     await analyzeRecentlyCompletedJobs(supabase);
 
-    // 5. Dispatch queued jobs to available machines.
+    // 5. Resume awaiting_response ideas when a user replies in idea_messages.
+    await resumeAwaitingResponseIdeas(supabase);
+
+    // 6. Dispatch queued jobs to available machines.
     await dispatchQueuedJobs(supabase);
 
-    // 5b. Recover ideas stuck at 'triaging' with no active triage job (orphan protection).
+    // 6b. Recover ideas stuck at 'triaging' with no active triage job (orphan protection).
     await recoverStaleTriagingIdeas(supabase);
 
-    // 5c. Recover ideas stuck at 'developing' in broken spec/review chains.
+    // 6c. Recover ideas stuck at 'developing' in broken spec/review chains.
     await recoverStaleDevelopingIdeas(supabase);
 
-    // 5d. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
+    // 6d. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
     await autoTriageNewIdeas(supabase);
 
-    // 5e. Auto-enrich: dispatch enrichment jobs for incomplete triaged ideas.
+    // 6e. Auto-enrich: dispatch enrichment jobs for incomplete triaged ideas.
     await autoEnrichIncompleteTriagedIdeas(supabase);
 
-    // 5f. Auto-spec: dispatch/continue spec session chains for develop-routed ideas.
+    // 6f. Auto-spec: dispatch/continue spec session chains for develop-routed ideas.
     await autoSpecTriagedIdeas(supabase);
 
-    // 5g. Auto-promote: create features from triaged(promote) and specced ideas.
+    // 6g. Auto-promote: create features from triaged(promote) and specced ideas.
     await autoPromoteTriagedIdeas(supabase);
 
-    // 6. Refresh pipeline snapshot cache after all state mutations.
+    // 7. Refresh pipeline snapshot cache after all state mutations.
     await refreshPipelineSnapshotCache(supabase);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

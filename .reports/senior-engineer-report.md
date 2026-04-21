@@ -1,7 +1,6 @@
 status: pass
-summary: Multiple migrations implemented — (1) migration 247 to create the idempotent idea_messages schema, index, and Supabase Realtime publication wiring within a transaction; (2) migration 249 to add `ideas.on_hold`, add nullable `ideas.type` with a type check constraint, and replace `ideas_status_check` with the full existing-plus-new pipeline status set using idempotent patterns.
+summary: Implemented orchestrator resume detection for awaiting_response ideas by detecting post-awaiting user replies, transitioning ideas back to executing, and creating guarded resume code jobs with conversation-history context instructions.
 files_changed:
-  - supabase/migrations/247_idea_messages_table.sql
-  - supabase/migrations/249_ideas_pipeline_columns.sql
-  - .reports/senior-engineer-report.md
+  - supabase/functions/orchestrator/index.ts
+  - supabase/functions/_shared/pipeline-utils.ts
 failure_reason: ""

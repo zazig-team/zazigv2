@@ -355,8 +355,7 @@ const NO_CODE_CONTEXT_ROLES = new Set([
   "pipeline-technician",
   "monitoring-agent",
   "project-architect",
-  "triage-analyst",
-  "idea-triage", // idea-triage role: triage agent runs in ephemeral workspace, not a git worktree
+  "triage-analyst", // triage-analyst is the idea-triage role agent — runs in ephemeral workspace
 ]);
 
 const IDEA_ID_SNAKE_CASE_PATTERN = /"idea_id"\s*:\s*"([^"]+)"/i;
@@ -936,9 +935,9 @@ export class JobExecutor {
 
     const isInteractive = msg.interactive === true;
     const cardType = msg.cardType as string;
-    // idea-triage role: uses the idea-triage triage agent execution path
+    // idea-triage role: uses the triage agent execution path (triage-analyst role)
     const isIdeaTriageJob = cardType === "idea-triage";
-    const roleName = msg.role ?? (isIdeaTriageJob ? "idea-triage" : "senior-engineer");
+    const roleName = msg.role ?? (isIdeaTriageJob ? "triage-analyst" : "senior-engineer");
     const ideaId = isIdeaTriageJob ? resolveIdeaId(msg) : undefined;
     // ZAZIG_IDEA_ID is forwarded to the workspace MCP env from ideaId
     if (ideaId) {
@@ -2856,7 +2855,7 @@ export class JobExecutor {
     // the committed diff before completing. Only applies to codex jobs with a
     // worktree (code-context jobs). Skip for non-code roles that don't have
     // specs/acceptance criteria (ci-checker, reviewer, job-merger, etc.).
-    const SKIP_REVIEW_ROLES = new Set(["ci-checker", "reviewer", "job-merger", "triage-analyst", "idea-triage"]);
+    const SKIP_REVIEW_ROLES = new Set(["ci-checker", "reviewer", "job-merger", "triage-analyst"]);
     if (job.slotType === "codex" && job.worktreePath && !SKIP_REVIEW_ROLES.has(job.role ?? "")) {
       let reviewResult: Awaited<ReturnType<typeof runCodexReview>>;
       try {

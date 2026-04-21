@@ -31,6 +31,39 @@ No `package.json` changes needed — `tests/package.json` uses `vitest run` whic
 
 ---
 
+## Test files created (task-execute-job-type feature 66e23dd9)
+
+### tests/features/task-execute-job-type-local-agent.test.ts — 13 test cases
+Static analysis of `packages/local-agent/src/executor.ts` and `workspace.ts` for executor-level handling.
+
+| Describe block | Tests | Acceptance Criterion |
+|---|---|---|
+| Local agent recognizes 'task-execute' as a valid job type | 4 | executor.ts references task-execute, branches on cardType, launches role |
+| Executor passes ZAZIG_IDEA_ID to task-execute agent | 2 | ZAZIG_IDEA_ID env var set from idea_id for task-execute jobs |
+| Executor handles on_hold suspend/resume | 2 | on_hold polling, clean exit on suspend |
+| task-execute uses appropriate capacity slot | 1 | slot allocation strategy present |
+| workspace.ts includes task-execute in ROLE_DEFAULT_MCP_TOOLS | 3 | ask_user and update_idea tools granted |
+| Executor defaults task-execute jobs to task-executor role | 2 | role defaulting, ideaId forwarding |
+
+### tests/features/task-execute-job-type-agent-role.test.ts — 18 test cases
+Static analysis of agent role prompt, MCP tools, edge function, and orchestrator.
+
+| Describe block | Tests | Acceptance Criterion |
+|---|---|---|
+| Agent reads enriched idea content and conversation history | 3 | spec/description, idea_messages, repo_url lookup |
+| Agent generates HTML presentations | 2 | HTML output, sales/decks or marketing directory |
+| Agent commits output to correct repo directory | 3 | research/, docs/, descriptive commit message |
+| update_idea MCP tool supports output_path field | 2 | output_path field in update_idea schema |
+| update-idea edge function supports output fields | 4 | output_path handled, does not block executing status |
+| ask_user works during task-execute for clarifications | 2 | ask_user accessible, awaiting_response timeout path |
+| Orchestrator sets idea to 'done' when job completes | 3 | task-execute referenced, done status set |
+
+**Total: 31 test cases across 2 files. All written to FAIL until task-execute job type is implemented.**
+
+No `package.json` changes needed — `tests/vitest.config.ts` uses vitest which discovers tests/features/ recursively.
+
+---
+
 ## Test files created (orchestrator-suspend-resume-via-realtime feature a94ca129)
 
 ### `tests/features/orchestrator-suspend-resume-via-realtime.test.ts` — 23 test cases

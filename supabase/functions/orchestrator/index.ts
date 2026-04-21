@@ -3841,8 +3841,20 @@ async function watchEnrichedIdeasForRouting(
   const companyProjectCache = new Map<string, string | null>();
 
   for (const idea of enrichedIdeas as EnrichedIdeaRoutingRow[]) {
-    const ideaType = idea.type?.trim();
+    const ideaType = idea.type?.trim().toLowerCase();
     if (ideaType === "bug" || ideaType === "feature") {
+      const alreadyHasActiveJob = await hasActiveJobForIdea(
+        supabase,
+        idea.company_id,
+        idea.id,
+      );
+      if (alreadyHasActiveJob) {
+        console.log(
+          `[orchestrator] idea-pipeline: skipping promote-idea for idea ${idea.id} (already has active job)`,
+        );
+        continue;
+      }
+
       const transitioned = await transitionIdeaStatusIfExpected(
         supabase,
         idea.id,

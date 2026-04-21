@@ -35,6 +35,7 @@ describe("generateAllowedTools", () => {
       "mcp__zazig-messaging__query_projects",
       "mcp__zazig-messaging__create_decision",
       "mcp__zazig-messaging__start_expert_session",
+      "mcp__zazig-messaging__ask_user",
     ]);
   });
 
@@ -47,6 +48,7 @@ describe("generateAllowedTools", () => {
       "Glob",
       "Grep",
       "mcp__zazig-messaging__query_features",
+      "mcp__zazig-messaging__ask_user",
     ]);
   });
 
@@ -74,6 +76,7 @@ describe("generateAllowedTools", () => {
       "Glob",
       "Grep",
       "mcp__zazig-messaging__create_project_rule",
+      "mcp__zazig-messaging__ask_user",
     ]);
   });
 

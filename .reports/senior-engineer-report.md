@@ -1,6 +1,8 @@
 status: pass
-summary: Refactored awaiting-response resume flow to use a reusable single-idea resume helper, added a timed Supabase Realtime idea_messages subscription fast path, and integrated it with always-on polling fallback in the orchestrator cycle.
+summary: Added triage-analyst MCP defaults and wired idea-triage executor handling to extract and forward idea_id into workspace MCP env while preserving non-code triage dispatch.
 files_changed:
-  - supabase/functions/orchestrator/index.ts
-  - .reports/senior-engineer-report.md
-failure_reason:
+  - packages/local-agent/src/workspace.ts
+  - packages/local-agent/src/workspace.test.ts
+  - packages/local-agent/src/executor.ts
+  - packages/local-agent/src/executor.test.ts
+failure_reason: ""

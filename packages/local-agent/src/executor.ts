@@ -358,6 +358,42 @@ const NO_CODE_CONTEXT_ROLES = new Set([
   "triage-analyst",
 ]);
 
+const IDEA_ID_SNAKE_CASE_PATTERN = /"idea_id"\s*:\s*"([^"]+)"/i;
+const IDEA_ID_CAMEL_CASE_PATTERN = /"ideaId"\s*:\s*"([^"]+)"/;
+
+function normalizeIdeaId(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function extractIdeaIdFromText(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const fromSnakeCase = normalizeIdeaId(parsed["idea_id"]);
+    if (fromSnakeCase) return fromSnakeCase;
+    return normalizeIdeaId(parsed["ideaId"]);
+  } catch {
+    const snakeCaseMatch = text.match(IDEA_ID_SNAKE_CASE_PATTERN);
+    if (snakeCaseMatch?.[1]) return snakeCaseMatch[1].trim();
+
+    const camelCaseMatch = text.match(IDEA_ID_CAMEL_CASE_PATTERN);
+    if (camelCaseMatch?.[1]) return camelCaseMatch[1].trim();
+  }
+
+  return undefined;
+}
+
+function resolveIdeaId(msg: StartJob): string | undefined {
+  const withIdeaFields = msg as StartJob & { idea_id?: unknown; ideaId?: unknown };
+  return normalizeIdeaId(withIdeaFields.idea_id)
+    ?? normalizeIdeaId(withIdeaFields.ideaId)
+    ?? extractIdeaIdFromText(msg.context)
+    ?? extractIdeaIdFromText(msg.promptStackMinusSkills);
+}
+
 
 /** Delay after CPO session spawn before allowing message injection (Claude Code startup). */
 const CPO_STARTUP_DELAY_MS = 15_000;
@@ -896,7 +932,10 @@ export class JobExecutor {
     await this.sendJobAck(jobId);
 
     const isInteractive = msg.interactive === true;
-    const roleName = msg.role ?? "senior-engineer";
+    const cardType = msg.cardType as string;
+    const isIdeaTriageJob = cardType === "idea-triage";
+    const roleName = msg.role ?? (isIdeaTriageJob ? "triage-analyst" : "senior-engineer");
+    const ideaId = isIdeaTriageJob ? resolveIdeaId(msg) : undefined;
     const roleSkills = ensureRoleSkills(roleName, msg.roleSkills);
 
     const repoRoot = resolveRepoRoot();
@@ -1029,6 +1068,7 @@ export class JobExecutor {
         supabaseUrl: this.supabaseUrl,
         supabaseAnonKey: this.supabaseAnonKey,
         jobId,
+        ideaId,
         companyId: this.companyId,
         role: roleName,
         claudeMdContent: cpoContext,
@@ -2784,7 +2824,7 @@ export class JobExecutor {
     // the committed diff before completing. Only applies to codex jobs with a
     // worktree (code-context jobs). Skip for non-code roles that don't have
     // specs/acceptance criteria (ci-checker, reviewer, job-merger, etc.).
-    const SKIP_REVIEW_ROLES = new Set(["ci-checker", "reviewer", "job-merger"]);
+    const SKIP_REVIEW_ROLES = new Set(["ci-checker", "reviewer", "job-merger", "triage-analyst"]);
     if (job.slotType === "codex" && job.worktreePath && !SKIP_REVIEW_ROLES.has(job.role ?? "")) {
       let reviewResult: Awaited<ReturnType<typeof runCodexReview>>;
       try {

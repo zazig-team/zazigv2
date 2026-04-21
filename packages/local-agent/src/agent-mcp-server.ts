@@ -113,6 +113,80 @@ server.tool(
 );
 
 server.tool(
+  "ask_user",
+  "Ask the user a question in idea_messages. Inserts sender='job' with job_id, then waits for sender='user' via Realtime subscribe (channel) with polling fallback every 4000ms. If no reply within 600000ms, the idea is set to awaiting_response and timeout is returned.",
+  {
+    idea_id: z.string().describe("Idea UUID that owns the message thread"),
+    question: z.string().describe("Question to ask the user"),
+  },
+  guardedHandler("ask_user", async ({ idea_id, question }) => {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    const jobId = process.env.ZAZIG_JOB_ID ?? "";
+    const ASK_USER_TIMEOUT_MS = 600_000;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        content: [{ type: "text" as const, text: "Error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required" }],
+        isError: true,
+      };
+    }
+
+    if (!jobId) {
+      return {
+        content: [{ type: "text" as const, text: "Error: ZAZIG_JOB_ID is required for ask_user" }],
+        isError: true,
+      };
+    }
+
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(), ASK_USER_TIMEOUT_MS + 15_000);
+
+    try {
+      const response = await fetch(`${supabaseUrl}/functions/v1/ask-user`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${supabaseAnonKey}`,
+        },
+        body: JSON.stringify({ idea_id, question, job_id: jobId }),
+        signal: controller.signal,
+      });
+
+      if (response.ok) {
+        const data = await response.json() as
+          | { reply: string }
+          | { timeout: true; message: string };
+
+        if ("timeout" in data && data.timeout) {
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(data) }],
+          };
+        }
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(data) }],
+        };
+      }
+
+      const errorBody = await response.text().catch(() => "unknown error");
+      return {
+        content: [{ type: "text" as const, text: `Failed to ask user (HTTP ${response.status}): ${errorBody}` }],
+        isError: true,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{ type: "text" as const, text: `Failed to ask user: ${msg}` }],
+        isError: true,
+      };
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+  }),
+);
+
+server.tool(
   "create_feature",
   "Create a new feature and immediately queue it for breakdown into jobs. Include spec and acceptance_tests so the Breakdown Specialist can start work — no separate update_feature call needed.",
   {

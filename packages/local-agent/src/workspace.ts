@@ -156,13 +156,13 @@ const STANDARD_TOOLS = [
  * is provided. These match the roles' expected DB-level permissions.
  */
 const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
-  "cpo": ["query_projects", "create_decision", "start_expert_session"],
-  "breakdown-specialist": ["query_features"],
-  "senior-engineer": ["create_project_rule"],
-  "junior-engineer": ["create_project_rule"],
-  "job-combiner": ["create_project_rule"],
-  "test-engineer": ["create_project_rule"],
-  "fix-agent": ["create_project_rule"],
+  "cpo": ["query_projects", "create_decision", "start_expert_session", "ask_user"],
+  "breakdown-specialist": ["query_features", "ask_user"],
+  "senior-engineer": ["create_project_rule", "ask_user"],
+  "junior-engineer": ["create_project_rule", "ask_user"],
+  "job-combiner": ["create_project_rule", "ask_user"],
+  "test-engineer": ["create_project_rule", "ask_user"],
+  "fix-agent": ["create_project_rule", "ask_user"],
 };
 
 const MEMORY_MAINTENANCE_SECTION = `## Memory Maintenance

@@ -1,5 +1,22 @@
 status: pass
 
+## Test files created (company-project-setup feature fe10afa9)
+
+### `tests/features/company-project-setup.test.ts` — 10 test cases
+
+| Describe block | Tests | Acceptance Criterion |
+|---|---|---|
+| AC1: Project record inserted for zazig-dev | 4 | Project in projects table with status, repo_url, name |
+| AC2: companies.company_project_id set for zazig-dev | 3 | UPDATE companies sets company_project_id for 00000000-0000-0000-0000-000000000001 |
+| AC3: company_project_id queryable → project repo_url | 2 | Both INSERT and UPDATE exist; INSERT is idempotent |
+| AC4: repo_url under zazig-team GitHub org | 1 | URL matches https://github.com/zazig-team/ |
+| AC5: Repo folder structure documented | 1 | sales/, marketing/, research/, docs/ referenced in migration or setup script |
+
+All 10 tests fail against current codebase — migration 250 adds the schema column but inserts no data.
+No `package.json` changes needed — `tests/package.json` uses `vitest run` which discovers recursively.
+
+---
+
 ## Test files created (schema-idea-pipeline-foundations feature 00b1634e)
 
 ### `tests/features/schema-idea-pipeline-foundations.test.ts` — 42 test cases

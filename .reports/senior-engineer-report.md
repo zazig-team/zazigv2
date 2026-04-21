@@ -1,15 +1,6 @@
 status: pass
-summary: Implemented persistent-agent dead-session respawn handling with circuit-breaker protections and wired it into heartbeat and post-spawn failure paths.
+summary: Implemented migration 249 to add `ideas.on_hold`, add nullable `ideas.type` with a type check constraint, and replace `ideas_status_check` with the full existing-plus-new pipeline status set using idempotent patterns.
 files_changed:
-  - packages/local-agent/src/executor.ts
+  - supabase/migrations/249_ideas_pipeline_columns.sql
+  - .reports/senior-engineer-report.md
 failure_reason: ""
-
-summary: Added migration 241_weekly_digest_data_fn.sql with a SECURITY DEFINER get_weekly_digest_data(UUID) JSONB function that returns weekly shipped features, merged PR count, failed jobs, and founder email for a company.
-
-summary: Implemented a new send-weekly-digest Supabase Edge Function with service-role auth, per-company digest orchestration via get_weekly_digest_data, email rendering/sending, per-company logging, and weekly cron scheduling support.
-files_changed:
-  - supabase/functions/send-weekly-digest/index.ts
-  - supabase/functions/send-weekly-digest/deno.json
-  - supabase/migrations/241_weekly_digest_data_fn.sql
-  - supabase/migrations/242_weekly_digest_cron.sql
-failure_reason:

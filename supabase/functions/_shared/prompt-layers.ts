@@ -23,4 +23,8 @@ The following commands are available via the zazig CLI. Use these instead of MCP
 Results are sorted newest-first by default. Output is JSON on stdout.
 
 **Run \`zazig <command> --help\` for full usage, required fields, and JSON schemas.**
+
+### Available MCP tools
+
+- \`ask_user(idea_id, question)\` — asks the user a question in the idea message thread and waits for a response
 `;

@@ -1,6 +1,5 @@
 status: pass
-summary: Rewrote the two task-execute feature test suites to validate the implemented task-executor role prompt, local-agent routing/lifecycle behavior, and MCP/validator integration, and confirmed the full tests workspace passes.
+summary: Removed the legacy auto-triage/enrich/spec/promote orchestration code path from the edge orchestrator and left the new idea/feature routing loops intact.
 files_changed:
-  - tests/features/task-execute-job-type-agent-role.test.ts
-  - tests/features/task-execute-job-type-local-agent.test.ts
+  - supabase/functions/orchestrator/index.ts
 failure_reason: none

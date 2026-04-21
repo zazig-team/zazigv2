@@ -1,5 +1,26 @@
 status: pass
 
+## Test files created (remove-old-auto-orchestrator-functions feature ad8e67f8)
+
+### `tests/features/remove-old-auto-orchestrator-functions.test.ts`
+
+35 test cases across 10 describe blocks:
+
+- **AC1** (3 tests): `autoTriageNewIdeas` is not defined, not called, `auto_triage_types` not referenced
+- **AC2** (3 tests): `autoSpecTriagedIdeas` is not defined, not called, `auto_spec_types` not referenced
+- **AC3** (3 tests): `autoPromoteTriagedIdeas` is not defined, not called, `auto_promote_types` not referenced
+- **AC4** (3 tests): `autoEnrichIncompleteTriagedIdeas` is not defined, not exported, not called
+- **AC5** (2 tests): No headless triage-analyst or spec-writer session dispatch in orchestrator
+- **AC6** (3 tests): `triggerCombining`, `triggerMerging`, `triggerTestWriting` still present (feature pipeline intact)
+- **AC7** (5 tests): `watchNewIdeasForDispatch`, `watchEnrichedIdeasForRouting`, `dispatchIdeaStageJob` still defined and called; `idea-triage` job type still dispatched
+- **AC8** (3 tests): `promote-idea/index.ts` exists and non-empty; orchestrator still references `promote-idea`
+- **AC9** (5 tests): No migration drops `auto_triage_types`, `auto_spec_types`, `auto_promote_types`, or `auto_triage` columns
+- **AC10** (3 tests): No migration deletes `triage-analyst` or `spec-writer` expert roles, no migration drops `expert_roles` table
+
+**Current run:** 14 fail (removal ACs — functions still exist), 21 pass (safety constraint ACs). Tests correctly FAIL until the feature is implemented.
+
+---
+
 ## Test files created (initiative-breakdown-job-type feature c0fdab15)
 
 ### 1. `tests/features/initiative-breakdown-job-type-local-agent.test.ts` — 12 test cases

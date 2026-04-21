@@ -356,6 +356,7 @@ const NO_CODE_CONTEXT_ROLES = new Set([
   "monitoring-agent",
   "project-architect",
   "triage-analyst",
+  "idea-triage", // idea-triage role: triage agent runs in ephemeral workspace, not a git worktree
 ]);
 
 const IDEA_ID_SNAKE_CASE_PATTERN = /"idea_id"\s*:\s*"([^"]+)"/i;
@@ -561,6 +562,8 @@ interface ActiveJob {
   jobTitle?: string;
   /** Git HEAD commit recorded BEFORE Codex spawns — needed for self-commit detection. */
   startingCommit?: string;
+  /** Idea UUID for idea-triage jobs — forwarded as ZAZIG_IDEA_ID env to the agent. */
+  ideaId?: string;
   /** Current codex attempt count (1-based) for review/fix retries. */
   attempt: number;
   /** Maximum number of codex attempts before terminal failure. */
@@ -933,9 +936,14 @@ export class JobExecutor {
 
     const isInteractive = msg.interactive === true;
     const cardType = msg.cardType as string;
+    // idea-triage role: uses the idea-triage triage agent execution path
     const isIdeaTriageJob = cardType === "idea-triage";
-    const roleName = msg.role ?? (isIdeaTriageJob ? "triage-analyst" : "senior-engineer");
+    const roleName = msg.role ?? (isIdeaTriageJob ? "idea-triage" : "senior-engineer");
     const ideaId = isIdeaTriageJob ? resolveIdeaId(msg) : undefined;
+    // ZAZIG_IDEA_ID is forwarded to the workspace MCP env from ideaId
+    if (ideaId) {
+      console.log(`[executor] idea-triage job: ZAZIG_IDEA_ID=${ideaId}`);
+    }
     const roleSkills = ensureRoleSkills(roleName, msg.roleSkills);
 
     const repoRoot = resolveRepoRoot();
@@ -1187,6 +1195,7 @@ export class JobExecutor {
       jobBranch,
       role: msg.role,
       cardType: msg.cardType,
+      ideaId,
       repoUrl: msg.repoUrl ?? undefined,
       featureBranch: msg.featureBranch ?? undefined,
       spec: msg.spec,
@@ -2653,6 +2662,29 @@ export class JobExecutor {
 
     const alive = await isTmuxSessionAlive(job.sessionName);
     jobLog(jobId, `pollJob — session=${job.sessionName}, alive=${alive}`);
+
+    // For idea-triage jobs: check on_hold status — if the idea is placed on hold,
+    // kill the triage agent and stop the job cleanly so capacity is released.
+    if (alive && job.ideaId && job.cardType === "idea-triage") {
+      try {
+        const { data: ideaRow } = await this.supabase
+          .from("ideas")
+          .select("on_hold")
+          .eq("id", job.ideaId)
+          .single();
+        if (ideaRow?.on_hold) {
+          jobLog(jobId, `idea on_hold=true — stopping triage job for ideaId=${job.ideaId}`);
+          console.log(`[executor] idea-triage job ${jobId}: on_hold detected, killing session`);
+          await killTmuxSession(job.sessionName);
+          await this.sendJobFailed(jobId, "Idea placed on hold — triage job stopped", "on_hold");
+          await this.settleJob(jobId);
+          return;
+        }
+      } catch (err) {
+        jobLog(jobId, `on_hold check failed for ideaId=${job.ideaId}: ${String(err)}`);
+      }
+    }
+
     if (alive) {
       // Stuck detection: check pipe-pane last-modified
       try {
@@ -2824,7 +2856,7 @@ export class JobExecutor {
     // the committed diff before completing. Only applies to codex jobs with a
     // worktree (code-context jobs). Skip for non-code roles that don't have
     // specs/acceptance criteria (ci-checker, reviewer, job-merger, etc.).
-    const SKIP_REVIEW_ROLES = new Set(["ci-checker", "reviewer", "job-merger", "triage-analyst"]);
+    const SKIP_REVIEW_ROLES = new Set(["ci-checker", "reviewer", "job-merger", "triage-analyst", "idea-triage"]);
     if (job.slotType === "codex" && job.worktreePath && !SKIP_REVIEW_ROLES.has(job.role ?? "")) {
       let reviewResult: Awaited<ReturnType<typeof runCodexReview>>;
       try {

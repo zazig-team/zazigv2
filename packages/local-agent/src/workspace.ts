@@ -156,14 +156,32 @@ const STANDARD_TOOLS = [
 ];
 
 /**
+ * idea-triage role: triage agent for classifying and enriching incoming ideas.
+ *
+ * The triage agent must:
+ * - Classify each idea as bug | feature | task | initiative
+ * - Research the codebase (git log, Grep, web search) to enrich the idea with context
+ * - Be opinionated — for clear ideas, complete triage without asking questions
+ * - Only use ask_user for genuinely ambiguous ideas (minimal questions, don't over-ask)
+ * - Set status to 'enriched' when triage is complete
+ * - Set status to 'awaiting_response' when user input is required
+ */
+
+/**
  * Default MCP tools granted to specific roles when no explicit mcpTools list
  * is provided. These match the roles' expected DB-level permissions.
  */
 const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
   "cpo": ["query_projects", "create_decision", "start_expert_session", "ask_user"],
   "breakdown-specialist": ["query_features", "ask_user"],
-  "triage-analyst": ["ask_user", "execute_sql", "update_idea", "query_projects", "query_features"],
-  "idea-triage": ["ask_user", "update_idea", "query_ideas", "query_projects"],
+  // triage-analyst: update_idea injected at runtime via roleMcpTools
+  "triage-analyst": ["ask_user", "execute_sql", "query_projects", "query_features"],
+  "idea-triage": [
+    "ask_user",
+    "query_ideas",
+    "query_projects",
+    // update_idea: granted at runtime via roleMcpTools (not hardcoded in static defaults)
+  ],
   "senior-engineer": ["create_project_rule", "ask_user"],
   "junior-engineer": ["create_project_rule", "ask_user"],
   "job-combiner": ["create_project_rule", "ask_user"],

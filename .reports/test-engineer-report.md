@@ -1,5 +1,30 @@
 status: pass
 
+## Test files created (orchestrator-suspend-resume-via-realtime feature a94ca129)
+
+### `tests/features/orchestrator-suspend-resume-via-realtime.test.ts` — 23 test cases
+
+Static analysis of `supabase/functions/orchestrator/index.ts` and migrations for the suspend/resume feature.
+
+| Describe block | Tests | Acceptance Criterion |
+|---|---|---|
+| AC1: Realtime subscription to idea_messages | 4 | channel subscription, table filter, sender=user filter |
+| AC2: User reply triggers resume job creation | 4 | awaiting_response check, job insert, idea_id, company_id |
+| AC3: Resume job matches suspended job type | 2 | last_job_type on idea, job_type set from it |
+| AC4: Resume job brief reads conversation history | 2 | "Resume work on this idea" + read idea_messages |
+| AC5: Atomic status transition to prevent duplicates | 3 | optimistic lock eq('status','awaiting_response'), active job check |
+| AC6: Polling fallback when Realtime unavailable | 3 | poll fallback code, idea_messages query, fallback logging |
+| AC7: on_hold ideas not resumed | 2 | on_hold=false check, proximity to awaiting_response logic |
+| AC8: No duplicate resume jobs | 2 | active job guard per idea, status transition dedup |
+| AC9: Realtime connection drops are logged | 2 | error handling, drop logging |
+| AC10: ideas.last_job_type column | 2 | migration or orchestrator references last_job_type, sets it on dispatch |
+
+All 23 tests written to FAIL against current codebase — orchestrator does not yet implement suspend/resume via Realtime.
+
+No `package.json` changes needed — `tests/vitest.config.ts` uses vitest which discovers tests/features/ recursively.
+
+---
+
 ## Test files created (orchestrator-idea-job-dispatch-and-routing feature 31f97497)
 
 ### `tests/features/orchestrator-idea-job-dispatch-and-routing.test.ts` — 30 test cases

@@ -1,7 +1,7 @@
 status: pass
-summary: Multiple migrations implemented — (1) migration 250 to add nullable companies.company_project_id with idempotent FK to projects.id using ON DELETE SET NULL; (2) migration 248 to add nullable jobs.idea_id with idempotent FK to ideas(id) using ON DELETE SET NULL and an index on jobs.idea_id.
+summary: Added a minimal company-project lookup utility that resolves companies.company_project_id to projects.repo_url and wired executor CI-monitor flows to use it as the canonical/fallback repo URL source.
 files_changed:
-  - supabase/migrations/250_companies_project_id.sql
-  - supabase/migrations/248_jobs_idea_id.sql
+  - packages/local-agent/src/company-project.ts
+  - packages/local-agent/src/executor.ts
   - .reports/junior-engineer-report.md
-failure_reason: 
+failure_reason:

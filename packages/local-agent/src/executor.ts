@@ -29,6 +29,7 @@ import { PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from "@zazigv2/shared";
 import type { SlotTracker } from "./slots.js";
 import { generateExecSkill, publishSharedExecSkill, setupJobWorkspace, writeSubagentsConfig } from "./workspace.js";
 import { extractFailureSummary, extractWorkspaceName } from "./ci-log-extractor.js";
+import { getCompanyProjectUrl } from "./company-project.js";
 
 /**
  * Resolve the MCP server path — prefers compiled binary in ~/.zazigv2/bin/,
@@ -1558,7 +1559,7 @@ export class JobExecutor {
         }
       }
 
-      const repoUrl = this.companyProjects[0]?.repo_url;
+      const repoUrl = await this.resolveCompanyProjectRepoUrl();
       if (!repoUrl) {
         console.log("[executor] Master CI monitor skipped: missing project repo_url");
         return;
@@ -1639,7 +1640,7 @@ export class JobExecutor {
         return;
       }
 
-      const repoUrl = this.companyProjects[0]?.repo_url;
+      const repoUrl = await this.resolveCompanyProjectRepoUrl();
       if (!repoUrl) {
         console.warn(`[CI Monitor] Skipping fix feature for run ${runId}: missing project repo_url`);
         return;
@@ -1698,7 +1699,7 @@ export class JobExecutor {
     workspaceName: string | null;
     ownerRepo: string;
   } | null> {
-    const repoUrl = this.companyProjects[0]?.repo_url;
+    const repoUrl = await this.resolveCompanyProjectRepoUrl();
     if (!repoUrl) return null;
 
     const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
@@ -1799,6 +1800,19 @@ export class JobExecutor {
     }
 
     return null;
+  }
+
+  private async resolveCompanyProjectRepoUrl(): Promise<string | null> {
+    const fallbackRepoUrl = this.companyProjects[0]?.repo_url ?? null;
+    if (fallbackRepoUrl) return fallbackRepoUrl;
+    if (!this.companyId) return null;
+
+    try {
+      return await getCompanyProjectUrl(this.supabase, this.companyId);
+    } catch (err) {
+      console.warn(`[executor] Failed to resolve company project repo_url for ${this.companyId}: ${String(err)}`);
+      return null;
+    }
   }
 
   private async isCIFixInFlight(): Promise<boolean> {

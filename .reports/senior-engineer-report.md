@@ -1,6 +1,7 @@
 status: pass
-summary: Added a new Supabase migration that sets the `task-executor` role prompt with end-to-end instructions for context loading, output planning, clarification flow, repo commit/push behavior, and idea output_path updates.
+summary: Wired task-execute idea-pipeline routing in the orchestrator (including triaged task dispatch and concurrency cap), verified completion-to-done handling, and added a migration to upsert the new task-executor role.
 files_changed:
-  - supabase/migrations/256_task_executor_role_prompt.sql
+  - supabase/functions/orchestrator/index.ts
+  - supabase/migrations/256_task_executor_role.sql
   - .reports/senior-engineer-report.md
-failure_reason:
+failure_reason: 

@@ -163,6 +163,7 @@ const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
   "cpo": ["query_projects", "create_decision", "start_expert_session", "ask_user"],
   "breakdown-specialist": ["query_features", "ask_user"],
   "triage-analyst": ["ask_user", "execute_sql", "update_idea", "query_projects", "query_features"],
+  "idea-triage": ["ask_user", "update_idea", "query_ideas", "query_projects"],
   "senior-engineer": ["create_project_rule", "ask_user"],
   "junior-engineer": ["create_project_rule", "ask_user"],
   "job-combiner": ["create_project_rule", "ask_user"],

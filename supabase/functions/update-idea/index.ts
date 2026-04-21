@@ -43,6 +43,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 // Status → event_type mapping (only statuses that emit events)
 const STATUS_EVENT_MAP: Record<string, string> = {
   triaged: "idea_triaged",
+  enriched: "idea_enriched",
   parked: "idea_parked",
   rejected: "idea_rejected",
   done: "idea_done",
@@ -89,6 +90,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       human_checklist,
       complexity,
       project_id,
+      type,
       job_id,
     } = body;
 
@@ -124,6 +126,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (human_checklist !== undefined) updates.human_checklist = human_checklist;
     if (complexity !== undefined) updates.complexity = complexity;
     if (project_id !== undefined) updates.project_id = project_id;
+    if (type !== undefined) updates.type = type;
     // job_id is used for identity resolution only — not stored on ideas
 
     // When status moves to 'triaged', auto-set triaged_by and triaged_at

@@ -1,6 +1,6 @@
 status: pass
-summary: Added a shared TypingIndicatorEvent contract and documented the Supabase Realtime typing channel/event protocol, then re-exported the type from the shared package index.
+summary: Implemented migration 248 to add nullable jobs.idea_id with idempotent FK to ideas(id) using ON DELETE SET NULL and an index on jobs.idea_id.
 files_changed:
-  - packages/shared/src/messages.ts
-  - packages/shared/src/index.ts
-failure_reason:
+  - supabase/migrations/248_jobs_idea_id.sql
+  - .reports/junior-engineer-report.md
+failure_reason: 

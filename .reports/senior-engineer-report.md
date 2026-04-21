@@ -1,7 +1,7 @@
 status: pass
-summary: Multiple migrations implemented — (1) migration 247 to create the idempotent idea_messages schema, index, and Supabase Realtime publication wiring within a transaction; (2) migration 249 to add `ideas.on_hold`, add nullable `ideas.type` with a type check constraint, and replace `ideas_status_check` with the full existing-plus-new pipeline status set using idempotent patterns.
+summary: Implemented a new Supabase edge function at supabase/functions/idea-messages with authenticated GET/POST CRUD behavior, validation, and idea existence checks, and added a migration to set REPLICA IDENTITY FULL for idea_messages realtime payloads.
 files_changed:
-  - supabase/migrations/247_idea_messages_table.sql
-  - supabase/migrations/249_ideas_pipeline_columns.sql
-  - .reports/senior-engineer-report.md
+  - supabase/functions/idea-messages/index.ts
+  - supabase/functions/idea-messages/deno.json
+  - supabase/migrations/252_idea_messages_replica_identity.sql
 failure_reason: ""

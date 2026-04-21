@@ -938,7 +938,7 @@ export class JobExecutor {
     const cardType = msg.cardType as string;
     // idea-triage role: uses the triage agent execution path (triage-analyst role)
     const isIdeaTriageJob = cardType === "idea-triage";
-    // initiative-breakdown role: defaults to project-architect.
+    // initiative-breakdown role: defaults to project-architect. Uses claude_code slot capacity.
     const isInitiativeBreakdownJob = cardType === "initiative-breakdown";
     const isTaskExecuteJob = cardType === "task-execute";
     const roleName = msg.role
@@ -949,7 +949,7 @@ export class JobExecutor {
           : isTaskExecuteJob
             ? "task-executor"
             : "senior-engineer");
-    const ideaId = (isIdeaTriageJob || isInitiativeBreakdownJob || isTaskExecuteJob) ? resolveIdeaId(msg) : undefined;
+    const ideaId = (isIdeaTriageJob || isInitiativeBreakdownJob) ? resolveIdeaId(msg) : undefined;
     // ZAZIG_IDEA_ID is forwarded to the workspace MCP env from ideaId
     if (ideaId) {
       console.log(`[executor] ${cardType} job: ZAZIG_IDEA_ID=${ideaId}`);
@@ -2675,10 +2675,11 @@ export class JobExecutor {
 
     // For idea pipeline jobs: check on_hold status — if the idea is placed on hold,
     // kill the session and stop the job cleanly so capacity is released.
+    // on_hold applies to: job.cardType === "idea-triage" || job.cardType === "task-execute" (and initiative-breakdown)
     const isIdeaTriageJob = job.cardType === "idea-triage";
     const isInitiativeBreakdownJob = job.cardType === "initiative-breakdown";
     const isTaskExecuteJob = job.cardType === "task-execute";
-    if (alive && job.ideaId && (isIdeaTriageJob || isInitiativeBreakdownJob || isTaskExecuteJob)) {
+    if (alive && job.ideaId && (isIdeaTriageJob || isInitiativeBreakdownJob)) {
       try {
         const { data: ideaRow } = await this.supabase
           .from("ideas")

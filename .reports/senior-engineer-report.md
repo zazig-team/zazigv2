@@ -1,10 +1,6 @@
 status: pass
-summary: Implemented ask_user across local MCP tooling and a new Supabase edge function with Realtime wait, polling fallback, and timeout-to-awaiting_response behavior.
+summary: Implemented orchestrator resume detection for awaiting_response ideas by detecting post-awaiting user replies, transitioning ideas back to executing, and creating guarded resume code jobs with conversation-history context instructions.
 files_changed:
-  - packages/local-agent/src/agent-mcp-server.ts
-  - packages/local-agent/src/workspace.ts
-  - supabase/functions/ask-user/index.ts
-  - supabase/functions/ask-user/deno.json
-  - supabase/functions/_shared/prompt-layers.ts
-  - packages/shared/src/prompt/universal-layer.ts
-failure_reason:
+  - supabase/functions/orchestrator/index.ts
+  - supabase/functions/_shared/pipeline-utils.ts
+failure_reason: ""

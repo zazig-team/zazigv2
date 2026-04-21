@@ -1,7 +1,6 @@
 status: pass
-summary: Wired task-execute idea-pipeline routing in the orchestrator (including triaged task dispatch and concurrency cap), verified completion-to-done handling, and added a migration to upsert the new task-executor role.
+summary: Rewrote the two task-execute feature test suites to validate the implemented task-executor role prompt, local-agent routing/lifecycle behavior, and MCP/validator integration, and confirmed the full tests workspace passes.
 files_changed:
-  - supabase/functions/orchestrator/index.ts
-  - supabase/migrations/256_task_executor_role.sql
-  - .reports/senior-engineer-report.md
-failure_reason: 
+  - tests/features/task-execute-job-type-agent-role.test.ts
+  - tests/features/task-execute-job-type-local-agent.test.ts
+failure_reason: none

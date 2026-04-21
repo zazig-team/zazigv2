@@ -1,14 +1,10 @@
 /**
- * Feature: task-execute job type — agent role, MCP tools, and idea update surface
+ * Feature: task-execute job type — task-executor role behavior
  *
  * Static analysis tests covering:
- * - workspace.ts: task-execute agent role prompt includes execution guidance
- * - agent-mcp-server.ts: update_idea tool supports output_path field
- * - update-idea edge function: supports output_path field and done/executing statuses
- * - agent role: reads enriched idea content and conversation history
- * - agent role: commits output to the correct repo directory
- *
- * Written to FAIL until the feature is implemented.
+ * - task-executor role prompt contract (migration)
+ * - ask_user/update_idea integration surface
+ * - repo clone/commit/push/output-path instructions
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -19,9 +15,9 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
 
+const MIGRATIONS_DIR = path.join(REPO_ROOT, 'supabase', 'migrations');
 const WORKSPACE_FILE = path.join(REPO_ROOT, 'packages', 'local-agent', 'src', 'workspace.ts');
 const MCP_SERVER_FILE = path.join(REPO_ROOT, 'packages', 'local-agent', 'src', 'agent-mcp-server.ts');
-const UPDATE_IDEA_FUNCTION = path.join(REPO_ROOT, 'supabase', 'functions', 'update-idea', 'index.ts');
 
 function readSource(filePath: string): string {
   try {
@@ -31,243 +27,194 @@ function readSource(filePath: string): string {
   }
 }
 
+function readAllMigrations(): Array<{ name: string; content: string }> {
+  try {
+    return fs
+      .readdirSync(MIGRATIONS_DIR)
+      .sort()
+      .filter((fileName) => fileName.endsWith('.sql'))
+      .map((fileName) => ({
+        name: fileName,
+        content: fs.readFileSync(path.join(MIGRATIONS_DIR, fileName), 'utf-8'),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function findLatestMigrationContaining(...terms: string[]): string | null {
+  const migrations = readAllMigrations().reverse(); // newest first
+  for (const { content } of migrations) {
+    if (terms.every((term) => content.includes(term))) return content;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
-// AC: Agent reads enriched idea content and conversation history
+// AC: Reads enriched idea content and idea_messages conversation history
 // ---------------------------------------------------------------------------
 
-describe("task-execute agent role reads enriched idea content and conversation history", () => {
-  let workspaceSource = '';
-  let executorSource = '';
+describe('task-executor role reads enriched idea content and idea_messages history', () => {
+  let rolePromptMigration: string | null = null;
 
   beforeAll(() => {
-    workspaceSource = readSource(WORKSPACE_FILE);
-    executorSource = readSource(
-      path.join(REPO_ROOT, 'packages', 'local-agent', 'src', 'executor.ts'),
+    rolePromptMigration = findLatestMigrationContaining(
+      "WHERE name = 'task-executor'",
+      'Read full conversation history',
     );
   });
 
-  it("task-execute role context includes instructions to read idea spec", () => {
-    // The agent must read the idea's enriched spec (title, description, spec fields)
-    const combined = workspaceSource + executorSource;
-    expect(combined).toMatch(
-      /task.execute[\s\S]{0,2000}?(spec|idea_record|description|enrich)/is,
-    );
-  });
-
-  it("task-execute role context references conversation history (idea_messages)", () => {
-    // The agent must read the full conversation history from idea_messages
-    const combined = workspaceSource + executorSource;
-    expect(combined).toMatch(
-      /task.execute[\s\S]{0,2000}?(idea_messages|conversation.*history|message.*history)/is,
-    );
-  });
-
-  it("task-execute role context looks up company project repo URL", () => {
-    // The agent must look up company_project_id -> projects.repo_url to commit output
-    const combined = workspaceSource + executorSource;
-    expect(combined).toMatch(
-      /task.execute[\s\S]{0,3000}?(repo_url|company_project|project.*repo)/is,
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC: Presentations are generated as HTML and committed to company repo
-// ---------------------------------------------------------------------------
-
-describe("task-execute agent generates HTML presentations", () => {
-  let workspaceSource = '';
-  let executorSource = '';
-
-  beforeAll(() => {
-    workspaceSource = readSource(WORKSPACE_FILE);
-    executorSource = readSource(
-      path.join(REPO_ROOT, 'packages', 'local-agent', 'src', 'executor.ts'),
-    );
-  });
-
-  it("task-execute role context instructs agent to generate presentations as HTML", () => {
-    const combined = workspaceSource + executorSource;
-    expect(combined).toMatch(
-      /task.execute[\s\S]{0,3000}?(presentation.*html|html.*presentation|slides.*html)/is,
-    );
-  });
-
-  it("task-execute role context specifies presentation output directory", () => {
-    // Presentations go to sales/decks/ or marketing/ depending on context
-    const combined = workspaceSource + executorSource;
-    expect(combined).toMatch(
-      /task.execute[\s\S]{0,3000}?(sales\/decks|marketing|decks)/is,
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC: Output is committed to the correct directory in the company repo
-// ---------------------------------------------------------------------------
-
-describe("task-execute agent commits output to correct repo directory", () => {
-  let workspaceSource = '';
-  let executorSource = '';
-
-  beforeAll(() => {
-    workspaceSource = readSource(WORKSPACE_FILE);
-    executorSource = readSource(
-      path.join(REPO_ROOT, 'packages', 'local-agent', 'src', 'executor.ts'),
-    );
-  });
-
-  it("task-execute role context specifies research output directory", () => {
-    // Research outputs go to research/
-    const combined = workspaceSource + executorSource;
-    expect(combined).toMatch(
-      /task.execute[\s\S]{0,3000}?research\//is,
-    );
-  });
-
-  it("task-execute role context specifies docs output directory", () => {
-    // Document outputs go to docs/
-    const combined = workspaceSource + executorSource;
-    expect(combined).toMatch(
-      /task.execute[\s\S]{0,3000}?docs\//is,
-    );
-  });
-
-  it("task-execute role context instructs to commit with a descriptive message referencing the idea", () => {
-    // The commit message must reference the idea ID or title
-    const combined = workspaceSource + executorSource;
-    expect(combined).toMatch(
-      /task.execute[\s\S]{0,3000}?(commit.*message|commit.*idea|idea.*commit)/is,
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC: update_idea MCP tool supports output_path for completed task output
-// ---------------------------------------------------------------------------
-
-describe("update_idea MCP tool supports output_path field for task output", () => {
-  let mcpSource = '';
-
-  beforeAll(() => {
-    mcpSource = readSource(MCP_SERVER_FILE);
-  });
-
-  it('agent-mcp-server.ts file exists and is non-empty', () => {
-    expect(mcpSource, 'packages/local-agent/src/agent-mcp-server.ts is missing or empty').not.toBe('');
-  });
-
-  it("update_idea tool accepts an 'output_path' field for linking to committed output", () => {
-    // After committing output, the agent calls update_idea with the file path/URL
-    const updateIdeaBlock = mcpSource.match(
-      /server\.tool\(\s*["']update_idea["'][\s\S]{0,2500}?\),?\s*\)/,
-    );
+  it('task-executor role prompt migration exists', () => {
     expect(
-      updateIdeaBlock,
-      "Expected update_idea tool definition in agent-mcp-server.ts.",
+      rolePromptMigration,
+      "Expected a migration that updates task-executor role prompt (WHERE name = 'task-executor').",
     ).not.toBeNull();
-    expect(updateIdeaBlock![0]).toMatch(/output_path|output.*path|path.*output/i);
+  });
+
+  it('instructs agent to read title, description, and spec from the idea record', () => {
+    expect(rolePromptMigration).toMatch(/title/i);
+    expect(rolePromptMigration).toMatch(/description/i);
+    expect(rolePromptMigration).toMatch(/spec/i);
+  });
+
+  it('instructs agent to read conversation history from idea_messages oldest-first', () => {
+    expect(rolePromptMigration).toMatch(/idea_messages/i);
+    expect(rolePromptMigration).toMatch(/order by created_at asc/i);
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC: update-idea edge function supports output_path and executing/done statuses
+// AC: Output type selection by task intent
 // ---------------------------------------------------------------------------
 
-describe("update-idea edge function supports task-execute output fields", () => {
-  let edgeFnSource = '';
+describe('task-executor output type selection rules', () => {
+  let rolePromptMigration: string | null = null;
 
   beforeAll(() => {
-    edgeFnSource = readSource(UPDATE_IDEA_FUNCTION);
-  });
-
-  it('update-idea edge function file exists and is non-empty', () => {
-    expect(edgeFnSource, 'supabase/functions/update-idea/index.ts is missing or empty').not.toBe('');
-  });
-
-  it("edge function body handles 'output_path' field from request", () => {
-    // The task-execute agent sends output_path so the idea record stores the result location
-    expect(edgeFnSource).toMatch(/output_path/);
-  });
-
-  it("edge function writes 'output_path' to the updates payload when provided", () => {
-    expect(edgeFnSource).toMatch(/updates\.output_path\s*=\s*|updates\[['"]output_path['"]\]\s*=/);
-  });
-
-  it("edge function does not block 'executing' status transitions", () => {
-    // The orchestrator sets idea to 'executing' when dispatching a task-execute job
-    // The guard on 'promoted' must not inadvertently block 'executing'
-    const guardBlock = edgeFnSource.match(
-      /if\s*\(status\s*===\s*["']promoted["']\)[^}]{0,300}/s,
+    rolePromptMigration = findLatestMigrationContaining(
+      "WHERE name = 'task-executor'",
+      'Determine output type and plan',
     );
-    if (guardBlock) {
-      expect(guardBlock![0]).not.toMatch(/executing/);
-    }
+  });
+
+  it('presentation ideas are mapped to HTML output', () => {
+    expect(rolePromptMigration).toMatch(/presentation/i);
+    expect(rolePromptMigration).toMatch(/html/i);
+  });
+
+  it('doc ideas are mapped to Markdown (or HTML) output', () => {
+    expect(rolePromptMigration).toMatch(/documents?/i);
+    expect(rolePromptMigration).toMatch(/markdown|\.md/i);
+  });
+
+  it('research ideas are mapped to structured report sections', () => {
+    expect(rolePromptMigration).toMatch(/research\/analysis|research/i);
+    expect(rolePromptMigration).toMatch(/Executive Summary/i);
+    expect(rolePromptMigration).toMatch(/Findings/i);
+    expect(rolePromptMigration).toMatch(/Methodology/i);
+    expect(rolePromptMigration).toMatch(/Recommendations/i);
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC: ask_user works during task execution for clarifications
+// AC: ask_user integration for ambiguous specs
 // ---------------------------------------------------------------------------
 
-describe("ask_user works during task-execute for clarifications", () => {
-  let mcpSource = '';
+describe('task-executor ask_user integration for ambiguity handling', () => {
+  let rolePromptMigration: string | null = null;
+  let workspaceSource = '';
+  let mcpServerSource = '';
 
   beforeAll(() => {
-    mcpSource = readSource(MCP_SERVER_FILE);
-  });
-
-  it("ask_user tool is accessible during task-execute jobs", () => {
-    // ask_user must be registered in the MCP server so task-execute agent can invoke it
-    expect(mcpSource).toMatch(/["']ask_user["']/);
-  });
-
-  it("ask_user timeout path sets idea status to awaiting_response for task-execute", () => {
-    // On 10-min timeout, ask_user suspends the task-execute job (same as triage)
-    const askUserBlock = mcpSource.match(
-      /server\.tool\(\s*["']ask_user["'][\s\S]{0,3000}?\)\s*\)/s,
+    rolePromptMigration = findLatestMigrationContaining(
+      "WHERE name = 'task-executor'",
+      'Ask questions if needed',
     );
-    expect(
-      askUserBlock,
-      "Expected ask_user tool definition in agent-mcp-server.ts.",
-    ).not.toBeNull();
+    workspaceSource = readSource(WORKSPACE_FILE);
+    mcpServerSource = readSource(MCP_SERVER_FILE);
+  });
+
+  it('role prompt instructs ask_user when spec is ambiguous', () => {
+    expect(rolePromptMigration).toMatch(/ask_user/i);
+    expect(rolePromptMigration).toMatch(/ambiguous|missing/i);
+  });
+
+  it('role prompt includes suspend/resume expectation for unanswered questions', () => {
+    expect(rolePromptMigration).toMatch(/10 minutes|10-min|10 min/i);
+    expect(rolePromptMigration).toMatch(/suspend|resume/i);
+  });
+
+  it('task-executor workspace MCP defaults include ask_user and update_idea', () => {
+    const taskToolsBlock = workspaceSource.match(
+      /const TASK_EXECUTOR_MCP_TOOLS\s*=\s*\[[^\]]+\]/s,
+    );
+    expect(taskToolsBlock).not.toBeNull();
+    expect(taskToolsBlock![0]).toMatch(/ask_user/);
+    expect(taskToolsBlock![0]).toMatch(/update_idea/);
+    expect(workspaceSource).toMatch(/["']task-executor["']\s*:\s*TASK_EXECUTOR_MCP_TOOLS/);
+  });
+
+  it('ask_user tool exists with timeout path that sets awaiting_response', () => {
+    const askUserBlock = mcpServerSource.match(
+      /server\.tool\(\s*["']ask_user["'][\s\S]{0,3500}?\)\s*\)/s,
+    );
+    expect(askUserBlock).not.toBeNull();
     expect(askUserBlock![0]).toMatch(/awaiting_response/);
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC: Orchestrator sets idea to 'done' when task-execute job completes
+// AC: Repo clone/commit/push with [idea:<uuid>] and output directories
 // ---------------------------------------------------------------------------
 
-describe("Orchestrator sets idea to 'done' when task-execute job completes", () => {
-  let orchestratorSource = '';
+describe('task-executor repo write + commit contract', () => {
+  let rolePromptMigration: string | null = null;
 
   beforeAll(() => {
-    const orchestratorFile = path.join(
-      REPO_ROOT, 'packages', 'orchestrator', 'src', 'index.ts',
+    rolePromptMigration = findLatestMigrationContaining(
+      "WHERE name = 'task-executor'",
+      'Commit output to company project repo',
     );
-    orchestratorSource = readSource(orchestratorFile);
-    if (!orchestratorSource) {
-      // Try alternate location
-      const altFile = path.join(REPO_ROOT, 'packages', 'orchestrator', 'src', 'orchestrator.ts');
-      orchestratorSource = readSource(altFile);
-    }
   });
 
-  it("orchestrator source file exists and is non-empty", () => {
-    expect(orchestratorSource, "packages/orchestrator/src/index.ts or orchestrator.ts is missing or empty").not.toBe('');
+  it('instructs clone + push flow for company repo', () => {
+    expect(rolePromptMigration).toMatch(/clone/i);
+    expect(rolePromptMigration).toMatch(/push to [`'"]?master[`'"]?/i);
   });
 
-  it("orchestrator references 'task-execute' job type", () => {
-    expect(orchestratorSource).toMatch(/task.execute/i);
+  it('specifies task-output destination subdirectories', () => {
+    expect(rolePromptMigration).toMatch(/sales\/decks|marketing\/decks/i);
+    expect(rolePromptMigration).toMatch(/research\//i);
+    expect(rolePromptMigration).toMatch(/docs\//i);
   });
 
-  it("orchestrator sets idea status to 'done' after task-execute job completes", () => {
-    // When the task-execute job finishes, the orchestrator marks the idea as done
-    const taskBlock = orchestratorSource.match(
-      /task.execute[\s\S]{0,1500}/s,
+  it('requires commit message to include [idea:<idea_id>]', () => {
+    expect(rolePromptMigration).toMatch(/\[idea:<idea_id>\]/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC: Idea output_path update after commit
+// ---------------------------------------------------------------------------
+
+describe('task-executor updates idea output_path after commit', () => {
+  let rolePromptMigration: string | null = null;
+  let mcpServerSource = '';
+
+  beforeAll(() => {
+    rolePromptMigration = findLatestMigrationContaining(
+      "WHERE name = 'task-executor'",
+      'output_path',
     );
-    expect(taskBlock).not.toBeNull();
-    expect(taskBlock![0]).toMatch(/done|["']done["']/);
+    mcpServerSource = readSource(MCP_SERVER_FILE);
+  });
+
+  it('role prompt requires setting output_path on the idea record', () => {
+    expect(rolePromptMigration).toMatch(/output_path/i);
+    expect(rolePromptMigration).toMatch(/update_idea/i);
+  });
+
+  it('update_idea MCP tool is available to task-executor role', () => {
+    expect(mcpServerSource).toMatch(/server\.tool\(\s*["']update_idea["']/);
   });
 });

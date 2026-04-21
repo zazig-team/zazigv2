@@ -52,6 +52,22 @@ describe("generateAllowedTools", () => {
     ]);
   });
 
+  it("returns idea-triage defaults for triage-analyst", () => {
+    expect(generateAllowedTools("triage-analyst")).toEqual([
+      "Read",
+      "Write",
+      "Edit",
+      "Bash",
+      "Glob",
+      "Grep",
+      "mcp__zazig-messaging__ask_user",
+      "mcp__zazig-messaging__execute_sql",
+      "mcp__zazig-messaging__update_idea",
+      "mcp__zazig-messaging__query_projects",
+      "mcp__zazig-messaging__query_features",
+    ]);
+  });
+
   it("includes create_project_rule for engineer and test roles", () => {
     expect(generateAllowedTools("senior-engineer")).toContain(
       "mcp__zazig-messaging__create_project_rule",
@@ -89,6 +105,19 @@ describe("generateAllowedTools", () => {
       "Glob",
       "Grep",
     ]);
+  });
+
+  it("adds ZAZIG_IDEA_ID when ideaId is provided", () => {
+    const config = generateMcpConfig("/path/to/server.js", {
+      supabaseUrl: "https://test.supabase.co",
+      supabaseAnonKey: "test-key",
+      jobId: "job-123",
+      ideaId: "idea-123",
+    });
+    const env = (config as Record<string, unknown>).mcpServers as Record<string, unknown>;
+    const server = env["zazig-messaging"] as Record<string, unknown>;
+    const serverEnv = server.env as Record<string, unknown>;
+    expect(serverEnv.ZAZIG_IDEA_ID).toBe("idea-123");
   });
 });
 

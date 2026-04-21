@@ -1,7 +1,8 @@
 status: pass
-summary: Wired the new idea watch loops into the orchestrator cycle alongside existing feature auto-loops, with dispatch/routing/completion progression safeguards and test coverage for hold-state skipping, de-duplication, and concurrency behavior.
+summary: Added triage-analyst MCP defaults and wired idea-triage executor handling to extract and forward idea_id into workspace MCP env while preserving non-code triage dispatch.
 files_changed:
-  - supabase/functions/orchestrator/index.ts
-  - tests/features/orchestrator-idea-job-dispatch-and-routing.test.ts
-  - .reports/senior-engineer-report.md
+  - packages/local-agent/src/workspace.ts
+  - packages/local-agent/src/workspace.test.ts
+  - packages/local-agent/src/executor.ts
+  - packages/local-agent/src/executor.test.ts
 failure_reason: ""

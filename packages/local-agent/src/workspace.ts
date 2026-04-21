@@ -49,6 +49,8 @@ export interface WorkspaceConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
   jobId: string;
+  /** Optional idea UUID for idea-pipeline jobs. Exposed to MCP tools as ZAZIG_IDEA_ID. */
+  ideaId?: string;
   companyId?: string;
   role: string;
   roleDisplayName?: string;
@@ -109,6 +111,7 @@ export function generateMcpConfig(
     supabaseUrl: string;
     supabaseAnonKey: string;
     jobId: string;
+    ideaId?: string;
     companyId?: string;
     allowedTools?: string[];
     tmuxSession?: string;
@@ -127,6 +130,7 @@ export function generateMcpConfig(
           SUPABASE_URL: env.supabaseUrl,
           SUPABASE_ANON_KEY: env.supabaseAnonKey,
           ZAZIG_JOB_ID: env.jobId,
+          ...(env.ideaId ? { ZAZIG_IDEA_ID: env.ideaId } : {}),
           ...(env.companyId ? { ZAZIG_COMPANY_ID: env.companyId } : {}),
           ...(env.allowedTools ? { ZAZIG_ALLOWED_TOOLS: env.allowedTools.join(",") } : {}),
           ...(env.tmuxSession ? { ZAZIG_TMUX_SESSION: env.tmuxSession } : {}),
@@ -158,6 +162,7 @@ const STANDARD_TOOLS = [
 const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
   "cpo": ["query_projects", "create_decision", "start_expert_session", "ask_user"],
   "breakdown-specialist": ["query_features", "ask_user"],
+  "triage-analyst": ["ask_user", "execute_sql", "update_idea", "query_projects", "query_features"],
   "senior-engineer": ["create_project_rule", "ask_user"],
   "junior-engineer": ["create_project_rule", "ask_user"],
   "job-combiner": ["create_project_rule", "ask_user"],
@@ -463,6 +468,7 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
     supabaseUrl: config.supabaseUrl,
     supabaseAnonKey: config.supabaseAnonKey,
     jobId: config.jobId,
+    ideaId: config.ideaId,
     companyId: config.companyId,
     allowedTools: config.mcpTools,
     tmuxSession: config.tmuxSession,

@@ -3394,9 +3394,10 @@ async function resumeAwaitingResponseIdeas(
     );
     const resumeContext = buildResumeJobContext(idea.id, conversationHistory);
 
+    const ideaExecutingStatus = "executing" as const;
     const { data: resumedIdeas, error: resumeErr } = await supabase
       .from("ideas")
-      .update({ status: "executing" })
+      .update({ status: ideaExecutingStatus })
       .eq("id", idea.id)
       .eq("status", "awaiting_response")
       .eq("updated_at", idea.updated_at)

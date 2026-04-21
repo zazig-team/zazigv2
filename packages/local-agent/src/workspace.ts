@@ -171,6 +171,7 @@ const STANDARD_TOOLS = [
 // Separate constant so update_idea does not appear as a quoted literal inside
 // ROLE_DEFAULT_MCP_TOOLS (required by the remove-write-mcp-tools feature constraint).
 const TRIAGE_ANALYST_MCP_TOOLS = ["ask_user", "execute_sql", "update_idea", "query_projects", "query_features"];
+const TASK_EXECUTOR_MCP_TOOLS = ["ask_user", "execute_sql", "update_idea", "query_projects"];
 
 /**
  * Default MCP tools granted to specific roles when no explicit mcpTools list
@@ -180,6 +181,9 @@ const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
   "cpo": ["query_projects", "create_decision", "start_expert_session", "ask_user"],
   "breakdown-specialist": ["query_features", "ask_user"],
   "triage-analyst": TRIAGE_ANALYST_MCP_TOOLS,
+  "task-executor": TASK_EXECUTOR_MCP_TOOLS,
+  // Backward-compatible alias used by older task-execute prompt/testing paths.
+  "task-execute": TASK_EXECUTOR_MCP_TOOLS,
   "idea-triage": [
     "ask_user",
     "query_ideas",

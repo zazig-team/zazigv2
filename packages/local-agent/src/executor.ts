@@ -356,6 +356,7 @@ const NO_CODE_CONTEXT_ROLES = new Set([
   "monitoring-agent",
   "project-architect",
   "triage-analyst", // triage-analyst is the idea-triage role agent — runs in ephemeral workspace
+  "task-executor", // task-execute role agent: scratch workspace + orchestrator-assigned slot capacity
 ]);
 
 const IDEA_ID_SNAKE_CASE_PATTERN = /"idea_id"\s*:\s*"([^"]+)"/i;
@@ -561,7 +562,7 @@ interface ActiveJob {
   jobTitle?: string;
   /** Git HEAD commit recorded BEFORE Codex spawns — needed for self-commit detection. */
   startingCommit?: string;
-  /** Idea UUID for idea-triage jobs — forwarded as ZAZIG_IDEA_ID env to the agent. */
+  /** Idea UUID for idea-pipeline jobs — forwarded as ZAZIG_IDEA_ID env to the agent. */
   ideaId?: string;
   /** Current codex attempt count (1-based) for review/fix retries. */
   attempt: number;
@@ -937,11 +938,12 @@ export class JobExecutor {
     const cardType = msg.cardType as string;
     // idea-triage role: uses the triage agent execution path (triage-analyst role)
     const isIdeaTriageJob = cardType === "idea-triage";
-    const roleName = msg.role ?? (isIdeaTriageJob ? "triage-analyst" : "senior-engineer");
-    const ideaId = isIdeaTriageJob ? resolveIdeaId(msg) : undefined;
+    const isTaskExecuteJob = cardType === "task-execute";
+    const roleName = msg.role ?? (isIdeaTriageJob ? "triage-analyst" : isTaskExecuteJob ? "task-executor" : "senior-engineer");
+    const ideaId = (isIdeaTriageJob || isTaskExecuteJob) ? resolveIdeaId(msg) : undefined;
     // ZAZIG_IDEA_ID is forwarded to the workspace MCP env from ideaId
     if (ideaId) {
-      console.log(`[executor] idea-triage job: ZAZIG_IDEA_ID=${ideaId}`);
+      console.log(`[executor] ${cardType} job: ZAZIG_IDEA_ID=${ideaId}`);
     }
     const roleSkills = ensureRoleSkills(roleName, msg.roleSkills);
 
@@ -1192,7 +1194,7 @@ export class JobExecutor {
       worktreePath,
       repoDir,
       jobBranch,
-      role: msg.role,
+      role: roleName,
       cardType: msg.cardType,
       ideaId,
       repoUrl: msg.repoUrl ?? undefined,
@@ -2662,9 +2664,9 @@ export class JobExecutor {
     const alive = await isTmuxSessionAlive(job.sessionName);
     jobLog(jobId, `pollJob — session=${job.sessionName}, alive=${alive}`);
 
-    // For idea-triage jobs: check on_hold status — if the idea is placed on hold,
-    // kill the triage agent and stop the job cleanly so capacity is released.
-    if (alive && job.ideaId && job.cardType === "idea-triage") {
+    // For idea pipeline jobs: check on_hold status — if the idea is placed on hold,
+    // kill the session and stop the job cleanly so capacity is released.
+    if (alive && job.ideaId && (job.cardType === "idea-triage" || job.cardType === "task-execute")) {
       try {
         const { data: ideaRow } = await this.supabase
           .from("ideas")
@@ -2672,10 +2674,15 @@ export class JobExecutor {
           .eq("id", job.ideaId)
           .single();
         if (ideaRow?.on_hold) {
-          jobLog(jobId, `idea on_hold=true — stopping triage job for ideaId=${job.ideaId}`);
-          console.log(`[executor] idea-triage job ${jobId}: on_hold detected, killing session`);
+          const isTriage = job.cardType === "idea-triage";
+          const jobTypeLabel = isTriage ? "triage" : "task-execute";
+          const reasonMessage = isTriage
+            ? "Idea placed on hold — triage job stopped"
+            : "Idea placed on hold — task-execute job stopped";
+          jobLog(jobId, `idea on_hold=true — stopping ${jobTypeLabel} job for ideaId=${job.ideaId}`);
+          console.log(`[executor] ${job.cardType} job ${jobId}: on_hold detected, killing session`);
           await killTmuxSession(job.sessionName);
-          await this.sendJobFailed(jobId, "Idea placed on hold — triage job stopped", "unknown");
+          await this.sendJobFailed(jobId, reasonMessage, "unknown");
           await this.settleJob(jobId);
           return;
         }

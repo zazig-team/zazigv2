@@ -1,5 +1,32 @@
 status: pass
 
+## Test files created (orchestrator-idea-job-dispatch-and-routing feature 31f97497)
+
+### `tests/features/orchestrator-idea-job-dispatch-and-routing.test.ts` — 30 test cases
+
+Static analysis of `supabase/functions/orchestrator/index.ts` for the new idea lifecycle dispatch functions.
+
+| Describe block | Tests | Acceptance Criterion |
+|---|---|---|
+| AC1: New ideas get idea-triage job | 6 | status='new', on_hold=false query, idea-triage job creation with idea_id/company_id/brief |
+| AC2: Atomic transition to 'triaging' | 2 | status update + optimistic lock (eq status='new' before update) |
+| AC3: Enriched bug/feature → promote-idea + 'routed' | 4 | status='enriched' query, type-based routing, promote-idea call, 'routed' status |
+| AC4: Task ideas → task-execute job + 'executing' | 2 | task-execute job type, 'executing' status near task routing |
+| AC5: Initiative ideas → initiative-breakdown + 'breaking_down' | 2 | initiative-breakdown job type, 'breaking_down' status for idea routing |
+| AC6: Completed task-execute → idea 'done' | 3 | task-execute completion watcher, 'done' status assignment |
+| AC7: Completed initiative-breakdown → idea 'spawned' | 3 | initiative-breakdown completion watcher, 'spawned' status assignment |
+| AC8: on_hold ideas skipped by all loops | 3 | on_hold filter in new-idea query, on_hold filter in enriched-idea query |
+| AC9: No double-dispatch, atomic transitions | 2 | optimistic lock pattern, active-job guard before dispatch |
+| AC10: Concurrency limits respected | 2 | MAX_TRIAGE constant or equivalent, active-job count check |
+| AC11: One active job per idea | 2 | idea_id check in active-jobs query, skip if already active |
+| AC12: Existing feature pipeline not affected | 3 | auto-triage functions present, triggerCombining/triggerMerging intact, coexistence check |
+
+All 30 tests written to FAIL against current codebase — `idea-triage`, `task-execute`, and `initiative-breakdown` job types confirmed absent from orchestrator/index.ts.
+
+No `package.json` changes needed — `tests/vitest.config.ts` uses `features/**/*.test.ts` which discovers recursively.
+
+---
+
 ## Test files created (company-project-setup feature fe10afa9)
 
 ### `tests/features/company-project-setup.test.ts` — 10 test cases

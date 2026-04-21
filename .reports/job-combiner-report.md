@@ -1,14 +1,17 @@
 status: success
-branch: feature/chat-typing-indicator-92f81468
+branch: feature/schema-idea-pipeline-foundations-00b1634e
 merged:
-  - job/1436133d-b5d4-4147-b058-f73065e68521
-  - job/dae72edc-5830-4083-ae8b-0cadf9d37d3c
-conflicts_resolved: []
+  - job/55dd41ff-42fb-410c-9821-5dc4a105a74a
+  - job/d60d0313-0c32-45d9-a323-abba685ec0ca
+  - job/5368a4c4-63a8-480a-b829-060e559f19ca
+  - job/f9aa53ef-3100-4d1b-9fe3-00a7251c9bc7
+conflicts_resolved:
+  - {file: .reports/junior-engineer-report.md, resolution: Merged summaries from both branches (migration 250 and migration 248) into a single combined report}
+  - {file: .reports/senior-engineer-report.md, resolution: Merged summaries from both branches (migration 247 and migration 249) into a single combined report}
 failure_reason:
 
-PR: https://github.com/zazig-team/zazigv2/pull/431
+PR: https://github.com/zazig-team/zazigv2/pull/434
 
-- job/1436133d merged cleanly via --no-ff (added shared typing indicator contract + feature tests)
-- job/dae72edc was already contained within job/1436133d (already up to date)
-- ci.yml already exists on master — CI injection skipped
-- PR created: https://github.com/zazig-team/zazigv2/pull/431
+- All 4 job branches merged via --no-ff
+- CI workflow already exists on master — injection skipped
+- PR created: https://github.com/zazig-team/zazigv2/pull/434

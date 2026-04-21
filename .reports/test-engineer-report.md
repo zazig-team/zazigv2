@@ -1,5 +1,30 @@
 status: pass
 
+## Test files created (schema-idea-pipeline-foundations feature 00b1634e)
+
+### `tests/features/schema-idea-pipeline-foundations.test.ts` — 42 test cases
+
+| Describe block | Cases | Acceptance Criterion |
+|---|---|---|
+| AC1: idea_messages table columns | 8 | idea_messages has all columns and correct types |
+| AC2: idea_messages FK to ideas.id CASCADE | 2 | FK to ideas.id with ON DELETE CASCADE |
+| AC3: idea_messages FK to jobs.id | 1 | FK to jobs.id (nullable) |
+| AC4: idea_messages index on (idea_id, created_at) | 1 | Composite index exists |
+| AC5: Realtime enabled on idea_messages | 1 | supabase_realtime publication |
+| AC6: jobs.idea_id column | 4 | Nullable FK column + index |
+| AC7: ideas.on_hold column | 5 | Boolean, NOT NULL, DEFAULT false |
+| AC8: ideas.type column | 7 | TEXT nullable, check constraint for bug/feature/task/initiative |
+| AC9: New idea statuses | 9 | enriched, routed, executing, breaking_down, spawned, awaiting_response |
+| AC10: companies.company_project_id | 6 | UUID nullable FK to projects.id ON DELETE SET NULL |
+| AC11: Idempotency | 3 | IF NOT EXISTS patterns throughout |
+| AC12: Existing data unaffected | 4 | Nullable + default values preserve existing rows |
+
+All tests perform static analysis of `supabase/migrations/*.sql` files.
+All 42 tests will FAIL against the current codebase — the migrations do not exist yet.
+No `package.json` changes needed — `vitest run` discovers tests/features/ recursively.
+
+---
+
 ## Test files created (persistent-agent-resilience feature 94df71bc)
 
 ### `tests/features/persistent-agent-resilience-liveness-monitoring.test.ts` — 14 test cases

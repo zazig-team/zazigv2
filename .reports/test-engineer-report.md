@@ -1,5 +1,39 @@
 status: pass
 
+## Test files created (platform-chat-system feature 9ba5a976)
+
+### 1. `tests/features/platform-chat-idea-messages-crud.test.ts` — 14 test cases
+Tests for the idea_messages CRUD edge function and Realtime setup.
+- Edge function directory and index.ts file existence
+- POST handler: accepts idea_id, sender, content, job_id params; inserts into idea_messages
+- GET handler: filters by idea_id, orders by created_at ASC
+- RLS policies: migration enables RLS, scopes access by company, INSERT policy present
+- Realtime: migration adds idea_messages to supabase_realtime publication, REPLICA IDENTITY
+
+### 2. `tests/features/platform-chat-ask-user-mcp-tool.test.ts` — 18 test cases
+Tests for the ask_user MCP tool in agent-mcp-server.ts and workspace.ts.
+- Tool registration: `server.tool("ask_user", ...)` with idea_id + question parameters
+- Available to all job types (senior-engineer, junior-engineer, test-engineer, breakdown-specialist)
+- Inserts into idea_messages with sender='job' and job_id from ZAZIG_JOB_ID env
+- 10-minute timeout (600_000ms) sets idea status to awaiting_response
+- Realtime subscription for user replies (sender=user)
+- Polling fallback (3-5s interval) when Realtime fails
+
+### 3. `tests/features/platform-chat-resume-trigger.test.ts` — 9 test cases
+Tests for the orchestrator resume trigger.
+- Orchestrator queries ideas with awaiting_response status
+- Orchestrator checks idea_messages for new user (sender=user) replies
+- Creates a resume job associated with the idea via idea_id
+- Transitions idea out of awaiting_response (to executing/routed/spawned)
+- Resume job context includes full conversation history from idea_messages
+- pipeline-utils.ts supports building context from idea_messages
+
+**Total test files: 3 | Total test cases: 41 | All 10 acceptance criteria covered**
+
+No `package.json` changes needed — `tests/package.json` uses `vitest run` which discovers tests/features/ recursively.
+
+---
+
 ## Test files created (schema-idea-pipeline-foundations feature 00b1634e)
 
 ### `tests/features/schema-idea-pipeline-foundations.test.ts` — 42 test cases

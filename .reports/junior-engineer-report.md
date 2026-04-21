@@ -1,7 +1,6 @@
 status: pass
-summary: Multiple migrations implemented — (1) migration 250 to add nullable companies.company_project_id with idempotent FK to projects.id using ON DELETE SET NULL; (2) migration 248 to add nullable jobs.idea_id with idempotent FK to ideas(id) using ON DELETE SET NULL and an index on jobs.idea_id.
+summary: Implemented migration 251 to enable RLS on idea_messages with authenticated company-scoped SELECT and INSERT policies, relying on service_role bypass for job writes.
 files_changed:
-  - supabase/migrations/250_companies_project_id.sql
-  - supabase/migrations/248_jobs_idea_id.sql
+  - supabase/migrations/251_idea_messages_rls.sql
   - .reports/junior-engineer-report.md
-failure_reason: 
+failure_reason:

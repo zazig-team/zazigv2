@@ -172,6 +172,7 @@ const STANDARD_TOOLS = [
 // ROLE_DEFAULT_MCP_TOOLS (required by the remove-write-mcp-tools feature constraint).
 const TRIAGE_ANALYST_MCP_TOOLS = ["ask_user", "execute_sql", "update_idea", "query_projects", "query_features"];
 const BREAKDOWN_AGENT_MCP_TOOLS = ["ask_user", "execute_sql", "update_idea", "query_ideas", "batch_create_ideas"];
+const TASK_EXECUTOR_MCP_TOOLS = ["ask_user", "execute_sql", "update_idea", "query_projects"];
 
 /**
  * Default MCP tools granted to specific roles when no explicit mcpTools list
@@ -183,6 +184,9 @@ const ROLE_DEFAULT_MCP_TOOLS: Record<string, string[]> = {
   "project-architect": BREAKDOWN_AGENT_MCP_TOOLS,
   "breakdown-specialist": ["query_features", "ask_user"],
   "triage-analyst": TRIAGE_ANALYST_MCP_TOOLS,
+  "task-executor": TASK_EXECUTOR_MCP_TOOLS,
+  // Backward-compatible alias used by older task-execute prompt/testing paths.
+  "task-execute": TASK_EXECUTOR_MCP_TOOLS,
   "idea-triage": [
     "ask_user",
     "query_ideas",

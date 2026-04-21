@@ -1,7 +1,7 @@
 status: pass
-summary: Added initiative-breakdown test coverage for local-agent executor routing, project-architect role prompt requirements, and orchestrator lifecycle guards/transitions.
+summary: Implemented task-execute support in local-agent validation, executor routing/on-hold handling, and default MCP tool permissions for task-executor workspaces.
 files_changed:
-  - packages/local-agent/src/__tests__/initiative-breakdown-job-type-local-agent.test.ts
-  - packages/local-agent/src/__tests__/initiative-breakdown-job-type-agent-role.test.ts
-  - tests/features/orchestrator-idea-job-dispatch-and-routing.test.ts
+  - packages/shared/src/validators.ts
+  - packages/local-agent/src/executor.ts
+  - packages/local-agent/src/workspace.ts
 failure_reason:

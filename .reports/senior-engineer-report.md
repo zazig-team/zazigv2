@@ -1,7 +1,5 @@
 status: pass
-summary: Implemented migration 254 to replace triage-analyst role prompt with the new 6-step idea enrichment pipeline and enforced slot_type=claude_code.
+summary: Added migration 256 to upsert the project-architect role for initiative-breakdown with the required slot type, MCP tools, and full execution prompt.
 files_changed:
-  - supabase/migrations/254_triage_analyst_pipeline_prompt.sql
-  - .reports/senior-engineer-report.md
-  - .claude/triage-analyst-report.md
-failure_reason: 
+  - supabase/migrations/256_project_architect_initiative_breakdown_prompt.sql
+failure_reason:

@@ -1,5 +1,36 @@
 status: pass
 
+## Test files created (initiative-breakdown-job-type feature c0fdab15)
+
+### 1. `tests/features/initiative-breakdown-job-type-local-agent.test.ts` — 12 test cases
+
+Static analysis of `packages/local-agent/src/executor.ts` and `workspace.ts` for executor handling:
+- executor.ts recognizes 'initiative-breakdown' as a valid job type
+- cardType branching for initiative-breakdown
+- defaults to breakdown-specialist role
+- ZAZIG_IDEA_ID forwarding from idea_id
+- breaking_down/on_hold status handling
+- 'spawned' status set on completion
+- slot allocation strategy
+- workspace context for child idea creation
+
+### 2. `tests/features/initiative-breakdown-job-type-agent-role.test.ts` — 16 test cases
+
+Static analysis of `packages/local-agent/src/workspace.ts` and `agent-mcp-server.ts`:
+- ROLE_DEFAULT_MCP_TOOLS entry for initiative-breakdown/breakdown-specialist (ask_user, create_idea, update_idea, query_ideas)
+- create_idea tool fields: title, description, originator, source, tags
+- create_idea project_id is absent or optional (triage assigns it)
+- update_idea status includes 'spawned' and 'breaking_down'
+- ask_user 10-min timeout constant and suspend/resume pattern
+- parent idea updated with breakdown summary
+- parent:idea-uuid tag convention for child ideas
+
+**Total: 28 test cases across 2 files. All written to FAIL against current codebase.**
+
+No `package.json` changes needed — `tests/package.json` uses `vitest run` which discovers tests/features/ recursively.
+
+---
+
 ## Test files created (orchestrator-suspend-resume-via-realtime feature a94ca129)
 
 ### `tests/features/orchestrator-suspend-resume-via-realtime.test.ts` — 23 test cases

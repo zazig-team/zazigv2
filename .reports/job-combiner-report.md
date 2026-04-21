@@ -1,12 +1,12 @@
 status: success
-branch: feature/idea-triage-job-type-4a337b7a
+branch: feature/initiative-breakdown-job-type-c0fdab15
 merged:
-  - job/581d6916-0fd3-44fa-ae6b-c14d9617269a
+  - job/3808f3d7-df34-4f31-8523-15ad2307d086
 conflicts_resolved: []
 failure_reason:
 
-PR: https://github.com/zazig-team/zazigv2/pull/439
+PR: https://github.com/zazig-team/zazigv2/pull/440
 
 - Job branch merged via --no-ff, no conflicts
 - CI workflow already exists on master — injection skipped
-- PR created: https://github.com/zazig-team/zazigv2/pull/439
+- PR created: https://github.com/zazig-team/zazigv2/pull/440

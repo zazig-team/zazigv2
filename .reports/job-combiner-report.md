@@ -1,17 +1,14 @@
 status: success
-branch: feature/schema-idea-pipeline-foundations-00b1634e
+branch: feature/platform-chat-system-idea-messages-and-a-9ba5a976
 merged:
-  - job/55dd41ff-42fb-410c-9821-5dc4a105a74a
-  - job/d60d0313-0c32-45d9-a323-abba685ec0ca
-  - job/5368a4c4-63a8-480a-b829-060e559f19ca
-  - job/f9aa53ef-3100-4d1b-9fe3-00a7251c9bc7
+  - job/d9dbf19d-008e-4398-8dc5-dcf4d1b1ecb1
+  - job/ee84a4f9-c2e9-4c79-af34-f04f84f024c2
 conflicts_resolved:
-  - {file: .reports/junior-engineer-report.md, resolution: Merged summaries from both branches (migration 250 and migration 248) into a single combined report}
-  - {file: .reports/senior-engineer-report.md, resolution: Merged summaries from both branches (migration 247 and migration 249) into a single combined report}
+  - {file: .reports/senior-engineer-report.md, resolution: merged both job summaries into a single combined summary preserving all files_changed entries from both branches}
 failure_reason:
 
-PR: https://github.com/zazig-team/zazigv2/pull/434
+PR: https://github.com/zazig-team/zazigv2/pull/436
 
-- All 4 job branches merged via --no-ff
+- Both job branches merged via --no-ff
 - CI workflow already exists on master — injection skipped
-- PR created: https://github.com/zazig-team/zazigv2/pull/434
+- PR created: https://github.com/zazig-team/zazigv2/pull/436

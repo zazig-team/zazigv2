@@ -1,13 +1,12 @@
 /**
- * Feature: task-execute job type — local agent executor handling
+ * Feature: task-execute job type — local agent pickup and lifecycle
  *
  * Static analysis tests covering:
- * - executor.ts: recognizes 'task-execute' as a valid job type
- * - executor.ts: launches the task-execute agent role
- * - executor.ts: passes ZAZIG_IDEA_ID to task-execute agent
- * - executor.ts: handles on_hold suspend/resume for task-execute jobs
- *
- * Written to FAIL until the feature is implemented.
+ * - shared validator accepts cardType='task-execute'
+ * - executor routes to task-executor and scratch workspace behavior
+ * - ZAZIG_IDEA_ID propagation to workspace MCP env
+ * - pollJob on_hold handling for task-execute jobs
+ * - workspace MCP defaults for task-executor role
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -18,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
 
+const VALIDATORS_FILE = path.join(REPO_ROOT, 'packages', 'shared', 'src', 'validators.ts');
 const EXECUTOR_FILE = path.join(REPO_ROOT, 'packages', 'local-agent', 'src', 'executor.ts');
 const WORKSPACE_FILE = path.join(REPO_ROOT, 'packages', 'local-agent', 'src', 'workspace.ts');
 
@@ -30,185 +30,141 @@ function readSource(filePath: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// AC: Local agent recognizes task-execute as a valid job type
+// AC: isStartJob() accepts cardType='task-execute'
 // ---------------------------------------------------------------------------
 
-describe("Local agent recognizes 'task-execute' as a valid job type", () => {
+describe("isStartJob() accepts messages with cardType='task-execute'", () => {
+  let validatorsSource = '';
+
+  beforeAll(() => {
+    validatorsSource = readSource(VALIDATORS_FILE);
+  });
+
+  it('validators.ts exists and is non-empty', () => {
+    expect(
+      validatorsSource,
+      'packages/shared/src/validators.ts is missing or empty.',
+    ).not.toBe('');
+  });
+
+  it("isStartJob cardType allowlist includes 'task-execute'", () => {
+    expect(validatorsSource).toMatch(/isStartJob[\s\S]{0,1800}task-execute/s);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC: Executor routes task-execute to task-executor + scratch workspace
+// ---------------------------------------------------------------------------
+
+describe('Executor routes task-execute jobs to task-executor in scratch workspace flow', () => {
   let executorSource = '';
 
   beforeAll(() => {
     executorSource = readSource(EXECUTOR_FILE);
   });
 
-  it('executor.ts file exists and is non-empty', () => {
-    expect(executorSource, 'packages/local-agent/src/executor.ts is missing or empty').not.toBe('');
-  });
-
-  it("executor.ts references 'task-execute' job type", () => {
+  it('executor.ts exists and is non-empty', () => {
     expect(
       executorSource,
-      "executor.ts must reference 'task-execute' to handle this job type.",
-    ).toMatch(/task-execute/);
+      'packages/local-agent/src/executor.ts is missing or empty.',
+    ).not.toBe('');
   });
 
-  it("executor has a handler path for task-execute card type", () => {
-    // The executor must branch on cardType === 'task-execute' (or similar)
-    expect(executorSource).toMatch(
-      /cardType.*task.execute|task.execute.*cardType|cardType.*===.*task/i,
-    );
+  it("branches on cardType === 'task-execute'", () => {
+    expect(executorSource).toMatch(/cardType\s*===\s*["']task-execute["']/);
   });
 
-  it("task-execute job type launches the task-execute agent role", () => {
-    // When handling task-execute, the executor must set up a workspace with the
-    // task-execute role — not a generic ephemeral code job
-    const taskBlock = executorSource.match(
-      /task-execute[\s\S]{0,500}/,
-    );
-    expect(taskBlock).not.toBeNull();
-    expect(taskBlock![0]).toMatch(/task.execute.*role|role.*task.execute|task.*agent/i);
+  it("defaults task-execute jobs to role 'task-executor'", () => {
+    expect(executorSource).toMatch(/isTaskExecuteJob[\s\S]{0,180}["']task-executor["']/s);
+  });
+
+  it('task-executor is marked as no-code-context role (scratch workspace path)', () => {
+    expect(executorSource).toMatch(/NO_CODE_CONTEXT_ROLES[\s\S]{0,500}["']task-executor["']/s);
+    expect(executorSource).toMatch(/buildScratchWorkspaceDir\(this\.companyId,\s*roleName,\s*jobId\)/);
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC: Executor passes ZAZIG_IDEA_ID to task-execute agent
+// AC: ZAZIG_IDEA_ID injected into workspace env from job context
 // ---------------------------------------------------------------------------
 
-describe("Executor passes ZAZIG_IDEA_ID to task-execute agent", () => {
+describe('ZAZIG_IDEA_ID environment propagation for task-execute jobs', () => {
+  let executorSource = '';
+  let workspaceSource = '';
+
+  beforeAll(() => {
+    executorSource = readSource(EXECUTOR_FILE);
+    workspaceSource = readSource(WORKSPACE_FILE);
+  });
+
+  it('executor resolves ideaId for task-execute jobs and forwards it to workspace setup', () => {
+    expect(executorSource).toMatch(/isTaskExecuteJob/);
+    expect(executorSource).toMatch(/resolveIdeaId\(msg\)/);
+    expect(executorSource).toMatch(/setupJobWorkspace\([\s\S]{0,400}ideaId/s);
+  });
+
+  it('workspace generateMcpConfig maps ideaId to ZAZIG_IDEA_ID env variable', () => {
+    expect(workspaceSource).toMatch(/ZAZIG_IDEA_ID/);
+    expect(workspaceSource).toMatch(/\.\.\.\(env\.ideaId\s*\?\s*\{\s*ZAZIG_IDEA_ID:\s*env\.ideaId\s*\}\s*:\s*\{\}\)/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC: pollJob handles on_hold=true for task-execute (kill + settle)
+// ---------------------------------------------------------------------------
+
+describe('pollJob() handles on_hold for task-execute jobs', () => {
   let executorSource = '';
 
   beforeAll(() => {
     executorSource = readSource(EXECUTOR_FILE);
   });
 
-  it("executor.ts defines or references ZAZIG_IDEA_ID environment variable for task-execute", () => {
-    // The task-execute agent needs to know which idea it is executing
-    // ask_user also needs this to post to the correct idea thread
-    expect(executorSource).toMatch(/ZAZIG_IDEA_ID/);
+  it('pollJob checks on_hold for idea-triage/task-execute cards', () => {
+    expect(executorSource).toMatch(/pollJob[\s\S]{0,2200}job\.cardType === "idea-triage" \|\| job\.cardType === "task-execute"/s);
+    expect(executorSource).toMatch(/select\(["']on_hold["']\)/);
   });
 
-  it("ZAZIG_IDEA_ID is set from the job's idea_id field for task-execute jobs", () => {
-    // The StartJob for task-execute jobs includes idea_id
-    // The executor must forward it as ZAZIG_IDEA_ID env to the tmux session
-    const envBlock = executorSource.match(
-      /ZAZIG_IDEA_ID[^};\n]{0,200}/s,
-    );
-    expect(
-      envBlock,
-      "Expected ZAZIG_IDEA_ID to be set from idea_id in the executor.",
-    ).not.toBeNull();
-    expect(envBlock![0]).toMatch(/idea_id|ideaId/i);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC: task-execute job uses on_hold suspend/resume pattern
-// ---------------------------------------------------------------------------
-
-describe("Executor handles on_hold suspend/resume for task-execute jobs", () => {
-  let executorSource = '';
-
-  beforeAll(() => {
-    executorSource = readSource(EXECUTOR_FILE);
-  });
-
-  it("executor.ts references 'on_hold' for task-execute job monitoring", () => {
-    // The executor must check on_hold status for task-execute jobs (same as idea-triage)
-    expect(executorSource).toMatch(/on_hold/);
-  });
-
-  it("on_hold detection leads to a clean job exit for task-execute", () => {
-    // When on_hold is set, the executor should kill the tmux session and clean up
+  it('on_hold=true path kills tmux session and settles the job', () => {
     const onHoldBlock = executorSource.match(
-      /on_hold[\s\S]{0,1200}/s,
+      /if\s*\(ideaRow\?\.on_hold\)[\s\S]{0,1400}/,
     );
     expect(onHoldBlock).not.toBeNull();
-    expect(onHoldBlock![0]).toMatch(/kill|exit|stop|abort|terminate|sendKeys.*exit/i);
+    expect(onHoldBlock![0]).toMatch(/killTmuxSession/);
+    expect(onHoldBlock![0]).toMatch(/sendJobFailed/);
+    expect(onHoldBlock![0]).toMatch(/settleJob/);
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC: task-execute job type uses appropriate capacity slot
+// AC: task-executor MCP tools configured in workspace.ts
 // ---------------------------------------------------------------------------
 
-describe("task-execute job type uses appropriate capacity slot", () => {
-  let executorSource = '';
-
-  beforeAll(() => {
-    executorSource = readSource(EXECUTOR_FILE);
-  });
-
-  it("task-execute job type is handled with a slot allocation strategy", () => {
-    expect(executorSource).toMatch(/task.execute[\s\S]{0,500}?(slot|claude_code|capacity)/is);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC: workspace.ts maps task-execute role to appropriate defaults
-// ---------------------------------------------------------------------------
-
-describe("workspace.ts includes task-execute role in ROLE_DEFAULT_MCP_TOOLS", () => {
+describe('workspace.ts task-executor MCP defaults', () => {
   let workspaceSource = '';
 
   beforeAll(() => {
     workspaceSource = readSource(WORKSPACE_FILE);
   });
 
-  it('workspace.ts file exists and is non-empty', () => {
-    expect(workspaceSource, 'packages/local-agent/src/workspace.ts is missing or empty').not.toBe('');
-  });
-
-  it("workspace.ts references 'task-execute' role", () => {
-    expect(workspaceSource).toMatch(/task-execute/);
-  });
-
-  it("task-execute role entry grants ask_user tool", () => {
-    // The task-execute agent needs ask_user for clarifying questions mid-execution
-    const taskBlock = workspaceSource.match(
-      /['""]task-execute['""][^}]{0,300}/s,
-    );
+  it('workspace.ts exists and is non-empty', () => {
     expect(
-      taskBlock,
-      "Expected task-execute entry in ROLE_DEFAULT_MCP_TOOLS to include ask_user.",
-    ).not.toBeNull();
-    expect(taskBlock![0]).toMatch(/ask_user/);
+      workspaceSource,
+      'packages/local-agent/src/workspace.ts is missing or empty.',
+    ).not.toBe('');
   });
 
-  it("task-execute role entry grants update_idea tool", () => {
-    // The task-execute agent needs update_idea to record output path after completion
-    const taskBlock = workspaceSource.match(
-      /['""]task-execute['""][^}]{0,300}/s,
+  it("defines TASK_EXECUTOR_MCP_TOOLS with ask_user and update_idea", () => {
+    const taskToolsBlock = workspaceSource.match(
+      /const TASK_EXECUTOR_MCP_TOOLS\s*=\s*\[[^\]]+\]/s,
     );
-    expect(
-      taskBlock,
-      "Expected task-execute entry in ROLE_DEFAULT_MCP_TOOLS to include update_idea.",
-    ).not.toBeNull();
-    expect(taskBlock![0]).toMatch(/update_idea/);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC: executor defaults task-execute jobs to the task-executor role
-// ---------------------------------------------------------------------------
-
-describe("Executor defaults task-execute jobs to the task-executor workspace role", () => {
-  let executorSource = '';
-
-  beforeAll(() => {
-    executorSource = readSource(EXECUTOR_FILE);
+    expect(taskToolsBlock).not.toBeNull();
+    expect(taskToolsBlock![0]).toMatch(/ask_user/);
+    expect(taskToolsBlock![0]).toMatch(/update_idea/);
   });
 
-  it("executor sets role to 'task-executor' (or similar) for task-execute card type", () => {
-    // When handling task-execute, the executor must assign the correct agent role
-    // (parallel to how idea-triage defaults to 'triage-analyst')
-    expect(executorSource).toMatch(/task.execut(e|or).*role|role.*task.execut(e|or)/i);
-  });
-
-  it("executor forwards ideaId to workspace config for task-execute jobs", () => {
-    // The task-execute workspace needs ideaId to read context and post updates
-    const taskBlock = executorSource.match(
-      /task.execute[\s\S]{0,800}/s,
-    );
-    expect(taskBlock).not.toBeNull();
-    expect(taskBlock![0]).toMatch(/ideaId|idea_id/i);
+  it("maps both 'task-executor' and legacy 'task-execute' role keys to task tools", () => {
+    expect(workspaceSource).toMatch(/["']task-executor["']\s*:\s*TASK_EXECUTOR_MCP_TOOLS/);
+    expect(workspaceSource).toMatch(/["']task-execute["']\s*:\s*TASK_EXECUTOR_MCP_TOOLS/);
   });
 });

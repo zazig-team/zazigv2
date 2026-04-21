@@ -1,6 +1,6 @@
 status: pass
-summary: Added a shared TypingIndicatorEvent contract and documented the Supabase Realtime typing channel/event protocol, then re-exported the type from the shared package index.
+summary: Implemented migration 250 to add nullable companies.company_project_id with an idempotent foreign key to projects.id using ON DELETE SET NULL inside a BEGIN/COMMIT transaction.
 files_changed:
-  - packages/shared/src/messages.ts
-  - packages/shared/src/index.ts
-failure_reason:
+  - supabase/migrations/250_companies_project_id.sql
+  - .reports/junior-engineer-report.md
+failure_reason: 

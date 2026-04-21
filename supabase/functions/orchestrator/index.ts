@@ -3467,6 +3467,507 @@ async function resumeAwaitingResponseIdeas(
 }
 
 // ---------------------------------------------------------------------------
+// Idea-pipeline dispatch safety helpers + watch loops
+// ---------------------------------------------------------------------------
+
+type IdeaPipelineJobType =
+  | "idea-triage"
+  | "task-execute"
+  | "initiative-breakdown";
+
+interface IdeaPipelineDispatchCandidateRow {
+  id: string;
+  company_id: string;
+  project_id: string | null;
+  title: string | null;
+  description: string | null;
+  raw_text: string | null;
+}
+
+interface EnrichedIdeaRoutingRow extends IdeaPipelineDispatchCandidateRow {
+  type: string | null;
+}
+
+interface CompletedIdeaStageJobRow {
+  id: string;
+  idea_id: string | null;
+  job_type: string;
+}
+
+interface CompanyIdeaConcurrencyCapsRow {
+  triage_max_concurrent: number | null;
+}
+
+const IDEA_PIPELINE_ACTIVE_JOB_STATUSES = [
+  "created",
+  "queued",
+  "executing",
+] as const;
+
+const DEFAULT_IDEA_PIPELINE_CONCURRENT_CAPS: Record<IdeaPipelineJobType, number> = {
+  "idea-triage": 3,
+  "task-execute": 2,
+  "initiative-breakdown": 2,
+};
+
+function normalizeConcurrentCap(
+  candidate: number | null | undefined,
+  fallback: number,
+): number {
+  if (typeof candidate !== "number" || !Number.isFinite(candidate)) {
+    return fallback;
+  }
+  const normalized = Math.trunc(candidate);
+  return normalized > 0 ? normalized : fallback;
+}
+
+async function getIdeaPipelineConcurrentCaps(
+  supabase: SupabaseClient,
+  companyId: string,
+  cache: Map<string, Record<IdeaPipelineJobType, number>>,
+): Promise<Record<IdeaPipelineJobType, number>> {
+  const cached = cache.get(companyId);
+  if (cached) return cached;
+
+  const { data, error } = await supabase
+    .from("companies")
+    .select("triage_max_concurrent")
+    .eq("id", companyId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(
+      `[orchestrator] idea-pipeline caps: failed to load company ${companyId} caps, using defaults: ${error.message}`,
+    );
+    const defaults = { ...DEFAULT_IDEA_PIPELINE_CONCURRENT_CAPS };
+    cache.set(companyId, defaults);
+    return defaults;
+  }
+
+  const row = (data as CompanyIdeaConcurrencyCapsRow | null) ?? null;
+  const resolved = {
+    "idea-triage": normalizeConcurrentCap(
+      row?.triage_max_concurrent,
+      DEFAULT_IDEA_PIPELINE_CONCURRENT_CAPS["idea-triage"],
+    ),
+    "task-execute": DEFAULT_IDEA_PIPELINE_CONCURRENT_CAPS["task-execute"],
+    "initiative-breakdown":
+      DEFAULT_IDEA_PIPELINE_CONCURRENT_CAPS["initiative-breakdown"],
+  } satisfies Record<IdeaPipelineJobType, number>;
+
+  cache.set(companyId, resolved);
+  return resolved;
+}
+
+async function countActiveIdeaJobsForCompany(
+  supabase: SupabaseClient,
+  companyId: string,
+  jobType: IdeaPipelineJobType,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId)
+    .eq("job_type", jobType)
+    .not("idea_id", "is", null)
+    .in("status", [...IDEA_PIPELINE_ACTIVE_JOB_STATUSES]);
+
+  if (error) {
+    console.error(
+      `[orchestrator] idea-pipeline caps: failed counting active ${jobType} jobs for company ${companyId}: ${error.message}`,
+    );
+    return 0;
+  }
+
+  return count ?? 0;
+}
+
+async function hasActiveJobForIdea(
+  supabase: SupabaseClient,
+  companyId: string,
+  ideaId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("idea_id", ideaId)
+    .in("status", [...IDEA_PIPELINE_ACTIVE_JOB_STATUSES])
+    .limit(1);
+
+  if (error) {
+    console.error(
+      `[orchestrator] idea-pipeline active-job lookup failed for idea ${ideaId}: ${error.message}`,
+    );
+    // Fail closed: assume active to avoid double dispatch.
+    return true;
+  }
+
+  return (data?.length ?? 0) > 0;
+}
+
+async function transitionIdeaStatusIfExpected(
+  supabase: SupabaseClient,
+  ideaId: string,
+  expectedStatus: string,
+  nextStatus: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("ideas")
+    .update({ status: nextStatus })
+    .eq("id", ideaId)
+    .eq("status", expectedStatus)
+    .select("id")
+    .limit(1);
+
+  if (error) {
+    console.error(
+      `[orchestrator] idea status transition failed for ${ideaId} (${expectedStatus} -> ${nextStatus}): ${error.message}`,
+    );
+    return false;
+  }
+
+  return (data?.length ?? 0) > 0;
+}
+
+function ideaPipelineCacheKey(companyId: string, jobType: IdeaPipelineJobType): string {
+  return `${companyId}:${jobType}`;
+}
+
+function buildIdeaJobContext(
+  jobType: IdeaPipelineJobType,
+  idea: IdeaPipelineDispatchCandidateRow,
+): string {
+  const title = idea.title?.trim() || "(untitled idea)";
+  const description = idea.description?.trim() || "(no description)";
+  const rawText = idea.raw_text?.trim() || "(no raw_text)";
+  return JSON.stringify({
+    type: "idea_pipeline_job",
+    stage: jobType,
+    idea_id: idea.id,
+    title,
+    description,
+    raw_text: rawText,
+  });
+}
+
+async function dispatchIdeaStageJob(
+  supabase: SupabaseClient,
+  params: {
+    idea: IdeaPipelineDispatchCandidateRow;
+    jobType: IdeaPipelineJobType;
+    role: string;
+    expectedStatus: string;
+    nextStatus: string;
+    titlePrefix: string;
+    capsCache: Map<string, Record<IdeaPipelineJobType, number>>;
+    activeCountsCache: Map<string, number>;
+  },
+): Promise<boolean> {
+  const {
+    idea,
+    jobType,
+    role,
+    expectedStatus,
+    nextStatus,
+    titlePrefix,
+    capsCache,
+    activeCountsCache,
+  } = params;
+
+  const caps = await getIdeaPipelineConcurrentCaps(
+    supabase,
+    idea.company_id,
+    capsCache,
+  );
+  const cacheKey = ideaPipelineCacheKey(idea.company_id, jobType);
+  let activeCount = activeCountsCache.get(cacheKey);
+  if (activeCount === undefined) {
+    activeCount = await countActiveIdeaJobsForCompany(
+      supabase,
+      idea.company_id,
+      jobType,
+    );
+    activeCountsCache.set(cacheKey, activeCount);
+  }
+
+  const cap = caps[jobType];
+  if (activeCount >= cap) return false;
+
+  // One active job per idea guard.
+  const alreadyHasActiveJob = await hasActiveJobForIdea(
+    supabase,
+    idea.company_id,
+    idea.id,
+  );
+  if (alreadyHasActiveJob) {
+    console.log(
+      `[orchestrator] idea-pipeline: skipping ${jobType} for idea ${idea.id} (already has active job)`,
+    );
+    return false;
+  }
+
+  const transitioned = await transitionIdeaStatusIfExpected(
+    supabase,
+    idea.id,
+    expectedStatus,
+    nextStatus,
+  );
+  if (!transitioned) return false;
+
+  const title = idea.title?.trim().length
+    ? `${titlePrefix}: ${idea.title?.trim()}`
+    : `${titlePrefix}: ${idea.id}`;
+  const context = buildIdeaJobContext(jobType, idea);
+
+  const { data: insertedJob, error: insertErr } = await supabase
+    .from("jobs")
+    .insert({
+      company_id: idea.company_id,
+      project_id: idea.project_id,
+      idea_id: idea.id,
+      title,
+      role,
+      job_type: jobType,
+      complexity: "medium",
+      status: "created",
+      context,
+    })
+    .select("id")
+    .single();
+
+  if (insertErr || !insertedJob) {
+    console.error(
+      `[orchestrator] idea-pipeline: failed creating ${jobType} job for idea ${idea.id}: ${insertErr?.message ?? "unknown error"}`,
+    );
+    await transitionIdeaStatusIfExpected(
+      supabase,
+      idea.id,
+      nextStatus,
+      expectedStatus,
+    );
+    return false;
+  }
+
+  activeCountsCache.set(cacheKey, activeCount + 1);
+  return true;
+}
+
+async function resolveCompanyActiveProjectId(
+  supabase: SupabaseClient,
+  companyId: string,
+  cache: Map<string, string | null>,
+): Promise<string | null> {
+  const cached = cache.get(companyId);
+  if (cached !== undefined) return cached;
+
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("status", "active")
+    .limit(1);
+
+  if (error) {
+    console.error(
+      `[orchestrator] idea-pipeline: failed resolving active project for company ${companyId}: ${error.message}`,
+    );
+    cache.set(companyId, null);
+    return null;
+  }
+
+  const projectId = (data as { id: string }[] | null)?.[0]?.id ?? null;
+  cache.set(companyId, projectId);
+  return projectId;
+}
+
+async function watchNewIdeasForDispatch(supabase: SupabaseClient): Promise<void> {
+  const { data: newIdeas, error } = await supabase
+    .from("ideas")
+    .select("id, company_id, project_id, title, description, raw_text")
+    .eq("status", "new")
+    .eq("on_hold", false)
+    .order("created_at", { ascending: true })
+    .limit(100);
+
+  if (error) {
+    console.error(
+      `[orchestrator] idea-pipeline new-watch: failed to query new ideas: ${error.message}`,
+    );
+    return;
+  }
+
+  if (!newIdeas?.length) return;
+
+  const capsCache = new Map<string, Record<IdeaPipelineJobType, number>>();
+  const activeCountsCache = new Map<string, number>();
+
+  for (const idea of newIdeas as IdeaPipelineDispatchCandidateRow[]) {
+    await dispatchIdeaStageJob(supabase, {
+      idea,
+      jobType: "idea-triage",
+      role: "triage-analyst",
+      expectedStatus: "new",
+      nextStatus: "triaging",
+      titlePrefix: "Idea triage",
+      capsCache,
+      activeCountsCache,
+    });
+  }
+}
+
+async function watchEnrichedIdeasForRouting(
+  supabase: SupabaseClient,
+): Promise<void> {
+  const { data: enrichedIdeas, error } = await supabase
+    .from("ideas")
+    .select("id, company_id, project_id, title, description, raw_text, type")
+    .eq("status", "enriched")
+    .eq("on_hold", false)
+    .order("updated_at", { ascending: true })
+    .limit(100);
+
+  if (error) {
+    console.error(
+      `[orchestrator] idea-pipeline enriched-watch: failed to query enriched ideas: ${error.message}`,
+    );
+    return;
+  }
+
+  if (!enrichedIdeas?.length) return;
+
+  const capsCache = new Map<string, Record<IdeaPipelineJobType, number>>();
+  const activeCountsCache = new Map<string, number>();
+  const companyProjectCache = new Map<string, string | null>();
+
+  for (const idea of enrichedIdeas as EnrichedIdeaRoutingRow[]) {
+    const ideaType = idea.type?.trim().toLowerCase();
+    if (ideaType === "bug" || ideaType === "feature") {
+      const alreadyHasActiveJob = await hasActiveJobForIdea(
+        supabase,
+        idea.company_id,
+        idea.id,
+      );
+      if (alreadyHasActiveJob) {
+        console.log(
+          `[orchestrator] idea-pipeline: skipping promote-idea for idea ${idea.id} (already has active job)`,
+        );
+        continue;
+      }
+
+      const transitioned = await transitionIdeaStatusIfExpected(
+        supabase,
+        idea.id,
+        "enriched",
+        "routed",
+      );
+      if (!transitioned) continue;
+
+      const projectId = idea.project_id ??
+        await resolveCompanyActiveProjectId(supabase, idea.company_id, companyProjectCache);
+
+      if (!projectId) {
+        await transitionIdeaStatusIfExpected(supabase, idea.id, "routed", "enriched");
+        continue;
+      }
+
+      const response = await fetch(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/promote-idea`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            idea_id: idea.id,
+            promote_to: "feature",
+            project_id: projectId,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error(
+          `[orchestrator] idea-pipeline enriched-watch: promote-idea failed for ${idea.id}: ${response.status} ${text}`,
+        );
+        await transitionIdeaStatusIfExpected(supabase, idea.id, "routed", "enriched");
+      }
+      continue;
+    }
+
+    if (ideaType === "task") {
+      await dispatchIdeaStageJob(supabase, {
+        idea,
+        jobType: "task-execute",
+        role: "senior-engineer",
+        expectedStatus: "enriched",
+        nextStatus: "executing",
+        titlePrefix: "Task execute",
+        capsCache,
+        activeCountsCache,
+      });
+      continue;
+    }
+
+    if (ideaType === "initiative") {
+      await dispatchIdeaStageJob(supabase, {
+        idea,
+        jobType: "initiative-breakdown",
+        role: "project-architect",
+        expectedStatus: "enriched",
+        nextStatus: "breaking_down",
+        titlePrefix: "Initiative breakdown",
+        capsCache,
+        activeCountsCache,
+      });
+    }
+  }
+}
+
+async function watchCompletedIdeaStageJobs(
+  supabase: SupabaseClient,
+): Promise<void> {
+  const { data: completedJobs, error } = await supabase
+    .from("jobs")
+    .select("id, idea_id, job_type")
+    .eq("status", "complete")
+    .in("job_type", ["task-execute", "initiative-breakdown"])
+    .not("idea_id", "is", null)
+    .order("completed_at", { ascending: true })
+    .limit(200);
+
+  if (error) {
+    console.error(
+      `[orchestrator] idea-pipeline completion-watch: failed to query completed stage jobs: ${error.message}`,
+    );
+    return;
+  }
+
+  if (!completedJobs?.length) return;
+
+  for (const row of completedJobs as CompletedIdeaStageJobRow[]) {
+    const ideaId = row.idea_id;
+    if (!ideaId) continue;
+
+    if (row.job_type === "task-execute") {
+      await transitionIdeaStatusIfExpected(supabase, ideaId, "executing", "done");
+      continue;
+    }
+
+    if (row.job_type === "initiative-breakdown") {
+      await transitionIdeaStatusIfExpected(
+        supabase,
+        ideaId,
+        "breaking_down",
+        "spawned",
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Auto-triage: dispatch triage jobs for new ideas in auto_triage companies
 // ---------------------------------------------------------------------------
 
@@ -5154,28 +5655,33 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 5. Resume awaiting_response ideas when a user replies in idea_messages.
     await resumeAwaitingResponseIdeas(supabase);
 
-    // 6. Dispatch queued jobs to available machines.
+    // 6. Idea-pipeline state watchers (job dispatch + status routing).
+    await watchNewIdeasForDispatch(supabase);
+    await watchEnrichedIdeasForRouting(supabase);
+    await watchCompletedIdeaStageJobs(supabase);
+
+    // 7. Dispatch queued jobs to available machines.
     await dispatchQueuedJobs(supabase);
 
-    // 6b. Recover ideas stuck at 'triaging' with no active triage job (orphan protection).
+    // 7b. Recover ideas stuck at 'triaging' with no active triage job (orphan protection).
     await recoverStaleTriagingIdeas(supabase);
 
-    // 6c. Recover ideas stuck at 'developing' in broken spec/review chains.
+    // 7c. Recover ideas stuck at 'developing' in broken spec/review chains.
     await recoverStaleDevelopingIdeas(supabase);
 
-    // 6d. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
+    // 7d. Auto-triage: dispatch triage jobs for new ideas in companies with auto_triage enabled.
     await autoTriageNewIdeas(supabase);
 
-    // 6e. Auto-enrich: dispatch enrichment jobs for incomplete triaged ideas.
+    // 7e. Auto-enrich: dispatch enrichment jobs for incomplete triaged ideas.
     await autoEnrichIncompleteTriagedIdeas(supabase);
 
-    // 6f. Auto-spec: dispatch/continue spec session chains for develop-routed ideas.
+    // 7f. Auto-spec: dispatch/continue spec session chains for develop-routed ideas.
     await autoSpecTriagedIdeas(supabase);
 
-    // 6g. Auto-promote: create features from triaged(promote) and specced ideas.
+    // 7g. Auto-promote: create features from triaged(promote) and specced ideas.
     await autoPromoteTriagedIdeas(supabase);
 
-    // 7. Refresh pipeline snapshot cache after all state mutations.
+    // 8. Refresh pipeline snapshot cache after all state mutations.
     await refreshPipelineSnapshotCache(supabase);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

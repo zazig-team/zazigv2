@@ -1151,6 +1151,40 @@ describe("JobExecutor — ephemeral workspace setup", () => {
     expect(config.jobId).toBe("job-001");
   });
 
+  it("defaults idea-triage jobs to triage-analyst and forwards ideaId to workspace config", async () => {
+    const setupMock = setupJobWorkspace as unknown as Mock;
+    const ideaId = "5ad8e2e4-8f61-4f1f-a8cc-34f2dbdb5e35";
+    await executor.handleStartJob(makeStartJob({
+      role: undefined,
+      cardType: "idea-triage" as unknown as StartJob["cardType"],
+      context: JSON.stringify({ idea_id: ideaId }),
+      repoUrl: null,
+      featureBranch: null,
+    }));
+
+    expect(setupMock).toHaveBeenCalledTimes(1);
+    const config = setupMock.mock.calls[0]![0];
+    expect(config.role).toBe("triage-analyst");
+    expect(config.ideaId).toBe(ideaId);
+  });
+
+  it("extracts ideaId from prompt stack when context is omitted", async () => {
+    const setupMock = setupJobWorkspace as unknown as Mock;
+    const ideaId = "7445b23f-7285-4498-9073-ec0ef71b0c84";
+    await executor.handleStartJob(makeStartJob({
+      role: "triage-analyst",
+      cardType: "idea-triage" as unknown as StartJob["cardType"],
+      context: undefined,
+      promptStackMinusSkills: `Task context:\n{\"type\":\"idea_pipeline_job\",\"idea_id\":\"${ideaId}\"}`,
+      repoUrl: null,
+      featureBranch: null,
+    }));
+
+    expect(setupMock).toHaveBeenCalledTimes(1);
+    const config = setupMock.mock.calls[0]![0];
+    expect(config.ideaId).toBe(ideaId);
+  });
+
   it("injects expert roster and ensures start-expert skill for cpo role", async () => {
     const setupMock = setupJobWorkspace as unknown as Mock;
     supabase.setExpertRolesResult({

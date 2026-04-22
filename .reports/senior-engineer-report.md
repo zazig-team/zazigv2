@@ -1,6 +1,7 @@
 status: pass
-summary: Added error_message/error_details fields to query-jobs edge function and CLI formatted output, plus company-level job listing support
+summary: Implemented a new `zazig feature-errors` CLI command with feature/job diagnostics, stuck-job detection, recommendations, and optional JSON output, and registered it in the CLI dispatcher/help text.
 files_changed:
-  - supabase/migrations/259_jobs_error_columns.sql
-  - supabase/functions/query-jobs/index.ts
-  - packages/cli/src/commands/jobs.ts
+  - packages/cli/src/commands/feature-errors.ts
+  - packages/cli/src/index.ts
+  - .reports/senior-engineer-report.md
+failure_reason:

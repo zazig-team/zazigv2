@@ -1,5 +1,7 @@
 status: pass
-summary: Removed the legacy auto-triage/enrich/spec/promote orchestration code path from the edge orchestrator and left the new idea/feature routing loops intact.
+summary: Implemented a new `zazig feature-errors` CLI command with feature/job diagnostics, stuck-job detection, recommendations, and optional JSON output, and registered it in the CLI dispatcher/help text.
 files_changed:
-  - supabase/functions/orchestrator/index.ts
-failure_reason: none
+  - packages/cli/src/commands/feature-errors.ts
+  - packages/cli/src/index.ts
+  - .reports/senior-engineer-report.md
+failure_reason:

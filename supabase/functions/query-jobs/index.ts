@@ -39,7 +39,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-const JOB_SELECT = "id, title, status, role, job_type, complexity, depends_on, started_at, completed_at, result, feature_id, project_id";
+const JOB_SELECT = "id, title, status, role, job_type, complexity, depends_on, created_at, started_at, updated_at, completed_at, result, error_message, error_details, feature_id, idea_id, project_id";
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -65,6 +65,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       job_id,
       id,
       feature_id,
+      company_id,
       status,
       limit: rawLimit,
       offset: rawOffset,
@@ -73,9 +74,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const offset = Number.isFinite(Number(rawOffset)) ? Number(rawOffset) : 0;
     const singleJobId = id ?? job_id;
 
-    if (!singleJobId && !feature_id) {
+    if (!singleJobId && !feature_id && !company_id) {
       return jsonResponse(
-        { error: "At least one of job_id or feature_id is required" },
+        { error: "At least one of job_id, feature_id, or company_id is required" },
         400,
       );
     }
@@ -96,22 +97,44 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     // Jobs for a feature, optionally filtered by status
-    let query = supabase
-      .from("jobs")
-      .select(JOB_SELECT)
-      .eq("feature_id", feature_id);
+    if (feature_id) {
+      let query = supabase
+        .from("jobs")
+        .select(JOB_SELECT)
+        .eq("feature_id", feature_id);
 
-    if (status) {
-      query = query.eq("status", status);
+      if (status) {
+        query = query.eq("status", status);
+      }
+
+      const { data, error } = await query.range(offset, offset + limit - 1);
+
+      if (error) {
+        return jsonResponse({ error: error.message }, 500);
+      }
+
+      return jsonResponse({ jobs: data ?? [] });
     }
 
-    const { data, error } = await query.range(offset, offset + limit - 1);
+    // Jobs for a company (no feature_id or job_id specified)
+    let companyQuery = supabase
+      .from("jobs")
+      .select(JOB_SELECT + ", count()", { count: "exact" })
+      .eq("company_id", company_id);
+
+    if (status) {
+      companyQuery = companyQuery.eq("status", status);
+    }
+
+    companyQuery = companyQuery.order("created_at", { ascending: false });
+
+    const { data, error, count } = await companyQuery.range(offset, offset + limit - 1);
 
     if (error) {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    return jsonResponse({ jobs: data ?? [] });
+    return jsonResponse({ jobs: data ?? [], total: count ?? 0 });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

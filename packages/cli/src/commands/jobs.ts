@@ -7,8 +7,8 @@ type ParsedFlag = {
   value?: string;
 };
 
-const UUID_V4ISH_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function parseFlag(args: string[], name: string): ParsedFlag {
   const eq = args.find((arg) => arg.startsWith(`--${name}=`));
@@ -43,7 +43,7 @@ function parseNumericFlag(args: string[], name: string): { provided: boolean; va
 }
 
 function isUuid(value: string): boolean {
-  return UUID_V4ISH_REGEX.test(value);
+  return UUID_REGEX.test(value);
 }
 
 function printHelp(): void {
@@ -163,5 +163,30 @@ export async function jobs(args: string[]): Promise<void> {
   process.stderr.write(
     `Showing ${offset + 1}-${offset + count} of ${total} (--limit ${limit} --offset ${offset})\n`,
   );
+
+  // Human-readable summary of jobs
+  if (Array.isArray(data.jobs) && data.jobs.length > 0) {
+    process.stderr.write("\n");
+    for (const job of data.jobs as Record<string, unknown>[]) {
+      const statusStr = String(job.status ?? "unknown").toUpperCase();
+      const title = String(job.title ?? job.id ?? "untitled");
+      const created_at = job.created_at ? String(job.created_at) : "";
+      const updated_at = job.updated_at ? String(job.updated_at) : "";
+      const completed_at = job.completed_at ? String(job.completed_at) : "";
+      const feature_id = job.feature_id ? String(job.feature_id) : "";
+      process.stderr.write(`[${statusStr}] ${title}\n`);
+      if (created_at) process.stderr.write(`  created:   ${created_at}\n`);
+      if (updated_at) process.stderr.write(`  updated:   ${updated_at}\n`);
+      if (completed_at) process.stderr.write(`  completed: ${completed_at}\n`);
+      if (feature_id) process.stderr.write(`  feature:   ${feature_id}\n`);
+      if (job.status === "failed") {
+        const error_message = job.error_message ? String(job.error_message) : "";
+        const error_details = job.error_details ? String(job.error_details) : "";
+        if (error_message) process.stderr.write(`  Error: ${error_message}\n`);
+        if (error_details) process.stderr.write(`  Details: ${error_details}\n`);
+      }
+    }
+  }
+
   process.exit(0);
 }

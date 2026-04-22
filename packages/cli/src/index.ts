@@ -49,6 +49,7 @@ import { autoSpec } from "./commands/auto-spec.js";
 import { companies } from "./commands/companies.js";
 import { agents } from "./commands/agents.js";
 import { desktop } from "./commands/desktop.js";
+import { featureErrors } from "./commands/feature-errors.js";
 
 import { getVersion } from "./lib/version.js";
 
@@ -201,6 +202,10 @@ switch (cmd) {
 
   case "desktop":
     await desktop(args);
+    break;
+
+  case "feature-errors":
+    await featureErrors(args);
     break;
 
   case undefined:

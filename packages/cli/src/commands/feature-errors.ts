@@ -12,6 +12,7 @@ type FeatureRecord = {
   title?: string;
   status?: string;
   priority?: string;
+  retry_count?: number;
 };
 
 type JobRecord = {
@@ -19,6 +20,7 @@ type JobRecord = {
   title?: string;
   status?: string;
   error_message?: string;
+  error_details?: string;
   started_at?: string;
   updated_at?: string;
   completed_at?: string;
@@ -268,6 +270,7 @@ export async function featureErrors(args: string[]): Promise<void> {
       const retryDisplay = retryValue === undefined ? "unknown" : String(retryValue);
       process.stdout.write(`  - ${String(job.title ?? job.id ?? "untitled")}\n`);
       process.stdout.write(`    Error: ${toIsoOrUnknown(job.error_message)}\n`);
+      if (job.error_details) process.stdout.write(`    Details: ${job.error_details}\n`);
       process.stdout.write(`    Failed at: ${toIsoOrUnknown(job.completed_at ?? job.updated_at)}\n`);
       process.stdout.write(`    Retries: ${retryDisplay}\n`);
     }

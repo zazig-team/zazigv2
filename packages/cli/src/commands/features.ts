@@ -111,12 +111,31 @@ export async function features(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const data = (await response.json()) as { features?: unknown[]; total?: number };
+  type Feature = {
+    id: string;
+    title?: string;
+    status?: string;
+    failed_job_count?: number;
+    critical_error_count?: number;
+    health?: string;
+  };
+  const data = (await response.json()) as { features?: Feature[]; total?: number };
   process.stdout.write(JSON.stringify(data));
-  const count = Array.isArray(data.features) ? data.features.length : 0;
+  const featureList = Array.isArray(data.features) ? data.features : [];
+  const count = featureList.length;
   const total = typeof data.total === "number" ? data.total : count;
   process.stderr.write(
     `Showing ${offset + 1}-${offset + count} of ${total} (--limit ${limit} --offset ${offset})\n`,
   );
+  for (const f of featureList) {
+    const health = f.health ?? "healthy";
+    const failedCount = f.failed_job_count ?? 0;
+    const criticalCount = f.critical_error_count ?? 0;
+    if (health !== "healthy" || failedCount > 0) {
+      process.stderr.write(
+        `  [${health.toUpperCase()}] ${f.title ?? f.id} — failed_job_count: ${failedCount}, critical_error_count: ${criticalCount}\n`,
+      );
+    }
+  }
   process.exit(0);
 }

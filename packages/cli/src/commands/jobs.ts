@@ -7,6 +7,20 @@ type ParsedFlag = {
   value?: string;
 };
 
+type Job = {
+  id: string;
+  title?: string;
+  status: string;
+  role?: string;
+  feature_id?: string;
+  error_message?: string | null;
+  error_details?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  completed_at?: string | null;
+  started_at?: string | null;
+};
+
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -156,9 +170,10 @@ export async function jobs(args: string[]): Promise<void> {
     fail(`HTTP ${response.status}: ${errorBody}`);
   }
 
-  const data = (await response.json()) as { jobs?: unknown[]; total?: number };
+  const data = (await response.json()) as { jobs?: Job[]; total?: number };
   process.stdout.write(JSON.stringify(data));
-  const count = Array.isArray(data.jobs) ? data.jobs.length : 0;
+  const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+  const count = jobs.length;
   const total = typeof data.total === "number" ? data.total : count;
   process.stderr.write(
     `Showing ${offset + 1}-${offset + count} of ${total} (--limit ${limit} --offset ${offset})\n`,

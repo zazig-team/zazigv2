@@ -7,8 +7,22 @@ type ParsedFlag = {
   value?: string;
 };
 
-const UUID_V4ISH_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+type Job = {
+  id: string;
+  title?: string;
+  status: string;
+  role?: string;
+  feature_id?: string;
+  error_message?: string | null;
+  error_details?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  completed_at?: string | null;
+  started_at?: string | null;
+};
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function parseFlag(args: string[], name: string): ParsedFlag {
   const eq = args.find((arg) => arg.startsWith(`--${name}=`));
@@ -43,7 +57,7 @@ function parseNumericFlag(args: string[], name: string): { provided: boolean; va
 }
 
 function isUuid(value: string): boolean {
-  return UUID_V4ISH_REGEX.test(value);
+  return UUID_REGEX.test(value);
 }
 
 function printHelp(): void {
@@ -156,12 +170,33 @@ export async function jobs(args: string[]): Promise<void> {
     fail(`HTTP ${response.status}: ${errorBody}`);
   }
 
-  const data = (await response.json()) as { jobs?: unknown[]; total?: number };
+  const data = (await response.json()) as { jobs?: Job[]; total?: number };
   process.stdout.write(JSON.stringify(data));
-  const count = Array.isArray(data.jobs) ? data.jobs.length : 0;
+  const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+  const count = jobs.length;
   const total = typeof data.total === "number" ? data.total : count;
   process.stderr.write(
     `Showing ${offset + 1}-${offset + count} of ${total} (--limit ${limit} --offset ${offset})\n`,
   );
+  const failedJobs = jobs.filter((j) => j.status === "failed");
+  if (failedJobs.length > 0) {
+    process.stderr.write(`\nFailed jobs (${failedJobs.length}):\n`);
+    for (const j of failedJobs) {
+      process.stderr.write(`  ${j.id}${j.title ? ` — ${j.title}` : ""}\n`);
+      if (j.error_message) {
+        process.stderr.write(`    Error: ${j.error_message}\n`);
+      }
+      if (j.error_details) {
+        process.stderr.write(`    Details: ${j.error_details}\n`);
+      }
+      const ts = j.completed_at ?? j.updated_at;
+      if (ts) {
+        process.stderr.write(`    Timestamp: ${ts}\n`);
+      }
+      if (j.created_at) {
+        process.stderr.write(`    Created: ${j.created_at}\n`);
+      }
+    }
+  }
   process.exit(0);
 }

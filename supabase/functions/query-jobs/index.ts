@@ -39,7 +39,21 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-const JOB_SELECT = "id, title, status, role, job_type, complexity, depends_on, started_at, completed_at, result, feature_id, project_id";
+const JOB_SELECT = "id, title, status, role, job_type, complexity, depends_on, started_at, completed_at, result, feature_id, project_id, updated_at, created_at";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function enrichJob(job: Record<string, any>): Record<string, unknown> {
+  const isFailed = job.status === "failed";
+  return {
+    ...job,
+    error_message: isFailed ? (job.result ?? null) : null,
+    error_details: null,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -92,7 +106,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return jsonResponse({ error: error.message }, 404);
       }
 
-      return jsonResponse({ jobs: [data] });
+      return jsonResponse({ jobs: [enrichJob(data)] });
     }
 
     // Jobs for a feature, optionally filtered by status
@@ -111,7 +125,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    return jsonResponse({ jobs: data ?? [] });
+    return jsonResponse({ jobs: (data ?? []).map(enrichJob) });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

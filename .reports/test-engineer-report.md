@@ -1,5 +1,35 @@
 status: pass
 
+## Test files created (cli-show-job-errors-and-feature-diagnostics feature 64640db0)
+
+### 1. `tests/features/cli-jobs-command-errors-and-filtering.test.ts` — 15 test cases
+
+Tests for the jobs command UUID fix and error fields:
+- UUID regex accepts all-zero UUID (00000000-0000-0000-0000-000000000001)
+- UUID regex uses permissive 8-4-4-4-12 hex pattern (not [1-8]/[89ab] variant constraints)
+- jobs.ts requests error_message, error_details, status, timestamps, feature_id from API
+- jobs.ts output is human-readable for errors
+- --feature-id flag parsed and forwarded to API, validated as UUID
+- CLI index.ts registers "jobs" case
+
+### 2. `tests/features/cli-feature-diagnostics.test.ts` — 28 test cases
+
+Tests for the new `feature-errors` command and enhanced `features` command:
+- feature-errors.ts exists, exports featureErrors function
+- Requires --company and --id flags; uses getValidCredentials
+- Displays complete/failed/pending job counts and totals
+- Shows error_message and timestamps for failed jobs
+- Shows retry count for failed jobs
+- Detects stuck jobs using 1-hour threshold, shows elapsed time
+- Includes recommendations in output
+- Human-readable section headers (not raw JSON.stringify)
+- features.ts includes failed_job_count, health indicator, critical_error_count
+- CLI index.ts imports and registers "feature-errors" case
+
+**Total: 43 test cases across 2 files. All designed to FAIL until the feature is implemented.**
+
+---
+
 ## Test files created (remove-old-auto-orchestrator-functions feature ad8e67f8)
 
 ### `tests/features/remove-old-auto-orchestrator-functions.test.ts`

@@ -39,9 +39,52 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-const FEATURE_SELECT = "id, title, description, spec, acceptance_tests, human_checklist, status, priority, project_id, depends_on, promoted_version";
+const FEATURE_SELECT = "id, title, description, spec, acceptance_tests, human_checklist, status, priority, project_id, depends_on, promoted_version, updated_at, retry_count";
 // Slim select for dedup checks — only what's needed to identify a duplicate
 const DEDUP_SELECT = "id, title, description, status";
+
+// ---------------------------------------------------------------------------
+// Error summary helpers
+// ---------------------------------------------------------------------------
+
+type FeatureRow = Record<string, unknown>;
+
+function computeHealth(feature: FeatureRow, failedJobCount: number): string {
+  if (failedJobCount === 0) return "healthy";
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const updatedAt = feature.updated_at as string | null;
+  if (!updatedAt || updatedAt < oneHourAgo) return "stuck";
+  return "degraded";
+}
+
+async function enrichFeaturesWithErrorSummary(
+  supabase: ReturnType<typeof import("@supabase/supabase-js").createClient>,
+  features: FeatureRow[],
+): Promise<FeatureRow[]> {
+  if (features.length === 0) return features;
+
+  const featureIds = features.map((f) => f.id as string);
+
+  const { data: failedJobs } = await supabase
+    .from("jobs")
+    .select("feature_id")
+    .in("feature_id", featureIds)
+    .eq("status", "failed");
+
+  const failedCountMap: Record<string, number> = {};
+  for (const job of failedJobs ?? []) {
+    const fid = job.feature_id as string;
+    failedCountMap[fid] = (failedCountMap[fid] ?? 0) + 1;
+  }
+
+  return features.map((f) => {
+    const fid = f.id as string;
+    const failed_job_count = failedCountMap[fid] ?? 0;
+    const critical_error_count = failed_job_count;
+    const health = computeHealth(f, failed_job_count);
+    return { ...f, failed_job_count, critical_error_count, health };
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -84,7 +127,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
         return jsonResponse({ error: error.message }, 404);
       }
 
-      return jsonResponse({ features: [data], total: 1 });
+      const [enriched] = await enrichFeaturesWithErrorSummary(supabase, [data]);
+      return jsonResponse({ features: [enriched], total: 1 });
     }
 
     // Features for a project, optionally filtered by status and/or search term.
@@ -124,7 +168,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    return jsonResponse({ features: data ?? [], total: count ?? 0 });
+    const features = dedup_mode
+      ? (data ?? [])
+      : await enrichFeaturesWithErrorSummary(supabase, data ?? []);
+
+    return jsonResponse({ features, total: count ?? 0 });
   } catch (err) {
     return jsonResponse({ error: String(err) }, 500);
   }

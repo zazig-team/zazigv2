@@ -1,6 +1,6 @@
 status: pass
-summary: Added initiative-breakdown/project-architect MCP default tool wiring in workspace setup, added a dedicated breakdown tool constant, and normalized initiative-breakdown Task context in CLAUDE.md to include type/stage/idea_id/title/company_id.
+summary: Updated `packages/cli/src/commands/jobs.ts` UUID validation to accept any valid 8-4-4-4-12 hexadecimal UUID format so `--company`, `--id`, and `--feature-id` no longer reject valid non-v4 UUIDs.
 files_changed:
-  - packages/local-agent/src/workspace.ts
+  - packages/cli/src/commands/jobs.ts
   - .reports/junior-engineer-report.md
-failure_reason: n/a
+failure_reason:

@@ -30,6 +30,7 @@ import { ideas } from "./commands/ideas.js";
 import { features } from "./commands/features.js";
 import { search } from "./commands/search.js";
 import { jobs } from "./commands/jobs.js";
+import { featureErrors } from "./commands/feature-errors.js";
 import { projects } from "./commands/projects.js";
 import { standup } from "./commands/standup.js";
 import { createFeature } from "./commands/create-feature.js";
@@ -131,6 +132,10 @@ switch (cmd) {
     await jobs(args);
     break;
 
+  case "feature-errors":
+    await featureErrors(args);
+    break;
+
   case "projects":
     await projects(args);
     break;
@@ -226,6 +231,7 @@ switch (cmd) {
     console.log("  features --company <company-id>  Query features (project/status/id filters)");
     console.log("  search <query> --company <id>    Search across ideas, features, and jobs");
     console.log("  jobs --company <company-id>      Query jobs (id/feature-id/status filters)");
+    console.log("  feature-errors --company <id> --id <feature-id>  Show feature job diagnostics");
     console.log("  projects --company <company-id>  List projects (optional --include-features)");
     console.log("  create-feature --company <company-id>  Create a feature");
     console.log("  update-feature --company <company-id>  Update a feature");

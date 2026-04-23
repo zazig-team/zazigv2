@@ -13,9 +13,6 @@ const ITEM_TYPE_LABELS: Record<ItemType, string> = {
 
 interface CompanySettingsRow {
   auto_triage_types: string[] | null;
-  triage_batch_size: number | null;
-  triage_max_concurrent: number | null;
-  triage_delay_minutes: number | null;
   auto_spec_types: string[] | null;
   spec_max_concurrent: number | null;
   spec_delay_minutes: number | null;
@@ -23,9 +20,6 @@ interface CompanySettingsRow {
 
 interface SettingsState {
   autoTriageTypes: ItemType[];
-  triageBatchSize: number;
-  triageMaxConcurrent: number;
-  triageDelayMinutes: number;
   autoSpecTypes: ItemType[];
   specMaxConcurrent: number;
   specDelayMinutes: number;
@@ -33,9 +27,6 @@ interface SettingsState {
 
 const DEFAULT_SETTINGS: SettingsState = {
   autoTriageTypes: [],
-  triageBatchSize: 5,
-  triageMaxConcurrent: 3,
-  triageDelayMinutes: 5,
   autoSpecTypes: [],
   specMaxConcurrent: 2,
   specDelayMinutes: 5,
@@ -72,9 +63,6 @@ function arraysEqual(a: string[], b: string[]): boolean {
 function mapRowToSettings(row: CompanySettingsRow): SettingsState {
   return {
     autoTriageTypes: parseTypes(row.auto_triage_types),
-    triageBatchSize: normalizeNumber(row.triage_batch_size, 5, 1, 20),
-    triageMaxConcurrent: normalizeNumber(row.triage_max_concurrent, 3, 1, 10),
-    triageDelayMinutes: normalizeNumber(row.triage_delay_minutes, 5, 1, 30),
     autoSpecTypes: parseTypes(row.auto_spec_types),
     specMaxConcurrent: normalizeNumber(row.spec_max_concurrent, 2, 1, 5),
     specDelayMinutes: normalizeNumber(row.spec_delay_minutes, 5, 1, 30),
@@ -83,9 +71,6 @@ function mapRowToSettings(row: CompanySettingsRow): SettingsState {
 
 function settingsChanged(current: SettingsState, initial: SettingsState): boolean {
   return !arraysEqual(current.autoTriageTypes, initial.autoTriageTypes)
-    || current.triageBatchSize !== initial.triageBatchSize
-    || current.triageMaxConcurrent !== initial.triageMaxConcurrent
-    || current.triageDelayMinutes !== initial.triageDelayMinutes
     || !arraysEqual(current.autoSpecTypes, initial.autoSpecTypes)
     || current.specMaxConcurrent !== initial.specMaxConcurrent
     || current.specDelayMinutes !== initial.specDelayMinutes;
@@ -99,13 +84,6 @@ function buildChangedFields(
 
   if (!arraysEqual(current.autoTriageTypes, initial.autoTriageTypes)) {
     changed.auto_triage_types = current.autoTriageTypes;
-  }
-  if (current.triageBatchSize !== initial.triageBatchSize) changed.triage_batch_size = current.triageBatchSize;
-  if (current.triageMaxConcurrent !== initial.triageMaxConcurrent) {
-    changed.triage_max_concurrent = current.triageMaxConcurrent;
-  }
-  if (current.triageDelayMinutes !== initial.triageDelayMinutes) {
-    changed.triage_delay_minutes = current.triageDelayMinutes;
   }
   if (!arraysEqual(current.autoSpecTypes, initial.autoSpecTypes)) {
     changed.auto_spec_types = current.autoSpecTypes;
@@ -150,7 +128,7 @@ export default function Settings(): JSX.Element {
     const { data, error } = await supabase
       .from("companies")
       .select(
-        "auto_triage_types, triage_batch_size, triage_max_concurrent, triage_delay_minutes, auto_spec_types, spec_max_concurrent, spec_delay_minutes",
+        "auto_triage_types, auto_spec_types, spec_max_concurrent, spec_delay_minutes",
       )
       .eq("id", activeCompanyId)
       .single();
@@ -276,65 +254,6 @@ export default function Settings(): JSX.Element {
           ))}
         </div>
 
-        <label className="settings-slider-row" htmlFor="triage-batch-size">
-          <div className="settings-slider-labels">
-            <span>Batch size</span>
-            <span>{settings.triageBatchSize}</span>
-          </div>
-          <input
-            id="triage-batch-size"
-            type="range"
-            min={1}
-            max={20}
-            value={settings.triageBatchSize}
-            disabled={controlsDisabled}
-            onChange={(event) => {
-              const next = clamp(Number(event.target.value), 1, 20);
-              setSettings((current) => ({ ...current, triageBatchSize: next }));
-              clearFeedback();
-            }}
-          />
-        </label>
-
-        <label className="settings-slider-row" htmlFor="triage-max-concurrent">
-          <div className="settings-slider-labels">
-            <span>Max concurrent</span>
-            <span>{settings.triageMaxConcurrent}</span>
-          </div>
-          <input
-            id="triage-max-concurrent"
-            type="range"
-            min={1}
-            max={10}
-            value={settings.triageMaxConcurrent}
-            disabled={controlsDisabled}
-            onChange={(event) => {
-              const next = clamp(Number(event.target.value), 1, 10);
-              setSettings((current) => ({ ...current, triageMaxConcurrent: next }));
-              clearFeedback();
-            }}
-          />
-        </label>
-
-        <label className="settings-slider-row" htmlFor="triage-delay-minutes">
-          <div className="settings-slider-labels">
-            <span>Delay (min)</span>
-            <span>{settings.triageDelayMinutes}</span>
-          </div>
-          <input
-            id="triage-delay-minutes"
-            type="range"
-            min={1}
-            max={30}
-            value={settings.triageDelayMinutes}
-            disabled={controlsDisabled}
-            onChange={(event) => {
-              const next = clamp(Number(event.target.value), 1, 30);
-              setSettings((current) => ({ ...current, triageDelayMinutes: next }));
-              clearFeedback();
-            }}
-          />
-        </label>
       </section>
 
       <section className="settings-card fade-up d2">

@@ -3592,93 +3592,11 @@ interface CompletedIdeaStageJobRow {
   job_type: string;
 }
 
-interface CompanyIdeaConcurrencyCapsRow {
-  triage_max_concurrent: number | null;
-}
-
 const IDEA_PIPELINE_ACTIVE_JOB_STATUSES = [
   "created",
   "queued",
   "executing",
 ] as const;
-
-const DEFAULT_IDEA_PIPELINE_CONCURRENT_CAPS: Record<IdeaPipelineJobType, number> = {
-  "idea-triage": 3,
-  "task-execute": 3,
-  "initiative-breakdown": 2,
-};
-
-function normalizeConcurrentCap(
-  candidate: number | null | undefined,
-  fallback: number,
-): number {
-  if (typeof candidate !== "number" || !Number.isFinite(candidate)) {
-    return fallback;
-  }
-  const normalized = Math.trunc(candidate);
-  return normalized > 0 ? normalized : fallback;
-}
-
-async function getIdeaPipelineConcurrentCaps(
-  supabase: SupabaseClient,
-  companyId: string,
-  cache: Map<string, Record<IdeaPipelineJobType, number>>,
-): Promise<Record<IdeaPipelineJobType, number>> {
-  const cached = cache.get(companyId);
-  if (cached) return cached;
-
-  const { data, error } = await supabase
-    .from("companies")
-    .select("triage_max_concurrent")
-    .eq("id", companyId)
-    .maybeSingle();
-
-  if (error) {
-    console.warn(
-      `[orchestrator] idea-pipeline caps: failed to load company ${companyId} caps, using defaults: ${error.message}`,
-    );
-    const defaults = { ...DEFAULT_IDEA_PIPELINE_CONCURRENT_CAPS };
-    cache.set(companyId, defaults);
-    return defaults;
-  }
-
-  const row = (data as CompanyIdeaConcurrencyCapsRow | null) ?? null;
-  const resolved = {
-    "idea-triage": normalizeConcurrentCap(
-      row?.triage_max_concurrent,
-      DEFAULT_IDEA_PIPELINE_CONCURRENT_CAPS["idea-triage"],
-    ),
-    "task-execute": DEFAULT_IDEA_PIPELINE_CONCURRENT_CAPS["task-execute"],
-    "initiative-breakdown":
-      DEFAULT_IDEA_PIPELINE_CONCURRENT_CAPS["initiative-breakdown"],
-  } satisfies Record<IdeaPipelineJobType, number>;
-
-  cache.set(companyId, resolved);
-  return resolved;
-}
-
-async function countActiveIdeaJobsForCompany(
-  supabase: SupabaseClient,
-  companyId: string,
-  jobType: IdeaPipelineJobType,
-): Promise<number> {
-  const { count, error } = await supabase
-    .from("jobs")
-    .select("id", { count: "exact", head: true })
-    .eq("company_id", companyId)
-    .eq("job_type", jobType)
-    .not("idea_id", "is", null)
-    .in("status", [...IDEA_PIPELINE_ACTIVE_JOB_STATUSES]);
-
-  if (error) {
-    console.error(
-      `[orchestrator] idea-pipeline caps: failed counting active ${jobType} jobs for company ${companyId}: ${error.message}`,
-    );
-    return 0;
-  }
-
-  return count ?? 0;
-}
 
 async function hasActiveJobForIdea(
   supabase: SupabaseClient,
@@ -3734,10 +3652,6 @@ async function transitionIdeaStatusIfExpected(
   return (data?.length ?? 0) > 0;
 }
 
-function ideaPipelineCacheKey(companyId: string, jobType: IdeaPipelineJobType): string {
-  return `${companyId}:${jobType}`;
-}
-
 function buildIdeaJobContext(
   jobType: IdeaPipelineJobType,
   idea: IdeaPipelineDispatchCandidateRow,
@@ -3762,42 +3676,9 @@ async function dispatchIdeaStageJob(
     jobType: IdeaPipelineJobType;
     role: string;
     titlePrefix: string;
-    capsCache: Map<string, Record<IdeaPipelineJobType, number>>;
-    activeCountsCache: Map<string, number>;
   },
 ): Promise<boolean> {
-  const {
-    idea,
-    jobType,
-    role,
-    titlePrefix,
-    capsCache,
-    activeCountsCache,
-  } = params;
-
-  const caps = await getIdeaPipelineConcurrentCaps(
-    supabase,
-    idea.company_id,
-    capsCache,
-  );
-  const cacheKey = ideaPipelineCacheKey(idea.company_id, jobType);
-  let activeCount = activeCountsCache.get(cacheKey);
-  if (activeCount === undefined) {
-    activeCount = await countActiveIdeaJobsForCompany(
-      supabase,
-      idea.company_id,
-      jobType,
-    );
-    activeCountsCache.set(cacheKey, activeCount);
-  }
-
-  const cap = caps[jobType];
-  if (activeCount >= cap) {
-    console.log(
-      `[orchestrator] dispatchIdeaStageJob: skipping ${jobType} for idea ${idea.id} — concurrency cap reached (${activeCount}/${cap})`,
-    );
-    return false;
-  }
+  const { idea, jobType, role, titlePrefix } = params;
 
   // One active job per idea guard.
   const alreadyHasActiveJob = await hasActiveJobForIdea(
@@ -3854,7 +3735,6 @@ async function dispatchIdeaStageJob(
   console.log(
     `[orchestrator] dispatchIdeaStageJob: successfully created ${jobType} job ${insertedJob.id} for idea ${idea.id}`,
   );
-  activeCountsCache.set(cacheKey, activeCount + 1);
   return true;
 }
 
@@ -3909,17 +3789,12 @@ async function watchNewIdeasForDispatch(supabase: SupabaseClient): Promise<void>
 
   console.log(`[orchestrator] dispatchIdeaStageJob: watchNewIdeasForDispatch found ${newIdeas.length} new idea(s): ${newIdeas.map((i: { id: string }) => i.id).join(", ")}`);
 
-  const capsCache = new Map<string, Record<IdeaPipelineJobType, number>>();
-  const activeCountsCache = new Map<string, number>();
-
   for (const idea of newIdeas as IdeaPipelineDispatchCandidateRow[]) {
     await dispatchIdeaStageJob(supabase, {
       idea,
       jobType: "idea-triage",
       role: "triage-analyst",
       titlePrefix: "Idea triage",
-      capsCache,
-      activeCountsCache,
     });
   }
 }
@@ -3944,8 +3819,6 @@ async function watchEnrichedIdeasForRouting(
 
   if (!enrichedIdeas?.length) return;
 
-  const capsCache = new Map<string, Record<IdeaPipelineJobType, number>>();
-  const activeCountsCache = new Map<string, number>();
   const companyProjectCache = new Map<string, string | null>();
 
   for (const idea of enrichedIdeas as EnrichedIdeaRoutingRow[]) {
@@ -4004,8 +3877,6 @@ async function watchEnrichedIdeasForRouting(
         jobType: "task-execute",
         role: "task-executor",
         titlePrefix: "Task: ",
-        capsCache,
-        activeCountsCache,
       });
       continue;
     }
@@ -4016,8 +3887,6 @@ async function watchEnrichedIdeasForRouting(
         jobType: "initiative-breakdown",
         role: "project-architect",
         titlePrefix: "Initiative breakdown",
-        capsCache,
-        activeCountsCache,
       });
     }
   }

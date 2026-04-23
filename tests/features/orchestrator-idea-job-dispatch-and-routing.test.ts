@@ -310,18 +310,14 @@ describe('AC9: No double-dispatch — atomic status transitions prevent duplicat
 // AC10: Concurrency limits are respected
 // ---------------------------------------------------------------------------
 
-describe('AC10: Concurrency limits are respected per company', () => {
+describe('AC10: Concurrency is managed by slot capacity, not artificial caps', () => {
   beforeAll(() => {
     orchestratorSource = readOrchestrator();
   });
 
-  it('defines or references a max concurrent idea-triage jobs limit', () => {
-    // Should have a constant or config value for max concurrent triage jobs (default 3)
-    expect(orchestratorSource).toMatch(
-      /MAX.*TRIAGE|TRIAGE.*MAX|max.*triage|triage.*concurr|concurr.*triage|idea.triage.*limit|limit.*idea.triage/i,
-    );
+  it('uses hasActiveJobForIdea to prevent duplicate dispatch per idea', () => {
+    expect(orchestratorSource).toMatch(/hasActiveJobForIdea/);
   });
-
 });
 
 // ---------------------------------------------------------------------------

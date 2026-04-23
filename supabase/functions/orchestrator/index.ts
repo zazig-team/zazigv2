@@ -3568,8 +3568,7 @@ async function listenForIdeaMessageReplies(
 
 type IdeaPipelineJobType =
   | "idea-triage"
-  | "task-execute"
-  | "initiative-breakdown";
+  | "task-execute";
 
 interface IdeaPipelineDispatchCandidateRow {
   id: string;
@@ -3880,15 +3879,6 @@ async function watchEnrichedIdeasForRouting(
       });
       continue;
     }
-
-    if (ideaType === "initiative") {
-      await dispatchIdeaStageJob(supabase, {
-        idea,
-        jobType: "initiative-breakdown",
-        role: "project-architect",
-        titlePrefix: "Initiative breakdown",
-      });
-    }
   }
 }
 
@@ -3963,7 +3953,6 @@ async function processIdeaLifecycle(
 
   // --- Stage 2: enriched → done/spawned/routed (when routing jobs complete) ---
   // task-execute → done
-  // initiative-breakdown → spawned
   // bug/feature promotion is handled by promote-idea setting status to 'promoted'
   {
     const { data: enrichedIdeas, error } = await supabase
@@ -4018,39 +4007,6 @@ async function processIdeaLifecycle(
         );
       }
 
-      if (normalizedType === "initiative") {
-        const { data: pendingBreakdown } = await supabase
-          .from("jobs")
-          .select("id")
-          .eq("idea_id", ideaId)
-          .eq("job_type", "initiative-breakdown")
-          .not("status", "in", '("complete","failed","cancelled","failed_retrying")')
-          .limit(1);
-        if (pendingBreakdown && pendingBreakdown.length > 0) continue;
-
-        const { data: failedBreakdown } = await supabase
-          .from("jobs")
-          .select("id")
-          .eq("idea_id", ideaId)
-          .eq("job_type", "initiative-breakdown")
-          .eq("status", "failed")
-          .limit(1);
-        if (failedBreakdown && failedBreakdown.length > 0) continue;
-
-        const { data: completeBreakdown } = await supabase
-          .from("jobs")
-          .select("id")
-          .eq("idea_id", ideaId)
-          .eq("job_type", "initiative-breakdown")
-          .eq("status", "complete")
-          .limit(1);
-        if (!completeBreakdown || completeBreakdown.length === 0) continue;
-
-        await transitionIdeaStatusIfExpected(supabase, ideaId, idea.status as string, "spawned");
-        console.log(
-          `[orchestrator] processIdeaLifecycle: idea ${ideaId} → spawned (initiative-breakdown complete)`,
-        );
-      }
     }
   }
 }

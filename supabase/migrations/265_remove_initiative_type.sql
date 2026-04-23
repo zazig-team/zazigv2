@@ -2,13 +2,13 @@
 -- Remove 'initiative' as an idea type. The feature pipeline handles breakdown.
 -- Also remove 'initiative-breakdown' from jobs_job_type_check.
 
+-- Reclassify any existing initiative ideas as features (before constraint change)
+UPDATE public.ideas SET type = 'feature' WHERE type = 'initiative';
+
 -- Update ideas type constraint (drop initiative)
 ALTER TABLE public.ideas DROP CONSTRAINT IF EXISTS ideas_type_check;
 ALTER TABLE public.ideas ADD CONSTRAINT ideas_type_check
   CHECK (type IS NULL OR type IN ('bug', 'feature', 'task'));
-
--- Reclassify any existing initiative ideas as features
-UPDATE public.ideas SET type = 'feature' WHERE type = 'initiative';
 
 -- Remove initiative-breakdown from jobs_job_type_check
 ALTER TABLE public.jobs DROP CONSTRAINT IF EXISTS jobs_job_type_check;

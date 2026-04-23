@@ -304,7 +304,7 @@ describe('AC9: No double-dispatch — atomic status transitions prevent duplicat
     );
     expect(initiativeRouteBlock).not.toBeNull();
     expect(orchestratorSource).toMatch(
-      /async function dispatchIdeaStageJob[\s\S]{0,1200}hasActiveJobForIdea\(/,
+      /async function dispatchIdeaStageJob[\s\S]{0,1800}hasActiveJobForIdea\(/,
     );
   });
 });

@@ -154,22 +154,8 @@ describe("AC4: Enriched task ideas get a task-execute job created, status moves 
 });
 
 // ---------------------------------------------------------------------------
-// AC5: Enriched initiative ideas get initiative-breakdown job, status = 'breaking_down'
+// AC5: (removed — initiative type no longer exists)
 // ---------------------------------------------------------------------------
-
-describe("AC5: Enriched initiative ideas get an initiative-breakdown job, status moves to 'breaking_down'", () => {
-  beforeAll(() => {
-    orchestratorSource = readOrchestrator();
-  });
-
-  it("creates a job with job_type 'initiative-breakdown' for initiative ideas", () => {
-    expect(orchestratorSource).toMatch(/initiative-breakdown/);
-  });
-
-  it("sets idea status to 'breaking_down' when routing an initiative", () => {
-    expect(orchestratorSource).toMatch(/breaking_down/);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // AC6: Completed task-execute jobs move idea to 'done'
@@ -201,42 +187,8 @@ describe("AC6: Completed task-execute jobs move idea to 'done'", () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC7: Completed initiative-breakdown jobs move idea to 'spawned'
+// AC7: (removed — initiative type no longer exists)
 // ---------------------------------------------------------------------------
-
-describe("AC7: Completed initiative-breakdown jobs move idea to 'spawned'", () => {
-  beforeAll(() => {
-    orchestratorSource = readOrchestrator();
-  });
-
-  it("watches for completed initiative-breakdown jobs", () => {
-    expect(orchestratorSource).toMatch(/initiative-breakdown/);
-  });
-
-  it("sets idea status to 'spawned' when the initiative-breakdown job completes", () => {
-    expect(orchestratorSource).toMatch(/spawned/);
-  });
-
-  it("initiative-breakdown completion sets 'spawned' in proximity to initiative-breakdown references", () => {
-    const breakdownSpawnedBlock = orchestratorSource.match(
-      /initiative-breakdown.{0,500}spawned|spawned.{0,500}initiative-breakdown/is,
-    );
-    expect(
-      breakdownSpawnedBlock,
-      "Expected 'spawned' status assignment near 'initiative-breakdown' job type reference.",
-    ).not.toBeNull();
-  });
-
-  it("processIdeaLifecycle transitions enriched → spawned on completed initiative-breakdown jobs", () => {
-    const transitionBlock = orchestratorSource.match(
-      /initiative-breakdown[\s\S]{0,2000}transitionIdeaStatusIfExpected[\s\S]{0,300}["']spawned["']/is,
-    );
-    expect(
-      transitionBlock,
-      "Expected processIdeaLifecycle to call transitionIdeaStatusIfExpected(..., 'spawned') for initiative-breakdown jobs.",
-    ).not.toBeNull();
-  });
-});
 
 // ---------------------------------------------------------------------------
 // AC8: on_hold ideas are skipped by all watch loops
@@ -295,11 +247,7 @@ describe('AC9: No double-dispatch — atomic status transitions prevent duplicat
     expect(orchestratorSource).toMatch(/active.*job.*idea|idea.*active.*job|already.*job|job.*idea_id/i);
   });
 
-  it("initiative-breakdown route goes through dispatchIdeaStageJob, which applies hasActiveJobForIdea guard", () => {
-    const initiativeRouteBlock = orchestratorSource.match(
-      /if\s*\(ideaType\s*===\s*["']initiative["']\)[\s\S]{0,600}dispatchIdeaStageJob\([\s\S]{0,400}jobType:\s*["']initiative-breakdown["']/is,
-    );
-    expect(initiativeRouteBlock).not.toBeNull();
+  it("dispatchIdeaStageJob applies hasActiveJobForIdea guard", () => {
     expect(orchestratorSource).toMatch(
       /async function dispatchIdeaStageJob[\s\S]{0,1800}hasActiveJobForIdea\(/,
     );

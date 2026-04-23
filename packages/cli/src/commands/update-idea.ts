@@ -15,7 +15,7 @@ const VALID_STATUS = new Set([
   "rejected",
   "done",
 ]);
-const VALID_TYPE = new Set(["bug", "feature", "task", "initiative"]);
+const VALID_TYPE = new Set(["bug", "feature", "task"]);
 const VALID_PRIORITY = new Set(["low", "medium", "high", "urgent"]);
 const VALID_TRIAGE_ROUTE = new Set(["promote", "develop", "workshop", "harden", "park", "reject", "founder-review"]);
 const VALID_COMPLEXITY = new Set(["simple", "medium", "complex"]);
@@ -58,7 +58,7 @@ Flags:
   --title <string>         Idea title (optional)
   --description <string>   Idea description (optional)
   --status <enum>          Status: new, triaging, triaged, enriched, developing, specced, workshop, hardening, parked, rejected, done (optional)
-  --type <enum>            Idea type: bug, feature, task, initiative (optional)
+  --type <enum>            Idea type: bug, feature, task (optional)
   --priority <enum>        Priority: low, medium, high, urgent (optional)
   --triage-notes <string>  Triage notes (optional)
   --triage-route <enum>    Triage route: promote, develop, workshop, harden, park, reject, founder-review (optional)
@@ -103,7 +103,7 @@ export async function updateIdea(args: string[]): Promise<void> {
     fail("Invalid --status. Expected one of: new, triaging, triaged, enriched, developing, specced, workshop, hardening, parked, rejected, done");
   }
   if (type !== undefined && !VALID_TYPE.has(type)) {
-    fail("Invalid --type. Expected one of: bug, feature, task, initiative");
+    fail("Invalid --type. Expected one of: bug, feature, task");
   }
   if (priority !== undefined && !VALID_PRIORITY.has(priority)) {
     fail("Invalid --priority. Expected one of: low, medium, high, urgent");

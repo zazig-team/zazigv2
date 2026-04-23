@@ -139,9 +139,8 @@ describe('task-executor ask_user integration for ambiguity handling', () => {
     expect(rolePromptMigration).toMatch(/ambiguous|missing/i);
   });
 
-  it('role prompt includes suspend/resume expectation for unanswered questions', () => {
-    expect(rolePromptMigration).toMatch(/10 minutes|10-min|10 min/i);
-    expect(rolePromptMigration).toMatch(/suspend|resume/i);
+  it('role prompt instructs ask_user via MCP tool', () => {
+    expect(rolePromptMigration).toMatch(/ask_user.*MCP|MCP.*ask_user/i);
   });
 
   it('task-executor workspace MCP defaults include ask_user and update_idea', () => {

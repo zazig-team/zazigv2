@@ -930,7 +930,7 @@ async function dispatchQueuedJobs(supabase: SupabaseClient): Promise<void> {
     }
 
     if (
-      !job.project_id || (requiresCodeContext && (!repoUrl || !featureBranch))
+      requiresCodeContext && (!job.project_id || !repoUrl || !featureBranch)
     ) {
       console.warn(
         `[orchestrator] Job ${job.id} missing enrichment context (projectId=${job.project_id}, repoUrl=${repoUrl}, featureBranch=${featureBranch}, requiresCodeContext=${requiresCodeContext}) — skipping enrichment`,

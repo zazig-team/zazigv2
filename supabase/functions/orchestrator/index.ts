@@ -3794,7 +3794,12 @@ async function dispatchIdeaStageJob(
   }
 
   const cap = caps[jobType];
-  if (activeCount >= cap) return false;
+  if (activeCount >= cap) {
+    console.log(
+      `[orchestrator] dispatchIdeaStageJob: skipping ${jobType} for idea ${idea.id} — concurrency cap reached (${activeCount}/${cap})`,
+    );
+    return false;
+  }
 
   // One active job per idea guard.
   const alreadyHasActiveJob = await hasActiveJobForIdea(
@@ -3816,7 +3821,12 @@ async function dispatchIdeaStageJob(
     nextStatus,
     { last_job_type: jobType },
   );
-  if (!transitioned) return false;
+  if (!transitioned) {
+    console.log(
+      `[orchestrator] dispatchIdeaStageJob: skipping ${jobType} for idea ${idea.id} — status transition ${expectedStatus} → ${nextStatus} failed (race or unexpected status)`,
+    );
+    return false;
+  }
 
   const normalizedTitlePrefix = (() => {
     const trimmedPrefix = titlePrefix.trimEnd();
@@ -3839,6 +3849,7 @@ async function dispatchIdeaStageJob(
       complexity: "medium",
       status: "created",
       context,
+      source: "standalone",
     })
     .select("id")
     .single();
@@ -3857,6 +3868,9 @@ async function dispatchIdeaStageJob(
     return false;
   }
 
+  console.log(
+    `[orchestrator] dispatchIdeaStageJob: successfully created ${jobType} job ${insertedJob.id} for idea ${idea.id} (${expectedStatus} → ${nextStatus})`,
+  );
   activeCountsCache.set(cacheKey, activeCount + 1);
   return true;
 }
@@ -3905,7 +3919,12 @@ async function watchNewIdeasForDispatch(supabase: SupabaseClient): Promise<void>
     return;
   }
 
-  if (!newIdeas?.length) return;
+  if (!newIdeas?.length) {
+    console.log(`[orchestrator] dispatchIdeaStageJob: watchNewIdeasForDispatch found 0 new ideas`);
+    return;
+  }
+
+  console.log(`[orchestrator] dispatchIdeaStageJob: watchNewIdeasForDispatch found ${newIdeas.length} new idea(s): ${newIdeas.map((i: { id: string }) => i.id).join(", ")}`);
 
   const capsCache = new Map<string, Record<IdeaPipelineJobType, number>>();
   const activeCountsCache = new Map<string, number>();

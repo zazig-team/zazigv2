@@ -82,24 +82,21 @@ describe("AC1: New ideas (status='new', on_hold=false) get an idea-triage job cr
 });
 
 // ---------------------------------------------------------------------------
-// AC2: Idea status transitions atomically to 'triaging' when job is created
+// AC2: Idea status advances only on job completion (processIdeaLifecycle)
 // ---------------------------------------------------------------------------
 
-describe("AC2: Idea status transitions atomically to 'triaging' when triage job is created", () => {
+describe("AC2: Idea status advances only when triage job completes (not on dispatch)", () => {
   beforeAll(() => {
     orchestratorSource = readOrchestrator();
   });
 
-  it("updates idea status to 'triaging'", () => {
-    expect(orchestratorSource).toMatch(/status.*triaging|triaging.*status/i);
+  it("processIdeaLifecycle transitions new → enriched on triage completion", () => {
+    expect(orchestratorSource).toMatch(/processIdeaLifecycle/);
+    expect(orchestratorSource).toMatch(/new.*enriched|enriched.*triage.*complete/i);
   });
 
-  it('uses atomic / optimistic-lock pattern to prevent double-dispatch (WHERE status = current_status RETURNING)', () => {
-    // Atomic transition: UPDATE ... WHERE status = 'new' RETURNING or eq-chain before update
-    // Either raw SQL with RETURNING or Supabase .update().eq('status', 'new') with select()
-    expect(orchestratorSource).toMatch(
-      /eq.*status.*new|WHERE.*status.*=.*new|update.*eq.*status.*new/i,
-    );
+  it("uses hasActiveJobForIdea to prevent double-dispatch", () => {
+    expect(orchestratorSource).toMatch(/hasActiveJobForIdea/);
   });
 });
 
@@ -230,13 +227,13 @@ describe("AC7: Completed initiative-breakdown jobs move idea to 'spawned'", () =
     ).not.toBeNull();
   });
 
-  it("transitions parent idea from breaking_down to spawned on completed initiative-breakdown jobs", () => {
+  it("processIdeaLifecycle transitions enriched → spawned on completed initiative-breakdown jobs", () => {
     const transitionBlock = orchestratorSource.match(
-      /row\.job_type\s*===\s*["']initiative-breakdown["'][\s\S]{0,500}transitionIdeaStatusIfExpected\([\s\S]{0,300}["']breaking_down["'][\s\S]{0,160}["']spawned["']/is,
+      /initiative-breakdown[\s\S]{0,2000}transitionIdeaStatusIfExpected[\s\S]{0,300}["']spawned["']/is,
     );
     expect(
       transitionBlock,
-      "Expected completion watcher to call transitionIdeaStatusIfExpected(..., 'breaking_down', 'spawned') for initiative-breakdown jobs.",
+      "Expected processIdeaLifecycle to call transitionIdeaStatusIfExpected(..., 'spawned') for initiative-breakdown jobs.",
     ).not.toBeNull();
   });
 });

@@ -10,6 +10,12 @@ ALTER TABLE public.ideas DROP CONSTRAINT IF EXISTS ideas_type_check;
 ALTER TABLE public.ideas ADD CONSTRAINT ideas_type_check
   CHECK (type IS NULL OR type IN ('bug', 'feature', 'task'));
 
+-- Reclassify any existing initiative-breakdown jobs (before constraint change)
+UPDATE public.jobs SET job_type = 'research', status = 'cancelled', result = 'superseded: initiative type removed'
+  WHERE job_type = 'initiative-breakdown' AND status NOT IN ('complete', 'cancelled');
+UPDATE public.jobs SET job_type = 'research'
+  WHERE job_type = 'initiative-breakdown';
+
 -- Remove initiative-breakdown from jobs_job_type_check
 ALTER TABLE public.jobs DROP CONSTRAINT IF EXISTS jobs_job_type_check;
 ALTER TABLE public.jobs ADD CONSTRAINT jobs_job_type_check CHECK (job_type IN (

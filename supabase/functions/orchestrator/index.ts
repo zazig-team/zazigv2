@@ -3692,6 +3692,22 @@ async function dispatchIdeaStageJob(
     return false;
   }
 
+  // Don't re-dispatch if a complete job of this type already exists for this idea.
+  // processIdeaLifecycle will advance the status on the next cycle.
+  const { data: completeJob } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("idea_id", idea.id)
+    .eq("job_type", jobType)
+    .eq("status", "complete")
+    .limit(1);
+  if (completeJob && completeJob.length > 0) {
+    console.log(
+      `[orchestrator] idea-pipeline: skipping ${jobType} for idea ${idea.id} (already has complete job ${completeJob[0].id})`,
+    );
+    return false;
+  }
+
   const normalizedTitlePrefix = (() => {
     const trimmedPrefix = titlePrefix.trimEnd();
     return trimmedPrefix.endsWith(":") ? trimmedPrefix : `${trimmedPrefix}:`;

@@ -6,7 +6,10 @@
 --   done → task-done (task complete)
 -- Also add the new statuses to the constraint.
 
--- Step 1: Reclassify existing ideas with old statuses
+-- Step 1: Drop the status constraint first (new values not in old constraint)
+ALTER TABLE public.ideas DROP CONSTRAINT IF EXISTS ideas_status_check;
+
+-- Step 2: Reclassify existing ideas with old statuses
 UPDATE public.ideas SET status = 'routing' WHERE status = 'enriched';
 UPDATE public.ideas SET status = 'routing' WHERE status = 'triaged';
 UPDATE public.ideas SET status = 'moved_to_feature_pipe' WHERE status = 'routed';
@@ -14,8 +17,4 @@ UPDATE public.ideas SET status = 'moved_to_feature_pipe' WHERE status = 'promote
 UPDATE public.ideas SET status = 'task-executing' WHERE status = 'executing';
 UPDATE public.ideas SET status = 'task-done' WHERE status = 'done';
 
--- Step 2: Update the status constraint
--- Keep old statuses that may still be referenced + add new ones
-ALTER TABLE public.ideas DROP CONSTRAINT IF EXISTS ideas_status_check;
 -- No check constraint on status — the orchestrator controls valid transitions.
--- Adding one would require listing every status including legacy ones.

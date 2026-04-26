@@ -134,13 +134,13 @@ describe('task-executor ask_user integration for ambiguity handling', () => {
     mcpServerSource = readSource(MCP_SERVER_FILE);
   });
 
-  it('role prompt instructs ask_user when spec is ambiguous', () => {
-    expect(rolePromptMigration).toMatch(/ask_user/i);
+  it('role prompt instructs ask_user when spec is ambiguous or missing', () => {
+    expect(rolePromptMigration).toMatch(/ask.user/i);
     expect(rolePromptMigration).toMatch(/ambiguous|missing/i);
   });
 
-  it('role prompt instructs ask_user via MCP tool', () => {
-    expect(rolePromptMigration).toMatch(/ask_user.*MCP|MCP.*ask_user/i);
+  it('role prompt instructs ask_user via CLI', () => {
+    expect(rolePromptMigration).toMatch(/zazig\s+ask.user/i);
   });
 
   it('task-executor workspace MCP defaults include ask_user and update_idea', () => {

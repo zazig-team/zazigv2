@@ -85,18 +85,25 @@ describe("AC1: New ideas (status='new', on_hold=false) get an idea-triage job cr
 // AC2: Idea status advances only on job completion (processIdeaLifecycle)
 // ---------------------------------------------------------------------------
 
-describe("AC2: Idea status advances only when triage job completes (not on dispatch)", () => {
+describe("AC2: processIdeaLifecycle handles all idea status transitions", () => {
   beforeAll(() => {
     orchestratorSource = readOrchestrator();
   });
 
-  it("processIdeaLifecycle transitions new → enriched on triage completion", () => {
+  it("processIdeaLifecycle exists and handles status transitions", () => {
     expect(orchestratorSource).toMatch(/processIdeaLifecycle/);
-    expect(orchestratorSource).toMatch(/new.*enriched|enriched.*triage.*complete/i);
   });
 
-  it("uses hasActiveJobForIdea to prevent double-dispatch", () => {
-    expect(orchestratorSource).toMatch(/hasActiveJobForIdea/);
+  it("transitions new → triaging", () => {
+    expect(orchestratorSource).toMatch(/new.*triaging|triaging/i);
+  });
+
+  it("transitions triaging → routing on triage completion", () => {
+    expect(orchestratorSource).toMatch(/triaging.*routing|routing.*triage/i);
+  });
+
+  it("creates triage jobs idempotently via createIdeaJob", () => {
+    expect(orchestratorSource).toMatch(/createIdeaJob/);
   });
 });
 
@@ -122,16 +129,16 @@ describe("AC3: Enriched bug/feature ideas are promoted to features via promote-i
     expect(orchestratorSource).toMatch(/promote.?idea|promote_idea/i);
   });
 
-  it("sets idea status to 'routed' after promotion", () => {
-    expect(orchestratorSource).toMatch(/routed/);
+  it("sets idea status to 'moved_to_feature_pipe' after promotion", () => {
+    expect(orchestratorSource).toMatch(/moved_to_feature_pipe/);
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC4: Enriched task ideas get a task-execute job, status moves to 'executing'
+// AC4: Task ideas get a task-execute job, status moves to 'task-executing'
 // ---------------------------------------------------------------------------
 
-describe("AC4: Enriched task ideas get a task-execute job created, status moves to 'executing'", () => {
+describe("AC4: Task ideas get a task-execute job created, status moves to 'task-executing'", () => {
   beforeAll(() => {
     orchestratorSource = readOrchestrator();
   });
@@ -140,11 +147,9 @@ describe("AC4: Enriched task ideas get a task-execute job created, status moves 
     expect(orchestratorSource).toMatch(/task-execute/);
   });
 
-  it("sets idea status to 'executing' when routing a task", () => {
-    // The 'executing' transition for the task routing path (not the resume-awaiting-response path)
-    // is part of the new routing logic
+  it("sets idea status to 'task-executing' when routing a task", () => {
     const taskRoutingBlock = orchestratorSource.match(
-      /task.{0,300}executing|executing.{0,300}task/is,
+      /task-executing/is,
     );
     expect(
       taskRoutingBlock,
@@ -242,31 +247,14 @@ describe('AC9: No double-dispatch — atomic status transitions prevent duplicat
     );
   });
 
-  it('checks for an existing active job before creating a new one per idea', () => {
-    // One active job per idea: the orchestrator must guard against creating a duplicate
-    expect(orchestratorSource).toMatch(/active.*job.*idea|idea.*active.*job|already.*job|job.*idea_id/i);
-  });
-
-  it("dispatchIdeaStageJob applies hasActiveJobForIdea guard", () => {
-    expect(orchestratorSource).toMatch(
-      /async function dispatchIdeaStageJob[\s\S]{0,1800}hasActiveJobForIdea\(/,
-    );
+  it('checks for existing jobs before creating new ones (idempotent)', () => {
+    expect(orchestratorSource).toMatch(/existingJob/i);
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC10: Concurrency limits are respected
+// AC10: (removed — slot capacity handles concurrency)
 // ---------------------------------------------------------------------------
-
-describe('AC10: Concurrency is managed by slot capacity, not artificial caps', () => {
-  beforeAll(() => {
-    orchestratorSource = readOrchestrator();
-  });
-
-  it('uses hasActiveJobForIdea to prevent duplicate dispatch per idea', () => {
-    expect(orchestratorSource).toMatch(/hasActiveJobForIdea/);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // AC11: One active job per idea at a time

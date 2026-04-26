@@ -3591,36 +3591,6 @@ interface CompletedIdeaStageJobRow {
   job_type: string;
 }
 
-const IDEA_PIPELINE_ACTIVE_JOB_STATUSES = [
-  "created",
-  "queued",
-  "executing",
-] as const;
-
-async function hasActiveJobForIdea(
-  supabase: SupabaseClient,
-  companyId: string,
-  ideaId: string,
-): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("jobs")
-    .select("id")
-    .eq("company_id", companyId)
-    .eq("idea_id", ideaId)
-    .in("status", [...IDEA_PIPELINE_ACTIVE_JOB_STATUSES])
-    .limit(1);
-
-  if (error) {
-    console.error(
-      `[orchestrator] idea-pipeline active-job lookup failed for idea ${ideaId}: ${error.message}`,
-    );
-    // Fail closed: assume active to avoid double dispatch.
-    return true;
-  }
-
-  return (data?.length ?? 0) > 0;
-}
-
 async function transitionIdeaStatusIfExpected(
   supabase: SupabaseClient,
   ideaId: string,
@@ -3668,90 +3638,7 @@ function buildIdeaJobContext(
   });
 }
 
-async function dispatchIdeaStageJob(
-  supabase: SupabaseClient,
-  params: {
-    idea: IdeaPipelineDispatchCandidateRow;
-    jobType: IdeaPipelineJobType;
-    role: string;
-    titlePrefix: string;
-  },
-): Promise<boolean> {
-  const { idea, jobType, role, titlePrefix } = params;
 
-  // One active job per idea guard.
-  const alreadyHasActiveJob = await hasActiveJobForIdea(
-    supabase,
-    idea.company_id,
-    idea.id,
-  );
-  if (alreadyHasActiveJob) {
-    console.log(
-      `[orchestrator] idea-pipeline: skipping ${jobType} for idea ${idea.id} (already has active job)`,
-    );
-    return false;
-  }
-
-  // Don't re-dispatch if a complete job of this type already exists for this idea.
-  // processIdeaLifecycle will advance the status on the next cycle.
-  const { data: completeJob } = await supabase
-    .from("jobs")
-    .select("id")
-    .eq("idea_id", idea.id)
-    .eq("job_type", jobType)
-    .eq("status", "complete")
-    .limit(1);
-  if (completeJob && completeJob.length > 0) {
-    console.log(
-      `[orchestrator] idea-pipeline: skipping ${jobType} for idea ${idea.id} (already has complete job ${completeJob[0].id})`,
-    );
-    return false;
-  }
-
-  const normalizedTitlePrefix = (() => {
-    const trimmedPrefix = titlePrefix.trimEnd();
-    return trimmedPrefix.endsWith(":") ? trimmedPrefix : `${trimmedPrefix}:`;
-  })();
-  const title = idea.title?.trim().length
-    ? `${normalizedTitlePrefix} ${idea.title?.trim()}`
-    : `${normalizedTitlePrefix} ${idea.id}`;
-  const context = buildIdeaJobContext(jobType, idea);
-
-  const { data: insertedJob, error: insertErr } = await supabase
-    .from("jobs")
-    .insert({
-      company_id: idea.company_id,
-      project_id: idea.project_id,
-      idea_id: idea.id,
-      title,
-      role,
-      job_type: jobType,
-      complexity: "medium",
-      status: "created",
-      context,
-      source: "standalone",
-    })
-    .select("id")
-    .single();
-
-  if (insertErr || !insertedJob) {
-    console.error(
-      `[orchestrator] idea-pipeline: failed creating ${jobType} job for idea ${idea.id}: ${insertErr?.message ?? "unknown error"}`,
-    );
-    return false;
-  }
-
-  // Update last_job_type for resume dispatch tracking (does not change status).
-  await supabase
-    .from("ideas")
-    .update({ last_job_type: jobType })
-    .eq("id", idea.id);
-
-  console.log(
-    `[orchestrator] dispatchIdeaStageJob: successfully created ${jobType} job ${insertedJob.id} for idea ${idea.id}`,
-  );
-  return true;
-}
 
 async function resolveCompanyActiveProjectId(
   supabase: SupabaseClient,
@@ -3781,250 +3668,231 @@ async function resolveCompanyActiveProjectId(
   return projectId;
 }
 
-async function watchNewIdeasForDispatch(supabase: SupabaseClient): Promise<void> {
-  const { data: newIdeas, error } = await supabase
-    .from("ideas")
-    .select("id, company_id, project_id, title, description, raw_text, last_job_type")
-    .eq("status", "new")
-    .eq("on_hold", false)
-    .order("created_at", { ascending: true })
-    .limit(100);
-
-  if (error) {
-    console.error(
-      `[orchestrator] idea-pipeline new-watch: failed to query new ideas: ${error.message}`,
-    );
-    return;
-  }
-
-  if (!newIdeas?.length) {
-    console.log(`[orchestrator] dispatchIdeaStageJob: watchNewIdeasForDispatch found 0 new ideas`);
-    return;
-  }
-
-  console.log(`[orchestrator] dispatchIdeaStageJob: watchNewIdeasForDispatch found ${newIdeas.length} new idea(s): ${newIdeas.map((i: { id: string }) => i.id).join(", ")}`);
-
-  for (const idea of newIdeas as IdeaPipelineDispatchCandidateRow[]) {
-    await dispatchIdeaStageJob(supabase, {
-      idea,
-      jobType: "idea-triage",
-      role: "triage-analyst",
-      titlePrefix: "Idea triage",
-    });
-  }
-}
-
-async function watchEnrichedIdeasForRouting(
-  supabase: SupabaseClient,
-): Promise<void> {
-  const { data: enrichedIdeas, error } = await supabase
-    .from("ideas")
-    .select("id, company_id, project_id, title, description, raw_text, type, status, last_job_type")
-    .in("status", ["triaged", "enriched"])
-    .eq("on_hold", false)
-    .order("updated_at", { ascending: true })
-    .limit(100);
-
-  if (error) {
-    console.error(
-      `[orchestrator] idea-pipeline enriched-watch: failed to query triaged/enriched ideas: ${error.message}`,
-    );
-    return;
-  }
-
-  if (!enrichedIdeas?.length) return;
-
-  const companyProjectCache = new Map<string, string | null>();
-
-  for (const idea of enrichedIdeas as EnrichedIdeaRoutingRow[]) {
-    const ideaType = idea.type?.trim().toLowerCase();
-    if (ideaType === "bug" || ideaType === "feature") {
-      const alreadyHasActiveJob = await hasActiveJobForIdea(
-        supabase,
-        idea.company_id,
-        idea.id,
-      );
-      if (alreadyHasActiveJob) {
-        console.log(
-          `[orchestrator] idea-pipeline: skipping promote-idea for idea ${idea.id} (already has active job)`,
-        );
-        continue;
-      }
-
-      const projectId = idea.project_id ??
-        await resolveCompanyActiveProjectId(supabase, idea.company_id, companyProjectCache);
-
-      if (!projectId) {
-        console.log(
-          `[orchestrator] idea-pipeline: skipping promote-idea for idea ${idea.id} — no active project found`,
-        );
-        continue;
-      }
-
-      const response = await fetch(
-        `${Deno.env.get("SUPABASE_URL")}/functions/v1/promote-idea`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-          },
-          body: JSON.stringify({
-            idea_id: idea.id,
-            promote_to: "feature",
-            project_id: projectId,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        const text = await response.text();
-        console.error(
-          `[orchestrator] idea-pipeline enriched-watch: promote-idea failed for ${idea.id}: ${response.status} ${text}`,
-        );
-      }
-      continue;
-    }
-
-    if (ideaType === "task") {
-      await dispatchIdeaStageJob(supabase, {
-        idea,
-        jobType: "task-execute",
-        role: "task-executor",
-        titlePrefix: "Task: ",
-      });
-      continue;
-    }
-  }
-}
-
 /**
- * processIdeaLifecycle — mirrors processFeatureLifecycle for the idea pipeline.
+ * processIdeaLifecycle — mirrors processFeatureLifecycle.
  *
- * Checks job completion for each idea stage and advances the idea status
- * only when jobs are complete. Failed jobs block advancement (idea stays
- * in its current status and can be retried).
+ * Status transitions happen first; jobs are created idempotently for the current status.
+ *
+ * Flow:
+ *   new → triaging (+ create triage job if none exists)
+ *   triaging → routing (when triage job completes)
+ *   routing + bug/feature → moved_to_feature_pipe (via promote-idea)
+ *   routing + task → task-executing (+ create task-execute job if none exists)
+ *   task-executing → task-done (when task-execute job completes)
  */
 async function processIdeaLifecycle(
   supabase: SupabaseClient,
 ): Promise<void> {
-  // --- Stage 1: new → enriched (when idea-triage job completes) ---
+  const companyProjectCache = new Map<string, string | null>();
+
+  // --- Stage 1: new → triaging ---
   {
     const { data: newIdeas, error } = await supabase
       .from("ideas")
       .select("id, company_id")
       .eq("status", "new")
       .eq("on_hold", false)
+      .order("created_at", { ascending: true })
       .limit(100);
 
     if (error) {
-      console.error(
-        `[orchestrator] processIdeaLifecycle: error querying new ideas:`,
-        error.message,
-      );
+      console.error(`[orchestrator] processIdeaLifecycle: error querying new ideas:`, error.message);
     }
 
-    for (const idea of newIdeas ?? []) {
-      const { id: ideaId } = idea as { id: string; company_id: string };
-
-      // Check if any idea-triage jobs are still active
-      const { data: pendingTriage } = await supabase
-        .from("jobs")
-        .select("id")
-        .eq("idea_id", ideaId)
-        .eq("job_type", "idea-triage")
-        .not("status", "in", '("complete","failed","cancelled","failed_retrying")')
-        .limit(1);
-
-      if (pendingTriage && pendingTriage.length > 0) continue; // still running
-
-      // Check for failed triage jobs — block advancement
-      const { data: failedTriage } = await supabase
-        .from("jobs")
-        .select("id")
-        .eq("idea_id", ideaId)
-        .eq("job_type", "idea-triage")
-        .eq("status", "failed")
-        .limit(1);
-
-      if (failedTriage && failedTriage.length > 0) continue; // failed — stay at new for retry
-
-      // Require at least one complete triage job
-      const { data: completeTriage } = await supabase
-        .from("jobs")
-        .select("id")
-        .eq("idea_id", ideaId)
-        .eq("job_type", "idea-triage")
-        .eq("status", "complete")
-        .limit(1);
-
-      if (!completeTriage || completeTriage.length === 0) continue; // no complete job yet
-
-      await transitionIdeaStatusIfExpected(supabase, ideaId, "new", "enriched");
-      console.log(
-        `[orchestrator] processIdeaLifecycle: idea ${ideaId} new → enriched (triage complete)`,
-      );
+    for (const idea of (newIdeas ?? []) as { id: string; company_id: string }[]) {
+      const transitioned = await transitionIdeaStatusIfExpected(supabase, idea.id, "new", "triaging");
+      if (transitioned) {
+        console.log(`[orchestrator] processIdeaLifecycle: idea ${idea.id} new → triaging`);
+      }
     }
   }
 
-  // --- Stage 2: enriched → done/spawned/routed (when routing jobs complete) ---
-  // task-execute → done
-  // bug/feature promotion is handled by promote-idea setting status to 'promoted'
+  // --- Stage 2: triaging — create triage job if needed; advance when complete ---
   {
-    const { data: enrichedIdeas, error } = await supabase
+    const { data: triagingIdeas, error } = await supabase
       .from("ideas")
-      .select("id, company_id, type")
-      .in("status", ["triaged", "enriched"])
+      .select("id, company_id, project_id, title, description, raw_text, last_job_type")
+      .eq("status", "triaging")
       .eq("on_hold", false)
       .limit(100);
 
     if (error) {
-      console.error(
-        `[orchestrator] processIdeaLifecycle: error querying enriched ideas:`,
-        error.message,
-      );
+      console.error(`[orchestrator] processIdeaLifecycle: error querying triaging ideas:`, error.message);
     }
 
-    for (const idea of enrichedIdeas ?? []) {
-      const { id: ideaId, type: ideaType } = idea as { id: string; company_id: string; type: string | null };
-      const normalizedType = ideaType?.trim().toLowerCase();
+    for (const idea of (triagingIdeas ?? []) as IdeaPipelineDispatchCandidateRow[]) {
+      // Check if triage job exists (any non-cancelled/non-failed state)
+      const { data: existingJob } = await supabase
+        .from("jobs")
+        .select("id, status")
+        .eq("idea_id", idea.id)
+        .eq("job_type", "idea-triage")
+        .in("status", ["created", "queued", "executing", "complete"])
+        .limit(1);
 
-      if (normalizedType === "task") {
-        const { data: pendingTask } = await supabase
-          .from("jobs")
-          .select("id")
-          .eq("idea_id", ideaId)
-          .eq("job_type", "task-execute")
-          .not("status", "in", '("complete","failed","cancelled","failed_retrying")')
-          .limit(1);
-        if (pendingTask && pendingTask.length > 0) continue;
-
-        const { data: failedTask } = await supabase
-          .from("jobs")
-          .select("id")
-          .eq("idea_id", ideaId)
-          .eq("job_type", "task-execute")
-          .eq("status", "failed")
-          .limit(1);
-        if (failedTask && failedTask.length > 0) continue;
-
-        const { data: completeTask } = await supabase
-          .from("jobs")
-          .select("id")
-          .eq("idea_id", ideaId)
-          .eq("job_type", "task-execute")
-          .eq("status", "complete")
-          .limit(1);
-        if (!completeTask || completeTask.length === 0) continue;
-
-        await transitionIdeaStatusIfExpected(supabase, ideaId, idea.status as string, "done");
-        console.log(
-          `[orchestrator] processIdeaLifecycle: idea ${ideaId} → done (task-execute complete)`,
-        );
+      if (!existingJob || existingJob.length === 0) {
+        // No triage job — create one
+        await createIdeaJob(supabase, idea, "idea-triage", "triage-analyst", "Idea triage:");
+        continue;
       }
 
+      const job = existingJob[0] as { id: string; status: string };
+      if (job.status !== "complete") continue; // still running — wait
+
+      // Triage complete → routing
+      const transitioned = await transitionIdeaStatusIfExpected(supabase, idea.id, "triaging", "routing");
+      if (transitioned) {
+        console.log(`[orchestrator] processIdeaLifecycle: idea ${idea.id} triaging → routing`);
+      }
     }
   }
+
+  // --- Stage 3: routing — promote bug/feature or transition task ---
+  {
+    const { data: routingIdeas, error } = await supabase
+      .from("ideas")
+      .select("id, company_id, project_id, title, description, raw_text, type, last_job_type")
+      .eq("status", "routing")
+      .eq("on_hold", false)
+      .limit(100);
+
+    if (error) {
+      console.error(`[orchestrator] processIdeaLifecycle: error querying routing ideas:`, error.message);
+    }
+
+    for (const idea of (routingIdeas ?? []) as EnrichedIdeaRoutingRow[]) {
+      const ideaType = idea.type?.trim().toLowerCase();
+
+      if (!ideaType) {
+        console.warn(`[orchestrator] processIdeaLifecycle: idea ${idea.id} in routing with no type — skipping`);
+        continue;
+      }
+
+      if (ideaType === "bug" || ideaType === "feature") {
+        const projectId = idea.project_id ??
+          await resolveCompanyActiveProjectId(supabase, idea.company_id, companyProjectCache);
+
+        if (!projectId) {
+          console.log(`[orchestrator] processIdeaLifecycle: idea ${idea.id} — no active project, cannot promote`);
+          continue;
+        }
+
+        const response = await fetch(
+          `${Deno.env.get("SUPABASE_URL")}/functions/v1/promote-idea`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            },
+            body: JSON.stringify({
+              idea_id: idea.id,
+              promote_to: "feature",
+              project_id: projectId,
+            }),
+          },
+        );
+
+        if (response.ok) {
+          await transitionIdeaStatusIfExpected(supabase, idea.id, "routing", "moved_to_feature_pipe");
+          console.log(`[orchestrator] processIdeaLifecycle: idea ${idea.id} routing → moved_to_feature_pipe`);
+        } else {
+          const text = await response.text();
+          console.error(`[orchestrator] processIdeaLifecycle: promote-idea failed for ${idea.id}: ${response.status} ${text}`);
+        }
+        continue;
+      }
+
+      if (ideaType === "task") {
+        const transitioned = await transitionIdeaStatusIfExpected(supabase, idea.id, "routing", "task-executing");
+        if (transitioned) {
+          console.log(`[orchestrator] processIdeaLifecycle: idea ${idea.id} routing → task-executing`);
+        }
+        continue;
+      }
+
+      console.warn(`[orchestrator] processIdeaLifecycle: idea ${idea.id} in routing with unknown type '${ideaType}'`);
+    }
+  }
+
+  // --- Stage 4: task-executing — create task job if needed; advance when complete ---
+  {
+    const { data: executingIdeas, error } = await supabase
+      .from("ideas")
+      .select("id, company_id, project_id, title, description, raw_text, last_job_type")
+      .eq("status", "task-executing")
+      .eq("on_hold", false)
+      .limit(100);
+
+    if (error) {
+      console.error(`[orchestrator] processIdeaLifecycle: error querying task-executing ideas:`, error.message);
+    }
+
+    for (const idea of (executingIdeas ?? []) as IdeaPipelineDispatchCandidateRow[]) {
+      const { data: existingJob } = await supabase
+        .from("jobs")
+        .select("id, status")
+        .eq("idea_id", idea.id)
+        .eq("job_type", "task-execute")
+        .in("status", ["created", "queued", "executing", "complete"])
+        .limit(1);
+
+      if (!existingJob || existingJob.length === 0) {
+        await createIdeaJob(supabase, idea, "task-execute", "task-executor", "Task:");
+        continue;
+      }
+
+      const job = existingJob[0] as { id: string; status: string };
+      if (job.status !== "complete") continue;
+
+      const transitioned = await transitionIdeaStatusIfExpected(supabase, idea.id, "task-executing", "task-done");
+      if (transitioned) {
+        console.log(`[orchestrator] processIdeaLifecycle: idea ${idea.id} task-executing → task-done`);
+      }
+    }
+  }
+}
+
+/**
+ * Create an idea pipeline job. Callers check for existing jobs first (idempotent).
+ */
+async function createIdeaJob(
+  supabase: SupabaseClient,
+  idea: IdeaPipelineDispatchCandidateRow,
+  jobType: IdeaPipelineJobType,
+  role: string,
+  titlePrefix: string,
+): Promise<void> {
+  const title = idea.title?.trim().length
+    ? `${titlePrefix} ${idea.title.trim()}`
+    : `${titlePrefix} ${idea.id}`;
+  const context = buildIdeaJobContext(jobType, idea);
+
+  const { data: insertedJob, error: insertErr } = await supabase
+    .from("jobs")
+    .insert({
+      company_id: idea.company_id,
+      project_id: idea.project_id,
+      idea_id: idea.id,
+      title,
+      role,
+      job_type: jobType,
+      complexity: "medium",
+      status: "created",
+      context,
+      source: "standalone",
+    })
+    .select("id")
+    .single();
+
+  if (insertErr || !insertedJob) {
+    console.error(
+      `[orchestrator] createIdeaJob: failed creating ${jobType} job for idea ${idea.id}: ${insertErr?.message ?? "unknown error"}`,
+    );
+    return;
+  }
+
+  console.log(`[orchestrator] createIdeaJob: created ${jobType} job ${insertedJob.id} for idea ${idea.id}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -4069,9 +3937,7 @@ Deno.serve(async (_req: Request): Promise<Response> => {
     // 5b. Polling fallback — catches events missed during Realtime window or when Realtime was down.
     await resumeAwaitingResponseIdeas(supabase);
 
-    // 6. Idea-pipeline state watchers (job dispatch + status routing).
-    await watchNewIdeasForDispatch(supabase);
-    await watchEnrichedIdeasForRouting(supabase);
+    // 6. Idea pipeline lifecycle (status transitions + job creation).
     await processIdeaLifecycle(supabase);
 
     // 7. Dispatch queued jobs to available machines.

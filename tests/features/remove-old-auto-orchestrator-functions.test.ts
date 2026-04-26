@@ -227,32 +227,24 @@ describe('AC6: Existing feature pipeline (feature jobs, building, merging) is un
 // AC7: New idea pipeline watch loops still function correctly
 // ---------------------------------------------------------------------------
 
-describe('AC7: New idea pipeline watch loops are still present and functional', () => {
+describe('AC7: Idea pipeline lifecycle is present and functional', () => {
   beforeAll(() => {
     orchestratorSource = readOrchestrator();
   });
 
-  it('watchNewIdeasForDispatch function is still defined', () => {
-    expect(orchestratorSource).toMatch(/async function watchNewIdeasForDispatch/);
+  it('processIdeaLifecycle function is defined', () => {
+    expect(orchestratorSource).toMatch(/async function processIdeaLifecycle/);
   });
 
-  it('watchEnrichedIdeasForRouting function is still defined', () => {
-    expect(orchestratorSource).toMatch(/async function watchEnrichedIdeasForRouting/);
+  it('processIdeaLifecycle is called in the main orchestrator loop', () => {
+    expect(orchestratorSource).toMatch(/await processIdeaLifecycle\(/);
   });
 
-  it('dispatchIdeaStageJob function is still defined', () => {
-    expect(orchestratorSource).toMatch(/async function dispatchIdeaStageJob/);
+  it('createIdeaJob function is defined for idempotent job creation', () => {
+    expect(orchestratorSource).toMatch(/async function createIdeaJob/);
   });
 
-  it('watchNewIdeasForDispatch is called in the main orchestrator loop', () => {
-    expect(orchestratorSource).toMatch(/await watchNewIdeasForDispatch\(/);
-  });
-
-  it('watchEnrichedIdeasForRouting is called in the main orchestrator loop', () => {
-    expect(orchestratorSource).toMatch(/await watchEnrichedIdeasForRouting\(/);
-  });
-
-  it('idea-triage job type is still dispatched by the watch loop', () => {
+  it('idea-triage job type is still created by the lifecycle', () => {
     expect(orchestratorSource).toMatch(/idea-triage/);
   });
 });

@@ -872,7 +872,7 @@ server.tool(
     idea_id: z.string().describe("ID of the idea to update"),
     title: z.string().optional().describe("New title"),
     description: z.string().optional().describe("New description"),
-    status: z.enum(["new", "triaging", "triaged", "enriched", "awaiting_response", "developing", "specced", "workshop", "hardening", "breaking_down", "spawned", "parked", "rejected", "done"]).optional().describe("New status"),
+    status: z.enum(["new", "triaging", "triaged", "routing", "enriched", "awaiting_response", "developing", "specced", "workshop", "hardening", "breaking_down", "spawned", "moved_to_feature_pipe", "task-executing", "task-done", "parked", "rejected", "done"]).optional().describe("New status"),
     type: z.enum(["bug", "feature", "task", "initiative"]).optional().describe("Idea type classification"),
     priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("New priority"),
     suggested_exec: z.string().optional().describe("Suggested executor"),

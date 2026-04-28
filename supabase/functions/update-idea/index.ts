@@ -129,8 +129,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (type !== undefined) updates.type = type;
     // job_id is used for identity resolution only — not stored on ideas
 
-    // When status moves to 'triaged', auto-set triaged_by and triaged_at
-    if (status === "triaged") {
+    // When status moves to 'triaged' (legacy) or 'routing', auto-set triaged_by and triaged_at
+    if (status === "triaged" || status === "routing") {
       let triaged_by = "system";
       if (job_id) {
         const { data: job } = await supabase

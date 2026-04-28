@@ -13,7 +13,7 @@ function statusBadgeClass(status: string): string {
   const s = status.toLowerCase();
   if (s === "promoted" || s === "done") return "detail-badge detail-badge--positive";
   if (s === "rejected") return "detail-badge detail-badge--negative";
-  if (s === "triaged") return "detail-badge detail-badge--active";
+  if (s === "triaged" || s === "routing") return "detail-badge detail-badge--active";
   if (s === "parked") return "detail-badge detail-badge--caution";
   return "detail-badge";
 }
@@ -81,7 +81,7 @@ export default function IdeaDetailPanel({ ideaId, colorVar, onClose }: IdeaDetai
 
   // Load projects when we have a triaged idea
   useEffect(() => {
-    if (!activeCompanyId || !data || data.status !== "triaged") return;
+    if (!activeCompanyId || !data || (data.status !== "triaged" && data.status !== "routing")) return;
     let cancelled = false;
 
     fetchProjects(activeCompanyId).then((result) => {
@@ -125,7 +125,7 @@ export default function IdeaDetailPanel({ ideaId, colorVar, onClose }: IdeaDetai
     }
   }
 
-  const canPromote = data?.status === "triaged" && !promoted;
+  const canPromote = (data?.status === "triaged" || data?.status === "routing") && !promoted;
   const readiness = data ? getReadiness({
     ...data,
     project_id: selectedProjectId ?? data.project_id,

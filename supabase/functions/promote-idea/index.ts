@@ -104,12 +104,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // autoPromoteTriagedIdeas) can promote a triaged+promote idea without
     // needing an intermediate workshop or spec pass. webui's "Promote to
     // Feature" button also lets humans promote directly from triaged.
-    const promotableStatuses = ["triaged", "workshop", "specced", "promoted"];
+    const promotableStatuses = ["triaged", "routing", "workshop", "specced", "promoted"];
     if (!promotableStatuses.includes(idea.status)) {
       return jsonResponse(
         {
           error:
-            `Idea status is '${idea.status}' — must be 'triaged', 'workshop', 'specced', or 'promoted' to promote`,
+            `Idea status is '${idea.status}' — must be 'triaged', 'routing', 'workshop', 'specced', or 'promoted' to promote`,
         },
         400,
       );

@@ -242,7 +242,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
 
   // Load projects for triaged ideas (promote) and new ideas (triage job needs project_id)
   useEffect(() => {
-    if (!activeCompanyId || !data || !["triaged", "specced", "developing", "new", "stalled"].includes(data.status)) return;
+    if (!activeCompanyId || !data || !["triaged", "routing", "specced", "developing", "new", "stalled"].includes(data.status)) return;
     let cancelled = false;
 
     fetchProjects(activeCompanyId).then((result) => {
@@ -354,7 +354,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
         .from("ideas")
         .update({ status: "developing" })
         .eq("id", ideaId)
-        .eq("status", "triaged")
+        .in("status", ["triaged", "routing"])
         .select("id");
 
       if (claimError) {
@@ -380,7 +380,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
       if (claimedIdea) {
         await supabase
           .from("ideas")
-          .update({ status: "triaged" })
+          .update({ status: "routing" })
           .eq("id", ideaId)
           .eq("status", "developing");
       }
@@ -395,7 +395,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
   if (!data) return <div className="il-detail-loading">No data</div>;
 
   const canPromote = data.status === "specced" && !promoted && !isShipped;
-  const canSendToSpec = data.status === "triaged" && !promoted && !isShipped;
+  const canSendToSpec = (data.status === "triaged" || data.status === "routing") && !promoted && !isShipped;
   const isDeveloping = data.status === "developing";
   const isTriagedReadyForSpecView = triagedSubsection === "readyForSpec";
   const isTriagedNeedsDecisionView = triagedSubsection === "needsDecision";
@@ -581,7 +581,7 @@ function InlineDetail({ ideaId, colorVar, isShipped, triagedSubsection, onAction
         </div>
       )}
 
-      {(data.status === "triaged" || data.status === "developing") && (
+      {(data.status === "triaged" || data.status === "routing" || data.status === "developing") && (
         <div className="il-detail-section">
           <div className="il-detail-section-label">Founder Input</div>
           <textarea
@@ -1532,7 +1532,7 @@ export default function Ideas(): JSX.Element {
   // Group by section
   const sections = useMemo(() => ({
     inbox: filtered.filter((i) => (i.status === "new" || i.status === "triaging" || i.status === "stalled") && !completedBatchIdeaIds.has(i.id)),
-    triaged: filtered.filter((i) => i.status === "triaged"),
+    triaged: filtered.filter((i) => i.status === "triaged" || i.status === "routing"),
     developing: filtered.filter((i) => i.status === "developing" || i.status === "specced"),
     workshop: filtered.filter((i) => i.status === "workshop"),
     parked: filtered.filter((i) => i.status === "parked"),
@@ -1597,7 +1597,7 @@ export default function Ideas(): JSX.Element {
   // Section counts (unfiltered for tab badges)
   const tabCounts = useMemo(() => ({
     inbox: ideas.filter((i) => (i.status === "new" || i.status === "triaging" || i.status === "stalled") && !completedBatchIdeaIds.has(i.id)).length,
-    triaged: ideas.filter((i) => i.status === "triaged").length,
+    triaged: ideas.filter((i) => i.status === "triaged" || i.status === "routing").length,
     developing: ideas.filter((i) => i.status === "developing" || i.status === "specced").length,
     workshop: ideas.filter((i) => i.status === "workshop").length,
     parked: ideas.filter((i) => i.status === "parked").length,
@@ -1793,12 +1793,12 @@ export default function Ideas(): JSX.Element {
         throw new Error("No project available for spec retry.");
       }
 
-      if (ideaRow.status === "triaged") {
+      if (ideaRow.status === "triaged" || ideaRow.status === "routing") {
         const { data: claimedRows, error: claimError } = await supabase
           .from("ideas")
           .update({ status: "developing" })
           .eq("id", ideaId)
-          .eq("status", "triaged")
+          .in("status", ["triaged", "routing"])
           .select("id");
 
         if (claimError) {

@@ -45,7 +45,7 @@ jobs:
             exit 0
           fi
 
-          hash=$(git log -1 --format=%h -- packages/local-agent/)
+          hash=$(git log -1 --format=%h --abbrev=8 -- packages/local-agent/)
           if [ -z "$hash" ]; then
             echo "Unable to resolve scoped hash for packages/local-agent/."
             exit 1

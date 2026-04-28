@@ -34,7 +34,7 @@ export function resolveAgentVersion(): string {
 
   if (env === "staging") {
     const localAgentHash = runGitCommand(
-      "git log -1 --format=%h -- packages/local-agent/",
+      "git log -1 --format=%h --abbrev=8 -- packages/local-agent/",
       repoRoot,
     );
     if (localAgentHash) return localAgentHash;

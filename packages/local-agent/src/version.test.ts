@@ -63,7 +63,7 @@ describe("resolveAgentVersion", () => {
     expect(version).toBe("abc1234");
     expect(execSyncMock).toHaveBeenCalledTimes(1);
     expect(execSyncMock).toHaveBeenCalledWith(
-      "git log -1 --format=%h -- packages/local-agent/",
+      "git log -1 --format=%h --abbrev=8 -- packages/local-agent/",
       {
         encoding: "utf8",
         stdio: "pipe",

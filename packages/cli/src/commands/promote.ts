@@ -151,7 +151,7 @@ function bumpAgentPackageVersions(repoRoot: string): string {
 function resolveAgentBuildHash(repoRoot: string): string {
   let agentBuildHash = "";
   try {
-    agentBuildHash = execSync("git log -1 --format=%h -- packages/local-agent/", {
+    agentBuildHash = execSync("git log -1 --format=%h --abbrev=8 -- packages/local-agent/", {
       encoding: "utf-8",
       cwd: repoRoot,
       stdio: "pipe",
@@ -458,8 +458,30 @@ async function runPromote(
         { cwd: repoRoot, stdio: "pipe" }
       );
       commitSha = execSync("git rev-parse HEAD", { encoding: "utf-8", cwd: repoRoot }).trim();
-      execSync(`git push origin HEAD:${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
-      console.log(`Bundles and version bump committed and pushed (${commitSha.slice(0, 7)}).`);
+
+      // Try direct push first; if master is protected, create a PR and merge via GitHub
+      try {
+        execSync(`git push origin HEAD:${defaultBranch}`, { cwd: repoRoot, stdio: "pipe" });
+        console.log(`Bundles and version bump committed and pushed (${commitSha.slice(0, 7)}).`);
+      } catch {
+        console.log(`Direct push to ${defaultBranch} rejected (branch protection). Creating PR...`);
+        const promotePrBranch = `promote/v${newVersion}`;
+        execSync(`git push origin HEAD:${promotePrBranch}`, { cwd: repoRoot, stdio: "pipe" });
+        const prUrl = execSync(
+          `gh pr create --repo zazig-team/zazigv2 --head "${promotePrBranch}" --base "${defaultBranch}" ` +
+            `--title "chore: promote v${newVersion}" ` +
+            `--body "Production bundle and version bump for v${newVersion}."`,
+          { encoding: "utf-8", cwd: repoRoot, stdio: "pipe" },
+        ).trim();
+        console.log(`PR created: ${prUrl}`);
+        console.log("Waiting for CI checks...");
+        execSync(`gh pr checks "${prUrl}" --watch`, { cwd: repoRoot, stdio: "inherit", timeout: 300_000 });
+        execSync(`gh pr merge "${prUrl}" --merge --delete-branch`, { cwd: repoRoot, stdio: "pipe" });
+        // Re-resolve commit SHA after merge (merge commit may differ)
+        execSync("git fetch origin", { cwd: repoRoot, stdio: "pipe" });
+        commitSha = execSync(`git rev-parse origin/${defaultBranch}`, { encoding: "utf-8", cwd: repoRoot }).trim();
+        console.log(`PR merged. Bundles and version bump on ${defaultBranch} (${commitSha.slice(0, 7)}).`);
+      }
     } else {
       console.error("No staged changes detected after bundle/version bump; promote cannot continue.");
       process.exitCode = 1;

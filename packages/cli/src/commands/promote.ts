@@ -474,7 +474,10 @@ async function runPromote(
           { encoding: "utf-8", cwd: repoRoot, stdio: "pipe" },
         ).trim();
         console.log(`PR created: ${prUrl}`);
-        console.log("Waiting for CI checks...");
+        console.log("Waiting for CI checks to register...");
+        // GitHub Actions needs a few seconds to register checks on a new PR
+        execSync("sleep 10", { stdio: "pipe" });
+        console.log("Watching CI checks...");
         execSync(`gh pr checks "${prUrl}" --watch`, { cwd: repoRoot, stdio: "inherit", timeout: 300_000 });
         execSync(`gh pr merge "${prUrl}" --merge --delete-branch`, { cwd: repoRoot, stdio: "pipe" });
         // Re-resolve commit SHA after merge (merge commit may differ)

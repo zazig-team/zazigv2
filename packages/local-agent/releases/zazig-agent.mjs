@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "2fa190a";
+const AGENT_BUILD_HASH = "cd176ef5";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -8109,7 +8109,7 @@ function isStartJob(v) {
   if (!hasValidProtocolVersion(v)) return false;
   if (!isString(v.jobId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(v.jobId)) return false;
   if (!isString(v.cardId) || v.cardId.length === 0) return false;
-  if (!["code", "infra", "design", "research", "docs", "persistent_agent", "verify", "breakdown", "combine", "merge", "deploy_to_test", "deploy_to_prod", "review", "bug", "feature_test", "ci_check", "test"].includes(v.cardType)) return false;
+  if (!["code", "infra", "design", "research", "docs", "persistent_agent", "verify", "breakdown", "combine", "merge", "deploy_to_test", "deploy_to_prod", "review", "bug", "feature_test", "ci_check", "test", "idea-triage", "task-execute"].includes(v.cardType)) return false;
   if (!["simple", "medium", "complex"].includes(v.complexity)) return false;
   if (!["claude_code", "codex"].includes(v.slotType)) return false;
   if (!isString(v.model) || !ALLOWED_MODELS.has(v.model)) return false;
@@ -12959,6 +12959,7 @@ function generateMcpConfig(mcpServerPath, env) {
           SUPABASE_URL: env.supabaseUrl,
           SUPABASE_ANON_KEY: env.supabaseAnonKey,
           ZAZIG_JOB_ID: env.jobId,
+          ...env.ideaId ? { ZAZIG_IDEA_ID: env.ideaId } : {},
           ...env.companyId ? { ZAZIG_COMPANY_ID: env.companyId } : {},
           ...env.allowedTools ? { ZAZIG_ALLOWED_TOOLS: env.allowedTools.join(",") } : {},
           ...env.tmuxSession ? { ZAZIG_TMUX_SESSION: env.tmuxSession } : {},
@@ -12977,14 +12978,26 @@ var STANDARD_TOOLS = [
   "Glob",
   "Grep"
 ];
+var TRIAGE_ANALYST_MCP_TOOLS = ["ask_user", "execute_sql", "update_idea", "query_projects", "query_features"];
+var TASK_EXECUTOR_MCP_TOOLS = ["ask_user", "execute_sql", "update_idea", "query_projects"];
 var ROLE_DEFAULT_MCP_TOOLS = {
-  "cpo": ["query_projects", "create_decision", "start_expert_session"],
-  "breakdown-specialist": ["query_features"],
-  "senior-engineer": ["create_project_rule"],
-  "junior-engineer": ["create_project_rule"],
-  "job-combiner": ["create_project_rule"],
-  "test-engineer": ["create_project_rule"],
-  "fix-agent": ["create_project_rule"]
+  "cpo": ["query_projects", "create_decision", "start_expert_session", "ask_user"],
+  "breakdown-specialist": ["query_features", "ask_user"],
+  "triage-analyst": TRIAGE_ANALYST_MCP_TOOLS,
+  "task-executor": TASK_EXECUTOR_MCP_TOOLS,
+  // Backward-compatible alias used by older task-execute prompt/testing paths.
+  "task-execute": TASK_EXECUTOR_MCP_TOOLS,
+  "idea-triage": [
+    "ask_user",
+    "query_ideas",
+    "query_projects"
+    // update_idea: injected at runtime via roleMcpTools (triage-analyst role handles it)
+  ],
+  "senior-engineer": ["create_project_rule", "ask_user"],
+  "junior-engineer": ["create_project_rule", "ask_user"],
+  "job-combiner": ["create_project_rule", "ask_user"],
+  "test-engineer": ["create_project_rule", "ask_user"],
+  "fix-agent": ["create_project_rule", "ask_user"]
 };
 var MEMORY_MAINTENANCE_SECTION = `## Memory Maintenance
 
@@ -13015,6 +13028,84 @@ function withPersistentMemorySystemSection(claudeMdContent) {
   }
   const separator = claudeMdContent.endsWith("\n") ? "\n" : "\n\n";
   return `${claudeMdContent}${separator}${PERSISTENT_MEMORY_SYSTEM_SECTION}`;
+}
+function findJsonObjectBounds(input, fromIndex) {
+  const start = input.indexOf("{", fromIndex);
+  if (start === -1)
+    return null;
+  let inString = false;
+  let escaped = false;
+  let depth = 0;
+  for (let i = start; i < input.length; i += 1) {
+    const ch = input[i];
+    if (!ch)
+      continue;
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{")
+      depth += 1;
+    if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return { start, end: i + 1 };
+      }
+    }
+  }
+  return null;
+}
+function ensureInitiativeBreakdownIdeaContext(config, claudeMdContent) {
+  const isBreakdownRole = config.role === "project-architect" || config.role === "initiative-breakdown";
+  if (!isBreakdownRole || !config.ideaId)
+    return claudeMdContent;
+  const contextMarker = "Task context:";
+  const markerIndex = claudeMdContent.indexOf(contextMarker);
+  const fallbackTitle = `Idea ${config.ideaId}`;
+  const requiredContext = {
+    type: "idea_pipeline_job",
+    stage: "initiative-breakdown",
+    idea_id: config.ideaId,
+    title: fallbackTitle,
+    company_id: config.companyId ?? ""
+  };
+  if (markerIndex === -1) {
+    const separator = claudeMdContent.endsWith("\n") ? "\n" : "\n\n";
+    return `${claudeMdContent}${separator}${contextMarker}
+${JSON.stringify(requiredContext, null, 2)}`;
+  }
+  const bounds = findJsonObjectBounds(claudeMdContent, markerIndex + contextMarker.length);
+  if (!bounds)
+    return claudeMdContent;
+  const jsonSlice = claudeMdContent.slice(bounds.start, bounds.end);
+  try {
+    const parsed = JSON.parse(jsonSlice);
+    const merged = {
+      ...parsed,
+      type: "idea_pipeline_job",
+      stage: "initiative-breakdown",
+      idea_id: config.ideaId,
+      title: typeof parsed["title"] === "string" && parsed["title"].trim().length > 0 ? parsed["title"] : fallbackTitle,
+      company_id: typeof parsed["company_id"] === "string" && parsed["company_id"].trim().length > 0 ? parsed["company_id"] : config.companyId ?? ""
+    };
+    return `${claudeMdContent.slice(0, bounds.start)}${JSON.stringify(merged, null, 2)}${claudeMdContent.slice(bounds.end)}`;
+  } catch {
+    return claudeMdContent;
+  }
 }
 function generateAllowedTools(role, mcpTools) {
   const roleDefaults = ROLE_DEFAULT_MCP_TOOLS[role] ?? [];
@@ -13199,6 +13290,7 @@ function setupJobWorkspace(config) {
     supabaseUrl: config.supabaseUrl,
     supabaseAnonKey: config.supabaseAnonKey,
     jobId: config.jobId,
+    ideaId: config.ideaId,
     companyId: config.companyId,
     allowedTools: config.mcpTools,
     tmuxSession: config.tmuxSession,
@@ -13207,7 +13299,8 @@ function setupJobWorkspace(config) {
   });
   writeFileSync(join2(config.workspaceDir, ".mcp.json"), JSON.stringify(mcpConfig, null, 2));
   const claudeMdContent = config.heartbeatMd !== void 0 ? withPersistentMemorySystemSection(config.claudeMdContent) : config.claudeMdContent;
-  writeFileSync(join2(config.workspaceDir, "CLAUDE.md"), claudeMdContent);
+  const normalizedClaudeMdContent = ensureInitiativeBreakdownIdeaContext(config, claudeMdContent);
+  writeFileSync(join2(config.workspaceDir, "CLAUDE.md"), normalizedClaudeMdContent);
   if (config.heartbeatMd !== void 0) {
     const hasMemoryMaintenance = config.heartbeatMd.includes("## Memory Maintenance");
     const heartbeatContent = hasMemoryMaintenance ? config.heartbeatMd : `${config.heartbeatMd}${config.heartbeatMd.endsWith("\n") || config.heartbeatMd.length === 0 ? "" : "\n\n"}${MEMORY_MAINTENANCE_SECTION}`;
@@ -13429,6 +13522,16 @@ function extractWorkspaceName(rawLog) {
       return lastSegment;
   }
   return null;
+}
+
+// ../local-agent/dist/company-project.js
+async function getCompanyProjectUrl(supabase, companyId) {
+  const { data, error } = await supabase.from("companies").select("company_project:projects!companies_company_project_id_fkey(repo_url)").eq("id", companyId).maybeSingle();
+  if (error) {
+    throw new Error(`Failed to resolve company project for company ${companyId}: ${error.message}`);
+  }
+  const row = data;
+  return row?.company_project?.repo_url ?? null;
 }
 
 // ../local-agent/dist/branches.js
@@ -14066,8 +14169,42 @@ var NO_CODE_CONTEXT_ROLES = /* @__PURE__ */ new Set([
   "pipeline-technician",
   "monitoring-agent",
   "project-architect",
-  "triage-analyst"
+  "triage-analyst",
+  // triage-analyst is the idea-triage role agent — runs in ephemeral workspace
+  "task-executor"
+  // task-execute role agent: scratch workspace + orchestrator-assigned slot capacity
 ]);
+var IDEA_ID_SNAKE_CASE_PATTERN = /"idea_id"\s*:\s*"([^"]+)"/i;
+var IDEA_ID_CAMEL_CASE_PATTERN = /"ideaId"\s*:\s*"([^"]+)"/;
+function normalizeIdeaId(value) {
+  if (typeof value !== "string")
+    return void 0;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : void 0;
+}
+function extractIdeaIdFromText(text) {
+  if (!text)
+    return void 0;
+  try {
+    const parsed = JSON.parse(text);
+    const fromSnakeCase = normalizeIdeaId(parsed["idea_id"]);
+    if (fromSnakeCase)
+      return fromSnakeCase;
+    return normalizeIdeaId(parsed["ideaId"]);
+  } catch {
+    const snakeCaseMatch = text.match(IDEA_ID_SNAKE_CASE_PATTERN);
+    if (snakeCaseMatch?.[1])
+      return snakeCaseMatch[1].trim();
+    const camelCaseMatch = text.match(IDEA_ID_CAMEL_CASE_PATTERN);
+    if (camelCaseMatch?.[1])
+      return camelCaseMatch[1].trim();
+  }
+  return void 0;
+}
+function resolveIdeaId(msg) {
+  const withIdeaFields = msg;
+  return normalizeIdeaId(withIdeaFields.idea_id) ?? normalizeIdeaId(withIdeaFields.ideaId) ?? extractIdeaIdFromText(msg.context) ?? extractIdeaIdFromText(msg.promptStackMinusSkills);
+}
 var CPO_STARTUP_DELAY_MS = 15e3;
 var DEFAULT_BOOT_PROMPT = "If .memory/MEMORY.md exists, read it and load relevant memories before doing anything else. Read your state files. If .reports/{role}-report.md exists, review it for continuity. Check for pending work via your MCP tools. Orient yourself and begin.";
 var MIN_SESSION_AGE_MS = 5 * 6e4;
@@ -14332,7 +14469,14 @@ var JobExecutor = class {
     }
     await this.sendJobAck(jobId);
     const isInteractive = msg.interactive === true;
-    const roleName = msg.role ?? "senior-engineer";
+    const cardType = msg.cardType;
+    const isIdeaTriageJob = cardType === "idea-triage";
+    const isTaskExecuteJob = cardType === "task-execute";
+    const roleName = msg.role ?? (isIdeaTriageJob ? "triage-analyst" : isTaskExecuteJob ? "task-executor" : "senior-engineer");
+    const ideaId = isIdeaTriageJob ? resolveIdeaId(msg) : void 0;
+    if (ideaId) {
+      console.log(`[executor] ${cardType} job: ZAZIG_IDEA_ID=${ideaId}`);
+    }
     const roleSkills = ensureRoleSkills(roleName, msg.roleSkills);
     const repoRoot = resolveRepoRoot();
     const assembledContext = assembleContext(msg, repoRoot);
@@ -14434,6 +14578,7 @@ ${cpoContext}`);
         supabaseUrl: this.supabaseUrl,
         supabaseAnonKey: this.supabaseAnonKey,
         jobId,
+        ideaId,
         companyId: this.companyId,
         role: roleName,
         claudeMdContent: cpoContext,
@@ -14537,8 +14682,9 @@ ${cpoContext}`);
       worktreePath,
       repoDir,
       jobBranch,
-      role: msg.role,
+      role: roleName,
       cardType: msg.cardType,
+      ideaId,
       repoUrl: msg.repoUrl ?? void 0,
       featureBranch: msg.featureBranch ?? void 0,
       spec: msg.spec,
@@ -14630,6 +14776,56 @@ ${cpoContext}`);
     }
     this.clearPersistentAgent(job.role);
     await this.spawnPersistentAgent(job, companyId);
+  }
+  async respawnPersistentAgentIfDead(persistentAgent, job, companyId, reason) {
+    if (persistentAgent.resetInProgress) {
+      console.log(`[executor] Skipping persistent agent respawn while reset is in progress: role=${persistentAgent.role}, session=${persistentAgent.tmuxSession}`);
+      return;
+    }
+    const now = Date.now();
+    const withinFailureWindow = persistentAgent.lastRespawnFailureAt !== null && now - persistentAgent.lastRespawnFailureAt <= RESET_FAILURE_WINDOW_MS;
+    if (!withinFailureWindow) {
+      persistentAgent.respawnFailureCount = 0;
+    }
+    const circuitOpen = persistentAgent.respawnFailureCount >= MAX_RESET_FAILURES && withinFailureWindow;
+    if (circuitOpen) {
+      const machineUuid = this.machineUuid ?? await this.resolveMachineUuid(companyId);
+      if (machineUuid) {
+        const { error } = await this.supabase.from("persistent_agents").update({ status: "crashed" }).eq("company_id", companyId).eq("machine_id", machineUuid).eq("role", persistentAgent.role);
+        if (error) {
+          console.warn(`[executor] Failed to set persistent agent status=crashed for role=${persistentAgent.role}: ${error.message}`);
+        }
+      }
+      console.error("[executor] Persistent agent respawn circuit breaker OPEN", {
+        role: persistentAgent.role,
+        session: persistentAgent.tmuxSession,
+        failureCount: persistentAgent.respawnFailureCount
+      });
+      return;
+    }
+    const attempt = persistentAgent.respawnFailureCount + 1;
+    console.log("[executor] Persistent agent respawn attempt", {
+      role: persistentAgent.role,
+      reason,
+      attempt,
+      sessionName: persistentAgent.tmuxSession
+    });
+    try {
+      await this.reloadPersistentAgent(job, companyId);
+      const machineUuid = this.machineUuid ?? await this.resolveMachineUuid(companyId);
+      if (machineUuid) {
+        const { error } = await this.supabase.from("persistent_agents").update({ last_respawn_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("company_id", companyId).eq("machine_id", machineUuid).eq("role", persistentAgent.role);
+        if (error) {
+          console.warn(`[executor] Failed to update persistent agent last_respawn_at for role=${persistentAgent.role}: ${error.message}`);
+        }
+      }
+      persistentAgent.respawnFailureCount = 0;
+      persistentAgent.lastRespawnFailureAt = null;
+    } catch (err) {
+      persistentAgent.respawnFailureCount += 1;
+      persistentAgent.lastRespawnFailureAt = Date.now();
+      console.error(`[executor] Persistent agent respawn failed: role=${persistentAgent.role}, reason=${reason}, attempt=${attempt}, session=${persistentAgent.tmuxSession}`, err);
+    }
   }
   // ---------------------------------------------------------------------------
   // Public: MessageInbound
@@ -14794,7 +14990,7 @@ ${msg.text}`;
           this.companyProjects = [...refreshedProjects];
         }
       }
-      const repoUrl = this.companyProjects[0]?.repo_url;
+      const repoUrl = await this.resolveCompanyProjectRepoUrl();
       if (!repoUrl) {
         console.log("[executor] Master CI monitor skipped: missing project repo_url");
         return;
@@ -14859,7 +15055,7 @@ ${msg.text}`;
         console.warn(`[CI Monitor] Skipping fix feature for run ${runId}: missing companyId`);
         return;
       }
-      const repoUrl = this.companyProjects[0]?.repo_url;
+      const repoUrl = await this.resolveCompanyProjectRepoUrl();
       if (!repoUrl) {
         console.warn(`[CI Monitor] Skipping fix feature for run ${runId}: missing project repo_url`);
         return;
@@ -14915,7 +15111,7 @@ ${msg.text}`;
     }
   }
   async fetchCIFailureLogs(runId) {
-    const repoUrl = this.companyProjects[0]?.repo_url;
+    const repoUrl = await this.resolveCompanyProjectRepoUrl();
     if (!repoUrl)
       return null;
     const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
@@ -14987,6 +15183,19 @@ ${msg.text}`;
       return projects[0].id;
     }
     return null;
+  }
+  async resolveCompanyProjectRepoUrl() {
+    const fallbackRepoUrl = this.companyProjects[0]?.repo_url ?? null;
+    if (fallbackRepoUrl)
+      return fallbackRepoUrl;
+    if (!this.companyId)
+      return null;
+    try {
+      return await getCompanyProjectUrl(this.supabase, this.companyId);
+    } catch (err) {
+      console.warn(`[executor] Failed to resolve company project repo_url for ${this.companyId}: ${String(err)}`);
+      return null;
+    }
   }
   async isCIFixInFlight() {
     const activeStatuses = [
@@ -15120,6 +15329,16 @@ ${msg.text}`;
   async handlePersistentJob(jobId, msg, slotType, companyId) {
     const role = msg.role ?? "agent";
     const roleSkills = ensureRoleSkills(role, msg.roleSkills);
+    const persistentJob = {
+      role,
+      prompt_stack_minus_skills: msg.promptStackMinusSkills ?? "",
+      ...msg.subAgentPrompt ? { sub_agent_prompt: msg.subAgentPrompt } : {},
+      skills: roleSkills ?? [],
+      model: msg.model,
+      slot_type: msg.slotType,
+      ...msg.roleMcpTools ? { mcp_tools: msg.roleMcpTools } : {},
+      ...msg.companyProjects ? { projects: msg.companyProjects } : {}
+    };
     const resolvedCompanyId = companyId ?? process.env["ZAZIG_COMPANY_ID"] ?? "";
     const isStaging = process.env["ZAZIG_ENV"] === "staging";
     const stagingSegment = isStaging ? "staging-" : "";
@@ -15233,20 +15452,19 @@ ${msg.text}`;
       return;
     }
     const sessionName = persistentSessionName;
+    const persistentLogPath = jobLogPath(jobId);
     try {
       await killTmuxSession(sessionName);
-      const shellCmd = `unset CLAUDECODE; claude --model claude-opus-4-6`;
-      const tmuxArgs = [
-        "new-session",
-        "-d",
-        "-s",
-        sessionName,
-        "-c",
-        workspaceDir,
-        shellCmd
-      ];
-      await execFileAsync3("tmux", tmuxArgs);
+      await spawnTmuxSession(sessionName, "claude", ["--model", "claude-opus-4-6"], workspaceDir);
       console.log(`[executor] Spawned persistent ${role} session: ${sessionName} (cwd=${workspaceDir})`);
+      try {
+        mkdirSync2(JOB_LOG_DIR, { recursive: true });
+        await startPipePane(sessionName, persistentLogPath);
+        jobLog(jobId, `Persistent pipe-pane started \u2192 ${persistentLogPath}`);
+      } catch (pipeErr) {
+        jobLog(jobId, `Persistent pipe-pane FAILED: ${String(pipeErr)}`);
+        console.warn(`[executor] Persistent pipe-pane start failed for ${sessionName}: ${String(pipeErr)}`);
+      }
     } catch (err) {
       console.error(`[executor] Persistent agent: failed to spawn tmux session:`, err);
       await this.sendJobFailed(jobId, `Failed to start agent session: ${String(err)}`, "agent_crash");
@@ -15281,13 +15499,59 @@ ${msg.text}`;
       originalJob: { ...msg, companyProjects: msg.companyProjects ? [...msg.companyProjects] : void 0 },
       resetInProgress: false,
       lastMemorySyncAt: null,
-      wasActiveAfterSync: false
+      wasActiveAfterSync: false,
+      respawnFailureCount: 0,
+      lastRespawnFailureAt: null
     };
     this.persistentAgents.set(role, persistentAgent);
+    void (async () => {
+      await sleep(2e3);
+      const sessionAlive = await isTmuxSessionAlive(sessionName);
+      let paneDeadStatus = null;
+      if (sessionAlive) {
+        try {
+          const { stdout } = await execFileAsync3("tmux", [
+            "display-message",
+            "-p",
+            "-t",
+            sessionName,
+            "#{pane_dead_status}"
+          ]);
+          const parsed = Number.parseInt(stdout.trim(), 10);
+          paneDeadStatus = Number.isNaN(parsed) ? null : parsed;
+        } catch (statusErr) {
+          console.warn(`[executor] Persistent pane_dead_status check failed for ${sessionName}: ${String(statusErr)}`);
+        }
+      }
+      const postSpawnFailed = !sessionAlive || paneDeadStatus !== null && paneDeadStatus !== 0;
+      if (postSpawnFailed) {
+        let logSnippet = "";
+        try {
+          const rawLog = readFileSync3(persistentLogPath, "utf8");
+          logSnippet = rawLog.split(/\r?\n/).slice(0, 50).join("\n").trim();
+        } catch (logErr) {
+          logSnippet = `(could not read log file ${persistentLogPath}: ${String(logErr)})`;
+        }
+        console.error("[executor] Persistent agent post-spawn health check failed", {
+          sessionName,
+          exitCode: paneDeadStatus,
+          logSnippet: logSnippet || "(no early log output captured)"
+        });
+        await this.respawnPersistentAgentIfDead(persistentAgent, persistentJob, resolvedCompanyId, "post_spawn_failed");
+      }
+    })().catch((err) => {
+      console.error(`[executor] Persistent agent: post-spawn health check error:`, err);
+    });
     const uuid = this.machineUuid;
     persistentAgent.heartbeatTimer = setInterval(() => {
       void (async () => {
         if (persistentAgent.resetInProgress) {
+          return;
+        }
+        const isAlive = await isTmuxSessionAlive(persistentAgent.tmuxSession);
+        if (!isAlive) {
+          console.warn(`[executor] Persistent agent session dead: role=${persistentAgent.role}, session=${persistentAgent.tmuxSession}`);
+          await this.respawnPersistentAgentIfDead(persistentAgent, persistentJob, resolvedCompanyId, "heartbeat_detected_dead");
           return;
         }
         try {
@@ -15325,7 +15589,7 @@ ${msg.text}`;
             console.log(`[memory-sync] ${persistentAgent.role}: nudge skipped, already synced at ${new Date(persistentAgent.lastMemorySyncAt).toISOString()}`);
           }
         } catch (err) {
-          console.warn(`[executor] Failed to capture pane for ${persistentAgent.role}: ${String(err)}`);
+          console.error(`[executor] Unexpected capturePane error: role=${persistentAgent.role}, session=${persistentAgent.tmuxSession}`, err);
         }
         if (Date.now() - persistentAgent.startedAt >= MIN_SESSION_AGE_MS && persistentAgent.consecutiveResetFailures > 0) {
           persistentAgent.consecutiveResetFailures = 0;
@@ -15351,7 +15615,7 @@ ${msg.text}`;
       timeoutTimer: null,
       settled: false,
       startedAt: Date.now(),
-      logPath: "",
+      logPath: persistentLogPath,
       lastBytesSent: 0,
       lastLifecycleBytesSent: 0,
       role: msg.role,
@@ -15534,6 +15798,24 @@ ${msg.text}`;
     }
     const alive = await isTmuxSessionAlive(job.sessionName);
     jobLog(jobId, `pollJob \u2014 session=${job.sessionName}, alive=${alive}`);
+    const isIdeaTriageJob = job.cardType === "idea-triage";
+    const isTaskExecuteJob = job.cardType === "task-execute";
+    if (alive && job.ideaId && isIdeaTriageJob) {
+      try {
+        const { data: ideaRow } = await this.supabase.from("ideas").select("on_hold").eq("id", job.ideaId).single();
+        if (ideaRow?.on_hold) {
+          const cardTypeLabel = job.cardType;
+          jobLog(jobId, `idea on_hold=true \u2014 stopping ${cardTypeLabel} job for ideaId=${job.ideaId}`);
+          console.log(`[executor] ${cardTypeLabel} job ${jobId}: on_hold detected, killing session`);
+          await killTmuxSession(job.sessionName);
+          await this.sendJobFailed(jobId, `Idea placed on hold \u2014 ${cardTypeLabel} job stopped`, "unknown");
+          await this.settleJob(jobId);
+          return;
+        }
+      } catch (err) {
+        jobLog(jobId, `on_hold check failed for ideaId=${job.ideaId}: ${String(err)}`);
+      }
+    }
     if (alive) {
       try {
         const stat = statSync(job.logPath);
@@ -15667,7 +15949,7 @@ ${msg.text}`;
     jobLog(jobId, `onJobEnded START \u2014 role=${job.role ?? "none"}, worktree=${job.worktreePath ?? "none"}`);
     job.settled = true;
     this.clearJobTimers(job);
-    const SKIP_REVIEW_ROLES = /* @__PURE__ */ new Set(["ci-checker", "reviewer", "job-merger"]);
+    const SKIP_REVIEW_ROLES = /* @__PURE__ */ new Set(["ci-checker", "reviewer", "job-merger", "triage-analyst"]);
     if (job.slotType === "codex" && job.worktreePath && !SKIP_REVIEW_ROLES.has(job.role ?? "")) {
       let reviewResult;
       try {
@@ -16213,12 +16495,37 @@ ${msg.text}`;
   // ---------------------------------------------------------------------------
   async resolveContext(context, contextRef) {
     if (contextRef) {
-      console.log(`[executor] Fetching context from contextRef: ${contextRef}`);
-      const response = await fetch(contextRef);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch contextRef (HTTP ${response.status}): ${contextRef}`);
+      const MAX_FETCH_RETRIES = 3;
+      const RETRY_DELAY = 1e3;
+      for (let attempt = 1; attempt <= MAX_FETCH_RETRIES; attempt++) {
+        let response;
+        try {
+          console.log(`[executor] Fetching context from contextRef (attempt ${attempt}/${MAX_FETCH_RETRIES}): ${contextRef}`);
+          response = await fetch(contextRef);
+        } catch (networkErr) {
+          if (attempt < MAX_FETCH_RETRIES) {
+            const delay = attempt * RETRY_DELAY;
+            console.warn(`[executor] contextRef fetch network error on attempt ${attempt}, retrying in ${delay}ms: ${String(networkErr)}`);
+            await new Promise((resolve4) => setTimeout(resolve4, delay));
+            continue;
+          }
+          throw new Error(`Failed to fetch contextRef after ${MAX_FETCH_RETRIES} retries (network error): ${String(networkErr)}`);
+        }
+        if (response.ok) {
+          return await response.text();
+        }
+        if (response.status < 500) {
+          throw new Error(`Failed to fetch contextRef (HTTP ${response.status}): ${contextRef}`);
+        }
+        if (attempt < MAX_FETCH_RETRIES) {
+          const delay = attempt * RETRY_DELAY;
+          console.warn(`[executor] contextRef fetch failed with HTTP ${response.status} on attempt ${attempt}, retrying in ${delay}ms: ${contextRef}`);
+          await new Promise((resolve4) => setTimeout(resolve4, delay));
+        } else {
+          throw new Error(`Failed to fetch contextRef after ${MAX_FETCH_RETRIES} retries exhausted (HTTP ${response.status}): ${contextRef}`);
+        }
       }
-      return await response.text();
+      throw new Error(`Failed to fetch contextRef after ${MAX_FETCH_RETRIES} retries exhausted: ${contextRef}`);
     }
     if (context) {
       return context;
@@ -18185,7 +18492,7 @@ function resolveAgentVersion() {
   const env = process.env["ZAZIG_ENV"] ?? "production";
   const repoRoot = process.env["ZAZIG_REPO_PATH"] ?? process.cwd();
   if (env === "staging") {
-    const localAgentHash = runGitCommand("git log -1 --format=%h -- packages/local-agent/", repoRoot);
+    const localAgentHash = runGitCommand("git log -1 --format=%h --abbrev=8 -- packages/local-agent/", repoRoot);
     if (localAgentHash)
       return localAgentHash;
   }

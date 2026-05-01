@@ -15941,7 +15941,9 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey, supabase) {
         execSync6(`git push origin HEAD:${promotePrBranch}`, { cwd: repoRoot, stdio: "pipe" });
         const prUrl = execSync6(`gh pr create --repo zazig-team/zazigv2 --head "${promotePrBranch}" --base "${defaultBranch}" --title "chore: promote v${newVersion}" --body "Production bundle and version bump for v${newVersion}."`, { encoding: "utf-8", cwd: repoRoot, stdio: "pipe" }).trim();
         console.log(`PR created: ${prUrl}`);
-        console.log("Waiting for CI checks...");
+        console.log("Waiting for CI checks to register...");
+        execSync6("sleep 10", { stdio: "pipe" });
+        console.log("Watching CI checks...");
         execSync6(`gh pr checks "${prUrl}" --watch`, { cwd: repoRoot, stdio: "inherit", timeout: 3e5 });
         execSync6(`gh pr merge "${prUrl}" --merge --delete-branch`, { cwd: repoRoot, stdio: "pipe" });
         execSync6("git fetch origin", { cwd: repoRoot, stdio: "pipe" });

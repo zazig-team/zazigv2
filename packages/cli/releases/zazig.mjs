@@ -16014,7 +16014,20 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey, supabase) {
   console.log("\nCreating GitHub Release...");
   const tag = `v${newVersion}`;
   try {
-    execSync6(`gh release create "${tag}" --repo zazig-team/zazigv2 --title "v${newVersion}" --notes "Production release ${newVersion} (${commitSha.slice(0, 7)})" --target "${commitSha}" "${join13(compileOutDir, "zazig-cli-darwin-arm64")}" "${join13(compileOutDir, "zazig-agent-darwin-arm64")}" "${join13(compileOutDir, "agent-mcp-server-darwin-arm64")}"`, { stdio: "inherit" });
+    execSync6(`gh release create "${tag}" --repo zazig-team/zazigv2 --title "v${newVersion}" --notes "Production release ${newVersion} (${commitSha.slice(0, 7)})" --target "${commitSha}"`, { stdio: "inherit", timeout: 3e4 });
+    console.log(`GitHub Release ${tag} created. Uploading binaries...`);
+    const binaries = [
+      join13(compileOutDir, "zazig-cli-darwin-arm64"),
+      join13(compileOutDir, "zazig-agent-darwin-arm64"),
+      join13(compileOutDir, "agent-mcp-server-darwin-arm64")
+    ];
+    for (const bin of binaries) {
+      try {
+        execSync6(`gh release upload "${tag}" "${bin}" --repo zazig-team/zazigv2`, { stdio: "inherit", timeout: 12e4 });
+      } catch (uploadErr) {
+        console.warn(`Warning: failed to upload ${bin.split("/").pop()}: ${String(uploadErr)}`);
+      }
+    }
     console.log(`GitHub Release ${tag} created with 3 binary assets.`);
   } catch (err) {
     console.error(`GitHub Release creation failed: ${String(err)}`);

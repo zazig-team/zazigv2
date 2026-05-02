@@ -15190,9 +15190,16 @@ function toExpertTmuxSessionName(sessionId) {
 }
 function findRunningDaemon(filterCompanyId) {
   const zazigDir2 = join12(homedir11(), ".zazigv2");
-  try {
-    const uuidPattern = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.pid$/;
-    for (const entry of readdirSync2(zazigDir2)) {
+  const pidsDir = join12(zazigDir2, "pids");
+  const uuidPattern = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.pid$/;
+  for (const dir of [pidsDir, zazigDir2]) {
+    let entries;
+    try {
+      entries = readdirSync2(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
       const match = entry.match(uuidPattern);
       if (match) {
         const companyId = match[1];
@@ -15203,7 +15210,6 @@ function findRunningDaemon(filterCompanyId) {
         }
       }
     }
-  } catch {
   }
   if (!filterCompanyId && isDaemonRunning()) {
     return { pid: readPid(), companyId: null };

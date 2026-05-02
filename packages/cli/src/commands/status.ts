@@ -124,10 +124,13 @@ function toExpertTmuxSessionName(sessionId: unknown): string {
  */
 function findRunningDaemon(filterCompanyId?: string | null): { pid: number; companyId: string | null } | null {
   const zazigDir = join(homedir(), ".zazigv2");
-  // Check per-company PID files (UUID.pid)
-  try {
-    const uuidPattern = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.pid$/;
-    for (const entry of readdirSync(zazigDir)) {
+  const pidsDir = join(zazigDir, "pids");
+  // Check per-company PID files in pids/ (current) and root (legacy)
+  const uuidPattern = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.pid$/;
+  for (const dir of [pidsDir, zazigDir]) {
+    let entries: string[];
+    try { entries = readdirSync(dir); } catch { continue; }
+    for (const entry of entries) {
       const match = entry.match(uuidPattern);
       if (match) {
         const companyId = match[1]!;
@@ -137,7 +140,7 @@ function findRunningDaemon(filterCompanyId?: string | null): { pid: number; comp
         }
       }
     }
-  } catch { /* dir may not exist */ }
+  }
   // Fallback to legacy daemon.pid (only when not filtering)
   if (!filterCompanyId && isDaemonRunning()) {
     return { pid: readPid()!, companyId: null };

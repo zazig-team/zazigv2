@@ -15157,6 +15157,14 @@ function apiFetch(url, headers) {
 function hasJsonFlag(args2) {
   return args2.includes("--json");
 }
+function parseCompanyFlag2(args2) {
+  const idx = args2.indexOf("--company");
+  if (idx >= 0 && idx + 1 < args2.length) {
+    return args2[idx + 1];
+  }
+  const eq = args2.find((a) => a.startsWith("--company="));
+  return eq ? eq.slice("--company=".length) || null : null;
+}
 function writeJson(payload) {
   process.stdout.write(`${JSON.stringify(payload)}
 `);
@@ -15180,7 +15188,7 @@ function toExpertTmuxSessionName(sessionId) {
     return "";
   return `expert-${id.slice(0, 8)}`;
 }
-function findRunningDaemon() {
+function findRunningDaemon(filterCompanyId) {
   const zazigDir2 = join12(homedir11(), ".zazigv2");
   try {
     const uuidPattern = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.pid$/;
@@ -15188,6 +15196,8 @@ function findRunningDaemon() {
       const match = entry.match(uuidPattern);
       if (match) {
         const companyId = match[1];
+        if (filterCompanyId && companyId !== filterCompanyId)
+          continue;
         if (isDaemonRunningForCompany(companyId)) {
           return { pid: readPidForCompany(companyId), companyId };
         }
@@ -15195,13 +15205,14 @@ function findRunningDaemon() {
     }
   } catch {
   }
-  if (isDaemonRunning()) {
+  if (!filterCompanyId && isDaemonRunning()) {
     return { pid: readPid(), companyId: null };
   }
   return null;
 }
-async function statusJson() {
-  const daemon = findRunningDaemon();
+async function statusJson(args2) {
+  const requestedCompanyId = parseCompanyFlag2(args2);
+  const daemon = findRunningDaemon(requestedCompanyId);
   if (!daemon) {
     writeJson({ "running": false });
     process.exitCode = 0;
@@ -15342,8 +15353,9 @@ async function statusJson() {
   writeJson(output);
   process.exitCode = 0;
 }
-async function statusHuman() {
-  const daemon = findRunningDaemon();
+async function statusHuman(args2) {
+  const requestedCompanyId = parseCompanyFlag2(args2);
+  const daemon = findRunningDaemon(requestedCompanyId);
   if (!daemon) {
     console.log("Agent is not running.");
     return;
@@ -15416,10 +15428,10 @@ async function statusHuman() {
 }
 async function status(args2 = process.argv.slice(3)) {
   if (hasJsonFlag(args2)) {
-    await statusJson();
+    await statusJson(args2);
     return;
   }
-  await statusHuman();
+  await statusHuman(args2);
 }
 
 // dist/commands/personality.js
@@ -16118,7 +16130,7 @@ async function stagingFix() {
 }
 
 // dist/commands/snapshot.js
-function parseCompanyFlag2(args2) {
+function parseCompanyFlag3(args2) {
   const idx = args2.indexOf("--company");
   if (idx === -1)
     return void 0;
@@ -16128,7 +16140,7 @@ function parseCompanyFlag2(args2) {
   return value;
 }
 async function snapshot(args2) {
-  const companyId = parseCompanyFlag2(args2);
+  const companyId = parseCompanyFlag3(args2);
   if (!companyId) {
     process.stderr.write("Usage: zazig snapshot --company <company-id>\n");
     process.exit(1);
@@ -16169,7 +16181,7 @@ async function snapshot(args2) {
 }
 
 // dist/commands/ideas.js
-function parseCompanyFlag3(args2) {
+function parseCompanyFlag4(args2) {
   const idx = args2.indexOf("--company");
   if (idx === -1)
     return void 0;
@@ -16206,7 +16218,7 @@ function parseStringFlag(args2, name) {
   return value;
 }
 async function ideas(args2) {
-  const companyId = parseCompanyFlag3(args2);
+  const companyId = parseCompanyFlag4(args2);
   if (!companyId) {
     process.stderr.write("Usage: zazig ideas --company <company-id>\n");
     process.exit(1);
@@ -16269,7 +16281,7 @@ async function ideas(args2) {
 }
 
 // dist/commands/features.js
-function parseCompanyFlag4(args2) {
+function parseCompanyFlag5(args2) {
   const idx = args2.indexOf("--company");
   if (idx === -1)
     return { rest: args2 };
@@ -16321,7 +16333,7 @@ function parseProjectIdArg(args2) {
   return void 0;
 }
 async function features(args2) {
-  const { companyId: company_id, rest } = parseCompanyFlag4(args2);
+  const { companyId: company_id, rest } = parseCompanyFlag5(args2);
   if (!company_id) {
     process.stderr.write("Usage: zazig features --company <company-id>\n");
     process.exit(1);
@@ -16393,7 +16405,7 @@ async function features(args2) {
 }
 
 // dist/commands/search.js
-function parseCompanyFlag5(args2) {
+function parseCompanyFlag6(args2) {
   const idx = args2.indexOf("--company");
   if (idx === -1)
     return { rest: args2 };
@@ -16445,7 +16457,7 @@ function parsePositionalQuery(args2) {
   return void 0;
 }
 async function search(args2) {
-  const { companyId: company_id, rest } = parseCompanyFlag5(args2);
+  const { companyId: company_id, rest } = parseCompanyFlag6(args2);
   if (!company_id) {
     process.stderr.write("Usage: zazig search <query> --company <company-id> [--type idea|feature|job] [--status <status>] [--limit N] [--offset N]\n");
     process.exit(1);
@@ -16921,7 +16933,7 @@ async function featureErrors(args2) {
 }
 
 // dist/commands/projects.js
-function parseCompanyFlag6(args2) {
+function parseCompanyFlag7(args2) {
   const idx = args2.indexOf("--company");
   if (idx === -1)
     return void 0;
@@ -16946,7 +16958,7 @@ function parseNumericFlag5(args2, name) {
   return Number.isFinite(parsed) ? parsed : void 0;
 }
 async function projects(args2) {
-  const company_id = parseCompanyFlag6(args2);
+  const company_id = parseCompanyFlag7(args2);
   if (!company_id) {
     process.stderr.write("Usage: zazig projects --company <company-id>\n");
     process.exit(1);
@@ -17001,7 +17013,7 @@ async function projects(args2) {
 
 // dist/commands/standup.js
 var TWO_HOURS_MS = 2 * 60 * 60 * 1e3;
-function parseCompanyFlag7(args2) {
+function parseCompanyFlag8(args2) {
   const idx = args2.indexOf("--company");
   if (idx === -1)
     return void 0;
@@ -17212,7 +17224,7 @@ function formatTextOutput(report) {
 `;
 }
 async function standup(args2) {
-  const companyId = parseCompanyFlag7(args2) ?? (() => {
+  const companyId = parseCompanyFlag8(args2) ?? (() => {
     try {
       return loadConfig().company_id;
     } catch {
@@ -18655,7 +18667,7 @@ async function verifyStaging(args2) {
 
 // dist/lib/automation-config.js
 var VALID_TYPES = ["idea", "brief", "bug", "test"];
-function parseCompanyFlag8(args2) {
+function parseCompanyFlag9(args2) {
   const idx = args2.indexOf("--company");
   if (idx === -1)
     return void 0;
@@ -18684,7 +18696,7 @@ function validateTypes(types) {
 }
 async function automationConfig(opts) {
   const { args: args2, columnName, label } = opts;
-  const companyId = parseCompanyFlag8(args2);
+  const companyId = parseCompanyFlag9(args2);
   if (!companyId) {
     console.error(`Usage: zazig ${label} --company <company-id> [--status] [--enable type,...] [--disable type,...]`);
     process.exit(1);

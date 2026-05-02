@@ -9,7 +9,7 @@
  * when the production branch is pushed.
  */
 
-import { execSync } from "node:child_process";
+import { execSync, spawn as spawnChild } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -557,23 +557,41 @@ async function runPromote(
         `--target "${commitSha}"`,
       { stdio: "inherit", timeout: 30_000 },
     );
-    console.log(`GitHub Release ${tag} created. Uploading binaries...`);
+    console.log(`GitHub Release ${tag} created. Uploading 3 binaries in parallel...`);
     const binaries = [
       join(compileOutDir, "zazig-cli-darwin-arm64"),
       join(compileOutDir, "zazig-agent-darwin-arm64"),
       join(compileOutDir, "agent-mcp-server-darwin-arm64"),
     ];
-    for (const bin of binaries) {
-      try {
-        execSync(
-          `gh release upload "${tag}" "${bin}" --repo zazig-team/zazigv2`,
-          { stdio: "inherit", timeout: 120_000 },
-        );
-      } catch (uploadErr) {
-        console.warn(`Warning: failed to upload ${bin.split("/").pop()}: ${String(uploadErr)}`);
-      }
+
+    const uploadResults = await Promise.allSettled(
+      binaries.map((bin) => {
+        const name = bin.split("/").pop()!;
+        return new Promise<string>((resolve, reject) => {
+          const child = spawnChild(
+            "gh",
+            ["release", "upload", tag, bin, "--repo", "zazig-team/zazigv2"],
+            { stdio: "inherit" },
+          );
+          child.on("error", (err) => reject(new Error(`${name}: ${err.message}`)));
+          child.on("close", (code) => {
+            if (code === 0) {
+              console.log(`  ✓ ${name} uploaded`);
+              resolve(name);
+            } else {
+              reject(new Error(`${name}: gh exited with code ${code}`));
+            }
+          });
+        });
+      }),
+    );
+
+    const succeeded = uploadResults.filter((r) => r.status === "fulfilled").length;
+    const failed = uploadResults.filter((r) => r.status === "rejected");
+    for (const f of failed) {
+      console.warn(`  Warning: ${(f as PromiseRejectedResult).reason}`);
     }
-    console.log(`GitHub Release ${tag} created with 3 binary assets.`);
+    console.log(`GitHub Release ${tag}: ${succeeded}/${binaries.length} binaries uploaded.`);
   } catch (err) {
     console.error(`GitHub Release creation failed: ${String(err)}`);
     console.error("Binaries were not uploaded. You can retry with: gh release create ...");

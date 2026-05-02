@@ -130,11 +130,15 @@ async function pollOnce(): Promise<void> {
         .catch(() => [] as string[]),
     ]);
 
-    if (status === null) {
-      return;
-    }
-
-    if (!isRecord(status)) {
+    if (status === null || !isRecord(status)) {
+      // Company has no data (e.g. no daemon running) — broadcast empty status
+      // so the UI clears stale data from the previous company.
+      const emptyPayload: PipelinePayload = { status: {} };
+      const emptySnapshot = JSON.stringify(emptyPayload);
+      if (emptySnapshot !== previousSnapshot) {
+        previousSnapshot = emptySnapshot;
+        broadcastPipelineUpdate(emptyPayload);
+      }
       return;
     }
 
@@ -163,6 +167,10 @@ async function pollOnce(): Promise<void> {
     console.error('[desktop] Pipeline poll failed', error);
   } finally {
     pollInFlight = false;
+    if (pollPending) {
+      pollPending = false;
+      void pollOnce();
+    }
   }
 }
 
@@ -184,7 +192,13 @@ export function stopPipelinePoller(): void {
   resetExpertSessionTracking();
 }
 
+let pollPending = false;
+
 export function resetPollerSnapshot(): void {
   previousSnapshot = null;
-  void pollOnce();
+  if (pollInFlight) {
+    pollPending = true;
+  } else {
+    void pollOnce();
+  }
 }

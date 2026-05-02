@@ -83,6 +83,15 @@ function hasJsonFlag(args: string[]): boolean {
   return args.includes("--json");
 }
 
+function parseCompanyFlag(args: string[]): string | null {
+  const idx = args.indexOf("--company");
+  if (idx >= 0 && idx + 1 < args.length) {
+    return args[idx + 1]!;
+  }
+  const eq = args.find((a) => a.startsWith("--company="));
+  return eq ? eq.slice("--company=".length) || null : null;
+}
+
 function writeJson(payload: JsonStatusOutput): void {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
@@ -110,10 +119,10 @@ function toExpertTmuxSessionName(sessionId: unknown): string {
 }
 
 /**
- * Find any running daemon — checks per-company PID files first,
- * falls back to legacy daemon.pid.
+ * Find a running daemon. When filterCompanyId is provided, only return
+ * the daemon for that specific company. Otherwise return the first one found.
  */
-function findRunningDaemon(): { pid: number; companyId: string | null } | null {
+function findRunningDaemon(filterCompanyId?: string | null): { pid: number; companyId: string | null } | null {
   const zazigDir = join(homedir(), ".zazigv2");
   // Check per-company PID files (UUID.pid)
   try {
@@ -122,21 +131,23 @@ function findRunningDaemon(): { pid: number; companyId: string | null } | null {
       const match = entry.match(uuidPattern);
       if (match) {
         const companyId = match[1]!;
+        if (filterCompanyId && companyId !== filterCompanyId) continue;
         if (isDaemonRunningForCompany(companyId)) {
           return { pid: readPidForCompany(companyId)!, companyId };
         }
       }
     }
   } catch { /* dir may not exist */ }
-  // Fallback to legacy daemon.pid
-  if (isDaemonRunning()) {
+  // Fallback to legacy daemon.pid (only when not filtering)
+  if (!filterCompanyId && isDaemonRunning()) {
     return { pid: readPid()!, companyId: null };
   }
   return null;
 }
 
-async function statusJson(): Promise<void> {
-  const daemon = findRunningDaemon();
+async function statusJson(args: string[]): Promise<void> {
+  const requestedCompanyId = parseCompanyFlag(args);
+  const daemon = findRunningDaemon(requestedCompanyId);
 
   if (!daemon) {
     writeJson({ "running": false });
@@ -352,8 +363,9 @@ async function statusJson(): Promise<void> {
   process.exitCode = 0;
 }
 
-async function statusHuman(): Promise<void> {
-  const daemon = findRunningDaemon();
+async function statusHuman(args: string[]): Promise<void> {
+  const requestedCompanyId = parseCompanyFlag(args);
+  const daemon = findRunningDaemon(requestedCompanyId);
 
   if (!daemon) {
     console.log("Agent is not running.");
@@ -475,9 +487,9 @@ async function statusHuman(): Promise<void> {
 
 export async function status(args: string[] = process.argv.slice(3)): Promise<void> {
   if (hasJsonFlag(args)) {
-    await statusJson();
+    await statusJson(args);
     return;
   }
 
-  await statusHuman();
+  await statusHuman(args);
 }

@@ -43,6 +43,7 @@ type JsonFeatureSummary = {
 type JsonStatusAgent = {
   "role": string;
   "status": string;
+  "session_name": string;
 };
 
 type JsonExpertSession = {
@@ -327,17 +328,25 @@ async function statusJson(args: string[]): Promise<void> {
         .filter((id) => id.length > 0);
 
       if (companyIds.length > 0 && machineId) {
+        const isStaging = process.env["ZAZIG_ENV"] === "staging";
+        const stagingSegment = isStaging ? "staging-" : "";
         const persistentAgents = await apiFetch(
           `${creds.supabaseUrl}/rest/v1/persistent_agents` +
-            `?select=id,role,status,machine_id,last_heartbeat` +
+            `?select=id,role,status,machine_id,last_heartbeat,company_id` +
             `&company_id=in.(${companyIds.join(",")})` +
             `&machine_id=eq.${encodeURIComponent(machineId)}`,
           headers
         );
-        output.persistent_agents = persistentAgents.map((agent) => ({
-          "role": String(agent.role ?? "unknown"),
-          "status": String(agent.status ?? "unknown"),
-        }));
+        output.persistent_agents = persistentAgents.map((agent) => {
+          const role = String(agent.role ?? "unknown");
+          const agentCompanyId = String(agent.company_id ?? "");
+          const companyPrefix = agentCompanyId ? agentCompanyId.slice(0, 8) + "-" : "";
+          return {
+            "role": role,
+            "status": String(agent.status ?? "unknown"),
+            "session_name": `${cfg.name}-${companyPrefix}${stagingSegment}${role}`,
+          };
+        });
 
         const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
         const expertSessions = await apiFetch(

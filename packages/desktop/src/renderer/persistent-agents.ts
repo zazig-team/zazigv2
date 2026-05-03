@@ -66,8 +66,12 @@ export function derivePersistentAgents(
         getString(agent.role_name) ||
         getString(agent.roleName) ||
         `agent-${index + 1}`;
+      // Prefer exact session_name from status (company-scoped), fall back to suffix match
+      const exactSessionName = getString(agent.session_name) || getString(agent.sessionName);
       const roleSuffix = `-${role.toLowerCase()}`;
-      const sessionName = tmuxSessionNames.find((name) => name.endsWith(roleSuffix)) ?? null;
+      const sessionName = exactSessionName
+        ? (tmuxSessionNames.includes(exactSessionName) ? exactSessionName : null)
+        : (tmuxSessionNames.find((name) => name.endsWith(roleSuffix)) ?? null);
       const isRunning = sessionName !== null;
 
       return {

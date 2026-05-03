@@ -15600,7 +15600,7 @@ async function switchArchetype(supabaseUrl, companyId, headers, roleName, roleId
 }
 
 // dist/commands/promote.js
-import { execSync as execSync6 } from "node:child_process";
+import { execSync as execSync6, spawn as spawnChild } from "node:child_process";
 import { existsSync as existsSync10, readFileSync as readFileSync9, rmSync as rmSync4, writeFileSync as writeFileSync7 } from "node:fs";
 import { join as join13 } from "node:path";
 import { homedir as homedir12 } from "node:os";
@@ -16015,20 +16015,33 @@ async function runPromote(repoRoot, defaultBranch, creds, anonKey, supabase) {
   const tag = `v${newVersion}`;
   try {
     execSync6(`gh release create "${tag}" --repo zazig-team/zazigv2 --title "v${newVersion}" --notes "Production release ${newVersion} (${commitSha.slice(0, 7)})" --target "${commitSha}"`, { stdio: "inherit", timeout: 3e4 });
-    console.log(`GitHub Release ${tag} created. Uploading binaries...`);
+    console.log(`GitHub Release ${tag} created. Uploading 3 binaries in parallel...`);
     const binaries = [
       join13(compileOutDir, "zazig-cli-darwin-arm64"),
       join13(compileOutDir, "zazig-agent-darwin-arm64"),
       join13(compileOutDir, "agent-mcp-server-darwin-arm64")
     ];
-    for (const bin of binaries) {
-      try {
-        execSync6(`gh release upload "${tag}" "${bin}" --repo zazig-team/zazigv2`, { stdio: "inherit", timeout: 12e4 });
-      } catch (uploadErr) {
-        console.warn(`Warning: failed to upload ${bin.split("/").pop()}: ${String(uploadErr)}`);
-      }
+    const uploadResults = await Promise.allSettled(binaries.map((bin) => {
+      const name = bin.split("/").pop();
+      return new Promise((resolve5, reject) => {
+        const child = spawnChild("gh", ["release", "upload", tag, bin, "--repo", "zazig-team/zazigv2"], { stdio: "inherit" });
+        child.on("error", (err) => reject(new Error(`${name}: ${err.message}`)));
+        child.on("close", (code) => {
+          if (code === 0) {
+            console.log(`  \u2713 ${name} uploaded`);
+            resolve5(name);
+          } else {
+            reject(new Error(`${name}: gh exited with code ${code}`));
+          }
+        });
+      });
+    }));
+    const succeeded = uploadResults.filter((r) => r.status === "fulfilled").length;
+    const failed = uploadResults.filter((r) => r.status === "rejected");
+    for (const f of failed) {
+      console.warn(`  Warning: ${f.reason}`);
     }
-    console.log(`GitHub Release ${tag} created with 3 binary assets.`);
+    console.log(`GitHub Release ${tag}: ${succeeded}/${binaries.length} binaries uploaded.`);
   } catch (err) {
     console.error(`GitHub Release creation failed: ${String(err)}`);
     console.error("Binaries were not uploaded. You can retry with: gh release create ...");

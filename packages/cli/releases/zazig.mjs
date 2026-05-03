@@ -15336,11 +15336,19 @@ async function statusJson(args2) {
       }
       const companyIds = machines.map((row) => String(row.company_id ?? "")).filter((id) => id.length > 0);
       if (companyIds.length > 0 && machineId) {
-        const persistentAgents = await apiFetch(`${creds.supabaseUrl}/rest/v1/persistent_agents?select=id,role,status,machine_id,last_heartbeat&company_id=in.(${companyIds.join(",")})&machine_id=eq.${encodeURIComponent(machineId)}`, headers);
-        output.persistent_agents = persistentAgents.map((agent) => ({
-          "role": String(agent.role ?? "unknown"),
-          "status": String(agent.status ?? "unknown")
-        }));
+        const isStaging = process.env["ZAZIG_ENV"] === "staging";
+        const stagingSegment = isStaging ? "staging-" : "";
+        const persistentAgents = await apiFetch(`${creds.supabaseUrl}/rest/v1/persistent_agents?select=id,role,status,machine_id,last_heartbeat,company_id&company_id=in.(${companyIds.join(",")})&machine_id=eq.${encodeURIComponent(machineId)}`, headers);
+        output.persistent_agents = persistentAgents.map((agent) => {
+          const role = String(agent.role ?? "unknown");
+          const agentCompanyId = String(agent.company_id ?? "");
+          const companyPrefix = agentCompanyId ? agentCompanyId.slice(0, 8) + "-" : "";
+          return {
+            "role": role,
+            "status": String(agent.status ?? "unknown"),
+            "session_name": `${cfg.name}-${companyPrefix}${stagingSegment}${role}`
+          };
+        });
         const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1e3).toISOString();
         const expertSessions = await apiFetch(`${creds.supabaseUrl}/rest/v1/expert_sessions?select=id,status,created_at,expert_roles(name)&company_id=in.(${companyIds.join(",")})&machine_id=eq.${encodeURIComponent(machineId)}&status=in.("requested","claimed","starting","run")&created_at=gt.${twoDaysAgo}`, headers);
         output.expert_sessions = expertSessions.map((session) => ({

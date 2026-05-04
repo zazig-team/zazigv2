@@ -4126,14 +4126,15 @@ function buildCommand(
     model && model !== "codex"
       ? model
       : slotType === "codex"
-        ? "gpt-5.3-codex"
+        ? undefined // Use Codex CLI default from ~/.codex/config.toml
         : complexity === "complex"
           ? "claude-opus-4-6"
           : "claude-sonnet-4-6";
 
   if (slotType === "codex") {
     // Native Codex execution — prompt is piped via stdin (same as Claude).
-    const args = ["exec", "-m", resolvedModel, "--full-auto", "-c", "sandbox_workspace_write.network_access=true", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
+    // Model is omitted to use the default from ~/.codex/config.toml (stays current without code changes).
+    const args = ["exec", ...(resolvedModel ? ["-m", resolvedModel] : []), "--full-auto", "-c", "sandbox_workspace_write.network_access=true", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
     // Worktrees store their git index inside the parent clone dir.
     // The sandbox must be able to write there for git add/commit to work.
     if (repoDir) {

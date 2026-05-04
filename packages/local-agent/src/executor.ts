@@ -4166,7 +4166,7 @@ function buildCommand(
   // argument length limits when context is large.
   return {
     cmd: "claude",
-    args: ["--model", resolvedModel, "-p", "--verbose", "--output-format", "stream-json"],
+    args: ["--model", resolvedModel!, "-p", "--verbose", "--output-format", "stream-json"],
   };
 }
 

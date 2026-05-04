@@ -574,6 +574,11 @@ export function setupJobWorkspace(config: WorkspaceConfig): void {
   const reportsDir = join(config.workspaceDir, ".reports");
   mkdirSync(reportsDir, { recursive: true });
 
+  // 1c. Write .company-id so CLI commands can resolve the company
+  if (config.companyId) {
+    writeFileSync(join(config.workspaceDir, ".company-id"), config.companyId);
+  }
+
   // 2. Write .mcp.json
   const mcpConfig = generateMcpConfig(config.mcpServerPath, {
     supabaseUrl: config.supabaseUrl,

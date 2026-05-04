@@ -4053,6 +4053,13 @@ function assembleContext(msg: StartJob, repoRoot?: string): string {
   assembled = assembled.replace(`\n\n---\n\n${SKILLS_MARKER}\n\n---\n\n`, "\n\n---\n\n");
   assembled = assembled.replace(SKILLS_MARKER, "");
 
+  // Inject ZAZIG_COMPANY_ID into the context so agents can use it in CLI commands.
+  // Claude Code's Bash tool doesn't inherit the daemon's process env.
+  const companyId = process.env["ZAZIG_COMPANY_ID"];
+  if (companyId && !assembled.includes("ZAZIG_COMPANY_ID=")) {
+    assembled = `ZAZIG_COMPANY_ID=${companyId}\n\n${assembled}`;
+  }
+
   // On staging, replace backtick-wrapped `zazig ` with `zazig-staging `
   if (process.env["ZAZIG_ENV"] === "staging") {
     assembled = assembled.replace(/`zazig /g, "`zazig-staging ");

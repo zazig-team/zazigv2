@@ -1,4 +1,4 @@
-const AGENT_BUILD_HASH = "9a0007af";
+const AGENT_BUILD_HASH = "c912834e";
 import { createRequire } from "module"; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -13286,6 +13286,9 @@ function setupJobWorkspace(config) {
   mkdirSync(claudeDir, { recursive: true });
   const reportsDir = join2(config.workspaceDir, ".reports");
   mkdirSync(reportsDir, { recursive: true });
+  if (config.companyId) {
+    writeFileSync(join2(config.workspaceDir, ".company-id"), config.companyId);
+  }
   const mcpConfig = generateMcpConfig(config.mcpServerPath, {
     supabaseUrl: config.supabaseUrl,
     supabaseAnonKey: config.supabaseAnonKey,
@@ -16889,6 +16892,12 @@ ${SKILLS_MARKER}
 
 `, "\n\n---\n\n");
   assembled = assembled.replace(SKILLS_MARKER, "");
+  const companyId = process.env["ZAZIG_COMPANY_ID"];
+  if (companyId && !assembled.includes("ZAZIG_COMPANY_ID=")) {
+    assembled = `ZAZIG_COMPANY_ID=${companyId}
+
+${assembled}`;
+  }
   if (process.env["ZAZIG_ENV"] === "staging") {
     assembled = assembled.replace(/`zazig /g, "`zazig-staging ");
     assembled = assembled.replace(/^zazig /gm, "zazig-staging ");
@@ -16939,9 +16948,9 @@ function buildFixPrompt(job) {
   return fixPromptPath;
 }
 function buildCommand(slotType, complexity, model, worktreePath, promptFilePath, repoDir) {
-  const resolvedModel = model && model !== "codex" ? model : slotType === "codex" ? "gpt-5.3-codex" : complexity === "complex" ? "claude-opus-4-6" : "claude-sonnet-4-6";
+  const resolvedModel = model && model !== "codex" ? model : slotType === "codex" ? void 0 : complexity === "complex" ? "claude-opus-4-6" : "claude-sonnet-4-6";
   if (slotType === "codex") {
-    const args = ["exec", "-m", resolvedModel, "--full-auto", "-c", "sandbox_workspace_write.network_access=true", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
+    const args = ["exec", ...resolvedModel ? ["-m", resolvedModel] : [], "--full-auto", "-c", "sandbox_workspace_write.network_access=true", "-C", worktreePath ?? process.cwd(), "--skip-git-repo-check"];
     if (repoDir) {
       console.log(`[buildCommand] codex: adding --add-dir repoDir=${repoDir} for worktreePath=${worktreePath}`);
       args.push("--add-dir", repoDir);

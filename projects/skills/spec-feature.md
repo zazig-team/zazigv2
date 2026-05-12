@@ -97,6 +97,14 @@ components, or other features.}
 Only include if relevant — don't pad with boilerplate.}
 ```
 
+### File Path Verification (Mandatory)
+
+Before finalizing the spec, verify every referenced file path against the current repository tree using Glob/find (`rg --files`, `find`, or equivalent). Do not rely on memory or prior repo layouts.
+
+- Confirm each path in requirements/dependencies exists now
+- WebUI component paths must use `packages/webui/src/` — not `dashboard/`
+- Specs with unverified paths will be rejected by the Breakdown Specialist and breakdown will halt
+
 **Quality check before proceeding:**
 - Every requirement is specific enough to write a test for
 - No vague language: "handles errors gracefully" → rejected, say what happens on each error
